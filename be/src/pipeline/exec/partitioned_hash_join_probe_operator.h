@@ -168,6 +168,12 @@ public:
         return _inner_probe_operator->is_colocated_operator();
     }
 
+    void update_operator(const TPlanNode& tnode, bool followed_by_shuffled_operator,
+                         bool require_bucket_distribution) override {
+        _inner_probe_operator->update_operator(tnode, followed_by_shuffled_operator,
+                                               require_bucket_distribution);
+    }
+
 private:
     Status _revoke_memory(RuntimeState* state);
 

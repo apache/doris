@@ -81,6 +81,11 @@ public:
     DataDistribution required_data_distribution(RuntimeState* state) const override {
         return _sort_sink_operator->required_data_distribution(state);
     }
+    void update_operator(const TPlanNode& tnode, bool followed_by_shuffled_operator,
+                         bool require_bucket_distribution) override {
+        _sort_sink_operator->update_operator(tnode, followed_by_shuffled_operator,
+                                             require_bucket_distribution);
+    }
     bool is_colocated_operator() const override {
         return _sort_sink_operator->is_colocated_operator();
     }

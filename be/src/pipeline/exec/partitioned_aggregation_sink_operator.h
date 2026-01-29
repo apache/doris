@@ -117,6 +117,12 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
+    void update_operator(const TPlanNode& tnode, bool followed_by_shuffled_operator,
+                         bool require_bucket_distribution) override {
+        _agg_sink_operator->update_operator(tnode, followed_by_shuffled_operator,
+                                            require_bucket_distribution);
+    }
+
     DataDistribution required_data_distribution(RuntimeState* state) const override {
         return _agg_sink_operator->required_data_distribution(state);
     }

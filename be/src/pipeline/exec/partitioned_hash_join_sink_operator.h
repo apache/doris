@@ -145,10 +145,16 @@ public:
     }
 
     bool is_colocated_operator() const override {
-        return _inner_probe_operator->is_colocated_operator();
+        return _inner_sink_operator->is_colocated_operator();
     }
     bool is_shuffled_operator() const override {
-        return _inner_probe_operator->is_shuffled_operator();
+        return _inner_sink_operator->is_shuffled_operator();
+    }
+
+    void update_operator(const TPlanNode& tnode, bool followed_by_shuffled_operator,
+                         bool require_bucket_distribution) override {
+        _inner_sink_operator->update_operator(tnode, followed_by_shuffled_operator,
+                                              require_bucket_distribution);
     }
 
 private:
