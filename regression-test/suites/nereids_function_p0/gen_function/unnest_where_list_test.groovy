@@ -54,13 +54,13 @@ suite("unnest_where_list_test", "unnest") {
     test {
         // Test a correlated EXISTS subquery with UNNEST in the WHERE clause, which is expected to fail.
         sql """SELECT user_name FROM ${tb_name1} u WHERE EXISTS (SELECT 1 FROM UNNEST(u.tags) AS t(tag) WHERE t.tag = 'tech');"""
-        exception "Input slot(s) not in child's output"
+        exception "unnest can't access outer query table's column"
     }
 
     test {
         // Test a correlated IN subquery with UNNEST in the WHERE clause, which is expected to fail.
         sql """SELECT user_name FROM ${tb_name1} u WHERE 'math' IN (SELECT tag FROM UNNEST(u.tags) AS t(tag));"""
-        exception "detailMessage"
+        exception "unnest can't access outer query table's column"
     }
 
     // subquery filter
