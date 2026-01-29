@@ -32,6 +32,7 @@ import java.nio.file.WatchEvent;
 import java.nio.file.WatchEvent.Kind;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
+import java.util.function.Consumer;
 
 /*
  * used for watch config changed
@@ -40,6 +41,10 @@ public class ConfigWatcher extends Daemon {
     private static final Logger LOG = LogManager.getLogger(ConfigWatcher.class);
 
     public final Path configPath;
+
+    private Consumer<Path> onCreateConsumer = null;
+    private Consumer<Path> onModifyConsumer = null;
+    private Consumer<Path> onDeleteConsumer = null;
 
     public ConfigWatcher(String configPathStr) {
         super("config watcher");
@@ -95,16 +100,58 @@ public class ConfigWatcher extends Daemon {
         }
     }
 
+    public void setOnCreateConsumer(Consumer<Path> consumer) {
+        this.onCreateConsumer = consumer;
+    }
+
+    public void setOnModifyConsumer(Consumer<Path> consumer) {
+        this.onModifyConsumer = consumer;
+    }
+
+    public void setOnDeleteConsumer(Consumer<Path> consumer) {
+        this.onDeleteConsumer = consumer;
+    }
+
     private void handleCreate(Path filePath) {
-        // TODO(cmy): implement if needed
+        if (onCreateConsumer != null) {
+            try {
+                onCreateConsumer.accept(filePath);
+            } catch (Exception e) {
+                LOG.error("Error in onCreateConsumer for file created in directory: " + filePath, e);
+            }
+        } else {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("File created in directory but no onCreateConsumer set: " + filePath);
+            }
+        }
     }
 
     private void handleDelete(Path filePath) {
-        // TODO(cmy): implement if needed
+        if (onDeleteConsumer != null) {
+            try {
+                onDeleteConsumer.accept(filePath);
+            } catch (Exception e) {
+                LOG.error("Error in onDeleteConsumer for file deleted from directory: " + filePath, e);
+            }
+        } else {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("File deleted from directory but no onDeleteConsumer set: " + filePath);
+            }
+        }
     }
 
     private void handleModify(Path filePath) {
-        // TODO(cmy): implement if needed
+        if (onModifyConsumer != null) {
+            try {
+                onModifyConsumer.accept(filePath);
+            } catch (Exception e) {
+                LOG.error("Error in onModifyConsumer for file modified in directory: " + filePath, e);
+            }
+        } else {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("File modified in directory but no onModifyConsumer set: " + filePath);
+            }
+        }
     }
 
     // for test

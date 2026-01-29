@@ -52,6 +52,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -68,9 +69,12 @@ public abstract class FileScanNode extends ExternalScanNode {
     // For display pushdown agg result
     protected long tableLevelRowCount = -1;
 
+    protected List<String> fileCacheAdmissionLogs;
+
     public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, boolean needCheckColumnPriv) {
         super(id, desc, planNodeName, needCheckColumnPriv);
         this.needCheckColumnPriv = needCheckColumnPriv;
+        this.fileCacheAdmissionLogs = new ArrayList<>();
     }
 
     @Override
@@ -191,6 +195,11 @@ public abstract class FileScanNode extends ExternalScanNode {
                             .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
             output.append(prefix).append("TOPN OPT:").append(topnFilterSources).append("\n");
         }
+
+        for (String admissionLog : fileCacheAdmissionLogs) {
+            output.append(prefix).append(admissionLog).append("\n");
+        }
+
         return output.toString();
     }
 
@@ -260,5 +269,12 @@ public abstract class FileScanNode extends ExternalScanNode {
                 }
             }
         }
+    }
+
+    protected void addFileCacheAdmissionLog(String userIdentity, Boolean admitted, String reason, double durationMs) {
+        String admissionStatus = admitted ? "ADMITTED" : "DENIED";
+        String admissionLog = String.format("file cache request %s: user_identity:%s, reason:%s, cost:%.6f ms",
+                admissionStatus, userIdentity, reason, durationMs);
+        fileCacheAdmissionLogs.add(admissionLog);
     }
 }
