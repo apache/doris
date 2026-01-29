@@ -21,10 +21,10 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
-#include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exprs/function_context.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/functions/function.h"
 

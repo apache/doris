@@ -23,7 +23,6 @@
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
-#include "udf/udf.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_const.h"
@@ -32,6 +31,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_variant.h"
+#include "vec/exprs/function_context.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/functions/function.h"
 

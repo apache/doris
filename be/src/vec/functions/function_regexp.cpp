@@ -30,7 +30,6 @@
 
 #include "common/status.h"
 #include "exprs/string_functions.h"
-#include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -46,6 +45,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/stringop_substring.h"

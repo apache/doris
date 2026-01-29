@@ -35,7 +35,6 @@
 #include "testutil/any_type.h"
 #include "testutil/function_utils.h"
 #include "testutil/test_util.h"
-#include "udf/udf.h"
 #include "util/bitmap_value.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -60,6 +59,7 @@
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time.h"
 #include "vec/data_types/data_type_varbinary.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {

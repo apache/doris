@@ -26,8 +26,8 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "udf/udf.h"
 #include "util/runtime_profile.h"
+#include "vec/exprs/function_context.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {

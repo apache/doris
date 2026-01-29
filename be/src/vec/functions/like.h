@@ -33,7 +33,6 @@
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/string_search.hpp"
-#include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/predicate_column.h"
@@ -41,6 +40,7 @@
 #include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {

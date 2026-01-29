@@ -34,6 +34,7 @@
 
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
 #include "vec/common/string_ref.h"

@@ -19,10 +19,10 @@
 
 #include <glog/logging.h>
 
-#include "udf/udf.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/exprs/function_context.h"
 
 namespace doris::vectorized {
 

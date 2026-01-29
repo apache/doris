@@ -27,7 +27,6 @@
 #include <utility>
 
 #include "common/status.h"
-#include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
@@ -36,6 +35,7 @@
 #include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 
