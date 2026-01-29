@@ -369,11 +369,9 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
      * Determine if optimization is possible; if so, return the index of the largest group.
      * The optimization requires:
      * 1. The aggregate's child must be a LogicalRepeat
-     * 2. All aggregate functions must be Sum, Min, or Max (non-distinct)
-     * 3. No GroupingScalarFunction in repeat output
-     * 4. More than 3 grouping sets
-     * 5. There exists a grouping set that contains all other grouping sets
-     *
+     * 2. All aggregate functions must be in SUPPORT_AGG_FUNCTIONS.
+     * 3. More than 3 grouping sets
+     * 4. There exists a grouping set that contains all other grouping sets
      * @param aggregate the aggregate plan to check
      * @return value -1 means can not be optimized, values other than -1
      *      represent the index of the set that contains all other sets
@@ -401,7 +399,11 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         if (groupingSets.size() <= 3) {
             return -1;
         }
-        return findMaxGroupingSetIndex(groupingSets);
+        int maxGroupIndex = findMaxGroupingSetIndex(groupingSets);
+        if (maxGroupIndex < 0) {
+            return -1;
+        }
+        return maxGroupIndex;
     }
 
     /**
