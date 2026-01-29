@@ -66,6 +66,13 @@ bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState* local_st
             local_state->_shared_state->sub_mem_usage(channel_id, block->_allocated_bytes);
             data_block->swap(block->_data_block);
         }
+
+        std::unique_lock l(*_m[channel_id]);
+        // data_queue locked so that the size_approx is consistent with the actual queue size
+        if (_data_queue[channel_id].data_queue.size_approx() == 0) {
+            local_state->_dependency->block();
+        }
+
         return true;
     } else if (all_finished) {
         *eos = true;
