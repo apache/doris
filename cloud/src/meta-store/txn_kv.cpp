@@ -266,6 +266,53 @@ namespace doris::cloud::fdb {
 // https://apple.github.io/foundationdb/known-limitations.html#design-limitations
 constexpr size_t FDB_VALUE_BYTES_LIMIT = 100'000; // 100 KB
 
+// FDB internal structure sizes for approximate size calculation
+// See fdbclient/ReadYourWrites.actor.cpp for details
+constexpr size_t FDB_SIZEOF_KEYRANGEREF = 32; // sizeof(KeyRangeRef)
+constexpr size_t FDB_SIZEOF_MUTATIONREF = 56; // sizeof(MutationRef)
+
+// Helper functions for calculating approximate size according to FDB's implementation
+namespace {
+
+// Calculate approximate size for read operation on single key
+// Formula: 2*key + 1 + sizeof(KeyRangeRef)
+// See fdbclient/ReadYourWrites.actor.cpp:329
+inline constexpr size_t read_get_approximate_size(size_t key_size) {
+    return key_size * 2 + 1 + FDB_SIZEOF_KEYRANGEREF;
+}
+
+// Calculate approximate size for read operation on range
+// Formula: begin + end + sizeof(KeyRangeRef)
+// See fdbclient/ReadYourWrites.actor.cpp:245-280
+inline constexpr size_t read_get_range_approximate_size(size_t begin_size, size_t end_size) {
+    return begin_size + end_size + FDB_SIZEOF_KEYRANGEREF;
+}
+
+// Calculate approximate size for write operation (set/atomic_op)
+// Formula: key + val + sizeof(MutationRef) + sizeof(KeyRangeRef) + 2*key + 1
+// See fdbclient/ReadYourWrites.actor.cpp:2267-2269
+inline constexpr size_t write_set_approximate_size(size_t key_size, size_t val_size) {
+    size_t write_conflict = FDB_SIZEOF_KEYRANGEREF + key_size * 2 + 1;
+    return key_size + val_size + FDB_SIZEOF_MUTATIONREF + write_conflict;
+}
+
+// Calculate approximate size for clear operation on single key
+// Formula: 2*key + 2*sizeof(KeyRangeRef)
+// See fdbclient/ReadYourWrites.actor.cpp:2361-2362
+inline constexpr size_t write_clear_approximate_size(size_t key_size) {
+    return key_size * 2 + FDB_SIZEOF_KEYRANGEREF * 2;
+}
+
+// Calculate approximate size for clear_range operation
+// Formula: begin+end + sizeof(MutationRef) + sizeof(KeyRangeRef) + begin+end
+// See fdbclient/ReadYourWrites.actor.cpp:2304-2306
+inline constexpr size_t write_clear_range_approximate_size(size_t begin_size, size_t end_size) {
+    size_t write_conflict = FDB_SIZEOF_KEYRANGEREF + begin_size + end_size;
+    return begin_size + end_size + FDB_SIZEOF_MUTATIONREF + write_conflict;
+}
+
+} // anonymous namespace
+
 // Ref https://apple.github.io/foundationdb/api-error-codes.html#developer-guide-error-codes.
 constexpr fdb_error_t FDB_ERROR_CODE_TIMED_OUT = 1004;
 constexpr fdb_error_t FDB_ERROR_CODE_TXN_TOO_OLD = 1007;
@@ -488,7 +535,7 @@ void Transaction::put(std::string_view key, std::string_view val) {
 
     ++num_put_keys_;
     put_bytes_ += key.size() + val.size();
-    approximate_bytes_ += key.size() * 3 + val.size(); // See fdbclient/ReadYourWrites.actor.cpp
+    approximate_bytes_ += write_set_approximate_size(key.size(), val.size());
 
     if (val.size() > FDB_VALUE_BYTES_LIMIT) {
         LOG_WARNING("txn put with large value")
@@ -533,7 +580,9 @@ TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snaps
     may_logging_single_version_reading(key);
 
     StopWatch sw;
-    approximate_bytes_ += key.size() * 2; // See fdbclient/ReadYourWrites.actor.cpp for details
+    if (!snapshot) {
+        approximate_bytes_ += read_get_approximate_size(key.size());
+    }
     auto* fut = fdb_transaction_get(txn_, (uint8_t*)key.data(), key.size(), snapshot);
 
     g_bvar_txn_kv_get_count_normalized << 1;
@@ -577,7 +626,9 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
     may_logging_single_version_reading(begin);
 
     StopWatch sw;
-    approximate_bytes_ += begin.size() + end.size();
+    if (!opts.snapshot) {
+        approximate_bytes_ += read_get_range_approximate_size(begin.size(), end.size());
+    }
     DORIS_CLOUD_DEFER {
         g_bvar_txn_kv_range_get << sw.elapsed_us();
     };
@@ -637,7 +688,7 @@ void Transaction::atomic_set_ver_key(std::string_view key_prefix, std::string_vi
     g_bvar_txn_kv_atomic_set_ver_key << sw.elapsed_us();
     ++num_put_keys_;
     put_bytes_ += key.size() + val.size();
-    approximate_bytes_ += key.size() * 3 + val.size();
+    approximate_bytes_ += write_set_approximate_size(key.size(), val.size());
 
     if (val.size() > FDB_VALUE_BYTES_LIMIT) {
         LOG_WARNING("atomic_set_ver_key with large value")
@@ -666,7 +717,7 @@ bool Transaction::atomic_set_ver_key(std::string_view key, uint32_t offset, std:
     g_bvar_txn_kv_atomic_set_ver_key << sw.elapsed_us();
     ++num_put_keys_;
     put_bytes_ += key_buf.size() + val.size();
-    approximate_bytes_ += key_buf.size() * 3 + val.size();
+    approximate_bytes_ += write_set_approximate_size(key_buf.size(), val.size());
 
     if (val.size() > FDB_VALUE_BYTES_LIMIT) {
         LOG_WARNING("atomic_set_ver_key with large value")
@@ -694,7 +745,7 @@ void Transaction::atomic_set_ver_value(std::string_view key, std::string_view va
     g_bvar_txn_kv_atomic_set_ver_value << sw.elapsed_us();
     ++num_put_keys_;
     put_bytes_ += key.size() + val.size();
-    approximate_bytes_ += key.size() * 3 + val.size();
+    approximate_bytes_ += write_set_approximate_size(key.size(), val.size());
 
     if (val.size() > FDB_VALUE_BYTES_LIMIT) {
         LOG_WARNING("atomic_set_ver_value with large value")
@@ -714,7 +765,7 @@ void Transaction::atomic_add(std::string_view key, int64_t to_add) {
     g_bvar_txn_kv_atomic_add << sw.elapsed_us();
     ++num_put_keys_;
     put_bytes_ += key.size() + 8;
-    approximate_bytes_ += key.size() * 3 + 8;
+    approximate_bytes_ += write_set_approximate_size(key.size(), 8);
 }
 
 bool Transaction::decode_atomic_int(std::string_view data, int64_t* val) {
@@ -736,7 +787,7 @@ void Transaction::remove(std::string_view key) {
     g_bvar_txn_kv_remove << sw.elapsed_us();
     ++num_del_keys_;
     delete_bytes_ += key.size();
-    approximate_bytes_ += key.size() * 4; // See fdbclient/ReadYourWrites.actor.cpp for details.
+    approximate_bytes_ += write_clear_approximate_size(key.size());
 }
 
 void Transaction::remove(std::string_view begin, std::string_view end) {
@@ -746,8 +797,7 @@ void Transaction::remove(std::string_view begin, std::string_view end) {
     g_bvar_txn_kv_range_remove << sw.elapsed_us();
     num_del_keys_ += 2;
     delete_bytes_ += begin.size() + end.size();
-    approximate_bytes_ +=
-            (begin.size() + end.size()) * 2; // See fdbclient/ReadYourWrites.actor.cpp for details.
+    approximate_bytes_ += write_clear_range_approximate_size(begin.size(), end.size());
 }
 
 TxnErrorCode Transaction::commit() {
@@ -1143,7 +1193,9 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
             may_logging_single_version_reading(k);
             futures.emplace_back(
                     fdb_transaction_get(txn_, (uint8_t*)k.data(), k.size(), opts.snapshot));
-            approximate_bytes_ += k.size() * 2;
+            if (!opts.snapshot) {
+                approximate_bytes_ += read_get_approximate_size(k.size());
+            }
         }
 
         size_t num_futures = futures.size();
@@ -1221,7 +1273,9 @@ TxnErrorCode Transaction::batch_scan(
                     snapshot, reverse);
 
             futures.emplace_back(fut);
-            approximate_bytes_ += start.size() + end.size();
+            if (!opts.snapshot) {
+                approximate_bytes_ += read_get_range_approximate_size(start.size(), end.size());
+            }
         }
 
         size_t num_futures = futures.size();
