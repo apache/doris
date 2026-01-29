@@ -1236,7 +1236,7 @@ public enum ErrorCode {
             "Command only support in cloud mode."),
 
     ERR_EMPTY_PASSWORD(6001, new byte[]{'4', '2', '0', '0', '0'},
-            "Access with empty password is prohibited for user %s because of current mode");     
+            "Access with empty password is prohibited for user %s because of current mode");
 
     // This is error code
     private final int code;

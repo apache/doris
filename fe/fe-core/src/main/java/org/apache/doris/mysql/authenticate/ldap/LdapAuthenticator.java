@@ -85,7 +85,7 @@ public class LdapAuthenticator implements Authenticator {
 
     /**
      * The LDAP authentication process is as follows:
-     * step1: Check the LDAP password (depending on value of property LdapConfig.ldap_allow_empty_pass login with empty pass can be prohibited).
+     * step1: Check the LDAP password (if ldap_allow_empty_pass is false login with empty pass is prohibited).
      * step2: Get the LDAP groups privileges as a role, saved into ConnectContext.
      * step3: Set current userIdentity. If the user account does not exist in Doris, login as a temporary user.
      * Otherwise, login to the Doris account.
@@ -99,7 +99,8 @@ public class LdapAuthenticator implements Authenticator {
 
         //not allow to login in case when empty password is specified but such mode is disabled by configuration
         if (Strings.isNullOrEmpty(password) && !LdapConfig.ldap_allow_empty_pass) {
-            LOG.info("user:{} is not allowed to login with LDAP with empty password because of ldap_allow_empty_pass is {}", userName, LdapConfig.ldap_allow_empty_pass);
+            LOG.info("user:{} is not allowed to login to LDAP with empty password because ldap_allow_empty_pass:{}",
+                    userName, LdapConfig.ldap_allow_empty_pass);
             ErrorReport.report(ErrorCode.ERR_EMPTY_PASSWORD, qualifiedUser + "@" + remoteIp);
             return AuthenticateResponse.failedResponse;
         }
