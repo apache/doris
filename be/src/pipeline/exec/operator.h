@@ -146,18 +146,21 @@ public:
 
     virtual void set_low_memory_mode(RuntimeState* state) {}
 
-    [[nodiscard]] virtual bool require_data_distribution() const { return false; }
+    // Return True if this operator relies on the bucket distribution(e.g. COLOCATE join, 1-phase AGG).
+    [[nodiscard]] virtual bool is_colocated_operator() const { return false; }
     OperatorPtr child() { return _child; }
     [[nodiscard]] bool followed_by_shuffled_operator() const {
         return _followed_by_shuffled_operator;
     }
-    void set_followed_by_shuffled_operator(bool followed_by_shuffled_operator) {
+    virtual void update_operator(const TPlanNode& tnode, bool followed_by_shuffled_operator,
+                                 bool require_bucket_distribution) {
         _followed_by_shuffled_operator = followed_by_shuffled_operator;
+        _require_bucket_distribution = require_bucket_distribution;
     }
+    // Return True if this operator relies on the specific data distribution(e.g. SHUFFLED join).
     [[nodiscard]] virtual bool is_shuffled_operator() const { return false; }
     [[nodiscard]] virtual DataDistribution required_data_distribution(
             RuntimeState* /*state*/) const;
-    [[nodiscard]] virtual bool require_shuffled_data_distribution(RuntimeState* /*state*/) const;
 
     virtual Status reset(RuntimeState* state) {
         return Status::InternalError("Reset is not implemented in operator: {}", get_name());
@@ -168,6 +171,7 @@ protected:
 
     bool _is_closed;
     bool _followed_by_shuffled_operator = false;
+    bool _require_bucket_distribution = false;
     bool _is_serial_operator = false;
 };
 

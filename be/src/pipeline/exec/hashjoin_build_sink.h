@@ -140,11 +140,13 @@ public:
     }
 
     bool is_shuffled_operator() const override {
-        return _join_distribution == TJoinDistributionType::PARTITIONED;
+        return _join_distribution == TJoinDistributionType::PARTITIONED ||
+               _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
+               _join_distribution == TJoinDistributionType::COLOCATE;
     }
-    bool require_data_distribution() const override {
-        return _join_distribution != TJoinDistributionType::BROADCAST &&
-               _join_distribution != TJoinDistributionType::NONE;
+    bool is_colocated_operator() const override {
+        return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
+               _join_distribution == TJoinDistributionType::COLOCATE;
     }
     std::vector<bool>& is_null_safe_eq_join() { return _is_null_safe_eq_join; }
 
@@ -161,7 +163,7 @@ private:
     std::vector<bool> _is_null_safe_eq_join;
 
     bool _is_broadcast_join = false;
-    const std::vector<TExpr> _partition_exprs;
+    std::vector<TExpr> _partition_exprs;
 
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _should_keep_column_flags;

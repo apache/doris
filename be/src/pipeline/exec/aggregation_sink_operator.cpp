@@ -724,8 +724,7 @@ size_t AggSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos) co
 
 // TODO: Tricky processing if `multi_distinct_` exists which will be re-planed by optimizer.
 AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
-                                   const TPlanNode& tnode, const DescriptorTbl& descs,
-                                   bool require_bucket_distribution)
+                                   const TPlanNode& tnode, const DescriptorTbl& descs)
         : DataSinkOperatorX<AggSinkLocalState>(operator_id, tnode, dest_id),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
@@ -736,23 +735,26 @@ AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, int dest_i
           _limit(tnode.limit),
           _have_conjuncts((tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()) ||
                           (tnode.__isset.conjuncts && !tnode.conjuncts.empty())),
-          _partition_exprs(
-                  tnode.__isset.distribute_expr_lists &&
-                                  (require_bucket_distribution ||
-                                   std::any_of(
-                                           tnode.agg_node.aggregate_functions.begin(),
-                                           tnode.agg_node.aggregate_functions.end(),
-                                           [](const TExpr& texpr) -> bool {
-                                               return texpr.nodes[0]
-                                                       .fn.name.function_name.starts_with(
-                                                               vectorized::
-                                                                       DISTINCT_FUNCTION_PREFIX);
-                                           }))
-                          ? tnode.distribute_expr_lists[0]
-                          : tnode.agg_node.grouping_exprs),
           _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate),
-          _require_bucket_distribution(require_bucket_distribution),
           _agg_fn_output_row_descriptor(descs, tnode.row_tuples) {}
+
+void AggSinkOperatorX::update_operator(const TPlanNode& tnode, bool followed_by_shuffled_operator,
+                                       bool require_bucket_distribution) {
+    _followed_by_shuffled_operator = followed_by_shuffled_operator;
+    _require_bucket_distribution = require_bucket_distribution;
+    _partition_exprs =
+            tnode.__isset.distribute_expr_lists &&
+                            (_followed_by_shuffled_operator ||
+                             std::any_of(
+                                     tnode.agg_node.aggregate_functions.begin(),
+                                     tnode.agg_node.aggregate_functions.end(),
+                                     [](const TExpr& texpr) -> bool {
+                                         return texpr.nodes[0].fn.name.function_name.starts_with(
+                                                 vectorized::DISTINCT_FUNCTION_PREFIX);
+                                     }))
+                    ? tnode.distribute_expr_lists[0]
+                    : tnode.agg_node.grouping_exprs;
+}
 
 Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<AggSinkLocalState>::init(tnode, state));

@@ -117,6 +117,7 @@ public:
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
     bool is_shuffled_operator() const override { return true; }
+    bool is_colocated_operator() const override { return _is_colocate; }
 
 private:
     void _finalize_probe(SetProbeSinkLocalState<is_intersect>& local_state);
@@ -128,7 +129,7 @@ private:
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
     const bool _is_colocate;
-    const std::vector<TExpr> _partition_exprs;
+    std::vector<TExpr> _partition_exprs;
     using OperatorBase::_child;
 };
 

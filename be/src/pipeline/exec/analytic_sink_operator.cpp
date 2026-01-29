@@ -632,8 +632,7 @@ int64_t AnalyticSinkLocalState::find_first_not_equal(vectorized::IColumn* refere
 }
 
 AnalyticSinkOperatorX::AnalyticSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
-                                             const TPlanNode& tnode, const DescriptorTbl& descs,
-                                             bool require_bucket_distribution)
+                                             const TPlanNode& tnode, const DescriptorTbl& descs)
         : DataSinkOperatorX(operator_id, tnode, dest_id),
           _pool(pool),
           _intermediate_tuple_id(tnode.analytic_node.intermediate_tuple_id),
@@ -642,10 +641,6 @@ AnalyticSinkOperatorX::AnalyticSinkOperatorX(ObjectPool* pool, int operator_id, 
                                      ? tnode.analytic_node.buffered_tuple_id
                                      : 0),
           _is_colocate(tnode.analytic_node.__isset.is_colocate && tnode.analytic_node.is_colocate),
-          _require_bucket_distribution(require_bucket_distribution),
-          _partition_exprs(tnode.__isset.distribute_expr_lists && require_bucket_distribution
-                                   ? tnode.distribute_expr_lists[0]
-                                   : tnode.analytic_node.partition_exprs),
           _window(tnode.analytic_node.window),
           _has_window(tnode.analytic_node.__isset.window),
           _has_range_window(tnode.analytic_node.window.type == TAnalyticWindowType::RANGE),
