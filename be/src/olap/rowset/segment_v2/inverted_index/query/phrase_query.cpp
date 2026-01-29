@@ -24,7 +24,6 @@
 #include "CLucene/index/Terms.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query.h"
-#include "olap/rowset/segment_v2/inverted_index/query/query_helper.h"
 #include "olap/rowset/segment_v2/inverted_index/util/term_position_iterator.h"
 
 namespace doris::segment_v2 {
@@ -138,29 +137,16 @@ void PhraseQuery::init_ordered_sloppy_phrase_matcher(const InvertedIndexQueryInf
 }
 
 void PhraseQuery::init_similarities(const std::wstring& field_name, bool is_similarity) {
-    // TODO: Current implementation - computes BM25 scores separately for each term
-    // Note: This approach is suitable for TermQuery but does not conform to BM25 specification for PhraseQuery
-    // BM25 phrase query specification requires:
-    //   idf component = sum of idf values for all terms
-    //   tf component = phrase frequency (number of times entire phrase appears in document)
-    //   doc_length = total document length
-    //
-    // Future optimization direction:
-    //   1. Shift to unified phrase scoring: calculate sum of idf for all terms as combined idf
-    //   2. Use phrase frequency instead of individual term frequencies
-    //   3. Maintain document length normalization
-    //   4. Refactor to create a single Similarity object handling the entire phrase
     if (is_similarity) {
-        _similarities.resize(_iterators.size());
-        for (size_t i = 0; i < _iterators.size(); i++) {
-            const auto& iter = _iterators[i];
+        std::vector<std::wstring> all_terms;
+        for (const auto& iter : _iterators) {
             if (std::holds_alternative<TermPositionsIterPtr>(iter)) {
                 const auto& term_iter = std::get<TermPositionsIterPtr>(iter);
-                auto similarity = std::make_unique<BM25Similarity>();
-                similarity->for_one_term(_context, field_name, term_iter->term());
-                _similarities[i] = std::move(similarity);
+                all_terms.push_back(term_iter->term());
             }
         }
+        _phrase_similarity = std::make_unique<BM25Similarity>();
+        _phrase_similarity->for_terms(_context, field_name, all_terms);
     }
 }
 
@@ -176,13 +162,21 @@ void PhraseQuery::search(roaring::Roaring& roaring) {
 void PhraseQuery::search_by_skiplist(roaring::Roaring& roaring) {
     int32_t doc = 0;
     while ((doc = do_next(visit_node(*_lead1, NextDoc {}))) != INT32_MAX) {
-        if (!matches(doc)) {
-            continue;
-        }
-        roaring.add(doc);
-
-        if (!_similarities.empty()) {
-            QueryHelper::collect(_context, _similarities, _iterators, doc);
+        if (_phrase_similarity) {
+            float phrase_freq = count_phrase_freq(doc);
+            if (phrase_freq <= 0.0F) {
+                continue;
+            }
+            roaring.add(doc);
+            int32_t norm = visit_node(*_lead1, Norm {});
+            float score = _phrase_similarity->score(phrase_freq, static_cast<int64_t>(norm));
+            std::cout << "phrase_freq: " << phrase_freq << ", norm: " << norm << ", score: " << score << std::endl;
+            _context->collection_similarity->collect(doc, score);
+        } else {
+            if (!matches(doc)) {
+                continue;
+            }
+            roaring.add(doc);
         }
     }
 }
@@ -228,6 +222,14 @@ bool PhraseQuery::matches(int32_t doc) {
     return std::ranges::all_of(_matchers, [&doc](auto&& matcher) {
         return std::visit([&doc](auto&& m) -> bool { return m.matches(doc); }, matcher);
     });
+}
+
+float PhraseQuery::count_phrase_freq(int32_t doc) {
+    float total_freq = 0.0F;
+    for (auto& matcher : _matchers) {
+        total_freq += std::visit([&doc](auto&& m) -> float { return m.phrase_freq(doc); }, matcher);
+    }
+    return total_freq;
 }
 
 void PhraseQuery::parser_slop(std::string& query, InvertedIndexQueryInfo& query_info) {
