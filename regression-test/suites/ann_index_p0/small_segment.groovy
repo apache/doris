@@ -48,6 +48,9 @@ suite("small_segment") {
     // Verify data is inserted successfully
     qt_sql "select * from tbl_small_segment order by id;"
 
+    // Test range search with IVF (should fall back to brute force since index is not built)
+    qt_sql "select * from tbl_small_segment where l2_distance_approximate(embedding, [1.0,2.0,3.0]) < 5.0 order by id;"
+
     // Test with HNSW index as well - HNSW should work even with small segments
     sql "drop table if exists tbl_small_segment_hnsw"
     sql """
@@ -57,7 +60,10 @@ suite("small_segment") {
         INDEX idx_emb (`embedding`) USING ANN PROPERTIES(
                 "index_type"="hnsw",
                 "metric_type"="l2_distance",
-                "dim"="3"
+                "dim"="3",
+                "quantizer"="pq",
+                "pq_m"="1",
+                "pq_nbits"="2"
         )
     ) ENGINE=OLAP
     DUPLICATE KEY(id)
@@ -77,6 +83,9 @@ suite("small_segment") {
 
     // Test approximate search with HNSW (should work)
     sql "select id, l2_distance_approximate(embedding, [1.0,2.0,3.0]) as dist from tbl_small_segment_hnsw order by dist limit 2;"
+
+    // Test range search with HNSW (should work)
+    qt_sql "select * from tbl_small_segment_hnsw where l2_distance_approximate(embedding, [1.0,2.0,3.0]) < 5.0 order by id;"
 
     // Clean up
     sql "drop table if exists tbl_small_segment"
