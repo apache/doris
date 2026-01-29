@@ -28,7 +28,6 @@ import org.apache.doris.mysql.privilege.Auth;
 import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Mocked;
-
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
@@ -162,7 +161,7 @@ public class LdapAuthenticatorTest {
         //running test with specified value - false - ldap_allow_empty_pass is explicitly set to false
         LdapConfig.ldap_allow_empty_pass = false;
         response = ldapAuthenticator.authenticate(request);
-        Assert.assertFalse(response.isSuccess());        
+        Assert.assertFalse(response.isSuccess());   
     }
 
     @After
