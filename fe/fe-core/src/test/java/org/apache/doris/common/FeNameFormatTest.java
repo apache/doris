@@ -89,7 +89,6 @@ public class FeNameFormatTest {
                 "a_1",       // Underscore + number
                 "B2",        // Uppercase letter + number
                 "1abc",      // Starts with digit
-                "abc$",      // Contains invalid symbol $
                 "-abc",      // Starts with hyphen
                 "_abc"       // Starts with underscore
         );
@@ -98,7 +97,8 @@ public class FeNameFormatTest {
                 "",          // Empty string
                 "x ",          // space character as last one
                 "x\t",         // table character as last one
-                "x\n"          // enter character as last one
+                "x\n",         // enter character as last one
+                "abc$"         // Contains invalid symbol $
         );
 
         List<String> unicodeValid = Lists.newArrayList(
