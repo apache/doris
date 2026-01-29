@@ -176,4 +176,35 @@ public final class ProcService {
         INSTANCE = null;
     }
 
+    // 在ProcService类中找到init()方法，添加以下代码
+private void init() {
+    // ... 原有代码 ...
+
+    // 1. 创建Colocation Group根目录
+    ProcDir colocationGroupDir = new ProcDir();
+    // 注册到根Proc目录（/colocation_group）
+    rootProcDir.register("colocation_group", colocationGroupDir);
+
+    // 2. 为/colocation_group目录添加子节点处理器（处理{group_id}参数）
+    colocationGroupDir.setChildCreator(new ProcNodeCreator() {
+        @Override
+        public ProcNode create(List<String> parts) throws AnalysisException {
+            // 校验参数格式：必须是数字类型的group_id
+            if (parts.size() != 1) {
+                throw new AnalysisException("Invalid path: /colocation_group/{group_id}, require exactly one numeric group id");
+            }
+            long groupId;
+            try {
+                groupId = Long.parseLong(parts.get(0));
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Group id must be a number, got: " + parts.get(0));
+            }
+            // 创建并返回具体的ColocationGroupProcNode
+            return new ColocationGroupProcNode(groupId);
+        }
+    });
+
+    // ... 原有代码 ...
+}
+
 }

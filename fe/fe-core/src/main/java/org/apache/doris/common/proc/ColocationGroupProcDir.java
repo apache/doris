@@ -22,6 +22,7 @@ import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.common.cloud.CloudReplica;//New addition: Incorporation of cloud environment category
 
 import com.google.common.collect.ImmutableList;
 
