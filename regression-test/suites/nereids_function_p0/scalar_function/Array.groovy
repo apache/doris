@@ -1367,4 +1367,7 @@ suite("nereids_scalar_fn_Array") {
     qt_sql """select array_flatten([ [[1,2,3,4,5]],[[6,7],[8,9]] ]);"""
     qt_sql """select array_flatten([[[[[[1,2,3,4,5],[6,7],[8,9],[10,11],[12]]]]]]);"""
 
+    qt_sql """select array_combinations(['foo', 'bar', 'baz'], 2);"""
+    qt_sql """select array_combinations([1, 2, 3], 2);"""
+    qt_sql """select array_combinations([1, 2, 2], 2);"""
 }
