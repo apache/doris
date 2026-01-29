@@ -343,6 +343,7 @@ export AWS_MAX_ATTEMPTS=2
 # filter known leak
 export LSAN_OPTIONS="
     report_objects=1
+    verbosity=1
     suppressions='${DORIS_HOME}/conf/lsan_suppr.conf'
     malloc_context_size=50
 "
