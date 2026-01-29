@@ -53,7 +53,6 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public static final String ICEBERG_S3_TABLES = "s3tables";
     public static final String EXTERNAL_CATALOG_NAME = "external_catalog.name";
     public static final String ICEBERG_TABLE_META_CACHE_TTL_SECOND = "iceberg.table.meta.cache.ttl-second";
-    public static final String ICEBERG_SNAPSHOT_META_CACHE_TTL_SECOND = "iceberg.snapshot.meta.cache.ttl-second";
     public static final String ICEBERG_MANIFEST_CACHE_ENABLE = "iceberg.manifest.cache.enable";
     public static final String ICEBERG_MANIFEST_CACHE_CAPACITY_MB = "iceberg.manifest.cache.capacity-mb";
     public static final String ICEBERG_MANIFEST_CACHE_TTL_SECOND = "iceberg.manifest.cache.ttl-second";
@@ -96,15 +95,6 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
                     + tableMetaCacheTtlSecond);
         }
 
-        // check iceberg.snapshot.meta.cache.ttl-second parameter
-        String partitionCacheTtlSecond = catalogProperty.getOrDefault(ICEBERG_SNAPSHOT_META_CACHE_TTL_SECOND, null);
-        if (Objects.nonNull(partitionCacheTtlSecond) && NumberUtils.toInt(partitionCacheTtlSecond, CACHE_NO_TTL)
-                < CACHE_TTL_DISABLE_CACHE) {
-            throw new DdlException(
-                    "The parameter " + ICEBERG_SNAPSHOT_META_CACHE_TTL_SECOND + " is wrong, value is "
-                    + partitionCacheTtlSecond);
-        }
-
         String manifestCacheEnable = catalogProperty.getOrDefault(ICEBERG_MANIFEST_CACHE_ENABLE, null);
         if (Objects.nonNull(manifestCacheEnable)
                 && !(manifestCacheEnable.equalsIgnoreCase("true") || manifestCacheEnable.equalsIgnoreCase("false"))) {
@@ -134,8 +124,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         super.notifyPropertiesUpdated(updatedProps);
         String tableMetaCacheTtl = updatedProps.getOrDefault(ICEBERG_TABLE_META_CACHE_TTL_SECOND, null);
-        String snapshotMetaCacheTtl = updatedProps.getOrDefault(ICEBERG_SNAPSHOT_META_CACHE_TTL_SECOND, null);
-        if (Objects.nonNull(tableMetaCacheTtl) || Objects.nonNull(snapshotMetaCacheTtl)) {
+        if (Objects.nonNull(tableMetaCacheTtl)) {
             Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache(this).init();
         }
         String manifestCacheEnable = updatedProps.getOrDefault(ICEBERG_MANIFEST_CACHE_ENABLE, null);
