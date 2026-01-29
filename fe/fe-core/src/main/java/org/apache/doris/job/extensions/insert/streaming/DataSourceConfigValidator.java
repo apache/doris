@@ -37,7 +37,8 @@ public class DataSourceConfigValidator {
             DataSourceConfigKeys.SCHEMA,
             DataSourceConfigKeys.INCLUDE_TABLES,
             DataSourceConfigKeys.EXCLUDE_TABLES,
-            DataSourceConfigKeys.SPLIT_SIZE
+            DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE,
+            DataSourceConfigKeys.SNAPSHOT_PARALLELISM
     );
 
     public static void validateSource(Map<String, String> input) throws IllegalArgumentException {

@@ -24,7 +24,7 @@ defaultDb = "regression_test"
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
 // add allowLoadLocalInfile so that the jdbc can execute mysql load data from client.
-jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+jdbcUrl = "jdbc:mysql://10.16.10.6:29939/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
 targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
 jdbcUser = "root"
 jdbcPassword = ""
@@ -35,7 +35,7 @@ syncerAddress = "127.0.0.1:9190"
 feSyncerUser = "root"
 feSyncerPassword = ""
 
-feHttpAddress = "127.0.0.1:8030"
+feHttpAddress = "10.16.10.6:28939"
 feHttpUser = "root"
 feHttpPassword = ""
 
@@ -124,9 +124,9 @@ sk="***********"
 // jdbc connector test config
 // To enable jdbc test, you need first start mysql/pg container.
 // See `docker/thirdparties/run-thirdparties-docker.sh`
-enableJdbcTest=false
-mysql_57_port=3316
-pg_14_port=5442
+enableJdbcTest=true
+mysql_57_port=3308
+pg_14_port=5438
 oracle_11_port=1521
 sqlserver_2022_port=1433
 clickhouse_22_port=8123
@@ -258,7 +258,8 @@ max_failure_num=0
 // used for exporting test
 s3ExportBucketName = ""
 
-externalEnvIp="127.0.0.1"
+externalEnvIp="10.16.10.6"
+
 
 // trino-connector catalog test config
 enableTrinoConnectorTest = false

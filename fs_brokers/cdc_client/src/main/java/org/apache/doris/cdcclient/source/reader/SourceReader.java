@@ -45,8 +45,8 @@ public interface SourceReader {
     /** Construct a split and submit a split reading task. */
     SplitReadResult prepareAndSubmitSplit(JobBaseRecordRequest baseReq) throws Exception;
 
-    /** Retrieve data from the current split. */
-    Iterator<SourceRecord> pollRecords(Object splitState) throws InterruptedException;
+    /** Retrieve data from the current split(s). */
+    Iterator<SourceRecord> pollRecords() throws InterruptedException;
 
     /** Extract offset information from snapshot split state. */
     Map<String, String> extractSnapshotStateOffset(Object splitState);

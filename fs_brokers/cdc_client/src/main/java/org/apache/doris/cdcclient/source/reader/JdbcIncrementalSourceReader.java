@@ -82,14 +82,22 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     private static final Logger LOG = LoggerFactory.getLogger(JdbcIncrementalSourceReader.class);
     private static ObjectMapper objectMapper = new ObjectMapper();
     private SourceRecordDeserializer<SourceRecord, List<String>> serializer;
-    private Fetcher<SourceRecords, SourceSplitBase> currentReader;
     private Map<TableId, TableChanges.TableChange> tableSchemas;
-    private SplitRecords currentSplitRecords;
-    private SourceSplitBase currentSplit;
+    
+    // Support for multiple snapshot splits
+    private List<SnapshotReaderContext<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit, 
+            Fetcher<SourceRecords, SourceSplitBase>, SnapshotSplitState>> snapshotReaderContexts;
+    private int currentReaderIndex = 0;
+    
+    // Stream/binlog reader (single reader for stream split)
+    private Fetcher<SourceRecords, SourceSplitBase> streamReader;
+    private StreamSplit streamSplit;
+    private StreamSplitState streamSplitState;
     protected FetchTask<SourceSplitBase> currentFetchTask;
 
     public JdbcIncrementalSourceReader() {
         this.serializer = new DebeziumJsonDeserializer();
+        this.snapshotReaderContexts = new ArrayList<>();
     }
 
     @Override
@@ -152,69 +160,246 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         if (offsetMeta == null || offsetMeta.isEmpty()) {
             throw new RuntimeException("miss meta offset");
         }
-        LOG.info("Job {} prepare and submit split with offset: {}", baseReq.getJobId(), offsetMeta);
-        // Build split
-        Tuple2<SourceSplitBase, Boolean> splitFlag = createSourceSplit(offsetMeta, baseReq);
-        this.currentSplit = splitFlag.f0;
-        LOG.info("Get a split: {}", this.currentSplit.toString());
+        
+        LOG.info("Job {} read split records with offset: {}", baseReq.getJobId(), offsetMeta);
 
-        // Create reader based on split type
-        if (this.currentSplit.isSnapshotSplit()) {
-            this.currentReader = getSnapshotSplitReader(baseReq);
-        } else if (this.currentSplit.isStreamSplit()) {
-            this.currentReader = getBinlogSplitReader(baseReq);
+        String splitId = String.valueOf(offsetMeta.get(SPLIT_ID));
+        if (BinlogSplit.BINLOG_SPLIT_ID.equals(splitId)){
+            // Stream split mode
+            return prepareStreamSplit(offsetMeta, baseReq);
         } else {
-            throw new IllegalStateException(
-                    "Unknown split type: " + this.currentSplit.getClass().getName());
+            // Extract snapshot split list
+            List<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit> snapshotSplits = 
+                extractSnapshotSplits(offsetMeta, baseReq);
+            return prepareSnapshotSplits(snapshotSplits, baseReq);
         }
-
-        // Submit split
-        FetchTask<SourceSplitBase> splitFetchTask =
-                createFetchTaskFromSplit(baseReq, this.currentSplit);
-        this.currentReader.submitTask(splitFetchTask);
-        this.setCurrentFetchTask(splitFetchTask);
-
-        // Create split state
-        SourceSplitState currentSplitState;
-        if (this.currentSplit.isSnapshotSplit()) {
-            currentSplitState = new SnapshotSplitState(this.currentSplit.asSnapshotSplit());
-        } else {
-            currentSplitState = new StreamSplitState(this.currentSplit.asStreamSplit());
+    }
+    
+    /**
+     * Extract snapshot splits from meta.
+     * Only supports format: {"splits": [{"splitId": "xxx", ...}, ...]}
+     * 
+     * @return List of snapshot splits
+     */
+    private List<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit> extractSnapshotSplits(
+            Map<String, Object> offsetMeta, 
+            JobBaseRecordRequest baseReq) {
+        
+        // Check if it contains "splits" array
+        Object splitsObj = offsetMeta.get("splits");
+        if (splitsObj == null) {
+            throw new RuntimeException("Invalid meta format: missing 'splits' array");
         }
+        
+        if (!(splitsObj instanceof List)) {
+            throw new RuntimeException("Invalid meta format: 'splits' must be an array");
+        }
+        
+        // Parse splits array
+        List<Map<String, Object>> splitMetaList = (List<Map<String, Object>>) splitsObj;
+        if (splitMetaList.isEmpty()) {
+            throw new RuntimeException("Invalid meta format: 'splits' array is empty");
+        }
+        
+        List<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit> snapshotSplits = 
+            new ArrayList<>();
+        for (Map<String, Object> splitMeta : splitMetaList) {
+            org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit split = 
+                createSnapshotSplit(splitMeta, baseReq);
+            snapshotSplits.add(split);
+        }
+        
+        LOG.info("Extracted {} snapshot split(s) from meta", snapshotSplits.size());
+        return snapshotSplits;
+    }
+    
+    /**
+     * Prepare snapshot splits (unified handling for single or multiple splits)
+     */
+    private SplitReadResult prepareSnapshotSplits(
+            List<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit> splits,
+            JobBaseRecordRequest baseReq) throws Exception {
+        
+        LOG.info("Preparing {} snapshot split(s) for reading", splits.size());
+        
+        // Clear previous contexts
+        this.snapshotReaderContexts.clear();
+        this.currentReaderIndex = 0;
+        
+        // Create reader for each split and submit
+        for (int i = 0; i < splits.size(); i++) {
+            org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit split = splits.get(i);
+            
+            // Create independent reader (each has its own Debezium queue)
+            Fetcher<SourceRecords, SourceSplitBase> reader = getSnapshotSplitReader(baseReq, i);
+            
+            // Submit split (triggers async reading, data goes into reader's Debezium queue)
+            FetchTask<SourceSplitBase> splitFetchTask = createFetchTaskFromSplit(baseReq, split);
+            reader.submitTask(splitFetchTask);
 
-        // Return result without iterator
+            // Create split state
+            SnapshotSplitState splitState = new SnapshotSplitState(split);
+            
+            // Save context using generic SnapshotReaderContext
+            SnapshotReaderContext<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit, 
+                Fetcher<SourceRecords, SourceSplitBase>, SnapshotSplitState> context = 
+                new SnapshotReaderContext<>(split, reader, splitState);
+            snapshotReaderContexts.add(context);
+            
+            LOG.info("Created reader {}/{} and submitted split: {} (table: {})", 
+                    i + 1, splits.size(), split.splitId(), split.getTableId().identifier());
+        }
+        
+        // Construct return result with all splits and states
         SplitReadResult result = new SplitReadResult();
-        result.setSplit(this.currentSplit);
-        result.setSplitState(currentSplitState);
+        
+        List<SourceSplit> allSplits = new ArrayList<>();
+        Map<String, Object> allStates = new HashMap<>();
+        
+        for (SnapshotReaderContext<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit, 
+                Fetcher<SourceRecords, SourceSplitBase>, SnapshotSplitState> context 
+                : snapshotReaderContexts) {
+            org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit split = context.getSplit();
+            allSplits.add(split);
+            allStates.put(split.splitId(), context.getSplitState());
+        }
+        
+        result.setSplits(allSplits);
+        result.setSplitStates(allStates);
+        
+        return result;
+    }
+    
+    /**
+     * Prepare stream split
+     */
+    private SplitReadResult prepareStreamSplit(
+            Map<String, Object> offsetMeta, 
+            JobBaseRecordRequest baseReq) throws Exception {
+        Tuple2<SourceSplitBase, Boolean> splitFlag = createStreamSplit(offsetMeta, baseReq);
+        this.streamSplit = splitFlag.f0.asStreamSplit();
+        this.streamReader = getBinlogSplitReader(baseReq);
+        
+        LOG.info("Prepare stream split: {}", this.streamSplit.toString());
+        
+        // Submit split
+        FetchTask<SourceSplitBase> splitFetchTask = createFetchTaskFromSplit(baseReq, this.streamSplit);
+        this.streamReader.submitTask(splitFetchTask);
+        this.setCurrentFetchTask(splitFetchTask);
+        
+        this.streamSplitState = new StreamSplitState(this.streamSplit);
+        
+        SplitReadResult result = new SplitReadResult();
+        result.setSplits(Collections.singletonList(this.streamSplit));
+        
+        Map<String, Object> statesMap = new HashMap<>();
+        statesMap.put(this.streamSplit.splitId(), this.streamSplitState);
+        result.setSplitStates(statesMap);
+        
         return result;
     }
 
     @Override
-    public Iterator<SourceRecord> pollRecords(Object splitState) throws InterruptedException {
-        Preconditions.checkState(this.currentReader != null, "currentReader is null");
-        Preconditions.checkNotNull(splitState, "splitState is null");
-        Preconditions.checkState(
-                splitState instanceof SourceSplitState,
-                "splitState type is invalid " + splitState.getClass());
+    public Iterator<SourceRecord> pollRecords() throws InterruptedException {
+        if (!snapshotReaderContexts.isEmpty()) {
+            // Snapshot split mode
+            return pollRecordsFromSnapshotReaders();
+        } else if (streamReader != null) {
+            // Stream split mode
+            return pollRecordsFromStreamReader();
+        } else {
+            throw new RuntimeException("No active snapshot or stream reader available");
+        }
+    }
+    
+    /**
+     * Poll records from multiple snapshot readers sequentially.
+     * Directly pulls data from each reader's Debezium queue without extra queue.
+     * 
+     * <p>This implementation loops through all readers in a single call.
+     * If a reader has no data, it automatically tries the next one.
+     * Each snapshot split is read only once.
+     */
+    private Iterator<SourceRecord> pollRecordsFromSnapshotReaders() 
+            throws InterruptedException {
+        if (snapshotReaderContexts.isEmpty()) {
+            return Collections.emptyIterator();
+        }
+        
+        // Try all remaining readers (starting from currentReaderIndex)
+        int totalReaders = snapshotReaderContexts.size();
+        int attempts = totalReaders - currentReaderIndex;
+        
+        for (int i = 0; i < attempts; i++) {
+            // Check if we've processed all splits
+            if (currentReaderIndex >= totalReaders) {
+                LOG.info("All {} snapshot splits have been processed", totalReaders);
+                return Collections.emptyIterator();
+            }
+            
+            // Get current reader context
+            SnapshotReaderContext<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit,
+                    Fetcher<SourceRecords, SourceSplitBase>, SnapshotSplitState> context = 
+                snapshotReaderContexts.get(currentReaderIndex);
+            
+            // Poll data directly from this reader's Debezium queue
+            Iterator<SourceRecords> dataIt = context.getReader().pollSplitRecords();
+            
+            if (dataIt == null || !dataIt.hasNext()) {
+                // This reader has no data currently, move to next reader and continue
+                LOG.debug("Split {} has no data, trying next split", context.getSplit().splitId());
+                currentReaderIndex++;
+                continue;
+            }
+            
+            // Has data, process and return
+            SourceRecords sourceRecords = dataIt.next();
 
-        // Poll data from Debezium queue
-        Iterator<SourceRecords> dataIt = currentReader.pollSplitRecords();
-        if (dataIt == null || !dataIt.hasNext()) {
-            return Collections.emptyIterator(); // No data available
+            // Move to next reader for next call
+            currentReaderIndex++;
+            
+            // Wrap as SplitRecords
+            SplitRecords splitRecords = 
+                new SplitRecords(context.getSplit().splitId(), sourceRecords.iterator());
+            
+            // Use FilteredRecordIterator to filter and update state
+            return new FilteredRecordIterator(splitRecords, context.getSplitState(), this);
         }
 
+        LOG.info("All {} snapshot splits have no data currently", totalReaders);
+        return Collections.emptyIterator();
+    }
+    
+    /**
+     * Poll records from stream reader
+     */
+    private Iterator<SourceRecord> pollRecordsFromStreamReader() 
+            throws InterruptedException {
+        
+        Preconditions.checkState(streamReader != null, "streamReader is null");
+        Preconditions.checkNotNull(streamSplitState, "streamSplitState is null");
+        
+        Iterator<SourceRecords> dataIt = streamReader.pollSplitRecords();
+        if (dataIt == null || !dataIt.hasNext()) {
+            return Collections.emptyIterator();
+        }
+        
         SourceRecords sourceRecords = dataIt.next();
-        SplitRecords splitRecords =
-                new SplitRecords(this.currentSplit.splitId(), sourceRecords.iterator());
-
-        // Return filtered iterator
-        return new FilteredRecordIterator(splitRecords, (SourceSplitState) splitState);
+        SplitRecords splitRecords = 
+            new SplitRecords(streamSplit.splitId(), sourceRecords.iterator());
+        
+        if (!sourceRecords.getSourceRecordList().isEmpty()) {
+            LOG.info("{} Records received from stream", 
+                    sourceRecords.getSourceRecordList().size());
+        }
+        
+        return new FilteredRecordIterator(splitRecords, streamSplitState, this);
     }
 
     protected abstract DataType fromDbzColumn(Column splitColumn);
 
     protected abstract Fetcher<SourceRecords, SourceSplitBase> getSnapshotSplitReader(
-            JobBaseConfig jobConfig);
+            JobBaseConfig jobConfig, int subtaskId);
 
     protected abstract Fetcher<SourceRecords, SourceSplitBase> getBinlogSplitReader(
             JobBaseConfig jobConfig);
@@ -228,20 +413,6 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     protected abstract Offset createNoStoppingOffset();
 
     protected abstract JdbcDataSourceDialect getDialect(JdbcSourceConfig sourceConfig);
-
-    protected Tuple2<SourceSplitBase, Boolean> createSourceSplit(
-            Map<String, Object> offsetMeta, JobBaseConfig jobConfig) {
-        Tuple2<SourceSplitBase, Boolean> splitRes = null;
-        String splitId = String.valueOf(offsetMeta.get(SPLIT_ID));
-        if (!BinlogSplit.BINLOG_SPLIT_ID.equals(splitId)) {
-            org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit split =
-                    createSnapshotSplit(offsetMeta, jobConfig);
-            splitRes = Tuple2.of(split, false);
-        } else {
-            splitRes = createStreamSplit(offsetMeta, jobConfig);
-        }
-        return splitRes;
-    }
 
     private org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit
             createSnapshotSplit(Map<String, Object> offset, JobBaseConfig jobConfig) {
@@ -457,20 +628,16 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         }
     }
 
-    private void closeCurrentReader() {
-        Fetcher<SourceRecords, SourceSplitBase> currentReader = this.getCurrentReader();
-        if (currentReader != null) {
-            LOG.info("Close current reader {}", currentReader.getClass().getCanonicalName());
-            currentReader.close();
-            this.setCurrentReader(null);
-        }
-    }
+    // Method removed - reader cleanup is now handled in finishSplitRecords()
 
     protected abstract FetchTask<SourceSplitBase> createFetchTaskFromSplit(
             JobBaseConfig jobConfig, SourceSplitBase split);
 
     /** Get source config - to be implemented by subclasses */
     protected abstract JdbcSourceConfig getSourceConfig(JobBaseConfig config);
+
+    /** Get source config - to be implemented by subclasses */
+    protected abstract JdbcSourceConfig getSourceConfig(JobBaseConfig config, int subtaskId);
 
     @Override
     public Map<String, String> extractSnapshotStateOffset(Object splitState) {
@@ -514,9 +681,35 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
 
     @Override
     public void finishSplitRecords() {
-        this.setCurrentSplitRecords(null);
-        // Close after each read, the binlog client will occupy the connection.
-        closeCurrentReader();
+        // Clean up snapshot readers
+        if (!snapshotReaderContexts.isEmpty()) {
+            LOG.info("Closing {} snapshot readers", snapshotReaderContexts.size());
+            for (SnapshotReaderContext<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit,
+                    Fetcher<SourceRecords, SourceSplitBase>, SnapshotSplitState> context 
+                    : snapshotReaderContexts) {
+                if (context.getReader() != null) {
+                    closeReaderInternal(context.getReader());
+                }
+            }
+            snapshotReaderContexts.clear();
+            currentReaderIndex = 0;
+        }
+        
+        // Clean up stream reader
+        if (streamReader != null) {
+            LOG.info("Closing stream reader");
+            closeReaderInternal(streamReader);
+            streamReader = null;
+            streamSplit = null;
+            streamSplitState = null;
+        }
+    }
+    
+    private void closeReaderInternal(Fetcher<SourceRecords, SourceSplitBase> reader) {
+        if (reader != null) {
+            LOG.info("Close reader {}", reader.getClass().getCanonicalName());
+            reader.close();
+        }
     }
 
     private Map<TableId, TableChanges.TableChange> getTableSchemas(JobBaseConfig config) {
@@ -534,10 +727,9 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     @Override
     public void close(JobBaseConfig jobConfig) {
         LOG.info("Close source reader for job {}", jobConfig.getJobId());
-        closeCurrentReader();
-        currentReader = null;
-        currentSplitRecords = null;
-        currentSplit = null;
+        // Clean up all readers
+        finishSplitRecords();
+        
         if (tableSchemas != null) {
             tableSchemas.clear();
             tableSchemas = null;
@@ -552,15 +744,16 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
 
     /**
      * Filtered record iterator that only returns data change records, filtering out watermark,
-     * heartbeat and other events. This is a private inner class that encapsulates record filtering
-     * logic, making the main method cleaner.
+     * heartbeat and other events. This is a private static inner class that encapsulates record
+     * filtering logic, making the main method cleaner.
      */
     private class FilteredRecordIterator implements Iterator<SourceRecord> {
         private final Iterator<SourceRecord> sourceIterator;
         private final SourceSplitState splitState;
         private SourceRecord nextRecord;
 
-        FilteredRecordIterator(SplitRecords currentSplitRecords, SourceSplitState splitState) {
+        FilteredRecordIterator(SplitRecords currentSplitRecords, SourceSplitState splitState,
+                JdbcIncrementalSourceReader reader) {
             this.sourceIterator =
                     currentSplitRecords != null && !currentSplitRecords.isEmpty()
                             ? currentSplitRecords.getIterator()
