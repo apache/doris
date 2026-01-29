@@ -67,7 +67,7 @@ Result<IColumn::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr);
  * - Thread-safe execution in parallel query contexts
  * 
  * Typical usage in SQL:
- * SELECT * FROM table ORDER BY l2_distance(vec_column, [1,2,3]) LIMIT 10;
+ * SELECT * FROM table ORDER BY l2_distance_approximate(vec_column, [1,2,3]) LIMIT 10;
  */
 class AnnTopNRuntime {
     ENABLE_FACTORY_CREATOR(AnnTopNRuntime);
