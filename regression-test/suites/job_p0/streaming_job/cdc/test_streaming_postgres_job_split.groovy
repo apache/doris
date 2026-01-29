@@ -84,8 +84,8 @@ suite("test_streaming_postgres_job_split", "p0,external,pg,external_docker,exter
                     {
                         def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
                         log.info("jobSuccendCount: " + jobSuccendCount)
-                        // check job status and succeed task count larger than 2
-                        jobSuccendCount.size() == 1 && '2' <= jobSuccendCount.get(0).get(0)
+                        // check job status and succeed task count larger than 3
+                        jobSuccendCount.size() == 1 && '3' <= jobSuccendCount.get(0).get(0)
                     }
             )
         } catch (Exception ex){

@@ -81,6 +81,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -245,28 +246,34 @@ public class MySqlSourceReader implements SourceReader {
         // Clear previous contexts
         this.snapshotReaderContexts.clear();
         this.currentReaderIndex = 0;
-        
+
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+
         // Create reader for each split and submit
         for (int i = 0; i < splits.size(); i++) {
+            final int index = i;
             MySqlSnapshotSplit split = splits.get(i);
-            
+
             // Create independent reader (each has its own Debezium queue)
             SnapshotSplitReader reader = getSnapshotSplitReader(baseReq, i);
-            
-            // Submit split (triggers async reading, data goes into reader's Debezium queue)
-            reader.submitSplit(split);
-            
+
             // Create split state
             MySqlSnapshotSplitState splitState = new MySqlSnapshotSplitState(split);
-            
+
             // Save context using generic SnapshotReaderContext
-            SnapshotReaderContext<MySqlSnapshotSplit, SnapshotSplitReader, MySqlSnapshotSplitState> context = 
-                new SnapshotReaderContext<>(split, reader, splitState);
+            SnapshotReaderContext<MySqlSnapshotSplit, SnapshotSplitReader, MySqlSnapshotSplitState> context =
+                    new SnapshotReaderContext<>(split, reader, splitState);
             snapshotReaderContexts.add(context);
-            
-            LOG.info("Created reader {}/{} and submitted split: {} (table: {})", 
-                    i + 1, splits.size(), split.splitId(), split.getTableId().identifier());
+
+            futures.add(CompletableFuture.runAsync(() -> {
+                // Submit split (triggers async reading, data goes into reader's Debezium queue)
+                reader.submitSplit(split);
+                LOG.info("Created reader {}/{} and submitted split: {} (table: {})",
+                        index + 1, splits.size(), split.splitId(), split.getTableId().identifier());
+            }));
         }
+
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         
         // Construct return result with all splits and states
         SplitReadResult result = new SplitReadResult();
@@ -366,6 +373,11 @@ public class MySqlSourceReader implements SourceReader {
             
             // Has data, process and return
             SourceRecords sourceRecords = dataIt.next();
+            if (!sourceRecords.getSourceRecordList().isEmpty()) {
+                LOG.info("{} Records received from snapshot split {}",
+                        sourceRecords.getSourceRecordList().size(),
+                        context.getSplit().splitId());
+            }
 
             // Move to next reader for next call
             currentReaderIndex++;
