@@ -113,6 +113,7 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
         createTables(nonPart, part1, part2, multiLeveParts);
 
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        connectContext.getSessionVariable().setEnableQueryCache(true);
     }
 
     @Test
