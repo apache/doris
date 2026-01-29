@@ -129,7 +129,7 @@ Status HdfsMgr::get_or_create_fs(const THdfsParams& hdfs_params, const std::stri
                                  std::shared_ptr<HdfsHandler>* fs_handler) {
 #ifdef USE_HADOOP_HDFS
     if (!config::enable_java_support) {
-        return Status::InternalError(
+        return Status::InvalidArgument(
                 "hdfs file system is not enabled, you can change be config enable_java_support to "
                 "true.");
     }
