@@ -1446,33 +1446,26 @@ Status FragmentMgr::transmit_rec_cte_block(
 
 Status FragmentMgr::rerun_fragment(const TUniqueId& query_id, int fragment,
                                    PRerunFragmentParams_Opcode stage) {
-    if (auto q_ctx = get_query_ctx(query_id)) {
-        SCOPED_ATTACH_TASK(q_ctx.get());
-        auto fragment_ctx = _pipeline_map.find({query_id, fragment});
-        if (!fragment_ctx) {
-            return Status::NotFound("Fragment context (query-id: {}, fragment-id: {}) not found",
-                                    print_id(query_id), fragment);
-        }
-
-        if (stage == PRerunFragmentParams::wait) {
-            return fragment_ctx->wait_close(false);
-        } else if (stage == PRerunFragmentParams::release) {
-            return fragment_ctx->set_to_rerun();
-        } else if (stage == PRerunFragmentParams::rebuild) {
-            return fragment_ctx->rebuild(_thread_pool.get());
-        } else if (stage == PRerunFragmentParams::submit) {
-            return fragment_ctx->submit();
-        } else if (stage == PRerunFragmentParams::close) {
-            return fragment_ctx->wait_close(true);
-        } else {
-            return Status::InvalidArgument("Unknown rerun fragment opcode: {}", stage);
-        }
-    } else {
-        return Status::NotFound(
-                "reset_fragment: Query context (query-id: {}) not found, maybe finished",
-                print_id(query_id));
+    auto fragment_ctx = _pipeline_map.find({query_id, fragment});
+    if (!fragment_ctx) {
+        return Status::NotFound("Fragment context (query-id: {}, fragment-id: {}) not found",
+                                print_id(query_id), fragment);
     }
-    return Status::OK();
+
+    SCOPED_ATTACH_TASK(fragment_ctx->get_query_ctx());
+    if (stage == PRerunFragmentParams::wait) {
+        return fragment_ctx->wait_close(false);
+    } else if (stage == PRerunFragmentParams::release) {
+        return fragment_ctx->set_to_rerun();
+    } else if (stage == PRerunFragmentParams::rebuild) {
+        return fragment_ctx->rebuild(_thread_pool.get());
+    } else if (stage == PRerunFragmentParams::submit) {
+        return fragment_ctx->submit();
+    } else if (stage == PRerunFragmentParams::close) {
+        return fragment_ctx->wait_close(true);
+    } else {
+        return Status::InvalidArgument("Unknown rerun fragment opcode: {}", stage);
+    }
 }
 
 Status FragmentMgr::reset_global_rf(const TUniqueId& query_id,
