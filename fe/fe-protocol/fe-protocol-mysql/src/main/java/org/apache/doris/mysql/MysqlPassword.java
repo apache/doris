@@ -17,14 +17,24 @@
 
 package org.apache.doris.mysql;
 
+import org.apache.doris.common.Config;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Random;
+import java.util.Set;
 
 /**
  * MySQL password handling utilities.
@@ -74,15 +84,133 @@ public class MysqlPassword {
      */
     public static final byte PVERSION41_CHAR = '*';
 
+    public static final long VALIDATE_PASSWORD_POLICY_DISABLED = 0;
+    public static final long VALIDATE_PASSWORD_POLICY_STRONG = 2;
+    public static final int MIN_PASSWORD_LEN = 8;
+
     private static final byte[] DIG_VEC_UPPER = {
         '0', '1', '2', '3', '4', '5', '6', '7',
         '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'
     };
 
+    private static final String SPECIAL_CHARS = "~!@#$%^&*()_+|<>,.?/:;'[]{}";
+    private static final Set<Character> COMPLEX_CHAR_SET;
+
+    /**
+     * Built-in dictionary of common weak password words.
+     * Used as fallback when no external dictionary file is configured.
+     * Password containing any of these words (case-insensitive) will be rejected under STRONG policy.
+     */
+    private static final Set<String> BUILTIN_DICTIONARY_WORDS;
+
+    // Lazy-loaded dictionary from external file
+    private static volatile Set<String> loadedDictionaryWords = null;
+    // The file path that was used to load the dictionary (for detecting changes)
+    private static volatile String loadedDictionaryFilePath = null;
+    // Lock object for thread-safe lazy loading
+    private static final Object DICTIONARY_LOAD_LOCK = new Object();
+
     private static final Random RANDOM = new SecureRandom();
+
+    static {
+        COMPLEX_CHAR_SET = new HashSet<>();
+        for (char c : SPECIAL_CHARS.toCharArray()) {
+            COMPLEX_CHAR_SET.add(c);
+        }
+
+        BUILTIN_DICTIONARY_WORDS = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
+            // Common password words
+            "password", "passwd", "pass", "pwd", "secret",
+            // User/role related
+            "admin", "administrator", "root", "user", "guest", "login", "master", "super",
+            // Test/demo related
+            "test", "testing", "demo", "sample", "example", "temp", "temporary",
+            // System/database related
+            "system", "server", "database", "mysql", "doris", "oracle", "postgres",
+            // Common weak patterns
+            "qwerty", "abc", "letmein", "welcome", "hello", "monkey", "dragon", "iloveyou",
+            "trustno", "sunshine", "princess", "football", "baseball", "soccer"
+        )));
+    }
 
     private MysqlPassword() {
         // Utility class
+    }
+
+    /**
+     * Get the dictionary words to use for password validation.
+     * If an external dictionary file is configured, load it lazily.
+     * Otherwise, use the built-in dictionary.
+     *
+     * @return the set of dictionary words (all in lowercase)
+     */
+    private static Set<String> getDictionaryWords() {
+        String configuredFileName = getConfiguredDictionaryFileName();
+
+        // If no file is configured, use built-in dictionary
+        if (configuredFileName == null || configuredFileName.isEmpty()) {
+            return BUILTIN_DICTIONARY_WORDS;
+        }
+
+        String baseDir = Config.security_plugins_dir;
+        String configuredFilePath = baseDir == null
+                    ? configuredFileName
+                    : Paths.get(baseDir, configuredFileName).normalize().toString();
+        // Check if we need to (re)load the dictionary
+        // Double-checked locking for thread safety
+        if (loadedDictionaryWords == null || !configuredFilePath.equals(loadedDictionaryFilePath)) {
+            synchronized (DICTIONARY_LOAD_LOCK) {
+                if (loadedDictionaryWords == null || !configuredFilePath.equals(loadedDictionaryFilePath)) {
+                    loadedDictionaryWords = loadDictionaryFromFile(configuredFilePath);
+                    loadedDictionaryFilePath = configuredFilePath;
+                }
+            }
+        }
+
+        return loadedDictionaryWords != null ? loadedDictionaryWords : BUILTIN_DICTIONARY_WORDS;
+    }
+
+    private static String getConfiguredDictionaryFileName() {
+        try {
+            Class<?> clazz = Class.forName("org.apache.doris.qe.GlobalVariable");
+            Object value = clazz.getDeclaredField("validatePasswordDictionaryFile").get(null);
+            if (value instanceof String) {
+                return (String) value;
+            }
+        } catch (ClassNotFoundException e) {
+            // GlobalVariable not available in this module.
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            LOG.warn("Failed to read GlobalVariable.validatePasswordDictionaryFile: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * Load dictionary words from an external file.
+     * Each line in the file is treated as one dictionary word.
+     * Empty lines and lines starting with '#' are ignored.
+     *
+     * @param filePath path to the dictionary file
+     * @return set of dictionary words (all converted to lowercase), or null if loading fails
+     */
+    private static Set<String> loadDictionaryFromFile(String filePath) {
+        Set<String> words = new HashSet<>();
+        try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                line = line.trim();
+                // Skip empty lines and comments
+                if (!line.isEmpty() && !line.startsWith("#")) {
+                    words.add(line.toLowerCase());
+                }
+            }
+            LOG.info("Loaded {} words from password dictionary file: {}", words.size(), filePath);
+            return words;
+        } catch (IOException e) {
+            LOG.warn("Failed to load password dictionary file: {}. Using built-in dictionary. Error: {}",
+                    filePath, e.getMessage());
+            return null;
+        }
     }
 
     /**
@@ -285,9 +413,9 @@ public class MysqlPassword {
      * <p>Policy values:
      * <ul>
      *   <li>0: Disabled - no validation</li>
-     *   <li>2: STRONG - password must be at least 8 characters and contain
-     *       at least 3 types of: numbers, uppercase letters, lowercase letters,
-     *       and special characters</li>
+     *   <li>2: STRONG - password must be at least 8 characters, contain all 4 types
+     *       of: numbers, uppercase letters, lowercase letters, and special characters,
+     *       and must not contain dictionary words</li>
      * </ul>
      *
      * @param policy   the password validation policy (0 = disabled, 2 = STRONG)
@@ -295,57 +423,72 @@ public class MysqlPassword {
      * @throws IllegalArgumentException if password does not meet policy requirements
      */
     public static void validatePlainPassword(long policy, String password) {
-        if (policy == 0) {
+        if (policy == VALIDATE_PASSWORD_POLICY_DISABLED) {
             // Policy disabled, no validation
             return;
         }
 
-        if (policy == 2) {
+        if (policy == VALIDATE_PASSWORD_POLICY_STRONG) {
             // STRONG policy
-            if (password == null || password.length() < 8) {
+            if (password == null || password.length() < MIN_PASSWORD_LEN) {
                 throw new IllegalArgumentException(
-                    "Violate password validation policy: STRONG. The password must be at least 8 characters");
+                    "Violate password validation policy: STRONG. "
+                        + "The password must be at least " + MIN_PASSWORD_LEN + " characters.");
             }
 
-            boolean hasDigit = false;
-            boolean hasUpper = false;
-            boolean hasLower = false;
-            boolean hasSpecial = false;
+            StringBuilder missingTypes = new StringBuilder();
 
-            for (char c : password.toCharArray()) {
-                if (c >= '0' && c <= '9') {
-                    hasDigit = true;
-                } else if (c >= 'A' && c <= 'Z') {
-                    hasUpper = true;
-                } else if (c >= 'a' && c <= 'z') {
-                    hasLower = true;
-                } else {
-                    hasSpecial = true;
-                }
+            if (password.chars().noneMatch(Character::isDigit)) {
+                missingTypes.append("numeric, ");
+            }
+            if (password.chars().noneMatch(Character::isLowerCase)) {
+                missingTypes.append("lowercase, ");
+            }
+            if (password.chars().noneMatch(Character::isUpperCase)) {
+                missingTypes.append("uppercase, ");
+            }
+            if (password.chars().noneMatch(c -> COMPLEX_CHAR_SET.contains((char) c))) {
+                missingTypes.append("special character, ");
             }
 
-            int typeCount = 0;
-            if (hasDigit) {
-                typeCount++;
-            }
-            if (hasUpper) {
-                typeCount++;
-            }
-            if (hasLower) {
-                typeCount++;
-            }
-            if (hasSpecial) {
-                typeCount++;
-            }
-
-            if (typeCount < 3) {
+            if (missingTypes.length() > 0) {
+                // Remove trailing ", "
+                missingTypes.setLength(missingTypes.length() - 2);
                 throw new IllegalArgumentException(
-                    "Violate password validation policy: STRONG. The password must contain "
-                    + "at least 3 types of numbers, uppercase letters, lowercase letters and special characters.");
+                    "Violate password validation policy: STRONG. "
+                        + "The password must contain at least one character from each of the following types: "
+                        + "numeric, lowercase, uppercase, and special characters. "
+                        + "Missing: " + missingTypes + ".");
+            }
+
+            // Check for dictionary words (case-insensitive)
+            String foundWord = containsDictionaryWord(password);
+            if (foundWord != null) {
+                throw new IllegalArgumentException(
+                    "Violate password validation policy: STRONG. "
+                        + "The password contains a common dictionary word '" + foundWord + "', "
+                        + "which makes it easy to guess. Please choose a more secure password.");
             }
         } else {
             throw new IllegalArgumentException("Unknown password validation policy: " + policy);
         }
+    }
+
+    /**
+     * Check if the password contains any dictionary word (case-insensitive).
+     * Uses either the external dictionary file (if configured) or the built-in dictionary.
+     *
+     * @param password the password to check
+     * @return the found dictionary word, or null if none found
+     */
+    private static String containsDictionaryWord(String password) {
+        String lowerPassword = password.toLowerCase();
+        for (String word : getDictionaryWords()) {
+            if (lowerPassword.contains(word)) {
+                return word;
+            }
+        }
+        return null;
     }
 
     /**
@@ -389,5 +532,4 @@ public class MysqlPassword {
         return passwordBytes;
     }
 }
-
 

@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
+import org.apache.doris.mysql.MysqlCapability;
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.thrift.TUniqueId;
 
