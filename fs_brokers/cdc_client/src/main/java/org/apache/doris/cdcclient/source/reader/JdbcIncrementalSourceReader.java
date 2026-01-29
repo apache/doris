@@ -66,6 +66,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 import static org.apache.flink.cdc.connectors.base.source.meta.split.StreamSplit.STREAM_SPLIT_ID;
 
@@ -225,31 +226,36 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         // Clear previous contexts
         this.snapshotReaderContexts.clear();
         this.currentReaderIndex = 0;
-        
+
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
         // Create reader for each split and submit
         for (int i = 0; i < splits.size(); i++) {
-            org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit split = splits.get(i);
-            
+            final int index = i;
+            org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit split = splits.get(index);
+
             // Create independent reader (each has its own Debezium queue)
-            Fetcher<SourceRecords, SourceSplitBase> reader = getSnapshotSplitReader(baseReq, i);
-            
-            // Submit split (triggers async reading, data goes into reader's Debezium queue)
-            FetchTask<SourceSplitBase> splitFetchTask = createFetchTaskFromSplit(baseReq, split);
-            reader.submitTask(splitFetchTask);
+            Fetcher<SourceRecords, SourceSplitBase> reader = getSnapshotSplitReader(baseReq, index);
 
             // Create split state
             SnapshotSplitState splitState = new SnapshotSplitState(split);
-            
+
             // Save context using generic SnapshotReaderContext
-            SnapshotReaderContext<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit, 
-                Fetcher<SourceRecords, SourceSplitBase>, SnapshotSplitState> context = 
-                new SnapshotReaderContext<>(split, reader, splitState);
+            SnapshotReaderContext<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit,
+                    Fetcher<SourceRecords, SourceSplitBase>, SnapshotSplitState> context =
+                    new SnapshotReaderContext<>(split, reader, splitState);
             snapshotReaderContexts.add(context);
-            
-            LOG.info("Created reader {}/{} and submitted split: {} (table: {})", 
-                    i + 1, splits.size(), split.splitId(), split.getTableId().identifier());
+
+            futures.add(CompletableFuture.runAsync(() -> {
+                // Submit split (triggers async reading, data goes into reader's Debezium queue)
+                FetchTask<SourceSplitBase> splitFetchTask = createFetchTaskFromSplit(baseReq, split);
+                reader.submitTask(splitFetchTask);
+                LOG.info("Created reader {}/{} and submitted split: {} (table: {})",
+                        index + 1, splits.size(), split.splitId(), split.getTableId().identifier());
+            }));
         }
-        
+
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
         // Construct return result with all splits and states
         SplitReadResult result = new SplitReadResult();
         
@@ -266,7 +272,8 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         
         result.setSplits(allSplits);
         result.setSplitStates(allStates);
-        
+
+        LOG.info("Success prepared {} snapshot splits for reading", splits.size());
         return result;
     }
     
@@ -295,7 +302,8 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         Map<String, Object> statesMap = new HashMap<>();
         statesMap.put(this.streamSplit.splitId(), this.streamSplitState);
         result.setSplitStates(statesMap);
-        
+
+        LOG.info("Success prepared stream split: {}", this.streamSplit.toString());
         return result;
     }
 
@@ -341,6 +349,8 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
             SnapshotReaderContext<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit,
                     Fetcher<SourceRecords, SourceSplitBase>, SnapshotSplitState> context = 
                 snapshotReaderContexts.get(currentReaderIndex);
+            LOG.info("Polling data from snapshot split reader {}/{}: splitId={}",
+                    currentReaderIndex + 1, totalReaders, context.getSplit().splitId());
             
             // Poll data directly from this reader's Debezium queue
             Iterator<SourceRecords> dataIt = context.getReader().pollSplitRecords();
@@ -354,6 +364,11 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
             
             // Has data, process and return
             SourceRecords sourceRecords = dataIt.next();
+            if (!sourceRecords.getSourceRecordList().isEmpty()) {
+                LOG.info("{} Records received from snapshot split {}",
+                        sourceRecords.getSourceRecordList().size(),
+                        context.getSplit().splitId());
+            }
 
             // Move to next reader for next call
             currentReaderIndex++;
