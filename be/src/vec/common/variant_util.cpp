@@ -1741,11 +1741,7 @@ void materialize_docs_to_subcolumns(ColumnVariant& column_variant) {
                                    entry.first);
         }
     }
-
-    column_variant.finalize();
 }
-
-// ============ Implementation from variant_util.cpp ============
 
 /// FastSubcolumn: An optimized subcolumn builder for materialize_docs_to_subcolumns_map.
 ///

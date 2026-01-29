@@ -162,67 +162,16 @@ const std::string DataTypeSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE = "\\N";
 
 const uint8_t* DataTypeSerDe::deserialize_binary_to_column(const uint8_t* data, IColumn& column) {
     auto& nullable_column = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
-    const FieldType type = static_cast<FieldType>(*data++);
-    const uint8_t* end = data;
-    switch (type) {
-#define HANDLE_SIMPLE_SERDE(FT, SERDE)                                                        \
-    case FieldType::FT: {                                                                     \
-        end = SERDE::deserialize_binary_to_column(data, nullable_column.get_nested_column()); \
-        nullable_column.push_false_to_nullmap(1);                                             \
-        break;                                                                                \
-    }
-
-#define HANDLE_T_NUM_SERDE(FT, TYPEID)                                   \
-    case FieldType::FT: {                                                \
-        end = DataTypeNumberSerDe<TYPEID>::deserialize_binary_to_column( \
-                data, nullable_column.get_nested_column());              \
-        nullable_column.push_false_to_nullmap(1);                        \
-        break;                                                           \
-    }
-
-#define HANDLE_T_DEC_SERDE(FT, TYPEID)                                    \
-    case FieldType::FT: {                                                 \
-        end = DataTypeDecimalSerDe<TYPEID>::deserialize_binary_to_column( \
-                data, nullable_column.get_nested_column());               \
-        nullable_column.push_false_to_nullmap(1);                         \
-        break;                                                            \
-    }
-
-        HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_STRING, DataTypeStringSerDe)
-        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_TINYINT, TYPE_TINYINT)
-        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_SMALLINT, TYPE_SMALLINT)
-        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_INT, TYPE_INT)
-        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_BIGINT, TYPE_BIGINT)
-        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_LARGEINT, TYPE_LARGEINT)
-        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_FLOAT, TYPE_FLOAT)
-        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DOUBLE, TYPE_DOUBLE)
-        HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_JSONB, DataTypeJsonbSerDe)
-        HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_ARRAY, DataTypeArraySerDe)
-        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV4, TYPE_IPV4)
-        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV6, TYPE_IPV6)
-        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATEV2, TYPE_DATEV2)
-        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATETIMEV2, TYPE_DATETIMEV2)
-        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL32, TYPE_DECIMAL32)
-        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL64, TYPE_DECIMAL64)
-        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL128I, TYPE_DECIMAL128I)
-        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL256, TYPE_DECIMAL256)
-        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_BOOL, TYPE_BOOLEAN)
-        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_TIMESTAMPTZ, TYPE_TIMESTAMPTZ)
-
-    case FieldType::OLAP_FIELD_TYPE_NONE: {
-        end = data;
+    // Handle NULL (OLAP_FIELD_TYPE_NONE) specially for nullable column
+    if (static_cast<FieldType>(*data) == FieldType::OLAP_FIELD_TYPE_NONE) {
+        data++; // consume the type byte
         nullable_column.insert_default();
-        break;
+        return data;
     }
-    default:
-        throw doris::Exception(ErrorCode::OUT_OF_BOUND,
-                               "Type ({}) for deserialize_binary_to_column is invalid", type);
-    }
-
-#undef HANDLE_T_DEC_SERDE
-#undef HANDLE_T_NUM_SERDE
-#undef HANDLE_SIMPLE_SERDE
-
+    // Delegate to the non-nullable version for actual deserialization
+    const uint8_t* end =
+            deserialize_binary_to_non_nullable_column(data, nullable_column.get_nested_column());
+    nullable_column.push_false_to_nullmap(1);
     return end;
 }
 
