@@ -105,17 +105,30 @@ using FunctionTimestamptzAddMonths =
         FunctionDateOrDateTimeComputation<AddMonthsImpl<TYPE_TIMESTAMPTZ>>;
 using FunctionTimestamptzAddYears =
         FunctionDateOrDateTimeComputation<AddYearsImpl<TYPE_TIMESTAMPTZ>>;
+#define FUNCTION_TIME_UNION_CAL(TYPE)                                                 \
+    using FunctionDatetimeAdd##TYPE =                                                 \
+            FunctionDateOrDateTimeComputation<Add##TYPE##Impl<TYPE_DATETIMEV2>>;      \
+    using FunctionDatetimeSub##TYPE =                                                 \
+            FunctionDateOrDateTimeComputation<Subtract##TYPE##Impl<TYPE_DATETIMEV2>>; \
+    using FunctionTimestamptzAdd##TYPE =                                              \
+            FunctionDateOrDateTimeComputation<Add##TYPE##Impl<TYPE_TIMESTAMPTZ>>;     \
+    using FunctionTimestamptzSub##TYPE =                                              \
+            FunctionDateOrDateTimeComputation<Subtract##TYPE##Impl<TYPE_TIMESTAMPTZ>>;
+
+FUNCTION_TIME_UNION_CAL(SecondMicrosecond);
+FUNCTION_TIME_UNION_CAL(MinuteMicrosecond);
+FUNCTION_TIME_UNION_CAL(MinuteSecond);
+FUNCTION_TIME_UNION_CAL(HourMicrosecond);
+FUNCTION_TIME_UNION_CAL(HourSecond);
+FUNCTION_TIME_UNION_CAL(HourMinute);
+FUNCTION_TIME_UNION_CAL(DayMicrosecond);
+FUNCTION_TIME_UNION_CAL(DaySecond);
+FUNCTION_TIME_UNION_CAL(DayMinute);
+FUNCTION_TIME_UNION_CAL(DayHour);
+FUNCTION_TIME_UNION_CAL(YearMonth);
 
 using FunctionDatetimeAddQuarters =
         FunctionDateOrDateTimeComputation<AddQuartersImpl<TYPE_DATETIMEV2>>;
-using FunctionDatetimeAddDaySecond =
-        FunctionDateOrDateTimeComputation<AddDaySecondImpl<TYPE_DATETIMEV2>>;
-using FunctionDatetimeAddDayHour =
-        FunctionDateOrDateTimeComputation<AddDayHourImpl<TYPE_DATETIMEV2>>;
-using FunctionDatetimeAddMinuteSecond =
-        FunctionDateOrDateTimeComputation<AddMinuteSecondImpl<TYPE_DATETIMEV2>>;
-using FunctionDatetimeAddSecondMicrosecond =
-        FunctionDateOrDateTimeComputation<AddSecondMicrosecondImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeSubMicroseconds =
         FunctionDateOrDateTimeComputation<SubtractMicrosecondsImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeSubMilliseconds =
@@ -139,14 +152,6 @@ using FunctionDatetimeSubYears =
 
 using FunctionTimestamptzAddQuarters =
         FunctionDateOrDateTimeComputation<AddQuartersImpl<TYPE_TIMESTAMPTZ>>;
-using FunctionTimestamptzAddDaySecond =
-        FunctionDateOrDateTimeComputation<AddDaySecondImpl<TYPE_TIMESTAMPTZ>>;
-using FunctionTimestamptzAddDayHour =
-        FunctionDateOrDateTimeComputation<AddDayHourImpl<TYPE_TIMESTAMPTZ>>;
-using FunctionTimestamptzAddMinuteSecond =
-        FunctionDateOrDateTimeComputation<AddMinuteSecondImpl<TYPE_TIMESTAMPTZ>>;
-using FunctionTimestamptzAddSecondMicrosecond =
-        FunctionDateOrDateTimeComputation<AddSecondMicrosecondImpl<TYPE_TIMESTAMPTZ>>;
 using FunctionTimestamptzSubMicroseconds =
         FunctionDateOrDateTimeComputation<SubtractMicrosecondsImpl<TYPE_TIMESTAMPTZ>>;
 using FunctionTimestamptzSubMilliseconds =
@@ -250,10 +255,6 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDatetimeAddMonths>();
     factory.register_function<FunctionDatetimeAddYears>();
     factory.register_function<FunctionDatetimeAddQuarters>();
-    factory.register_function<FunctionDatetimeAddDaySecond>();
-    factory.register_function<FunctionDatetimeAddDayHour>();
-    factory.register_function<FunctionDatetimeAddMinuteSecond>();
-    factory.register_function<FunctionDatetimeAddSecondMicrosecond>();
     factory.register_function<FunctionTimestamptzAddMicroseconds>();
     factory.register_function<FunctionTimestamptzAddMilliseconds>();
     factory.register_function<FunctionTimestamptzAddSeconds>();
@@ -264,10 +265,24 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionTimestamptzAddMonths>();
     factory.register_function<FunctionTimestamptzAddYears>();
     factory.register_function<FunctionTimestamptzAddQuarters>();
-    factory.register_function<FunctionTimestamptzAddDaySecond>();
-    factory.register_function<FunctionTimestamptzAddDayHour>();
-    factory.register_function<FunctionTimestamptzAddMinuteSecond>();
-    factory.register_function<FunctionTimestamptzAddSecondMicrosecond>();
+
+#define REGISTER_TIME_UNION_CAL(TYPE)                          \
+    factory.register_function<FunctionDatetimeAdd##TYPE>();    \
+    factory.register_function<FunctionDatetimeSub##TYPE>();    \
+    factory.register_function<FunctionTimestamptzAdd##TYPE>(); \
+    factory.register_function<FunctionTimestamptzSub##TYPE>();
+
+    REGISTER_TIME_UNION_CAL(SecondMicrosecond);
+    REGISTER_TIME_UNION_CAL(MinuteMicrosecond);
+    REGISTER_TIME_UNION_CAL(MinuteSecond);
+    REGISTER_TIME_UNION_CAL(HourMicrosecond);
+    REGISTER_TIME_UNION_CAL(HourSecond);
+    REGISTER_TIME_UNION_CAL(HourMinute);
+    REGISTER_TIME_UNION_CAL(DayMicrosecond);
+    REGISTER_TIME_UNION_CAL(DaySecond);
+    REGISTER_TIME_UNION_CAL(DayMinute);
+    REGISTER_TIME_UNION_CAL(DayHour);
+    REGISTER_TIME_UNION_CAL(YearMonth);
 
     factory.register_function<FunctionSubDays>();
     factory.register_function<FunctionSubMonths>();

@@ -778,7 +778,7 @@ suite("doc_date_functions_test") {
     qt_from_days_3 """select from_days(NULL)"""
 
     // 21. FROM_ISO8601_DATE function tests
-    qt_from_iso8601_date_1 """select from_iso8601_date('2023') as year_only, from_iso8601_date('2023-10') as year_month, from_iso8601_date('2023-10-05') as full_date"""
+    qt_from_iso8601_date_1 """select from_iso8601_date('2023') as year_only, from_iso8601_date('2023-10') as year_and_month, from_iso8601_date('2023-10-05') as full_date"""
     qt_from_iso8601_date_2 """select from_iso8601_date('2021-001') as day_1, from_iso8601_date('2021-059') as day_59, from_iso8601_date('2021-060') as day_60, from_iso8601_date('2024-366') as day_366"""
     qt_from_iso8601_date_3 """select from_iso8601_date('0522-W01-1') as week_1"""
     qt_from_iso8601_date_4 """select from_iso8601_date('0522-W01-4') as week_4"""
@@ -2399,7 +2399,7 @@ suite("doc_date_functions_test") {
 
     // 21. FROM_ISO8601_DATE function constant folding tests
     testFoldConst("SELECT FROM_ISO8601_DATE('2023') as year_only")
-    testFoldConst("SELECT FROM_ISO8601_DATE('2023-10') as year_month")
+    testFoldConst("SELECT FROM_ISO8601_DATE('2023-10')")
     testFoldConst("SELECT FROM_ISO8601_DATE('2023-10-05') as full_date")
     testFoldConst("SELECT FROM_ISO8601_DATE('2021-001') as day_1")
     testFoldConst("SELECT FROM_ISO8601_DATE('2021-060') as day_60")

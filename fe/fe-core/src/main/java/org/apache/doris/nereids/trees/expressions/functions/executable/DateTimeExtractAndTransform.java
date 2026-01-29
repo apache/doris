@@ -313,6 +313,89 @@ public class DateTimeExtractAndTransform {
         return new VarcharLiteral(DateTimeFormatterUtils.toFormatStringConservative(dateTime, format, true));
     }
 
+    private static String padTwo(int value) {
+        return value < 10 ? "0" + value : Integer.toString(value);
+    }
+
+    private static String padMicro(int micro) {
+        String s = Integer.toString(micro);
+        int len = s.length();
+        return len >= 6 ? s : "000000".substring(len) + s;
+    }
+
+    @ExecFunction(name = "year_month")
+    public static Expression yearMonth(DateTimeV2Literal dateTime) {
+        LocalDateTime t = dateTime.toJavaDateType();
+        return new VarcharLiteral(t.getYear() + "-" + padTwo(t.getMonthValue()));
+    }
+
+    @ExecFunction(name = "day_hour")
+    public static Expression dayHour(DateTimeV2Literal dateTime) {
+        LocalDateTime t = dateTime.toJavaDateType();
+        return new VarcharLiteral(padTwo(t.getDayOfMonth()) + " " + padTwo(t.getHour()));
+    }
+
+    @ExecFunction(name = "day_minute")
+    public static Expression dayMinute(DateTimeV2Literal dateTime) {
+        LocalDateTime t = dateTime.toJavaDateType();
+        return new VarcharLiteral(padTwo(t.getDayOfMonth()) + " " + padTwo(t.getHour()) + ":"
+                + padTwo(t.getMinute()));
+    }
+
+    @ExecFunction(name = "day_second")
+    public static Expression daySecond(DateTimeV2Literal dateTime) {
+        LocalDateTime t = dateTime.toJavaDateType();
+        return new VarcharLiteral(padTwo(t.getDayOfMonth()) + " " + padTwo(t.getHour()) + ":"
+                + padTwo(t.getMinute()) + ":" + padTwo(t.getSecond()));
+    }
+
+    @ExecFunction(name = "day_microsecond")
+    public static Expression dayMicrosecond(DateTimeV2Literal dateTime) {
+        LocalDateTime t = dateTime.toJavaDateType();
+        return new VarcharLiteral(padTwo(t.getDayOfMonth()) + " " + padTwo(t.getHour()) + ":"
+                + padTwo(t.getMinute()) + ":" + padTwo(t.getSecond()) + "."
+                + padMicro(t.getNano() / 1000));
+    }
+
+    @ExecFunction(name = "hour_minute")
+    public static Expression hourMinute(DateTimeV2Literal dateTime) {
+        LocalDateTime t = dateTime.toJavaDateType();
+        return new VarcharLiteral(padTwo(t.getHour()) + ":" + padTwo(t.getMinute()));
+    }
+
+    @ExecFunction(name = "hour_second")
+    public static Expression hourSecond(DateTimeV2Literal dateTime) {
+        LocalDateTime t = dateTime.toJavaDateType();
+        return new VarcharLiteral(padTwo(t.getHour()) + ":" + padTwo(t.getMinute()) + ":"
+                + padTwo(t.getSecond()));
+    }
+
+    @ExecFunction(name = "hour_microsecond")
+    public static Expression hourMicrosecond(DateTimeV2Literal dateTime) {
+        LocalDateTime t = dateTime.toJavaDateType();
+        return new VarcharLiteral(padTwo(t.getHour()) + ":" + padTwo(t.getMinute()) + ":"
+                + padTwo(t.getSecond()) + "." + padMicro(t.getNano() / 1000));
+    }
+
+    @ExecFunction(name = "minute_second")
+    public static Expression minuteSecond(DateTimeV2Literal dateTime) {
+        LocalDateTime t = dateTime.toJavaDateType();
+        return new VarcharLiteral(padTwo(t.getMinute()) + ":" + padTwo(t.getSecond()));
+    }
+
+    @ExecFunction(name = "minute_microsecond")
+    public static Expression minuteMicrosecond(DateTimeV2Literal dateTime) {
+        LocalDateTime t = dateTime.toJavaDateType();
+        return new VarcharLiteral(padTwo(t.getMinute()) + ":" + padTwo(t.getSecond()) + "."
+                + padMicro(t.getNano() / 1000));
+    }
+
+    @ExecFunction(name = "second_microsecond")
+    public static Expression secondMicrosecond(DateTimeV2Literal dateTime) {
+        LocalDateTime t = dateTime.toJavaDateType();
+        return new VarcharLiteral(padTwo(t.getSecond()) + "." + padMicro(t.getNano() / 1000));
+    }
+
     /**
      * datetime arithmetic function date
      */

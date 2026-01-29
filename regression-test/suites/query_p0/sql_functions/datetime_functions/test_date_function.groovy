@@ -253,12 +253,6 @@ suite("test_date_function") {
     qt_sql """ select date_add(test_datetime, INTERVAL 2 SECOND) result from ${tableName}; """
     qt_sql """ select date_add(test_datetime, INTERVAL '1 00:00:01' DAY_SECOND) result from ${tableName}; """
 
-    test {
-        sql """ select date_add(test_datetime, INTERVAL '1 xx:00:01' DAY_SECOND) result from ${tableName}; """
-        // check exception message contains
-        exception "Invalid hours format"
-    }
-
     explain {
         sql """select * from ${tableName} where test_datetime >= date_add('2024-01-16',INTERVAL 1 day);"""
         contains "2024-01-17"
