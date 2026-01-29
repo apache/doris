@@ -98,7 +98,8 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
         Set<Slot> groupBySlots = ((LogicalAggregate<?>) topN.child()).getGroupByExpressions().stream()
                 .flatMap(e -> e.getInputSlots().stream()).collect(Collectors.toSet());
         switch (join.getJoinType()) {
-            case LEFT_OUTER_JOIN: {
+            case LEFT_OUTER_JOIN:
+            case ASOF_LEFT_OUTER_JOIN: {
                 if (join.left() instanceof TopN) {
                     return null;
                 }
@@ -112,7 +113,8 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
                 }
                 return null;
             }
-            case RIGHT_OUTER_JOIN: {
+            case RIGHT_OUTER_JOIN:
+            case ASOF_RIGHT_OUTER_JOIN: {
                 if (join.right() instanceof TopN) {
                     return null;
                 }

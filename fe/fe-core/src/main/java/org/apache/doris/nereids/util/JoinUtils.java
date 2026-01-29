@@ -445,11 +445,13 @@ public class JoinUtils {
             case RIGHT_ANTI_JOIN:
                 return ImmutableList.copyOf(rightOutput);
             case LEFT_OUTER_JOIN:
+            case ASOF_LEFT_OUTER_JOIN:
                 return ImmutableList.<Slot>builder()
                         .addAll(leftOutput)
                         .addAll(applyNullable(rightOutput, true))
                         .build();
             case RIGHT_OUTER_JOIN:
+            case ASOF_RIGHT_OUTER_JOIN:
                 return ImmutableList.<Slot>builder()
                         .addAll(applyNullable(leftOutput, true))
                         .addAll(rightOutput)

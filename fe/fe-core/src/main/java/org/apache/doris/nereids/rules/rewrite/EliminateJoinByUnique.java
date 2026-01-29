@@ -37,7 +37,8 @@ public class EliminateJoinByUnique extends OneRewriteRuleFactory {
                 return project;
             }
             if (!JoinUtils.canEliminateByLeft(join,
-                    join.right().getLogicalProperties().getTrait())) {
+                    join.right().getLogicalProperties().getTrait())
+                     && !join.getJoinType().isAsofJoin()) {
                 return project;
             }
             return project.withChildren(join.left());

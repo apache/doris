@@ -255,6 +255,11 @@ public class NereidsParserTest extends ParserTestBase {
         logicalJoin = (LogicalJoin) logicalPlan.child(0);
         Assertions.assertEquals(JoinType.INNER_JOIN, logicalJoin.getJoinType());
 
+        String asofInnerJoin = "SELECT t1.a FROM t1 ASOF INNER JOIN t2 MATCH_CONDITION(t1.dt < t2.dt) ON t1.id = t2.id;";
+        logicalPlan = (LogicalPlan) nereidsParser.parseSingle(asofInnerJoin).child(0);
+        logicalJoin = (LogicalJoin) logicalPlan.child(0);
+        Assertions.assertEquals(JoinType.ASOF_LEFT_INNER_JOIN, logicalJoin.getJoinType());
+
         String leftJoin1 = "SELECT t1.a FROM t1 LEFT JOIN t2 ON t1.id = t2.id;";
         logicalPlan = (LogicalPlan) nereidsParser.parseSingle(leftJoin1).child(0);
         logicalJoin = (LogicalJoin) logicalPlan.child(0);
@@ -264,6 +269,11 @@ public class NereidsParserTest extends ParserTestBase {
         logicalPlan = (LogicalPlan) nereidsParser.parseSingle(leftJoin2).child(0);
         logicalJoin = (LogicalJoin) logicalPlan.child(0);
         Assertions.assertEquals(JoinType.LEFT_OUTER_JOIN, logicalJoin.getJoinType());
+
+        String asofLeftJoin = "SELECT t1.a FROM t1 ASOF JOIN t2 MATCH_CONDITION(t1.dt < t2.dt) ON t1.id = t2.id;";
+        logicalPlan = (LogicalPlan) nereidsParser.parseSingle(asofLeftJoin).child(0);
+        logicalJoin = (LogicalJoin) logicalPlan.child(0);
+        Assertions.assertEquals(JoinType.ASOF_LEFT_OUTER_JOIN, logicalJoin.getJoinType());
 
         String rightJoin1 = "SELECT t1.a FROM t1 RIGHT JOIN t2 ON t1.id = t2.id;";
         logicalPlan = (LogicalPlan) nereidsParser.parseSingle(rightJoin1).child(0);

@@ -114,10 +114,10 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
 
     private JoinType tryEliminateOuterJoin(JoinType joinType, boolean canFilterLeftNull, boolean canFilterRightNull) {
         if (joinType.isRightOuterJoin() && canFilterLeftNull) {
-            return JoinType.INNER_JOIN;
+            return joinType.isAsofOuterJoin() ? JoinType.ASOF_RIGHT_INNER_JOIN : JoinType.INNER_JOIN;
         }
         if (joinType.isLeftOuterJoin() && canFilterRightNull) {
-            return JoinType.INNER_JOIN;
+            return joinType.isAsofOuterJoin() ? JoinType.ASOF_LEFT_INNER_JOIN : JoinType.INNER_JOIN;
         }
         if (joinType.isFullOuterJoin() && canFilterLeftNull && canFilterRightNull) {
             return JoinType.INNER_JOIN;

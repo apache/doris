@@ -79,7 +79,8 @@ public class ConvertOuterJoinToAntiJoin extends DefaultPlanRewriter<Map<ExprId, 
 
     private Plan toAntiJoin(LogicalFilter<LogicalJoin<Plan, Plan>> filter, Map<ExprId, ExprId> replaceMap) {
         LogicalJoin<Plan, Plan> join = filter.child();
-        if (!join.getJoinType().isLeftOuterJoin() && !join.getJoinType().isRightOuterJoin()) {
+        if (join.getJoinType().isAsofJoin()
+                || (!join.getJoinType().isLeftOuterJoin() && !join.getJoinType().isRightOuterJoin())) {
             return filter;
         }
 

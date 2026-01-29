@@ -59,7 +59,7 @@ public class EliminateJoinByFK extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalProject(
-                logicalJoin().when(join -> join.getJoinType().isInnerJoin())
+                logicalJoin().when(join -> join.getJoinType().isInnerJoin() && !join.getJoinType().isAsofJoin())
         ).then(project -> {
             LogicalJoin<Plan, Plan> join = project.child();
             ImmutableEqualSet<Slot> equalSet = join.getEqualSlots();

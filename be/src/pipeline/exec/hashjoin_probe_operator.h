@@ -37,10 +37,15 @@ using HashTableCtxVariants =
                      ProcessHashTableProbe<TJoinOp::LEFT_OUTER_JOIN>,
                      ProcessHashTableProbe<TJoinOp::FULL_OUTER_JOIN>,
                      ProcessHashTableProbe<TJoinOp::RIGHT_OUTER_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::CROSS_JOIN>,
                      ProcessHashTableProbe<TJoinOp::RIGHT_SEMI_JOIN>,
                      ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN>,
                      ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN>>;
+                     ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::ASOF_LEFT_INNER_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::ASOF_RIGHT_INNER_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::ASOF_LEFT_OUTER_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::ASOF_RIGHT_OUTER_JOIN>>;
 
 class HashJoinProbeOperatorX;
 class HashJoinProbeLocalState MOCK_REMOVE(final)

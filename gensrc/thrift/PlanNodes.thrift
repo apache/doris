@@ -916,7 +916,11 @@ enum TJoinOp {
   // be rejected (ANTI-join), based on the other join conjuncts. This is in contrast
   // to LEFT_ANTI_JOIN where NULLs are not matches and therefore always returned.
   NULL_AWARE_LEFT_ANTI_JOIN = 10,
-  NULL_AWARE_LEFT_SEMI_JOIN = 11
+  NULL_AWARE_LEFT_SEMI_JOIN = 11,
+  ASOF_LEFT_INNER_JOIN = 12,
+  ASOF_RIGHT_INNER_JOIN = 13,
+  ASOF_LEFT_OUTER_JOIN = 14,
+  ASOF_RIGHT_OUTER_JOIN = 15
 }
 
 enum TJoinDistributionType {

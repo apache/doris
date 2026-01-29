@@ -32,13 +32,15 @@ class EliminateJoinByUniqueTest extends TestWithFeService implements MemoPattern
         createTables(
                 "CREATE TABLE IF NOT EXISTS t1 (\n"
                         + "    id1 int not null,\n"
-                        + "    id_null int\n"
+                        + "    id_null int,\n"
+                        + "    dt1 date not null\n"
                         + ")\n"
                         + "DUPLICATE KEY(id1)\n"
                         + "DISTRIBUTED BY HASH(id1) BUCKETS 10\n"
                         + "PROPERTIES (\"replication_num\" = \"1\")\n",
                 "CREATE TABLE IF NOT EXISTS t2 (\n"
-                        + "    id2 int not null\n"
+                        + "    id2 int not null,\n"
+                        + "    dt2 date not null\n"
                         + ")\n"
                         + "DUPLICATE KEY(id2)\n"
                         + "DISTRIBUTED BY HASH(id2) BUCKETS 10\n"
@@ -56,8 +58,20 @@ class EliminateJoinByUniqueTest extends TestWithFeService implements MemoPattern
                 .rewrite()
                 .nonMatch(logicalJoin())
                 .printlnTree();
+        sql = "select t1.id1 from t1 asof left join t2 MATCH_CONDITION(t1.dt1 > t2.dt2) on t1.id1 = t2.id2";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalJoin())
+                .printlnTree();
 
         sql = "select t2.id2 from t1 left outer join t2 on t1.id1 = t2.id2";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
+                .printlnTree();
+        sql = "select t2.id2 from t1 asof left join t2 MATCH_CONDITION(t1.dt1 > t2.dt2) on t1.id1 = t2.id2";
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
@@ -73,8 +87,20 @@ class EliminateJoinByUniqueTest extends TestWithFeService implements MemoPattern
                 .rewrite()
                 .nonMatch(logicalJoin())
                 .printlnTree();
+        sql = "select t1.id1 from t1 asof left join t2 MATCH_CONDITION(t1.dt1 > t2.dt2) on t1.id_null = t2.id2";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalJoin())
+                .printlnTree();
 
         sql = "select t2.id2 from t1 left outer join t2 on t1.id_null = t2.id2";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
+                .printlnTree();
+        sql = "select t2.id2 from t1 asof left join t2 MATCH_CONDITION(t1.dt1 > t2.dt2) on t1.id_null = t2.id2";
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()

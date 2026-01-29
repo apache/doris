@@ -47,7 +47,10 @@ public class PushDownFilterThroughJoin extends OneRewriteRuleFactory {
             JoinType.LEFT_SEMI_JOIN,
             JoinType.LEFT_ANTI_JOIN,
             JoinType.NULL_AWARE_LEFT_ANTI_JOIN,
-            JoinType.CROSS_JOIN
+            JoinType.CROSS_JOIN,
+            JoinType.ASOF_LEFT_INNER_JOIN,
+            JoinType.ASOF_RIGHT_INNER_JOIN,
+            JoinType.ASOF_LEFT_OUTER_JOIN
     );
 
     public static final ImmutableList<JoinType> COULD_PUSH_THROUGH_RIGHT = ImmutableList.of(
@@ -55,7 +58,10 @@ public class PushDownFilterThroughJoin extends OneRewriteRuleFactory {
             JoinType.RIGHT_OUTER_JOIN,
             JoinType.RIGHT_SEMI_JOIN,
             JoinType.RIGHT_ANTI_JOIN,
-            JoinType.CROSS_JOIN
+            JoinType.CROSS_JOIN,
+            JoinType.ASOF_LEFT_INNER_JOIN,
+            JoinType.ASOF_RIGHT_INNER_JOIN,
+            JoinType.ASOF_RIGHT_OUTER_JOIN
     );
 
     private static final ImmutableList<JoinType> COULD_PUSH_INSIDE = ImmutableList.of(

@@ -162,7 +162,8 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
                 _build_side_mutable_block = vectorized::MutableBlock(std::move(block));
             });
             vectorized::ColumnUInt8::MutablePtr null_map_val;
-            if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN) {
+            if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN ||
+                p._join_op == TJoinOp::ASOF_LEFT_OUTER_JOIN) {
                 converted_columns = _convert_block_to_null(block);
                 // first row is mocked
                 for (int i = 0; i < block.columns(); i++) {
@@ -275,7 +276,10 @@ void HashJoinBuildSinkLocalState::init_short_circuit_for_probe() {
              (empty_block &&
               (p._join_op == TJoinOp::INNER_JOIN || p._join_op == TJoinOp::LEFT_SEMI_JOIN ||
                p._join_op == TJoinOp::RIGHT_OUTER_JOIN || p._join_op == TJoinOp::RIGHT_SEMI_JOIN ||
-               p._join_op == TJoinOp::RIGHT_ANTI_JOIN))) &&
+               p._join_op == TJoinOp::RIGHT_ANTI_JOIN ||
+               p._join_op == TJoinOp::ASOF_LEFT_INNER_JOIN ||
+               p._join_op == TJoinOp::ASOF_RIGHT_INNER_JOIN ||
+               p._join_op == TJoinOp::ASOF_RIGHT_OUTER_JOIN))) &&
             !p._is_mark_join;
 
     //when build table rows is 0 and not have other_join_conjunct and not _is_mark_join and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
@@ -283,7 +287,7 @@ void HashJoinBuildSinkLocalState::init_short_circuit_for_probe() {
     _shared_state->empty_right_table_need_probe_dispose =
             (empty_block && !p._have_other_join_conjunct && !p._is_mark_join) &&
             (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN ||
-             p._join_op == TJoinOp::LEFT_ANTI_JOIN);
+             p._join_op == TJoinOp::LEFT_ANTI_JOIN || p._join_op == TJoinOp::ASOF_LEFT_OUTER_JOIN);
 }
 
 Status HashJoinBuildSinkLocalState::_do_evaluate(vectorized::Block& block,
@@ -368,7 +372,8 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
 
     vectorized::ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
     vectorized::ColumnUInt8::MutablePtr null_map_val;
-    if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN) {
+    if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN ||
+        p._join_op == TJoinOp::ASOF_LEFT_OUTER_JOIN) {
         _convert_block_to_null(block);
         // first row is mocked
         for (int i = 0; i < block.columns(); i++) {
@@ -437,6 +442,58 @@ void HashJoinBuildSinkLocalState::_set_build_side_has_external_nullmap(
             return;
         }
     }
+}
+
+Status HashJoinBuildSinkLocalState::_sort_rows_for_asof_join() {
+    auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
+    if (!is_asof_join(p._join_op)) {
+        return Status::OK();
+    }
+
+    // Get the match column from build block (it's the last column evaluated from other_join_conjunct)
+    // For ASOF JOIN, the other_join_conjunct is like: probe.ts >= build.ts
+    // The match column is the build side column used for comparison
+    auto& build_block = *_shared_state->build_block;
+    if (build_block.columns() == 0) {
+        return Status::OK();
+    }
+
+    // The asof match column index should be passed from FE, for now we assume it's stored in shared_state
+    // We'll extract it from the other_join_conjunct during probe phase
+    // Here we just prepare the sorted bucket structure
+
+    return std::visit(
+            vectorized::Overload {
+                    [&](std::monostate& arg) -> Status {
+                        return Status::InternalError("ASOF JOIN: hash table not initialized");
+                    },
+                    [&](auto&& hash_table_ctx) -> Status {
+                        auto& hash_table = *hash_table_ctx.hash_table;
+                        const uint32_t bucket_size = hash_table.get_bucket_size();
+                        const auto& first = hash_table.get_first();
+                        const auto& next = hash_table.get_next();
+
+                        // Initialize sorted bucket indices
+                        auto& sorted_indices = _shared_state->asof_sorted_bucket_indices;
+                        sorted_indices.clear();
+                        sorted_indices.resize(bucket_size + 1);
+
+                        // Collect row indices for each bucket
+                        for (uint32_t bucket = 0; bucket <= bucket_size; ++bucket) {
+                            uint32_t idx = first[bucket];
+                            while (idx != 0) {
+                                sorted_indices[bucket].push_back(idx);
+                                idx = next[idx];
+                            }
+                        }
+
+                        // Note: The actual sorting by match column value will be done
+                        // when we know the match column during probe initialization,
+                        // since the match column info comes from the probe side's
+                        // other_join_conjunct expression
+                        return Status::OK();
+                    }},
+            _shared_state->hash_table_variant_vector.front()->method_variant);
 }
 
 Status HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state,
@@ -623,6 +680,8 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
         RETURN_IF_ERROR(
                 local_state.process_build_block(state, (*local_state._shared_state->build_block)));
+        // For ASOF JOIN, prepare sorted bucket indices
+        RETURN_IF_ERROR(local_state._sort_rows_for_asof_join());
         local_state.init_short_circuit_for_probe();
     } else if (!local_state._should_build_hash_table) {
         // the instance which is not build hash table, it's should wait the signal of hash table build finished.

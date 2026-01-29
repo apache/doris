@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
@@ -280,7 +279,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         PhysicalRelation target2 = null;
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().expandRuntimeFilterByInnerJoin) {
             if (!join.equals(ctx.builderNode)
-                    && (join.getJoinType() == JoinType.INNER_JOIN || join.getJoinType().isSemiJoin())) {
+                    && (join.getJoinType().isInnerJoin() || join.getJoinType().isSemiJoin())) {
                 for (Expression expr : join.getHashJoinConjuncts()) {
                     EqualPredicate equalTo = (EqualPredicate) expr;
                     if (ctx.probeExpr.equals(equalTo.left())) {

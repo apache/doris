@@ -348,6 +348,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             DistributionSpecHash rightHashSpec) {
         boolean isJoinTypeInScope = (joinType == JoinType.RIGHT_ANTI_JOIN
                 || joinType == JoinType.RIGHT_OUTER_JOIN
+                || joinType == JoinType.ASOF_RIGHT_OUTER_JOIN
                 || joinType == JoinType.FULL_OUTER_JOIN);
         boolean isSpecInScope = (leftHashSpec.getShuffleType() == ShuffleType.NATURAL
                 || rightHashSpec.getShuffleType() == ShuffleType.NATURAL);

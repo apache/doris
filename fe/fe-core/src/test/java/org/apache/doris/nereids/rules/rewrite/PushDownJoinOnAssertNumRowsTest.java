@@ -100,6 +100,12 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
      */
     @Test
     void testPushDownToLeftChild() {
+        testPushDownToLeftChildHelper(JoinType.INNER_JOIN);
+        testPushDownToLeftChildHelper(JoinType.ASOF_LEFT_INNER_JOIN);
+        testPushDownToLeftChildHelper(JoinType.ASOF_RIGHT_INNER_JOIN);
+    }
+
+    private void testPushDownToLeftChildHelper(JoinType joinType) {
         // Create a one-row relation wrapped in LogicalAssertNumRows
         Plan oneRowRelation = new LogicalPlanBuilder(t3)
                 .limit(1)
@@ -112,26 +118,26 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
         Expression bottomJoinCondition = new EqualTo(t1Slots.get(0), t2Slots.get(1));
 
         LogicalPlan bottomJoin = new LogicalPlanBuilder(t1)
-                .join(t2, JoinType.INNER_JOIN, ImmutableList.of(bottomJoinCondition),
-                                ImmutableList.of())
+                .join(t2, joinType, ImmutableList.of(bottomJoinCondition),
+                        ImmutableList.of())
                 .build();
 
         // Create top join: (T1 JOIN T2) JOIN assertNumRows on T1.age > course.id
         Expression topJoinCondition = new GreaterThan(t1Slots.get(1), t3Slots.get(0));
 
         LogicalPlan root = new LogicalPlanBuilder(bottomJoin)
-                .join(assertNumRows, JoinType.INNER_JOIN, ImmutableList.of(),
-                                ImmutableList.of(topJoinCondition))
+                .join(assertNumRows, joinType, ImmutableList.of(),
+                        ImmutableList.of(topJoinCondition))
                 .build();
 
         // Apply the rule
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new PushDownJoinOnAssertNumRows())
                 .matches(logicalJoin(
-                                logicalJoin(
-                                                        logicalOlapScan(),
-                                                        logicalAssertNumRows()),
-                                logicalOlapScan()));
+                        logicalJoin(
+                                logicalOlapScan(),
+                                logicalAssertNumRows()),
+                        logicalOlapScan()));
     }
 
     /**
@@ -152,6 +158,12 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
      */
     @Test
     void testPushDownToRightChild() {
+        testPushDownToRightChildHelper(JoinType.INNER_JOIN);
+        testPushDownToRightChildHelper(JoinType.ASOF_LEFT_INNER_JOIN);
+        testPushDownToRightChildHelper(JoinType.ASOF_RIGHT_INNER_JOIN);
+    }
+
+    private void testPushDownToRightChildHelper(JoinType joinType) {
         // Create a one-row relation wrapped in LogicalAssertNumRows
         Plan oneRowRelation = new LogicalPlanBuilder(t3)
                 .limit(1)
@@ -164,8 +176,8 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
         Expression bottomJoinCondition = new EqualTo(t1Slots.get(0), t2Slots.get(1));
 
         LogicalPlan bottomJoin = new LogicalPlanBuilder(t1)
-                .join(t2, JoinType.INNER_JOIN, ImmutableList.of(bottomJoinCondition),
-                                ImmutableList.of())
+                .join(t2, joinType, ImmutableList.of(bottomJoinCondition),
+                        ImmutableList.of())
                 .build();
 
         // Create top join: (T1 JOIN T2) JOIN assertNumRows on T2.name > course.name
@@ -173,18 +185,18 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
         Expression topJoinCondition = new GreaterThan(t2Slots.get(2), t3Slots.get(1));
 
         LogicalPlan root = new LogicalPlanBuilder(bottomJoin)
-                .join(assertNumRows, JoinType.INNER_JOIN, ImmutableList.of(),
-                                ImmutableList.of(topJoinCondition))
+                .join(assertNumRows, joinType, ImmutableList.of(),
+                        ImmutableList.of(topJoinCondition))
                 .build();
 
         // Apply the rule
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new PushDownJoinOnAssertNumRows())
                 .matches(logicalJoin(
+                        logicalOlapScan(),
+                        logicalJoin(
                                 logicalOlapScan(),
-                                logicalJoin(
-                                                        logicalOlapScan(),
-                                                        logicalAssertNumRows())));
+                                logicalAssertNumRows())));
     }
 
     /**
@@ -207,6 +219,12 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
      */
     @Test
     void testPushDownWithProjectNode() {
+        testPushDownWithProjectNodeHelper(JoinType.INNER_JOIN);
+        testPushDownWithProjectNodeHelper(JoinType.ASOF_LEFT_INNER_JOIN);
+        testPushDownWithProjectNodeHelper(JoinType.ASOF_RIGHT_INNER_JOIN);
+    }
+
+    private void testPushDownWithProjectNodeHelper(JoinType joinType) {
         // Create a one-row relation wrapped in LogicalAssertNumRows
         Plan oneRowRelation = new LogicalPlanBuilder(t3)
                 .limit(1)
@@ -219,8 +237,8 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
         Expression bottomJoinCondition = new EqualTo(t1Slots.get(0), t2Slots.get(1));
 
         LogicalPlan bottomJoin = new LogicalPlanBuilder(t1)
-                .join(t2, JoinType.INNER_JOIN, ImmutableList.of(bottomJoinCondition),
-                                ImmutableList.of())
+                .join(t2, joinType, ImmutableList.of(bottomJoinCondition),
+                        ImmutableList.of())
                 .build();
 
         // Create project with alias: T1.age + 1 as alias_col
@@ -238,19 +256,19 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
         Expression topJoinCondition = new GreaterThan(aliasCol.toSlot(), t3Slots.get(0));
 
         LogicalPlan root = new LogicalPlanBuilder(project)
-                .join(assertNumRows, JoinType.INNER_JOIN, ImmutableList.of(),
-                                ImmutableList.of(topJoinCondition))
+                .join(assertNumRows, joinType, ImmutableList.of(),
+                        ImmutableList.of(topJoinCondition))
                 .build();
 
         // Apply the rule
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new PushDownJoinOnAssertNumRows())
                 .matches(logicalProject(
+                        logicalJoin(
                                 logicalJoin(
-                                                        logicalJoin(
-                                                                        logicalProject(logicalOlapScan()),
-                                                                        logicalAssertNumRows()),
-                                                        logicalOlapScan())));
+                                        logicalProject(logicalOlapScan()),
+                                        logicalAssertNumRows()),
+                                logicalOlapScan())));
     }
 
     /**
@@ -294,6 +312,12 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
      */
     @Test
     void testNoApplyWhenBottomJoinHasAssertNumRows() {
+        testNoApplyWhenBottomJoinHasAssertNumRowsHelper(JoinType.INNER_JOIN);
+        testNoApplyWhenBottomJoinHasAssertNumRowsHelper(JoinType.ASOF_LEFT_INNER_JOIN);
+        testNoApplyWhenBottomJoinHasAssertNumRowsHelper(JoinType.ASOF_RIGHT_INNER_JOIN);
+    }
+
+    private void testNoApplyWhenBottomJoinHasAssertNumRowsHelper(JoinType joinType) {
         // Create two one-row relations
         Plan oneRowRelation1 = new LogicalPlanBuilder(t2)
                 .limit(1)
@@ -311,16 +335,16 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
         Expression bottomJoinCondition = new GreaterThan(t1Slots.get(1), t2Slots.get(0));
 
         LogicalPlan bottomJoin = new LogicalPlanBuilder(t1)
-                .join(assertNumRows1, JoinType.INNER_JOIN, ImmutableList.of(),
-                                ImmutableList.of(bottomJoinCondition))
+                .join(assertNumRows1, joinType, ImmutableList.of(),
+                        ImmutableList.of(bottomJoinCondition))
                 .build();
 
         // Create top join with another assertNumRows
         Expression topJoinCondition = new GreaterThan(t1Slots.get(1), t3Slots.get(0));
 
         LogicalPlan root = new LogicalPlanBuilder(bottomJoin)
-                .join(assertNumRows2, JoinType.INNER_JOIN, ImmutableList.of(),
-                                ImmutableList.of(topJoinCondition))
+                .join(assertNumRows2, joinType, ImmutableList.of(),
+                        ImmutableList.of(topJoinCondition))
                 .build();
 
         // Apply the rule - should not transform because bottom join already has
@@ -328,10 +352,10 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new PushDownJoinOnAssertNumRows())
                 .matches(logicalJoin(
-                                logicalJoin(
-                                                        logicalOlapScan(),
-                                                        logicalAssertNumRows()),
-                                logicalAssertNumRows()));
+                        logicalJoin(
+                                logicalOlapScan(),
+                                logicalAssertNumRows()),
+                        logicalAssertNumRows()));
     }
 
     /**
@@ -339,6 +363,12 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
      */
     @Test
     void testNoApplyWithMultipleJoinConditions() {
+        testNoApplyWithMultipleJoinConditionsHelper(JoinType.INNER_JOIN);
+        testNoApplyWithMultipleJoinConditionsHelper(JoinType.ASOF_LEFT_INNER_JOIN);
+        testNoApplyWithMultipleJoinConditionsHelper(JoinType.ASOF_RIGHT_INNER_JOIN);
+    }
+
+    private void testNoApplyWithMultipleJoinConditionsHelper(JoinType joinType) {
         // Create a one-row relation wrapped in LogicalAssertNumRows
         Plan oneRowRelation = new LogicalPlanBuilder(t3)
                 .limit(1)
@@ -351,8 +381,8 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
         Expression bottomJoinCondition = new EqualTo(t1Slots.get(0), t2Slots.get(1));
 
         LogicalPlan bottomJoin = new LogicalPlanBuilder(t1)
-                .join(t2, JoinType.INNER_JOIN, ImmutableList.of(bottomJoinCondition),
-                                ImmutableList.of())
+                .join(t2, joinType, ImmutableList.of(bottomJoinCondition),
+                        ImmutableList.of())
                 .build();
 
         // Create top join with multiple conditions
@@ -360,8 +390,8 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
         Expression topJoinCondition2 = new GreaterThan(t2Slots.get(0), t3Slots.get(0));
 
         LogicalPlan root = new LogicalPlanBuilder(bottomJoin)
-                .join(assertNumRows, JoinType.INNER_JOIN, ImmutableList.of(),
-                                ImmutableList.of(topJoinCondition1, topJoinCondition2))
+                .join(assertNumRows, joinType, ImmutableList.of(),
+                        ImmutableList.of(topJoinCondition1, topJoinCondition2))
                 .build();
 
         // Apply the rule - should not transform because there are multiple join
@@ -369,10 +399,10 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new PushDownJoinOnAssertNumRows())
                 .matches(logicalJoin(
-                                logicalJoin(
-                                                        logicalOlapScan(),
-                                                        logicalOlapScan()),
-                                logicalAssertNumRows()));
+                        logicalJoin(
+                                logicalOlapScan(),
+                                logicalOlapScan()),
+                        logicalAssertNumRows()));
     }
 
     /**
@@ -380,6 +410,15 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
      */
     @Test
     void testNoApplyWithOuterJoin() {
+        testNoApplyWithOuterJoinHelper(JoinType.LEFT_OUTER_JOIN, JoinType.INNER_JOIN);
+        testNoApplyWithOuterJoinHelper(JoinType.LEFT_OUTER_JOIN, JoinType.ASOF_LEFT_INNER_JOIN);
+        testNoApplyWithOuterJoinHelper(JoinType.LEFT_OUTER_JOIN, JoinType.ASOF_RIGHT_INNER_JOIN);
+        testNoApplyWithOuterJoinHelper(JoinType.ASOF_LEFT_OUTER_JOIN, JoinType.INNER_JOIN);
+        testNoApplyWithOuterJoinHelper(JoinType.ASOF_LEFT_OUTER_JOIN, JoinType.ASOF_LEFT_INNER_JOIN);
+        testNoApplyWithOuterJoinHelper(JoinType.ASOF_LEFT_OUTER_JOIN, JoinType.ASOF_RIGHT_INNER_JOIN);
+    }
+
+    private void testNoApplyWithOuterJoinHelper(JoinType outer, JoinType inner) {
         // Create a one-row relation wrapped in LogicalAssertNumRows
         Plan oneRowRelation = new LogicalPlanBuilder(t3)
                 .limit(1)
@@ -392,26 +431,26 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
         Expression bottomJoinCondition = new EqualTo(t1Slots.get(0), t2Slots.get(1));
 
         LogicalPlan bottomJoin = new LogicalPlanBuilder(t1)
-                .join(t2, JoinType.LEFT_OUTER_JOIN, ImmutableList.of(bottomJoinCondition),
-                                ImmutableList.of())
+                .join(t2, outer, ImmutableList.of(bottomJoinCondition),
+                        ImmutableList.of())
                 .build();
 
         // Create top join with condition
         Expression topJoinCondition = new GreaterThan(t1Slots.get(1), t3Slots.get(0));
 
         LogicalPlan root = new LogicalPlanBuilder(bottomJoin)
-                .join(assertNumRows, JoinType.INNER_JOIN, ImmutableList.of(),
-                                ImmutableList.of(topJoinCondition))
+                .join(assertNumRows, inner, ImmutableList.of(),
+                        ImmutableList.of(topJoinCondition))
                 .build();
 
         // Apply the rule - should not transform because bottom join is outer join
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new PushDownJoinOnAssertNumRows())
                 .matches(logicalJoin(
-                                logicalJoin(
-                                                        logicalOlapScan(),
-                                                        logicalOlapScan()),
-                                logicalAssertNumRows()));
+                        logicalJoin(
+                                logicalOlapScan(),
+                                logicalOlapScan()),
+                        logicalAssertNumRows()));
     }
 
     /**
@@ -419,6 +458,12 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
      */
     @Test
     void testWithAssertNumRowsInProject() {
+        testWithAssertNumRowsInProjectHelper(JoinType.INNER_JOIN);
+        testWithAssertNumRowsInProjectHelper(JoinType.ASOF_LEFT_INNER_JOIN);
+        testWithAssertNumRowsInProjectHelper(JoinType.ASOF_RIGHT_INNER_JOIN);
+    }
+
+    private void testWithAssertNumRowsInProjectHelper(JoinType joinType) {
         // Create a one-row relation wrapped in LogicalAssertNumRows and then Project
         Plan oneRowRelation = new LogicalPlanBuilder(t3)
                 .limit(1)
@@ -435,27 +480,27 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
         Expression bottomJoinCondition = new EqualTo(t1Slots.get(0), t2Slots.get(1));
 
         LogicalPlan bottomJoin = new LogicalPlanBuilder(t1)
-                .join(t2, JoinType.INNER_JOIN, ImmutableList.of(bottomJoinCondition),
-                                ImmutableList.of())
+                .join(t2, joinType, ImmutableList.of(bottomJoinCondition),
+                        ImmutableList.of())
                 .build();
 
         // Create top join with project-wrapped assertNumRows
         Expression topJoinCondition = new GreaterThan(t1Slots.get(1), t3Slots.get(0));
 
         LogicalPlan root = new LogicalPlanBuilder(bottomJoin)
-                .join(assertProject, JoinType.INNER_JOIN, ImmutableList.of(),
-                                ImmutableList.of(topJoinCondition))
+                .join(assertProject, joinType, ImmutableList.of(),
+                        ImmutableList.of(topJoinCondition))
                 .build();
 
         // Apply the rule
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new PushDownJoinOnAssertNumRows())
                 .matches(logicalJoin(
-                                logicalJoin(
-                                                        logicalOlapScan(),
-                                                        logicalProject(
-                                                                        logicalAssertNumRows())),
-                                logicalOlapScan()));
+                        logicalJoin(
+                                logicalOlapScan(),
+                                logicalProject(
+                                        logicalAssertNumRows())),
+                        logicalOlapScan()));
     }
 
     @Test

@@ -83,6 +83,7 @@ public class PushDownLimitDistinctThroughJoin implements RewriteRuleFactory {
                 .flatMap(e -> e.getInputSlots().stream()).collect(Collectors.toList());
         switch (join.getJoinType()) {
             case LEFT_OUTER_JOIN:
+            case ASOF_LEFT_OUTER_JOIN:
                 if (!(join.left() instanceof Limit)
                         && join.left().getOutputSet().containsAll(groupBySlots)
                         && join.left().getOutputSet().equals(agg.getOutputSet())) {
@@ -91,6 +92,7 @@ public class PushDownLimitDistinctThroughJoin implements RewriteRuleFactory {
                 }
                 return null;
             case RIGHT_OUTER_JOIN:
+            case ASOF_RIGHT_OUTER_JOIN:
                 if (!(join.right() instanceof Limit) && join.right().getOutputSet().containsAll(groupBySlots)
                         && join.right().getOutputSet().equals(agg.getOutputSet())) {
                     return join.withChildren(join.left(), limit.withLimitChild(limit.getLimit() + limit.getOffset(), 0,
