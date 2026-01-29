@@ -433,4 +433,37 @@ void build_path_map(const FieldSchema& field, const std::string& prefix,
     }
 }
 
+#define MERGE_STATS_CASE(ParquetType)                                                     \
+    case ParquetType: {                                                                   \
+        auto typed_left_stat = std::static_pointer_cast<                                  \
+                ::parquet::TypedStatistics<::parquet::PhysicalType<ParquetType>>>(left);  \
+        auto typed_right_stat = std::static_pointer_cast<                                 \
+                ::parquet::TypedStatistics<::parquet::PhysicalType<ParquetType>>>(right); \
+        typed_left_stat->Merge(*typed_right_stat);                                        \
+        return;                                                                           \
+    }
+
+void merge_stats(const std::shared_ptr<::parquet::Statistics>& left,
+                 const std::shared_ptr<::parquet::Statistics>& right) {
+    if (left == nullptr || right == nullptr) {
+        return;
+    }
+    DCHECK(left->physical_type() == right->physical_type());
+
+    switch (left->physical_type()) {
+        MERGE_STATS_CASE(::parquet::Type::BOOLEAN);
+        MERGE_STATS_CASE(::parquet::Type::INT32);
+        MERGE_STATS_CASE(::parquet::Type::INT64);
+        MERGE_STATS_CASE(::parquet::Type::INT96);
+        MERGE_STATS_CASE(::parquet::Type::FLOAT);
+        MERGE_STATS_CASE(::parquet::Type::DOUBLE);
+        MERGE_STATS_CASE(::parquet::Type::BYTE_ARRAY);
+        MERGE_STATS_CASE(::parquet::Type::FIXED_LEN_BYTE_ARRAY);
+    default:
+        LOG(WARNING) << "Unsupported parquet type for statistics merge: "
+                     << static_cast<int>(left->physical_type());
+        break;
+    }
+}
+
 } // namespace doris::vectorized::parquet_utils

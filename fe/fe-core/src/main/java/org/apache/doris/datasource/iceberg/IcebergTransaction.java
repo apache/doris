@@ -34,7 +34,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
-import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.OverwriteFiles;
 import org.apache.iceberg.PartitionField;
@@ -177,12 +176,8 @@ public class IcebergTransaction implements Transaction {
             return;
         }
 
-        // Get table specification information
-        PartitionSpec spec = transaction.table().spec();
-        FileFormat fileFormat = IcebergUtils.getFileFormat(transaction.table());
-
         // Convert commit data to DataFile objects using the same logic as insert
-        WriteResult writeResult = IcebergWriterHelper.convertToWriterResult(fileFormat, spec, commitDataList);
+        WriteResult writeResult = IcebergWriterHelper.convertToWriterResult(transaction.table(), commitDataList);
 
         // Add the generated DataFiles to filesToAdd list
         synchronized (filesToAdd) {
@@ -249,16 +244,13 @@ public class IcebergTransaction implements Transaction {
     }
 
     private void updateManifestAfterInsert(TUpdateMode updateMode) {
-        PartitionSpec spec = transaction.table().spec();
-        FileFormat fileFormat = IcebergUtils.getFileFormat(transaction.table());
-
         List<WriteResult> pendingResults;
         if (commitDataList.isEmpty()) {
             pendingResults = Collections.emptyList();
         } else {
             //convert commitDataList to writeResult
             WriteResult writeResult = IcebergWriterHelper
-                    .convertToWriterResult(fileFormat, spec, commitDataList);
+                    .convertToWriterResult(transaction.table(), commitDataList);
             pendingResults = Lists.newArrayList(writeResult);
         }
 
