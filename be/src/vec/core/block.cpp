@@ -984,25 +984,6 @@ Status MutableBlock::add_rows(const Block* block, size_t row_begin, size_t lengt
     return Status::OK();
 }
 
-Status MutableBlock::add_rows(const Block* block, const std::vector<int64_t>& rows) {
-    RETURN_IF_CATCH_EXCEPTION({
-        DCHECK_LE(columns(), block->columns());
-        const auto& block_data = block->get_columns_with_type_and_name();
-        const size_t length = std::ranges::distance(rows);
-        for (size_t i = 0; i < _columns.size(); ++i) {
-            DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
-            auto& dst = _columns[i];
-            const auto& src = *block_data[i].column.get();
-            dst->reserve(dst->size() + length);
-            for (auto row : rows) {
-                // we can introduce a new function like `insert_assume_reserved` for IColumn.
-                dst->insert_from(src, row);
-            }
-        }
-    });
-    return Status::OK();
-}
-
 Block MutableBlock::to_block(int start_column) {
     return to_block(start_column, (int)_columns.size());
 }

@@ -16,9 +16,16 @@
 // under the License.
 
 suite("complex_rec_cte_test", "rec_cte") {
+    String db = context.config.getDbNameByFile(context.file)
+    def prefix_str = "complex_rec_cte_"
+    def tb_name1 = prefix_str + "tb1"
+    def tb_name2 = prefix_str + "tb2"
+    def tb_name3 = prefix_str + "tb3"
+    def tb_name4 = prefix_str + "tb4"
 
+    sql """drop table if exists ${tb_name1}"""
     sql """
-        CREATE TABLE IF NOT EXISTS departments (
+        CREATE TABLE IF NOT EXISTS ${tb_name1} (
             id INT,
             parent_id INT,
             dept_name VARCHAR(50),
@@ -28,8 +35,9 @@ suite("complex_rec_cte_test", "rec_cte") {
         DISTRIBUTED BY HASH(id) BUCKETS 4
         PROPERTIES ("replication_num" = "1");"""
 
+    sql """drop table if exists ${tb_name2}"""
     sql """
-        CREATE TABLE IF NOT EXISTS connections (
+        CREATE TABLE IF NOT EXISTS ${tb_name2} (
             source_id INT,
             target_id INT,
             status VARCHAR(20)
@@ -38,8 +46,9 @@ suite("complex_rec_cte_test", "rec_cte") {
         DISTRIBUTED BY HASH(source_id) BUCKETS 4
         PROPERTIES ("replication_num" = "1");"""
 
+    sql """drop table if exists ${tb_name3}"""
     sql """
-        CREATE TABLE IF NOT EXISTS nodes (
+        CREATE TABLE IF NOT EXISTS ${tb_name3} (
             id INT,
             type VARCHAR(20)
         )
@@ -47,8 +56,9 @@ suite("complex_rec_cte_test", "rec_cte") {
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES ("replication_num" = "1");"""
 
+    sql """drop table if exists ${tb_name4}"""
     sql """
-        CREATE TABLE IF NOT EXISTS raw_bom (
+        CREATE TABLE IF NOT EXISTS ${tb_name4} (
             part_id INT,
             sub_part_id INT,
             qty DOUBLE
@@ -58,7 +68,7 @@ suite("complex_rec_cte_test", "rec_cte") {
         PROPERTIES ("replication_num" = "1");"""
 
     sql """
-        INSERT INTO departments VALUES 
+        INSERT INTO ${tb_name1} VALUES 
         (1, NULL, '总部', 10000.00),
         (10, 1, '研发部', 5000.00),
         (11, 1, '市场部', 4000.00),
@@ -67,15 +77,15 @@ suite("complex_rec_cte_test", "rec_cte") {
         (111, 11, '线上推广', 2000.00);"""
 
     sql """
-        INSERT INTO nodes VALUES (1, 'seed'), (2, 'normal'), (3, 'normal'), (4, 'normal');"""
+        INSERT INTO ${tb_name3} VALUES (1, 'seed'), (2, 'normal'), (3, 'normal'), (4, 'normal');"""
 
     sql """
-        INSERT INTO connections VALUES 
+        INSERT INTO ${tb_name2} VALUES 
         (1, 2, 'active'), (2, 3, 'active'), (3, 4, 'active'), 
         (4, 1, 'active'), (2, 4, 'active'), (1, 3, 'inactive');"""
 
     sql """
-        INSERT INTO raw_bom VALUES 
+        INSERT INTO ${tb_name4} VALUES 
         (1001, 2001, 2.0), (1001, 2002, 5.0),
         (2001, 3001, 1.5), (2001, 3002, 3.0),
         (2002, 4001, 1.0);"""
@@ -89,7 +99,7 @@ suite("complex_rec_cte_test", "rec_cte") {
                 dept_name, 
                 CAST(dept_name AS CHAR(200)) AS path,
                 budget
-            FROM departments 
+            FROM ${tb_name1} 
             WHERE parent_id IS NULL
             UNION ALL
             SELECT 
@@ -98,7 +108,7 @@ suite("complex_rec_cte_test", "rec_cte") {
                 t.dept_name, 
                 CAST(CONCAT(c.path, '->', t.dept_name) AS CHAR(200)),
                 t.budget
-            FROM departments t 
+            FROM ${tb_name1} t 
             JOIN dept_tree c ON t.parent_id = c.id
             WHERE c.id < 1000 
         ),
@@ -114,7 +124,7 @@ suite("complex_rec_cte_test", "rec_cte") {
                 curr.id, 
                 CAST(curr.budget + prev.total_budget AS DECIMAL(18,2)), 
                 CAST(prev.lvl + 1 AS INT)
-            FROM departments curr
+            FROM ${tb_name1} curr
             JOIN budget_summary prev ON curr.parent_id = prev.dept_id
             WHERE prev.lvl < 10
         )
@@ -130,14 +140,14 @@ suite("complex_rec_cte_test", "rec_cte") {
     """
 
     sql """
-        WITH RECURSIVE path_finder(start_node, end_node, hops, visited_nodes) AS (
+        WITH RECURSIVE path_finder(start_node, end_node, hops, visited_${tb_name3}) AS (
         SELECT 
             source_id, 
             target_id, 
             CAST(1 AS BIGINT), 
             CAST(source_id AS CHAR(500))
-        FROM connections 
-        WHERE source_id IN (SELECT id FROM nodes WHERE type = 'seed')
+        FROM ${tb_name2} 
+        WHERE source_id IN (SELECT id FROM ${tb_name3} WHERE type = 'seed')
         
         UNION ALL
         
@@ -145,15 +155,15 @@ suite("complex_rec_cte_test", "rec_cte") {
             p.start_node,
             c.target_id,
             CAST(p.hops + 1 AS BIGINT),
-            CAST(CONCAT(p.visited_nodes, ',', c.target_id) AS CHAR(500))
+            CAST(CONCAT(p.visited_${tb_name3}, ',', c.target_id) AS CHAR(500))
         FROM path_finder p
         JOIN (
             SELECT a.source_id, a.target_id 
-            FROM connections a
+            FROM ${tb_name2} a
             WHERE a.status = 'active'
         ) c ON p.end_node = c.source_id
         WHERE p.hops < 5 
-          AND p.visited_nodes NOT LIKE CONCAT('%', CAST(c.target_id AS CHAR), '%')
+          AND p.visited_${tb_name3} NOT LIKE CONCAT('%', CAST(c.target_id AS CHAR), '%')
     )
     SELECT 
         start_node, 
@@ -172,7 +182,7 @@ suite("complex_rec_cte_test", "rec_cte") {
             CAST(0 AS INT)
         FROM (
             SELECT *, ROW_NUMBER() OVER(PARTITION BY part_id ORDER BY qty DESC) as rn 
-            FROM raw_bom
+            FROM ${tb_name4}
         ) t 
         WHERE rn = 1
         
@@ -184,7 +194,7 @@ suite("complex_rec_cte_test", "rec_cte") {
             CAST(r.quantity * b.qty AS DOUBLE), 
             CAST(r.depth + 1 AS INT)
         FROM bom_recursive r
-        JOIN raw_bom b ON r.sub_part_id = b.part_id
+        JOIN ${tb_name4} b ON r.sub_part_id = b.part_id
         WHERE r.depth < 20
     )
     SELECT 
@@ -225,11 +235,11 @@ suite("complex_rec_cte_test", "rec_cte") {
         WITH RECURSIVE multi_branch_cte(node_id, label, depth) AS (
         -- branch1：no recursive Anchor 1
         SELECT CAST(id AS INT), CAST('Type_A' AS CHAR(10)), CAST(0 AS INT)
-        FROM nodes WHERE type = 'seed'
+        FROM ${tb_name3} WHERE type = 'seed'
         UNION
         -- branch 2：no recursive Anchor 2
         SELECT CAST(id AS INT), CAST('Type_B' AS CHAR(10)), CAST(0 AS INT)
-        FROM nodes WHERE type = 'normal' AND id < 2
+        FROM ${tb_name3} WHERE type = 'normal' AND id < 2
         
         UNION ALL
         
@@ -239,7 +249,7 @@ suite("complex_rec_cte_test", "rec_cte") {
             CAST(m.label AS CHAR(10)), 
             CAST(m.depth + 1 AS INT)
         FROM multi_branch_cte m
-        JOIN connections c ON m.node_id = c.source_id
+        JOIN ${tb_name2} c ON m.node_id = c.source_id
         WHERE m.depth < 5
         )
         SELECT 
@@ -260,7 +270,7 @@ suite("complex_rec_cte_test", "rec_cte") {
             CAST(dept_name AS CHAR(200))
         FROM (
             SELECT *, ROW_NUMBER() OVER(ORDER BY budget DESC) as rank_id 
-            FROM departments
+            FROM ${tb_name1}
         ) d WHERE rank_id = 1
         
         UNION ALL
@@ -269,10 +279,10 @@ suite("complex_rec_cte_test", "rec_cte") {
             CAST(t.id AS INT), 
             CAST(c.total_score + t.budget AS DOUBLE), 
             CAST(CONCAT(c.step_path, '->', t.dept_name) AS CHAR(200))
-        FROM departments t
+        FROM ${tb_name1} t
         INNER JOIN complex_logic c ON t.parent_id = c.curr_id
         WHERE c.total_score < 50000 
-          AND t.dept_name NOT IN (SELECT dept_name FROM departments WHERE budget < 100)
+          AND t.dept_name NOT IN (SELECT dept_name FROM ${tb_name1} WHERE budget < 100)
         )
         SELECT 
             curr_id, 
@@ -308,16 +318,16 @@ suite("complex_rec_cte_test", "rec_cte") {
         WITH RECURSIVE complex_join_cte(id, p_id, info, score) AS (
             -- Anchor
             SELECT id, parent_id, CAST(dept_name AS CHAR(100)), CAST(budget AS DOUBLE)
-            FROM departments WHERE parent_id IS NULL
+            FROM ${tb_name1} WHERE parent_id IS NULL
             UNION ALL
             -- Recursive part：Join another table to logical judge
             SELECT 
                 t.id, t.parent_id, 
                 CAST(CONCAT(c.info, '/', t.dept_name) AS CHAR(100)),
                 CAST(CASE WHEN t.budget > 1000 THEN c.score + t.budget ELSE c.score END AS DOUBLE)
-            FROM departments t
+            FROM ${tb_name1} t
             JOIN complex_join_cte c ON t.parent_id = c.id
-            LEFT JOIN nodes n ON t.id = n.id
+            LEFT JOIN ${tb_name3} n ON t.id = n.id
             WHERE c.score < 100000 AND (n.type IS NULL OR n.type != 'blocked')
         )
         SELECT * FROM complex_join_cte WHERE score > 5000;
@@ -327,11 +337,11 @@ suite("complex_rec_cte_test", "rec_cte") {
         WITH RECURSIVE sub_cte(id) AS (
             SELECT CAST(101 AS INT)
             UNION ALL
-            SELECT CAST(parent_id AS INT) FROM departments d 
+            SELECT CAST(parent_id AS INT) FROM ${tb_name1} d 
             JOIN sub_cte s ON d.id = s.id
             WHERE d.parent_id IS NOT NULL
         )
-        SELECT * FROM departments 
+        SELECT * FROM ${tb_name1} 
         WHERE id IN (SELECT id FROM sub_cte)
            OR parent_id IN (SELECT id FROM sub_cte);
         """
@@ -342,14 +352,14 @@ suite("complex_rec_cte_test", "rec_cte") {
                 cast(parent_id as int), 
                 cast(SUM(budget) as double), 
                 CAST(0 AS INT)
-            FROM departments 
+            FROM ${tb_name1} 
             GROUP BY parent_id
             UNION ALL
             SELECT 
                 CAST(d.id AS INT), 
                 CAST(SUM(d.budget + g.total_val) AS DOUBLE), 
                 CAST(g.depth + 1 AS INT)
-            FROM departments d
+            FROM ${tb_name1} d
             JOIN grouped_cte g ON d.parent_id = g.grp_key
             WHERE g.depth < 3
             GROUP BY d.id, g.depth
@@ -377,10 +387,10 @@ suite("complex_rec_cte_test", "rec_cte") {
 
     sql """
         WITH RECURSIVE tree_data(id, p_id, val) AS (
-            SELECT id, parent_id, CAST(budget AS DOUBLE) FROM departments WHERE parent_id IS NULL
+            SELECT id, parent_id, CAST(budget AS DOUBLE) FROM ${tb_name1} WHERE parent_id IS NULL
             UNION ALL
             SELECT d.id, d.parent_id, CAST(d.budget AS DOUBLE)
-            FROM departments d JOIN tree_data t ON d.parent_id = t.id
+            FROM ${tb_name1} d JOIN tree_data t ON d.parent_id = t.id
         )
         SELECT 
             *,
@@ -391,18 +401,18 @@ suite("complex_rec_cte_test", "rec_cte") {
 
     sql """
         WITH RECURSIVE complex_predicate_cte(id, category) AS (
-            SELECT id, CAST('ROOT' AS CHAR(20)) FROM departments WHERE parent_id IS NULL
+            SELECT id, CAST('ROOT' AS CHAR(20)) FROM ${tb_name1} WHERE parent_id IS NULL
             UNION ALL
             SELECT 
                 d.id,
                 CAST(
                     CASE 
                         WHEN d.budget > 5000 THEN 'High'
-                        WHEN d.id IN (SELECT source_id FROM connections) THEN 'Connected'
+                        WHEN d.id IN (SELECT source_id FROM ${tb_name2}) THEN 'Connected'
                         ELSE 'Normal'
                     END AS CHAR(20)
                 )
-            FROM departments d
+            FROM ${tb_name1} d
             JOIN complex_predicate_cte c ON d.parent_id = c.id
             WHERE c.category != 'End'
         )

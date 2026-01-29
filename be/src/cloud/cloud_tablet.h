@@ -380,6 +380,25 @@ private:
     // used by capture_rs_reader_xxx functions
     bool rowset_is_warmed_up_unlocked(int64_t start_version, int64_t end_version) const;
 
+    // Check if a rowset should be visible but not warmed up within freshness tolerance
+    bool _check_rowset_should_be_visible_but_not_warmed_up(
+            const RowsetMetaSharedPtr& rs_meta, int64_t path_max_version,
+            std::chrono::system_clock::time_point freshness_limit_tp) const;
+
+    // Submit a segment download task for warming up
+    void _submit_segment_download_task(const RowsetSharedPtr& rs,
+                                       const StorageResource* storage_resource, int seg_id,
+                                       int64_t expiration_time);
+
+    // Submit an inverted index download task for warming up
+    void _submit_inverted_index_download_task(const RowsetSharedPtr& rs,
+                                              const StorageResource* storage_resource,
+                                              const io::Path& idx_path, int64_t idx_size,
+                                              int64_t expiration_time);
+
+    // Add rowsets directly with warmup
+    void _add_rowsets_directly(std::vector<RowsetSharedPtr>& rowsets, bool warmup_delta_data);
+
     CloudStorageEngine& _engine;
 
     // this mutex MUST ONLY be used when sync meta

@@ -3428,17 +3428,17 @@ public class Config extends ConfigBase {
             options = {"without_warmup", "async_warmup", "sync_warmup", "peer_read_async_warmup"})
     public static String cloud_warm_up_for_rebalance_type = "async_warmup";
 
-    @ConfField(mutable = true, masterOnly = true, description = {"云上tablet均衡时，"
-            + "同一个host内预热批次的最大tablet个数，默认10", "The max number of tablets per host "
+    @ConfField(mutable = true, masterOnly = true, description = {"云上 tablet 均衡时，"
+            + "同一个 host 内预热批次的最大 tablet 个数，默认 10", "The max number of tablets per host "
             + "when batching warm-up requests during cloud tablet rebalancing, default 10"})
     public static int cloud_warm_up_batch_size = 10;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"云上tablet均衡时，"
-            + "预热批次最长等待时间，单位毫秒，默认50ms", "Maximum wait time in milliseconds before a "
+    @ConfField(mutable = true, masterOnly = true, description = {"云上 tablet 均衡时，"
+            + "预热批次最长等待时间，单位毫秒，默认 50ms", "Maximum wait time in milliseconds before a "
             + "pending warm-up batch is flushed, default 50ms"})
     public static int cloud_warm_up_batch_flush_interval_ms = 50;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"云上tablet均衡预热rpc异步线程池大小，默认4",
+    @ConfField(mutable = true, masterOnly = true, description = {"云上 tablet 均衡预热 rpc 异步线程池大小，默认 4",
         "Thread pool size for asynchronous warm-up RPC dispatch during cloud tablet rebalancing, default 4"})
     public static int cloud_warm_up_rpc_async_pool_size = 4;
 
@@ -3661,6 +3661,10 @@ public class Config extends ConfigBase {
             "Authorization plugin directory"})
     public static String authorization_plugins_dir = EnvUtils.getDorisHome() + "/plugins/authorization";
 
+    @ConfField(description = {"安全相关插件目录",
+            "Security plugin directory"})
+    public static String security_plugins_dir = EnvUtils.getDorisHome() + "/plugins/security";
+
     @ConfField(description = {
             "鉴权插件配置文件路径，需在 DORIS_HOME 下，默认为 conf/authorization.conf",
             "Authorization plugin configuration file path, need to be in DORIS_HOME,"
@@ -3760,6 +3764,14 @@ public class Config extends ConfigBase {
     public static long cloud_auto_snapshot_max_reversed_num = 35;
     @ConfField(mutable = true)
     public static long cloud_auto_snapshot_min_interval_seconds = 3600;
+
+    @ConfField(mutable = true, description = {
+            "cluster snapshot 相关操作的最低权限要求。可选值：'root'（仅 root 用户可执行）或 'admin'（ADMIN 权限用户可执行）。默认值为 'root'。",
+            "The minimum privilege required for cluster snapshot operations. "
+                    + "Valid values: 'root' (only root user can execute)"
+                    + " or 'admin' (users with ADMIN privilege can execute). "
+                    + "Default is 'root'."})
+    public static String cluster_snapshot_min_privilege = "root";
 
     @ConfField(mutable = true)
     public static long multi_part_upload_part_size_in_bytes = 256 * 1024 * 1024L; // 256MB
