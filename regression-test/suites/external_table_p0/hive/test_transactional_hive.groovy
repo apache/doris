@@ -142,6 +142,13 @@ suite("test_transactional_hive", "p0,external,hive,external_docker,external_dock
         qt_count_5 """ select count(*) from orc_acid_major; """ //3
     }
 
+    def test_explain_verbose = {
+        explain {
+            sql ("select count(*) from orc_full_acid")
+            verbose (true)
+            contains "deleteFileNum"
+        }
+    }
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -177,6 +184,7 @@ suite("test_transactional_hive", "p0,external,hive,external_docker,external_dock
 
 
             test_acid_count()
+            test_explain_verbose()
             
             q01_par_limit()
             
