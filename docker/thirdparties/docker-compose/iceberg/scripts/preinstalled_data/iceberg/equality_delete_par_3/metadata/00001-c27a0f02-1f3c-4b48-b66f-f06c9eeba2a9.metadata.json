@@ -1,0 +1,91 @@
+{
+  "format-version" : 2,
+  "table-uuid" : "fa14966d-8cf0-4bba-a659-9cf55daa817a",
+  "location" : "s3a://warehouse/wh/multi_catalog/equality_delete_par_3",
+  "last-sequence-number" : 1,
+  "last-updated-ms" : 1768815854627,
+  "last-column-id" : 3,
+  "current-schema-id" : 0,
+  "schemas" : [ {
+    "type" : "struct",
+    "schema-id" : 0,
+    "identifier-field-ids" : [ 1, 2 ],
+    "fields" : [ {
+      "id" : 1,
+      "name" : "id",
+      "required" : true,
+      "type" : "int"
+    }, {
+      "id" : 2,
+      "name" : "name",
+      "required" : true,
+      "type" : "string"
+    }, {
+      "id" : 3,
+      "name" : "data",
+      "required" : true,
+      "type" : "string"
+    } ]
+  } ],
+  "default-spec-id" : 0,
+  "partition-specs" : [ {
+    "spec-id" : 0,
+    "fields" : [ ]
+  } ],
+  "last-partition-id" : 999,
+  "default-sort-order-id" : 0,
+  "sort-orders" : [ {
+    "order-id" : 0,
+    "fields" : [ ]
+  } ],
+  "properties" : {
+    "write.parquet.compression-codec" : "zstd",
+    "write.upsert.enabled" : "true"
+  },
+  "current-snapshot-id" : 3871877879686571055,
+  "refs" : {
+    "main" : {
+      "snapshot-id" : 3871877879686571055,
+      "type" : "branch"
+    }
+  },
+  "snapshots" : [ {
+    "sequence-number" : 1,
+    "snapshot-id" : 3871877879686571055,
+    "timestamp-ms" : 1768815854627,
+    "summary" : {
+      "operation" : "overwrite",
+      "flink.operator-id" : "e883208d19e3c34f8aaf2a3168a63337",
+      "flink.job-id" : "01177296926fe816c9b87cbda158e8e8",
+      "flink.max-committed-checkpoint-id" : "9223372036854775807",
+      "added-data-files" : "1",
+      "added-equality-delete-files" : "1",
+      "added-delete-files" : "1",
+      "added-records" : "4",
+      "added-files-size" : "1635",
+      "added-equality-deletes" : "4",
+      "changed-partition-count" : "1",
+      "total-records" : "4",
+      "total-files-size" : "1635",
+      "total-data-files" : "1",
+      "total-delete-files" : "1",
+      "total-position-deletes" : "0",
+      "total-equality-deletes" : "4",
+      "engine-version" : "1.20.3",
+      "engine-name" : "flink",
+      "iceberg-version" : "Apache Iceberg 1.10.1 (commit ccb8bc435062171e64bc8b7e5f56e6aed9c5b934)"
+    },
+    "manifest-list" : "s3a://warehouse/wh/multi_catalog/equality_delete_par_3/metadata/snap-3871877879686571055-1-e32948f4-b486-4ca4-885b-ef3d7b8306bf.avro",
+    "schema-id" : 0
+  } ],
+  "statistics" : [ ],
+  "partition-statistics" : [ ],
+  "snapshot-log" : [ {
+    "timestamp-ms" : 1768815854627,
+    "snapshot-id" : 3871877879686571055
+  } ],
+  "metadata-log" : [ {
+    "timestamp-ms" : 1768815849261,
+    "metadata-file" : "s3a://warehouse/wh/multi_catalog/equality_delete_par_3/metadata/00000-29c6157c-5288-4284-ac52-cdbc91d20857.metadata.json"
+  } ]
+}

@@ -37,11 +37,13 @@ protected:
     RuntimeProfile::Counter* equality_delete_time;
 
     Block* _delete_block;
+    std::vector<int> _delete_col_ids;
 
     virtual Status _build_set() = 0;
 
 public:
-    EqualityDeleteBase(Block* delete_block) : _delete_block(delete_block) {}
+    EqualityDeleteBase(Block* delete_block, const std::vector<int> delete_col_ids)
+            : _delete_block(delete_block), _delete_col_ids(delete_col_ids) {}
     virtual ~EqualityDeleteBase() = default;
 
     Status init(RuntimeProfile* profile) {
@@ -58,26 +60,29 @@ public:
 
     virtual Status filter_data_block(
             Block* data_block,
-            const std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) = 0;
+            const std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
+            const std::unordered_map<int, std::string>& id_to_block_column_name,
+            IColumn::Filter& filter) = 0;
 
-    static std::unique_ptr<EqualityDeleteBase> get_delete_impl(Block* delete_block);
+    static std::unique_ptr<EqualityDeleteBase> get_delete_impl(
+            Block* delete_block, const std::vector<int>& delete_col_ids);
 };
 
 class SimpleEqualityDelete : public EqualityDeleteBase {
 protected:
     std::shared_ptr<HybridSetBase> _hybrid_set;
-    std::string _delete_column_name;
-    PrimitiveType _delete_column_type;
-    std::unique_ptr<IColumn::Filter> _filter;
+    std::unique_ptr<IColumn::Filter> _single_filter;
 
     Status _build_set() override;
 
 public:
-    SimpleEqualityDelete(Block* delete_block) : EqualityDeleteBase(delete_block) {}
+    SimpleEqualityDelete(Block* delete_block, const std::vector<int>& delete_col_ids)
+            : EqualityDeleteBase(delete_block, delete_col_ids) {}
 
-    Status filter_data_block(
-            Block* data_block,
-            const std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) override;
+    Status filter_data_block(Block* data_block,
+                             const std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
+                             const std::unordered_map<int, std::string>& id_to_block_column_name,
+                             IColumn::Filter& filter) override;
 };
 
 /**
@@ -95,18 +100,19 @@ protected:
     std::multimap<uint64_t, size_t> _delete_hash_map;
     // the delete column indexes in data block
     std::vector<size_t> _data_column_index;
-    std::unique_ptr<IColumn::Filter> _filter;
 
     Status _build_set() override;
 
     bool _equal(Block* data_block, size_t data_row_index, size_t delete_row_index);
 
 public:
-    MultiEqualityDelete(Block* delete_block) : EqualityDeleteBase(delete_block) {}
+    MultiEqualityDelete(Block* delete_block, const std::vector<int>& delete_col_ids)
+            : EqualityDeleteBase(delete_block, delete_col_ids) {}
 
-    Status filter_data_block(
-            Block* data_block,
-            const std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) override;
+    Status filter_data_block(Block* data_block,
+                             const std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
+                             const std::unordered_map<int, std::string>& id_to_block_column_name,
+                             IColumn::Filter& filter) override;
 };
 
 #include "common/compile_check_end.h"
