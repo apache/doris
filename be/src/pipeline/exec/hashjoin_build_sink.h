@@ -142,9 +142,9 @@ public:
     bool is_shuffled_operator() const override {
         return _join_distribution == TJoinDistributionType::PARTITIONED;
     }
-    bool require_data_distribution() const override {
-        return _join_distribution != TJoinDistributionType::BROADCAST &&
-               _join_distribution != TJoinDistributionType::NONE;
+    bool is_colocated_operator() const override {
+        return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
+               _join_distribution == TJoinDistributionType::COLOCATE;
     }
     std::vector<bool>& is_null_safe_eq_join() { return _is_null_safe_eq_join; }
 

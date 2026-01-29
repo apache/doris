@@ -138,18 +138,17 @@ public:
                                           _distribution_partition_exprs);
     }
 
-    bool is_shuffled_operator() const override {
-        return _join_distribution == TJoinDistributionType::PARTITIONED;
-    }
-
     void set_inner_operators(const std::shared_ptr<HashJoinBuildSinkOperatorX>& sink_operator,
                              const std::shared_ptr<HashJoinProbeOperatorX>& probe_operator) {
         _inner_sink_operator = sink_operator;
         _inner_probe_operator = probe_operator;
     }
 
-    bool require_data_distribution() const override {
-        return _inner_probe_operator->require_data_distribution();
+    bool is_colocated_operator() const override {
+        return _inner_probe_operator->is_colocated_operator();
+    }
+    bool is_shuffled_operator() const override {
+        return _inner_probe_operator->is_shuffled_operator();
     }
 
 private:

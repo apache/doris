@@ -121,7 +121,7 @@ public:
         return {ExchangeType::PASSTHROUGH};
     }
 
-    bool require_data_distribution() const override { return _is_colocate; }
+    bool is_colocated_operator() const override { return _is_colocate; }
 
 private:
     friend class DistinctStreamingAggLocalState;

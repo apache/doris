@@ -89,7 +89,8 @@ public:
             return {ExchangeType::NOOP};
         }
     }
-    bool require_data_distribution() const override { return _is_colocate; }
+    bool is_colocated_operator() const override { return _is_colocate; }
+    bool is_shuffled_operator() const override { return true; }
 
     size_t get_revocable_mem_size(RuntimeState* state) const;
 

@@ -102,9 +102,6 @@ public:
         return Status::OK();
     }
     [[nodiscard]] int get_child_count() const { return _child_size; }
-    bool require_shuffled_data_distribution(RuntimeState* /*state*/) const override {
-        return _followed_by_shuffled_operator;
-    }
 
     void set_low_memory_mode(RuntimeState* state) override {
         auto& local_state = get_local_state(state);

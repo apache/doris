@@ -149,9 +149,9 @@ public:
     bool is_shuffled_operator() const override {
         return _join_distribution == TJoinDistributionType::PARTITIONED;
     }
-    bool require_data_distribution() const override {
-        return _join_distribution != TJoinDistributionType::BROADCAST &&
-               _join_distribution != TJoinDistributionType::NONE;
+    bool is_colocated_operator() const override {
+        return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
+               _join_distribution == TJoinDistributionType::COLOCATE;
     }
 
     bool need_finalize_variant_column() const { return _need_finalize_variant_column; }

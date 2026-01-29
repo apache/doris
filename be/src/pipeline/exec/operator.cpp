@@ -145,10 +145,6 @@ DataDistribution OperatorBase::required_data_distribution(RuntimeState* /*state*
                    : DataDistribution(ExchangeType::NOOP);
 }
 
-bool OperatorBase::require_shuffled_data_distribution(RuntimeState* state) const {
-    return Pipeline::is_hash_exchange(required_data_distribution(state).distribution_type);
-}
-
 const RowDescriptor& OperatorBase::row_desc() const {
     return _child->row_desc();
 }

@@ -81,8 +81,11 @@ public:
     DataDistribution required_data_distribution(RuntimeState* state) const override {
         return _sort_sink_operator->required_data_distribution(state);
     }
-    bool require_data_distribution() const override {
-        return _sort_sink_operator->require_data_distribution();
+    bool is_colocated_operator() const override {
+        return _sort_sink_operator->is_colocated_operator();
+    }
+    bool is_shuffled_operator() const override {
+        return _sort_sink_operator->is_shuffled_operator();
     }
     Status set_child(OperatorPtr child) override {
         RETURN_IF_ERROR(DataSinkOperatorX<SpillSortSinkLocalState>::set_child(child));
