@@ -145,7 +145,7 @@ Status VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
     size_t start = _index_in_block - _cur_batch_num + 1 - advanced;
 
     RETURN_IF_CATCH_EXCEPTION({
-        for (size_t i = 0; i < _num_columns; ++i) {
+        for (size_t i = 0; i < block->columns(); ++i) {
             auto& s_col = src.get_by_position(i);
             auto& d_col = dst.get_by_position(i);
 
