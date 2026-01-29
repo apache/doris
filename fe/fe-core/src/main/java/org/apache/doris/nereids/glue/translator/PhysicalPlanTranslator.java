@@ -1264,7 +1264,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         updateLegacyPlanIdToPhysicalPlan(inputPlanFragment.getPlanRoot(), aggregate);
 
-        if (!ConnectContext.get().getSessionVariable().getEnableQueryCache()) {
+        if (ConnectContext.get().getSessionVariable().getEnableQueryCache()) {
             setQueryCacheCandidate(aggregate, aggregationNode);
         }
 
