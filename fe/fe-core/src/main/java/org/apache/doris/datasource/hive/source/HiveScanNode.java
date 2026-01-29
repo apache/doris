@@ -358,18 +358,22 @@ public class HiveScanNode extends FileQueryScanNode {
         }
         long result = sessionVariable.getMaxInitialSplitSize();
         long totalFileSize = 0;
+        boolean exceedInitialThreshold = false;
         for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
             if (fileCacheValue.getFiles() == null) {
                 continue;
             }
             for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
                 totalFileSize += status.getLength();
-                if (totalFileSize >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
-                    result = sessionVariable.getMaxSplitSize();
-                    break;
+                if (!exceedInitialThreshold
+                        && totalFileSize >= sessionVariable.getMaxSplitSize()
+                                * sessionVariable.getMaxInitialSplitNum()) {
+                    exceedInitialThreshold = true;
                 }
             }
         }
+        result = exceedInitialThreshold ? sessionVariable.getMaxSplitSize() : result;
+        result = applyMaxFileSplitNumLimit(result, totalFileSize);
         return result;
     }
 
@@ -634,5 +638,4 @@ public class HiveScanNode extends FileQueryScanNode {
         return compressType;
     }
 }
-
 

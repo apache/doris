@@ -522,6 +522,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String MAX_INITIAL_FILE_SPLIT_NUM = "max_initial_file_split_num";
 
+    public static final String MAX_FILE_SPLIT_NUM = "max_file_split_num";
+
     // Target file size in bytes for Iceberg write operations
     public static final String ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES = "iceberg_write_target_file_size_bytes";
 
@@ -2224,6 +2226,13 @@ public class SessionVariable implements Serializable, Writable {
                             + " and once MAX_INITIAL_FILE_SPLIT_NUM is exceeded, use MAX_FILE_SPLIT_SIZE instead."},
             needForward = true)
     public int maxInitialSplitNum = 200;
+
+    @VariableMgr.VarAttr(
+            name = MAX_FILE_SPLIT_NUM,
+            description = {"在非 batch 模式下，每个 table scan 最大允许的 split 数量，防止产生过多 split 导致 OOM。",
+                    "In non-batch mode, the maximum number of splits allowed per table scan to avoid OOM."},
+            needForward = true)
+    public int maxFileSplitNum = 100000;
 
     // Target file size for Iceberg write operations
     // Default 0 means use config::iceberg_sink_max_file_size
@@ -4306,6 +4315,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setMaxInitialSplitNum(int maxInitialSplitNum) {
         this.maxInitialSplitNum = maxInitialSplitNum;
+    }
+
+    public int getMaxFileSplitNum() {
+        return maxFileSplitNum;
+    }
+
+    public void setMaxFileSplitNum(int maxFileSplitNum) {
+        this.maxFileSplitNum = maxFileSplitNum;
     }
 
     public long getIcebergWriteTargetFileSizeBytes() {

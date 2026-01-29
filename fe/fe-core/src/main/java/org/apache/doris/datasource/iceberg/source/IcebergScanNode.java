@@ -476,13 +476,17 @@ public class IcebergScanNode extends FileQueryScanNode {
     private long determineTargetFileSplitSize(Iterable<FileScanTask> tasks) {
         long result = sessionVariable.getMaxInitialSplitSize();
         long accumulatedTotalFileSize = 0;
+        boolean exceedInitialThreshold = false;
         for (FileScanTask task : tasks) {
             accumulatedTotalFileSize += ScanTaskUtil.contentSizeInBytes(task.file());
-            if (accumulatedTotalFileSize
+            if (!exceedInitialThreshold && accumulatedTotalFileSize
                     >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
-                result = sessionVariable.getMaxSplitSize();
-                break;
+                exceedInitialThreshold = true;
             }
+        }
+        result = exceedInitialThreshold ? sessionVariable.getMaxSplitSize() : result;
+        if (!isBatchMode()) {
+            result = applyMaxFileSplitNumLimit(result, accumulatedTotalFileSize);
         }
         return result;
     }
