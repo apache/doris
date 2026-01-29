@@ -1779,7 +1779,10 @@ double GeoPoint::Distance(const GeoShape* rhs) const {
         double circle_radius = S2Earth::ToMeters(circle->circle()->radius());
 
         // Distance from point to circle is distance to center minus radius
-        return std::max(0.0, dist_to_center - circle_radius);
+        if (dist_to_center <= circle_radius + TOLERANCE) {
+            return 0.0; // Point is inside or on the circle boundary
+        }
+        return dist_to_center - circle_radius;
     }
     case GEO_SHAPE_MULTI_POLYGON: {
         return rhs->Distance(this); // Delegate to MultiPolygon's implementation
@@ -1793,8 +1796,7 @@ double GeoLine::Distance(const GeoShape* rhs) const {
     // rhs is guaranteed to be valid by StDistance (functions_geo.cpp)
     switch (rhs->type()) {
     case GEO_SHAPE_POINT: {
-        const GeoPoint* point = static_cast<const GeoPoint*>(rhs);
-        return distance_point_to_polyline(*point->point(), _polyline.get());
+        return rhs->Distance(this); // Reuse Point's Distance implementation
     }
     case GEO_SHAPE_LINE_STRING: {
         const GeoLine* other_line = static_cast<const GeoLine*>(rhs);
@@ -1816,6 +1818,10 @@ double GeoLine::Distance(const GeoShape* rhs) const {
             min_distance = std::min(min_distance, dist);
         }
 
+        // Handle touching case: if min_distance is within tolerance, lines are touching
+        if (min_distance <= TOLERANCE) {
+            return 0.0;
+        }
         return min_distance;
     }
     case GEO_SHAPE_POLYGON: {
@@ -1836,8 +1842,7 @@ double GeoPolygon::Distance(const GeoShape* rhs) const {
     // rhs is guaranteed to be valid by StDistance (functions_geo.cpp)
     switch (rhs->type()) {
     case GEO_SHAPE_POINT: {
-        const GeoPoint* point = static_cast<const GeoPoint*>(rhs);
-        return distance_point_to_polygon(*point->point(), _polygon.get());
+        return rhs->Distance(this); // Reuse Point's Distance implementation
     }
     case GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = static_cast<const GeoLine*>(rhs);
@@ -1861,12 +1866,15 @@ double GeoPolygon::Distance(const GeoShape* rhs) const {
             }
         }
 
+        // Handle touching case: if min_distance is within tolerance, they are touching
+        if (min_distance <= TOLERANCE) {
+            return 0.0;
+        }
         return min_distance;
     }
     case GEO_SHAPE_POLYGON: {
         const GeoPolygon* other = static_cast<const GeoPolygon*>(rhs);
-        if (_polygon->Intersects(*other->polygon()) ||
-            polygon_touch_polygon(_polygon.get(), other->polygon())) {
+        if (_polygon->Intersects(*other->polygon())) {
             return 0.0;
         }
         double min_distance = std::numeric_limits<double>::max();
@@ -1889,6 +1897,10 @@ double GeoPolygon::Distance(const GeoShape* rhs) const {
             }
         }
 
+        // Handle touching case: if min_distance is within tolerance, polygons are touching
+        if (min_distance <= TOLERANCE) {
+            return 0.0;
+        }
         return min_distance;
     }
     case GEO_SHAPE_CIRCLE: {
@@ -1920,14 +1932,10 @@ double GeoMultiPolygon::Distance(const GeoShape* rhs) const {
 double GeoCircle::Distance(const GeoShape* rhs) const {
     // Both rhs and self are guaranteed to be valid by StDistance (functions_geo.cpp)
     double circle_radius = S2Earth::ToMeters(_cap->radius());
-    S2LatLng center_ll = S2LatLng(_cap->center());
 
     switch (rhs->type()) {
     case GEO_SHAPE_POINT: {
-        const GeoPoint* point = static_cast<const GeoPoint*>(rhs);
-        S2LatLng point_ll = S2LatLng(*point->point());
-        double dist_to_center = S2Earth::GetDistanceMeters(center_ll, point_ll);
-        return std::max(0.0, dist_to_center - circle_radius);
+        return rhs->Distance(this); // Reuse Point's Distance implementation
     }
     case GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = static_cast<const GeoLine*>(rhs);
@@ -1943,7 +1951,7 @@ double GeoCircle::Distance(const GeoShape* rhs) const {
         if (min_distance <= circle_radius + TOLERANCE) {
             return 0.0;
         }
-        return std::max(0.0, min_distance - circle_radius);
+        return min_distance - circle_radius;
     }
     case GEO_SHAPE_POLYGON: {
         const GeoPolygon* polygon = static_cast<const GeoPolygon*>(rhs);
@@ -1969,16 +1977,21 @@ double GeoCircle::Distance(const GeoShape* rhs) const {
         if (min_distance <= circle_radius + TOLERANCE) {
             return 0.0;
         }
-        return std::max(0.0, min_distance - circle_radius);
+        return min_distance - circle_radius;
     }
     case GEO_SHAPE_CIRCLE: {
         const GeoCircle* other = static_cast<const GeoCircle*>(rhs);
         double other_radius = S2Earth::ToMeters(other->circle()->radius());
+        S2LatLng this_center_ll = S2LatLng(_cap->center());
         S2LatLng other_center_ll = S2LatLng(other->circle()->center());
-        double dist_centers = S2Earth::GetDistanceMeters(center_ll, other_center_ll);
+        double dist_centers = S2Earth::GetDistanceMeters(this_center_ll, other_center_ll);
 
         // Distance between circles is distance between centers minus sum of radii
-        return std::max(0.0, dist_centers - circle_radius - other_radius);
+        double sum_radii = circle_radius + other_radius;
+        if (dist_centers <= sum_radii + TOLERANCE) {
+            return 0.0; // Circles intersect or touch
+        }
+        return dist_centers - sum_radii;
     }
     case GEO_SHAPE_MULTI_POLYGON: {
         return rhs->Distance(this); // Delegate to MultiPolygon's implementation

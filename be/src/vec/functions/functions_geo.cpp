@@ -23,6 +23,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <utility>
 
+#include "common/compiler_util.h"
 #include "geo/geo_common.h"
 #include "geo/geo_types.h"
 #include "vec/columns/column.h"
@@ -959,6 +960,7 @@ struct StDistance {
         return Status::OK();
     }
 
+private:
     static bool decode_shape(const StringRef& value, std::unique_ptr<GeoShape>& shape) {
         shape = GeoShape::from_encoded(value.data, value.size);
         return static_cast<bool>(shape);
@@ -975,12 +977,21 @@ struct StDistance {
                 return;
             }
         }
-        res->insert_value(shapes[0]->Distance(shapes[1].get()));
+        double distance = shapes[0]->Distance(shapes[1].get());
+        if (UNLIKELY(distance < 0)) {
+            null_map[row] = 1;
+            res->insert_default();
+            return;
+        }
+        res->insert_value(distance);
     }
 
     static void const_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
                              ColumnFloat64::MutablePtr& res, NullMap& null_map, const size_t size) {
-        auto lhs_value = left_column->get_data_at(0);
+        const auto* left_string = assert_cast<const ColumnString*>(left_column.get());
+        const auto* right_string = assert_cast<const ColumnString*>(right_column.get());
+
+        auto lhs_value = left_string->get_data_at(0);
         std::unique_ptr<GeoShape> lhs_shape;
         if (!decode_shape(lhs_value, lhs_shape)) {
             for (int row = 0; row < size; ++row) {
@@ -992,19 +1003,28 @@ struct StDistance {
 
         std::unique_ptr<GeoShape> rhs_shape;
         for (int row = 0; row < size; ++row) {
-            auto rhs_value = right_column->get_data_at(row);
+            auto rhs_value = right_string->get_data_at(row);
             if (!decode_shape(rhs_value, rhs_shape)) {
                 null_map[row] = 1;
                 res->insert_default();
                 continue;
             }
-            res->insert_value(lhs_shape->Distance(rhs_shape.get()));
+            double distance = lhs_shape->Distance(rhs_shape.get());
+            if (UNLIKELY(distance < 0)) {
+                null_map[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            res->insert_value(distance);
         }
     }
 
     static void vector_const(const ColumnPtr& left_column, const ColumnPtr& right_column,
                              ColumnFloat64::MutablePtr& res, NullMap& null_map, const size_t size) {
-        auto rhs_value = right_column->get_data_at(0);
+        const auto* left_string = assert_cast<const ColumnString*>(left_column.get());
+        const auto* right_string = assert_cast<const ColumnString*>(right_column.get());
+
+        auto rhs_value = right_string->get_data_at(0);
         std::unique_ptr<GeoShape> rhs_shape;
         if (!decode_shape(rhs_value, rhs_shape)) {
             for (int row = 0; row < size; ++row) {
@@ -1016,13 +1036,19 @@ struct StDistance {
 
         std::unique_ptr<GeoShape> lhs_shape;
         for (int row = 0; row < size; ++row) {
-            auto lhs_value = left_column->get_data_at(row);
+            auto lhs_value = left_string->get_data_at(row);
             if (!decode_shape(lhs_value, lhs_shape)) {
                 null_map[row] = 1;
                 res->insert_default();
                 continue;
             }
-            res->insert_value(lhs_shape->Distance(rhs_shape.get()));
+            double distance = lhs_shape->Distance(rhs_shape.get());
+            if (UNLIKELY(distance < 0)) {
+                null_map[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            res->insert_value(distance);
         }
     }
 
