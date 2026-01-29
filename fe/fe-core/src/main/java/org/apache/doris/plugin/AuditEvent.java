@@ -58,6 +58,8 @@ public class AuditEvent {
     public String queryId = "";
     @AuditField(value = "Timestamp", colName = "time")
     public long timestamp = -1;
+    @AuditField(value = "SessionId")
+    public String sessionId = "";
 
     // cs info
     @AuditField(value = "Client", colName = "client_ip")
@@ -183,6 +185,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setTimestamp(long timestamp) {
             auditEvent.timestamp = timestamp;
+            return this;
+        }
+
+        public AuditEventBuilder setSessionId(String sessionId) {
+            auditEvent.sessionId = sessionId;
             return this;
         }
 

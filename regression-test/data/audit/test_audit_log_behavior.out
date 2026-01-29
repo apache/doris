@@ -2,7 +2,8 @@
 -- !audit_log_schema --
 query_id	varchar(48)	Yes	true	\N	
 time	datetime(3)	Yes	true	\N	
-client_ip	varchar(128)	Yes	true	\N	
+session_id	varchar(36)	Yes	true	\N	
+client_ip	varchar(128)	Yes	false	\N	NONE
 user	varchar(128)	Yes	false	\N	NONE
 frontend_ip	varchar(1024)	Yes	false	\N	NONE
 catalog	varchar(128)	Yes	false	\N	NONE
