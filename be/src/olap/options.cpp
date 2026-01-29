@@ -258,7 +258,15 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
         if (total_size < 0 || (config::enable_file_cache_query_limit && query_limit_bytes < 0)) {
             return Status::InvalidArgument("total_size or query_limit should not less than zero");
         }
-
+        if (config::enable_file_cache_normal_queue_2qlru) {
+            // The configurable range is inspired by MySQL's innodb_old_blocks_pct
+            // Reference: https://dev.mysql.com/doc/refman/8.4/en/innodb-parameters.html#sysvar_innodb_old_blocks_pct
+            if (config::file_cache_2qlru_cold_blocks_percent < 5 ||
+                config::file_cache_2qlru_cold_blocks_percent > 95) {
+            }
+            return Status::InvalidArgument(
+                    "file_cache_2qlru_cold_blocks_percent must be between 5 and 95.");
+        }
         // percent
         auto get_percent_value = [&](const std::string& key, size_t& percent) {
             auto& value = map.FindMember(key.c_str())->value;
