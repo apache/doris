@@ -633,24 +633,10 @@ FRAC:
                     "invalid timezone name '{}'", std::string {start, ptr});
         }
         // convert tz
-        cctz::civil_second cs {res.year(), res.month(),  res.day(),
-                               res.hour(), res.minute(), res.second()};
-
-        if constexpr (type == DataTimeCastEnumType::DATE_TIME) {
-            // if not timestamptz, the given time is in local_time_zone
-            SET_PARAMS_RET_FALSE_IFN(
-                    local_time_zone != nullptr,
-                    "local time zone required for datetime string without timezone");
-            auto given = cctz::convert(cs, parsed_tz);
-            auto local = cctz::convert(given, *local_time_zone);
-            res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)local.year());
-            res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)local.month());
-            res.unchecked_set_time_unit<TimeUnit::DAY>((uint32_t)local.day());
-            res.unchecked_set_time_unit<TimeUnit::HOUR>((uint32_t)local.hour());
-            res.unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)local.minute());
-            res.unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)local.second());
-        } else {
-            // if timestamptz, the given time is in UTC
+        if constexpr (type == DataTimeCastEnumType::TIMESTAMP_TZ) {
+            // timestamptz: the given time is in UTC
+            cctz::civil_second cs {res.year(), res.month(),  res.day(),
+                                   res.hour(), res.minute(), res.second()};
             auto given = cctz::convert(cs, parsed_tz);
             auto utc = cctz::convert(given, cctz::utc_time_zone());
             res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)utc.year());
@@ -659,6 +645,8 @@ FRAC:
             res.unchecked_set_time_unit<TimeUnit::HOUR>((uint32_t)utc.hour());
             res.unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)utc.minute());
             res.unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)utc.second());
+        } else {
+            SET_PARAMS_RET_FALSE_IFN(false, "timezone is not allowed for datetime string");
         }
         SET_PARAMS_RET_FALSE_IFN(res.year() <= 9999, "datetime year {} out of range [0, 9999]",
                                  res.year());
@@ -913,24 +901,10 @@ inline bool CastToDatetimeV2::from_string_non_strict_mode_impl(
         }
 
         // convert tz
-        cctz::civil_second cs {res.year(), res.month(),  res.day(),
-                               res.hour(), res.minute(), res.second()};
-
-        if constexpr (type == DataTimeCastEnumType::DATE_TIME) {
-            // if not timestamptz, the given time is in local_time_zone
-            SET_PARAMS_RET_FALSE_IFN(
-                    local_time_zone != nullptr,
-                    "local time zone required for datetime string without timezone");
-            auto given = cctz::convert(cs, parsed_tz);
-            auto local = cctz::convert(given, *local_time_zone);
-            res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)local.year());
-            res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)local.month());
-            res.unchecked_set_time_unit<TimeUnit::DAY>((uint32_t)local.day());
-            res.unchecked_set_time_unit<TimeUnit::HOUR>((uint32_t)local.hour());
-            res.unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)local.minute());
-            res.unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)local.second());
-        } else {
-            // if timestamptz, the given time is in UTC
+        if constexpr (type == DataTimeCastEnumType::TIMESTAMP_TZ) {
+            // timestamptz: the given time is in UTC
+            cctz::civil_second cs {res.year(), res.month(),  res.day(),
+                                   res.hour(), res.minute(), res.second()};
             auto given = cctz::convert(cs, parsed_tz);
             auto utc = cctz::convert(given, cctz::utc_time_zone());
             res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)utc.year());
@@ -939,6 +913,8 @@ inline bool CastToDatetimeV2::from_string_non_strict_mode_impl(
             res.unchecked_set_time_unit<TimeUnit::HOUR>((uint32_t)utc.hour());
             res.unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)utc.minute());
             res.unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)utc.second());
+        } else {
+            SET_PARAMS_RET_FALSE_IFN(false, "timezone is not allowed for datetime string");
         }
         SET_PARAMS_RET_FALSE_IFN(res.year() <= 9999, "datetime year {} out of range [0, 9999]",
                                  res.year());
