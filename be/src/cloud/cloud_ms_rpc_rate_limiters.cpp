@@ -22,84 +22,167 @@
 #include <algorithm>
 
 #include "cloud/config.h"
+#include "util/cpu_info.h"
 
 namespace doris::cloud {
 
-RpcRateLimiter::RpcRateLimiter(int qps, const std::string& op_name) {
-    latency_recorder = std::make_unique<bvar::LatencyRecorder>("host_level_ms_rpc_rate_limit_sleep", op_name);
-    limiter = std::make_unique<S3RateLimiterHolder>(
-            qps, qps, /*limit=*/0,
-            [this](int64_t sleep_ns) {
-                if (sleep_ns > 0) {
-                    // Convert ns to us for LatencyRecorder
-                    *latency_recorder << (sleep_ns / 1000);
-                }
-            });
+// Display names for each RPC type (used in bvar metrics)
+static constexpr std::string_view META_SERVICE_RPC_DISPLAY_NAMES[] = {
+#define DEFINE_DISPLAY_NAME(enum_name, config_suffix, display_name) display_name,
+        META_SERVICE_RPC_TYPES(DEFINE_DISPLAY_NAME)
+#undef DEFINE_DISPLAY_NAME
+};
+
+std::string_view meta_service_rpc_display_name(MetaServiceRPC rpc) {
+    size_t idx = static_cast<size_t>(rpc);
+    if (idx < static_cast<size_t>(MetaServiceRPC::COUNT)) {
+        return META_SERVICE_RPC_DISPLAY_NAMES[idx];
+    }
+    return "unknown";
+}
+
+// Get QPS config value for each RPC type
+// Returns actual QPS (already multiplied by num_cores)
+// Returns 0 if rate limiting should be disabled for this RPC
+static int get_rpc_qps_from_config(MetaServiceRPC rpc) {
+    int num_cores = CpuInfo::num_cores();
+    int qps_per_core = 0;
+
+    // Get the per-RPC config value, -1 means use default
+#define GET_RPC_QPS_CONFIG(enum_name, config_suffix, display_name) \
+    case MetaServiceRPC::enum_name:                                \
+        qps_per_core = config::ms_rpc_qps_##config_suffix;         \
+        break;
+
+    switch (rpc) {
+        META_SERVICE_RPC_TYPES(GET_RPC_QPS_CONFIG)
+    default:
+        return 0;
+    }
+#undef GET_RPC_QPS_CONFIG
+
+    // -1 means use default config
+    if (qps_per_core < 0) {
+        qps_per_core = config::ms_rpc_qps_default;
+    }
+
+    // 0 means disabled
+    if (qps_per_core <= 0) {
+        return 0;
+    }
+
+    return std::max(1, qps_per_core * num_cores);
+}
+
+RpcRateLimiter::RpcRateLimiter(int qps, std::string_view op_name) {
+    latency_recorder = std::make_unique<bvar::LatencyRecorder>("host_level_ms_rpc_rate_limit_sleep",
+                                                                std::string(op_name));
+    limiter = std::make_unique<S3RateLimiterHolder>(qps, qps, /*limit=*/0,
+                                                    [this](int64_t sleep_ns) {
+                                                        if (sleep_ns > 0) {
+                                                            // Convert ns to us for LatencyRecorder
+                                                            *latency_recorder << (sleep_ns / 1000);
+                                                        }
+                                                    });
 }
 
 void RpcRateLimiter::reset(int qps) {
     limiter->reset(qps, qps, 0);
 }
 
-HostLevelMSRpcRateLimiters::HostLevelMSRpcRateLimiters(int qps) {
+HostLevelMSRpcRateLimiters::HostLevelMSRpcRateLimiters() {
+    init_from_config();
+}
+
+HostLevelMSRpcRateLimiters::HostLevelMSRpcRateLimiters(int uniform_qps) {
+    init_with_uniform_qps(uniform_qps);
+}
+
+void HostLevelMSRpcRateLimiters::init_from_config() {
+    LOG(INFO) << "Initializing MS RPC rate limiters from config";
+
+    // Initialize rate limiters for all RPC types
+    for (size_t i = 0; i < static_cast<size_t>(MetaServiceRPC::COUNT); ++i) {
+        MetaServiceRPC rpc = static_cast<MetaServiceRPC>(i);
+        int qps = get_rpc_qps_from_config(rpc);
+        if (qps > 0) {
+            _limiters[i].store(
+                    std::make_shared<RpcRateLimiter>(qps, meta_service_rpc_display_name(rpc)));
+            LOG(INFO) << "  " << meta_service_rpc_display_name(rpc) << ": qps=" << qps;
+        } else {
+            _limiters[i].store(nullptr);
+            LOG(INFO) << "  " << meta_service_rpc_display_name(rpc) << ": disabled";
+        }
+    }
+}
+
+void HostLevelMSRpcRateLimiters::init_with_uniform_qps(int qps) {
     qps = std::max(qps, 1);
+    LOG(INFO) << "Initializing MS RPC rate limiters with uniform qps=" << qps;
 
-    LOG(INFO) << "Initializing MS RPC rate limiters with qps=" << qps;
-
-    // Pre-create rate limiters for all known RPC methods
-    add_limiter("get tablet meta", qps);
-    add_limiter("get rowset", qps);
-    add_limiter("prepare rowset", qps);
-    add_limiter("commit rowset", qps);
-    add_limiter("update tmp rowset", qps);
-    add_limiter("commit txn", qps);
-    add_limiter("abort txn", qps);
-    add_limiter("precommit txn", qps);
-    add_limiter("get obj store info", qps);
-    add_limiter("start tablet job", qps);
-    add_limiter("finish tablet job", qps);
-    add_limiter("get delete bitmap", qps);
-    add_limiter("update delete bitmap", qps);
-    add_limiter("get delete bitmap update lock", qps);
-    add_limiter("remove delete bitmap update lock", qps);
-    add_limiter("get instance", qps);
-    add_limiter("prepare restore job", qps);
-    add_limiter("commit restore job", qps);
-    add_limiter("finish restore job", qps);
-    add_limiter("list snapshots", qps);
-    add_limiter("update packed file info", qps);
+    // Initialize rate limiters for all RPC types with the same QPS
+    for (size_t i = 0; i < static_cast<size_t>(MetaServiceRPC::COUNT); ++i) {
+        MetaServiceRPC rpc = static_cast<MetaServiceRPC>(i);
+        _limiters[i].store(
+                std::make_shared<RpcRateLimiter>(qps, meta_service_rpc_display_name(rpc)));
+    }
 }
 
-void HostLevelMSRpcRateLimiters::add_limiter(const std::string& op_name, int qps) {
-    _limiters[op_name] = std::make_unique<RpcRateLimiter>(qps, op_name);
-}
-
-int64_t HostLevelMSRpcRateLimiters::limit(std::string_view op_name) {
+int64_t HostLevelMSRpcRateLimiters::limit(MetaServiceRPC rpc) {
     if (!config::enable_ms_rpc_host_level_rate_limit) {
         return 0;
     }
 
-    S3RateLimiterHolder* limiter = nullptr;
-    {
-        std::shared_lock<std::shared_mutex> lock(_mutex);
-        auto it = _limiters.find(op_name);
-        if (it != _limiters.end()) {
-            limiter = it->second->limiter.get();
-        }
+    size_t idx = static_cast<size_t>(rpc);
+    if (idx >= static_cast<size_t>(MetaServiceRPC::COUNT)) {
+        return 0;
     }
 
-    if (limiter) {
-        return limiter->add(1);
+    auto limiter = _limiters[idx].load();
+    if (limiter && limiter->limiter) {
+        return limiter->limiter->add(1);
     }
     return 0;
 }
 
-void HostLevelMSRpcRateLimiters::reset(int qps) {
+void HostLevelMSRpcRateLimiters::reset(MetaServiceRPC rpc, int qps) {
+    size_t idx = static_cast<size_t>(rpc);
+    if (idx >= static_cast<size_t>(MetaServiceRPC::COUNT)) {
+        return;
+    }
+
     qps = std::max(qps, 1);
-    LOG(INFO) << "Resetting MS RPC rate limiters with qps=" << qps;
-    std::unique_lock<std::shared_mutex> lock(_mutex);
-    for (auto& [op_name, limiter] : _limiters) {
+    LOG(INFO) << "Resetting MS RPC rate limiter for " << meta_service_rpc_display_name(rpc)
+              << " with qps=" << qps;
+
+    auto limiter = _limiters[idx].load();
+    if (limiter) {
         limiter->reset(qps);
+    } else {
+        _limiters[idx].store(
+                std::make_shared<RpcRateLimiter>(qps, meta_service_rpc_display_name(rpc)));
+    }
+}
+
+void HostLevelMSRpcRateLimiters::reset_all() {
+    LOG(INFO) << "Resetting all MS RPC rate limiters from config";
+
+    for (size_t i = 0; i < static_cast<size_t>(MetaServiceRPC::COUNT); ++i) {
+        MetaServiceRPC rpc = static_cast<MetaServiceRPC>(i);
+        int qps = get_rpc_qps_from_config(rpc);
+        if (qps > 0) {
+            auto limiter = _limiters[i].load();
+            if (limiter) {
+                limiter->reset(qps);
+            } else {
+                _limiters[i].store(
+                        std::make_shared<RpcRateLimiter>(qps, meta_service_rpc_display_name(rpc)));
+            }
+            LOG(INFO) << "  " << meta_service_rpc_display_name(rpc) << ": qps=" << qps;
+        } else {
+            _limiters[i].store(nullptr);
+            LOG(INFO) << "  " << meta_service_rpc_display_name(rpc) << ": disabled";
+        }
     }
 }
 

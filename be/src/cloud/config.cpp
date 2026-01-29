@@ -157,7 +157,33 @@ DEFINE_mInt64(cache_read_from_peer_expired_seconds, "-1");
 
 // MS RPC rate limiting config
 DEFINE_mBool(enable_ms_rpc_host_level_rate_limit, "true");
-DEFINE_mInt32(ms_rpc_qps_limit_per_core_per_rpc, "1");
+
+// Per-RPC QPS limit configs (per CPU core)
+// QPS limit = config_value * num_cores
+// Set to 0 to disable rate limiting for a specific RPC
+// Set to -1 to use ms_rpc_qps_default config value
+DEFINE_mInt32(ms_rpc_qps_default, "100");
+DEFINE_mInt32(ms_rpc_qps_get_tablet_meta, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_rowset, "-1");
+DEFINE_mInt32(ms_rpc_qps_prepare_rowset, "-1");
+DEFINE_mInt32(ms_rpc_qps_commit_rowset, "-1");
+DEFINE_mInt32(ms_rpc_qps_update_tmp_rowset, "-1");
+DEFINE_mInt32(ms_rpc_qps_commit_txn, "-1");
+DEFINE_mInt32(ms_rpc_qps_abort_txn, "-1");
+DEFINE_mInt32(ms_rpc_qps_precommit_txn, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_obj_store_info, "-1");
+DEFINE_mInt32(ms_rpc_qps_start_tablet_job, "-1");
+DEFINE_mInt32(ms_rpc_qps_finish_tablet_job, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_delete_bitmap, "-1");
+DEFINE_mInt32(ms_rpc_qps_update_delete_bitmap, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_delete_bitmap_update_lock, "-1");
+DEFINE_mInt32(ms_rpc_qps_remove_delete_bitmap_update_lock, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_instance, "-1");
+DEFINE_mInt32(ms_rpc_qps_prepare_restore_job, "-1");
+DEFINE_mInt32(ms_rpc_qps_commit_restore_job, "-1");
+DEFINE_mInt32(ms_rpc_qps_finish_restore_job, "-1");
+DEFINE_mInt32(ms_rpc_qps_list_snapshots, "-1");
+DEFINE_mInt32(ms_rpc_qps_update_packed_file_info, "-1");
 
 #include "common/compile_check_end.h"
 } // namespace doris::config

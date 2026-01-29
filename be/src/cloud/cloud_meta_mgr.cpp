@@ -37,6 +37,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "cloud/cloud_ms_rpc_rate_limiters.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_warm_up_manager.h"
@@ -66,7 +67,6 @@
 #include "util/network_util.h"
 #include "util/s3_util.h"
 #include "util/thrift_rpc_helper.h"
-#include "cloud/cloud_ms_rpc_rate_limiters.h"
 
 namespace doris::cloud {
 #include "common/compile_check_begin.h"
@@ -386,10 +386,13 @@ using MetaServiceMethod = void (MetaService_Stub::*)(::google::protobuf::RpcCont
                                                      ::google::protobuf::Closure*);
 
 template <typename Request, typename Response>
-Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
-                 MetaServiceMethod<Request, Response> method) {
+Status retry_rpc(MetaServiceRPC rpc, const Request& req, Response* res,
+                 MetaServiceMethod<Request, Response> method,
+                 HostLevelMSRpcRateLimiters* rate_limiters) {
     static_assert(std::is_base_of_v<::google::protobuf::Message, Request>);
     static_assert(std::is_base_of_v<::google::protobuf::Message, Response>);
+
+    std::string_view op_name = meta_service_rpc_display_name(rpc);
 
     // Applies only to the current file, and all req are non-const, but passed as const types.
     const_cast<Request&>(req).set_request_ip(BackendOptions::get_be_endpoint());
@@ -403,23 +406,20 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
     MetaServiceProxy* proxy;
     RETURN_IF_ERROR(MetaServiceProxy::get_proxy(&proxy));
 
-    // Host-level rate limiter
-    auto* rate_limiters = ExecEnv::GetInstance()->host_level_ms_rpc_rate_limiters();
-
     while (true) {
         std::shared_ptr<MetaService_Stub> stub;
         RETURN_IF_ERROR(proxy->get(&stub));
 
         // Rate limit before sending RPC
-        int64_t sleep_ns = 0;
+        [[maybe_unused]] int64_t sleep_ns = 0;
         if (rate_limiters) {
-            sleep_ns = rate_limiters->limit(op_name);
+            sleep_ns = rate_limiters->limit(rpc);
         }
-        TEST_SYNC_POINT_CALLBACK("retry_rpc::after_rate_limit",
-                                 const_cast<std::string_view*>(&op_name), &sleep_ns);
+        TEST_SYNC_POINT_CALLBACK("retry_rpc::after_rate_limit", &rpc, &sleep_ns);
 
         brpc::Controller cntl;
-        if (op_name == "get delete bitmap" || op_name == "update delete bitmap") {
+        if (rpc == MetaServiceRPC::GET_DELETE_BITMAP ||
+            rpc == MetaServiceRPC::UPDATE_DELETE_BITMAP) {
             cntl.set_timeout_ms(3 * config::meta_service_brpc_timeout_ms);
         } else {
             cntl.set_timeout_ms(config::meta_service_brpc_timeout_ms);
@@ -475,7 +475,8 @@ Status CloudMetaMgr::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tab
     GetTabletResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_tablet_id(tablet_id);
-    Status st = retry_rpc("get tablet meta", req, &resp, &MetaService_Stub::get_tablet);
+    Status st = retry_rpc(MetaServiceRPC::GET_TABLET_META, req, &resp,
+                          &MetaService_Stub::get_tablet, host_level_ms_rpc_rate_limiters_);
     if (!st.ok()) {
         if (resp.status().code() == MetaServiceCode::TABLET_NOT_FOUND) {
             return Status::NotFound("failed to get tablet meta: {}", resp.status().msg());
@@ -619,9 +620,8 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
         VLOG_DEBUG << "send GetRowsetRequest: " << req.ShortDebugString();
 
         // Host-level rate limiting for get_rowset
-        auto* rate_limiters = ExecEnv::GetInstance()->host_level_ms_rpc_rate_limiters();
-        if (rate_limiters) {
-            rate_limiters->limit("get rowset");
+        if (host_level_ms_rpc_rate_limiters_) {
+            host_level_ms_rpc_rate_limiters_->limit(MetaServiceRPC::GET_ROWSET);
         }
 
         auto start = std::chrono::steady_clock::now();
@@ -852,7 +852,8 @@ Status CloudMetaMgr::_get_delete_bitmap_from_ms(GetDeleteBitmapRequest& req,
     VLOG_DEBUG << "send GetDeleteBitmapRequest: " << req.ShortDebugString();
     TEST_SYNC_POINT_CALLBACK("CloudMetaMgr::_get_delete_bitmap_from_ms", &req, &res);
 
-    auto st = retry_rpc("get delete bitmap", req, &res, &MetaService_Stub::get_delete_bitmap);
+    auto st = retry_rpc(MetaServiceRPC::GET_DELETE_BITMAP, req, &res,
+                        &MetaService_Stub::get_delete_bitmap, host_level_ms_rpc_rate_limiters_);
     if (st.code() == ErrorCode::THRIFT_RPC_ERROR) {
         return st;
     }
@@ -1301,7 +1302,8 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, const std::string
     RowsetMetaPB doris_rs_meta = rs_meta.get_rowset_pb(/*skip_schema=*/true);
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(doris_rs_meta));
 
-    Status st = retry_rpc("prepare rowset", req, &resp, &MetaService_Stub::prepare_rowset);
+    Status st = retry_rpc(MetaServiceRPC::PREPARE_ROWSET, req, &resp,
+                          &MetaService_Stub::prepare_rowset, host_level_ms_rpc_rate_limiters_);
     if (!st.ok() && resp.status().code() == MetaServiceCode::ALREADY_EXISTED) {
         if (existed_rs_meta != nullptr && resp.has_existed_rowset_meta()) {
             RowsetMetaPB doris_rs_meta_tmp =
@@ -1331,7 +1333,8 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
 
     RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb();
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
-    Status st = retry_rpc("commit rowset", req, &resp, &MetaService_Stub::commit_rowset);
+    Status st = retry_rpc(MetaServiceRPC::COMMIT_ROWSET, req, &resp,
+                          &MetaService_Stub::commit_rowset, host_level_ms_rpc_rate_limiters_);
     if (!st.ok() && resp.status().code() == MetaServiceCode::ALREADY_EXISTED) {
         if (existed_rs_meta != nullptr && resp.has_existed_rowset_meta()) {
             RowsetMetaPB doris_rs_meta =
@@ -1376,8 +1379,8 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta) {
     bool skip_schema = rs_meta.tablet_schema()->num_variant_columns() == 0;
     RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb(skip_schema);
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
-    Status st =
-            retry_rpc("update committed rowset", req, &resp, &MetaService_Stub::update_tmp_rowset);
+    Status st = retry_rpc(MetaServiceRPC::UPDATE_TMP_ROWSET, req, &resp,
+                          &MetaService_Stub::update_tmp_rowset, host_level_ms_rpc_rate_limiters_);
     if (!st.ok() && resp.status().code() == MetaServiceCode::ROWSET_META_NOT_FOUND) {
         return Status::InternalError("failed to update committed rowset: {}", resp.status().msg());
     }
@@ -1453,7 +1456,8 @@ Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
     req.set_txn_id(ctx.txn_id);
     req.set_is_2pc(is_2pc);
     req.set_enable_txn_lazy_commit(config::enable_cloud_txn_lazy_commit);
-    auto st = retry_rpc("commit txn", req, &res, &MetaService_Stub::commit_txn);
+    auto st = retry_rpc(MetaServiceRPC::COMMIT_TXN, req, &res, &MetaService_Stub::commit_txn,
+                        host_level_ms_rpc_rate_limiters_);
 
     if (st.ok()) {
         send_stats_to_fe_async(ctx.db_id, ctx.txn_id, ctx.label, res);
@@ -1483,7 +1487,8 @@ Status CloudMetaMgr::abort_txn(const StreamLoadContext& ctx) {
                      << " txn_id=" << ctx.txn_id << " label=" << ctx.label;
         return Status::InternalError<false>("failed to abort txn");
     }
-    return retry_rpc("abort txn", req, &res, &MetaService_Stub::abort_txn);
+    return retry_rpc(MetaServiceRPC::ABORT_TXN, req, &res, &MetaService_Stub::abort_txn,
+                     host_level_ms_rpc_rate_limiters_);
 }
 
 Status CloudMetaMgr::precommit_txn(const StreamLoadContext& ctx) {
@@ -1498,7 +1503,8 @@ Status CloudMetaMgr::precommit_txn(const StreamLoadContext& ctx) {
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_db_id(ctx.db_id);
     req.set_txn_id(ctx.txn_id);
-    return retry_rpc("precommit txn", req, &res, &MetaService_Stub::precommit_txn);
+    return retry_rpc(MetaServiceRPC::PRECOMMIT_TXN, req, &res, &MetaService_Stub::precommit_txn,
+                     host_level_ms_rpc_rate_limiters_);
 }
 
 Status CloudMetaMgr::prepare_restore_job(const TabletMetaPB& tablet_meta) {
@@ -1511,7 +1517,8 @@ Status CloudMetaMgr::prepare_restore_job(const TabletMetaPB& tablet_meta) {
     req.set_action(RestoreJobRequest::PREPARE);
 
     doris_tablet_meta_to_cloud(req.mutable_tablet_meta(), std::move(tablet_meta));
-    return retry_rpc("prepare restore job", req, &resp, &MetaService_Stub::prepare_restore_job);
+    return retry_rpc(MetaServiceRPC::PREPARE_RESTORE_JOB, req, &resp,
+                     &MetaService_Stub::prepare_restore_job, host_level_ms_rpc_rate_limiters_);
 }
 
 Status CloudMetaMgr::commit_restore_job(const int64_t tablet_id) {
@@ -1523,7 +1530,8 @@ Status CloudMetaMgr::commit_restore_job(const int64_t tablet_id) {
     req.set_action(RestoreJobRequest::COMMIT);
     req.set_store_version(config::delete_bitmap_store_write_version);
 
-    return retry_rpc("commit restore job", req, &resp, &MetaService_Stub::commit_restore_job);
+    return retry_rpc(MetaServiceRPC::COMMIT_RESTORE_JOB, req, &resp,
+                     &MetaService_Stub::commit_restore_job, host_level_ms_rpc_rate_limiters_);
 }
 
 Status CloudMetaMgr::finish_restore_job(const int64_t tablet_id, bool is_completed) {
@@ -1535,15 +1543,16 @@ Status CloudMetaMgr::finish_restore_job(const int64_t tablet_id, bool is_complet
     req.set_tablet_id(tablet_id);
     req.set_action(is_completed ? RestoreJobRequest::COMPLETE : RestoreJobRequest::ABORT);
 
-    return retry_rpc("finish restore job", req, &resp, &MetaService_Stub::finish_restore_job);
+    return retry_rpc(MetaServiceRPC::FINISH_RESTORE_JOB, req, &resp,
+                     &MetaService_Stub::finish_restore_job, host_level_ms_rpc_rate_limiters_);
 }
 
 Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool* is_vault_mode) {
     GetObjStoreInfoRequest req;
     GetObjStoreInfoResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
-    Status s =
-            retry_rpc("get storage vault info", req, &resp, &MetaService_Stub::get_obj_store_info);
+    Status s = retry_rpc(MetaServiceRPC::GET_OBJ_STORE_INFO, req, &resp,
+                         &MetaService_Stub::get_obj_store_info, host_level_ms_rpc_rate_limiters_);
     if (!s.ok()) {
         return s;
     }
@@ -1596,7 +1605,8 @@ Status CloudMetaMgr::prepare_tablet_job(const TabletJobInfoPB& job, StartTabletJ
     StartTabletJobRequest req;
     req.mutable_job()->CopyFrom(job);
     req.set_cloud_unique_id(config::cloud_unique_id);
-    return retry_rpc("start tablet job", req, res, &MetaService_Stub::start_tablet_job);
+    return retry_rpc(MetaServiceRPC::START_TABLET_JOB, req, res,
+                     &MetaService_Stub::start_tablet_job, host_level_ms_rpc_rate_limiters_);
 }
 
 Status CloudMetaMgr::commit_tablet_job(const TabletJobInfoPB& job, FinishTabletJobResponse* res) {
@@ -1610,7 +1620,8 @@ Status CloudMetaMgr::commit_tablet_job(const TabletJobInfoPB& job, FinishTabletJ
     req.mutable_job()->CopyFrom(job);
     req.set_action(FinishTabletJobRequest::COMMIT);
     req.set_cloud_unique_id(config::cloud_unique_id);
-    auto st = retry_rpc("commit tablet job", req, res, &MetaService_Stub::finish_tablet_job);
+    auto st = retry_rpc(MetaServiceRPC::FINISH_TABLET_JOB, req, res,
+                        &MetaService_Stub::finish_tablet_job, host_level_ms_rpc_rate_limiters_);
     if (res->status().code() == MetaServiceCode::KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
         return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
                 "txn conflict when commit tablet job {}", job.ShortDebugString());
@@ -1625,7 +1636,8 @@ Status CloudMetaMgr::abort_tablet_job(const TabletJobInfoPB& job) {
     req.mutable_job()->CopyFrom(job);
     req.set_action(FinishTabletJobRequest::ABORT);
     req.set_cloud_unique_id(config::cloud_unique_id);
-    return retry_rpc("abort tablet job", req, &res, &MetaService_Stub::finish_tablet_job);
+    return retry_rpc(MetaServiceRPC::FINISH_TABLET_JOB, req, &res,
+                     &MetaService_Stub::finish_tablet_job, host_level_ms_rpc_rate_limiters_);
 }
 
 Status CloudMetaMgr::lease_tablet_job(const TabletJobInfoPB& job) {
@@ -1635,7 +1647,8 @@ Status CloudMetaMgr::lease_tablet_job(const TabletJobInfoPB& job) {
     req.mutable_job()->CopyFrom(job);
     req.set_action(FinishTabletJobRequest::LEASE);
     req.set_cloud_unique_id(config::cloud_unique_id);
-    return retry_rpc("lease tablet job", req, &res, &MetaService_Stub::finish_tablet_job);
+    return retry_rpc(MetaServiceRPC::FINISH_TABLET_JOB, req, &res,
+                     &MetaService_Stub::finish_tablet_job, host_level_ms_rpc_rate_limiters_);
 }
 
 Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t lock_id,
@@ -1800,7 +1813,8 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
                 "test update delete bitmap failed, tablet_id: {}, lock_id: {}", tablet.tablet_id(),
                 lock_id);
     });
-    auto st = retry_rpc("update delete bitmap", req, &res, &MetaService_Stub::update_delete_bitmap);
+    auto st = retry_rpc(MetaServiceRPC::UPDATE_DELETE_BITMAP, req, &res,
+                        &MetaService_Stub::update_delete_bitmap, host_level_ms_rpc_rate_limiters_);
     if (config::enable_update_delete_bitmap_kv_check_core &&
         res.status().code() == MetaServiceCode::UPDATE_OVERRIDE_EXISTING_KV) {
         auto& msg = res.status().msg();
@@ -1858,7 +1872,8 @@ Status CloudMetaMgr::cloud_update_delete_bitmap_without_lock(
         req.set_pre_rowset_agg_start_version(pre_rowset_agg_start_version);
         req.set_pre_rowset_agg_end_version(pre_rowset_agg_end_version);
     }
-    return retry_rpc("update delete bitmap", req, &res, &MetaService_Stub::update_delete_bitmap);
+    return retry_rpc(MetaServiceRPC::UPDATE_DELETE_BITMAP, req, &res,
+                     &MetaService_Stub::update_delete_bitmap, host_level_ms_rpc_rate_limiters_);
 }
 
 Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
@@ -1891,8 +1906,9 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
     uint64_t backoff_sleep_time_ms {0};
     do {
         bool test_conflict = false;
-        st = retry_rpc("get delete bitmap update lock", req, &res,
-                       &MetaService_Stub::get_delete_bitmap_update_lock);
+        st = retry_rpc(MetaServiceRPC::GET_DELETE_BITMAP_UPDATE_LOCK, req, &res,
+                       &MetaService_Stub::get_delete_bitmap_update_lock,
+                       host_level_ms_rpc_rate_limiters_);
         DBUG_EXECUTE_IF("CloudMetaMgr::test_get_delete_bitmap_update_lock_conflict",
                         { test_conflict = true; });
         if (!test_conflict && res.status().code() != MetaServiceCode::LOCK_CONFLICT) {
@@ -1946,8 +1962,9 @@ void CloudMetaMgr::remove_delete_bitmap_update_lock(int64_t table_id, int64_t lo
     req.set_tablet_id(tablet_id);
     req.set_lock_id(lock_id);
     req.set_initiator(initiator);
-    auto st = retry_rpc("remove delete bitmap update lock", req, &res,
-                        &MetaService_Stub::remove_delete_bitmap_update_lock);
+    auto st = retry_rpc(MetaServiceRPC::REMOVE_DELETE_BITMAP_UPDATE_LOCK, req, &res,
+                        &MetaService_Stub::remove_delete_bitmap_update_lock,
+                        host_level_ms_rpc_rate_limiters_);
     if (!st.ok()) {
         LOG(WARNING) << "remove delete bitmap update lock fail,table_id=" << table_id
                      << ",tablet_id=" << tablet_id << ",lock_id=" << lock_id
@@ -2226,7 +2243,8 @@ Status CloudMetaMgr::list_snapshot(std::vector<SnapshotInfoPB>& snapshots) {
     ListSnapshotResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_include_aborted(true);
-    RETURN_IF_ERROR(retry_rpc("list snapshot", req, &res, &MetaService_Stub::list_snapshot));
+    RETURN_IF_ERROR(retry_rpc(MetaServiceRPC::LIST_SNAPSHOTS, req, &res,
+                              &MetaService_Stub::list_snapshot, host_level_ms_rpc_rate_limiters_));
     for (auto& snapshot : res.snapshots()) {
         snapshots.emplace_back(snapshot);
     }
@@ -2239,8 +2257,8 @@ Status CloudMetaMgr::get_snapshot_properties(SnapshotSwitchStatus& switch_status
     GetInstanceRequest req;
     GetInstanceResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
-    RETURN_IF_ERROR(
-            retry_rpc("get snapshot properties", req, &res, &MetaService_Stub::get_instance));
+    RETURN_IF_ERROR(retry_rpc(MetaServiceRPC::GET_INSTANCE, req, &res,
+                              &MetaService_Stub::get_instance, host_level_ms_rpc_rate_limiters_));
     switch_status = res.instance().has_snapshot_switch_status()
                             ? res.instance().snapshot_switch_status()
                             : SnapshotSwitchStatus::SNAPSHOT_SWITCH_DISABLED;
@@ -2268,8 +2286,9 @@ Status CloudMetaMgr::update_packed_file_info(const std::string& packed_file_path
     *req.mutable_packed_file_info() = packed_file_info;
 
     // Make RPC call using retry pattern
-    return retry_rpc("update packed file info", req, &resp,
-                     &cloud::MetaService_Stub::update_packed_file_info);
+    return retry_rpc(MetaServiceRPC::UPDATE_PACKED_FILE_INFO, req, &resp,
+                     &cloud::MetaService_Stub::update_packed_file_info,
+                     host_level_ms_rpc_rate_limiters_);
 }
 
 #include "common/compile_check_end.h"
