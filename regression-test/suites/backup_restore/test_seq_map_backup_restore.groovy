@@ -80,23 +80,23 @@ suite("test_seq_map_backup_restore", "p1") {
     // version1
     assertTrue(syncer.getSnapshot("seq_map_snapshot1", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    syncer.waitAllRestoreFinish()
+    syncer.waitAllRestoreFinish(dbName)
     qt_7 """select * from ${dbName}.$tableName order by a"""
 
     // version2
     assertTrue(syncer.getSnapshot("seq_map_snapshot2", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    syncer.waitAllRestoreFinish()
+    syncer.waitAllRestoreFinish(dbName)
     qt_8 """select * from ${dbName}.$tableName order by a"""
     // version3
     assertTrue(syncer.getSnapshot("seq_map_snapshot3", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    syncer.waitAllRestoreFinish()
+    syncer.waitAllRestoreFinish(dbName)
     qt_9 """select * from ${dbName}.$tableName order by a"""
     // version4
     assertTrue(syncer.getSnapshot("seq_map_snapshot4", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    syncer.waitAllRestoreFinish()
+    syncer.waitAllRestoreFinish(dbName)
     qt_10 """select * from ${dbName}.$tableName order by a"""
 
     sql """drop table if exists ${dbName}.$tableName"""
@@ -124,23 +124,23 @@ suite("test_seq_map_backup_restore", "p1") {
     // version1
     assertTrue(syncer.getSnapshot("seq_map_snapshot1", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    syncer.waitAllRestoreFinish()
+    syncer.waitAllRestoreFinish(dbName)
     qt_11 """select * from ${dbName}.$tableName order by a"""
 
     // version2
     assertTrue(syncer.getSnapshot("seq_map_snapshot2", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    syncer.waitAllRestoreFinish()
+    syncer.waitAllRestoreFinish(dbName)
     qt_12 """select * from ${dbName}.$tableName order by a"""
     // version3
     assertTrue(syncer.getSnapshot("seq_map_snapshot3", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    syncer.waitAllRestoreFinish()
+    syncer.waitAllRestoreFinish(dbName)
     qt_13 """select * from ${dbName}.$tableName order by a"""
     // version4
     assertTrue(syncer.getSnapshot("seq_map_snapshot4", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    syncer.waitAllRestoreFinish()
+    syncer.waitAllRestoreFinish(dbName)
     qt_14 """select * from ${dbName}.$tableName order by a"""
 
     sql """drop table if exists ${dbName}.$tableName"""
@@ -169,7 +169,7 @@ suite("test_seq_map_backup_restore", "p1") {
     syncer.waitSnapshotFinish()
     assertTrue(syncer.getSnapshot("seq_map_seq_without_value_snapshot", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    syncer.waitAllRestoreFinish()
+    syncer.waitAllRestoreFinish(dbName)
     qt_16 """select * from ${dbName}.$tableName order by a"""
 
     sql """drop table if exists ${dbName}.$tableName"""

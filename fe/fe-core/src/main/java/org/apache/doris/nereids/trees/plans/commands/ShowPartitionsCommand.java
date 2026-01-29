@@ -67,6 +67,7 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.partition.Partition;
@@ -85,6 +86,15 @@ import java.util.stream.Collectors;
  * show partitions command
  */
 public class ShowPartitionsCommand extends ShowCommand {
+    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("PartitionId").add("PartitionName")
+            .add("VisibleVersion").add("VisibleVersionTime")
+            .add("State").add("PartitionKey").add("Range").add("DistributionKey")
+            .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime").add("RemoteStoragePolicy")
+            .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
+            .add("IsMutable").add("SyncWithBaseTables").add("UnsyncTables").add("CommittedVersion")
+            .add("RowCount").add("MediumAllocationMode")
+            .build();
     public static final String FILTER_PARTITION_NAME = "PartitionName";
     private static final Logger LOG = LogManager.getLogger(ShowPartitionsCommand.class);
     private static final String FILTER_PARTITION_ID = "PartitionId";

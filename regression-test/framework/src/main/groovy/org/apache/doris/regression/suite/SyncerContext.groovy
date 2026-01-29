@@ -133,6 +133,8 @@ class SyncerContext {
     public String tableName
     public TGetSnapshotResult getSnapshotResult
     public String token
+    public String storageMedium
+    public String mediumAllocationMode
 
     public Config config
     public String user

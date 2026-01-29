@@ -59,23 +59,23 @@ suite("test_MoW_backup_restore", "p1") {
     // version1 (1,1)(2,2)
     assertTrue(syncer.getSnapshot("snapshot1", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    syncer.waitAllRestoreFinish()
+    syncer.waitAllRestoreFinish(dbName)
     qt_7 """select * from ${tableName} order by user_id"""
 
     // version2 (1,10)(2,2)
     assertTrue(syncer.getSnapshot("snapshot2", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    syncer.waitAllRestoreFinish()
+    syncer.waitAllRestoreFinish(dbName)
     qt_8 """select * from ${tableName} order by user_id"""
     // version3 (1,100)(2,2)
     assertTrue(syncer.getSnapshot("snapshot3", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    syncer.waitAllRestoreFinish()
+    syncer.waitAllRestoreFinish(dbName)
     qt_9 """select * from ${tableName} order by user_id"""
     // version4 (2,2)
     assertTrue(syncer.getSnapshot("snapshot4", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    syncer.waitAllRestoreFinish()
+    syncer.waitAllRestoreFinish(dbName)
     qt_10 """select * from ${tableName} order by user_id"""
 
     sql """drop table if exists ${tableName}"""
@@ -91,22 +91,22 @@ suite("test_MoW_backup_restore", "p1") {
     // version1 (1,1)(2,2)
     assertTrue(syncer.getSnapshot("snapshot1", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    syncer.waitAllRestoreFinish()
+    syncer.waitAllRestoreFinish(dbName)
     qt_11 """select * from ${tableName} order by user_id"""
 
     // version2 (1,10)(2,2)
     assertTrue(syncer.getSnapshot("snapshot2", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    syncer.waitAllRestoreFinish()
+    syncer.waitAllRestoreFinish(dbName)
     qt_12 """select * from ${tableName} order by user_id"""
     // version3 (1,100)(2,2)
     assertTrue(syncer.getSnapshot("snapshot3", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    syncer.waitAllRestoreFinish()
+    syncer.waitAllRestoreFinish(dbName)
     qt_13 """select * from ${tableName} order by user_id"""
     // version4 (2,2)
     assertTrue(syncer.getSnapshot("snapshot4", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    syncer.waitAllRestoreFinish()
+    syncer.waitAllRestoreFinish(dbName)
     qt_14 """select * from ${tableName} order by user_id"""
 }

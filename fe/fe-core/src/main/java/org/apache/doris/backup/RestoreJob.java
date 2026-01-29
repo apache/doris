@@ -124,6 +124,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private static final String PROP_CLEAN_PARTITIONS = RestoreCommand.PROP_CLEAN_PARTITIONS;
     private static final String PROP_ATOMIC_RESTORE = RestoreCommand.PROP_ATOMIC_RESTORE;
     private static final String PROP_FORCE_REPLACE = RestoreCommand.PROP_FORCE_REPLACE;
+    private static final String PROP_STORAGE_MEDIUM = RestoreCommand.PROP_STORAGE_MEDIUM;
+    private static final String PROP_MEDIUM_ALLOCATION_MODE = RestoreCommand.PROP_MEDIUM_ALLOCATION_MODE;
     private static final String ATOMIC_RESTORE_TABLE_PREFIX = "__doris_atomic_restore_prefix__";
 
     private static final Logger LOG = LogManager.getLogger(RestoreJob.class);
@@ -219,6 +221,12 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     protected boolean isAtomicRestore = false;
     // Whether to restore the table by replacing the exists but conflicted table.
     protected boolean isForceReplace = false;
+    // Storage medium: "hdd", "ssd" or "same_with_upstream"
+    @SerializedName(value = "storageMedium")
+    private String storageMedium = RestoreCommand.STORAGE_MEDIUM_SAME_WITH_UPSTREAM;
+    // Medium allocation mode: "strict" or "adaptive"
+    @SerializedName(value = "mediumAllocationMode")
+    private String mediumAllocationMode = RestoreCommand.MEDIUM_ALLOCATION_MODE_STRICT;
 
     // restore properties
     @SerializedName("prop")
@@ -239,8 +247,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
             ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
             boolean reserveColocate, boolean reserveDynamicPartitionEnable, boolean isBeingSynced,
-            boolean isCleanTables, boolean isCleanPartitions, boolean isAtomicRestore, boolean isForceReplace, Env env,
-            long repoId) {
+            boolean isCleanTables, boolean isCleanPartitions, boolean isAtomicRestore, boolean isForceReplace,
+            String storageMedium, String mediumAllocationMode, Env env, long repoId) {
         super(JobType.RESTORE, label, dbId, dbName, timeoutMs, env, repoId);
         this.backupTimestamp = backupTs;
         this.jobInfo = jobInfo;
@@ -263,6 +271,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         if (this.isAtomicRestore) {
             this.isForceReplace = isForceReplace;
         }
+        this.storageMedium = (storageMedium == null || storageMedium.trim().isEmpty())
+                ? RestoreCommand.STORAGE_MEDIUM_SAME_WITH_UPSTREAM : storageMedium;
+        this.mediumAllocationMode = (mediumAllocationMode == null || mediumAllocationMode.trim().isEmpty())
+                ? RestoreCommand.MEDIUM_ALLOCATION_MODE_STRICT : mediumAllocationMode;
         properties.put(PROP_RESERVE_REPLICA, String.valueOf(reserveReplica));
         properties.put(PROP_RESERVE_COLOCATE, String.valueOf(reserveColocate));
         properties.put(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE, String.valueOf(reserveDynamicPartitionEnable));
@@ -271,17 +283,19 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         properties.put(PROP_CLEAN_PARTITIONS, String.valueOf(isCleanPartitions));
         properties.put(PROP_ATOMIC_RESTORE, String.valueOf(isAtomicRestore));
         properties.put(PROP_FORCE_REPLACE, String.valueOf(isForceReplace));
+        properties.put(PROP_STORAGE_MEDIUM, storageMedium);
+        properties.put(PROP_MEDIUM_ALLOCATION_MODE, mediumAllocationMode);
     }
 
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
             ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
             boolean reserveColocate, boolean reserveDynamicPartitionEnable, boolean isBeingSynced,
-            boolean isCleanTables, boolean isCleanPartitions, boolean isAtomicRestore, boolean isForeReplace, Env env,
-            long repoId,
+            boolean isCleanTables, boolean isCleanPartitions, boolean isAtomicRestore, boolean isForeReplace,
+            String storageMedium, String mediumAllocationMode, Env env, long repoId,
             BackupMeta backupMeta) {
         this(label, backupTs, dbId, dbName, jobInfo, allowLoad, replicaAlloc, timeoutMs, metaVersion, reserveReplica,
                 reserveColocate, reserveDynamicPartitionEnable, isBeingSynced, isCleanTables, isCleanPartitions,
-                isAtomicRestore, isForeReplace, env, repoId);
+                isAtomicRestore, isForeReplace, storageMedium, mediumAllocationMode, env, repoId);
 
         this.backupMeta = backupMeta;
     }
@@ -309,6 +323,30 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
     public List<ColocatePersistInfo> getColocatePersistInfos() {
         return colocatePersistInfos;
+    }
+
+    public String getStorageMedium() {
+        return storageMedium;
+    }
+
+    public String getMediumAllocationMode() {
+        return mediumAllocationMode;
+    }
+
+    // Check if storage medium should be inherited from upstream
+    public boolean isSameWithUpstream() {
+        return RestoreCommand.STORAGE_MEDIUM_SAME_WITH_UPSTREAM.equals(storageMedium);
+    }
+
+    // Get target allocation mode as enum
+    private DataProperty.MediumAllocationMode getTargetAllocationMode() {
+        if (RestoreCommand.MEDIUM_ALLOCATION_MODE_STRICT.equals(mediumAllocationMode)) {
+            return DataProperty.MediumAllocationMode.STRICT;
+        } else if (RestoreCommand.MEDIUM_ALLOCATION_MODE_ADAPTIVE.equals(mediumAllocationMode)) {
+            return DataProperty.MediumAllocationMode.ADAPTIVE;
+        }
+        // Default to strict
+        return DataProperty.MediumAllocationMode.STRICT;
     }
 
     public synchronized boolean finishTabletSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {
@@ -562,17 +600,17 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
      * Restore rules as follow:
      * OlapTable
      * A. Table already exist
-     *      A1. Partition already exist, generate file mapping
-     *      A2. Partition does not exist, add restored partition to the table.
-     *          Reset all index/tablet/replica id, and create replica on BE outside the table lock.
+     * A1. Partition already exist, generate file mapping
+     * A2. Partition does not exist, add restored partition to the table.
+     * Reset all index/tablet/replica id, and create replica on BE outside the table lock.
      * B. Table does not exist
-     *      B1. Add table to the db, reset all table/index/tablet/replica id,
-     *          and create replica on BE outside the db lock.
+     * B1. Add table to the db, reset all table/index/tablet/replica id,
+     * and create replica on BE outside the db lock.
      * View
-     *      * A. View already exist. The same signature is allowed.
-     *      * B. View does not exist.
+     * * A. View already exist. The same signature is allowed.
+     * * B. View does not exist.
      * All newly created table/partition/index/tablet/replica should be saved for rolling back.
-     *
+     * <p>
      * Step:
      * 1. download and deserialize backup meta from repository.
      * 2. set all existing restored table's state to RESTORE.
@@ -864,10 +902,86 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         }
                     }
 
-                    // reset all ids in this table
+                    // Initialize medium decision maker
                     String srcDbName = jobInfo.dbName;
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Using storage_medium='{}', medium_allocation_mode='{}' for table {}",
+                                storageMedium, mediumAllocationMode, remoteOlapTbl.getName());
+                    }
+
+                    MediumDecisionMaker decisionMaker = new MediumDecisionMaker(
+                            storageMedium, mediumAllocationMode);
+
+                    // Set table-level storage medium using decision maker
+                    TStorageMedium tableMedium = decisionMaker.decideForTableLevel(remoteOlapTbl);
+                    remoteOlapTbl.setStorageMedium(tableMedium);
+
+                    // Set medium_allocation_mode property based on user-specified mode
+                    DataProperty.MediumAllocationMode targetPolicy = getTargetAllocationMode();
+                    remoteOlapTbl.setMediumAllocationMode(targetPolicy);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Table {} set medium_allocation_mode to {} (from user-specified mode)",
+                                remoteOlapTbl.getName(), targetPolicy);
+                    }
+
+                    // Pre-decide medium for all partitions using decision maker
+                    // This ensures OlapTable.resetIdsForRestore() can simply read from DataProperty
+                    for (Partition partition : remoteOlapTbl.getPartitions()) {
+                        try {
+                            DataProperty upstreamDataProperty = remoteOlapTbl.getPartitionInfo()
+                                    .getDataProperty(partition.getId());
+
+                            // Use upstream partition's replica allocation if reserve_replica=true
+                            ReplicaAllocation partitionReplicaAlloc = replicaAlloc;
+                            if (reserveReplica) {
+                                partitionReplicaAlloc = remoteOlapTbl.getPartitionInfo()
+                                        .getReplicaAllocation(partition.getId());
+                            }
+
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("BEFORE decision: partition {} has medium={}, mode={}, "
+                                                + "config: storage_medium={}, policy={}",
+                                        partition.getName(),
+                                        upstreamDataProperty.getStorageMedium(),
+                                        upstreamDataProperty.getMediumAllocationMode(),
+                                        storageMedium, mediumAllocationMode);
+                            }
+
+                            MediumDecisionMaker.MediumDecision decision = decisionMaker.decideForNewPartition(
+                                    partition.getName(), upstreamDataProperty, partitionReplicaAlloc);
+
+                            // Update both storage medium and allocation mode
+                            upstreamDataProperty.setStorageMedium(decision.getFinalMedium());
+                            upstreamDataProperty.setMediumAllocationMode(targetPolicy);
+
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("AFTER decision: partition {} set to medium={}, mode={}, decision={}",
+                                        partition.getName(),
+                                        upstreamDataProperty.getStorageMedium(),
+                                        upstreamDataProperty.getMediumAllocationMode(),
+                                        decision);
+                            }
+
+                            if (decision.wasDowngraded() && LOG.isDebugEnabled()) {
+                                LOG.debug("Pre-decided medium for partition {}: {} (downgraded from {}, reason: {})",
+                                        partition.getName(), decision.getFinalMedium(),
+                                        decision.getOriginalMedium(), decision.getReason());
+                            }
+                        } catch (DdlException e) {
+                            // If we reach here, it means even adaptive mode cannot find available backends
+                            // This is a real failure - set status and return
+                            LOG.error("Failed to decide medium for partition {}: {}",
+                                    partition.getName(), e.getMessage());
+                            status = new Status(ErrCode.COMMON_ERROR,
+                                    "Failed to decide medium for partition " + partition.getName()
+                                            + ": " + e.getMessage());
+                            return;
+                        }
+                    }
+
+                    // Reset all ids in this table - partition mediums are already decided
                     Status st = remoteOlapTbl.resetIdsForRestore(env, db, replicaAlloc, reserveReplica,
-                            reserveColocate, colocatePersistInfos, srcDbName);
+                            reserveColocate, colocatePersistInfos, srcDbName, storageMedium);
                     if (!st.ok()) {
                         status = st;
                         return;
@@ -885,8 +999,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     remoteOlapTbl.setState(allowLoad ? OlapTableState.RESTORE_WITH_LOAD : OlapTableState.RESTORE);
 
                     if (isAtomicRestore && localTbl != null && !isSchemaChanged) {
-                        // bind the backends and base tablets from local tbl.
-                        status = bindLocalAndRemoteOlapTableReplicas((OlapTable) localTbl, remoteOlapTbl, tabletBases);
+                        // bind the backends and base tablets from local tbl using decision maker
+                        status = bindLocalAndRemoteOlapTableReplicas((OlapTable) localTbl, remoteOlapTbl,
+                                tabletBases, decisionMaker);
                         if (!status.ok()) {
                             return;
                         }
@@ -1090,7 +1205,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         if (!(ok && createReplicaTasksLatch.getStatus().ok())) {
             // only show at most 10 results
             List<String> subList = createReplicaTasksLatch.getLeftMarks().stream().limit(10)
-                    .map(item -> "(backendId = " + item.getKey() + ", tabletId = "  + item.getValue() + ")")
+                    .map(item -> "(backendId = " + item.getKey() + ", tabletId = " + item.getValue() + ")")
                     .collect(Collectors.toList());
             String idStr = Joiner.on(", ").join(subList);
             String reason = "TIMEDOUT";
@@ -1182,29 +1297,53 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
     private Status bindLocalAndRemoteOlapTableReplicas(
             OlapTable localOlapTbl, OlapTable remoteOlapTbl,
-            Map<Long, TabletRef> tabletBases) {
+            Map<Long, TabletRef> tabletBases, MediumDecisionMaker decisionMaker) {
         localOlapTbl.readLock();
         try {
-            // The storage medium of the remote olap table's storage is HDD, because we want to
-            // restore the tables in another cluster might without SSD.
-            //
-            // Keep the storage medium of the new olap table the same as the old one, so that
-            // the replicas in the new olap table will not be migrated to other storage mediums.
-            remoteOlapTbl.setStorageMedium(localOlapTbl.getStorageMedium());
             for (Partition partition : remoteOlapTbl.getPartitions()) {
                 Partition localPartition = localOlapTbl.getPartition(partition.getName());
                 if (localPartition == null) {
                     continue;
                 }
-                // Since the replicas are bound to the same disk, the storage medium must be the same
-                // to avoid media migration.
-                TStorageMedium storageMedium = localOlapTbl.getPartitionInfo()
-                        .getDataProperty(localPartition.getId()).getStorageMedium();
-                remoteOlapTbl.getPartitionInfo().getDataProperty(partition.getId())
-                        .setStorageMedium(storageMedium);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("bind local partition {} and remote partition {} with same storage medium {}, name: {}",
-                            localPartition.getId(), partition.getId(), storageMedium, partition.getName());
+
+                // Use decision maker to determine medium for atomic restore
+                // This handles the "avoid migration" principle automatically
+                try {
+                    DataProperty upstreamDataProperty = remoteOlapTbl.getPartitionInfo()
+                            .getDataProperty(partition.getId());
+                    DataProperty localDataProperty = localOlapTbl.getPartitionInfo()
+                            .getDataProperty(localPartition.getId());
+
+                    // Use local partition's replica allocation for atomic restore
+                    // to match the existing partition's backend count
+                    ReplicaAllocation localReplicaAlloc = localOlapTbl.getPartitionInfo()
+                            .getReplicaAllocation(localPartition.getId());
+
+                    MediumDecisionMaker.MediumDecision decision = decisionMaker.decideForAtomicRestore(
+                            partition.getName(), upstreamDataProperty, localDataProperty, localReplicaAlloc);
+
+                    // Apply decision to remote partition (both medium and allocation mode)
+                    upstreamDataProperty.setStorageMedium(decision.getFinalMedium());
+                    upstreamDataProperty.setMediumAllocationMode(getTargetAllocationMode());
+
+                    // Log decision
+                    if (decision.wasDowngraded()) {
+                        LOG.info("Atomic restore: partition {} using medium {} (downgraded from {}, reason: {})",
+                                partition.getName(), decision.getFinalMedium(),
+                                decision.getOriginalMedium(), decision.getReason());
+                    } else {
+                        LOG.info("Atomic restore: partition {} using medium {} (reason: {})",
+                                partition.getName(), decision.getFinalMedium(), decision.getReason());
+                    }
+                } catch (DdlException e) {
+                    // If MediumDecisionMaker throws exception, it means the decision failed
+                    // (e.g., strict mode with insufficient resources)
+                    // Propagate the error to fail the restore
+                    LOG.error("Failed to decide medium for atomic restore partition {}: {}",
+                            partition.getName(), e.getMessage());
+                    return new Status(ErrCode.COMMON_ERROR,
+                            "Failed to decide medium for partition " + partition.getName()
+                                    + " in atomic restore: " + e.getMessage());
                 }
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     String indexName = remoteOlapTbl.getIndexNameById(index.getId());
@@ -1217,7 +1356,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     if (schemaHash == -1) {
                         return new Status(ErrCode.COMMON_ERROR, String.format(
                                 "schema hash of local index %d is not found, remote table=%d, remote index=%d, "
-                                + "local table=%d, local index=%d", localIndexId, remoteOlapTbl.getId(), index.getId(),
+                                        + "local table=%d, local index=%d", localIndexId, remoteOlapTbl.getId(),
+                                index.getId(),
                                 localOlapTbl.getId(), localIndexId));
                     }
 
@@ -1237,8 +1377,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         List<Replica> remoteReplicas = remoteTablet.getReplicas();
                         if (localReplicas.size() != remoteReplicas.size()) {
                             LOG.warn("skip bind replicas because the size of local replicas {} is not equals to "
-                                    + "the remote {}, is_atomic_restore=true, remote table={}, remote index={}, "
-                                    + "local table={}, local index={}, local tablet={}, remote tablet={}",
+                                            + "the remote {}, is_atomic_restore=true, remote table={}, "
+                                            + "remote index={}, local table={}, local index={}, "
+                                            + "local tablet={}, remote tablet={}",
                                     localReplicas.size(), remoteReplicas.size(), remoteOlapTbl.getId(),
                                     index.getId(), localOlapTbl.getId(), localIndexId, localTablet.getId(),
                                     remoteTablet.getId());
@@ -1413,11 +1554,21 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
             for (Tablet restoreTablet : restoredIdx.getTablets()) {
                 TabletRef baseTabletRef = tabletBases == null ? null : tabletBases.get(restoreTablet.getId());
-                // All restored replicas will be saved to HDD by default.
-                TStorageMedium storageMedium = TStorageMedium.HDD;
-                if (tabletBases != null) {
-                    // ensure this tablet is bound to the same backend disk as the origin table's tablet.
-                    storageMedium = localTbl.getPartitionInfo().getDataProperty(restorePart.getId()).getStorageMedium();
+
+                // Simply use the medium from partition DataProperty
+                // The medium has already been decided by MediumDecisionMaker in:
+                // - resetIdsForRestore() for new tables/non-atomic restore
+                // - bindLocalAndRemoteOlapTableReplicas() for atomic restore
+                // - resetPartitionForRestore() for new partitions in atomic restore
+                DataProperty partitionDataProperty = localTbl.getPartitionInfo()
+                        .getDataProperty(restorePart.getId());
+                TStorageMedium storageMedium = (partitionDataProperty != null)
+                        ? partitionDataProperty.getStorageMedium()
+                        : TStorageMedium.HDD;  // fallback default
+
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("tablet {} in partition {} using medium {} (from DataProperty)",
+                            restoreTablet.getId(), restorePart.getName(), storageMedium);
                 }
                 TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
                         restoredIdx.getId(), indexMeta.getSchemaHash(), storageMedium);
@@ -1458,10 +1609,25 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
                     if (baseTabletRef != null) {
-                        // ensure this replica is bound to the same backend disk as the origin table's replica.
-                        task.setBaseTablet(baseTabletRef.tabletId, baseTabletRef.schemaHash);
-                        LOG.info("set base tablet {} for replica {} in restore job {}, tablet id={}",
-                                baseTabletRef.tabletId, restoreReplica.getId(), jobId, restoreTablet.getId());
+                        // Check if adaptive mode caused medium switch
+                        // If medium changed, don't bind to base tablet (allow migration for availability)
+                        TabletMeta baseTabletMeta = Env.getCurrentInvertedIndex()
+                                .getTabletMeta(baseTabletRef.tabletId);
+                        TStorageMedium baseMedium = (baseTabletMeta != null)
+                                ? baseTabletMeta.getStorageMedium()
+                                : null;
+
+                        if (baseMedium != null && baseMedium != storageMedium) {
+                            // Adaptive mode switched medium, don't bind to avoid disk full error
+                            LOG.info("Skip base tablet binding for replica {} (adaptive switched medium "
+                                            + "from {} to {}, allowing migration for availability)",
+                                    restoreReplica.getId(), baseMedium, storageMedium);
+                        } else {
+                            // Same medium or medium unknown: bind to base tablet (avoid migration)
+                            task.setBaseTablet(baseTabletRef.tabletId, baseTabletRef.schemaHash);
+                            LOG.info("set base tablet {} for replica {} in restore job {}, tablet id={}",
+                                    baseTabletRef.tabletId, restoreReplica.getId(), jobId, restoreTablet.getId());
+                        }
                     }
                     if (!CollectionUtils.isEmpty(clusterKeyUids)) {
                         task.setClusterKeyUids(clusterKeyUids);
@@ -1490,6 +1656,44 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         // generate new partition id
         long newPartId = env.getNextId();
         long oldPartId = remotePart.getId();
+
+        // Use decision maker to decide medium for new partition in atomic restore
+        // Note: This is called when adding a new partition to an existing table
+        MediumDecisionMaker decisionMaker = new MediumDecisionMaker(storageMedium, mediumAllocationMode);
+        try {
+            // IMPORTANT: Use oldPartId to query DataProperty before changing partition ID
+            // because remoteTbl's PartitionInfo still uses the original partition IDs
+            DataProperty remotePartitionDataProperty = remoteTbl.getPartitionInfo().getDataProperty(oldPartId);
+            if (remotePartitionDataProperty != null) {
+                MediumDecisionMaker.MediumDecision decision = decisionMaker.decideForNewPartition(
+                        partName, remotePartitionDataProperty, replicaAlloc);
+
+                // Apply decision to partition DataProperty (both medium and allocation mode)
+                remotePartitionDataProperty.setStorageMedium(decision.getFinalMedium());
+                remotePartitionDataProperty.setMediumAllocationMode(getTargetAllocationMode());
+
+                if (decision.wasDowngraded()) {
+                    LOG.info("New partition {} in atomic restore using medium {} "
+                                    + "(downgraded from {}, reason: {})",
+                            partName, decision.getFinalMedium(),
+                            decision.getOriginalMedium(), decision.getReason());
+                } else {
+                    LOG.info("New partition {} in atomic restore using medium {} (reason: {})",
+                            partName, decision.getFinalMedium(), decision.getReason());
+                }
+            }
+        } catch (DdlException e) {
+            // If we reach here, even adaptive mode cannot find available backends
+            // This is a real failure - set status and return null
+            LOG.error("Failed to decide medium for new partition {}: {}",
+                    partName, e.getMessage());
+            status = new Status(ErrCode.COMMON_ERROR,
+                    "Failed to decide medium for new partition " + partName
+                            + ": " + e.getMessage());
+            return null;
+        }
+
+        // Change partition ID after processing DataProperty
         remotePart.setIdForRestore(newPartId);
 
         // indexes
@@ -1533,9 +1737,37 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 remoteIdx.addTablet(newTablet, null /* tablet meta */, true /* is restore */);
                 // replicas
                 try {
+                    // Medium has already been decided by MediumDecisionMaker in resetPartitionForRestore()
+                    // Just read it from partition DataProperty
+                    DataProperty partitionDataProperty = remoteTbl.getPartitionInfo().getDataProperty(
+                            remotePart.getId());
+                    TStorageMedium partitionMedium = (partitionDataProperty != null)
+                            ? partitionDataProperty.getStorageMedium()
+                            : TStorageMedium.HDD;  // fallback default
+
+                    // IMPORTANT: Read allocation mode from partition DataProperty, not global setting
+                    // resetPartitionForRestore() sets both medium and allocation mode per partition
+                    DataProperty.MediumAllocationMode allocationMode = (partitionDataProperty != null
+                            && partitionDataProperty.getMediumAllocationMode() != null)
+                            ? partitionDataProperty.getMediumAllocationMode()
+                            : getTargetAllocationMode();
+
+                    // Select backends with the decided medium
                     Pair<Map<Tag, List<Long>>, TStorageMedium> beIdsAndMedium = Env.getCurrentSystemInfo()
-                            .selectBackendIdsForReplicaCreation(replicaAlloc, nextIndexes, null, false, false);
+                            .selectBackendIdsForReplicaCreation(replicaAlloc, nextIndexes, partitionMedium,
+                                    allocationMode, false);
                     Map<Tag, List<Long>> beIds = beIdsAndMedium.first;
+                    TStorageMedium actualMedium = beIdsAndMedium.second;
+
+                    // Update partition DataProperty if adaptive mode changed the medium
+                    if (allocationMode.isAdaptive() && actualMedium != null
+                            && actualMedium != partitionMedium && partitionDataProperty != null) {
+                        partitionDataProperty.setStorageMedium(actualMedium);
+                        LOG.info("Partition {} adaptive mode changed medium from {} to {} "
+                                        + "(resetTabletForRestore, preferred unavailable)",
+                                remotePart.getName(), partitionMedium, actualMedium);
+                    }
+
                     for (Map.Entry<Tag, List<Long>> entry : beIds.entrySet()) {
                         for (Long beId : entry.getValue()) {
                             long newReplicaId = env.getNextId();
@@ -2764,6 +2996,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         isCleanPartitions = Boolean.parseBoolean(properties.get(PROP_CLEAN_PARTITIONS));
         isAtomicRestore = Boolean.parseBoolean(properties.get(PROP_ATOMIC_RESTORE));
         isForceReplace = Boolean.parseBoolean(properties.get(PROP_FORCE_REPLACE));
+        storageMedium = properties.getOrDefault(PROP_STORAGE_MEDIUM,
+                RestoreCommand.STORAGE_MEDIUM_SAME_WITH_UPSTREAM);
+        mediumAllocationMode = properties.getOrDefault(PROP_MEDIUM_ALLOCATION_MODE,
+                RestoreCommand.MEDIUM_ALLOCATION_MODE_STRICT);
         showState = state;
     }
 

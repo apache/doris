@@ -131,6 +131,16 @@ class SyncerUtils {
         request.setProperties(properties)
         request.setMeta(context.getSnapshotResult.getMeta())
         request.setJobInfo(context.getSnapshotResult.getJobInfo())
+        
+        // Set storage_medium and medium_allocation_mode if specified
+        // These will test the new code in FrontendServiceImpl.restoreSnapshot
+        if (context.storageMedium != null) {
+            request.setStorageMedium(context.storageMedium)
+        }
+        if (context.mediumAllocationMode != null) {
+            request.setMediumAllocationMode(context.mediumAllocationMode)
+        }
+        
         return clientImpl.client.restoreSnapshot(request)
     }
 

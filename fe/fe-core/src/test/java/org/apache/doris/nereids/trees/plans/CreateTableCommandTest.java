@@ -28,7 +28,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ConfigBase;
@@ -287,13 +286,9 @@ public class CreateTableCommandTest extends TestWithFeService {
 
         ConfigBase.setMutableConfig("disable_storage_medium_check", "false");
         checkThrow(org.apache.doris.common.DdlException.class,
-                "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends "
-                        + "or maybe all be on same host."
-                        + Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation((short) 1)) + "\n"
-                        + "Create failed replications:\n"
-                        + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
+                "Invalid medium_allocation_mode value: 'invalid_mode'. Valid options are: 'strict', 'adaptive'",
                 () -> createTable("create table test.tb7(key1 int, key2 varchar(10)) distributed by hash(key1) \n"
-                        + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
+                        + "buckets 1 properties('replication_num' = '1', 'medium_allocation_mode' = 'invalid_mode');"));
 
         checkThrow(org.apache.doris.common.DdlException.class, "sequence column only support UNIQUE_KEYS",
                 () -> createTable("create table test.atbl8\n" + "(k1 varchar(40), k2 int, v1 int sum)\n"
