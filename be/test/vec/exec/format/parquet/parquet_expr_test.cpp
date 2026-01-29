@@ -1053,19 +1053,19 @@ TEST_F(ParquetExprTest, test_expr_push_down_and) {
     {
         pred->add_column_predicate(SingleColumnBlockPredicate::create_unique(
                 ComparisonPredicateBase<TYPE_BIGINT, PredicateType::LE>::create_shared(
-                        2, "", 10000000002)));
+                        2, "", Field::create_field<TYPE_BIGINT>(10000000002))));
     }
 
     { // x > 100
         pred->add_column_predicate(SingleColumnBlockPredicate::create_unique(
-                ComparisonPredicateBase<TYPE_BIGINT, PredicateType::GT>::create_shared(2, "",
-                                                                                       100)));
+                ComparisonPredicateBase<TYPE_BIGINT, PredicateType::GT>::create_shared(
+                        2, "", Field::create_field<TYPE_BIGINT>(100))));
     }
 
     { // x >= 900
         pred->add_column_predicate(SingleColumnBlockPredicate::create_unique(
-                ComparisonPredicateBase<TYPE_BIGINT, PredicateType::GE>::create_shared(2, "",
-                                                                                       900)));
+                ComparisonPredicateBase<TYPE_BIGINT, PredicateType::GE>::create_shared(
+                        2, "", Field::create_field<TYPE_BIGINT>(900))));
     }
 
     const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>& get_stat_func =
@@ -1160,7 +1160,8 @@ TEST_F(ParquetExprTest, test_expr_push_down_or_string) {
 TEST_F(ParquetExprTest, test_bloom_filter_skipped_when_range_miss) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
-    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, "", predicate_value);
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
+            col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1202,7 +1203,8 @@ TEST_F(ParquetExprTest, test_bloom_filter_skipped_when_range_miss) {
 TEST_F(ParquetExprTest, test_bloom_filter_rejects_value) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
-    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, "", predicate_value);
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
+            col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1253,7 +1255,8 @@ TEST_F(ParquetExprTest, test_bloom_filter_rejects_value) {
 TEST_F(ParquetExprTest, test_bloom_filter_accepts_value) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
-    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, "", predicate_value);
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
+            col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1304,7 +1307,8 @@ TEST_F(ParquetExprTest, test_bloom_filter_accepts_value) {
 TEST_F(ParquetExprTest, test_bloom_filter_skipped_when_min_max_evicts_rowgroup) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
-    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, "", predicate_value);
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
+            col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1347,7 +1351,8 @@ TEST_F(ParquetExprTest, test_bloom_filter_skipped_when_min_max_evicts_rowgroup) 
 TEST_F(ParquetExprTest, test_bloom_filter_loader_called_when_min_max_allows) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
-    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, "", predicate_value);
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
+            col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1398,7 +1403,8 @@ TEST_F(ParquetExprTest, test_bloom_filter_loader_called_when_min_max_allows) {
 TEST_F(ParquetExprTest, test_bloom_filter_loader_not_called_when_missing_metadata) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
-    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, "", predicate_value);
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
+            col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1440,7 +1446,8 @@ TEST_F(ParquetExprTest, test_bloom_filter_loader_not_called_when_missing_metadat
 TEST_F(ParquetExprTest, test_bloom_filter_loader_resets_on_failure) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
-    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, "", predicate_value);
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
+            col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1487,7 +1494,8 @@ TEST_F(ParquetExprTest, test_bloom_filter_loader_resets_on_failure) {
 TEST_F(ParquetExprTest, test_bloom_filter_not_supported_type) {
     const int col_idx = 6; // bool column
     const bool predicate_value = true;
-    ComparisonPredicateBase<TYPE_BOOLEAN, PredicateType::EQ> eq_pred(col_idx, "", predicate_value);
+    ComparisonPredicateBase<TYPE_BOOLEAN, PredicateType::EQ> eq_pred(
+            col_idx, "", vectorized::Field::create_field<TYPE_BOOLEAN>(predicate_value));
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1527,7 +1535,8 @@ TEST_F(ParquetExprTest, test_bloom_filter_not_supported_type) {
 TEST_F(ParquetExprTest, test_bloom_filter_min_max_overlap_but_no_loader) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
-    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, "", predicate_value);
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
+            col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1664,7 +1673,8 @@ TEST_F(ParquetExprTest, test_in_list_predicate_no_loader_on_range_miss) {
 TEST_F(ParquetExprTest, test_bloom_filter_reused_after_first_load) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
-    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, "", predicate_value);
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
+            col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;

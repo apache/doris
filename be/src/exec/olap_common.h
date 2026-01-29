@@ -99,9 +99,8 @@ std::string cast_to_string(T value, int scale) {
 template <PrimitiveType primitive_type>
 class ColumnValueRange {
 public:
-    using CppType =
-            std::conditional_t<primitive_type == TYPE_HLL || is_string_type(primitive_type),
-                               StringRef, typename PrimitiveTypeTraits<primitive_type>::CppType>;
+    using CppType = std::conditional_t<primitive_type == TYPE_HLL, StringRef,
+                                       typename PrimitiveTypeTraits<primitive_type>::CppType>;
     using SetType = std::set<CppType, doris::Less<CppType>>;
     using IteratorType = typename SetType::iterator;
 
@@ -216,21 +215,21 @@ public:
     int scale() const { return _scale; }
 
     static void add_fixed_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
-                                      const CppType* value) {
-        static_cast<void>(range.add_fixed_value(*value));
+                                      const CppType& value) {
+        static_cast<void>(range.add_fixed_value(value));
     }
 
     static void remove_fixed_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
-                                         const CppType* value) {
-        range.remove_fixed_value(*value);
+                                         const CppType& value) {
+        range.remove_fixed_value(value);
     }
 
     static void empty_function(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
-                               const CppType* value) {}
+                               const CppType& value) {}
 
     static void add_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
-                                const CppType* value) {
-        static_cast<void>(range.add_range(op, *value));
+                                const CppType& value) {
+        static_cast<void>(range.add_range(op, value));
     }
 
     static ColumnValueRange<primitive_type> create_empty_column_value_range(bool is_nullable_col,
@@ -821,9 +820,8 @@ template <PrimitiveType primitive_type>
 Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
                                      int32_t max_scan_key_num, bool* exact_value, bool* eos,
                                      bool* should_break) {
-    using CppType =
-            std::conditional_t<primitive_type == TYPE_HLL || is_string_type(primitive_type),
-                               StringRef, typename PrimitiveTypeTraits<primitive_type>::CppType>;
+    using CppType = std::conditional_t<primitive_type == TYPE_HLL, StringRef,
+                                       typename PrimitiveTypeTraits<primitive_type>::CppType>;
     using ConstIterator = typename ColumnValueRange<primitive_type>::SetType::const_iterator;
 
     // 1. clear ScanKey if some column range is empty

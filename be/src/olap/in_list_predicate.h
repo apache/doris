@@ -66,16 +66,15 @@ template <PrimitiveType Type, PredicateType PT, int N>
 class InListPredicateBase final : public ColumnPredicate {
 public:
     ENABLE_FACTORY_CREATOR(InListPredicateBase);
-    using T = std::conditional_t<is_string_type(Type), StringRef,
-                                 typename PrimitiveTypeTraits<Type>::CppType>;
+    using T = typename PrimitiveTypeTraits<Type>::CppType;
     using HybridSetType = std::conditional_t<
             N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE,
             std::conditional_t<
-                    std::is_same_v<T, StringRef>, StringSet<FixedContainer<std::string, N>>,
+                    is_string_type(Type), StringSet<FixedContainer<std::string, N>>,
                     HybridSet<Type, FixedContainer<T, N>,
                               vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>>,
             std::conditional_t<
-                    std::is_same_v<T, StringRef>, StringSet<DynamicContainer<std::string>>,
+                    is_string_type(Type), StringSet<DynamicContainer<std::string>>,
                     HybridSet<Type, DynamicContainer<T>,
                               vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>>>;
     InListPredicateBase(uint32_t column_id, std::string col_name,
@@ -244,19 +243,32 @@ public:
         if (statistic.first->is_null() && statistic.second->is_null()) {
             return false;
         }
+        using CompareType = std::conditional_t<is_string_type(Type), StringRef, T>;
+        CompareType tmp_min_value;
+        CompareType tmp_max_value;
+        if constexpr (is_string_type(Type)) {
+            tmp_min_value = StringRef(_min_value.data(), _min_value.size());
+            tmp_max_value = StringRef(_max_value.data(), _max_value.size());
+        } else {
+            tmp_min_value = _min_value;
+            tmp_max_value = _max_value;
+        }
         if constexpr (PT == PredicateType::IN_LIST) {
-            return Compare::less_equal(get_zone_map_value<Type, T>(statistic.first->cell_ptr()),
-                                       _max_value) &&
-                   Compare::greater_equal(get_zone_map_value<Type, T>(statistic.second->cell_ptr()),
-                                          _min_value);
+            return Compare::less_equal(
+                           get_zone_map_value<Type, CompareType>(statistic.first->cell_ptr()),
+                           tmp_max_value) &&
+                   Compare::greater_equal(
+                           get_zone_map_value<Type, CompareType>(statistic.second->cell_ptr()),
+                           tmp_min_value);
         } else {
             return true;
         }
     }
 
     bool camp_field(const vectorized::Field& min_field, const vectorized::Field& max_field) const {
-        T min_value;
-        T max_value;
+        using CompareType = std::conditional_t<is_string_type(Type), StringRef, T>;
+        CompareType min_value;
+        CompareType max_value;
         if constexpr (is_string_type(Type)) {
             auto& tmp_min = min_field.template get<Type>();
             auto& tmp_max = max_field.template get<Type>();
@@ -267,11 +279,20 @@ public:
             max_value = max_field.template get<Type>();
         }
 
+        CompareType tmp_min_value;
+        CompareType tmp_max_value;
+        if constexpr (is_string_type(Type)) {
+            tmp_min_value = StringRef(_min_value.data(), _min_value.size());
+            tmp_max_value = StringRef(_max_value.data(), _max_value.size());
+        } else {
+            tmp_min_value = _min_value;
+            tmp_max_value = _max_value;
+        }
         if constexpr (PT == PredicateType::IN_LIST) {
-            return (Compare::less_equal(min_value, _max_value) &&
-                    Compare::greater_equal(max_value, _min_value)) ||
-                   (Compare::greater_equal(max_value, _min_value) &&
-                    Compare::less_equal(min_value, _max_value));
+            return (Compare::less_equal(min_value, tmp_max_value) &&
+                    Compare::greater_equal(max_value, tmp_min_value)) ||
+                   (Compare::greater_equal(max_value, tmp_min_value) &&
+                    Compare::less_equal(min_value, tmp_max_value));
         } else {
             return true;
         }
@@ -353,11 +374,23 @@ public:
         if (statistic.first->is_null() || statistic.second->is_null()) {
             return false;
         }
+        using CompareType = std::conditional_t<is_string_type(Type), StringRef, T>;
+        CompareType tmp_min_value;
+        CompareType tmp_max_value;
+        if constexpr (is_string_type(Type)) {
+            tmp_min_value = StringRef(_min_value.data(), _min_value.size());
+            tmp_max_value = StringRef(_max_value.data(), _max_value.size());
+        } else {
+            tmp_min_value = _min_value;
+            tmp_max_value = _max_value;
+        }
         if constexpr (PT == PredicateType::NOT_IN_LIST) {
-            return Compare::greater(get_zone_map_value<Type, T>(statistic.first->cell_ptr()),
-                                    _max_value) ||
-                   Compare::less(get_zone_map_value<Type, T>(statistic.second->cell_ptr()),
-                                 _min_value);
+            return Compare::greater(
+                           get_zone_map_value<Type, CompareType>(statistic.first->cell_ptr()),
+                           tmp_max_value) ||
+                   Compare::less(
+                           get_zone_map_value<Type, CompareType>(statistic.second->cell_ptr()),
+                           tmp_min_value);
         } else {
             return false;
         }
@@ -371,7 +404,7 @@ public:
             }
             HybridSetBase::IteratorBase* iter = _values->begin();
             while (iter->has_next()) {
-                if constexpr (std::is_same_v<T, StringRef>) {
+                if constexpr (is_string_type(Type)) {
                     const auto* value = (const StringRef*)iter->get_value();
                     if (bf->test_bytes(value->data, value->size)) {
                         return true;
@@ -427,8 +460,9 @@ public:
     bool evaluate_and(const vectorized::ParquetBlockSplitBloomFilter* bf) const override {
         if constexpr (PT == PredicateType::IN_LIST) {
             HybridSetBase::IteratorBase* iter = _values->begin();
+            using ValueType = std::conditional_t<is_string_type(Type), StringRef, T>;
             while (iter->has_next()) {
-                const T* value = (const T*)(iter->get_value());
+                const auto* value = (const ValueType*)(iter->get_value());
 
                 auto test_bytes = [&]<typename V>(const V& val) {
                     return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&val)),
@@ -458,7 +492,7 @@ public:
                     if (test_bytes(*value)) {
                         return true;
                     }
-                } else if constexpr (std::is_same_v<T, StringRef>) {
+                } else if constexpr (is_string_type(Type)) {
                     // VARCHAR/STRING -> hash bytes
                     if (bf->test_bytes(value->data, value->size)) {
                         return true;
@@ -519,7 +553,7 @@ private:
         uint16_t new_size = 0;
 
         if (column->is_column_dictionary()) {
-            if constexpr (std::is_same_v<T, StringRef>) {
+            if constexpr (is_string_type(Type)) {
                 const auto* nested_col_ptr =
                         vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
                 const auto& data_array = nested_col_ptr->get_data();
@@ -586,7 +620,7 @@ private:
                             const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
                             const uint16_t* sel, uint16_t size, bool* flags) const {
         if (column->is_column_dictionary()) {
-            if constexpr (std::is_same_v<T, StringRef>) {
+            if constexpr (is_string_type(Type)) {
                 const auto* nested_col_ptr =
                         vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
                 const auto& data_array = nested_col_ptr->get_data();
