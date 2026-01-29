@@ -164,6 +164,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Crc32Internal
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CrossProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Csc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalog;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
@@ -1087,6 +1088,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitCountSubstring(CountSubstring countSubstring, C context) {
         return visitScalarFunction(countSubstring, context);
+    }
+
+    default R visitCrossProduct(CrossProduct crossProduct, C context) {
+        return visitScalarFunction(crossProduct, context);
     }
 
     default R visitCurrentCatalog(CurrentCatalog currentCatalog, C context) {
