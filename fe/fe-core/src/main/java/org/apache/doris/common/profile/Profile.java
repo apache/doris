@@ -559,49 +559,28 @@ public class Profile {
 
     /**
      * Build the execution summary section for YAML output.
-     * Uses BlockStyleMap to ensure multi-line block style output.
-     * Includes all info strings and child profiles from ExecutionSummary.
+     * Uses the RuntimeProfile's toStructuredMap() to preserve hierarchy.
      */
     private Map<String, Object> buildExecutionSummarySection() {
-        Map<String, Object> executionSummary = new BlockStyleMap();
-
         RuntimeProfile execSummaryProfile = summaryProfile.getExecutionSummary();
 
-        // Add all info strings from execution summary (LinkedHashMap preserves insertion order)
-        Map<String, String> infoStrings = execSummaryProfile.getInfoStrings();
-        for (Map.Entry<String, String> entry : infoStrings.entrySet()) {
-            String value = entry.getValue();
-            if (value != null && !value.isEmpty() && !"N/A".equals(value)) {
-                executionSummary.put(entry.getKey(), value);
-            }
-        }
+        // Use toStructuredMap() to get the full hierarchical structure
+        Map<String, Object> structuredMap = execSummaryProfile.toStructuredMap();
 
-        // Add counters if any
-        Map<String, Object> countersMap = execSummaryProfile.toStructuredMap();
         // Extract content from the wrapped format {profileName: {content}}
-        if (countersMap.size() == 1) {
-            String profileName = countersMap.keySet().iterator().next();
+        if (structuredMap.size() == 1) {
+            String profileName = structuredMap.keySet().iterator().next();
             @SuppressWarnings("unchecked")
-            Map<String, Object> content = (Map<String, Object>) countersMap.get(profileName);
+            Map<String, Object> content = (Map<String, Object>) structuredMap.get(profileName);
             if (content != null) {
-                if (content.containsKey("counters")) {
-                    executionSummary.put("counters", content.get("counters"));
-                }
-                // Add child profiles (like "Plan Time" details)
-                if (content.containsKey("children")) {
-                    @SuppressWarnings("unchecked")
-                    List<Map<String, Object>> children = (List<Map<String, Object>>) content.get("children");
-                    for (Map<String, Object> child : children) {
-                        // Each child is {childName: {content}}
-                        for (Map.Entry<String, Object> childEntry : child.entrySet()) {
-                            executionSummary.put(childEntry.getKey(), childEntry.getValue());
-                        }
-                    }
-                }
+                // Wrap in BlockStyleMap to ensure multi-line output
+                Map<String, Object> result = new BlockStyleMap();
+                result.putAll(content);
+                return result;
             }
         }
 
-        return executionSummary;
+        return new BlockStyleMap();
     }
 
     /**
