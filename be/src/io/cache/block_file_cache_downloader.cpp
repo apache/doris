@@ -210,6 +210,16 @@ void FileCacheBlockDownloader::download_file_cache_block(
             LOG(WARNING) << storage_resource.error();
             return;
         }
+        // Use RowsetMeta::fs() instead of storage_resource->fs to support packed file.
+        // RowsetMeta::fs() wraps the underlying FileSystem with PackedFileSystem when
+        // packed_slice_locations is not empty, which correctly maps segment file paths
+        // to their actual locations within packed files.
+        auto file_system = find_it->second->fs();
+        if (!file_system) {
+            LOG(WARNING) << "download_file_cache_block: failed to get file system for tablet_id="
+                         << meta.tablet_id() << ", rowset_id=" << meta.rowset_id();
+            return;
+        }
 
         auto download_done = [&, tablet_id = meta.tablet_id()](Status st) {
             std::lock_guard lock(_inflight_mtx);
@@ -251,7 +261,7 @@ void FileCacheBlockDownloader::download_file_cache_block(
                                                   : -1, // To avoid trigger get file size IO
                 .offset = meta.offset(),
                 .download_size = meta.size(),
-                .file_system = storage_resource.value()->fs,
+                .file_system = file_system,
                 .ctx =
                         {
                                 .is_index_data = meta.cache_type() == ::doris::FileCacheType::INDEX,
