@@ -253,8 +253,8 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
         }
     }
 
-    def test_systable_manifests = { table ->
-        def systableName = "${table}\$manifests"
+    def test_systable_manifests = { table, systableType ->
+        def systableName = "${table}\$${systableType}"
         order_qt_desc_manifests """desc ${systableName}"""
 
         List<List<Object>> desc1 = sql """desc ${systableName}"""
@@ -274,7 +274,7 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
         List<List<Object>> res1 = sql """select * from ${systableName} order by path"""
         List<List<Object>> res2 = sql """select * from iceberg_meta(
             "table" = "${catalog_name}.${db_name}.${table}",
-            "query_type" = "manifests") order by path"""
+            "query_type" = "${systableType}") order by path"""
         assertEquals(res1.size(), res2.size());
         for (int i = 0; i < res1.size(); i++) {
             for (int j = 0; j < res1[i].size(); j++) {
@@ -323,16 +323,12 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
         test_systable_metadata_log_entries(table)
         test_systable_snapshots(table)
         test_systable_refs(table)
-        test_systable_manifests(table)
+        test_systable_manifests(table, "manifests")
+        test_systable_manifests(table, "all_manifests")
         test_systable_partitions(table)
         // TODO: these table will be supportted in future
-        // test_systable_all_manifests(table)
         // test_systable_position_deletes(table)
 
-        test {
-            sql """select * from ${table}\$all_manifests"""
-            exception "SysTable all_manifests is not supported yet"
-        }
         test {
             sql """select * from ${table}\$position_deletes"""
             exception "SysTable position_deletes is not supported yet"

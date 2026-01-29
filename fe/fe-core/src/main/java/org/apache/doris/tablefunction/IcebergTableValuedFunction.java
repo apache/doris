@@ -82,8 +82,8 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
         if (tableName == null || queryType == null) {
             throw new AnalysisException("Invalid iceberg metadata query");
         }
-        // TODO: support these system tables in future;
-        if (queryType.equalsIgnoreCase("all_manifests") || queryType.equalsIgnoreCase("position_deletes")) {
+        // TODO: support position_deletes in future;
+        if (queryType.equalsIgnoreCase("position_deletes")) {
             throw new AnalysisException("SysTable " + queryType + " is not supported yet");
         }
         String[] names = tableName.split("\\.");
