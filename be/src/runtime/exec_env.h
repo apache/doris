@@ -69,6 +69,9 @@ class PackedFileManager;
 
 namespace cloud {
 class HostLevelMSRpcRateLimiters;
+class TableRpcQpsRegistry;
+class TableRpcThrottler;
+class MSBackpressureHandler;
 } // namespace cloud
 
 namespace segment_v2 {
@@ -315,6 +318,11 @@ public:
     IndexPolicyMgr* index_policy_mgr() { return _index_policy_mgr; }
     cloud::HostLevelMSRpcRateLimiters* host_level_ms_rpc_rate_limiters() {
         return _host_level_ms_rpc_rate_limiters.get();
+    }
+    cloud::TableRpcQpsRegistry* table_rpc_qps_registry() { return _table_rpc_qps_registry.get(); }
+    cloud::TableRpcThrottler* table_rpc_throttler() { return _table_rpc_throttler.get(); }
+    cloud::MSBackpressureHandler* ms_backpressure_handler() {
+        return _ms_backpressure_handler.get();
     }
 
 #ifdef BE_TEST
@@ -575,6 +583,9 @@ private:
     io::HdfsMgr* _hdfs_mgr = nullptr;
     io::PackedFileManager* _packed_file_manager = nullptr;
     std::unique_ptr<cloud::HostLevelMSRpcRateLimiters> _host_level_ms_rpc_rate_limiters;
+    std::unique_ptr<cloud::TableRpcQpsRegistry> _table_rpc_qps_registry;
+    std::unique_ptr<cloud::TableRpcThrottler> _table_rpc_throttler;
+    std::unique_ptr<cloud::MSBackpressureHandler> _ms_backpressure_handler;
 };
 
 template <>

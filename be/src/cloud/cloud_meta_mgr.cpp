@@ -40,6 +40,7 @@
 #include "cloud/cloud_ms_rpc_rate_limiters.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/cloud_tablet_rpc_throttler.h"
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "cloud/delete_bitmap_file_reader.h"
@@ -380,15 +381,92 @@ inline std::default_random_engine make_random_engine() {
             static_cast<uint32_t>(std::chrono::steady_clock::now().time_since_epoch().count()));
 }
 
+// Convert MetaServiceRPC to LoadRelatedRpc
+// Returns LoadRelatedRpc::COUNT if the RPC is not a load-related RPC
+LoadRelatedRpc to_load_related_rpc(MetaServiceRPC rpc) {
+    switch (rpc) {
+    case MetaServiceRPC::PREPARE_ROWSET:
+        return LoadRelatedRpc::PREPARE_ROWSET;
+    case MetaServiceRPC::COMMIT_ROWSET:
+        return LoadRelatedRpc::COMMIT_ROWSET;
+    case MetaServiceRPC::UPDATE_TMP_ROWSET:
+        return LoadRelatedRpc::UPDATE_TMP_ROWSET;
+    case MetaServiceRPC::UPDATE_PACKED_FILE_INFO:
+        return LoadRelatedRpc::UPDATE_PACKED_FILE_INFO;
+    case MetaServiceRPC::UPDATE_DELETE_BITMAP:
+        return LoadRelatedRpc::UPDATE_DELETE_BITMAP;
+    default:
+        return LoadRelatedRpc::COUNT; // Not a load-related RPC
+    }
+}
+
+// Extract table_id from request if available
+template <typename Request>
+int64_t extract_table_id(const Request& req) {
+    if constexpr (is_any_v<Request, CreateRowsetRequest>) {
+        // For prepare_rowset, commit_rowset, update_tmp_rowset
+        if (req.has_rowset_meta() && req.rowset_meta().has_table_id()) {
+            return req.rowset_meta().table_id();
+        }
+    } else if constexpr (is_any_v<Request, UpdateDeleteBitmapRequest>) {
+        return req.table_id();
+    }
+    return -1; // Not a load-related RPC or cannot get table_id
+}
+
 template <typename Request, typename Response>
 using MetaServiceMethod = void (MetaService_Stub::*)(::google::protobuf::RpcController*,
                                                      const Request*, Response*,
                                                      ::google::protobuf::Closure*);
 
+// Apply rate limiting before RPC (both host-level and table-level)
+template <typename Request>
+void apply_rate_limit(MetaServiceRPC rpc, const Request& req,
+                      HostLevelMSRpcRateLimiters* rate_limiters,
+                      MSBackpressureHandler* backpressure_handler) {
+    // Table-level rate limit (for load-related RPCs only)
+    if (backpressure_handler) {
+        int64_t table_id = extract_table_id(req);
+        LoadRelatedRpc load_rpc = to_load_related_rpc(rpc);
+        if (load_rpc != LoadRelatedRpc::COUNT && table_id > 0) {
+            auto wait_until = backpressure_handler->before_rpc(load_rpc, table_id);
+            auto now = std::chrono::steady_clock::now();
+            if (wait_until > now) {
+                auto wait_us =
+                        std::chrono::duration_cast<std::chrono::microseconds>(wait_until - now)
+                                .count();
+                if (wait_us > 0) {
+                    g_table_throttle_wait_us << wait_us;
+                    bthread_usleep(wait_us);
+                }
+            }
+        }
+    }
+
+    // Host-level rate limit
+    if (rate_limiters) {
+        rate_limiters->limit(rpc);
+    }
+}
+
+// Record RPC QPS statistics after RPC (for table-level tracking)
+template <typename Request>
+void record_rpc_qps(MetaServiceRPC rpc, const Request& req,
+                    MSBackpressureHandler* backpressure_handler) {
+    if (backpressure_handler) {
+        int64_t table_id = extract_table_id(req);
+        LoadRelatedRpc load_rpc = to_load_related_rpc(rpc);
+        if (load_rpc != LoadRelatedRpc::COUNT && table_id > 0) {
+            backpressure_handler->after_rpc(load_rpc, table_id);
+        }
+    }
+}
+
 template <typename Request, typename Response>
 Status retry_rpc(MetaServiceRPC rpc, const Request& req, Response* res,
                  MetaServiceMethod<Request, Response> method,
-                 HostLevelMSRpcRateLimiters* rate_limiters) {
+                 HostLevelMSRpcRateLimiters* rate_limiters,
+                 MSBackpressureHandler* backpressure_handler = nullptr) {
     static_assert(std::is_base_of_v<::google::protobuf::Message, Request>);
     static_assert(std::is_base_of_v<::google::protobuf::Message, Response>);
 
@@ -410,12 +488,9 @@ Status retry_rpc(MetaServiceRPC rpc, const Request& req, Response* res,
         std::shared_ptr<MetaService_Stub> stub;
         RETURN_IF_ERROR(proxy->get(&stub));
 
-        // Rate limit before sending RPC
-        [[maybe_unused]] int64_t sleep_ns = 0;
-        if (rate_limiters) {
-            sleep_ns = rate_limiters->limit(rpc);
-        }
-        TEST_SYNC_POINT_CALLBACK("retry_rpc::after_rate_limit", &rpc, &sleep_ns);
+        // Apply rate limiting (both host-level and table-level)
+        apply_rate_limit(rpc, req, rate_limiters, backpressure_handler);
+        TEST_SYNC_POINT_CALLBACK("retry_rpc::after_rate_limit", &rpc);
 
         brpc::Controller cntl;
         if (rpc == MetaServiceRPC::GET_DELETE_BITMAP ||
@@ -428,6 +503,10 @@ Status retry_rpc(MetaServiceRPC rpc, const Request& req, Response* res,
         res->Clear();
         int error_code = 0;
         (stub.get()->*method)(&cntl, &req, res, nullptr);
+
+        // Record QPS statistics for all RPCs sent to MS (success or failure)
+        record_rpc_qps(rpc, req, backpressure_handler);
+
         if (cntl.Failed()) [[unlikely]] {
             error_msg = cntl.ErrorText();
             error_code = cntl.ErrorCode();
@@ -1302,8 +1381,9 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, const std::string
     RowsetMetaPB doris_rs_meta = rs_meta.get_rowset_pb(/*skip_schema=*/true);
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(doris_rs_meta));
 
-    Status st = retry_rpc(MetaServiceRPC::PREPARE_ROWSET, req, &resp,
-                          &MetaService_Stub::prepare_rowset, host_level_ms_rpc_rate_limiters_);
+    Status st =
+            retry_rpc(MetaServiceRPC::PREPARE_ROWSET, req, &resp, &MetaService_Stub::prepare_rowset,
+                      host_level_ms_rpc_rate_limiters_, ms_backpressure_handler_);
     if (!st.ok() && resp.status().code() == MetaServiceCode::ALREADY_EXISTED) {
         if (existed_rs_meta != nullptr && resp.has_existed_rowset_meta()) {
             RowsetMetaPB doris_rs_meta_tmp =
@@ -1333,8 +1413,9 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
 
     RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb();
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
-    Status st = retry_rpc(MetaServiceRPC::COMMIT_ROWSET, req, &resp,
-                          &MetaService_Stub::commit_rowset, host_level_ms_rpc_rate_limiters_);
+    Status st =
+            retry_rpc(MetaServiceRPC::COMMIT_ROWSET, req, &resp, &MetaService_Stub::commit_rowset,
+                      host_level_ms_rpc_rate_limiters_, ms_backpressure_handler_);
     if (!st.ok() && resp.status().code() == MetaServiceCode::ALREADY_EXISTED) {
         if (existed_rs_meta != nullptr && resp.has_existed_rowset_meta()) {
             RowsetMetaPB doris_rs_meta =
@@ -1380,7 +1461,8 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta) {
     RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb(skip_schema);
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
     Status st = retry_rpc(MetaServiceRPC::UPDATE_TMP_ROWSET, req, &resp,
-                          &MetaService_Stub::update_tmp_rowset, host_level_ms_rpc_rate_limiters_);
+                          &MetaService_Stub::update_tmp_rowset, host_level_ms_rpc_rate_limiters_,
+                          ms_backpressure_handler_);
     if (!st.ok() && resp.status().code() == MetaServiceCode::ROWSET_META_NOT_FOUND) {
         return Status::InternalError("failed to update committed rowset: {}", resp.status().msg());
     }
@@ -1814,7 +1896,8 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
                 lock_id);
     });
     auto st = retry_rpc(MetaServiceRPC::UPDATE_DELETE_BITMAP, req, &res,
-                        &MetaService_Stub::update_delete_bitmap, host_level_ms_rpc_rate_limiters_);
+                        &MetaService_Stub::update_delete_bitmap, host_level_ms_rpc_rate_limiters_,
+                        ms_backpressure_handler_);
     if (config::enable_update_delete_bitmap_kv_check_core &&
         res.status().code() == MetaServiceCode::UPDATE_OVERRIDE_EXISTING_KV) {
         auto& msg = res.status().msg();
@@ -1873,7 +1956,8 @@ Status CloudMetaMgr::cloud_update_delete_bitmap_without_lock(
         req.set_pre_rowset_agg_end_version(pre_rowset_agg_end_version);
     }
     return retry_rpc(MetaServiceRPC::UPDATE_DELETE_BITMAP, req, &res,
-                     &MetaService_Stub::update_delete_bitmap, host_level_ms_rpc_rate_limiters_);
+                     &MetaService_Stub::update_delete_bitmap, host_level_ms_rpc_rate_limiters_,
+                     ms_backpressure_handler_);
 }
 
 Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
@@ -2288,7 +2372,7 @@ Status CloudMetaMgr::update_packed_file_info(const std::string& packed_file_path
     // Make RPC call using retry pattern
     return retry_rpc(MetaServiceRPC::UPDATE_PACKED_FILE_INFO, req, &resp,
                      &cloud::MetaService_Stub::update_packed_file_info,
-                     host_level_ms_rpc_rate_limiters_);
+                     host_level_ms_rpc_rate_limiters_, ms_backpressure_handler_);
 }
 
 #include "common/compile_check_end.h"

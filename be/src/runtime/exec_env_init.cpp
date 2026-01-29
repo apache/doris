@@ -38,6 +38,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_stream_load_executor.h"
 #include "cloud/cloud_tablet_hotspot.h"
+#include "cloud/cloud_tablet_rpc_throttler.h"
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "common/cast_set.h"
@@ -420,6 +421,15 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         static_cast<CloudStorageEngine*>(_storage_engine.get())
                 ->meta_mgr()
                 .set_host_level_ms_rpc_rate_limiters(_host_level_ms_rpc_rate_limiters.get());
+
+        // Initialize table-level backpressure handling components
+        _table_rpc_qps_registry = std::make_unique<cloud::TableRpcQpsRegistry>();
+        _table_rpc_throttler = std::make_unique<cloud::TableRpcThrottler>();
+        _ms_backpressure_handler = std::make_unique<cloud::MSBackpressureHandler>(
+                _table_rpc_qps_registry.get(), _table_rpc_throttler.get());
+        static_cast<CloudStorageEngine*>(_storage_engine.get())
+                ->meta_mgr()
+                .set_ms_backpressure_handler(_ms_backpressure_handler.get());
     }
 
     _index_policy_mgr = new IndexPolicyMgr();
