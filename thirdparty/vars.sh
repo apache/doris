@@ -559,6 +559,12 @@ PUGIXML_NAME=pugixml-1.15.tar.gz
 PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
+# paimon-cpp
+PAIMON_CPP_DOWNLOAD="https://github.com/alibaba/paimon-cpp/archive/b1ffd6f73e5edf57aac24ec2eaf6d2ef9e9a9850.tar.gz"
+PAIMON_CPP_NAME=paimon-cpp-b1ffd6f73e5edf57aac24ec2eaf6d2ef9e9a9850.tar.gz
+PAIMON_CPP_SOURCE=paimon-cpp-b1ffd6f73e5edf57aac24ec2eaf6d2ef9e9a9850
+PAIMON_CPP_MD5SUM="d091c9b0b0e04c97d2f7a3f088bb18b7"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -599,6 +605,7 @@ export TP_ARCHIVES=(
     'FMT'
     'PARALLEL_HASHMAP'
     'ORC'
+    'PAIMON_CPP'
     'CARES'
     'GRPC'
     'JEMALLOC_ARROW'
