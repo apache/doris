@@ -32,6 +32,7 @@ import org.junit.Test;
 
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.SortedMap;
@@ -69,8 +70,8 @@ public class MetricsTest {
 
     @Test
     public void testUserQueryMetrics() {
-        MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd("test_user").increase(1L);
-        MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd("test_user").increase(1L);
+        MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd("test_user").update(1L);
+        MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd("test_user").update(1L);
         MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd("test_user").update(10L);
         MetricVisitor visitor = new PrometheusMetricVisitor();
         MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
@@ -269,5 +270,49 @@ public class MetricsTest {
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_partition_prune_duration_ms summary"));
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_cloud_meta_duration_ms summary"));
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_materialized_view_rewrite_duration_ms summary"));
+    }
+
+    @Test
+    public void testListQueryMetrics() {
+        MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd("test_user").update(1L);
+        MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd("test_user").update(1L);
+        MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd("test_user").update(10L);
+        List<List<String>> metricsList = new LinkedList<>();
+        MetricVisitor visitor = new ListMetricVisitor(metricsList, "127.0.0.1");
+        MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
+        SortedMap<String, Histogram> histograms = MetricRepo.METRIC_REGISTER.getHistograms();
+        for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
+            visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
+        }
+
+        boolean isTotal = false;
+        boolean isErr = false;
+        boolean isLatencyAll = false;
+        boolean isLatencyUser = false;
+        for (List<String> metric : metricsList) {
+            String name = metric.get(1);
+            String type = metric.get(2);
+            String value = metric.get(3);
+            String tag = metric.get(4);
+            if (!isTotal && "doris_fe_query_total".equals(name)) {
+                isTotal = "counter".equals(type) && "1".equals(value) && tag.contains("test_user");
+            } else if (!isErr && "doris_fe_query_err".equals(name)) {
+                isErr = "counter".equals(type) && "1".equals(value) && tag.contains("test_user");
+            } else if ("doris_fe_query_latency_ms".equals(name)) {
+                if (tag.contains("quantile") && "histogram".equals(type)) {
+                    if (tag.contains("test_user")) {
+                        if (!isLatencyUser) {
+                            isLatencyUser = "10.0".equals(value);
+                        }
+                    } else if (!isLatencyAll) {
+                        isLatencyAll = "0.0".equals(value);
+                    }
+                }
+            }
+        }
+        Assert.assertTrue(isTotal);
+        Assert.assertTrue(isErr);
+        Assert.assertTrue(isLatencyAll);
+        Assert.assertTrue(isLatencyUser);
     }
 }
