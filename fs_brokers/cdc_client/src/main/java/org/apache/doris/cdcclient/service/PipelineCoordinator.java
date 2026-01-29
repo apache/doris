@@ -496,10 +496,10 @@ public class PipelineCoordinator {
      * <p>This method handles both snapshot splits and binlog splits,
      * extracting the appropriate offset information through the SourceReader interface.
      * For snapshot splits:
-     * {"highWatermarks":[{"splitId":"tbl:1",...},...]}
+     * [{"splitId":"tbl:1",...},...]
      *
      * For Binlog Split:
-     * {"splitId":"binlog_split","fileName":"mysql-bin.000001","pos":"12345",...}
+     * [{"splitId":"binlog_split","fileName":"mysql-bin.000001","pos":"12345",...}]
      *
      * @param sourceReader the source reader
      * @param readResult the read result containing splits and split states

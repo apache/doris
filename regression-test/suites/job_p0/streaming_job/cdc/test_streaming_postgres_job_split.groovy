@@ -27,7 +27,7 @@ suite("test_streaming_postgres_job_split", "p0,external,pg,external_docker,exter
     def pgDB = "postgres"
     def pgSchema = "cdc_test"
     def pgUser = "postgres"
-    def pgPassword = "postgres"
+    def pgPassword = "123456"
 
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
     sql """drop table if exists ${currentDb}.${table1} force"""
