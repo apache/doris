@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.nereids.trees.expressions.functions.table.Tasks;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.doris.tablefunction.BrokersTableValuedFunction;
 
 /**
  * Builtin table valued functions.
@@ -77,7 +78,8 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(ParquetMeta.class, "parquet_meta"),
             tableValued(ParquetFileMetadata.class, "parquet_file_metadata"),
             tableValued(ParquetKvMetadata.class, "parquet_kv_metadata"),
-            tableValued(ParquetBloomProbe.class, "parquet_bloom_probe")
+            tableValued(ParquetBloomProbe.class, "parquet_bloom_probe"),
+            tableValued(ParquetBloomProbe.class, BrokersTableValuedFunction.NAME)
     );
 
     public static final BuiltinTableValuedFunctions INSTANCE = new BuiltinTableValuedFunctions();

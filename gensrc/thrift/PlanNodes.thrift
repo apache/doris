@@ -647,6 +647,10 @@ struct TParquetMetadataParams {
   6: optional string bloom_literal
 }
 
+struct TBrokersMetadataParams {
+  1: optional string cluster_name
+}
+
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
   2: optional TIcebergMetadataParams iceberg_params // deprecated
@@ -667,6 +671,7 @@ struct TMetaScanRange {
   15: optional string serialized_table;
   16: optional list<string> serialized_splits;
   17: optional TParquetMetadataParams parquet_params;
+  18: optional TBrokersMetadataParams brokers_params;
 }
 
 // Specification of an individual data range which is held in its entirety
