@@ -156,8 +156,8 @@ void validate_numeric_test(MutableColumnPtr& test_col_data) {
     null_map_column->get_data().resize_fill(nested_column->size(), 0);
 
     auto offsets_column = ColumnArray::ColumnOffsets::create();
-    offsets_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(3));
-    offsets_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(6));
+    offsets_column->insert(vectorized::Field::create_field<TYPE_UINT64>(3));
+    offsets_column->insert(vectorized::Field::create_field<TYPE_UINT64>(6));
 
     // array nested column should be nullable
     test_col_data = ColumnArray::create(
@@ -302,8 +302,8 @@ void validate_numeric_nullable_test(MutableColumnPtr& test_col_data) {
     }
 
     auto offsets_column = ColumnArray::ColumnOffsets::create();
-    offsets_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(3));
-    offsets_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(6));
+    offsets_column->insert(vectorized::Field::create_field<TYPE_UINT64>(3));
+    offsets_column->insert(vectorized::Field::create_field<TYPE_UINT64>(6));
 
     test_col_data =
             ColumnArray::create(std::move(nullable_nested_column), std::move(offsets_column));
@@ -402,8 +402,8 @@ TEST(AggGroupArrayIntersectTest, string_test) {
     null_map_column->get_data().resize_fill(nested_column->size(), 0);
 
     auto offsets_column = ColumnArray::ColumnOffsets::create();
-    offsets_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(3));
-    offsets_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(6));
+    offsets_column->insert(vectorized::Field::create_field<TYPE_UINT64>(3));
+    offsets_column->insert(vectorized::Field::create_field<TYPE_UINT64>(6));
 
     // array nested column should be nullable
     auto column_array_string = ColumnArray::create(
@@ -474,8 +474,8 @@ TEST(AggGroupArrayIntersectTest, string_nullable_test) {
     nullable_nested_column->insert(vectorized::Field::create_field<TYPE_STRING>("c"));
 
     auto offsets_column = ColumnArray::ColumnOffsets::create();
-    offsets_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(3));
-    offsets_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(6));
+    offsets_column->insert(vectorized::Field::create_field<TYPE_UINT64>(3));
+    offsets_column->insert(vectorized::Field::create_field<TYPE_UINT64>(6));
 
     auto column_array_string_nullable =
             ColumnArray::create(std::move(nullable_nested_column), std::move(offsets_column));
