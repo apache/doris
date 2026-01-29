@@ -48,8 +48,6 @@ import java.util.ServiceLoader;
  *   <li>Create META-INF/services/org.apache.doris.protocol.ProtocolHandler</li>
  *   <li>Add the implementation class name to the service file</li>
  * </ol>
- *
- * @since 2.0.0
  */
 public final class ProtocolLoader {
 

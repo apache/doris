@@ -99,7 +99,5 @@
  * // Getting the byte buffer
  * ByteBuffer buffer = serializer.toByteBuffer();
  * }</pre>
- *
- * @since 2.0.0
  */
 package org.apache.doris.mysql;

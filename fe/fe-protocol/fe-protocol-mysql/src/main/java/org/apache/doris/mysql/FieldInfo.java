@@ -23,8 +23,6 @@ package org.apache.doris.mysql;
  * <p>This class represents the metadata for a result set column as defined
  * in the MySQL protocol. It contains all the necessary information to
  * describe a column in a query result.
- *
- * @since 2.0.0
  */
 public class FieldInfo {
 

@@ -27,8 +27,6 @@ package org.apache.doris.protocol;
  *   <li>Connection errors</li>
  *   <li>Protocol negotiation failures</li>
  * </ul>
- *
- * @since 2.0.0
  */
 public class ProtocolException extends Exception {
 

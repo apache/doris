@@ -46,8 +46,6 @@ import java.util.concurrent.ExecutorService;
  *   <li>{@code mysql.bind.ipv6} - Bind to IPv6 address</li>
  *   <li>{@code mysql.task.executor} - External executor service</li>
  * </ul>
- *
- * @since 2.0.0
  */
 public class ProtocolConfig {
 

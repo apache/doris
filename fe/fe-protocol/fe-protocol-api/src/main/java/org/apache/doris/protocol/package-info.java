@@ -67,7 +67,5 @@
  *     handler.start();
  * }
  * }</pre>
- *
- * @since 2.0.0
  */
 package org.apache.doris.protocol;
