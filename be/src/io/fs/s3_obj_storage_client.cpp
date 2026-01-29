@@ -354,6 +354,15 @@ ObjectStorageResponse S3ObjStorageClient::list_objects(const ObjectStoragePathOp
         }
         if (!outcome.IsSuccess()) {
             files->clear();
+            // Treat NoSuchKey as empty response for compatibility with some S3-compatible storage providers
+            // e.g. TOS by ByteDance Cloud (Volcano Engine)
+            if (outcome.GetError().GetErrorType() == Aws::S3::S3Errors::NO_SUCH_KEY) {
+                LOG(INFO) << "NoSuchKey error when listing objects, treat as empty response"
+                          << ", prefix=" << opts.prefix
+                          << ", request_id=" << outcome.GetError().GetRequestId();
+                return ObjectStorageResponse::OK();
+            }
+
             return {convert_to_obj_response(s3fs_error(
                             outcome.GetError(), fmt::format("failed to list {}", opts.prefix))),
                     static_cast<int>(outcome.GetError().GetResponseCode()),

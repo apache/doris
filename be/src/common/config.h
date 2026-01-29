@@ -453,6 +453,12 @@ DECLARE_Int32(index_page_cache_percentage);
 DECLARE_Bool(disable_storage_page_cache);
 // whether to disable row cache feature in storage
 DECLARE_mBool(disable_storage_row_cache);
+// Parquet page cache: threshold ratio for caching decompressed vs compressed pages
+// If uncompressed_size / compressed_size <= threshold, cache decompressed;
+// otherwise cache compressed if enable_parquet_cache_compressed_pages = true
+DECLARE_Double(parquet_page_cache_decompress_threshold);
+// Parquet page cache: whether to enable caching compressed pages (when ratio exceeds threshold)
+DECLARE_Bool(enable_parquet_cache_compressed_pages);
 // whether to disable pk page cache feature in storage
 DECLARE_Bool(disable_pk_storage_page_cache);
 
@@ -486,6 +492,15 @@ DECLARE_mInt32(vertical_compaction_num_columns_per_group);
 DECLARE_Int32(vertical_compaction_max_row_source_memory_mb);
 // In vertical compaction, max dest segment file size
 DECLARE_mInt64(vertical_compaction_max_segment_size);
+// Threshold for sparse column compaction optimization (average bytes per row)
+// Density threshold for sparse column compaction optimization
+// density = (total_cells - null_cells) / total_cells, smaller means more sparse
+// When density <= threshold, enable sparse optimization
+// 0 = disable optimization, 1 = always enable
+// Default 1 means always enable sparse optimization
+DECLARE_mDouble(sparse_column_compaction_threshold_percent);
+// Enable RLE batch Put optimization for compaction
+DECLARE_mBool(enable_rle_batch_put_optimization);
 
 // If enabled, segments will be flushed column by column
 DECLARE_mBool(enable_vertical_segment_writer);
@@ -1172,7 +1187,7 @@ DECLARE_Bool(enable_file_cache);
 DECLARE_String(file_cache_path);
 DECLARE_Int64(file_cache_each_block_size);
 DECLARE_Bool(clear_file_cache);
-DECLARE_Bool(enable_file_cache_query_limit);
+DECLARE_mBool(enable_file_cache_query_limit);
 DECLARE_Int32(file_cache_enter_disk_resource_limit_mode_percent);
 DECLARE_Int32(file_cache_exit_disk_resource_limit_mode_percent);
 DECLARE_mBool(enable_evict_file_cache_in_advance);
@@ -1354,6 +1369,8 @@ DECLARE_mBool(variant_use_cloud_schema_dict_cache);
 // Threshold to estimate a column is sparsed
 // Notice: TEST ONLY
 DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
+// Max json key length in bytes when parsing json into variant subcolumns/jsonb.
+DECLARE_mInt32(variant_max_json_key_length);
 // Treat invalid json format str as string, instead of throwing exception if false
 DECLARE_mBool(variant_throw_exeception_on_invalid_json);
 // Enable vertical compact subcolumns of variant column

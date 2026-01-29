@@ -96,10 +96,6 @@ template <typename CombinerT>
 std::optional<CombinationMethod> OccurBooleanWeight<ScoreCombinerPtrT>::build_should_opt(
         std::vector<ScorerPtr>& must_scorers, std::vector<ScorerPtr> should_scorers,
         CombinerT combiner, size_t num_all_scorers) {
-    if (should_scorers.empty()) {
-        return Ignored {};
-    }
-
     size_t adjusted_minimum = _minimum_number_should_match > num_all_scorers
                                       ? _minimum_number_should_match - num_all_scorers
                                       : 0;
@@ -109,7 +105,9 @@ std::optional<CombinationMethod> OccurBooleanWeight<ScoreCombinerPtrT>::build_sh
         return std::nullopt;
     }
 
-    if (adjusted_minimum == 0) {
+    if (adjusted_minimum == 0 && num_of_should_scorers == 0) {
+        return Ignored {};
+    } else if (adjusted_minimum == 0) {
         return Optional {scorer_union(std::move(should_scorers), combiner)};
     } else if (adjusted_minimum == 1) {
         return Required {scorer_union(std::move(should_scorers), combiner)};

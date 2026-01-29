@@ -21,7 +21,6 @@ suite("mv_and_cte_test", "rec_cte") {
     def prefix_str = "mv_and_cte_"
     def tb_name = prefix_str + "recursive_cte_tb"
 
-
     sql """drop table if exists ${tb_name}"""
     sql """CREATE TABLE ${tb_name} (
             EmployeeID INT not null,

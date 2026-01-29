@@ -521,6 +521,7 @@ import org.apache.doris.nereids.trees.expressions.BitOr;
 import org.apache.doris.nereids.trees.expressions.BitXor;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Default;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.DereferenceExpression;
 import org.apache.doris.nereids.trees.expressions.Divide;
@@ -3220,6 +3221,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitTryCast(DorisParser.TryCastContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> processTryCast(getExpression(ctx.expression()), ctx.castDataType()));
+    }
+
+    @Override
+    public Expression visitDefaultValue(DorisParser.DefaultValueContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            List<String> nameParts = ctx.qualifiedName().identifier()
+                    .stream()
+                    .map(RuleContext::getText)
+                    .collect(ImmutableList.toImmutableList());
+            return new Default(new UnboundSlot(nameParts));
+        });
     }
 
     @Override

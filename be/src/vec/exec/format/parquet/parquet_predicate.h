@@ -208,6 +208,7 @@ public:
         const cctz::time_zone* ctz;
         std::map<int, PageIndexStat> stats;
         std::function<bool(PageIndexStat**, int)> get_stat_func;
+        RowRange row_group_range;
     };
 
     // The encoded Parquet min-max value is parsed into `fields`;
