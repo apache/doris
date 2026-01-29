@@ -2130,6 +2130,10 @@ void ColumnVariant::create_root(const DataTypePtr& type, MutableColumnPtr&& colu
     if (num_rows == 0) {
         num_rows = column->size();
     }
+    DCHECK_EQ(type->is_nullable(), column->is_nullable())
+            << "type nullable=" << type->is_nullable()
+            << " column nullable=" << column->is_nullable()
+            << " type=" << type->get_name();
     add_sub_column({}, std::move(column), type);
     if (serialized_sparse_column->empty()) {
         serialized_sparse_column->resize(num_rows);
