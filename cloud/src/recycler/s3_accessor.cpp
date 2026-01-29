@@ -393,8 +393,9 @@ int S3Accessor::init() {
         obj_client_ = std::make_shared<AzureObjClient>(std::move(container_client));
         return 0;
 #else
-        LOG_FATAL("BE is not compiled with azure support, export BUILD_AZURE=ON before building");
-        return 0;
+        LOG(WARNING)
+                << "BE is not compiled with azure support, export BUILD_AZURE=ON before building";
+        return -1;
 #endif
     }
     default: {
