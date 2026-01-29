@@ -17,6 +17,8 @@
 
 #include "cloud/cloud_index_change_compaction.h"
 
+#include <set>
+
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/config.h"
 #include "common/status.h"
@@ -54,9 +56,17 @@ Status CloudIndexChangeCompaction::prepare_compact() {
         _cumulative_compaction_cnt = cloud_tablet()->cumulative_compaction_cnt();
     }
 
+    // Extract index IDs from index_list
+    std::set<int64_t> index_ids;
+    for (const auto& index : _index_list) {
+        if (index.__isset.index_id) {
+            index_ids.insert(index.index_id);
+        }
+    }
+
     bool is_base_rowset = false;
-    auto input_rowset = DORIS_TRY(
-            cloud_tablet()->pick_a_rowset_for_index_change(_schema_version, is_base_rowset));
+    auto input_rowset = DORIS_TRY(cloud_tablet()->pick_a_rowset_for_index_change(
+            _schema_version, is_base_rowset, index_ids));
     if (input_rowset == nullptr) {
         return Status::OK();
     }

@@ -523,6 +523,10 @@ public:
         }
         return inverted_indexes;
     }
+
+    // Returns all indexes (INVERTED, ANN, etc.)
+    const std::vector<TabletIndexPtr>& indexes() const { return _indexes; }
+
     bool has_inverted_index() const {
         for (const auto& index : _indexes) {
             DBUG_EXECUTE_IF("tablet_schema::has_inverted_index", {
