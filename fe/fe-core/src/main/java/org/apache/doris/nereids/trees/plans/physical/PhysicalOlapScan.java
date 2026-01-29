@@ -243,7 +243,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
             rfV2 = runtimeFiltersV2.toString();
         }
 
-        return Utils.toSqlString("PhysicalOlapScan[" + table.getName() + index + partitions + "]"
+        return Utils.toSqlString("PhysicalOlapScan[" + id.asInt() + "][" + table.getName() + index + partitions + "]"
                 + getGroupIdWithPrefix(),
                 "alias", tableAlias,
                 "stats", statistics,

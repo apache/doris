@@ -136,7 +136,7 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
         if (!runtimeFiltersV2.isEmpty()) {
             rfV2 = runtimeFiltersV2.toString();
         }
-        return Utils.toSqlString("PhysicalFileScan[" + table.getName() + "]" + getGroupIdWithPrefix(),
+        return Utils.toSqlString("PhysicalFileScan[" + id.asInt() + "]" + getGroupIdWithPrefix(),
             "stats", statistics,
                 "qualified", Utils.qualifiedName(qualifier, table.getName()),
                 "selected partitions num",

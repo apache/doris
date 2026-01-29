@@ -123,7 +123,8 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalSchemaScan");
+        return Utils.toSqlString("PhysicalSchemaScan[" + id.asInt() + "]",
+                "qualified", Utils.qualifiedName(qualifier, table.getName()));
     }
 
     @Override

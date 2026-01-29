@@ -66,7 +66,7 @@ public class PhysicalLazyMaterializeFileScan extends PhysicalFileScan {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append("PhysicalLazyMaterializeFileScan[")
+        sb.append("PhysicalLazyMaterializeFileScan[" + id.asInt() + "][")
                 .append(scan.toString());
 
         if (!getAppliedRuntimeFilters().isEmpty()) {
