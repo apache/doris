@@ -72,6 +72,8 @@ public:
 
     uint64_t get_digest(uint64_t seed) const override;
 
+    double execute_cost() const override { return 0.0; }
+
 private:
     int _slot_id;
     int _column_id;

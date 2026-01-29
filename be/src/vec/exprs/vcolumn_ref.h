@@ -89,6 +89,8 @@ public:
         return out.str();
     }
 
+    double execute_cost() const override { return 0.0; }
+
 private:
     int _column_id;
     std::atomic<int> _gap = 0;
