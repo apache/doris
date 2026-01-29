@@ -223,6 +223,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromMilliseco
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromSecond;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.G;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Gamma;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Gcd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetVariantType;
@@ -769,6 +770,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(FromIso8601Date.class, "from_iso8601_date"),
             scalar(FromUnixtime.class, "from_unixtime"),
             scalar(G.class, "g"),
+            scalar(Gamma.class, "gamma"),
             scalar(Gcd.class, "gcd"),
             scalar(GetFormat.class, "get_format"),
             scalar(GetVariantType.class, "variant_type"),
