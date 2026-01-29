@@ -608,6 +608,18 @@ public class Config extends ConfigBase {
             + "be rejected. Set to -1 to disable this limit.",
             "当一个表的发布事务数量超过该值时，新的事务将被拒绝。设置为 -1 表示不限制。"})
     public static long max_publishing_txn_num_per_table = 500;
+    @ConfField(masterOnly = true, mutable = true, description = {"Publish 阶段获取表写锁的超时时间，单位是毫秒。",
+            "Timeout for acquiring table write lock during publish phase, in milliseconds"})
+    public static long publish_table_write_lock_timeout_ms = 10000;
+
+    @ConfField(masterOnly = true, mutable = true, description = {
+            "是否在 Publish 阶段使用带超时的 tryLock 获取表写锁。"
+                    + "设置为 true 时使用 tryWriteLockTablesIfExist（带超时），"
+                    + "设置为 false 时使用 writeLockTablesIfExist（阻塞等待）。",
+            "Whether to use tryLock with timeout to acquire table write lock during publish phase. "
+                    + "If true, use tryWriteLockTablesIfExist (with timeout). "
+                    + "If false, use writeLockTablesIfExist (blocking wait)."})
+    public static boolean enable_publish_write_lock_with_timeout = false;
 
     @ConfField(description = {"thrift server 的最大 worker 线程数", "The max worker threads of thrift server"})
     public static int thrift_server_max_worker_threads = 4096;
