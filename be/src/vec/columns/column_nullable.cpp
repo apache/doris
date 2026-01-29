@@ -140,8 +140,7 @@ void ColumnNullable::update_crc32c_single(size_t start, size_t end, uint32_t& ha
     const auto* __restrict real_null_data =
             assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
     constexpr int NULL_VALUE = 0;
-    auto s = size();
-    for (int i = 0; i < s; ++i) {
+    for (size_t i = start; i < end; ++i) {
         if (real_null_data[i] != 0) {
             hash = HashUtil::crc32c_fixed(NULL_VALUE, hash);
         }
