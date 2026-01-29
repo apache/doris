@@ -17,6 +17,7 @@
 
 package org.apache.doris.cdcclient.source.reader.postgres;
 
+import org.apache.doris.cdcclient.common.Constants;
 import org.apache.doris.cdcclient.exception.CdcClientException;
 import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.cdcclient.source.reader.JdbcIncrementalSourceReader;
@@ -50,6 +51,7 @@ import org.apache.flink.cdc.connectors.postgres.source.utils.PostgresTypeUtils;
 import org.apache.flink.cdc.connectors.postgres.source.utils.TableDiscoveryUtils;
 import org.apache.flink.table.types.DataType;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -208,7 +210,8 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                 ConfigUtil.getPostgresServerTimeZoneFromProps(props).toString());
         configFactory.slotName(getSlotName(jobId));
         configFactory.decodingPluginName("pgoutput");
-        // configFactory.heartbeatInterval(Duration.ofMillis(Constants.POLL_SPLIT_RECORDS_TIMEOUTS));
+        configFactory.heartbeatInterval(
+                Duration.ofMillis(Constants.DEBEZIUM_HEARTBEAT_INTERVAL_MS));
         return configFactory.create(0);
     }
 

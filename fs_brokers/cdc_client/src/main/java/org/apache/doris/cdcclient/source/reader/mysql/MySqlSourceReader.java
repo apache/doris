@@ -17,7 +17,6 @@
 
 package org.apache.doris.cdcclient.source.reader.mysql;
 
-import org.apache.doris.cdcclient.common.Constants;
 import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
 import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
 import org.apache.doris.cdcclient.source.factory.DataSource;
@@ -69,8 +68,10 @@ import org.apache.kafka.connect.source.SourceRecord;
 
 import java.io.IOException;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -81,6 +82,7 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static org.apache.doris.cdcclient.common.Constants.DEBEZIUM_HEARTBEAT_INTERVAL_MS;
 import static org.apache.doris.cdcclient.utils.ConfigUtil.is13Timestamp;
 import static org.apache.doris.cdcclient.utils.ConfigUtil.isJson;
 import static org.apache.doris.cdcclient.utils.ConfigUtil.toStringMap;
@@ -91,6 +93,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.shyiko.mysql.binlog.BinaryLogClient;
 import com.mysql.cj.conf.ConnectionUrl;
 import io.debezium.connector.mysql.MySqlConnection;
+import io.debezium.connector.mysql.MySqlConnectorConfig;
 import io.debezium.connector.mysql.MySqlPartition;
 import io.debezium.document.Array;
 import io.debezium.relational.Column;
@@ -165,62 +168,57 @@ public class MySqlSourceReader implements SourceReader {
     }
 
     @Override
-    public SplitReadResult readSplitRecords(JobBaseRecordRequest baseReq) throws Exception {
+    public SplitReadResult prepareAndSubmitSplit(JobBaseRecordRequest baseReq) throws Exception {
         Map<String, Object> offsetMeta = baseReq.getMeta();
         if (offsetMeta == null || offsetMeta.isEmpty()) {
             throw new RuntimeException("miss meta offset");
         }
         LOG.info("Job {} read split records with offset: {}", baseReq.getJobId(), offsetMeta);
-
-        //  If there is an active split being consumed, reuse it directly;
-        //  Otherwise, create a new snapshot/binlog split based on offset and start the reader.
-        MySqlSplit split = null;
-        SplitRecords currentSplitRecords = this.getCurrentSplitRecords();
-        if (currentSplitRecords == null) {
-            DebeziumReader<SourceRecords, MySqlSplit> currentReader = this.getCurrentReader();
-            if (baseReq.isReload() || currentReader == null) {
-                LOG.info(
-                        "No current reader or reload {}, create new split reader",
-                        baseReq.isReload());
-                // build split
-                Tuple2<MySqlSplit, Boolean> splitFlag = createMySqlSplit(offsetMeta, baseReq);
-                split = splitFlag.f0;
-                // reset binlog reader
-                // closeBinlogReader();
-                currentSplitRecords = pollSplitRecordsWithSplit(split, baseReq);
-                this.setCurrentSplitRecords(currentSplitRecords);
-                this.setCurrentSplit(split);
-            } else if (currentReader instanceof BinlogSplitReader) {
-                LOG.info("Continue poll records with current binlog reader");
-                // only for binlog reader
-                currentSplitRecords = pollSplitRecordsWithCurrentReader(currentReader);
-                split = this.getCurrentSplit();
-            } else {
-                throw new RuntimeException("Should not happen");
-            }
+        // build split
+        Tuple2<MySqlSplit, Boolean> splitFlag = createMySqlSplit(offsetMeta, baseReq);
+        this.currentSplit = splitFlag.f0;
+        LOG.info("Get a split: {}", this.currentSplit.toString());
+        if (this.currentSplit instanceof MySqlSnapshotSplit) {
+            this.currentReader = getSnapshotSplitReader(baseReq);
+        } else if (this.currentSplit instanceof MySqlBinlogSplit) {
+            this.currentReader = getBinlogSplitReader(baseReq);
         } else {
-            LOG.info(
-                    "Continue read records with current split records, splitId: {}",
-                    currentSplitRecords.getSplitId());
+            throw new IllegalStateException(
+                    "Unsupported MySqlSplit type: " + this.currentSplit.getClass().getName());
         }
 
-        // build response with iterator
-        SplitReadResult result = new SplitReadResult();
+        this.currentReader.submitSplit(this.currentSplit);
         MySqlSplitState currentSplitState = null;
-        MySqlSplit currentSplit = this.getCurrentSplit();
-        if (currentSplit.isSnapshotSplit()) {
-            currentSplitState = new MySqlSnapshotSplitState(currentSplit.asSnapshotSplit());
+        if (this.currentSplit.isSnapshotSplit()) {
+            currentSplitState = new MySqlSnapshotSplitState(this.currentSplit.asSnapshotSplit());
         } else {
-            currentSplitState = new MySqlBinlogSplitState(currentSplit.asBinlogSplit());
+            currentSplitState = new MySqlBinlogSplitState(this.currentSplit.asBinlogSplit());
+        }
+        SplitReadResult result = new SplitReadResult();
+        result.setSplit(this.currentSplit);
+        result.setSplitState(currentSplitState);
+        return result;
+    }
+
+    @Override
+    public Iterator<SourceRecord> pollRecords(Object splitState) throws InterruptedException {
+        Preconditions.checkState(this.currentReader != null, "currentReader is null");
+        Preconditions.checkNotNull(splitState, "splitState is null");
+        Preconditions.checkState(
+                splitState instanceof MySqlSplitState,
+                "splitState type is invalid " + splitState.getClass());
+
+        // Poll data from Debezium queue
+        Iterator<SourceRecords> dataIt = currentReader.pollSplitRecords();
+        if (dataIt == null || !dataIt.hasNext()) {
+            return Collections.emptyIterator(); // No data available
         }
 
-        Iterator<SourceRecord> filteredIterator =
-                new FilteredRecordIterator(currentSplitRecords, currentSplitState);
+        SourceRecords sourceRecords = dataIt.next();
+        SplitRecords splitRecords =
+                new SplitRecords(this.currentSplit.splitId(), sourceRecords.iterator());
 
-        result.setRecordIterator(filteredIterator);
-        result.setSplitState(currentSplitState);
-        result.setSplit(split);
-        return result;
+        return new FilteredRecordIterator(splitRecords, (MySqlSplitState) splitState);
     }
 
     /**
@@ -425,91 +423,6 @@ public class MySqlSourceReader implements SourceReader {
         }
     }
 
-    private SplitRecords pollSplitRecordsWithSplit(MySqlSplit split, JobBaseConfig jobConfig)
-            throws Exception {
-        Preconditions.checkState(split != null, "split is null");
-        SourceRecords sourceRecords = null;
-        String currentSplitId = null;
-        DebeziumReader<SourceRecords, MySqlSplit> currentReader = null;
-        LOG.info("Get a split: {}", split.toString());
-        if (split instanceof MySqlSnapshotSplit) {
-            currentReader = getSnapshotSplitReader(jobConfig);
-        } else if (split instanceof MySqlBinlogSplit) {
-            currentReader = getBinlogSplitReader(jobConfig);
-        }
-        this.setCurrentReader(currentReader);
-        currentReader.submitSplit(split);
-        currentSplitId = split.splitId();
-        // make split record available
-        sourceRecords =
-                pollUntilDataAvailable(currentReader, Constants.POLL_SPLIT_RECORDS_TIMEOUTS, 500);
-        if (currentReader instanceof SnapshotSplitReader) {
-            closeCurrentReader();
-        }
-        return new SplitRecords(currentSplitId, sourceRecords.iterator());
-    }
-
-    private SplitRecords pollSplitRecordsWithCurrentReader(
-            DebeziumReader<SourceRecords, MySqlSplit> currentReader) throws Exception {
-        Iterator<SourceRecords> dataIt = null;
-        if (currentReader instanceof BinlogSplitReader) {
-            dataIt = currentReader.pollSplitRecords();
-            return dataIt == null
-                    ? null
-                    : new SplitRecords(BINLOG_SPLIT_ID, dataIt.next().iterator());
-        } else {
-            throw new IllegalStateException("Unsupported reader type.");
-        }
-    }
-
-    /**
-     * Split tasks are submitted asynchronously, and data is sent to the Debezium queue. Therefore,
-     * there will be a time interval between retrieving data; it's necessary to fetch data until the
-     * queue has data.
-     */
-    private SourceRecords pollUntilDataAvailable(
-            DebeziumReader<SourceRecords, MySqlSplit> reader,
-            long maxWaitTimeMs,
-            long pollIntervalMs)
-            throws InterruptedException {
-        long startTime = System.currentTimeMillis();
-        long elapsedTime = 0;
-        int attemptCount = 0;
-        LOG.info("Polling until data available");
-        Iterator<SourceRecords> lastDataIt = null;
-        while (elapsedTime < maxWaitTimeMs) {
-            attemptCount++;
-            lastDataIt = reader.pollSplitRecords();
-            if (lastDataIt != null && lastDataIt.hasNext()) {
-                SourceRecords sourceRecords = lastDataIt.next();
-                if (sourceRecords != null && !sourceRecords.getSourceRecordList().isEmpty()) {
-                    LOG.info(
-                            "Data available after {} ms ({} attempts). {} Records received.",
-                            elapsedTime,
-                            attemptCount,
-                            sourceRecords.getSourceRecordList().size());
-                    // todo: Until debezium_heartbeat is consumed
-                    return sourceRecords;
-                }
-            }
-
-            // No records yet, continue polling
-            if (elapsedTime + pollIntervalMs < maxWaitTimeMs) {
-                Thread.sleep(pollIntervalMs);
-                elapsedTime = System.currentTimeMillis() - startTime;
-            } else {
-                // Last attempt before timeout
-                break;
-            }
-        }
-
-        LOG.warn(
-                "Timeout: No data (heartbeat or data change) received after {} ms ({} attempts).",
-                elapsedTime,
-                attemptCount);
-        return new SourceRecords(new ArrayList<>());
-    }
-
     private SnapshotSplitReader getSnapshotSplitReader(JobBaseConfig config) {
         MySqlSourceConfig sourceConfig = getSourceConfig(config);
         final MySqlConnection jdbcConnection = DebeziumUtils.createMySqlConnection(sourceConfig);
@@ -620,7 +533,12 @@ public class MySqlSourceReader implements SourceReader {
         configFactory.jdbcProperties(jdbcProperteis);
 
         Properties dbzProps = ConfigUtil.getDefaultDebeziumProps();
+        dbzProps.setProperty(
+                MySqlConnectorConfig.KEEP_ALIVE_INTERVAL_MS.name(),
+                DEBEZIUM_HEARTBEAT_INTERVAL_MS + "");
         configFactory.debeziumProperties(dbzProps);
+        configFactory.heartbeatInterval(Duration.ofMillis(DEBEZIUM_HEARTBEAT_INTERVAL_MS));
+
         if (cdcConfig.containsKey(DataSourceConfigKeys.SPLIT_SIZE)) {
             configFactory.splitSize(
                     Integer.parseInt(cdcConfig.get(DataSourceConfigKeys.SPLIT_SIZE)));
@@ -796,6 +714,8 @@ public class MySqlSourceReader implements SourceReader {
                         BinlogOffset position = RecordUtils.getBinlogPosition(element);
                         splitState.asBinlogSplitState().setStartingOffset(position);
                     }
+                    nextRecord = element;
+                    return true;
                 } else if (RecordUtils.isDataChangeRecord(element)) {
                     if (splitState.isBinlogSplitState()) {
                         BinlogOffset position = RecordUtils.getBinlogPosition(element);
