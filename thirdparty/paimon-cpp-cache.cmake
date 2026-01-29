@@ -57,6 +57,14 @@ set(LZ4_LIBRARY "${DORIS_LIB_DIR}/liblz4.a" CACHE FILEPATH "LZ4 library")
 set(LZ4_INCLUDE_DIR "${DORIS_INCLUDE_DIR}" CACHE PATH "LZ4 include directory")
 
 # ============================================================================
+# glog - Reuse from Doris (version 0.6.0)
+# Note: Paimon-cpp uses 0.7.1, but 0.6.0 is compatible
+# ============================================================================
+set(GLOG_ROOT "${DORIS_THIRDPARTY_DIR}" CACHE PATH "glog root directory")
+set(GLOG_LIBRARY "${DORIS_LIB_DIR}/libglog.a" CACHE FILEPATH "glog library")
+set(GLOG_INCLUDE_DIR "${DORIS_INCLUDE_DIR}" CACHE PATH "glog include directory")
+
+# ============================================================================
 # Arrow, Protobuf, Thrift - NOT reusing from Doris
 # paimon-cpp will build its own versions with symbol visibility=hidden
 # to prevent conflicts with Doris's versions
@@ -95,14 +103,17 @@ endif()
 if(NOT EXISTS "${SNAPPY_LIBRARY}")
     message(FATAL_ERROR "Snappy library not found: ${SNAPPY_LIBRARY}")
 endif()
+if(NOT EXISTS "${GLOG_LIBRARY}")
+    message(FATAL_ERROR "glog library not found: ${GLOG_LIBRARY}")
+endif()
 
 message(STATUS "========================================")
 message(STATUS "Paimon-cpp Library Reuse Configuration")
 message(STATUS "========================================")
 message(STATUS "Reusing from Doris:")
-message(STATUS "  ✓ ZLIB, ZSTD, LZ4, Snappy")
+message(STATUS "  ✓ ZLIB, ZSTD, LZ4, Snappy, glog")
 message(STATUS "")
 message(STATUS "Building separately (symbol visibility=hidden):")
 message(STATUS "  - Arrow, Protobuf, Thrift, ORC")
-message(STATUS "  - RapidJSON, TBB, glog")
+message(STATUS "  - RapidJSON, TBB")
 message(STATUS "========================================")
