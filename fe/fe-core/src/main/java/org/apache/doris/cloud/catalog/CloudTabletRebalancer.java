@@ -1651,8 +1651,13 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 if (db.getTableNullable(cloudReplica.getTableId()) == null) {
                     continue;
                 }
-                // update replica location info
+                // update replica location info: primary -> new BE (dstBe)
                 cloudReplica.updateClusterToPrimaryBe(clusterId, dstBe);
+                // Set old BE (srcBe) as secondary so queries can fall back to it when new BE
+                // is not alive yet (e.g. new BE heartbeat not registered). Otherwise
+                // hashReplicaToBe would exclude both: old BE (isSmoothUpgradeSrc) and new BE
+                // (not alive), causing COMPUTE_GROUPS_NO_ALIVE_BE.
+                cloudReplica.updateClusterToSecondaryBe(clusterId, srcBe);
                 UpdateCloudReplicaInfo info = new UpdateCloudReplicaInfo(cloudReplica.getDbId(),
                         cloudReplica.getTableId(), cloudReplica.getPartitionId(), cloudReplica.getIndexId(),
                         tablet.getId(), cloudReplica.getId(), clusterId, dstBe);
