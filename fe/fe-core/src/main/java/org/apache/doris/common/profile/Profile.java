@@ -560,26 +560,46 @@ public class Profile {
     /**
      * Build the execution summary section for YAML output.
      * Uses BlockStyleMap to ensure multi-line block style output.
+     * Includes all info strings and child profiles from ExecutionSummary.
      */
     private Map<String, Object> buildExecutionSummarySection() {
         Map<String, Object> executionSummary = new BlockStyleMap();
 
         RuntimeProfile execSummaryProfile = summaryProfile.getExecutionSummary();
-        Map<String, String> infoStrings = execSummaryProfile.getInfoStrings();
 
-        // Add execution summary fields
-        addIfPresent(executionSummary, "workload_group", infoStrings, SummaryProfile.WORKLOAD_GROUP);
-        addIfPresent(executionSummary, "parse_sql_time", infoStrings, SummaryProfile.PARSE_SQL_TIME);
-        addIfPresent(executionSummary, "plan_time", infoStrings, SummaryProfile.PLAN_TIME);
-        addIfPresent(executionSummary, "schedule_time", infoStrings, SummaryProfile.SCHEDULE_TIME);
-        addIfPresent(executionSummary, "wait_fetch_result_time", infoStrings, SummaryProfile.WAIT_FETCH_RESULT_TIME);
-        addIfPresent(executionSummary, "fetch_result_time", infoStrings, SummaryProfile.FETCH_RESULT_TIME);
-        addIfPresent(executionSummary, "write_result_time", infoStrings, SummaryProfile.WRITE_RESULT_TIME);
-        addIfPresent(executionSummary, "doris_version", infoStrings, SummaryProfile.DORIS_VERSION);
-        addIfPresent(executionSummary, "is_cached", infoStrings, SummaryProfile.IS_CACHED);
-        addIfPresent(executionSummary, "total_instances_num", infoStrings, SummaryProfile.TOTAL_INSTANCES_NUM);
-        addIfPresent(executionSummary, "parallel_fragment_exec_instance",
-                infoStrings, SummaryProfile.PARALLEL_FRAGMENT_EXEC_INSTANCE);
+        // Add all info strings from execution summary
+        Map<String, String> infoStrings = execSummaryProfile.getInfoStrings();
+        for (String key : execSummaryProfile.getInfoStringsDisplayOrder()) {
+            String value = infoStrings.get(key);
+            if (value != null && !value.isEmpty() && !"N/A".equals(value)) {
+                executionSummary.put(key, value);
+            }
+        }
+
+        // Add counters if any
+        Map<String, Object> countersMap = execSummaryProfile.toStructuredMap();
+        // Extract content from the wrapped format {profileName: {content}}
+        if (countersMap.size() == 1) {
+            String profileName = countersMap.keySet().iterator().next();
+            @SuppressWarnings("unchecked")
+            Map<String, Object> content = (Map<String, Object>) countersMap.get(profileName);
+            if (content != null) {
+                if (content.containsKey("counters")) {
+                    executionSummary.put("counters", content.get("counters"));
+                }
+                // Add child profiles (like "Plan Time" details)
+                if (content.containsKey("children")) {
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, Object>> children = (List<Map<String, Object>>) content.get("children");
+                    for (Map<String, Object> child : children) {
+                        // Each child is {childName: {content}}
+                        for (Map.Entry<String, Object> entry : child.entrySet()) {
+                            executionSummary.put(entry.getKey(), entry.getValue());
+                        }
+                    }
+                }
+            }
+        }
 
         return executionSummary;
     }
