@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("iceberg_rest_storage_test", "p2,external,iceberg,external_docker,external_docker_iceberg_rest,new_catalog_property") {
+suite("iceberg_rest_on_hdfs", "external,iceberg,external_docker,external_docker_iceberg_rest,new_catalog_property") {
 
     def testQueryAndInsert = { String catalogProperties, String prefix ->
 
@@ -263,203 +263,50 @@ suite("iceberg_rest_storage_test", "p2,external,iceberg,external_docker,external
         assert dropResult.size() == 0
     }
 
-    String enabled = context.config.otherConfigs.get("enableExternalIcebergTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        /* REST catalog env and base properties */
-        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    /* REST catalog env and base properties */
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
-        String rest_port_s3 = context.config.otherConfigs.get("iceberg_rest_uri_port_s3")
-        String iceberg_rest_type_prop_s3 = """
-            'type'='iceberg',
-            'iceberg.catalog.type'='rest',
-            'iceberg.rest.uri' = 'http://${externalEnvIp}:${rest_port_s3}',
-        """
-
-        String rest_port_oss = context.config.otherConfigs.get("iceberg_rest_uri_port_oss")
-        String iceberg_rest_type_prop_oss = """
-            'type'='iceberg',
-            'iceberg.catalog.type'='rest',
-            'iceberg.rest.uri' = 'http://${externalEnvIp}:${rest_port_oss}',
-        """
-
-        String rest_port_cos = context.config.otherConfigs.get("iceberg_rest_uri_port_cos")
-        String iceberg_rest_type_prop_cos = """
-            'type'='iceberg',
-            'iceberg.catalog.type'='rest',
-            'iceberg.rest.uri' = 'http://${externalEnvIp}:${rest_port_cos}',
-        """
-
-        String rest_port_obs = context.config.otherConfigs.get("iceberg_rest_uri_port_obs")
-        String iceberg_rest_type_prop_obs = """
-            'type'='iceberg',
-            'iceberg.catalog.type'='rest',
-            'iceberg.rest.uri' = 'http://${externalEnvIp}:${rest_port_obs}',
-        """
-
-        String rest_port_gcs = context.config.otherConfigs.get("iceberg_rest_uri_port_gcs")
-        String iceberg_rest_type_prop_gcs = """
-            'type'='iceberg',
-            'iceberg.catalog.type'='rest',
-            'iceberg.rest.uri' = 'http://${externalEnvIp}:${rest_port_gcs}',
-        """
-
-        String rest_port_hdfs = context.config.otherConfigs.get("iceberg_rest_uri_port_hdfs")
-        String iceberg_rest_type_prop_hdfs = """
+    def frontendsResult = sql """
+       show frontends
+       """
+      println frontendsResult
+    if (frontendsResult.size() != 1) {
+        println frontendsResult.size()
+        return
+    }
+    def feHost = frontendsResult[0][1];
+    if (!feHost.equalsIgnoreCase(externalEnvIp)) {
+        return
+    }
+    def backendsResult = sql """
+       show backends
+       """
+    if (backendsResult.size() != 1) {
+        return
+    }
+    def beHost = backendsResult[0][1];
+    if (!beHost.equalsIgnoreCase(externalEnvIp)) {
+        return
+    }
+    
+    String rest_port_hdfs = context.config.otherConfigs.get("iceberg_rest_uri_port_hdfs")
+    String iceberg_rest_type_prop_hdfs = """
             'type'='iceberg',
             'iceberg.catalog.type'='rest',
             'iceberg.rest.uri' = 'http://${externalEnvIp}:${rest_port_hdfs}',
         """
 
-        /*-----S3------*/
-        String s3_ak = context.config.otherConfigs.get("AWSAk")
-        String s3_sk = context.config.otherConfigs.get("AWSSk")
-        String s3_parent_path = "selectdb-qa-datalake-test-hk"
-        String s3_endpoint = "https://s3.ap-east-1.amazonaws.com"
-        String s3_region = "ap-east-1"
-        String s3_storage_properties = """
-          's3.access_key' = '${s3_ak}',
-          's3.secret_key' = '${s3_sk}',
-          's3.endpoint' = '${s3_endpoint}'
-        """
-        String s3_region_param = """
-         's3.region' = '${s3_region}',
-        """
-        /****************OSS*******************/
-        String oss_ak = context.config.otherConfigs.get("aliYunAk")
-        String oss_sk = context.config.otherConfigs.get("aliYunSk")
-        String endpoint = context.config.otherConfigs.get("aliYunEndpoint")
-        String oss_endpoint = "https://${endpoint}"
-        String oss_parent_path = context.config.otherConfigs.get("aliYunBucket")
-        String oss_region = context.config.otherConfigs.get("aliYunRegion")
-
-        String oss_region_param = """
-         'oss.region' = '${oss_region}',
-        """
-        String oss_storage_properties = """
-          'oss.access_key' = '${oss_ak}',
-          'oss.secret_key' = '${oss_sk}',
-          'oss.endpoint' = '${oss_endpoint}'
-        """
-        /****************COS*******************/
-        String cos_ak = context.config.otherConfigs.get("txYunAk")
-        String cos_sk = context.config.otherConfigs.get("txYunSk")
-        String cos_parent_path = "sdb-qa-datalake-test-1308700295";
-        String cos_endpoint = "https://cos.ap-beijing.myqcloud.com"
-        String cos_region = "ap-beijing"
-        String cos_region_param = """
-         'cos.region' = '${cos_region}',
-        """
-
-
-        String cos_storage_properties = """
-          'cos.access_key' = '${cos_ak}',
-          'cos.secret_key' = '${cos_sk}',
-          'cos.endpoint' = '${cos_endpoint}'
-        """
-
-        /****************OBS*******************/
-        String obs_ak = context.config.otherConfigs.get("hwYunAk")
-        String obs_sk = context.config.otherConfigs.get("hwYunSk")
-        String obs_parent_path = "doris-build"
-        String obs_endpoint = "https://obs.cn-north-4.myhuaweicloud.com"
-        String obs_region = "cn-north-4"
-        String obs_region_param = """
-         'obs.region' = '${obs_region}',
-        """
-        String obs_storage_properties = """
-          'obs.access_key' = '${obs_ak}',
-          'obs.secret_key' = '${obs_sk}',
-          'obs.endpoint' = '${obs_endpoint}'
-        """
-
-        /****************GCS*******************/
-        String gcs_ak = context.config.otherConfigs.get("GCSAk")
-        String gcs_sk = context.config.otherConfigs.get("GCSSk")
-        String gcs_parent_path = "selectdb-qa-datalake-test"
-        String gcs_endpoint = "https://storage.googleapis.com"
-        String gcs_storage_properties = """
-          'gs.access_key' = '${gcs_ak}',
-          'gs.secret_key' = '${gcs_sk}',
-          'gs.endpoint' = '${gcs_endpoint}'
-        """
-
-        /****************HDFS*******************/
-        String hdfsPort = context.config.otherConfigs.get("iceberg_rest_hdfs_port")
-        String hdfs_parent_path = "/user/hive/iceberg_rest_warehouse"
-        String hdfs_storage_properties = """
+    /****************HDFS*******************/
+    String hdfsPort = context.config.otherConfigs.get("iceberg_rest_hdfs_port")
+    String hdfs_parent_path = "/user/hive/iceberg_rest_warehouse"
+    String hdfs_storage_properties = """
             'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfsPort}'
         """
 
-        // -------- REST on OSS --------
-        String warehouse = """
-         'warehouse' = 'oss://${oss_parent_path}/iceberg_rest_warehouse',
-        """
-        testQueryAndInsert(iceberg_rest_type_prop_oss + warehouse + oss_storage_properties, "iceberg_rest_on_oss")
-        testQueryAndInsert(iceberg_rest_type_prop_oss + warehouse + oss_region_param + oss_storage_properties, "iceberg_rest_on_oss_region")
-
-        // -------- REST on COS --------
-        warehouse = """
-         'warehouse' = 'cos://${cos_parent_path}/iceberg_rest_warehouse',
-        """
-        testQueryAndInsert(iceberg_rest_type_prop_cos + warehouse + cos_storage_properties, "iceberg_rest_on_cos")
-        testQueryAndInsert(iceberg_rest_type_prop_cos + warehouse + cos_region_param + cos_storage_properties, "iceberg_rest_on_cos_region")
-
-        // -------- REST on S3 --------
-        warehouse = """
-         'warehouse' = 's3://${s3_parent_path}/iceberg_rest_warehouse',
-        """
-        testQueryAndInsert(iceberg_rest_type_prop_s3 + warehouse + s3_storage_properties, "iceberg_rest_on_s3")
-        testQueryAndInsert(iceberg_rest_type_prop_s3 + warehouse + s3_region_param + s3_storage_properties, "iceberg_rest_on_s3_region")
-        warehouse = """
-         'warehouse' = 's3a://${s3_parent_path}/iceberg_rest_warehouse',
-        """
-        testQueryAndInsert(iceberg_rest_type_prop_s3 + warehouse + s3_storage_properties, "iceberg_rest_on_s3a")
-        testQueryAndInsert(iceberg_rest_type_prop_s3 + warehouse + s3_region_param + s3_storage_properties, "iceberg_rest_on_s3a_region")
-
-        // -------- REST on OBS --------
-        warehouse = """
-         'warehouse' = 'obs://${obs_parent_path}/iceberg_rest_warehouse',
-        """
-        testQueryAndInsert(iceberg_rest_type_prop_obs + warehouse + obs_storage_properties, "iceberg_rest_on_obs")
-        testQueryAndInsert(iceberg_rest_type_prop_obs + warehouse + obs_region_param + obs_storage_properties, "iceberg_rest_on_obs_region")
-
-        // -------- REST on GCS --------
-        if(context.config.otherConfigs.get("enableGCS")){
-            warehouse = """
-                'warehouse' = 'gs://${gcs_parent_path}/iceberg_rest_warehouse',
-            """
-            testQueryAndInsert(iceberg_rest_type_prop_gcs + warehouse + gcs_storage_properties, "iceberg_rest_on_gcs")
-        }
-
-        // -------- REST on HDFS --------
-
-        //The Iceberg + HDFS Docker environment has issues in cluster mode.
-        //Therefore, when Doris is running in cluster mode, we can disable this test case for now.
-        warehouse = """
+    // -------- REST on HDFS --------
+    String warehouse = """
          'warehouse' = 'hdfs://${externalEnvIp}:${hdfsPort}${hdfs_parent_path}',
         """
-        def frontendsResult = sql """
-       show frontends
-       """
-        println frontendsResult
-        if (frontendsResult.size() != 1) {
-            println frontendsResult.size()
-            return
-        }
-        def feHost = frontendsResult[0][1];
-        if (!feHost.equalsIgnoreCase(externalEnvIp)) {
-            return
-        }
-        def backendsResult = sql """
-       show backends
-       """
-        if (backendsResult.size() != 1) {
-            return
-        }
-        def beHost = backendsResult[0][1];
-        if (!beHost.equalsIgnoreCase(externalEnvIp)) {
-            return
-        }
-        testQueryAndInsert(iceberg_rest_type_prop_hdfs + warehouse + hdfs_storage_properties, "iceberg_rest_on_hdfs")
-    }
+    testQueryAndInsert(iceberg_rest_type_prop_hdfs + warehouse + hdfs_storage_properties, "iceberg_rest_on_hdfs")
+
 }
