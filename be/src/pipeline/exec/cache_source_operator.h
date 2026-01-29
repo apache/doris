@@ -58,8 +58,8 @@ private:
     int64_t _version = 0;
     std::vector<vectorized::BlockUPtr> _local_cache_blocks;
     std::vector<int> _slot_orders;
-    size_t _current_query_cache_bytes = 0;
-    size_t _current_query_cache_rows = 0;
+    int64_t _current_query_cache_bytes = 0;
+    int64_t _current_query_cache_rows = 0;
     bool _need_insert_cache = true;
 
     QueryCacheHandle _query_cache_handle;
