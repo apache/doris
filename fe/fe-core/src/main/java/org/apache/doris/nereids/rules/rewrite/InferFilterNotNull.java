@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -44,34 +43,17 @@ public class InferFilterNotNull extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter()
-            .when(filter -> {
-                for (Expression conjunct : filter.getConjuncts()) {
-                    if (conjunct.containsType(Not.class)
-                            && conjunct.anyMatch(n -> n instanceof Not && ((Not) n).isGeneratedIsNotNull())) {
-                        return false;
-                    }
-                }
-                return true;
-            })
             .thenApply(ctx -> {
                 LogicalFilter<Plan> filter = ctx.root;
                 Set<Expression> predicates = filter.getConjuncts();
                 Set<Expression> isNotNulls = ExpressionUtils.inferNotNull(predicates, ctx.cascadesContext);
-                Builder<Expression> needGenerateNotNullsBuilder = ImmutableSet.builder();
-                for (Expression isNotNull : isNotNulls) {
-                    if (!predicates.contains(isNotNull)) {
-                        needGenerateNotNullsBuilder.add(((Not) isNotNull).withGeneratedIsNotNull(true));
-                    }
-                }
-                Set<Expression> needGenerateNotNulls = needGenerateNotNullsBuilder.build();
-                if (needGenerateNotNulls.isEmpty()) {
+                if (predicates.containsAll(isNotNulls)) {
                     return null;
                 }
-
                 Builder<Expression> conjuncts = ImmutableSet.builderWithExpectedSize(
-                        predicates.size() + needGenerateNotNulls.size());
+                        predicates.size() + isNotNulls.size());
                 conjuncts.addAll(predicates);
-                conjuncts.addAll(needGenerateNotNulls);
+                conjuncts.addAll(isNotNulls);
                 return PlanUtils.filter(conjuncts.build(), filter.child()).get();
             }).toRule(RuleType.INFER_FILTER_NOT_NULL);
     }

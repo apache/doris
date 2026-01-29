@@ -177,7 +177,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory, ValueDescVis
 
     @Override
     public Expression visitIsNotNullValue(IsNotNullValue value, Void context) {
-        return value.getNotExpression();
+        return new Not(new IsNull(value.getReference()));
     }
 
     @Override
