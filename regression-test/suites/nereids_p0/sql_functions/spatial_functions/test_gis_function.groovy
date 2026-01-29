@@ -323,6 +323,88 @@ suite("test_gis_function") {
     qt_sql "SELECT ST_ANGLE_SPHERE(116.35620117, 39.939093, 116.4274406433, 39.9020987219);"
     qt_sql "SELECT ST_ANGLE_SPHERE(0, 0, 45, 0);"
 
+    // ST_Length tests for all geometry types
+    qt_sql "SELECT ST_Length(ST_Point(0, 0));"
+    qt_sql "SELECT ST_Length(ST_LineFromText(\"LINESTRING (0 0, 1 0, 1 1, 0 1)\"));"
+    qt_sql "SELECT ST_Length(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"));"
+    qt_sql "SELECT ST_Length(ST_Circle(0, 0, 1));"
+    qt_sql "SELECT ST_Length(ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)), ((6 6, 6 10, 10 10, 10 6, 6 6)))\"));"
+    qt_sql "SELECT ST_Length(ST_GeometryFromText(\"LINESTRING (0 0, 1 0, 2 0, 3 0)\"));"
+    qt_sql "SELECT ST_Length(ST_Point(24.7, 56.7));"
+    qt_sql "SELECT ST_Length(ST_LineFromText(\"LINESTRING (0 0, 3 4)\"));"
+    qt_sql "SELECT ST_Length(ST_Polygon(\"POLYGON ((0 0, 5 0, 5 5, 0 5, 0 0))\"));"
+    qt_sql "SELECT ST_Length(ST_Circle(10, 20, 5));"
+    qt_sql "SELECT ST_Length(ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 10 0, 10 10, 0 10, 0 0)))\"));"
+
+    // ST_GeometryType tests for all geometry types
+    qt_sql "SELECT ST_GeometryType(ST_Point(0, 0));"
+    qt_sql "SELECT ST_GeometryType(ST_LineFromText(\"LINESTRING (0 0, 1 0, 1 1, 0 1)\"));"
+    qt_sql "SELECT ST_GeometryType(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"));"
+    qt_sql "SELECT ST_GeometryType(ST_Circle(0, 0, 1));"
+    qt_sql "SELECT ST_GeometryType(ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)), ((6 6, 6 10, 10 10, 10 6, 6 6)))\"));"
+    qt_sql "SELECT ST_GeometryType(ST_GeometryFromText(\"LINESTRING (0 0, 1 0, 2 0, 3 0)\"));"
+
+    // ST_Distance tests for all geometry type combinations
+    qt_sql "SELECT ST_Distance(ST_Point(0, 0), ST_Point(0, 0));"
+    qt_sql "SELECT ST_Distance(ST_Point(0, 0), ST_Point(3, 4));"
+    qt_sql "SELECT ST_Distance(ST_Point(3, 4), ST_Point(0, 0));"
+    
+    qt_sql "SELECT ST_Distance(ST_Point(0, 0), ST_LineFromText(\"LINESTRING (0 0, 10 0)\"));"
+    qt_sql "SELECT ST_Distance(ST_Point(5, 5), ST_LineFromText(\"LINESTRING (0 0, 10 0)\"));"
+    qt_sql "SELECT ST_Distance(ST_LineFromText(\"LINESTRING (0 0, 10 0)\"), ST_Point(0, 0));"
+    qt_sql "SELECT ST_Distance(ST_LineFromText(\"LINESTRING (0 0, 10 0)\"), ST_Point(5, 5));"
+    
+    qt_sql "SELECT ST_Distance(ST_Point(5, 5), ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"));"
+    qt_sql "SELECT ST_Distance(ST_Point(15, 15), ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"));"
+    qt_sql "SELECT ST_Distance(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_Point(5, 5));"
+    qt_sql "SELECT ST_Distance(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_Point(15, 15));"
+    
+    qt_sql "SELECT ST_Distance(ST_Point(0, 0), ST_Circle(0, 0, 1));"
+    qt_sql "SELECT ST_Distance(ST_Point(2, 0), ST_Circle(0, 0, 1));"
+    qt_sql "SELECT ST_Distance(ST_Circle(0, 0, 1), ST_Point(0, 0));"
+    qt_sql "SELECT ST_Distance(ST_Circle(0, 0, 1), ST_Point(2, 0));"
+    
+    qt_sql "SELECT ST_Distance(ST_Point(2, 2), ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)), ((6 6, 6 10, 10 10, 10 6, 6 6)))\"));"
+    qt_sql "SELECT ST_Distance(ST_Point(12, 12), ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)), ((6 6, 6 10, 10 10, 10 6, 6 6)))\"));"
+    qt_sql "SELECT ST_Distance(ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)), ((6 6, 6 10, 10 10, 10 6, 6 6)))\"), ST_Point(2, 2));"
+    
+    qt_sql "SELECT ST_Distance(ST_LineFromText(\"LINESTRING (0 0, 10 0)\"), ST_LineFromText(\"LINESTRING (0 0, 10 0)\"));"
+    qt_sql "SELECT ST_Distance(ST_LineFromText(\"LINESTRING (0 0, 5 0)\"), ST_LineFromText(\"LINESTRING (10 0, 15 0)\"));"
+    qt_sql "SELECT ST_Distance(ST_LineFromText(\"LINESTRING (10 0, 15 0)\"), ST_LineFromText(\"LINESTRING (0 0, 5 0)\"));"
+    
+    qt_sql "SELECT ST_Distance(ST_LineFromText(\"LINESTRING (5 5, 5 15)\"), ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"));"
+    qt_sql "SELECT ST_Distance(ST_LineFromText(\"LINESTRING (0 5, 10 5)\"), ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"));"
+    qt_sql "SELECT ST_Distance(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_LineFromText(\"LINESTRING (5 5, 5 15)\"));"
+    
+    qt_sql "SELECT ST_Distance(ST_LineFromText(\"LINESTRING (0 0, 10 0)\"), ST_Circle(5, 5, 1));"
+    qt_sql "SELECT ST_Distance(ST_Circle(5, 5, 1), ST_LineFromText(\"LINESTRING (0 0, 10 0)\"));"
+
+    // circle-line tangent cases (distance should be 0)
+    qt_sql "SELECT ST_Distance(ST_Circle(0, 0, 1), ST_LineFromText(\"LINESTRING (-1 0.00000899320363724538, 1 0.00000899320363724538)\"));"
+    
+    qt_sql "SELECT ST_Distance(ST_LineFromText(\"LINESTRING (12 2, 12 8)\"), ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)), ((6 6, 6 10, 10 10, 10 6, 6 6)))\"));"
+    
+    qt_sql "SELECT ST_Distance(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"));"
+    qt_sql "SELECT ST_Distance(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_Polygon(\"POLYGON ((15 0, 25 0, 25 10, 15 10, 15 0))\"));"
+    
+    qt_sql "SELECT ST_Distance(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_Circle(5, 5, 1));"
+    qt_sql "SELECT ST_Distance(ST_Circle(5, 5, 1), ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"));"
+    qt_sql "SELECT ST_Distance(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_Circle(20, 5, 1));"
+    qt_sql "SELECT ST_Distance(ST_Circle(0.001, 0, 50), ST_GeometryFromText(\"POLYGON ((-0.00045 -0.00045, 0.00045 -0.00045, 0.00045 0.00045, -0.00045 0.00045, -0.00045 -0.00045))\"));"
+    
+    qt_sql "SELECT ST_Distance(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)), ((6 6, 6 10, 10 10, 10 6, 6 6)))\"));"
+    qt_sql "SELECT ST_Distance(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_GeometryFromText(\"MULTIPOLYGON(((15 15, 15 20, 20 20, 20 15, 15 15)))\"));"
+    
+    qt_sql "SELECT ST_Distance(ST_Circle(0, 0, 1), ST_Circle(0, 0, 1));"
+    qt_sql "SELECT ST_Distance(ST_Circle(0, 0, 1), ST_Circle(5, 0, 1));"
+    qt_sql "SELECT ST_Distance(ST_Circle(5, 0, 1), ST_Circle(0, 0, 1));"
+    
+    qt_sql "SELECT ST_Distance(ST_Circle(2, 2, 1), ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)), ((6 6, 6 10, 10 10, 10 6, 6 6)))\"));"
+    qt_sql "SELECT ST_Distance(ST_Circle(20, 20, 1), ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)), ((6 6, 6 10, 10 10, 10 6, 6 6)))\"));"
+    
+    qt_sql "SELECT ST_Distance(ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)), ((6 6, 6 10, 10 10, 10 6, 6 6)))\"), ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)), ((6 6, 6 10, 10 10, 10 6, 6 6)))\"));"
+    qt_sql "SELECT ST_Distance(ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)))\"), ST_GeometryFromText(\"MULTIPOLYGON(((15 15, 15 20, 20 20, 20 15, 15 15)))\"));"
+
     qt_sql "SELECT ST_AsText(ST_GeometryFromText(\"LINESTRING (1 1, 2 2)\"));"
     qt_sql "SELECT ST_AsText(ST_GeomFromText(\"LINESTRING (1 1, 2 2)\"));"
 
@@ -375,6 +457,35 @@ suite("test_gis_function") {
     qt_sql "SELECT ST_AsText(ST_GeomFromWKB(ST_AsBinary(ST_Point(24.7, 56.7))));"
     qt_sql "SELECT ST_AsText(ST_GeomFromWKB(ST_AsBinary(ST_GeometryFromText(\"LINESTRING (1 1, 2 2)\"))));"
     qt_sql "SELECT ST_AsText(ST_GeomFromWKB(ST_AsBinary(ST_Polygon(\"POLYGON ((114.104486 22.547119,114.093758 22.547753,114.096504 22.532057,114.104229 22.539826,114.106203 22.542680,114.104486 22.547119))\"))));"
+
+    // table-driven tests for ST_Length/ST_GeometryType/ST_Distance
+    sql "drop table if exists test_gis_table_cases"
+    sql """
+    CREATE TABLE test_gis_table_cases (
+        `id` int NOT NULL,
+        `wkt_a` varchar(512) NULL,
+        `wkt_b` varchar(512) NULL
+    ) ENGINE=OLAP
+    UNIQUE KEY(`id`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`id`) BUCKETS 4
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+    sql """
+    insert into test_gis_table_cases values
+        (1, 'POINT(0 0)', 'POINT(0 0)'),
+        (2, 'LINESTRING(0 0, 0 1)', 'POINT(0 0)'),
+        (3, 'LINESTRING(0 0, 1 0)', 'LINESTRING(0 0, 1 0)'),
+        (4, 'POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))', 'LINESTRING(0.2 0.2, 0.8 0.8)'),
+        (5, 'POLYGON((0 0, 4 0, 4 4, 0 4, 0 0), (1 1, 1 3, 3 3, 3 1, 1 1))', 'POINT(10 10)'),
+        (6, 'MULTIPOLYGON(((0 0, 0 1, 1 1, 1 0, 0 0)), ((2 2, 2 3, 3 3, 3 2, 2 2)))', 'POINT(2.5 2.5)'),
+        (7, null, null);
+    """
+    qt_sql "select id, ST_GeometryType(ST_GeomFromText(wkt_a)) from test_gis_table_cases order by id;"
+    qt_sql "select id, ST_Length(ST_GeomFromText(wkt_a)) from test_gis_table_cases order by id;"
+    qt_sql "select id, ST_Distance(ST_GeomFromText(wkt_a), ST_GeomFromText(wkt_b)) from test_gis_table_cases order by id;"
 
     // test const
     sql "drop table if exists test_gis_const"
