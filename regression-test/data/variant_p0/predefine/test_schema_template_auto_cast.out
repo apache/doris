@@ -22,12 +22,6 @@
 3	50
 2	30
 
--- !select_alias --
-1	10	alice
-2	30	bob
-3	50	charlie
-4	15	alice
-
 -- !join_on --
 1	100	100
 3	300	300

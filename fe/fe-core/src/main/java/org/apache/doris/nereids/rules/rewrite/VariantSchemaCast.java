@@ -19,10 +19,9 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.OrderKey;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -43,7 +42,6 @@ import com.google.common.collect.ImmutableSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
 
 /**
  * Automatically cast variant element access expressions based on schema template.
@@ -65,14 +63,6 @@ public class VariantSchemaCast implements CustomRewriter {
     }
 
     private static class PlanRewriter extends DefaultPlanRewriter<Void> {
-
-        private final Function<Expression, Expression> expressionRewriter = expr -> {
-            // Handle ElementAt expressions
-            if (expr instanceof ElementAt) {
-                return rewriteElementAt((ElementAt) expr);
-            }
-            return expr;
-        };
 
         private Expression rewriteElementAt(ElementAt elementAt) {
             Expression left = elementAt.left();
@@ -100,17 +90,29 @@ public class VariantSchemaCast implements CustomRewriter {
         }
 
         private Expression rewriteExpression(Expression expr) {
-            return expr.rewriteDownShortCircuit(expressionRewriter);
-        }
-
-        private NamedExpression rewriteNamedExpression(NamedExpression expr) {
-            Expression rewritten = rewriteExpression(expr);
-            if (rewritten instanceof NamedExpression) {
-                return (NamedExpression) rewritten;
+            // Skip Match expressions - they require SlotRef as left operand
+            if (expr instanceof Match) {
+                return expr;
             }
-            // If the result is not a NamedExpression (e.g., Cast), wrap it in an Alias
-            // Preserve the original ExprId to maintain consistency
-            return new Alias(expr.getExprId(), rewritten, expr.getName());
+
+            // Recursively rewrite children first
+            boolean childrenChanged = false;
+            ImmutableList.Builder<Expression> newChildren = ImmutableList.builder();
+            for (Expression child : expr.children()) {
+                Expression newChild = rewriteExpression(child);
+                newChildren.add(newChild);
+                if (newChild != child) {
+                    childrenChanged = true;
+                }
+            }
+
+            Expression newExpr = childrenChanged ? expr.withChildren(newChildren.build()) : expr;
+
+            // Then apply the rewriter to the current expression
+            if (newExpr instanceof ElementAt) {
+                return rewriteElementAt((ElementAt) newExpr);
+            }
+            return newExpr;
         }
 
         @Override
@@ -124,11 +126,8 @@ public class VariantSchemaCast implements CustomRewriter {
 
         @Override
         public Plan visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
-            project = (LogicalProject<? extends Plan>) super.visit(project, context);
-            List<NamedExpression> newProjects = project.getProjects().stream()
-                    .map(this::rewriteNamedExpression)
-                    .collect(ImmutableList.toImmutableList());
-            return project.withProjects(newProjects);
+            // Don't rewrite SELECT projections - BE expects Variant type for ElementAt in SELECT
+            return super.visit(project, context);
         }
 
         @Override

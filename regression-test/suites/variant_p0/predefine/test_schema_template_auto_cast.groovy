@@ -60,14 +60,7 @@ suite("test_schema_template_auto_cast", "p0") {
     qt_topn """ SELECT id, data['num_a'] FROM ${tableName}
         ORDER BY data['num_a'] DESC LIMIT 2 """
 
-    // Test 4: SELECT projection with aliases
-    qt_select_alias """ SELECT id,
-        data['num_a'] as num_a_val,
-        data['str_name'] as name
-        FROM ${tableName}
-        ORDER BY id """
-
-    // Test 5: JOIN ON clause
+    // Test 4: JOIN ON clause
     def leftTable = "test_variant_join_left"
     def rightTable = "test_variant_join_right"
 
