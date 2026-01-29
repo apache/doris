@@ -60,7 +60,9 @@ public:
 
     template <typename KeyType>
     struct TmpSpillInfo {
+        SpillPartitionId id;
         std::vector<KeyType> keys_;
+        std::vector<uint32_t> hashes_;
         std::vector<vectorized::AggregateDataPtr> values_;
     };
 
@@ -70,12 +72,14 @@ public:
 
     template <typename HashTableCtxType, typename KeyType>
     Status _spill_partition(RuntimeState* state, HashTableCtxType& context,
-                            AggSpillPartitionSPtr& spill_partition, std::vector<KeyType>& keys,
+                            AggSpillPartition& spill_partition, std::vector<KeyType>& keys,
+                            std::vector<uint32_t>& hashes,
                             std::vector<vectorized::AggregateDataPtr>& values,
                             const vectorized::AggregateDataPtr null_key_data, bool is_last);
 
     template <typename HashTableCtxType, typename KeyType>
     Status to_block(HashTableCtxType& context, std::vector<KeyType>& keys,
+                    std::vector<uint32_t>& hashes,
                     std::vector<vectorized::AggregateDataPtr>& values,
                     const vectorized::AggregateDataPtr null_key_data);
 

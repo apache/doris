@@ -20,11 +20,11 @@
 #include <gen_cpp/Types_types.h>
 
 #include <cstdint>
-#include <limits>
 #include <memory>
 
 #include "aggregation_sink_operator.h"
 #include "common/status.h"
+#include "partitioned_agg_spill_utils.h"
 #include "pipeline/dependency.h"
 #include "pipeline/exec/spill_utils.h"
 #include "pipeline/pipeline_task.h"
@@ -36,6 +36,19 @@
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
+
+// NOTE: Aggregation has a "null key" bucket in its hash table implementation.
+// We route spilled null-key rows to a deterministic hash bucket so it participates in
+// the same multi-level split behavior as normal keys.
+inline AggSpillPartition& get_or_create_agg_partition(
+        std::unordered_map<uint32_t, AggSpillPartition>& partitions, const SpillPartitionId& id) {
+    auto [it, inserted] = partitions.try_emplace(id.key());
+    if (inserted) {
+        it->second.id = id;
+    }
+    return it->second;
+}
+
 PartitionedAggSinkLocalState::PartitionedAggSinkLocalState(DataSinkOperatorXBase* parent,
                                                            RuntimeState* state)
         : Base(parent, state) {}
@@ -56,11 +69,20 @@ Status PartitionedAggSinkLocalState::init(doris::RuntimeState* state,
 
     for (const auto& probe_expr_ctx : Base::_shared_state->in_mem_shared_state->probe_expr_ctxs) {
         key_columns_.emplace_back(probe_expr_ctx->root()->data_type()->create_column());
+        // Also build key_block_ schema so _reset_tmp_data() can recreate columns
+        key_block_.insert(vectorized::ColumnWithTypeAndName {
+                probe_expr_ctx->root()->data_type()->create_column(),
+                probe_expr_ctx->root()->data_type(), probe_expr_ctx->root()->expr_name()});
     }
     for (const auto& aggregate_evaluator :
          Base::_shared_state->in_mem_shared_state->aggregate_evaluators) {
         value_data_types_.emplace_back(aggregate_evaluator->function()->get_serialized_type());
         value_columns_.emplace_back(aggregate_evaluator->function()->create_serialize_column());
+        // Also build value_block_ schema so _reset_tmp_data() can recreate columns
+        value_block_.insert(vectorized::ColumnWithTypeAndName {
+                aggregate_evaluator->function()->create_serialize_column(),
+                aggregate_evaluator->function()->get_serialized_type(),
+                aggregate_evaluator->function()->get_name()});
     }
 
     _rows_in_partitions.assign(Base::_shared_state->partition_count, 0);
@@ -91,6 +113,14 @@ void PartitionedAggSinkLocalState::_init_counters() {
 
     _spill_serialize_hash_table_timer =
             ADD_TIMER_WITH_LEVEL(Base::custom_profile(), "SpillSerializeHashTableTime", 1);
+    // Sink-side split reads spilled blocks; ensure read counters exist for SpillReader.
+    ADD_TIMER_WITH_LEVEL(Base::custom_profile(), "SpillReadFileTime", 1);
+    ADD_TIMER_WITH_LEVEL(Base::custom_profile(), "SpillReadDerializeBlockTime", 1);
+    ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "SpillReadBlockCount", TUnit::UNIT, 1);
+    ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "SpillReadBlockBytes", TUnit::BYTES, 1);
+    ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "SpillReadFileBytes", TUnit::BYTES, 1);
+    ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "SpillReadRows", TUnit::UNIT, 1);
+    ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "SpillReadFileCount", TUnit::UNIT, 1);
 }
 #define UPDATE_PROFILE(name) \
     update_profile_from_inner_profile<spilled>(name, custom_profile(), child_profile)
@@ -161,17 +191,13 @@ Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, vectorized:
             if (revocable_mem_size(state) > 0) {
                 RETURN_IF_ERROR(revoke_memory(state, nullptr));
             } else {
-                for (auto& partition : local_state._shared_state->spill_partitions) {
-                    RETURN_IF_ERROR(partition->finish_current_spilling(eos));
+                for (auto& [_, partition] : local_state._shared_state->spill_partitions) {
+                    RETURN_IF_ERROR(partition.finish_current_spilling(eos));
                 }
                 local_state._dependency->set_ready_to_read();
             }
         } else {
             local_state._dependency->set_ready_to_read();
-        }
-    } else if (local_state._shared_state->is_spilled) {
-        if (revocable_mem_size(state) >= vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
-            return revoke_memory(state, nullptr);
         }
     }
 
@@ -237,86 +263,47 @@ size_t PartitionedAggSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bo
 
 template <typename HashTableCtxType, typename KeyType>
 Status PartitionedAggSinkLocalState::to_block(HashTableCtxType& context, std::vector<KeyType>& keys,
+                                              std::vector<uint32_t>& hashes,
                                               std::vector<vectorized::AggregateDataPtr>& values,
                                               const vectorized::AggregateDataPtr null_key_data) {
     SCOPED_TIMER(_spill_serialize_hash_table_timer);
-    context.insert_keys_into_columns(keys, key_columns_, (uint32_t)keys.size());
-
-    if (null_key_data) {
-        // only one key of group by support wrap null key
-        // here need additional processing logic on the null key / value
-        CHECK(key_columns_.size() == 1);
-        CHECK(key_columns_[0]->is_nullable());
-        key_columns_[0]->insert_data(nullptr, 0);
-
-        values.emplace_back(null_key_data);
-    }
-
-    for (size_t i = 0; i < Base::_shared_state->in_mem_shared_state->aggregate_evaluators.size();
-         ++i) {
-        Base::_shared_state->in_mem_shared_state->aggregate_evaluators[i]
-                ->function()
-                ->serialize_to_column(
-                        values,
-                        Base::_shared_state->in_mem_shared_state->offsets_of_aggregate_states[i],
-                        value_columns_[i], values.size());
-    }
-
-    vectorized::ColumnsWithTypeAndName key_columns_with_schema;
-    for (int i = 0; i < key_columns_.size(); ++i) {
-        key_columns_with_schema.emplace_back(
-                std::move(key_columns_[i]),
-                Base::_shared_state->in_mem_shared_state->probe_expr_ctxs[i]->root()->data_type(),
-                Base::_shared_state->in_mem_shared_state->probe_expr_ctxs[i]->root()->expr_name());
-    }
-    key_block_ = key_columns_with_schema;
-
-    vectorized::ColumnsWithTypeAndName value_columns_with_schema;
-    for (int i = 0; i < value_columns_.size(); ++i) {
-        value_columns_with_schema.emplace_back(
-                std::move(value_columns_[i]), value_data_types_[i],
-                Base::_shared_state->in_mem_shared_state->aggregate_evaluators[i]
-                        ->function()
-                        ->get_name());
-    }
-    value_block_ = value_columns_with_schema;
-
-    for (const auto& column : key_block_.get_columns_with_type_and_name()) {
-        block_.insert(column);
-    }
-    for (const auto& column : value_block_.get_columns_with_type_and_name()) {
-        block_.insert(column);
-    }
-    return Status::OK();
+    return agg_spill_utils::serialize_agg_data_to_block(
+            context, keys, hashes, values, null_key_data, Base::_shared_state->in_mem_shared_state,
+            key_columns_, value_columns_, value_data_types_, block_);
 }
 
 template <typename HashTableCtxType, typename KeyType>
 Status PartitionedAggSinkLocalState::_spill_partition(
-        RuntimeState* state, HashTableCtxType& context, AggSpillPartitionSPtr& spill_partition,
-        std::vector<KeyType>& keys, std::vector<vectorized::AggregateDataPtr>& values,
+        RuntimeState* state, HashTableCtxType& context, AggSpillPartition& spill_partition,
+        std::vector<KeyType>& keys, std::vector<uint32_t>& hashes,
+        std::vector<vectorized::AggregateDataPtr>& values,
         const vectorized::AggregateDataPtr null_key_data, bool is_last) {
     vectorized::SpillStreamSPtr spill_stream;
-    auto status = spill_partition->get_spill_stream(state, Base::_parent->node_id(),
-                                                    Base::operator_profile(), spill_stream);
+    auto status = spill_partition.get_spill_stream(state, Base::_parent->node_id(),
+                                                   Base::operator_profile(), spill_stream);
     RETURN_IF_ERROR(status);
 
-    status = to_block(context, keys, values, null_key_data);
+    status = to_block(context, keys, hashes, values, null_key_data);
     RETURN_IF_ERROR(status);
 
     if (is_last) {
         std::vector<KeyType> tmp_keys;
+        std::vector<uint32_t> tmp_hashes;
         std::vector<vectorized::AggregateDataPtr> tmp_values;
         keys.swap(tmp_keys);
+        hashes.swap(tmp_hashes);
         values.swap(tmp_values);
 
     } else {
         keys.clear();
+        hashes.clear();
         values.clear();
     }
     status = spill_stream->spill_block(state, block_, false);
     RETURN_IF_ERROR(status);
+    spill_partition.spilled_bytes += block_.allocated_bytes();
 
-    status = spill_partition->flush_if_full();
+    status = spill_partition.flush_if_full();
     _reset_tmp_data();
     return status;
 }
@@ -333,13 +320,8 @@ Status PartitionedAggSinkLocalState::_spill_hash_table(RuntimeState* state,
         }
     }};
 
-    context.init_iterator();
-
-    Base::_shared_state->in_mem_shared_state->aggregate_data_container->init_once();
-
     const auto total_rows =
             Base::_shared_state->in_mem_shared_state->aggregate_data_container->total_count();
-
     const size_t size_to_revoke_ = std::max<size_t>(size_to_revoke, 1);
 
     // `spill_batch_rows` will be between 4k and 1M
@@ -350,54 +332,86 @@ Status PartitionedAggSinkLocalState::_spill_hash_table(RuntimeState* state,
 
     VLOG_DEBUG << "Query: " << print_id(state->query_id()) << ", node: " << _parent->node_id()
                << ", spill_batch_rows: " << spill_batch_rows << ", total rows: " << total_rows;
-    size_t row_count = 0;
 
-    std::vector<TmpSpillInfo<typename HashTableType::key_type>> spill_infos(
-            Base::_shared_state->partition_count);
+    std::unordered_map<uint32_t, TmpSpillInfo<typename HashTableType::key_type>> spill_infos;
+    spill_infos.reserve(128);
+
+    // Helper: Spill batches when we've collected enough rows for a partition.
+    auto spill_batch_for_partition = [&](TmpSpillInfo<typename HashTableType::key_type>& info,
+                                         size_t batch_size) -> Status {
+        if (info.keys_.size() >= batch_size) {
+            const auto base_idx = base_partition_index(info.id);
+            _rows_in_partitions[base_idx] += info.keys_.size();
+            auto& partition =
+                    get_or_create_agg_partition(Base::_shared_state->spill_partitions, info.id);
+            return _spill_partition(state, context, partition, info.keys_, info.hashes_,
+                                    info.values_, nullptr, false);
+        }
+        return Status::OK();
+    };
+
+    // Step 1: Collect rows from hash table into spill_infos, spilling batches as we go.
+    context.init_iterator();
+    Base::_shared_state->in_mem_shared_state->aggregate_data_container->init_once();
+
+    size_t row_count = 0;
     auto& iter = Base::_shared_state->in_mem_shared_state->aggregate_data_container->iterator;
     while (iter != Base::_shared_state->in_mem_shared_state->aggregate_data_container->end() &&
            !state->is_cancelled()) {
         const auto& key = iter.template get_key<typename HashTableType::key_type>();
-        auto partition_index = Base::_shared_state->get_partition_index(hash_table.hash(key));
-        spill_infos[partition_index].keys_.emplace_back(key);
-        spill_infos[partition_index].values_.emplace_back(iter.get_aggregate_data());
+        const auto hash = static_cast<uint32_t>(hash_table.hash(key));
+        const auto leaf_id =
+                find_leaf_partition_for_hash(hash, Base::_shared_state->spill_partitions);
+        auto [it, inserted] = spill_infos.try_emplace(leaf_id.key());
+        if (inserted) {
+            it->second.id = leaf_id;
+        }
+        it->second.keys_.emplace_back(key);
+        it->second.hashes_.emplace_back(hash);
+        it->second.values_.emplace_back(iter.get_aggregate_data());
 
+        // Spill batches when we've collected enough rows.
         if (++row_count == spill_batch_rows) {
             row_count = 0;
-            for (int i = 0; i < Base::_shared_state->partition_count && !state->is_cancelled();
-                 ++i) {
-                if (spill_infos[i].keys_.size() >= spill_batch_rows) {
-                    _rows_in_partitions[i] += spill_infos[i].keys_.size();
-                    status = _spill_partition(
-                            state, context, Base::_shared_state->spill_partitions[i],
-                            spill_infos[i].keys_, spill_infos[i].values_, nullptr, false);
-                    RETURN_IF_ERROR(status);
-                }
+            for (auto& [_, info] : spill_infos) {
+                RETURN_IF_ERROR(spill_batch_for_partition(info, spill_batch_rows));
             }
         }
 
         ++iter;
     }
-    auto hash_null_key_data = hash_table.has_null_key_data();
-    for (int i = 0; i < Base::_shared_state->partition_count && !state->is_cancelled(); ++i) {
-        auto spill_null_key_data =
-                (hash_null_key_data && i == Base::_shared_state->partition_count - 1);
-        if (spill_infos[i].keys_.size() > 0 || spill_null_key_data) {
-            _rows_in_partitions[i] += spill_infos[i].keys_.size();
-            status = _spill_partition(
-                    state, context, Base::_shared_state->spill_partitions[i], spill_infos[i].keys_,
-                    spill_infos[i].values_,
-                    spill_null_key_data
-                            ? hash_table.template get_null_key_data<vectorized::AggregateDataPtr>()
-                            : nullptr,
-                    true);
-            RETURN_IF_ERROR(status);
+
+    // Step 2: Spill any remaining rows that didn't fill a full batch.
+    for (auto& [_, info] : spill_infos) {
+        if (info.keys_.empty()) {
+            continue;
         }
+        const auto base_idx = base_partition_index(info.id);
+        _rows_in_partitions[base_idx] += info.keys_.size();
+        auto& partition =
+                get_or_create_agg_partition(Base::_shared_state->spill_partitions, info.id);
+        RETURN_IF_ERROR(_spill_partition(state, context, partition, info.keys_, info.hashes_,
+                                         info.values_, nullptr, true));
     }
 
-    for (auto& partition : Base::_shared_state->spill_partitions) {
-        status = partition->finish_current_spilling(eos);
-        RETURN_IF_ERROR(status);
+    // Step 3: Handle null key data if present.
+    if (hash_table.has_null_key_data() && !state->is_cancelled()) {
+        const auto null_leaf_id = find_leaf_partition_for_hash(
+                kAggSpillNullKeyHash, Base::_shared_state->spill_partitions);
+        auto& null_partition =
+                get_or_create_agg_partition(Base::_shared_state->spill_partitions, null_leaf_id);
+        std::vector<typename HashTableType::key_type> empty_keys;
+        std::vector<uint32_t> empty_hashes;
+        std::vector<vectorized::AggregateDataPtr> empty_values;
+        RETURN_IF_ERROR(_spill_partition(
+                state, context, null_partition, empty_keys, empty_hashes, empty_values,
+                hash_table.template get_null_key_data<vectorized::AggregateDataPtr>(), true));
+    }
+
+    // Step 4: Finalize all spill streams. Must be done after potential splits so children are
+    // properly closed when eos==true.
+    for (auto& [_, partition] : Base::_shared_state->spill_partitions) {
+        RETURN_IF_ERROR(partition.finish_current_spilling(eos));
     }
     if (eos) {
         _clear_tmp_data();

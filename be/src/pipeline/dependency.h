@@ -26,10 +26,12 @@
 #include <sqltypes.h>
 
 #include <atomic>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 
 #include "common/config.h"
@@ -39,6 +41,7 @@
 #include "pipeline/common/join_utils.h"
 #include "pipeline/common/set_utils.h"
 #include "pipeline/exec/data_queue.h"
+#include "pipeline/exec/hierarchical_spill_partition.h"
 #include "pipeline/exec/join/process_hash_table_probe.h"
 #include "util/brpc_closure.h"
 #include "util/stack_util.h"
@@ -462,7 +465,11 @@ struct PartitionedAggSharedState : public BasicSharedState,
     size_t max_partition_index;
     bool is_spilled = false;
     std::atomic_bool is_closed = false;
-    std::deque<std::shared_ptr<AggSpillPartition>> spill_partitions;
+    // Hierarchical spill partitions (multi-level split).
+    // Keyed by SpillPartitionId::key(). (level-0 has kSpillFanout base partitions.)
+    std::unordered_map<uint32_t, AggSpillPartition> spill_partitions;
+
+    std::deque<SpillPartitionId> pending_partitions;
 
     size_t get_partition_index(size_t hash_value) const { return hash_value % partition_count; }
 };
@@ -472,35 +479,41 @@ struct AggSpillPartition {
 
     AggSpillPartition() = default;
 
+    SpillPartitionId id;
+    bool is_split = false;
+    // Best-effort bytes written via this partition node (in block format).
+    // Used as a split trigger; not used for correctness.
+    size_t spilled_bytes = 0;
+
     void close();
 
     Status get_spill_stream(RuntimeState* state, int node_id, RuntimeProfile* profile,
-                            vectorized::SpillStreamSPtr& spilling_stream);
+                            vectorized::SpillStreamSPtr& spill_stream);
 
     Status flush_if_full() {
-        DCHECK(spilling_stream_);
+        DCHECK(spilling_stream);
         Status status;
         // avoid small spill files
-        if (spilling_stream_->get_written_bytes() >= AGG_SPILL_FILE_SIZE) {
-            status = spilling_stream_->spill_eof();
-            spilling_stream_.reset();
+        if (spilling_stream->get_written_bytes() >= AGG_SPILL_FILE_SIZE) {
+            status = spilling_stream->spill_eof();
+            spilling_stream.reset();
         }
         return status;
     }
 
     Status finish_current_spilling(bool eos = false) {
-        if (spilling_stream_) {
-            if (eos || spilling_stream_->get_written_bytes() >= AGG_SPILL_FILE_SIZE) {
-                auto status = spilling_stream_->spill_eof();
-                spilling_stream_.reset();
+        if (spilling_stream) {
+            if (eos || spilling_stream->get_written_bytes() >= AGG_SPILL_FILE_SIZE) {
+                auto status = spilling_stream->spill_eof();
+                spilling_stream.reset();
                 return status;
             }
         }
         return Status::OK();
     }
 
-    std::deque<vectorized::SpillStreamSPtr> spill_streams_;
-    vectorized::SpillStreamSPtr spilling_stream_;
+    std::deque<vectorized::SpillStreamSPtr> spill_streams;
+    vectorized::SpillStreamSPtr spilling_stream;
 };
 using AggSpillPartitionSPtr = std::shared_ptr<AggSpillPartition>;
 struct SortSharedState : public BasicSharedState {
@@ -624,6 +637,47 @@ struct HashJoinSharedState : public JoinSharedState {
     std::vector<std::shared_ptr<JoinDataVariants>> hash_table_variant_vector;
 };
 
+// Hierarchical spill partitioning for hash join probe-side.
+static constexpr uint32_t kHashJoinSpillFanout = kSpillFanout;
+static constexpr uint32_t kHashJoinSpillBitsPerLevel = kSpillBitsPerLevel;
+static constexpr uint32_t kHashJoinSpillMaxDepth = kSpillMaxDepth;
+using HashJoinSpillPartitionId = SpillPartitionId;
+
+struct HashJoinSpillPartition {
+    HashJoinSpillPartitionId id;
+    bool is_split = false;
+    // Probe-side buffered rows for this partition before flushing into blocks/spill.
+    std::unique_ptr<vectorized::MutableBlock> accumulating_block;
+    // Probe-side materialized blocks for this partition (in-memory).
+    std::vector<vectorized::Block> blocks;
+    vectorized::SpillStreamSPtr spill_stream;
+
+    // Memory tracking for this partition.
+    size_t in_mem_bytes = 0;  // Bytes of data currently in memory (accumulating_block + blocks).
+    size_t spilled_bytes = 0; // Bytes of data that have been spilled to disk.
+
+    size_t total_bytes() const { return in_mem_bytes + spilled_bytes; }
+};
+
+using HashJoinSpillPartitionMap = std::unordered_map<uint32_t, HashJoinSpillPartition>;
+
+struct HashJoinSpillBuildPartition {
+    HashJoinSpillPartitionId id;
+    bool is_split = false;
+    // Build-side buffered rows for this partition before hash table build.
+    std::unique_ptr<vectorized::MutableBlock> build_block;
+    vectorized::SpillStreamSPtr spill_stream;
+
+    // Memory tracking for this partition.
+    size_t in_mem_bytes = 0;  // Bytes of data currently in memory (build_block).
+    size_t spilled_bytes = 0; // Bytes of data that have been spilled to disk.
+    size_t row_count = 0;     // Total number of rows in this partition.
+
+    size_t total_bytes() const { return in_mem_bytes + spilled_bytes; }
+};
+
+using HashJoinSpillBuildPartitionMap = std::unordered_map<uint32_t, HashJoinSpillBuildPartition>;
+
 struct PartitionedHashJoinSharedState
         : public HashJoinSharedState,
           public BasicSpillSharedState,
@@ -631,17 +685,18 @@ struct PartitionedHashJoinSharedState
     ENABLE_FACTORY_CREATOR(PartitionedHashJoinSharedState)
 
     void update_spill_stream_profiles(RuntimeProfile* source_profile) override {
-        for (auto& stream : spilled_streams) {
-            if (stream) {
-                stream->update_shared_profiles(source_profile);
+        for (auto& [_, partition] : build_partitions) {
+            if (partition.spill_stream) {
+                partition.spill_stream->update_shared_profiles(source_profile);
             }
         }
     }
 
     std::unique_ptr<RuntimeState> inner_runtime_state;
     std::shared_ptr<HashJoinSharedState> inner_shared_state;
-    std::vector<std::unique_ptr<vectorized::MutableBlock>> partitioned_build_blocks;
-    std::vector<vectorized::SpillStreamSPtr> spilled_streams;
+    HashJoinSpillPartitionMap probe_partitions;
+    HashJoinSpillBuildPartitionMap build_partitions;
+    std::deque<HashJoinSpillPartitionId> pending_probe_partitions;
     bool is_spilled = false;
 };
 

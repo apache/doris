@@ -925,6 +925,12 @@ public:
         return (_child and !is_source()) ? _child->revocable_mem_size(state) : 0;
     }
 
+    Status revoke_memory(RuntimeState* state,
+                         const std::shared_ptr<SpillContext>& spill_context) override {
+        return (_child and !is_source()) ? _child->revoke_memory(state, spill_context)
+                                         : Status::OK();
+    }
+
     // If this method is not overwrite by child, its default value is 1MB
     [[nodiscard]] virtual size_t get_reserve_mem_size(RuntimeState* state) {
         return state->minimum_operator_memory_required_bytes();

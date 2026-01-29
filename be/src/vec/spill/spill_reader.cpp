@@ -49,7 +49,7 @@ Status SpillReader::open() {
     RETURN_IF_ERROR(io::global_local_filesystem()->open_file(file_path_, &file_reader_));
 
     size_t file_size = file_reader_->size();
-    DCHECK(file_size >= 16); // max_sub_block_size, block count
+    DCHECK_GE(file_size, 16); // max_sub_block_size, block count
 
     Slice result((char*)&block_count_, sizeof(size_t));
 

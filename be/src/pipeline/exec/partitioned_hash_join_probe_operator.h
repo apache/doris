@@ -18,7 +18,9 @@
 #pragma once
 
 #include <cstdint>
+#include <deque>
 #include <memory>
+#include <vector>
 
 #include "common/be_mock_util.h"
 #include "common/status.h"
@@ -26,8 +28,8 @@
 #include "pipeline/dependency.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
-#include "pipeline/exec/join_build_sink_operator.h"
 #include "pipeline/exec/spill_utils.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -53,10 +55,17 @@ public:
 
     Status recover_build_blocks_from_disk(RuntimeState* state, uint32_t partition_index,
                                           bool& has_data);
+    Status recover_build_blocks_from_disk(RuntimeState* state,
+                                          const HashJoinSpillPartitionId& partition_id,
+                                          bool& has_data);
     Status recover_probe_blocks_from_disk(RuntimeState* state, uint32_t partition_index,
+                                          bool& has_data);
+    Status recover_probe_blocks_from_disk(RuntimeState* state,
+                                          const HashJoinSpillPartitionId& partition_id,
                                           bool& has_data);
 
     Status finish_spilling(uint32_t partition_index);
+    Status finish_spilling(const HashJoinSpillPartitionId& partition_id);
 
     template <bool spilled>
     void update_build_custom_profile(RuntimeProfile* child_profile);
@@ -84,22 +93,20 @@ private:
     template <typename LocalStateType>
     friend class StatefulOperatorX;
 
-    // Spill probe blocks to disk
-    Status _execute_spill_probe_blocks(RuntimeState* state, const UniqueId& query_id);
-
     std::shared_ptr<BasicSharedState> _in_mem_shared_state_sptr;
     uint32_t _partition_cursor {0};
+    HashJoinSpillPartitionId _current_partition_id;
+    // Pending split child partitions waiting to be processed.
+    std::deque<HashJoinSpillPartitionId> _pending_partitions;
+    bool _has_current_partition = false;
 
     std::unique_ptr<vectorized::Block> _child_block;
     bool _child_eos {false};
 
-    std::vector<std::unique_ptr<vectorized::MutableBlock>> _partitioned_blocks;
     std::unique_ptr<vectorized::MutableBlock> _recovered_build_block;
-    std::map<uint32_t, std::vector<vectorized::Block>> _probe_blocks;
-
-    std::vector<vectorized::SpillStreamSPtr> _probe_spilling_streams;
 
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
+    std::unique_ptr<vectorized::PartitionerBase> _build_partitioner;
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
 
     bool _need_to_setup_internal_operators {true};
@@ -122,6 +129,10 @@ private:
     RuntimeProfile::Counter* _probe_blocks_bytes = nullptr;
     RuntimeProfile::Counter* _memory_usage_reserved = nullptr;
     RuntimeProfile::Counter* _get_child_next_timer = nullptr;
+    RuntimeProfile::Counter* _probe_partition_splits = nullptr;
+    RuntimeProfile::Counter* _build_partition_splits = nullptr;
+    RuntimeProfile::Counter* _handled_partition_count = nullptr;
+    RuntimeProfile::Counter* _max_partition_level = nullptr;
 };
 
 class PartitionedHashJoinProbeOperatorX final
@@ -158,6 +169,9 @@ public:
 
     size_t revocable_mem_size(RuntimeState* state) const override;
 
+    Status revoke_memory(RuntimeState* state,
+                         const std::shared_ptr<SpillContext>& spill_context) override;
+
     size_t get_reserve_mem_size(RuntimeState* state) override;
 
     void set_inner_operators(const std::shared_ptr<HashJoinBuildSinkOperatorX>& sink_operator,
@@ -180,6 +194,24 @@ private:
                                                    RuntimeState* state) const;
 
     bool _should_revoke_memory(RuntimeState* state) const;
+    size_t _build_partition_bytes(const PartitionedHashJoinProbeLocalState& local_state,
+                                  const HashJoinSpillPartitionId& partition_id) const;
+    size_t _build_partition_rows(const PartitionedHashJoinProbeLocalState& local_state,
+                                 const HashJoinSpillPartitionId& partition_id) const;
+    Status _maybe_split_build_partition(RuntimeState* state,
+                                        PartitionedHashJoinProbeLocalState& local_state) const;
+    Status _split_probe_partition(RuntimeState* state,
+                                  PartitionedHashJoinProbeLocalState& local_state,
+                                  const HashJoinSpillPartitionId& partition_id) const;
+    Status _split_build_partition(RuntimeState* state,
+                                  PartitionedHashJoinProbeLocalState& local_state,
+                                  const HashJoinSpillPartitionId& partition_id) const;
+    // Select the next partition to process (base or pending split child).
+    Status _select_partition_if_needed(PartitionedHashJoinProbeLocalState& local_state,
+                                       bool* eos) const;
+    // Recover build data, split if needed, and build the hash table for the partition.
+    Status _prepare_hash_table(RuntimeState* state, PartitionedHashJoinProbeLocalState& local_state,
+                               bool* need_wait) const;
 
     const TJoinDistributionType::type _join_distribution;
 
@@ -188,6 +220,7 @@ private:
 
     // probe expr
     std::vector<TExpr> _probe_exprs;
+    std::vector<TExpr> _build_exprs;
 
     const std::vector<TExpr> _distribution_partition_exprs;
 
@@ -196,6 +229,7 @@ private:
 
     const uint32_t _partition_count;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
+    std::unique_ptr<vectorized::PartitionerBase> _build_partitioner;
 };
 
 } // namespace pipeline

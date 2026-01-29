@@ -211,7 +211,11 @@ bool Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
     auto st = doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->check_limit(
             size);
     if (!st) {
-        *err_msg += fmt::format("Allocator mem tracker check failed, {}", st.to_string());
+        *err_msg += fmt::format("Allocator mem tracker check failed {} reserved, {}",
+                                doris::thread_context()
+                                        ->thread_mem_tracker_mgr->limiter_mem_tracker()
+                                        ->reserved_consumption(),
+                                st.to_string());
         doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->print_log_usage(
                 *err_msg);
         return true;

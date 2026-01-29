@@ -322,7 +322,10 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemory) {
     DCHECK_GE(sink_operator->_child->row_desc().get_column_id(1), 0);
 
     for (uint32_t i = 0; i != sink_operator->_partition_count; ++i) {
-        auto& spilling_stream = sink_state->_shared_state->spilled_streams[i];
+        // Get spill stream from build_partitions map instead of legacy vector
+        HashJoinSpillPartitionId id {.level = 0, .path = i};
+        auto& build_partition = sink_state->_shared_state->build_partitions[id.key()];
+        auto& spilling_stream = build_partition.spill_stream;
         auto st = (ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
                 _helper.runtime_state.get(), spilling_stream,
                 print_id(_helper.runtime_state->query_id()), fmt::format("hash_build_sink_{}", i),
@@ -367,8 +370,10 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemory) {
     vectorized::Block large_block =
             vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(large_data);
 
-    sink_state->_shared_state->partitioned_build_blocks[0] =
-            vectorized::MutableBlock::create_unique(std::move(large_block));
+    // Set large block to build_partitions instead of legacy vector
+    HashJoinSpillPartitionId id {.level = 0, .path = 0};
+    auto& build_partition = sink_state->_shared_state->build_partitions[id.key()];
+    build_partition.build_block = vectorized::MutableBlock::create_unique(std::move(large_block));
     status = sink_state->revoke_memory(_helper.runtime_state.get(), nullptr);
     ASSERT_TRUE(status.ok()) << "Revoke memory failed: " << status.to_string();
 

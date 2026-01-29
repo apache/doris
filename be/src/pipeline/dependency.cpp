@@ -319,20 +319,31 @@ Status AggSharedState::reset_hash_table() {
 }
 
 void PartitionedAggSharedState::init_spill_params(size_t spill_partition_count) {
-    partition_count = spill_partition_count;
+    // PartitionedAgg uses hierarchical spill partitioning with fixed 8-way fanout per level.
+    // Keep the API but ignore spill_partition_count for fanout.
+    //
+    // The existing RuntimeState::spill_aggregation_partition_count() was originally used to decide
+    // the number of single-level partitions. With multi-level partitioning, fanout must be stable
+    // across sink/source and across split levels, so we pin it to kSpillFanout=8 (same as join).
+    partition_count = kSpillFanout;
     max_partition_index = partition_count - 1;
 
-    for (int i = 0; i < partition_count; ++i) {
-        spill_partitions.emplace_back(std::make_shared<AggSpillPartition>());
+    spill_partitions.clear();
+    pending_partitions.clear();
+    for (uint32_t i = 0; i < partition_count; ++i) {
+        SpillPartitionId id {.level = 0, .path = i};
+        auto [it, inserted] = spill_partitions.try_emplace(id.key());
+        it->second.id = id;
+        pending_partitions.emplace_back(id);
     }
 }
 
 void PartitionedAggSharedState::update_spill_stream_profiles(RuntimeProfile* source_profile) {
-    for (auto& partition : spill_partitions) {
-        if (partition->spilling_stream_) {
-            partition->spilling_stream_->update_shared_profiles(source_profile);
+    for (auto& [_, partition] : spill_partitions) {
+        if (partition.spilling_stream) {
+            partition.spilling_stream->update_shared_profiles(source_profile);
         }
-        for (auto& stream : partition->spill_streams_) {
+        for (auto& stream : partition.spill_streams) {
             if (stream) {
                 stream->update_shared_profiles(source_profile);
             }
@@ -343,25 +354,25 @@ void PartitionedAggSharedState::update_spill_stream_profiles(RuntimeProfile* sou
 Status AggSpillPartition::get_spill_stream(RuntimeState* state, int node_id,
                                            RuntimeProfile* profile,
                                            vectorized::SpillStreamSPtr& spill_stream) {
-    if (spilling_stream_) {
-        spill_stream = spilling_stream_;
+    if (spilling_stream) {
+        spill_stream = spilling_stream;
         return Status::OK();
     }
     RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
-            state, spilling_stream_, print_id(state->query_id()), "agg", node_id,
+            state, spilling_stream, print_id(state->query_id()), "agg", node_id,
             std::numeric_limits<int32_t>::max(), std::numeric_limits<size_t>::max(), profile));
-    spill_streams_.emplace_back(spilling_stream_);
-    spill_stream = spilling_stream_;
+    spill_streams.emplace_back(spilling_stream);
+    spill_stream = spilling_stream;
     return Status::OK();
 }
 void AggSpillPartition::close() {
-    if (spilling_stream_) {
-        spilling_stream_.reset();
+    if (spilling_stream) {
+        spilling_stream.reset();
     }
-    for (auto& stream : spill_streams_) {
+    for (auto& stream : spill_streams) {
         (void)ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
     }
-    spill_streams_.clear();
+    spill_streams.clear();
 }
 
 void PartitionedAggSharedState::close() {
@@ -372,8 +383,8 @@ void PartitionedAggSharedState::close() {
         return;
     }
     DCHECK(!false_close && is_closed);
-    for (auto partition : spill_partitions) {
-        partition->close();
+    for (auto& [_, partition] : spill_partitions) {
+        partition.close();
     }
     spill_partitions.clear();
 }

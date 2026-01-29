@@ -42,8 +42,14 @@ Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
-    _shared_state->partitioned_build_blocks.resize(p._partition_count);
-    _shared_state->spilled_streams.resize(p._partition_count);
+
+    // Initialize build_partitions for level-0 base partitions to unify storage.
+    for (uint32_t i = 0; i < p._partition_count; ++i) {
+        HashJoinSpillPartitionId id {.level = 0, .path = i};
+        HashJoinSpillBuildPartition partition;
+        partition.id = id;
+        _shared_state->build_partitions[id.key()] = std::move(partition);
+    }
 
     _rows_in_partitions.assign(p._partition_count, 0);
 
@@ -68,7 +74,10 @@ Status PartitionedHashJoinSinkLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(PipelineXSpillSinkLocalState::open(state));
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
     for (uint32_t i = 0; i != p._partition_count; ++i) {
-        auto& spilling_stream = _shared_state->spilled_streams[i];
+        // Register spill stream for level-0 partition in build_partitions map.
+        HashJoinSpillPartitionId id {.level = 0, .path = i};
+        auto& partition = _shared_state->build_partitions[id.key()];
+        auto& spilling_stream = partition.spill_stream;
         RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
                 state, spilling_stream, print_id(state->query_id()),
                 fmt::format("hash_build_sink_{}", i), _parent->node_id(),
@@ -111,10 +120,13 @@ size_t PartitionedHashJoinSinkLocalState::revocable_mem_size(RuntimeState* state
     }
 
     size_t mem_size = 0;
-    auto& partitioned_blocks = _shared_state->partitioned_build_blocks;
-    for (auto& block : partitioned_blocks) {
-        if (block) {
-            auto block_bytes = block->allocated_bytes();
+    // Iterate build_partitions instead of legacy vector.
+    auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
+    for (uint32_t i = 0; i < p._partition_count; ++i) {
+        HashJoinSpillPartitionId id {.level = 0, .path = i};
+        auto it = _shared_state->build_partitions.find(id.key());
+        if (it != _shared_state->build_partitions.end() && it->second.build_block) {
+            auto block_bytes = it->second.build_block->allocated_bytes();
             if (block_bytes >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
                 mem_size += block_bytes;
             }
@@ -137,10 +149,13 @@ void PartitionedHashJoinSinkLocalState::update_memory_usage() {
     }
 
     int64_t mem_size = 0;
-    auto& partitioned_blocks = _shared_state->partitioned_build_blocks;
-    for (auto& block : partitioned_blocks) {
-        if (block) {
-            mem_size += block->allocated_bytes();
+    // Iterate build_partitions instead of legacy vector.
+    auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
+    for (uint32_t i = 0; i < p._partition_count; ++i) {
+        HashJoinSpillPartitionId id {.level = 0, .path = i};
+        auto it = _shared_state->build_partitions.find(id.key());
+        if (it != _shared_state->build_partitions.end() && it->second.build_block) {
+            mem_size += it->second.build_block->allocated_bytes();
         }
     }
     COUNTER_SET(_memory_used_counter, mem_size);
@@ -170,7 +185,6 @@ Status PartitionedHashJoinSinkLocalState::_execute_spill_unpartitioned_block(
         RuntimeState* state, vectorized::Block&& build_block) {
     Defer defer1 {[&]() { update_memory_usage(); }};
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
-    auto& partitioned_blocks = _shared_state->partitioned_build_blocks;
     std::vector<std::vector<uint32_t>> partitions_indexes(p._partition_count);
 
     const size_t reserved_size = 4096;
@@ -207,9 +221,12 @@ Status PartitionedHashJoinSinkLocalState::_execute_spill_unpartitioned_block(
         for (uint32_t partition_idx = 0; partition_idx != p._partition_count; ++partition_idx) {
             auto* begin = partitions_indexes[partition_idx].data();
             auto* end = begin + partitions_indexes[partition_idx].size();
-            auto& partition_block = partitioned_blocks[partition_idx];
-            vectorized::SpillStreamSPtr& spilling_stream =
-                    _shared_state->spilled_streams[partition_idx];
+            const auto count = end - begin;
+            // Write to unified build_partitions map instead of legacy vector.
+            HashJoinSpillPartitionId id {.level = 0, .path = partition_idx};
+            auto& build_partition = _shared_state->build_partitions[id.key()];
+            auto& partition_block = build_partition.build_block;
+            vectorized::SpillStreamSPtr& spilling_stream = build_partition.spill_stream;
             if (UNLIKELY(!partition_block)) {
                 partition_block =
                         vectorized::MutableBlock::create_unique(build_block.clone_empty());
@@ -221,15 +238,20 @@ Status PartitionedHashJoinSinkLocalState::_execute_spill_unpartitioned_block(
                 RETURN_IF_ERROR(partition_block->add_rows(&sub_block, begin, end));
                 partitions_indexes[partition_idx].clear();
             }
+            build_partition.row_count += count;
             int64_t new_mem = partition_block->allocated_bytes();
 
             if (partition_block->rows() >= reserved_size || is_last_block) {
                 auto block = partition_block->to_block();
+                // Track spilled bytes
+                build_partition.spilled_bytes += block.allocated_bytes();
+                build_partition.in_mem_bytes = 0;
                 RETURN_IF_ERROR(spilling_stream->spill_block(state, block, false));
                 partition_block =
                         vectorized::MutableBlock::create_unique(build_block.clone_empty());
                 COUNTER_UPDATE(_memory_used_counter, -new_mem);
             } else {
+                build_partition.in_mem_bytes = new_mem;
                 COUNTER_UPDATE(_memory_used_counter, new_mem - old_mem);
             }
         }
@@ -237,11 +259,14 @@ Status PartitionedHashJoinSinkLocalState::_execute_spill_unpartitioned_block(
 
     Status status;
     if (_child_eos) {
-        std::ranges::for_each(_shared_state->partitioned_build_blocks, [&](auto& block) {
-            if (block) {
-                COUNTER_UPDATE(_in_mem_rows_counter, block->rows());
+        // Count in-memory rows from build_partitions instead of legacy vectors.
+        for (uint32_t i = 0; i < p._partition_count; ++i) {
+            HashJoinSpillPartitionId id {.level = 0, .path = i};
+            auto& partition = _shared_state->build_partitions[id.key()];
+            if (partition.build_block) {
+                COUNTER_UPDATE(_in_mem_rows_counter, partition.build_block->rows());
             }
-        });
+        }
         status = _finish_spilling();
         VLOG_DEBUG << fmt::format(
                 "Query:{}, hash join sink:{}, task:{}, _revoke_unpartitioned_block, "
@@ -337,14 +362,6 @@ Status PartitionedHashJoinSinkLocalState::_finish_spilling_callback(
         const std::shared_ptr<SpillContext>& spill_context) {
     Status status;
     if (_child_eos) {
-        LOG(INFO) << fmt::format(
-                "Query:{}, hash join sink:{}, task:{}, finish spilling, set_ready_to_read",
-                print_id(query_id), _parent->node_id(), state->task_id());
-        std::ranges::for_each(_shared_state->partitioned_build_blocks, [&](auto& block) {
-            if (block) {
-                COUNTER_UPDATE(_in_mem_rows_counter, block->rows());
-            }
-        });
         status = _finish_spilling();
         _dependency->set_ready_to_read();
     }
@@ -366,19 +383,22 @@ Status PartitionedHashJoinSinkLocalState::_execute_spill_partitioned_blocks(Runt
     });
     SCOPED_TIMER(_spill_build_timer);
 
-    for (size_t i = 0; i != _shared_state->partitioned_build_blocks.size(); ++i) {
-        vectorized::SpillStreamSPtr& spilling_stream = _shared_state->spilled_streams[i];
-        DCHECK(spilling_stream != nullptr);
-        auto& mutable_block = _shared_state->partitioned_build_blocks[i];
-
-        if (!mutable_block ||
-            mutable_block->allocated_bytes() < vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+    auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
+    for (uint32_t i = 0; i != p._partition_count; ++i) {
+        HashJoinSpillPartitionId id {.level = 0, .path = i};
+        auto it = _shared_state->build_partitions.find(id.key());
+        if (it == _shared_state->build_partitions.end()) {
+            continue;
+        }
+        auto& build_partition = it->second;
+        if (!build_partition.build_block ||
+            build_partition.build_block->allocated_bytes() <
+                    vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
             continue;
         }
 
         auto status = [&]() {
-            RETURN_IF_CATCH_EXCEPTION(
-                    return _spill_to_disk(static_cast<uint32_t>(i), spilling_stream));
+            RETURN_IF_CATCH_EXCEPTION(return _spill_to_disk(i, build_partition.spill_stream));
         }();
 
         RETURN_IF_ERROR(status);
@@ -411,9 +431,13 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(
 }
 
 Status PartitionedHashJoinSinkLocalState::_finish_spilling() {
-    for (auto& stream : _shared_state->spilled_streams) {
-        if (stream) {
-            RETURN_IF_ERROR(stream->spill_eof());
+    // Iterate build_partitions instead of legacy vector.
+    auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
+    for (uint32_t i = 0; i < p._partition_count; ++i) {
+        HashJoinSpillPartitionId id {.level = 0, .path = i};
+        auto it = _shared_state->build_partitions.find(id.key());
+        if (it != _shared_state->build_partitions.end() && it->second.spill_stream) {
+            RETURN_IF_ERROR(it->second.spill_stream->spill_eof());
         }
     }
     return Status::OK();
@@ -442,19 +466,23 @@ Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state,
         partition_indexes[channel_ids[i]].emplace_back(i);
     }
 
-    auto& partitioned_blocks = _shared_state->partitioned_build_blocks;
+    // Write to build_partitions instead of legacy vector.
     for (uint32_t i = 0; i != p._partition_count; ++i) {
         const auto count = partition_indexes[i].size();
         if (UNLIKELY(count == 0)) {
             continue;
         }
 
-        if (UNLIKELY(!partitioned_blocks[i])) {
-            partitioned_blocks[i] =
+        HashJoinSpillPartitionId id {.level = 0, .path = i};
+        auto& partition = _shared_state->build_partitions[id.key()];
+        if (UNLIKELY(!partition.build_block)) {
+            partition.build_block =
                     vectorized::MutableBlock::create_unique(in_block->clone_empty());
         }
-        RETURN_IF_ERROR(partitioned_blocks[i]->add_rows(in_block, partition_indexes[i].data(),
+        RETURN_IF_ERROR(partition.build_block->add_rows(in_block, partition_indexes[i].data(),
                                                         partition_indexes[i].data() + count));
+        partition.in_mem_bytes = partition.build_block->allocated_bytes();
+        partition.row_count += count;
         _rows_in_partitions[i] += count;
     }
 
@@ -465,11 +493,16 @@ Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state,
 
 Status PartitionedHashJoinSinkLocalState::_spill_to_disk(
         uint32_t partition_index, const vectorized::SpillStreamSPtr& spilling_stream) {
-    auto& partitioned_block = _shared_state->partitioned_build_blocks[partition_index];
+    HashJoinSpillPartitionId id {.level = 0, .path = partition_index};
+    auto& partition = _shared_state->build_partitions[id.key()];
+    auto& partitioned_block = partition.build_block;
 
     if (!_state->is_cancelled()) {
         auto block = partitioned_block->to_block();
         int64_t block_mem_usage = block.allocated_bytes();
+        // Track spilled bytes and reset in_mem_bytes
+        partition.spilled_bytes += block_mem_usage;
+        partition.in_mem_bytes = 0;
         Defer defer {[&]() { COUNTER_UPDATE(memory_used_counter(), -block_mem_usage); }};
         partitioned_block = vectorized::MutableBlock::create_unique(block.clone_empty());
         return spilling_stream->spill_block(state(), block, false);
@@ -492,7 +525,7 @@ PartitionedHashJoinSinkOperatorX::PartitionedHashJoinSinkOperatorX(ObjectPool* p
                                                 : std::vector<TExpr> {}),
           _tnode(tnode),
           _descriptor_tbl(descs),
-          _partition_count(partition_count) {
+          _partition_count(kHashJoinSpillFanout) {
     _spillable = true;
 }
 
@@ -656,13 +689,6 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
                         _inner_sink_operator->get_memory_usage_debug_str(
                                 local_state._shared_state->inner_runtime_state.get()));
             }
-
-            std::ranges::for_each(
-                    local_state._shared_state->partitioned_build_blocks, [&](auto& block) {
-                        if (block) {
-                            COUNTER_UPDATE(local_state._in_mem_rows_counter, block->rows());
-                        }
-                    });
             local_state._dependency->set_ready_to_read();
         }
         return Status::OK();
@@ -692,8 +718,10 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
                 return revoke_memory(state, nullptr);
             }
         }
+
         RETURN_IF_ERROR(_inner_sink_operator->sink(
                 local_state._shared_state->inner_runtime_state.get(), in_block, eos));
+
         local_state.update_memory_usage();
         local_state.update_profile_from_inner();
         if (eos) {

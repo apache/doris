@@ -93,10 +93,11 @@ inline std::pair<pipeline::PipelinePtr, pipeline::PipelinePtr> generate_sort_pip
                                  sink_side_source);
 }
 
-inline std::unique_ptr<SpillPartitionerType> create_spill_partitioner(
+// Create a hash-only partitioner for spill split tests.
+inline std::unique_ptr<SpillHashPartitionerType> create_spill_partitioner(
         RuntimeState* state, const int32_t partition_count, const std::vector<TExpr>& exprs,
         const RowDescriptor& row_desc) {
-    auto partitioner = std::make_unique<SpillPartitionerType>(partition_count);
+    auto partitioner = std::make_unique<SpillHashPartitionerType>(partition_count);
     auto st = partitioner->init(exprs);
     DCHECK(st.ok()) << "init partitioner failed: " << st.to_string();
     st = partitioner->prepare(state, row_desc);

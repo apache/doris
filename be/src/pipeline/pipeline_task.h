@@ -180,6 +180,8 @@ public:
         return _state_transition(PipelineTask::State::BLOCKED);
     }
 
+    bool should_trigger_revoking(const size_t revocable_size) const;
+
 protected:
     // Only used for RevokableTask
     PipelineTask() : _index(0) {}
