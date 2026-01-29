@@ -29,6 +29,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "exprs/json_functions.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/jsonb_value.h"
 #include "runtime/primitive_type.h"
@@ -2342,6 +2343,162 @@ struct JsonbContainsAndPathImpl {
     }
 };
 
+class FunctionJsonExtractStringFromVarchar : public IFunction {
+public:
+    static constexpr auto name = "jsonb_extract_string";
+    String get_name() const override { return name; }
+    static FunctionPtr create() { return std::make_shared<FunctionJsonExtractStringFromVarchar>(); }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
+    }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        ColumnPtr json_data_column;
+        bool json_data_const = false;
+        std::tie(json_data_column, json_data_const) =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+
+        const NullMap* json_null_map = nullptr;
+        if (json_data_column->is_nullable()) {
+            const auto* nullable = check_and_get_column<ColumnNullable>(json_data_column.get());
+            json_data_column = nullable->get_nested_column_ptr();
+            json_null_map = &nullable->get_null_map_data();
+        }
+        const auto* json_col = check_and_get_column<ColumnString>(json_data_column.get());
+        if (!json_col) {
+            return Status::InternalError("First argument must be a string column");
+        }
+
+        ColumnPtr path_column;
+        bool path_const = false;
+        std::tie(path_column, path_const) =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+
+        const NullMap* path_null_map = nullptr;
+        if (path_column->is_nullable()) {
+            const auto* nullable = check_and_get_column<ColumnNullable>(path_column.get());
+            path_column = nullable->get_nested_column_ptr();
+            path_null_map = &nullable->get_null_map_data();
+        }
+        const auto* path_col = check_and_get_column<ColumnString>(path_column.get());
+        if (!path_col) {
+            return Status::InternalError("Second argument must be a string column");
+        }
+
+        auto result_column = ColumnString::create();
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto& res_data = result_column->get_chars();
+        auto& res_offsets = result_column->get_offsets();
+        res_offsets.resize(input_rows_count);
+        NullMap& res_null_map = null_map->get_data();
+
+        std::vector<JsonPath> const_parsed_paths;
+        if (path_const) {
+            StringRef path_ref = path_col->get_data_at(0);
+            std::string path_str(path_ref.data, path_ref.size);
+            JsonFunctions::parse_json_paths(path_str, &const_parsed_paths);
+        }
+
+        simdjson::ondemand::parser parser;
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            // Check for null inputs
+            size_t json_idx = json_data_const ? 0 : i;
+            size_t path_idx = path_const ? 0 : i;
+
+            if ((json_null_map && (*json_null_map)[json_idx]) ||
+                (path_null_map && (*path_null_map)[path_idx])) {
+                StringOP::push_null_string(i, res_data, res_offsets, res_null_map);
+                continue;
+            }
+
+            StringRef json_ref = json_col->get_data_at(json_idx);
+            if (json_ref.size == 0) {
+                StringOP::push_null_string(i, res_data, res_offsets, res_null_map);
+                continue;
+            }
+
+            std::vector<JsonPath>* parsed_paths_ptr = &const_parsed_paths;
+            std::vector<JsonPath> row_parsed_paths;
+            if (!path_const) {
+                StringRef path_ref = path_col->get_data_at(path_idx);
+                std::string path_str(path_ref.data, path_ref.size);
+                JsonFunctions::parse_json_paths(path_str, &row_parsed_paths);
+                parsed_paths_ptr = &row_parsed_paths;
+            }
+
+            try {
+                simdjson::padded_string json_str {json_ref.data, json_ref.size};
+                simdjson::ondemand::document doc = parser.iterate(json_str);
+                simdjson::ondemand::object obj = doc.get_object();
+                simdjson::ondemand::value value;
+
+                Status st = JsonFunctions::extract_from_object(obj, *parsed_paths_ptr, &value);
+                if (!st.ok()) {
+                    StringOP::push_null_string(i, res_data, res_offsets, res_null_map);
+                    continue;
+                }
+
+                _write_value_to_column(value, i, res_data, res_offsets, res_null_map);
+            } catch (simdjson::simdjson_error& /* not found */) {
+                StringOP::push_null_string(i, res_data, res_offsets, res_null_map);
+            }
+        }
+
+        block.replace_by_position(
+                result, ColumnNullable::create(std::move(result_column), std::move(null_map)));
+        return Status::OK();
+    }
+
+private:
+    static void _write_value_to_column(simdjson::ondemand::value& value, size_t row_idx,
+                                       ColumnString::Chars& res_data,
+                                       ColumnString::Offsets& res_offsets, NullMap& null_map) {
+        switch (value.type()) {
+        case simdjson::ondemand::json_type::null: {
+            StringOP::push_value_string("null", row_idx, res_data, res_offsets);
+            break;
+        }
+        case simdjson::ondemand::json_type::boolean: {
+            if (value.get_bool()) {
+                StringOP::push_value_string("true", row_idx, res_data, res_offsets);
+            } else {
+                StringOP::push_value_string("false", row_idx, res_data, res_offsets);
+            }
+            break;
+        }
+        case simdjson::ondemand::json_type::string: {
+            auto str_val = value.get_string().value();
+            StringOP::push_value_string(std::string_view(str_val.data(), str_val.length()), row_idx,
+                                        res_data, res_offsets);
+            break;
+        }
+        case simdjson::ondemand::json_type::number: {
+            auto raw_json = simdjson::to_json_string(value).value();
+            StringOP::push_value_string(std::string_view(raw_json.data(), raw_json.length()),
+                                        row_idx, res_data, res_offsets);
+            break;
+        }
+        default: {
+            auto raw_json = simdjson::to_json_string(value).value();
+            StringOP::push_value_string(std::string_view(raw_json.data(), raw_json.length()),
+                                        row_idx, res_data, res_offsets);
+            break;
+        }
+        }
+    }
+};
+
 class FunctionJsonSearch : public IFunction {
 private:
     using OneFun = std::function<Status(size_t, bool*)>;
@@ -3116,6 +3273,8 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonbExtractJsonbNoQuotes>();
     factory.register_alias(FunctionJsonbExtractJsonbNoQuotes::name,
                            FunctionJsonbExtractJsonbNoQuotes::alias);
+
+    factory.register_function<FunctionJsonExtractStringFromVarchar>();
 
     factory.register_function<FunctionJsonbLength<JsonbLengthAndPathImpl>>();
     factory.register_function<FunctionJsonbContains<JsonbContainsAndPathImpl>>();

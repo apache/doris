@@ -42,7 +42,9 @@ public class JsonbExtractString extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(StringType.INSTANCE).args(JsonType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(StringType.INSTANCE).args(JsonType.INSTANCE, StringType.INSTANCE)
+            FunctionSignature.ret(StringType.INSTANCE).args(JsonType.INSTANCE, StringType.INSTANCE),
+            FunctionSignature.ret(StringType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE)
     );
 
     /**
@@ -78,7 +80,10 @@ public class JsonbExtractString extends ScalarFunction
 
     @Override
     public Expression rewriteWhenAnalyze() {
-        JsonbExtract jsonExtract = new JsonbExtract(children.get(0), children.get(1));
-        return new Cast(jsonExtract, StringType.INSTANCE, false);
+        if (children.get(0).getDataType() instanceof JsonType) {
+            JsonbExtract jsonExtract = new JsonbExtract(children.get(0), children.get(1));
+            return new Cast(jsonExtract, StringType.INSTANCE, false);
+        }
+        return this;
     }
 }
