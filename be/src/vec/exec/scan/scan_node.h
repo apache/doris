@@ -25,7 +25,7 @@ class Scanner;
 class VSlotRef;
 
 // We want to close scanner automatically, so using a delegate class
-// and call close method in the delegate class's destructor.
+// and call close method in the delegate class's dctor.
 class ScannerDelegate {
 public:
     ScannerSPtr _scanner;
