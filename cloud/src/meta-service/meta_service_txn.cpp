@@ -1312,7 +1312,7 @@ std::pair<MetaServiceCode, std::string> get_tablet_indexes(
     }
 
     TxnErrorCode err = txn->batch_get(&tablet_idx_values, tablet_idx_keys,
-                                      Transaction::BatchGetOptions(false));
+                                      Transaction::BatchGetOptions(snapshot));
     if (err != TxnErrorCode::TXN_OK) {
         auto msg = fmt::format("failed to get tablet table index ids, err={}", err);
         LOG_WARNING(msg);
@@ -1891,6 +1891,9 @@ void MetaServiceImpl::commit_txn_immediately(
         if (err != TxnErrorCode::TXN_OK) {
             if (err == TxnErrorCode::TXN_CONFLICT) {
                 g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter << 1;
+            } else if (err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
+                LOG(WARNING) << "commit txn failed due to txn size too large, txn_id=" << txn_id
+                             << " the underlying txn size=" << txn->approximate_bytes(true);
             }
             code = cast_as<ErrCategory::COMMIT>(err);
             ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
@@ -2079,13 +2082,13 @@ void MetaServiceImpl::commit_txn_eventually(
                 std::ranges::views::transform(
                         [](const auto& pair) { return pair.second.tablet_id(); }));
         if (!is_versioned_read) {
-            std::tie(code, msg) =
-                    get_tablet_indexes(txn.get(), &tablet_ids, instance_id, acquired_tablet_ids);
+            std::tie(code, msg) = get_tablet_indexes(txn.get(), &tablet_ids, instance_id,
+                                                     acquired_tablet_ids, true);
             if (code != MetaServiceCode::OK) {
                 return;
             }
         } else {
-            err = meta_reader.get_tablet_indexes(txn.get(), acquired_tablet_ids, &tablet_ids);
+            err = meta_reader.get_tablet_indexes(txn.get(), acquired_tablet_ids, &tablet_ids, true);
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::READ>(err);
                 msg = fmt::format("failed to get tablet indexes, err={}", err);
@@ -2111,6 +2114,24 @@ void MetaServiceImpl::commit_txn_eventually(
                 return;
             }
             continue;
+        }
+
+        stats.get_bytes += txn->get_bytes();
+        stats.put_bytes += txn->put_bytes();
+        stats.del_bytes += txn->delete_bytes();
+        stats.get_counter += txn->num_get_keys();
+        stats.put_counter += txn->num_put_keys();
+        stats.del_counter += txn->num_del_keys();
+
+        // Reset txn to avoid txn is too old to perform reads or be committed
+        txn.reset();
+        err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::CREATE>(err);
+            ss << "failed to create txn, txn_id=" << txn_id << " err=" << err;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
         }
 
         CommitTxnLogPB commit_txn_log;
@@ -2384,6 +2405,9 @@ void MetaServiceImpl::commit_txn_eventually(
         if (err != TxnErrorCode::TXN_OK) {
             if (err == TxnErrorCode::TXN_CONFLICT) {
                 g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter << 1;
+            } else if (err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
+                LOG(WARNING) << "commit txn failed due to txn size too large, txn_id=" << txn_id
+                             << " the underlying txn size=" << txn->approximate_bytes(true);
             }
             code = cast_as<ErrCategory::COMMIT>(err);
             ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
@@ -2931,6 +2955,10 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         if (err != TxnErrorCode::TXN_OK) {
             if (err == TxnErrorCode::TXN_CONFLICT) {
                 g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter << 1;
+            } else if (err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
+                LOG(WARNING) << "commit txn with sub txn failed due to txn size too large, txn_id="
+                             << txn_id
+                             << " the underlying txn size=" << txn->approximate_bytes(true);
             }
             code = cast_as<ErrCategory::COMMIT>(err);
             ss << "failed to commit kv txn with sub txn, txn_id=" << txn_id << " err=" << err;

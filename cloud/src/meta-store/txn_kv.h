@@ -373,8 +373,10 @@ public:
 
     /**
      * @brief return the approximate bytes consumed by the underlying transaction buffer.
+     * @param fetch_from_underlying_kv if true, use an heavy operation to get the size from the underlying
+     *                kv store; otherwise, return the tracked size. Default is false.
      **/
-    virtual size_t approximate_bytes() const = 0;
+    virtual size_t approximate_bytes(bool fetch_from_underlying_kv = false) const = 0;
 
     /**
      * @brief return the num get keys submitted to this txn.
@@ -821,7 +823,7 @@ public:
                             const std::vector<std::pair<std::string, std::string>>& ranges,
                             const BatchGetOptions& opts = BatchGetOptions()) override;
 
-    size_t approximate_bytes() const override { return approximate_bytes_; }
+    size_t approximate_bytes(bool fetch_from_underlying_kv = false) const override;
 
     size_t num_get_keys() const override { return num_get_keys_; }
 

@@ -533,7 +533,10 @@ TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snaps
     may_logging_single_version_reading(key);
 
     StopWatch sw;
-    approximate_bytes_ += key.size() * 2; // See fdbclient/ReadYourWrites.actor.cpp for details
+    if (!snapshot) {
+        // See fdbclient/ReadYourWrites.actor.cpp for details
+        approximate_bytes_ += key.size() * 2;
+    }
     auto* fut = fdb_transaction_get(txn_, (uint8_t*)key.data(), key.size(), snapshot);
 
     g_bvar_txn_kv_get_count_normalized << 1;
@@ -577,7 +580,10 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
     may_logging_single_version_reading(begin);
 
     StopWatch sw;
-    approximate_bytes_ += begin.size() + end.size();
+    if (!opts.snapshot) {
+        // See fdbclient/ReadYourWrites.actor.cpp for details
+        approximate_bytes_ += begin.size() * 2 + end.size() * 2;
+    }
     DORIS_CLOUD_DEFER {
         g_bvar_txn_kv_range_get << sw.elapsed_us();
     };
@@ -881,6 +887,41 @@ TxnErrorCode Transaction::abort() {
     return TxnErrorCode::TXN_OK;
 }
 
+size_t Transaction::approximate_bytes(bool fetch_from_underlying_kv) const {
+    if (!fetch_from_underlying_kv) {
+        return approximate_bytes_;
+    }
+
+    auto* fut = fdb_transaction_get_approximate_size(txn_);
+    DORIS_CLOUD_DEFER {
+        fdb_future_destroy(fut);
+    };
+
+    auto code = await_future(fut);
+    if (code != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to await future for fdb_transaction_get_approximate_size, code="
+                     << code;
+        return static_cast<size_t>(-1);
+    }
+
+    auto err = fdb_future_get_error(fut);
+    if (err) {
+        LOG(WARNING) << "failed to get approximate size, code=" << err
+                     << " msg=" << fdb_get_error(err);
+        return static_cast<size_t>(-1);
+    }
+
+    int64_t size = 0;
+    err = fdb_future_get_int64(fut, &size);
+    if (err) {
+        LOG(WARNING) << "failed to extract int64 from approximate size future, code=" << err
+                     << " msg=" << fdb_get_error(err);
+        return static_cast<size_t>(-1);
+    }
+
+    return static_cast<size_t>(size);
+}
+
 void Transaction::enable_get_versionstamp() {
     versionstamp_enabled_ = true;
 }
@@ -1143,7 +1184,9 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
             may_logging_single_version_reading(k);
             futures.emplace_back(
                     fdb_transaction_get(txn_, (uint8_t*)k.data(), k.size(), opts.snapshot));
-            approximate_bytes_ += k.size() * 2;
+            if (!opts.snapshot) {
+                approximate_bytes_ += k.size() * 2;
+            }
         }
 
         size_t num_futures = futures.size();
@@ -1221,7 +1264,9 @@ TxnErrorCode Transaction::batch_scan(
                     snapshot, reverse);
 
             futures.emplace_back(fut);
-            approximate_bytes_ += start.size() + end.size();
+            if (!opts.snapshot) {
+                approximate_bytes_ += start.size() + end.size();
+            }
         }
 
         size_t num_futures = futures.size();
