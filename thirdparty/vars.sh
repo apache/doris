@@ -140,10 +140,11 @@ LZO2_SOURCE=lzo-2.10
 LZO2_MD5SUM="39d3f3f9c55c87b1e5d6888e1420f4b5"
 
 # rapidjson
-RAPIDJSON_DOWNLOAD="https://github.com/Tencent/rapidjson/archive/1a803826f1197b5e30703afe4b9c0e7dd48074f5.zip"
-RAPIDJSON_NAME=rapidjson-1a803826f1197b5e30703afe4b9c0e7dd48074f5.zip
-RAPIDJSON_SOURCE=rapidjson-1a803826f1197b5e30703afe4b9c0e7dd48074f5
-RAPIDJSON_MD5SUM="f2212a77e055a15501477f1e390007ea"
+# Updated to match paimon-cpp version (commit 232389d4f1012dddec4ef84861face2d2ba85709)
+RAPIDJSON_DOWNLOAD="https://github.com/miloyip/rapidjson/archive/232389d4f1012dddec4ef84861face2d2ba85709.tar.gz"
+RAPIDJSON_NAME=rapidjson-232389d4f1012dddec4ef84861face2d2ba85709.tar.gz
+RAPIDJSON_SOURCE=rapidjson-232389d4f1012dddec4ef84861face2d2ba85709
+RAPIDJSON_MD5SUM="577d3495a07b66fcd4a2866c93831bc4"
 
 # curl
 CURL_DOWNLOAD="https://curl.se/download/curl-8.2.1.tar.gz"
@@ -560,10 +561,13 @@ PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
 # paimon-cpp
-PAIMON_CPP_DOWNLOAD="https://github.com/alibaba/paimon-cpp/archive/b1ffd6f73e5edf57aac24ec2eaf6d2ef9e9a9850.tar.gz"
-PAIMON_CPP_NAME=paimon-cpp-b1ffd6f73e5edf57aac24ec2eaf6d2ef9e9a9850.tar.gz
-PAIMON_CPP_SOURCE=paimon-cpp-b1ffd6f73e5edf57aac24ec2eaf6d2ef9e9a9850
-PAIMON_CPP_MD5SUM="d091c9b0b0e04c97d2f7a3f088bb18b7"
+# Using git clone since there's no official release yet
+# We'll use a specific commit or tag for reproducibility
+PAIMON_CPP_GIT_URL="https://github.com/alibaba/paimon-cpp.git"
+PAIMON_CPP_GIT_TAG="43d9d0271b7416fa85f1674586efa94f384a6b5c"
+PAIMON_CPP_NAME=paimon-cpp
+PAIMON_CPP_SOURCE=paimon-cpp
+PAIMON_CPP_MD5SUM=""  # Not applicable for git repos
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
@@ -605,7 +609,6 @@ export TP_ARCHIVES=(
     'FMT'
     'PARALLEL_HASHMAP'
     'ORC'
-    'PAIMON_CPP'
     'CARES'
     'GRPC'
     'JEMALLOC_ARROW'
@@ -649,6 +652,7 @@ export TP_ARCHIVES=(
     'ICU'
     'JINDOFS'
     'PUGIXML'
+    'PAIMON_CPP'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

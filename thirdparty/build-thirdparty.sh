@@ -1131,163 +1131,6 @@ build_arrow() {
     strip_lib libparquet.a
 }
 
-# paimon-cpp
-build_paimon_cpp() {
-    local paimon_src="${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
-    mkdir -p "${TP_SOURCE_DIR}"
-    if [[ ! -e "${paimon_src}" ]]; then
-        local default_src="${PAIMON_CPP_SOURCE_DIR:-${DORIS_HOME}/../${PAIMON_CPP_SOURCE}}"
-        if [[ -d "${default_src}" ]]; then
-            ln -s "${default_src}" "${paimon_src}"
-        fi
-    fi
-    if [[ ! -d "${paimon_src}" ]]; then
-        echo "Paimon C++ source not found: ${paimon_src}"
-        echo "Set PAIMON_CPP_SOURCE_DIR to the paimon-cpp source path."
-        exit 1
-    fi
-
-    check_if_source_exist "${PAIMON_CPP_SOURCE}"
-    cd "${paimon_src}"
-
-    local build_root="${paimon_src}/${BUILD_DIR}"
-    mkdir -p "${build_root}"
-    cd "${build_root}"
-
-    rm -rf CMakeCache.txt CMakeFiles/
-
-    local install_prefix="${TP_INSTALL_DIR}/paimon-cpp"
-
-    DORIS_THIRDPARTY="${TP_DIR}" "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-        -G "${GENERATOR}" \
-        -DCMAKE_INSTALL_PREFIX="${install_prefix}" \
-        -DCMAKE_INSTALL_LIBDIR=lib64 \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-        -DPAIMON_BUILD_SHARED=OFF \
-        -DPAIMON_BUILD_STATIC=ON \
-        -DPAIMON_BUILD_TESTS=OFF \
-        -DPAIMON_ENABLE_JINDO=OFF \
-        -DPAIMON_USE_EXTERNAL_RAPIDJSON=ON \
-        -DRAPIDJSON_INCLUDE_DIR="${TP_INCLUDE_DIR}" \
-        -DPAIMON_USE_EXTERNAL_GLOG=ON \
-        -DGLOG_INCLUDE_DIR="${TP_INCLUDE_DIR}" \
-        -DGLOG_STATIC_LIB="${TP_LIB_DIR}/libglog.a" \
-        -DGFLAGS_INCLUDE_DIR="${TP_INCLUDE_DIR}" \
-        -DGFLAGS_STATIC_LIB="${TP_LIB_DIR}/libgflags.a" \
-        -DPAIMON_USE_BSYMBOLIC=OFF \
-        -DPAIMON_LINK_SHARED_STDLIB=OFF \
-        ..
-
-    "${BUILD_SYSTEM}" -j "${PARALLEL}"
-    "${BUILD_SYSTEM}" install
-
-    local deps_dir="${install_prefix}/lib64/paimon_deps"
-    mkdir -p "${deps_dir}"
-
-    local paimon_build_root="${build_root}"
-    if [[ -d "${build_root}/paimon-cpp" ]]; then
-        paimon_build_root="${build_root}/paimon-cpp"
-    fi
-
-    local fmt_lib="${paimon_build_root}/fmt_ep-install/lib/libfmtd.a"
-    if [[ ! -f "${fmt_lib}" ]]; then
-        fmt_lib="${paimon_build_root}/fmt_ep-install/lib/libfmt.a"
-    fi
-    if [[ ! -f "${fmt_lib}" ]]; then
-        echo "fmt static library not found under ${paimon_build_root}/fmt_ep-install/lib"
-        exit 1
-    fi
-
-    local tbb_lib="${paimon_build_root}/tbb_ep-install/lib/libtbb_debug.a"
-    if [[ ! -f "${tbb_lib}" ]]; then
-        tbb_lib="${paimon_build_root}/tbb_ep-install/lib/libtbb.a"
-    fi
-    if [[ ! -f "${tbb_lib}" ]]; then
-        echo "tbb static library not found under ${paimon_build_root}/tbb_ep-install/lib"
-        exit 1
-    fi
-
-    local build_output=""
-    for candidate in "${paimon_build_root}/release" \
-        "${paimon_build_root}/relwithdebinfo" \
-        "${paimon_build_root}/debug" \
-        "${paimon_build_root}/asan" \
-        "${paimon_build_root}"; do
-        if [[ -f "${candidate}/libroaring_bitmap.a" ]]; then
-            build_output="${candidate}"
-            break
-        fi
-    done
-    if [[ -z "${build_output}" ]]; then
-        echo "Paimon build output dir not found under ${paimon_build_root}"
-        exit 1
-    fi
-
-    local orc_symbol_prefix=""
-    if [[ -n "${PAIMON_ORC_SYMBOL_PREFIX+x}" ]]; then
-        orc_symbol_prefix="${PAIMON_ORC_SYMBOL_PREFIX}"
-    else
-        orc_symbol_prefix="paimon_orc_"
-    fi
-    if [[ -n "${orc_symbol_prefix}" ]]; then
-        local orc_lib_src="${paimon_build_root}/orc_ep-prefix/lib/liborc.a"
-        if [[ -f "${orc_lib_src}" ]]; then
-            local nm="${DORIS_BIN_UTILS}/nm"
-            local objcopy="${DORIS_BIN_UTILS}/objcopy"
-            if [[ ! -f "${nm}" ]]; then nm="$(command -v nm)"; fi
-            if [[ ! -f "${objcopy}" ]]; then
-                if ! objcopy="$(command -v objcopy)"; then
-                    objcopy="${TP_INSTALL_DIR}/binutils/bin/objcopy"
-                fi
-            fi
-            if [[ ! -x "${nm}" || ! -x "${objcopy}" ]]; then
-                echo "nm/objcopy not found, cannot prefix ORC symbols"
-                exit 1
-            fi
-            local map_file="${build_root}/orc_symbol_prefix.map"
-            "${nm}" --defined-only --extern-only "${orc_lib_src}" \
-                | awk 'NF>=3 {print $3}' \
-                | grep -v ':' \
-                | sort -u \
-                | awk -v p="${orc_symbol_prefix}" '{print $1" "p$1}' > "${map_file}"
-            if [[ -s "${map_file}" ]]; then
-                if "${nm}" --defined-only --extern-only "${orc_lib_src}" \
-                        | awk 'NF>=3 {print $3}' \
-                        | grep -q "^${orc_symbol_prefix}"; then
-                    echo "ORC symbols already prefixed with ${orc_symbol_prefix}, skip"
-                else
-                    "${objcopy}" --redefine-syms="${map_file}" "${orc_lib_src}"
-                    for lib in "${install_prefix}"/lib64/libpaimon*.a; do
-                        [[ -f "${lib}" ]] || continue
-                        "${objcopy}" --redefine-syms="${map_file}" "${lib}"
-                    done
-                fi
-            else
-                echo "No ORC symbols found in ${orc_lib_src}"
-            fi
-        else
-            echo "ORC static library not found at ${orc_lib_src}, skip symbol prefix"
-        fi
-    fi
-
-    cp -f "${fmt_lib}" "${deps_dir}/"
-    cp -f "${tbb_lib}" "${deps_dir}/"
-    cp -f "${build_output}/libroaring_bitmap.a" "${deps_dir}/"
-    cp -f "${build_output}/libxxhash.a" "${deps_dir}/"
-    cp -f "${paimon_build_root}/arrow_ep-install/lib/libarrow_dataset.a" "${deps_dir}/"
-    cp -f "${paimon_build_root}/arrow_ep-install/lib/libarrow_acero.a" "${deps_dir}/"
-    cp -f "${paimon_build_root}/arrow_ep-install/lib/libarrow.a" "${deps_dir}/"
-    local arrow_bundled_deps="${paimon_build_root}/arrow_ep-install/lib/libarrow_bundled_dependencies.a"
-    if [[ -f "${arrow_bundled_deps}" ]]; then
-        cp -f "${arrow_bundled_deps}" "${deps_dir}/"
-    fi
-    cp -f "${paimon_build_root}/arrow_ep-install/lib/libparquet.a" "${deps_dir}/"
-    if [[ -f "${paimon_build_root}/orc_ep-prefix/lib/liborc.a" ]]; then
-        cp -f "${paimon_build_root}/orc_ep-prefix/lib/liborc.a" "${deps_dir}/"
-    fi
-}
-
 # abseil
 build_abseil() {
     check_if_source_exist "${ABSEIL_SOURCE}"
@@ -2134,6 +1977,59 @@ build_pugixml() {
     cp "${TP_SOURCE_DIR}/${PUGIXML_SOURCE}/src/pugiconfig.hpp" "${TP_INSTALL_DIR}/include/"
 }
 
+# paimon-cpp
+build_paimon_cpp() {
+    check_if_source_exist "${PAIMON_CPP_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
+
+    # rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    CXXFLAGS="-Wno-nontrivial-memcall" \
+    "${CMAKE_CMD}" -C "${TP_DIR}/paimon-cpp-cache.cmake" \
+        -G "${GENERATOR}" \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DPAIMON_BUILD_STATIC=ON \
+        -DPAIMON_ENABLE_ORC=ON \
+        -DPAIMON_ENABLE_AVRO=OFF \
+        -DPAIMON_ENABLE_LANCE=OFF \
+        -DPAIMON_ENABLE_JINDO=OFF \
+        -DPAIMON_ENABLE_LUMINA=OFF \
+        -DCMAKE_EXE_LINKER_FLAGS="-L${TP_LIB_DIR} -lbrotlienc -lbrotlidec -lbrotlicommon -lunwind -llzma" \
+        -DCMAKE_SHARED_LINKER_FLAGS="-L${TP_LIB_DIR} -lbrotlienc -lbrotlidec -lbrotlicommon -lunwind -llzma" \
+        ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+
+    # Install paimon-cpp internal dependencies with renamed versions
+    # These libraries are built but not installed by default
+    echo "Installing paimon-cpp internal dependencies..."
+
+    # Install roaring_bitmap, renamed to avoid conflict with Doris's croaringbitmap
+    if [ -f "release/libroaring_bitmap.a" ]; then
+        cp -v "release/libroaring_bitmap.a" "${TP_INSTALL_DIR}/lib64/libroaring_bitmap_paimon.a"
+    fi
+
+    # Install xxhash, renamed to avoid conflict with Doris's xxhash
+    if [ -f "release/libxxhash.a" ]; then
+        cp -v "release/libxxhash.a" "${TP_INSTALL_DIR}/lib64/libxxhash_paimon.a"
+    fi
+
+    # Install fmt v11 (from fmt_ep-install directory, renamed to avoid conflict with Doris's fmt v7)
+    if [ -f "fmt_ep-install/lib/libfmt.a" ]; then
+        cp -v "fmt_ep-install/lib/libfmt.a" "${TP_INSTALL_DIR}/lib64/libfmt_paimon.a"
+    fi
+
+    # Install tbb (from tbb_ep-install directory, renamed to avoid conflict with Doris's tbb)
+     if [ -f "tbb_ep-install/lib/libtbb.a" ]; then
+         cp -v "tbb_ep-install/lib/libtbb.a" "${TP_INSTALL_DIR}/lib64/libtbb_paimon.a"
+     fi
+
+    echo "Paimon-cpp internal dependencies installed successfully"
+}
+
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
         jindofs
@@ -2171,7 +2067,6 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         cares
         grpc # after cares, protobuf
         arrow
-        paimon_cpp
         s2
         bitshuffle
         croaringbitmap
@@ -2208,6 +2103,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         brotli
         icu
         pugixml
+        paimon_cpp
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
