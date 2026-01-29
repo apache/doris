@@ -18,11 +18,16 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -52,9 +57,38 @@ public class DeleteFromUsingCommand extends DeleteFromCommand {
                     + " Please check the following session variables: "
                     + ctx.getSessionVariable().printDebugModeVariables());
         }
-        // NOTE: delete from using command is executed as insert command, so txn insert can support it
-        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty(),
-                Optional.empty(), true, Optional.empty()).run(ctx, executor);
+        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
+        try {
+            planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+        } finally {
+            ctx.setSkipAuth(false);
+        }
+        if (planner.getPhysicalPlan() instanceof PhysicalEmptyRelation) {
+            Env.getCurrentEnv()
+                    .getDeleteHandler().processEmptyRelation(ctx.getState());
+            return;
+        }
+        Optional<PhysicalOlapScan> optScan = (planner.getPhysicalPlan()
+                .<PhysicalOlapScan>collect(PhysicalOlapScan.class::isInstance)).stream()
+                .findAny();
+        if (!optScan.isPresent()) {
+            throw new AnalysisException("can not find delete table");
+        }
+        PhysicalOlapScan scan = optScan.get();
+        OlapTable olapTable = scan.getTable();
+        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()
+                && !olapTable.getEnableMowLightDelete()) {
+            // NOTE: delete from using command is executed as insert command, so txn insert can support it
+            new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty(),
+                    Optional.empty(), true, Optional.empty()).run(ctx, executor);
+        } else {
+            throw new RuntimeException("DeleteFromUsingCommand do not support table type: "
+                    + " olapTable.getKeysType() = " + olapTable.getKeysType()
+                    + " olapTable.getEnableUniqueKeyMergeOnWrite() = " + olapTable.getEnableUniqueKeyMergeOnWrite()
+                    + " olapTable.getEnableMowLightDelete() = " + olapTable.getEnableMowLightDelete()
+            );
+        }
     }
 
     @Override
