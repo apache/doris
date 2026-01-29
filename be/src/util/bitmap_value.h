@@ -989,6 +989,8 @@ public:
             break;
         }
         _is_shared = other._is_shared;
+        other._type = EMPTY;
+        other._is_shared = false;
         return *this;
     }
 
@@ -1257,6 +1259,7 @@ public:
                     _bitmap->add(v);
                 }
                 _type = BITMAP;
+                _set.clear();
                 break;
             }
             }
@@ -1501,6 +1504,7 @@ public:
                 break;
             case BITMAP:
                 _prepare_bitmap_for_write();
+                _set.clear();
                 for (auto v : rhs._set) {
                     if (_bitmap->contains(v)) {
                         _set.insert(v);
@@ -1563,6 +1567,7 @@ public:
                 } else {
                     _set.erase(rhs._sv);
                 }
+                _convert_to_bitmap_if_need();
                 break;
             }
             break;
@@ -1602,6 +1607,7 @@ public:
                     }
                 }
                 _type = BITMAP;
+                _set.clear();
                 _convert_to_smaller_type();
                 break;
             }
@@ -1620,6 +1626,7 @@ public:
                     _set.erase(_sv);
                 }
                 _type = SET;
+                _convert_to_bitmap_if_need();
                 break;
             case BITMAP:
                 _prepare_bitmap_for_write();
@@ -1640,6 +1647,7 @@ public:
                         _set.insert(v);
                     }
                 }
+                _convert_to_bitmap_if_need();
                 _convert_to_smaller_type();
                 break;
             }
@@ -2044,8 +2052,13 @@ public:
         case BITMAP:
             return _bitmap->minimum();
         case SET:
+            if (_set.empty()) {
+                //follow the behaivor of Roaring64Map
+                return (std::numeric_limits<uint64_t>::max)();
+            }
             return _min_in_set();
         default:
+            //shall we also return (std::numeric_limits<uint64_t>::max)() ?
             return 0;
         }
     }
@@ -2111,6 +2124,10 @@ public:
         case BITMAP:
             return _bitmap->maximum();
         case SET:
+            if (_set.empty()) {
+                //follow the behaivor of Roaring64Map
+                return (std::numeric_limits<uint64_t>::min)();
+            }
             return _max_in_set();
         default:
             return 0;
@@ -2135,7 +2152,20 @@ public:
         return *std::max_element(_set.begin(), _set.end());
     }
 
-    bool empty() const { return _type == EMPTY; }
+    bool empty() const {
+        //equal cardinality()==0
+        switch (_type) {
+        case EMPTY:
+            return true;
+        case SINGLE:
+            return false;
+        case BITMAP:
+            return _bitmap->isEmpty();
+        case SET:
+            return _set.empty();
+        }
+        return true;
+    }
 
     /**
      * Return new set with specified range (not include the range_end)
@@ -2371,12 +2401,14 @@ private:
                 _type = SINGLE;
                 _sv = _bitmap->minimum();
             } else {
+                _set.clear();
                 _type = SET;
                 for (auto v : *_bitmap) {
                     _set.insert(v);
                 }
             }
             _bitmap.reset();
+            _is_shared = false;
         } else if (_type == SET) {
             if (_set.size() == 1 && !config::enable_set_in_bitmap_value) {
                 _type = SINGLE;
