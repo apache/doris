@@ -52,7 +52,8 @@ public class ProfileAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("Missing query_id");
         }
 
-        String queryProfileStr = ProfileManager.getInstance().getProfile(queryId);
+        String format = request.getParameter("format");
+        String queryProfileStr = ProfileManager.getInstance().getProfile(queryId, format);
         if (queryProfileStr == null) {
             return ResponseEntityBuilder.okWithCommonError("query id " + queryId + " not found.");
         }
@@ -72,7 +73,8 @@ public class ProfileAction extends RestBaseController {
             queryId = ProfileManager.getInstance().getLastProfileId();
         }
 
-        String queryProfileStr = ProfileManager.getInstance().getProfile(queryId);
+        String format = request.getParameter("format");
+        String queryProfileStr = ProfileManager.getInstance().getProfile(queryId, format);
         if (queryProfileStr == null) {
             return "query id " + queryId + " not found";
         }

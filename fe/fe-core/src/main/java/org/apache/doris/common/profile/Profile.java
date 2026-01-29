@@ -56,6 +56,8 @@ import com.google.gson.GsonBuilder;
 import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.yaml.snakeyaml.DumperOptions;
+import org.yaml.snakeyaml.Yaml;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -66,8 +68,12 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -358,6 +364,310 @@ public class Profile {
         }
 
         return builder.toString();
+    }
+
+    /**
+     * Get the profile content in YAML format.
+     * This provides a structured, machine-readable format that is also human-friendly.
+     *
+     * @return YAML formatted profile string
+     */
+    public String getProfileAsYaml() {
+        // Wait for profile to complete if query is finished
+        waitProfileCompleteIfNeeded();
+
+        Map<String, Object> yamlRoot = new LinkedHashMap<>();
+
+        // Format version for future compatibility
+        yamlRoot.put("format_version", "1.0");
+
+        // Add generated timestamp
+        String generatedAt = DateTimeFormatter.ISO_INSTANT
+                .format(Instant.now().atZone(ZoneId.of("UTC")));
+        yamlRoot.put("generated_at", generatedAt);
+
+        // Build summary section
+        Map<String, Object> summaryMap = buildSummarySection();
+        if (!summaryMap.isEmpty()) {
+            yamlRoot.put("summary", summaryMap);
+        }
+
+        // Build execution summary section
+        Map<String, Object> executionSummaryMap = buildExecutionSummarySection();
+        if (!executionSummaryMap.isEmpty()) {
+            yamlRoot.put("execution_summary", executionSummaryMap);
+        }
+
+        // Check if profile has been stored to disk (memory released)
+        if (profileHasBeenStored()) {
+            // Profile has been spilled to disk and memory released
+            // If stored format is YAML, read from storage
+            if ("yaml".equalsIgnoreCase(Config.profile_format)) {
+                String yamlFromStorage = getOnStorageProfileAsYaml();
+                if (yamlFromStorage != null) {
+                    return yamlFromStorage;
+                }
+            }
+            // Otherwise, add a note about where to find the detailed profile
+            Map<String, Object> note = new LinkedHashMap<>();
+            note.put("message", "Profile has been stored to disk in TEXT format. "
+                    + "To get full YAML output, set profile_format=yaml in config.");
+            note.put("storage_path", profileStoragePath);
+            yamlRoot.put("note", note);
+        } else if (executionProfiles.isEmpty()) {
+            // Execution profiles not yet available
+            Map<String, Object> note = new LinkedHashMap<>();
+            note.put("message", "Execution profiles are not yet available. "
+                    + "This may occur if the query is still executing or profile data has not been reported.");
+            yamlRoot.put("note", note);
+        } else {
+            // Profile is still in memory, build full structure
+            // Build merged profile section (if available)
+            if (this.executionProfiles.size() == 1) {
+                try {
+                    RuntimeProfile mergedProfile = this.executionProfiles.get(0)
+                            .getAggregatedFragmentsProfile(planNodeMap);
+                    if (mergedProfile != null) {
+                        Map<String, Object> mergedProfileMap = mergedProfile.toStructuredMap();
+                        if (!mergedProfileMap.isEmpty()) {
+                            yamlRoot.put("merged_profile", mergedProfileMap);
+                        }
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Failed to build merged profile for YAML output, query id: {}, error: {}",
+                            getId(), e.getMessage(), e);
+                }
+            }
+
+            // Build detail profile section (execution profiles)
+            List<Map<String, Object>> detailProfiles = new ArrayList<>();
+            for (ExecutionProfile executionProfile : executionProfiles) {
+                RuntimeProfile root = executionProfile.getRoot();
+                if (root != null) {
+                    detailProfiles.add(root.toStructuredMap());
+                }
+            }
+            if (!detailProfiles.isEmpty()) {
+                yamlRoot.put("detail_profiles", detailProfiles);
+            }
+        }
+
+        // Use configured YAML dumper with flow style support
+        Yaml yaml = createYamlDumper();
+        return yaml.dump(yamlRoot);
+    }
+
+    /**
+     * Generate YAML content for storage.
+     * This method generates the full YAML content without storage-related notes,
+     * as it's used when writing profiles to disk.
+     *
+     * @return YAML formatted profile string for storage
+     */
+    private String generateYamlContent() {
+        Map<String, Object> yamlRoot = new LinkedHashMap<>();
+
+        // Format version for future compatibility
+        yamlRoot.put("format_version", "1.0");
+
+        // Add generated timestamp
+        String generatedAt = DateTimeFormatter.ISO_INSTANT
+                .format(Instant.now().atZone(ZoneId.of("UTC")));
+        yamlRoot.put("generated_at", generatedAt);
+
+        // Build summary section
+        Map<String, Object> summaryMap = buildSummarySection();
+        if (!summaryMap.isEmpty()) {
+            yamlRoot.put("summary", summaryMap);
+        }
+
+        // Build execution summary section
+        Map<String, Object> executionSummaryMap = buildExecutionSummarySection();
+        if (!executionSummaryMap.isEmpty()) {
+            yamlRoot.put("execution_summary", executionSummaryMap);
+        }
+
+        // Build merged profile section (if available)
+        if (!executionProfiles.isEmpty() && this.executionProfiles.size() == 1) {
+            try {
+                RuntimeProfile mergedProfile = this.executionProfiles.get(0)
+                        .getAggregatedFragmentsProfile(planNodeMap);
+                if (mergedProfile != null) {
+                    Map<String, Object> mergedProfileMap = mergedProfile.toStructuredMap();
+                    if (!mergedProfileMap.isEmpty()) {
+                        yamlRoot.put("merged_profile", mergedProfileMap);
+                    }
+                }
+            } catch (Exception e) {
+                LOG.warn("Failed to build merged profile for YAML storage, query id: {}, error: {}",
+                        getId(), e.getMessage(), e);
+            }
+        }
+
+        // Build detail profile section (execution profiles)
+        if (!executionProfiles.isEmpty()) {
+            List<Map<String, Object>> detailProfiles = new ArrayList<>();
+            for (ExecutionProfile executionProfile : executionProfiles) {
+                RuntimeProfile root = executionProfile.getRoot();
+                if (root != null) {
+                    detailProfiles.add(root.toStructuredMap());
+                }
+            }
+            if (!detailProfiles.isEmpty()) {
+                yamlRoot.put("detail_profiles", detailProfiles);
+            }
+        }
+
+        // Use configured YAML dumper with flow style support
+        Yaml yaml = createYamlDumper();
+        return yaml.dump(yamlRoot);
+    }
+
+    /**
+     * Build the summary section for YAML output.
+     * Uses BlockStyleMap to ensure multi-line block style output.
+     */
+    private Map<String, Object> buildSummarySection() {
+        Map<String, Object> summary = new BlockStyleMap();
+
+        RuntimeProfile summaryRuntimeProfile = summaryProfile.getSummary();
+        Map<String, String> infoStrings = summaryRuntimeProfile.getInfoStrings();
+
+        // Add key summary fields with cleaner names
+        addIfPresent(summary, "profile_id", infoStrings, SummaryProfile.PROFILE_ID);
+        addIfPresent(summary, "task_type", infoStrings, SummaryProfile.TASK_TYPE);
+        addIfPresent(summary, "start_time", infoStrings, SummaryProfile.START_TIME);
+        addIfPresent(summary, "end_time", infoStrings, SummaryProfile.END_TIME);
+        addIfPresent(summary, "total_time", infoStrings, SummaryProfile.TOTAL_TIME);
+        addIfPresent(summary, "task_state", infoStrings, SummaryProfile.TASK_STATE);
+        addIfPresent(summary, "user", infoStrings, SummaryProfile.USER);
+        addIfPresent(summary, "default_catalog", infoStrings, SummaryProfile.DEFAULT_CATALOG);
+        addIfPresent(summary, "default_db", infoStrings, SummaryProfile.DEFAULT_DB);
+        addIfPresent(summary, "is_nereids", infoStrings, SummaryProfile.IS_NEREIDS);
+        addIfPresent(summary, "sql_statement", infoStrings, SummaryProfile.SQL_STATEMENT);
+
+        return summary;
+    }
+
+    /**
+     * A special Map implementation to mark data that should be output in block style (multi-line).
+     * This is used for summary sections to make them more readable.
+     */
+    public static class BlockStyleMap extends LinkedHashMap<String, Object> {
+        private static final long serialVersionUID = 1L;
+    }
+
+    /**
+     * Build the execution summary section for YAML output.
+     * Extracts info_strings and children to top level, preserving hierarchy.
+     */
+    private Map<String, Object> buildExecutionSummarySection() {
+        RuntimeProfile execSummaryProfile = summaryProfile.getExecutionSummary();
+
+        // Use toStructuredMap() to get the full hierarchical structure
+        Map<String, Object> structuredMap = execSummaryProfile.toStructuredMap();
+
+        Map<String, Object> result = new BlockStyleMap();
+
+        // Extract content from the wrapped format {profileName: {content}}
+        if (structuredMap.size() == 1) {
+            String profileName = structuredMap.keySet().iterator().next();
+            @SuppressWarnings("unchecked")
+            Map<String, Object> content = (Map<String, Object>) structuredMap.get(profileName);
+            if (content != null) {
+                // Extract info_strings to top level
+                if (content.containsKey("info_strings")) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, String> infoStrings = (Map<String, String>) content.get("info_strings");
+                    result.putAll(infoStrings);
+                }
+
+                // Add counters if present
+                if (content.containsKey("counters")) {
+                    result.put("counters", content.get("counters"));
+                }
+
+                // Add children if present (preserving hierarchy)
+                if (content.containsKey("children")) {
+                    result.put("children", content.get("children"));
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Helper method to add a value to the map if it exists and is not "N/A".
+     */
+    private void addIfPresent(Map<String, Object> map, String targetKey,
+                              Map<String, String> source, String sourceKey) {
+        String value = source.get(sourceKey);
+        if (value != null && !value.isEmpty() && !"N/A".equals(value)) {
+            map.put(targetKey, value);
+        }
+    }
+
+    /**
+     * Create a configured Yaml dumper with custom representer for compact output.
+     * FlowStyleMap (from AggCounter) will be output in single-line flow style.
+     */
+    private Yaml createYamlDumper() {
+        DumperOptions options = new DumperOptions();
+        options.setDefaultFlowStyle(DumperOptions.FlowStyle.AUTO);
+        options.setPrettyFlow(false);  // Disable pretty flow to keep everything on one line
+        options.setIndent(2);
+        options.setIndicatorIndent(0);
+        options.setDefaultScalarStyle(DumperOptions.ScalarStyle.PLAIN);
+        options.setWidth(Integer.MAX_VALUE);  // Set to max value to prevent line wrapping
+        options.setAllowUnicode(true);
+        options.setExplicitStart(true);
+
+        // Create custom representer to handle FlowStyleMap (single-line) and BlockStyleMap (multi-line)
+        org.yaml.snakeyaml.representer.Representer representer =
+                new org.yaml.snakeyaml.representer.Representer(options) {
+            {
+                // Register custom representer for FlowStyleMap (single-line output)
+                this.representers.put(AggCounter.FlowStyleMap.class,
+                        new org.yaml.snakeyaml.representer.Represent() {
+                    @Override
+                    public org.yaml.snakeyaml.nodes.Node representData(Object data) {
+                        @SuppressWarnings("unchecked")
+                        Map<Object, Object> map = (Map<Object, Object>) data;
+                        return representFlowStyleMapping(map);
+                    }
+                });
+
+                // Register custom representer for BlockStyleMap (multi-line output)
+                this.representers.put(BlockStyleMap.class,
+                        new org.yaml.snakeyaml.representer.Represent() {
+                    @Override
+                    public org.yaml.snakeyaml.nodes.Node representData(Object data) {
+                        @SuppressWarnings("unchecked")
+                        Map<Object, Object> map = (Map<Object, Object>) data;
+                        return representBlockStyleMapping(map);
+                    }
+                });
+            }
+
+            // Helper method to call protected representMapping with FLOW style (single-line)
+            protected org.yaml.snakeyaml.nodes.Node representFlowStyleMapping(Map<Object, Object> map) {
+                return representMapping(
+                        org.yaml.snakeyaml.nodes.Tag.MAP,
+                        map,
+                        org.yaml.snakeyaml.DumperOptions.FlowStyle.FLOW);
+            }
+
+            // Helper method to call protected representMapping with BLOCK style (multi-line)
+            protected org.yaml.snakeyaml.nodes.Node representBlockStyleMapping(Map<Object, Object> map) {
+                return representMapping(
+                        org.yaml.snakeyaml.nodes.Tag.MAP,
+                        map,
+                        org.yaml.snakeyaml.DumperOptions.FlowStyle.BLOCK);
+            }
+        };
+
+        return new Yaml(representer, options);
     }
 
     // If the query is already finished, and user wants to get the profile, we should check
@@ -670,10 +980,20 @@ public class Profile {
             // Write summary profile and execution profile content to memory
             this.summaryProfile.write(memoryDataStream);
 
-            SafeStringBuilder builder = new SafeStringBuilder();
-            getChangedSessionVars(builder);
-            getExecutionProfileContent(builder);
-            byte[] executionProfileBytes = builder.toString().getBytes(StandardCharsets.UTF_8);
+            byte[] executionProfileBytes;
+            // Check profile format configuration
+            if ("yaml".equalsIgnoreCase(Config.profile_format)) {
+                // Generate YAML format
+                String yamlContent = generateYamlContent();
+                executionProfileBytes = yamlContent.getBytes(StandardCharsets.UTF_8);
+            } else {
+                // Default: TEXT format
+                SafeStringBuilder builder = new SafeStringBuilder();
+                getChangedSessionVars(builder);
+                getExecutionProfileContent(builder);
+                executionProfileBytes = builder.toString().getBytes(StandardCharsets.UTF_8);
+            }
+
             memoryDataStream.writeInt(executionProfileBytes.length);
             memoryDataStream.write(executionProfileBytes);
             memoryDataStream.flush();
@@ -858,6 +1178,71 @@ public class Profile {
         } catch (Exception e) {
             LOG.error("Failed to read profile from storage: {}", profileStoragePath, e);
             builder.append("Failed to read profile from " + profileStoragePath);
+        } finally {
+            if (fileInputStream != null) {
+                try {
+                    fileInputStream.close();
+                } catch (Exception e) {
+                    LOG.warn("Close profile {} failed", profileStoragePath, e);
+                }
+            }
+        }
+    }
+
+    /**
+     * Read profile from storage and return as YAML string.
+     * This is used when profile_format is set to "yaml".
+     *
+     * @return YAML formatted profile string from storage, or error message if failed
+     */
+    String getOnStorageProfileAsYaml() {
+        if (!profileHasBeenStored()) {
+            return null;
+        }
+
+        LOG.info("Profile {} has been stored to storage, reading YAML from storage", getId());
+        FileInputStream fileInputStream = null;
+        ZipInputStream zipIn = null;
+
+        try {
+            fileInputStream = createPorfileFileInputStream(profileStoragePath);
+            if (fileInputStream == null) {
+                return "Failed to read profile from " + profileStoragePath;
+            }
+
+            // Directly create ZipInputStream from file input stream
+            zipIn = new ZipInputStream(fileInputStream);
+            ZipEntry entry = zipIn.getNextEntry();
+            String expectedEntryName = summaryProfile.getProfileId() + PROFILE_ENTRY_SUFFIX;
+            if (entry == null || !entry.getName().equals(expectedEntryName)) {
+                throw new IOException("Invalid zip file format - missing entry: " + expectedEntryName);
+            }
+
+            // Read zip entry content into memory
+            ByteArrayOutputStream entryContent = new ByteArrayOutputStream();
+            byte[] buffer = new byte[1024 * 50];
+            int readBytes;
+            while ((readBytes = zipIn.read(buffer)) != -1) {
+                entryContent.write(buffer, 0, readBytes);
+            }
+
+            // Parse profile data using memory stream
+            DataInputStream memoryDataInput = new DataInputStream(
+                    new ByteArrayInputStream(entryContent.toByteArray()));
+
+            // Skip summary profile data
+            Text.readString(memoryDataInput);
+
+            // Read execution profile length and content
+            int executionProfileLength = memoryDataInput.readInt();
+            byte[] executionProfileBytes = new byte[executionProfileLength];
+            memoryDataInput.readFully(executionProfileBytes);
+
+            // Return YAML content as string
+            return new String(executionProfileBytes, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            LOG.error("Failed to read YAML profile from storage: {}", profileStoragePath, e);
+            return "Failed to read profile from " + profileStoragePath;
         } finally {
             if (fileInputStream != null) {
                 try {

@@ -17,7 +17,9 @@
 
 package org.apache.doris.common.profile;
 
+import java.util.LinkedHashMap;
 import java.util.LinkedList;
+import java.util.Map;
 
 // Counter means indicators field. The counter's name is key, the counter itself is value.
 public class AggCounter extends Counter {
@@ -97,5 +99,45 @@ public class AggCounter extends Counter {
                     + RuntimeProfile.printCounter(min.getValue(), min.getType());
             return infoString;
         }
+    }
+
+    /**
+     * Convert aggregated counter to a structured map for YAML serialization.
+     * For time types: includes avg/max/min (no sum, as time sums are not meaningful)
+     * For other types: includes sum/avg/max/min
+     * All include count (number of instances) and formatted display string.
+     */
+    @Override
+    public Map<String, Object> toMap() {
+        // Use FlowStyleMap to ensure compact single-line output in YAML
+        Map<String, Object> map = new FlowStyleMap();
+        map.put("unit", sum.getType() != null ? sum.getType().name() : "UNKNOWN");
+
+        if (isTimeType()) {
+            // For time types, don't include sum as it's not meaningful
+            long avgValue = number > 0 ? sum.getValue() / number : 0;
+            map.put("avg", avgValue);
+            map.put("max", max.getValue());
+            map.put("min", min.getValue());
+        } else {
+            // For non-time types, include sum
+            map.put("sum", sum.getValue());
+            long avgValue = number > 0 ? sum.getValue() / number : 0;
+            map.put("avg", avgValue);
+            map.put("max", max.getValue());
+            map.put("min", min.getValue());
+        }
+
+        map.put("count", number);
+        map.put("display", print());
+        return map;
+    }
+
+    /**
+     * A special Map implementation to mark data that should be output in flow style (single line).
+     * This is used for AggCounter data to make YAML output more compact.
+     */
+    public static class FlowStyleMap extends LinkedHashMap<String, Object> {
+        private static final long serialVersionUID = 1L;
     }
 }
