@@ -495,7 +495,7 @@ public class DorisBatchStreamLoad implements Serializable {
 
     /** commit offfset to frontends. */
     public void commitOffset(
-            String taskId, Map<String, String> meta, long scannedRows, long scannedBytes) {
+            String taskId, List<Map<String, String>> meta, long scannedRows, long scannedBytes) {
         try {
             String url = String.format(COMMIT_URL_PATTERN, frontendAddress, targetDb);
             Map<String, Object> commitParams = new HashMap<>();

@@ -27,6 +27,7 @@ import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.flink.api.connector.source.SourceSplit;
@@ -34,6 +35,7 @@ import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.source.SourceRecord;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -113,10 +115,9 @@ public class PipelineCoordinator {
                     "Start fetching records for jobId={}, isSnapshotSplit={}",
                     fetchRecord.getJobId(),
                     isSnapshotSplit);
-
             while (!shouldStop) {
                 Iterator<SourceRecord> recordIterator =
-                        sourceReader.pollRecords(readResult.getSplitState());
+                        sourceReader.pollRecords();
 
                 if (!recordIterator.hasNext()) {
                     Thread.sleep(100);
@@ -187,7 +188,7 @@ public class PipelineCoordinator {
         }
 
         // Extract and set offset metadata
-        Map<String, String> offsetMeta = extractOffsetMeta(sourceReader, readResult);
+        List<Map<String, String>> offsetMeta = extractOffsetMeta(sourceReader, readResult);
         recordResponse.setMeta(offsetMeta);
 
         return recordResponse;
@@ -238,7 +239,6 @@ public class PipelineCoordinator {
     public void writeRecords(WriteRecordRequest writeRecordRequest) throws Exception {
         SourceReader sourceReader = Env.getCurrentEnv().getReader(writeRecordRequest);
         DorisBatchStreamLoad batchStreamLoad = null;
-        Map<String, String> metaResponse = new HashMap<>();
         long scannedRows = 0L;
         long scannedBytes = 0L;
         int heartbeatCount = 0;
@@ -261,8 +261,7 @@ public class PipelineCoordinator {
 
             // 2. poll record
             while (!shouldStop) {
-                Iterator<SourceRecord> recordIterator =
-                        sourceReader.pollRecords(readResult.getSplitState());
+                Iterator<SourceRecord> recordIterator = sourceReader.pollRecords();
 
                 if (!recordIterator.hasNext()) {
                     Thread.sleep(100);
@@ -342,7 +341,7 @@ public class PipelineCoordinator {
         }
 
         // 3. Extract offset from split state
-        metaResponse = extractOffsetMeta(sourceReader, readResult);
+        List<Map<String, String>> metaResponse = extractOffsetMeta(sourceReader, readResult);
         // 4. wait all stream load finish
         batchStreamLoad.forceFlush();
 
@@ -382,6 +381,7 @@ public class PipelineCoordinator {
         // 1. Snapshot split with data: if no more data in queue, stop immediately (no need to wait
         // for timeout)
         // snapshot split will be written to the debezium queue all at once.
+        // multiple snapshot splits are handled in the source reader.
         if (isSnapshotSplit && hasData) {
             LOG.info(
                     "Snapshot split finished, no more data available. Total elapsed: {} ms",
@@ -493,16 +493,21 @@ public class PipelineCoordinator {
     /**
      * Extract offset metadata from split state.
      *
-     * <p>This method handles both snapshot splits and binlog splits, extracting the appropriate
-     * offset information and adding the split ID.
+     * <p>This method handles both snapshot splits and binlog splits,
+     * extracting the appropriate offset information through the SourceReader interface.
+     * For snapshot splits:
+     * {"highWatermarks":[{"splitId":"tbl:1",...},...]}
+     *
+     * For Binlog Split:
+     * {"splitId":"binlog_split","fileName":"mysql-bin.000001","pos":"12345",...}
      *
      * @param sourceReader the source reader
-     * @param readResult the read result containing split and split state
+     * @param readResult the read result containing splits and split states
      * @return offset metadata map
      * @throws RuntimeException if split state is null or split type is unknown
      */
-    private Map<String, String> extractOffsetMeta(
-            SourceReader sourceReader, SplitReadResult readResult) {
+    private List<Map<String, String>> extractOffsetMeta(
+            SourceReader sourceReader, SplitReadResult readResult) throws JsonProcessingException {
         Preconditions.checkNotNull(readResult, "readResult must not be null");
 
         if (readResult.getSplitState() == null) {
@@ -510,20 +515,31 @@ public class PipelineCoordinator {
         }
 
         SourceSplit split = readResult.getSplit();
-        Map<String, String> offsetRes;
-
-        // Set meta information for hw (high watermark)
+        List<Map<String, String>> commitOffsets = new ArrayList<>();
         if (sourceReader.isSnapshotSplit(split)) {
-            offsetRes = sourceReader.extractSnapshotStateOffset(readResult.getSplitState());
-            offsetRes.put(SPLIT_ID, split.splitId());
+            // Unified format for both single and multiple splits
+            List<SourceSplit> allSplits = readResult.getSplits();
+            Map<String, Object> allStates = readResult.getSplitStates();
+            
+            for (SourceSplit currentSplit : allSplits) {
+                String splitId = currentSplit.splitId();
+                Object currentState = allStates.get(splitId);
+                Preconditions.checkNotNull(currentState, "Split state not found for splitId: " + splitId);
+
+                Map<String, String> highWatermark =
+                    sourceReader.extractSnapshotStateOffset(currentState);
+                Map<String, String> splitInfo = new HashMap<>();
+                splitInfo.put(SourceReader.SPLIT_ID, splitId);
+                splitInfo.putAll(highWatermark);
+                commitOffsets.add(splitInfo);
+            }
         } else if (sourceReader.isBinlogSplit(split)) {
-            // Set meta for binlog event
-            offsetRes = sourceReader.extractBinlogStateOffset(readResult.getSplitState());
+            Map<String, String> offsetRes = sourceReader.extractBinlogStateOffset(readResult.getSplitState());
             offsetRes.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+            commitOffsets.add(offsetRes);
         } else {
             throw new RuntimeException("Unknown split type: " + split.getClass().getName());
         }
-
-        return offsetRes;
+        return commitOffsets;
     }
 }

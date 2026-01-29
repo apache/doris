@@ -15,22 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cdcclient.model.response;
-
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+package org.apache.doris.cdcclient.source.reader;
 
 import lombok.Data;
+import org.apache.flink.api.connector.source.SourceSplit;
 
+/**
+ * Generic context for managing a single snapshot split reader.
+ *
+ * <p>This class encapsulates the split, reader, and state for a single snapshot split
+ *
+ * @param <S> Split type (extends MySqlSnapshotSplit)
+ * @param <R> Reader type (e.g., SnapshotSplitReader)
+ * @param <ST> Split state type like MySqlSnapshotSplitState
+ */
 @Data
-public class RecordWithMeta {
-    private List<Map<String, String>> meta;
-    private List<String> records;
-
-    public RecordWithMeta() {
-        this.meta = new ArrayList<>();
-        this.records = new ArrayList<>();
-    }
+public class SnapshotReaderContext<S extends SourceSplit, R, ST> {
+    private final S split;
+    private final R reader;
+    private final ST splitState;
 }

@@ -20,11 +20,10 @@ import org.awaitility.Awaitility
 
 import static java.util.concurrent.TimeUnit.SECONDS
 
-suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_docker_pg,nondatalake") {
-    def jobName = "test_streaming_postgres_job_name"
+suite("test_streaming_postgres_job_split", "p0,external,pg,external_docker,external_docker_pg,nondatalake") {
+    def jobName = "test_streaming_postgres_job_split_name"
     def currentDb = (sql "select database()")[0][0]
-    def table1 = "user_info_pg_normal1"
-    def table2 = "user_info_pg_normal2"
+    def table1 = "user_info_pg_split"
     def pgDB = "postgres"
     def pgSchema = "cdc_test"
     def pgUser = "postgres"
@@ -32,19 +31,6 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
 
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
     sql """drop table if exists ${currentDb}.${table1} force"""
-    sql """drop table if exists ${currentDb}.${table2} force"""
-
-    // Pre-create table2
-    sql """
-        CREATE TABLE IF NOT EXISTS ${currentDb}.${table2} (
-            `name` varchar(200) NULL,
-            `age` int NULL
-        ) ENGINE=OLAP
-        UNIQUE KEY(`name`)
-        COMMENT 'OLAP'
-        DISTRIBUTED BY HASH(`name`) BUCKETS AUTO
-        PROPERTIES ("replication_allocation" = "tag.location.default: 1");
-    """
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
@@ -58,22 +44,17 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             // sql """CREATE SCHEMA IF NOT EXISTS ${pgSchema}"""
             sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${table1}"""
-            sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${table2}"""
             sql """CREATE TABLE ${pgDB}.${pgSchema}.${table1} (
+                  "id" int2 PRIMARY KEY,
                   "name" varchar(200),
-                  "age" int2,
-                  PRIMARY KEY ("name")
+                  "age" int2
                 )"""
-            sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} (name, age) VALUES ('A1', 1);"""
-            sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} (name, age) VALUES ('B1', 2);"""
-            sql """CREATE TABLE ${pgDB}.${pgSchema}.${table2} (
-                  "name" varchar(200),
-                  "age" int2,
-                  PRIMARY KEY ("name")
-                )"""
-            // mock snapshot data
-            sql """INSERT INTO ${pgDB}.${pgSchema}.${table2} (name, age) VALUES ('A2', 1);"""
-            sql """INSERT INTO ${pgDB}.${pgSchema}.${table2} (name, age) VALUES ('B2', 2);"""
+            // will split to 4 splits
+            sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} (id, name, age) VALUES (1, 'A1', 1);"""
+            sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} (id, name, age) VALUES (2, 'B1', 2);"""
+            sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} (id, name, age) VALUES (3, 'C1', 3);"""
+            sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} (id, name, age) VALUES (4, 'D1', 4);"""
+            sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} (id, name, age) VALUES (5, 'E1', 5);"""
         }
 
         sql """CREATE JOB ${jobName}
@@ -86,30 +67,16 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
                     "password" = "${pgPassword}",
                     "database" = "${pgDB}",
                     "schema" = "${pgSchema}",
-                    "include_tables" = "${table1},${table2}", 
+                    "include_tables" = "${table1}", 
                     "offset" = "initial",
-                    "snapshot_parallelism" = "1"
+                    "snapshot_split_size" = "1",
+                    "snapshot_parallelism" = "2"
                 )
                 TO DATABASE ${currentDb} (
                   "table.create.properties.replication_num" = "1"
                 )
             """
-        def showAllTables = sql """ show tables from ${currentDb}"""
-        log.info("showAllTables: " + showAllTables)
-        // check table created
-        def showTables = sql """ show tables from ${currentDb} like '${table1}'; """
-        assert showTables.size() == 1
-        def showTables2 = sql """ show tables from ${currentDb} like '${table2}'; """
-        assert showTables2.size() == 1
-
-        // check table schema correct
-        def showTbl1 = sql """show create table ${currentDb}.${table1}"""
-        def createTalInfo = showTbl1[0][1];
-        assert createTalInfo.contains("`name` varchar(65533)");
-        assert createTalInfo.contains("`age` smallint");
-        assert createTalInfo.contains("UNIQUE KEY(`name`)");
-        assert createTalInfo.contains("DISTRIBUTED BY HASH(`name`) BUCKETS AUTO");
-
+ 
         // check job running
         try {
             Awaitility.await().atMost(300, SECONDS)
@@ -131,37 +98,13 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
 
         // check snapshot data
         qt_select_snapshot_table1 """ SELECT * FROM ${table1} order by name asc """
-        qt_select_snapshot_table2 """ SELECT * FROM ${table2} order by name asc """
-
-        // mock incremental into
-        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
-            sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} (name,age) VALUES ('Doris',18);"""
-            sql """UPDATE ${pgDB}.${pgSchema}.${table1} SET age = 10 WHERE name = 'B1';"""
-            sql """DELETE FROM ${pgDB}.${pgSchema}.${table1} WHERE name = 'A1';"""
-        }
-
-        sleep(30000); // wait for cdc incremental data
-
-        // check incremental data
-        qt_select_binlog_table1 """ SELECT * FROM ${table1} order by name asc """
 
         def jobInfo = sql """
         select loadStatistic, status from jobs("type"="insert") where Name='${jobName}'
         """
         log.info("jobInfo: " + jobInfo)
-        assert jobInfo.get(0).get(0) == "{\"scannedRows\":7,\"loadBytes\":337,\"fileNumber\":0,\"fileSize\":0}"
-        assert jobInfo.get(0).get(1) == "RUNNING"
-
-        // mock incremental into again
-        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
-            sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} (name,age) VALUES ('Apache',40);"""
-        }
-
-        sleep(30000); // wait for cdc incremental data
-
-        // check incremental data
-        qt_select_next_binlog_table1 """ SELECT * FROM ${table1} order by name asc """
-
+        assert jobInfo.get(0).get(0) == "{\"scannedRows\":5,\"loadBytes\":270,\"fileNumber\":0,\"fileSize\":0}"
+     
         sql """
             DROP JOB IF EXISTS where jobname =  '${jobName}'
         """

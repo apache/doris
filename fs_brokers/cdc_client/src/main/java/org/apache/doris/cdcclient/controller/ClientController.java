@@ -65,9 +65,9 @@ public class ClientController {
             SourceReader reader = Env.getCurrentEnv().getReader(ftsReq);
             List splits = reader.getSourceSplits(ftsReq);
             return RestResponse.success(splits);
-        } catch (IllegalArgumentException ex) {
+        } catch (Exception ex) {
             LOG.error("Failed to fetch splits, jobId={}", ftsReq.getJobId(), ex);
-            return RestResponse.internalError(ex.getMessage());
+            return RestResponse.internalError(ExceptionUtils.getRootCauseMessage(ex));
         }
     }
 

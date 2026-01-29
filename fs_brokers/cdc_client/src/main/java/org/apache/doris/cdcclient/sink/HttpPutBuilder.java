@@ -19,12 +19,14 @@ package org.apache.doris.cdcclient.sink;
 
 import org.apache.doris.cdcclient.common.Constants;
 
+import org.apache.commons.codec.binary.Base64;
 import org.apache.flink.util.Preconditions;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpHeaders;
 import org.apache.http.client.methods.HttpPut;
 import org.apache.http.entity.StringEntity;
 
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
@@ -69,6 +71,13 @@ public class HttpPutBuilder {
     public HttpPutBuilder addTokenAuth(String token) {
         header.put(HttpHeaders.AUTHORIZATION, "Basic YWRtaW46");
         header.put("token", token);
+        return this;
+    }
+
+    public HttpPutBuilder baseAuth(String user, String password) {
+        final String authInfo = user + ":" + password;
+        byte[] encoded = Base64.encodeBase64(authInfo.getBytes(StandardCharsets.UTF_8));
+        header.put(HttpHeaders.AUTHORIZATION, "Basic " + new String(encoded));
         return this;
     }
 
