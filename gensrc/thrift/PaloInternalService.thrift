@@ -424,6 +424,8 @@ struct TQueryOptions {
   183: optional bool enable_use_hybrid_sort = false;
   184: optional i32 cte_max_recursion_depth;
 
+  // Use paimon-cpp to read Paimon splits on BE
+  185: optional bool enable_paimon_cpp_reader = false;
 
   185: optional bool enable_parquet_file_page_cache = true;
 

@@ -41,6 +41,17 @@ if (${MAKE_TEST} STREQUAL "OFF" AND ${BUILD_BENCHMARK} STREQUAL "OFF")
     # This permits libraries loaded by dlopen to link to the symbols in the program.
     set_target_properties(doris_be PROPERTIES ENABLE_EXPORTS 1)
 
+    # Allow multiple symbol definitions to handle ORC library conflicts
+    # Doris has Apache ORC in be/src/apache-orc/
+    # paimon-cpp (when ORC enabled) has its own Apache ORC
+    # This flag lets the linker choose one version without erroring
+    # Symbol visibility (hidden) in paimon ensures minimal conflict
+    if (NOT OS_MACOSX)
+        target_link_options(doris_be PRIVATE
+            "-Wl,--allow-multiple-definition"
+        )
+    endif()
+
     target_link_libraries(doris_be
         ${DORIS_LINK_LIBS}
     )
