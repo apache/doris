@@ -229,6 +229,8 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
         _query_options.max_errors = 100;
     }
 
+    // print batch size
+    LOG(INFO) << "batch size: " << _query_options.batch_size;
     if (_query_options.batch_size <= 0) {
         _query_options.batch_size = DEFAULT_BATCH_SIZE;
     }
