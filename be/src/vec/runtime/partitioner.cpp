@@ -87,5 +87,7 @@ Status Crc32CHashPartitioner::clone(RuntimeState* state,
 
 template class Crc32HashPartitioner<ShuffleChannelIds>;
 template class Crc32HashPartitioner<SpillPartitionChannelIds>;
+// Explicit instantiation for spill split hash-only channel ids.
+template class Crc32HashPartitioner<SpillHashChannelIds>;
 
 } // namespace doris::vectorized

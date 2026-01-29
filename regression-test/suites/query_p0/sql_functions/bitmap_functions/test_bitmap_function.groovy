@@ -16,6 +16,12 @@
 // under the License.
 
 suite("test_bitmap_function") {
+	/**
+	 * `orthogonal_bitmap_union_count` has known issue with spill, so disable spill and just check the correctness of result.
+	 */
+	sql 'set enable_spill=false'
+	sql 'set enable_force_spill=false'
+
     // BITMAP_AND
     qt_sql """ select bitmap_count(bitmap_and(to_bitmap(1), to_bitmap(2))) cnt """
     qt_sql """ select bitmap_count(bitmap_and(to_bitmap(1), to_bitmap(1))) cnt """

@@ -921,9 +921,7 @@ public:
     }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const { return true; }
-    bool is_blockable(RuntimeState* state) const override {
-        return state->get_sink_local_state()->is_blockable() || _blockable;
-    }
+    bool is_blockable(RuntimeState* state) const override { return _blockable; }
 
     Status prepare(RuntimeState* state) override;
 
@@ -953,8 +951,9 @@ public:
         }
     }
 
-    size_t revocable_mem_size(RuntimeState* state) const override {
-        return (_child and !is_source()) ? _child->revocable_mem_size(state) : 0;
+    Status revoke_memory(RuntimeState* state,
+                         const std::shared_ptr<SpillContext>& spill_context) override {
+        return Status::OK();
     }
 
     // If this method is not overwrite by child, its default value is 1MB
@@ -1105,6 +1104,11 @@ public:
         if (!is_source() && _child) {
             _child->reset_reserve_mem_size(state);
         }
+    }
+
+    bool is_blockable(RuntimeState* state) const override {
+        auto& local_state = get_local_state(state);
+        return local_state.is_blockable();
     }
 };
 

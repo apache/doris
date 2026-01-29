@@ -18,6 +18,7 @@
 #include "pipeline/exec/union_source_operator.h"
 
 #include <functional>
+#include <string>
 #include <utility>
 
 #include "common/status.h"
@@ -54,6 +55,11 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                 common_profile(), "WaitForDependency[" + _dependency->name() + "]Time", 1);
         _dependency->set_ready();
     }
+
+    _blocks_in_queue_counter =
+            custom_profile()->add_counter_with_level("BlocksInQueue", TUnit::UNIT, 1);
+    _bytes_in_queue_counter =
+            custom_profile()->add_counter_with_level("BytesInQueue", TUnit::BYTES, 1);
 
     return Status::OK();
 }
@@ -139,6 +145,10 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
         block->swap(*output_block);
         output_block->clear_column_data(row_descriptor().num_materialized_slots());
         local_state._shared_state->data_queue.push_free_block(std::move(output_block), child_idx);
+        auto&& [bytes_in_queue, blocks_in_queue] =
+                local_state._shared_state->data_queue.current_queue_size();
+        COUNTER_SET(local_state._bytes_in_queue_counter, bytes_in_queue);
+        COUNTER_SET(local_state._blocks_in_queue_counter, int64_t(blocks_in_queue));
     }
     local_state.reached_limit(block, eos);
     return Status::OK();
@@ -198,6 +208,7 @@ Status UnionSourceLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
+    _common_profile->add_info_string("IsLowMemoryMode", std::to_string(low_memory_mode()));
     if (_shared_state) {
         _shared_state->data_queue.terminate();
     }

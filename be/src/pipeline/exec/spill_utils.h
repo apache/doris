@@ -36,6 +36,8 @@
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 using SpillPartitionerType = vectorized::Crc32HashPartitioner<vectorized::SpillPartitionChannelIds>;
+// Hash-only channel ids for multi-level spill repartitioning.
+using SpillHashPartitionerType = vectorized::Crc32HashPartitioner<vectorized::SpillHashChannelIds>;
 
 struct SpillContext {
     std::atomic_int running_tasks_count;

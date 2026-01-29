@@ -434,6 +434,8 @@ struct TQueryOptions {
 
   189: optional bool enable_aggregate_function_null_v2 = false;
 
+  190: optional i64 spill_recover_max_read_bytes = 4194304; // 4MB
+
   195: optional bool enable_left_semi_direct_return_opt;
 
   200: optional bool enable_adjust_conjunct_order_by_cost;

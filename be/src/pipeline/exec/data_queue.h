@@ -21,6 +21,7 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -80,6 +81,16 @@ public:
     }
 
     void terminate();
+
+    std::pair<int64_t, uint32_t> current_queue_size() const {
+        int64_t total_bytes = 0;
+        uint32_t total_blocks = 0;
+        for (int i = 0; i < _child_count; ++i) {
+            total_bytes += _cur_bytes_in_queue[i].load();
+            total_blocks += _cur_blocks_nums_in_queue[i].load();
+        }
+        return {total_bytes, total_blocks};
+    }
 
 private:
     std::vector<std::unique_ptr<std::mutex>> _queue_blocks_lock;

@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <numeric>
 
 #include "common/config.h"
 #include "partitioned_aggregation_test_helper.h"
@@ -443,5 +444,97 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
     }
 
     ASSERT_FALSE(st.ok());
+}
+
+TEST_F(PartitionedAggregationSourceOperatorTest, RevokeMemorySplitBySpillHashTable) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+    ASSERT_TRUE(source_operator != nullptr);
+    ASSERT_TRUE(sink_operator != nullptr);
+
+    const auto tnode = _helper.create_test_plan_node();
+    auto st = source_operator->init(tnode, _helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "init failed: " << st.to_string();
+    st = source_operator->prepare(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "prepare failed: " << st.to_string();
+
+    st = sink_operator->init(tnode, _helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "init failed: " << st.to_string();
+    st = sink_operator->prepare(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "prepare failed: " << st.to_string();
+
+    auto shared_state = std::dynamic_pointer_cast<PartitionedAggSharedState>(
+            sink_operator->create_shared_state());
+    shared_state->create_source_dependency(source_operator->operator_id(),
+                                           source_operator->node_id(), "PartitionedAggSinkTestDep");
+
+    LocalSinkStateInfo sink_info {.task_idx = 0,
+                                  .parent_profile = _helper.operator_profile.get(),
+                                  .sender_id = 0,
+                                  .shared_state = shared_state.get(),
+                                  .shared_state_map = {},
+                                  .tsink = TDataSink()};
+    st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
+    ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
+    auto* sink_local_state = reinterpret_cast<PartitionedAggSinkLocalState*>(
+            _helper.runtime_state->get_sink_local_state());
+    ASSERT_TRUE(sink_local_state != nullptr);
+    st = sink_local_state->open(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
+
+    // In BE_TEST, batch_size in _spill_hash_table_to_children is fixed to 32768.
+    // Feed more than 32768 distinct group keys to trigger `if (++row_count >= batch_size)`.
+    constexpr int32_t row_count = 40000 * 8;
+    std::vector<int32_t> group_keys(row_count);
+    std::iota(group_keys.begin(), group_keys.end(), 0);
+    std::vector<int32_t> agg_values(row_count, 1);
+    auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(group_keys);
+    block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt32>(
+            agg_values));
+    st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
+    ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
+
+    LocalStateInfo source_info {.parent_profile = _helper.operator_profile.get(),
+                                .scan_ranges = {},
+                                .shared_state = shared_state.get(),
+                                .shared_state_map = {},
+                                .task_idx = 0};
+    st = source_operator->setup_local_state(_helper.runtime_state.get(), source_info);
+    ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
+    auto* local_state = reinterpret_cast<PartitionedAggLocalState*>(
+            _helper.runtime_state->get_local_state(source_operator->operator_id()));
+    ASSERT_TRUE(local_state != nullptr);
+    local_state->_copy_shared_spill_profile = false;
+    st = local_state->open(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
+
+    const SpillPartitionId parent_id {0, 0};
+    auto& parent_partition = shared_state->get_or_create_agg_partition(parent_id);
+    parent_partition.id = parent_id;
+    parent_partition.is_split = false;
+    parent_partition.spill_streams.clear();
+    parent_partition.spilling_stream.reset();
+    local_state->_blocks.clear();
+    local_state->_current_partition_id = parent_id;
+    local_state->_has_current_partition = true;
+    local_state->_current_partition_eos = false;
+    shared_state->is_spilled = true;
+
+    const auto pending_size_before = shared_state->pending_partitions.size();
+    st = source_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
+    ASSERT_TRUE(st.ok()) << "source revoke_memory failed: " << st.to_string();
+
+    ASSERT_TRUE(parent_partition.is_split);
+    ASSERT_FALSE(local_state->_has_current_partition);
+    ASSERT_TRUE(local_state->_current_partition_eos);
+    ASSERT_GE(shared_state->pending_partitions.size(), pending_size_before + kSpillFanout);
+
+    size_t child_spilled_bytes = 0;
+    for (uint32_t i = 0; i < kSpillFanout; ++i) {
+        const auto child_id = parent_id.child(i);
+        auto it = shared_state->spill_partitions.find(child_id.key());
+        ASSERT_TRUE(it != shared_state->spill_partitions.end());
+        child_spilled_bytes += it->second.spilled_bytes;
+    }
+    ASSERT_GT(child_spilled_bytes, 0);
 }
 } // namespace doris::pipeline

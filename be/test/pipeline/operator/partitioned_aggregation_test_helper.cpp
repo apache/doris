@@ -96,7 +96,7 @@ TPlanNode PartitionedAggregationTestHelper::create_test_plan_node() {
     fn_child_node.slot_ref.tuple_id = 0;
     fn_child_node.type.types.emplace_back(type_node);
 
-    tnode.row_tuples.push_back(0);
+    tnode.row_tuples.push_back(1);
 
     return tnode;
 }
@@ -133,7 +133,7 @@ TDescriptorTable PartitionedAggregationTestHelper::create_test_table_descriptor(
                               .type(TYPE_BIGINT)
                               .column_name("col4")
                               .column_pos(0)
-                              .nullable(true)
+                              .nullable(nullable)
                               .build())
             .build(&builder);
 
@@ -148,7 +148,7 @@ TDescriptorTable PartitionedAggregationTestHelper::create_test_table_descriptor(
                               .type(TYPE_BIGINT)
                               .column_name("col6")
                               .column_pos(0)
-                              .nullable(true)
+                              .nullable(nullable)
                               .build())
             .build(&builder);
 
@@ -159,6 +159,13 @@ std::tuple<std::shared_ptr<PartitionedAggSourceOperatorX>,
            std::shared_ptr<PartitionedAggSinkOperatorX>>
 PartitionedAggregationTestHelper::create_operators() {
     TPlanNode tnode = create_test_plan_node();
+    tnode.agg_node.need_finalize = true;
+    return create_operators(tnode);
+}
+
+std::tuple<std::shared_ptr<PartitionedAggSourceOperatorX>,
+           std::shared_ptr<PartitionedAggSinkOperatorX>>
+PartitionedAggregationTestHelper::create_operators(const TPlanNode& tnode) {
     auto desc_tbl = runtime_state->desc_tbl();
 
     EXPECT_EQ(desc_tbl.get_tuple_descs().size(), 3);

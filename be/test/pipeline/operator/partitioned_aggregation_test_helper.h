@@ -153,5 +153,8 @@ public:
     std::tuple<std::shared_ptr<PartitionedAggSourceOperatorX>,
                std::shared_ptr<PartitionedAggSinkOperatorX>>
     create_operators();
+    std::tuple<std::shared_ptr<PartitionedAggSourceOperatorX>,
+               std::shared_ptr<PartitionedAggSinkOperatorX>>
+    create_operators(const TPlanNode& tnode);
 };
 } // namespace doris::pipeline

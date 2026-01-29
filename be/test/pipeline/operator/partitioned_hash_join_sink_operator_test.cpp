@@ -48,6 +48,34 @@
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
+namespace {
+vectorized::Block make_int32_block(size_t row_count) {
+    std::vector<int32_t> data(row_count);
+    return vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(data);
+}
+
+vectorized::Block make_block_below_spill_threshold() {
+    const auto threshold = vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM;
+    for (size_t rows = 1; rows < 4096; rows *= 2) {
+        auto block = make_int32_block(rows);
+        if (block.allocated_bytes() < threshold) {
+            return block;
+        }
+    }
+    return make_int32_block(1);
+}
+
+vectorized::Block make_block_above_spill_threshold() {
+    const auto threshold = vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM;
+    for (size_t rows = 1; rows < (1 << 20); rows *= 2) {
+        auto block = make_int32_block(rows);
+        if (block.allocated_bytes() >= threshold) {
+            return block;
+        }
+    }
+    return make_int32_block(1 << 20);
+}
+} // namespace
 
 class PartitionedHashJoinSinkOperatorTest : public testing::Test {
 public:
@@ -59,6 +87,57 @@ public:
 protected:
     PartitionedHashJoinTestHelper _helper;
 };
+
+TEST_F(PartitionedHashJoinSinkOperatorTest, RevocableMemSize) {
+    auto [_, sink_operator] = _helper.create_operators();
+
+    std::shared_ptr<MockPartitionedHashJoinSharedState> shared_state;
+    auto* sink_local_state = _helper.create_sink_local_state(_helper.runtime_state.get(),
+                                                             sink_operator.get(), shared_state);
+    ASSERT_TRUE(sink_local_state != nullptr);
+
+    shared_state->is_spilled = false;
+    ASSERT_EQ(sink_local_state->revocable_mem_size(_helper.runtime_state.get()), 0);
+
+    auto inner_sink_local_state = std::make_unique<MockHashJoinBuildSinkLocalState>(
+            sink_operator->_inner_sink_operator.get(), shared_state->inner_runtime_state.get());
+    inner_sink_local_state->_build_blocks_memory_usage =
+            inner_sink_local_state->custom_profile()->get_counter("MemoryUsageBuildBlocks");
+    ASSERT_TRUE(inner_sink_local_state->_build_blocks_memory_usage != nullptr);
+    constexpr int64_t inner_build_mem = 12345;
+    COUNTER_SET(inner_sink_local_state->_build_blocks_memory_usage, inner_build_mem);
+    shared_state->inner_runtime_state->emplace_sink_local_state(0,
+                                                                std::move(inner_sink_local_state));
+    ASSERT_EQ(sink_local_state->revocable_mem_size(_helper.runtime_state.get()), inner_build_mem);
+
+    shared_state->is_spilled = true;
+    auto small_block = make_block_below_spill_threshold();
+    auto large_block_1 = make_block_above_spill_threshold();
+    auto large_block_2 = make_block_above_spill_threshold();
+
+    ASSERT_LT(small_block.allocated_bytes(), vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM);
+    ASSERT_GE(large_block_1.allocated_bytes(), vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM);
+    ASSERT_GE(large_block_2.allocated_bytes(), vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM);
+
+    const auto large_block_1_size = large_block_1.allocated_bytes();
+    const auto large_block_2_size = large_block_2.allocated_bytes();
+
+    HashJoinSpillPartitionId partition0_id {0, 0};
+    auto& partition0 = shared_state->build_partitions[partition0_id.key()];
+    partition0.id = partition0_id;
+    partition0.build_block = vectorized::MutableBlock::create_unique(std::move(large_block_1));
+    partition0.blocks.emplace_back(std::move(small_block));
+    partition0.blocks.emplace_back(std::move(large_block_2));
+
+    auto small_build_block = make_block_below_spill_threshold();
+    HashJoinSpillPartitionId partition1_id {0, 1};
+    auto& partition1 = shared_state->build_partitions[partition1_id.key()];
+    partition1.id = partition1_id;
+    partition1.build_block = vectorized::MutableBlock::create_unique(std::move(small_build_block));
+
+    ASSERT_EQ(sink_local_state->revocable_mem_size(_helper.runtime_state.get()),
+              large_block_1_size + large_block_2_size);
+}
 
 TEST_F(PartitionedHashJoinSinkOperatorTest, Init) {
     TPlanNode tnode = _helper.create_test_plan_node();
@@ -154,7 +233,6 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, InitLocalState) {
 
 TEST_F(PartitionedHashJoinSinkOperatorTest, InitBuildExprs) {
     TPlanNode tnode = _helper.create_test_plan_node();
-    // 添加多个等值连接条件来测试表达式构建
     for (int i = 0; i < 3; i++) {
         TEqJoinCondition eq_cond;
         eq_cond.left = TExpr();
@@ -168,7 +246,7 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, InitBuildExprs) {
             PartitionedHashJoinTestHelper::TEST_PARTITION_COUNT);
 
     ASSERT_TRUE(operator_x.init(tnode, _helper.runtime_state.get()));
-    ASSERT_EQ(operator_x._build_exprs.size(), 4); // 1个初始 + 3个新增
+    ASSERT_EQ(operator_x._build_exprs.size(), 4);
 }
 
 TEST_F(PartitionedHashJoinSinkOperatorTest, Prepare) {
@@ -176,7 +254,6 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, Prepare) {
 
     const auto& tnode = sink_operator->_tnode;
 
-    // 初始化操作符
     ASSERT_TRUE(sink_operator->init(tnode, _helper.runtime_state.get()));
 
     sink_operator->_partitioner =
@@ -322,7 +399,10 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemory) {
     DCHECK_GE(sink_operator->_child->row_desc().get_column_id(1), 0);
 
     for (uint32_t i = 0; i != sink_operator->_partition_count; ++i) {
-        auto& spilling_stream = sink_state->_shared_state->spilled_streams[i];
+        // Get spill stream from build_partitions map instead of legacy vector
+        HashJoinSpillPartitionId id {.level = 0, .path = i};
+        auto& build_partition = sink_state->_shared_state->build_partitions[id.key()];
+        auto& spilling_stream = build_partition.spill_stream;
         auto st = (ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
                 _helper.runtime_state.get(), spilling_stream,
                 print_id(_helper.runtime_state->query_id()), fmt::format("hash_build_sink_{}", i),
@@ -367,8 +447,10 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemory) {
     vectorized::Block large_block =
             vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(large_data);
 
-    sink_state->_shared_state->partitioned_build_blocks[0] =
-            vectorized::MutableBlock::create_unique(std::move(large_block));
+    // Set large block to build_partitions instead of legacy vector
+    HashJoinSpillPartitionId id {.level = 0, .path = 0};
+    auto& build_partition = sink_state->_shared_state->build_partitions[id.key()];
+    build_partition.build_block = vectorized::MutableBlock::create_unique(std::move(large_block));
     status = sink_state->revoke_memory(_helper.runtime_state.get(), nullptr);
     ASSERT_TRUE(status.ok()) << "Revoke memory failed: " << status.to_string();
 
