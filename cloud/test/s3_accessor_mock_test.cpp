@@ -83,4 +83,116 @@ TEST_F(S3AccessorMockTest, list_objects_compatibility) {
     EXPECT_FALSE(response->is_valid());
 }
 
+TEST_F(S3AccessorMockTest, list_objects_empty_page_with_more_results) {
+    // Test the scenario where S3 returns IsTruncated=true but Contents is empty.
+    // This can happen due to concurrent deletion or eventual consistency.
+    // The iterator should continue to the next page instead of failing.
+    auto mock_s3_client = std::make_shared<MockS3Client>();
+    S3ObjClient s3_obj_client(mock_s3_client, "dummy-endpoint");
+
+    // First call: returns empty contents but has more pages
+    ListObjectsV2Result result1;
+    result1.SetIsTruncated(true);
+    result1.SetNextContinuationToken("token-page2");
+    // Contents is empty (simulating concurrent deletion)
+
+    // Second call: returns actual objects
+    ListObjectsV2Result result2;
+    result2.SetIsTruncated(false);
+    Object obj1;
+    obj1.SetKey("S3AccessorMockTest/empty_page_test/file1.txt");
+    obj1.SetSize(100);
+    result2.AddContents(obj1);
+
+    EXPECT_CALL(*mock_s3_client, ListObjectsV2(testing::_))
+            .WillOnce(testing::Return(ListObjectsV2Outcome(result1)))
+            .WillOnce(testing::Return(ListObjectsV2Outcome(result2)));
+
+    auto response = s3_obj_client.list_objects(
+            {.bucket = "dummy-bucket", .key = "S3AccessorMockTest/empty_page_test/"});
+
+    // Should successfully skip the empty page and get the next page
+    EXPECT_TRUE(response->is_valid());
+    EXPECT_TRUE(response->has_next());
+
+    auto obj = response->next();
+    EXPECT_TRUE(obj.has_value());
+    EXPECT_EQ(obj->key, "S3AccessorMockTest/empty_page_test/file1.txt");
+    EXPECT_EQ(obj->size, 100);
+
+    EXPECT_FALSE(response->has_next());
+}
+
+TEST_F(S3AccessorMockTest, list_objects_multiple_empty_pages) {
+    // Test multiple consecutive empty pages (extreme case of concurrent deletion)
+    auto mock_s3_client = std::make_shared<MockS3Client>();
+    S3ObjClient s3_obj_client(mock_s3_client, "dummy-endpoint");
+
+    // First call: empty page with more results
+    ListObjectsV2Result result1;
+    result1.SetIsTruncated(true);
+    result1.SetNextContinuationToken("token-page2");
+
+    // Second call: another empty page with more results
+    ListObjectsV2Result result2;
+    result2.SetIsTruncated(true);
+    result2.SetNextContinuationToken("token-page3");
+
+    // Third call: finally returns objects
+    ListObjectsV2Result result3;
+    result3.SetIsTruncated(false);
+    Object obj1;
+    obj1.SetKey("S3AccessorMockTest/multi_empty_test/file1.txt");
+    obj1.SetSize(200);
+    result3.AddContents(obj1);
+
+    EXPECT_CALL(*mock_s3_client, ListObjectsV2(testing::_))
+            .WillOnce(testing::Return(ListObjectsV2Outcome(result1)))
+            .WillOnce(testing::Return(ListObjectsV2Outcome(result2)))
+            .WillOnce(testing::Return(ListObjectsV2Outcome(result3)));
+
+    auto response = s3_obj_client.list_objects(
+            {.bucket = "dummy-bucket", .key = "S3AccessorMockTest/multi_empty_test/"});
+
+    // Should successfully skip multiple empty pages
+    EXPECT_TRUE(response->is_valid());
+    EXPECT_TRUE(response->has_next());
+
+    auto obj = response->next();
+    EXPECT_TRUE(obj.has_value());
+    EXPECT_EQ(obj->key, "S3AccessorMockTest/multi_empty_test/file1.txt");
+    EXPECT_EQ(obj->size, 200);
+
+    EXPECT_FALSE(response->has_next());
+}
+
+TEST_F(S3AccessorMockTest, list_objects_all_pages_empty) {
+    // Test the case where all pages are empty (all objects deleted concurrently)
+    auto mock_s3_client = std::make_shared<MockS3Client>();
+    S3ObjClient s3_obj_client(mock_s3_client, "dummy-endpoint");
+
+    // First call: empty page with more results
+    ListObjectsV2Result result1;
+    result1.SetIsTruncated(true);
+    result1.SetNextContinuationToken("token-page2");
+
+    // Second call: last page, also empty
+    ListObjectsV2Result result2;
+    result2.SetIsTruncated(false);
+
+    EXPECT_CALL(*mock_s3_client, ListObjectsV2(testing::_))
+            .WillOnce(testing::Return(ListObjectsV2Outcome(result1)))
+            .WillOnce(testing::Return(ListObjectsV2Outcome(result2)));
+
+    auto response = s3_obj_client.list_objects(
+            {.bucket = "dummy-bucket", .key = "S3AccessorMockTest/all_empty_test/"});
+
+    // Should be valid but have no objects
+    EXPECT_TRUE(response->is_valid());
+    EXPECT_FALSE(response->has_next());
+
+    auto obj = response->next();
+    EXPECT_FALSE(obj.has_value());
+}
+
 } // namespace doris::cloud
