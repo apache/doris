@@ -33,8 +33,6 @@ package org.apache.doris.protocol;
  *   <li>Proper resource cleanup in {@link #cleanup()}</li>
  *   <li>Session state preservation across requests</li>
  * </ul>
- *
- * @since 2.0.0
  */
 public interface ProtocolContext {
 

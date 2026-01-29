@@ -35,8 +35,8 @@ import java.util.Optional;
 public class ClearPasswordResolver implements PasswordResolver {
     @Override
     public Optional<Password> resolvePassword(ConnectContext context, MysqlChannel channel, MysqlSerializer serializer,
-                                              MysqlAuthPacket authPacket,
-                                              MysqlHandshakePacket handshakePacket) throws IOException {
+            MysqlAuthPacket authPacket,
+            MysqlHandshakePacket handshakePacket) throws IOException {
         // server send authentication switch packet to request password clear text.
         // https://dev.mysql.com/doc/internals/en/authentication-method-change.html
         serializer.reset();
