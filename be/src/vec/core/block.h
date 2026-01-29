@@ -396,6 +396,8 @@ public:
     size_t rows() const;
     size_t columns() const { return _columns.size(); }
 
+    bool is_empty_column() const { return _columns.empty(); }
+
     bool empty() const { return rows() == 0; }
 
     MutableColumns& mutable_columns() { return _columns; }
