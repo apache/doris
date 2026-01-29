@@ -27,6 +27,7 @@ public:
 
     void reset(int32_t doc);
     bool next_match();
+    float phrase_freq(int32_t doc);
 
 private:
     bool advance_position(PostingsAndPosition& posting, int32_t target);

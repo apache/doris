@@ -27,6 +27,8 @@ public:
 
     void reset(int32_t doc);
     bool next_match();
+    float sloppy_weight() const;
+    float phrase_freq(int32_t doc);
 
 private:
     bool stretch_to_order(PostingsAndPosition* prev_posting);

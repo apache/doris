@@ -89,4 +89,13 @@ bool ExactPhraseMatcher::advance_position(PostingsAndPosition& posting, int32_t 
     return true;
 }
 
+float ExactPhraseMatcher::phrase_freq(int32_t doc) {
+    reset(doc);
+    float freq = 0.0F;
+    while (next_match()) {
+        freq += 1.0F;
+    }
+    return freq;
+}
+
 } // namespace doris::segment_v2::inverted_index

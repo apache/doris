@@ -32,6 +32,8 @@ public:
     void reset(int32_t doc);
     bool next_match();
     bool advance_rpts(PhrasePositions* pp);
+    float sloppy_weight() const;
+    float phrase_freq(int32_t doc);
 
 private:
     bool advance_pp(PhrasePositions* pp);
