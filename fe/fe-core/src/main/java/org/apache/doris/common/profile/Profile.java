@@ -567,12 +567,12 @@ public class Profile {
 
         RuntimeProfile execSummaryProfile = summaryProfile.getExecutionSummary();
 
-        // Add all info strings from execution summary
+        // Add all info strings from execution summary (LinkedHashMap preserves insertion order)
         Map<String, String> infoStrings = execSummaryProfile.getInfoStrings();
-        for (String key : execSummaryProfile.getInfoStringsDisplayOrder()) {
-            String value = infoStrings.get(key);
+        for (Map.Entry<String, String> entry : infoStrings.entrySet()) {
+            String value = entry.getValue();
             if (value != null && !value.isEmpty() && !"N/A".equals(value)) {
-                executionSummary.put(key, value);
+                executionSummary.put(entry.getKey(), value);
             }
         }
 
@@ -593,8 +593,8 @@ public class Profile {
                     List<Map<String, Object>> children = (List<Map<String, Object>>) content.get("children");
                     for (Map<String, Object> child : children) {
                         // Each child is {childName: {content}}
-                        for (Map.Entry<String, Object> entry : child.entrySet()) {
-                            executionSummary.put(entry.getKey(), entry.getValue());
+                        for (Map.Entry<String, Object> childEntry : child.entrySet()) {
+                            executionSummary.put(childEntry.getKey(), childEntry.getValue());
                         }
                     }
                 }
