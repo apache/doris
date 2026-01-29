@@ -313,41 +313,43 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 continue;
             }
             Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> invalidPartitions;
-            if (PartitionCompensator.needUnionRewrite(materializationContext, cascadesContext.getStatementContext())
-                    && sessionVariable.isEnableMaterializedViewUnionRewrite()) {
+            if (PartitionCompensator.needUnionRewrite(materializationContext, cascadesContext.getStatementContext())) {
                 MTMV mtmv = ((AsyncMaterializationContext) materializationContext).getMtmv();
                 Map<List<String>, Set<String>> queryUsedPartitions = PartitionCompensator.getQueryUsedPartitions(
                         cascadesContext.getStatementContext(), queryStructInfo.getRelationBitSet());
                 Set<MTMVRelatedTableIf> pctTables = mtmv.getMvPartitionInfo().getPctTables();
-                boolean relateTableUsedPartitionsAnyNull = false;
-                boolean relateTableUsedPartitionsAllEmpty = true;
-                for (MTMVRelatedTableIf tableIf : pctTables) {
-                    Set<String> queryUsedPartition = queryUsedPartitions.get(tableIf.getFullQualifiers());
-                    relateTableUsedPartitionsAnyNull |= queryUsedPartition == null;
-                    if (queryUsedPartition == null) {
-                        continue;
+                boolean canUnionRewrite = sessionVariable.isEnableMaterializedViewUnionRewrite();
+                if (canUnionRewrite) {
+                    boolean relateTableUsedPartitionsAnyNull = false;
+                    boolean relateTableUsedPartitionsAllEmpty = true;
+                    for (MTMVRelatedTableIf tableIf : pctTables) {
+                        Set<String> queryUsedPartition = queryUsedPartitions.get(tableIf.getFullQualifiers());
+                        relateTableUsedPartitionsAnyNull |= queryUsedPartition == null;
+                        if (queryUsedPartition == null) {
+                            continue;
+                        }
+                        relateTableUsedPartitionsAllEmpty &= queryUsedPartition.isEmpty();
                     }
-                    relateTableUsedPartitionsAllEmpty &= queryUsedPartition.isEmpty();
-                }
-                if (relateTableUsedPartitionsAnyNull || relateTableUsedPartitionsAllEmpty) {
-                    materializationContext.recordFailReason(queryStructInfo,
-                            String.format("queryUsedPartition is all null or empty but needUnionRewrite, "
-                                            + "queryUsedPartitions is %s, queryId is %s",
-                                    queryUsedPartitions,
-                                    cascadesContext.getConnectContext().getQueryIdentifier()),
-                            () -> String.format(
-                                    "queryUsedPartition is all null or empty but needUnionRewrite, "
-                                            + "queryUsedPartitions is %s, queryId is %s",
-                                    queryUsedPartitions,
-                                    cascadesContext.getConnectContext().getQueryIdentifier()));
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug(String.format(
+                    if (relateTableUsedPartitionsAnyNull || relateTableUsedPartitionsAllEmpty) {
+                        materializationContext.recordFailReason(queryStructInfo,
+                                String.format("queryUsedPartition is all null or empty but needUnionRewrite, "
+                                    + "queryUsedPartitions is %s, queryId is %s",
+                                queryUsedPartitions,
+                                cascadesContext.getConnectContext().getQueryIdentifier()),
+                                () -> String.format(
                                 "queryUsedPartition is all null or empty but needUnionRewrite, "
-                                        + "queryUsedPartitions is %s, queryId is %s",
+                                    + "queryUsedPartitions is %s, queryId is %s",
                                 queryUsedPartitions,
                                 cascadesContext.getConnectContext().getQueryIdentifier()));
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug(String.format(
+                                    "queryUsedPartition is all null or empty but needUnionRewrite, "
+                                    + "queryUsedPartitions is %s, queryId is %s",
+                                    queryUsedPartitions,
+                                    cascadesContext.getConnectContext().getQueryIdentifier()));
+                        }
+                        return rewriteResults;
                     }
-                    return rewriteResults;
                 }
                 try {
                     invalidPartitions = calcInvalidPartitions(queryUsedPartitions, rewrittenPlan,
@@ -368,7 +370,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     return rewriteResults;
                 }
                 boolean partitionNeedUnion = PartitionCompensator.needUnionRewrite(invalidPartitions, cascadesContext);
-                boolean canUnionRewrite = canUnionRewrite(queryPlan,
+                canUnionRewrite = canUnionRewrite && canUnionRewrite(queryPlan,
                         (AsyncMaterializationContext) materializationContext, cascadesContext);
                 if (partitionNeedUnion && !canUnionRewrite) {
                     materializationContext.recordFailReason(queryStructInfo,
