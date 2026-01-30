@@ -68,7 +68,9 @@ public:
             : Base(pool, tnode, operator_id, descs),
               _child_quantity(tnode.node_type == TPlanNodeType::type::INTERSECT_NODE
                                       ? tnode.intersect_node.result_expr_lists.size()
-                                      : tnode.except_node.result_expr_lists.size()) {};
+                                      : tnode.except_node.result_expr_lists.size()),
+              _is_colocate(is_intersect ? tnode.intersect_node.is_colocate
+                                        : tnode.except_node.is_colocate) {}
 
 #ifdef BE_TEST
     SetSourceOperatorX(size_t child_quantity) : _child_quantity(child_quantity) {}
@@ -76,6 +78,8 @@ public:
     ~SetSourceOperatorX() override = default;
 
     [[nodiscard]] bool is_source() const override { return true; }
+    bool is_shuffled_operator() const override { return true; }
+    bool is_colocated_operator() const override { return _is_colocate; }
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
     Status set_child(OperatorPtr child) override {
@@ -94,6 +98,7 @@ private:
                                   HashTableContext& hash_table_ctx, vectorized::Block* output_block,
                                   const int batch_size, bool* eos);
     const size_t _child_quantity;
+    const bool _is_colocate;
 };
 #include "common/compile_check_end.h"
 } // namespace pipeline
