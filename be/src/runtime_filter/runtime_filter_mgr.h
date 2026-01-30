@@ -104,18 +104,6 @@ public:
 
     std::string debug_string();
 
-    std::set<int32_t> get_filter_ids() {
-        std::set<int32_t> ids;
-        std::lock_guard<std::mutex> l(_lock);
-        for (const auto& id : _producer_id_set) {
-            ids.insert(id);
-        }
-        for (const auto& kv : _consumer_map) {
-            ids.insert(kv.first);
-        }
-        return ids;
-    }
-
     void remove_filters(const std::set<int32_t>& filter_ids) {
         std::lock_guard<std::mutex> l(_lock);
         for (const auto& id : filter_ids) {
