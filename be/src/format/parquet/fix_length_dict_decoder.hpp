@@ -81,7 +81,7 @@ public:
                           ColumnSelectVector& select_vector, bool is_dict_filter) {
         size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
         if (doris_column->is_column_dictionary() &&
-            assert_cast<ColumnDictI32&>(*doris_column).dict_size() == 0) {
+            assert_cast<ColumnDictI32&>(*doris_column).dict_size() == 0 && !_dict_items.empty()) {
             std::vector<StringRef> dict_items;
 
             char* dict_item_address = (char*)_dict.get();
@@ -213,6 +213,13 @@ protected:
 
     MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) override {
         auto res = ColumnString::create();
+        if (_dict_items.empty()) {
+            if (dict_column->size() > 0) {
+                LOG(ERROR) << "Attempt to convert dict column with empty dictionary, column size: "
+                           << dict_column->size();
+            }
+            return res;
+        }
         std::vector<StringRef> dict_values;
         dict_values.reserve(dict_column->size());
         const auto& data = dict_column->get_data();
