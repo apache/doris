@@ -1204,30 +1204,51 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         boolean shouldReleaseLock = false;
         writeLock();
         try {
-            if (runningStreamTask.getIsCanceled().get()) {
+            // For Kafka streaming jobs with multiple partition tasks,
+            // offset is managed in onKafkaPartitionTaskSuccess() instead.
+            // Here we need to find the correct task from runningKafkaPartitionTasks.
+            AbstractStreamingTask currentTask = runningStreamTask;
+            
+            if (currentTask == null && isKafkaStreamingJob() && !runningKafkaPartitionTasks.isEmpty()) {
+                // Try to find a running task from Kafka partition tasks
+                // This handles the case where runningStreamTask is not set
+                for (AbstractStreamingTask task : runningKafkaPartitionTasks.values()) {
+                    if (task != null && !task.getIsCanceled().get()) {
+                        currentTask = task;
+                        break;
+                    }
+                }
+            }
+            
+            if (currentTask == null) {
+                log.warn("No running task found for job {} in beforeCommitted, skipping", getJobId());
+                return;
+            }
+            
+            if (currentTask.getIsCanceled().get()) {
                 log.info("streaming insert job {} task {} is canceled, skip beforeCommitted",
-                        getJobId(), runningStreamTask.getTaskId());
+                        getJobId(), currentTask.getTaskId());
                 return;
             }
 
             ArrayList<Long> taskIds = new ArrayList<>();
-            taskIds.add(runningStreamTask.getTaskId());
+            taskIds.add(currentTask.getTaskId());
             // todo: Check whether the taskid of runningtask is consistent with the taskid associated with txn
 
             List<LoadJob> loadJobs = Env.getCurrentEnv().getLoadManager().queryLoadJobsByJobIds(taskIds);
             if (loadJobs.size() == 0) {
-                throw new TransactionException("load job not found, insert job id is " + runningStreamTask.getTaskId());
+                throw new TransactionException("load job not found, insert job id is " + currentTask.getTaskId());
             }
             LoadJob loadJob = loadJobs.get(0);
             LoadStatistic loadStatistic = loadJob.getLoadStatistic();
             txnState.setTxnCommitAttachment(new StreamingTaskTxnCommitAttachment(
                         getJobId(),
-                        runningStreamTask.getTaskId(),
+                        currentTask.getTaskId(),
                         loadStatistic.getScannedRows(),
                         loadStatistic.getLoadBytes(),
                         loadStatistic.getFileNumber(),
                         loadStatistic.getTotalFileSizeB(),
-                        runningStreamTask.getRunningOffset().toSerializedJson()));
+                        currentTask.getRunningOffset().toSerializedJson()));
         } finally {
             if (shouldReleaseLock) {
                 writeUnlock();
