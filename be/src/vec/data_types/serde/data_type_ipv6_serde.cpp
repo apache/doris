@@ -275,6 +275,20 @@ Status DataTypeIPv6SerDe::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
+Status DataTypeIPv6SerDe::from_string(const std::string& str, Field& field,
+                                      const FormatOptions& options) const {
+    CastParameters params;
+    params.is_strict = false;
+
+    IPv6 val;
+    if (!CastToIPv6::from_string(StringRef(str), val, params)) {
+        return Status::InvalidArgument("parse ipv4 fail, string: '{}'", str);
+    }
+
+    field = Field::create_field<TYPE_IPV6>(std::move(val));
+    return Status::OK();
+}
+
 Status DataTypeIPv6SerDe::from_string_strict_mode(StringRef& str, IColumn& column,
                                                   const FormatOptions& options) const {
     auto& column_to = assert_cast<ColumnType&>(column);
