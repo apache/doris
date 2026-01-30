@@ -229,7 +229,11 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                     replaceSlotNamePath.addAll(outerPath.subList(1, outerPath.size()));
                     allSlotToAccessPaths.put(
                             innerSlot.getExprId().asInt(),
-                            new CollectAccessPathResult(replaceSlotNamePath, outerSlotAccessPath.isPredicate(), outerSlotAccessPath.getType())
+                            new CollectAccessPathResult(
+                                    replaceSlotNamePath,
+                                    outerSlotAccessPath.isPredicate(),
+                                    outerSlotAccessPath.getType()
+                            )
                     );
                 }
             } else {
