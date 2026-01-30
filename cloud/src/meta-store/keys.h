@@ -160,7 +160,7 @@ using TxnInfoKeyInfo       = BasicKeyInfo<__LINE__ , std::tuple<std::string,  in
 //                                                      0:instance_id  1:txn_id
 using TxnIndexKeyInfo      = BasicKeyInfo<__LINE__ , std::tuple<std::string,  int64_t>>;
 
-///                                                      0:instance_id  1:db_id  2:txn_id
+//                                                      0:instance_id  1:db_id  2:txn_id
 using TxnRunningKeyInfo    = BasicKeyInfo<__LINE__ , std::tuple<std::string,  int64_t, int64_t>>;
 
 //                                                      0:instance_id  1:db_id  2:tbl_id  3:partition_id
