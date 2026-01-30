@@ -297,7 +297,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.tvfType = currentTvf.getFunctionName();
             this.originTvfProps = currentTvf.getProperties().getMap();
             this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(currentTvf.getFunctionName());
-            
+
             // For Kafka jobs, initialize the KafkaSourceOffsetProvider with TVF properties
             if (offsetProvider instanceof KafkaSourceOffsetProvider) {
                 KafkaSourceOffsetProvider kafkaProvider = (KafkaSourceOffsetProvider) offsetProvider;
@@ -773,6 +773,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             if (tvfType != null) {
                 if (originTvfProps == null) {
                     this.originTvfProps = getCurrentTvf().getProperties().getMap();
+                }
+                if (offsetProvider instanceof KafkaSourceOffsetProvider && originTvfProps != null) {
+                    KafkaSourceOffsetProvider kafkaProvider = (KafkaSourceOffsetProvider) offsetProvider;
+                    kafkaProvider.setJobId(getJobId());
+                    kafkaProvider.initFromTvfProperties(originTvfProps);
                 }
                 offsetProvider.fetchRemoteMeta(originTvfProps);
             } else {
@@ -1342,16 +1347,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (offsetProvider == null) {
             if (tvfType != null) {
                 offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType);
-                // For Kafka jobs, initialize the provider after deserialization
-                if (offsetProvider instanceof KafkaSourceOffsetProvider && originTvfProps != null) {
-                    try {
-                        KafkaSourceOffsetProvider kafkaProvider = (KafkaSourceOffsetProvider) offsetProvider;
-                        kafkaProvider.setJobId(getJobId());
-                        kafkaProvider.initFromTvfProperties(originTvfProps);
-                    } catch (Exception e) {
-                        log.warn("Failed to initialize KafkaSourceOffsetProvider from TVF props", e);
-                    }
-                }
             } else {
                 offsetProvider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType, sourceProperties);
             }
