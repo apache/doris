@@ -3730,6 +3730,14 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static long cloud_auto_snapshot_min_interval_seconds = 3600;
 
+    @ConfField(mutable = true, description = {
+            "cluster snapshot 相关操作的最低权限要求。可选值：'root'（仅 root 用户可执行）或 'admin'（ADMIN 权限用户可执行）。默认值为 'root'。",
+            "The minimum privilege required for cluster snapshot operations. "
+                    + "Valid values: 'root' (only root user can execute)"
+                    + " or 'admin' (users with ADMIN privilege can execute). "
+                    + "Default is 'root'."})
+    public static String cluster_snapshot_min_privilege = "root";
+
     @ConfField(mutable = true)
     public static long multi_part_upload_part_size_in_bytes = 256 * 1024 * 1024L; // 256MB
     @ConfField(mutable = true)
