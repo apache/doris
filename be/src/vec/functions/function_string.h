@@ -1897,7 +1897,7 @@ public:
         }
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            auto str = str_col->get_data_at(i);
+            auto str = str_col->get_data_at(content_const ? 0 : i);
             auto delimiter = delimiter_col->get_data_at(delimiter_const ? 0 : i);
             int32_t delimiter_size = delimiter.size;
 
