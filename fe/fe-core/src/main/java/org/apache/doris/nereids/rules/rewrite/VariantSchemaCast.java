@@ -43,6 +43,8 @@ import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Optional;
@@ -61,6 +63,8 @@ import java.util.Set;
  * and other clauses without explicit CAST.
  */
 public class VariantSchemaCast implements CustomRewriter {
+
+    private static final Logger LOG = LogManager.getLogger(VariantSchemaCast.class);
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -89,24 +93,36 @@ public class VariantSchemaCast implements CustomRewriter {
             Expression left = elementAt.left();
             Expression right = elementAt.right();
 
+            // Debug logging
+            LOG.info("Processing ElementAt: {}", elementAt);
+            LOG.info("Left type: {}, class: {}", left.getDataType(),
+                    left.getDataType().getClass().getName());
+
             // Only process if left is VariantType and right is a string literal
             if (!(left.getDataType() instanceof VariantType)) {
+                LOG.info("Left is not VariantType, skipping");
                 return elementAt;
             }
             if (!(right instanceof StringLikeLiteral)) {
+                LOG.info("Right is not StringLikeLiteral, skipping");
                 return elementAt;
             }
 
             VariantType variantType = (VariantType) left.getDataType();
             String fieldName = ((StringLikeLiteral) right).getStringValue();
 
+            LOG.info("predefinedFields: {}, fieldName: {}",
+                    variantType.getPredefinedFields(), fieldName);
+
             // Find matching field in schema template
             Optional<VariantField> matchingField = variantType.findMatchingField(fieldName);
             if (!matchingField.isPresent()) {
+                LOG.info("No matching field found for: {}", fieldName);
                 return elementAt;
             }
 
             DataType targetType = matchingField.get().getDataType();
+            LOG.info("Found matching field, target type: {}", targetType);
             return new Cast(elementAt, targetType);
         }
 

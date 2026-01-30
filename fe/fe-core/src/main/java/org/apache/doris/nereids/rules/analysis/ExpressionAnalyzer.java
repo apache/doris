@@ -84,6 +84,7 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
@@ -99,6 +100,8 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VariantField;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -273,7 +276,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         } else if (dataType.isMapType()) {
             return new ElementAt(expression, dereferenceExpression.child(1));
         } else if (dataType.isVariantType()) {
-            return new ElementAt(expression, dereferenceExpression.child(1));
+            ElementAt elementAt = new ElementAt(expression, dereferenceExpression.child(1));
+            return wrapVariantElementAtWithCast(elementAt, (VariantType) dataType,
+                    dereferenceExpression.fieldName);
         }
         throw new AnalysisException("Can not dereference field: " + dereferenceExpression.fieldName);
     }
@@ -634,6 +639,20 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         Expression right = binaryArithmetic.right().accept(this, context);
         binaryArithmetic = (BinaryArithmetic) binaryArithmetic.withChildren(left, right);
         return TypeCoercionUtils.processBinaryArithmetic(binaryArithmetic);
+    }
+
+    @Override
+    public Expression visitElementAt(ElementAt elementAt, ExpressionRewriteContext context) {
+        Expression left = elementAt.left().accept(this, context);
+        Expression right = elementAt.right().accept(this, context);
+        ElementAt newElementAt = (ElementAt) elementAt.withChildren(left, right);
+        // Auto-cast for variant schema template
+        if (left.getDataType() instanceof VariantType && right instanceof StringLikeLiteral) {
+            VariantType variantType = (VariantType) left.getDataType();
+            String fieldName = ((StringLikeLiteral) right).getStringValue();
+            return wrapVariantElementAtWithCast(newElementAt, variantType, fieldName);
+        }
+        return newElementAt;
     }
 
     @Override
@@ -1099,7 +1118,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 expression = new ElementAt(expression, new StringLiteral(fieldName));
                 continue;
             } else if (dataType.isVariantType()) {
-                expression = new ElementAt(expression, new StringLiteral(fieldName));
+                ElementAt elementAt = new ElementAt(expression, new StringLiteral(fieldName));
+                expression = wrapVariantElementAtWithCast(elementAt, (VariantType) dataType, fieldName);
                 continue;
             }
             throw new AnalysisException("No such field '" + fieldName + "' in '" + lastFieldName + "'");
@@ -1113,6 +1133,19 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         } else {
             return boundSlot.equalsIgnoreCase(unboundSlot);
         }
+    }
+
+    /**
+     * Wrap ElementAt with Cast if the variant type has a matching predefined field.
+     * This enables auto-cast for variant schema template.
+     */
+    private static Expression wrapVariantElementAtWithCast(
+            ElementAt elementAt, VariantType variantType, String fieldName) {
+        Optional<VariantField> matchingField = variantType.findMatchingField(fieldName);
+        if (matchingField.isPresent()) {
+            return new Cast(elementAt, matchingField.get().getDataType());
+        }
+        return elementAt;
     }
 
     private boolean shouldBindSlotBy(int namePartSize, Slot boundSlot) {
