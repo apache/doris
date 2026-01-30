@@ -135,15 +135,12 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot) {
-        return Maps.newHashMap(
-                IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, this)
-                .getPartitionInfo().getNameToPartitionItem());
+        return Maps.newHashMap(IcebergUtils.getIcebergPartitionItems(snapshot, this));
     }
 
     @Override
     public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
-        return IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, this)
-            .getPartitionInfo().getNameToPartitionItem();
+        return IcebergUtils.getIcebergPartitionItems(snapshot, this);
     }
 
     @Override
@@ -158,18 +155,13 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
-        IcebergSnapshotCacheValue snapshotValue =
-                IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, this);
-        IcebergSchemaCacheValue schemaValue = IcebergUtils.getSchemaCacheValue(
-                this, snapshotValue.getSnapshot().getSchemaId());
-        return schemaValue.getPartitionColumns();
+        return IcebergUtils.getIcebergPartitionColumns(snapshot, this);
     }
 
     @Override
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
                                                Optional<MvccSnapshot> snapshot) throws AnalysisException {
-        IcebergSnapshotCacheValue snapshotValue =
-                IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, this);
+        IcebergSnapshotCacheValue snapshotValue = IcebergUtils.getSnapshotCacheValue(snapshot, this);
         long latestSnapshotId = snapshotValue.getPartitionInfo().getLatestSnapshotId(partitionName);
         // If partition snapshot ID is unavailable (<= 0), fallback to table snapshot ID
         // This can happen when last_updated_snapshot_id is null in Iceberg metadata
@@ -195,13 +187,13 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     @Override
     public MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException {
         makeSureInitialized();
-        IcebergSnapshotCacheValue snapshotValue = IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, this);
+        IcebergSnapshotCacheValue snapshotValue = IcebergUtils.getSnapshotCacheValue(snapshot, this);
         return new MTMVSnapshotIdSnapshot(snapshotValue.getSnapshot().getSnapshotId());
     }
 
     @Override
     public long getNewestUpdateVersionOrTime() {
-        return IcebergUtils.getIcebergSnapshotCacheValue(Optional.empty(), this, Optional.empty())
+        return IcebergUtils.getLatestSnapshotCacheValue(this)
                 .getPartitionInfo().getNameToIcebergPartition().values().stream()
                 .mapToLong(IcebergPartition::getLastUpdateTime).max().orElse(0);
     }
@@ -256,7 +248,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         if (isView()) {
             return new EmptyMvccSnapshot();
         } else {
-            return new IcebergMvccSnapshot(IcebergUtils.getIcebergSnapshotCacheValue(
+            return new IcebergMvccSnapshot(IcebergUtils.getSnapshotCacheValue(
                     tableSnapshot, this, scanParams));
         }
     }

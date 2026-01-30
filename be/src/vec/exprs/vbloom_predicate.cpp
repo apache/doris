@@ -70,8 +70,9 @@ void VBloomPredicate::close(VExprContext* context, FunctionContext::FunctionStat
     VExpr::close(context, scope);
 }
 
-Status VBloomPredicate::execute_column(VExprContext* context, const Block* block, size_t count,
-                                       ColumnPtr& result_column) const {
+Status VBloomPredicate::_do_execute(VExprContext* context, const Block* block,
+                                    const uint8_t* __restrict filter, size_t count,
+                                    ColumnPtr& result_column) const {
     DCHECK(_open_finished || block == nullptr);
     DCHECK_EQ(_children.size(), 1);
 
@@ -85,13 +86,24 @@ Status VBloomPredicate::execute_column(VExprContext* context, const Block* block
     res_data_column->resize(sz);
     auto* ptr = ((ColumnUInt8*)res_data_column.get())->get_data().data();
 
-    _filter->find_fixed_len(argument_column, ptr);
+    _filter->find_fixed_len(argument_column, ptr, filter);
 
     result_column = std::move(res_data_column);
     DCHECK_EQ(result_column->size(), count);
     return Status::OK();
 }
 
+Status VBloomPredicate::execute_column(VExprContext* context, const Block* block, size_t count,
+                                       ColumnPtr& result_column) const {
+    return _do_execute(context, block, nullptr, count, result_column);
+}
+
+Status VBloomPredicate::execute_runtime_filter(VExprContext* context, const Block* block,
+                                               const uint8_t* __restrict filter, size_t count,
+                                               ColumnPtr& result_column,
+                                               ColumnPtr* arg_column) const {
+    return _do_execute(context, block, filter, count, result_column);
+}
 const std::string& VBloomPredicate::expr_name() const {
     return EXPR_NAME;
 }

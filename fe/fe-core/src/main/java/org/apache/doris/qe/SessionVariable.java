@@ -522,6 +522,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String MAX_INITIAL_FILE_SPLIT_NUM = "max_initial_file_split_num";
 
+    public static final String MAX_FILE_SPLIT_NUM = "max_file_split_num";
+
     // Target file size in bytes for Iceberg write operations
     public static final String ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES = "iceberg_write_target_file_size_bytes";
 
@@ -749,6 +751,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SKIP_CHECKING_ACID_VERSION_FILE = "skip_checking_acid_version_file";
 
     public static final String ENABLE_EXTENDED_REGEX = "enable_extended_regex";
+
+    public static final String CLOUD_PARTITIONS_TABLE_USE_CACHED_VISIBLE_VERSION =
+            "cloud_partitions_table_use_cached_visible_version";
 
     // NOTE: if you want to add some debug variables, please disable sql cache in `CacheAnalyzer.commonCacheCondition`,
     //       and set affectQueryResult=true
@@ -2256,6 +2261,13 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true)
     public int maxInitialSplitNum = 200;
 
+    @VariableMgr.VarAttr(
+            name = MAX_FILE_SPLIT_NUM,
+            description = {"在非 batch 模式下，每个 table scan 最大允许的 split 数量，防止产生过多 split 导致 OOM。",
+                    "In non-batch mode, the maximum number of splits allowed per table scan to avoid OOM."},
+            needForward = true)
+    public int maxFileSplitNum = 100000;
+
     // Target file size for Iceberg write operations
     // Default 0 means use config::iceberg_sink_max_file_size
     @VariableMgr.VarAttr(name = ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES, needForward = true)
@@ -3285,6 +3297,11 @@ public class SessionVariable implements Serializable, Writable {
     )
     public int defaultVariantSparseHashShardCount = 0;
 
+    @VariableMgr.VarAttr(name = CLOUD_PARTITIONS_TABLE_USE_CACHED_VISIBLE_VERSION, needForward = false,
+            description = {"partitions系统表的visible_version列在cloud模式是否使用cached",
+                    "Whether cache is used for the visible_version column"
+                             + "in the partitions system table on cloud mode"})
+    public boolean cloudPartitionsTableUseCachedVisibleVersion = true;
 
     @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_DOC_MODE,
@@ -4383,6 +4400,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setMaxInitialSplitNum(int maxInitialSplitNum) {
         this.maxInitialSplitNum = maxInitialSplitNum;
+    }
+
+    public int getMaxFileSplitNum() {
+        return maxFileSplitNum;
+    }
+
+    public void setMaxFileSplitNum(int maxFileSplitNum) {
+        this.maxFileSplitNum = maxFileSplitNum;
     }
 
     public long getIcebergWriteTargetFileSizeBytes() {
@@ -5951,6 +5976,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getDefaultVariantSparseHashShardCount() {
         return defaultVariantSparseHashShardCount;
+    }
+
+    public boolean getCloudPartitionsTableUseCachedVisibleVersion() {
+        return cloudPartitionsTableUseCachedVisibleVersion;
     }
 
     public boolean getDefaultVariantEnableDocMode() {

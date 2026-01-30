@@ -34,6 +34,14 @@
 
 namespace doris::vectorized {
 
+class MockClosure : public google::protobuf::Closure {
+public:
+    MockClosure() {}
+    MockClosure(std::function<void()> cb) : _cb(cb) {}
+    void Run() override { _cb(); }
+
+    std::function<void()> _cb;
+};
 class ArrowResultBlockBufferTest : public ::testing::Test {
 public:
     ArrowResultBlockBufferTest() = default;
@@ -44,8 +52,9 @@ class MockGetArrowResultBatchCtx : public GetArrowResultBatchCtx {
 public:
     ENABLE_FACTORY_CREATOR(MockGetArrowResultBatchCtx)
     MockGetArrowResultBatchCtx(std::function<void()> fail_cb, std::function<void()> close_cb,
-                               std::function<void()> data_cb, PFetchArrowDataResult* result)
-            : GetArrowResultBatchCtx(result),
+                               std::function<void()> data_cb, PFetchArrowDataResult* result,
+                               google::protobuf::Closure* done)
+            : GetArrowResultBatchCtx(result, done),
               _fail_cb(fail_cb),
               _close_cb(close_cb),
               _data_cb(data_cb) {}
@@ -78,9 +87,11 @@ TEST_F(ArrowResultBlockBufferTest, TestArrowResultBlockBuffer) {
     ArrowFlightResultBlockBuffer buffer(TUniqueId(), &state, schema, buffer_size);
     buffer.set_dependency(ins_id, dep);
     PFetchArrowDataResult presult;
+
+    MockClosure done([&]() -> void { std::cout << "cb" << std::endl; });
     std::shared_ptr<GetArrowResultBatchCtx> ctx = MockGetArrowResultBatchCtx::create_shared(
             [&]() -> void { fail = true; }, [&]() -> void { close = true; },
-            [&]() -> void { data = true; }, &presult);
+            [&]() -> void { data = true; }, &presult, &done);
 
     {
         auto num_rows = 2;
@@ -201,9 +212,11 @@ TEST_F(ArrowResultBlockBufferTest, TestCancelArrowResultBlockBuffer) {
     ArrowFlightResultBlockBuffer buffer(TUniqueId(), &state, schema, buffer_size);
     buffer.set_dependency(ins_id, dep);
     PFetchArrowDataResult presult;
+
+    MockClosure done([&]() -> void { std::cout << "cb" << std::endl; });
     std::shared_ptr<GetArrowResultBatchCtx> ctx = MockGetArrowResultBatchCtx::create_shared(
             [&]() -> void { fail = true; }, [&]() -> void { close = true; },
-            [&]() -> void { data = true; }, &presult);
+            [&]() -> void { data = true; }, &presult, &done);
 
     {
         EXPECT_TRUE(buffer.get_batch(ctx).ok());
@@ -273,9 +286,11 @@ TEST_F(ArrowResultBlockBufferTest, TestErrorClose) {
     ArrowFlightResultBlockBuffer buffer(TUniqueId(), &state, schema, buffer_size);
     buffer.set_dependency(ins_id, dep);
     PFetchArrowDataResult presult;
+
+    MockClosure done([&]() -> void { std::cout << "cb" << std::endl; });
     std::shared_ptr<GetArrowResultBatchCtx> ctx = MockGetArrowResultBatchCtx::create_shared(
             [&]() -> void { fail = true; }, [&]() -> void { close = true; },
-            [&]() -> void { data = true; }, &presult);
+            [&]() -> void { data = true; }, &presult, &done);
 
     {
         EXPECT_TRUE(buffer.get_batch(ctx).ok());
@@ -330,9 +345,11 @@ TEST_F(ArrowResultBlockBufferTest, TestArrowResultSerializeFailure) {
     ArrowFlightResultBlockBuffer buffer(TUniqueId(), &state, schema, buffer_size);
     buffer.set_dependency(ins_id, dep);
     PFetchArrowDataResult presult;
+
+    MockClosure done([&]() -> void { std::cout << "cb" << std::endl; });
     std::shared_ptr<GetArrowResultBatchCtx> ctx = MockGetArrowResultBatchCtx::create_shared(
             [&]() -> void { fail = true; }, [&]() -> void { close = true; },
-            [&]() -> void { data = true; }, &presult);
+            [&]() -> void { data = true; }, &presult, &done);
 
     {
         auto num_rows = 2;
