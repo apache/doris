@@ -43,7 +43,7 @@ suite("test_default_cluster", "docker") {
         // admin role
         def user2 = "default_user2"
         // domain user
-        def user3 = "default_user3@'175.%'"
+        def user3 = "default_user3@'%.%'"
 
         sql """CREATE USER $user1 IDENTIFIED BY 'Cloud123456' DEFAULT ROLE 'admin'"""
         sql """CREATE USER $user2 IDENTIFIED BY 'Cloud123456'"""
