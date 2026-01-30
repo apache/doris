@@ -28,8 +28,13 @@
 // for example column_ip should test these functions
 
 namespace doris::vectorized {
+static std::string test_result_dir;
 class ColumnArrayTest : public CommonColumnTest {
 protected:
+    static void SetUpTestSuite() {
+        auto root_dir = std::string(getenv("ROOT"));
+        test_result_dir = root_dir + "/be/test/expected_result/vec/columns";
+    }
     void SetUp() override {
         // insert from data csv and assert insert result
         std::string data_file_dir = "regression-test/data/nereids_function_p0/array/";
@@ -553,6 +558,18 @@ TEST_F(ColumnArrayTest, HashTest) {
 
     // SipHash
     assert_update_siphashes_with_value_callback(array_columns, serdes);
+
+    {
+        auto column_count = array_columns.size();
+        for (size_t i = 0; i < column_count; ++i) {
+            assert_column_vector_update_crc32c_batch_callback(
+                    array_columns[i], fmt::format("{}/{}{}{}", test_result_dir,
+                                                  "column_array_update_crc32c_batch_", i, ".out"));
+            assert_column_vector_update_crc32c_single_callback(
+                    array_columns[i], fmt::format("{}/{}{}{}", test_result_dir,
+                                                  "column_array_update_crc32c_single_", i, ".out"));
+        }
+    }
 };
 
 // test assert_convert_to_full_column_if_const_callback
