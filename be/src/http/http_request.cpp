@@ -22,12 +22,15 @@
 #include <event2/http_struct.h>
 #include <event2/keyvalq_struct.h>
 
+#include <memory>
 #include <sstream>
 #include <string>
 #include <unordered_map>
 #include <utility>
 
 #include "http/http_handler.h"
+#include "runtime/stream_load/stream_load_context.h"
+#include "util/stack_util.h"
 
 namespace doris {
 
@@ -139,6 +142,50 @@ std::string HttpRequest::get_request_body() {
 
 const char* HttpRequest::remote_host() const {
     return _ev_req->remote_host;
+}
+
+void HttpRequest::finish_send_reply() {
+    if (_send_reply_type == REPLY_SYNC) {
+        return;
+    }
+
+    std::string infos;
+    if (_handler_ctx != nullptr) {
+        infos = reinterpret_cast<StreamLoadContext*>(_handler_ctx.get())->brief();
+    }
+    _http_reply_promise.set_value(true);
+}
+
+void HttpRequest::wait_finish_send_reply() {
+    if (_send_reply_type == REPLY_SYNC) {
+        return;
+    }
+
+    std::string infos;
+    StreamLoadContext* ctx = nullptr;
+    if (_handler_ctx != nullptr) {
+        ctx = reinterpret_cast<StreamLoadContext*>(_handler_ctx.get());
+        infos = ctx->brief();
+        _handler->free_handler_ctx(_handler_ctx);
+    }
+
+    VLOG_NOTICE << "start to wait send reply, infos=" << infos;
+    auto status = _http_reply_future.wait_for(std::chrono::seconds(config::async_reply_timeout_s));
+    // if request is timeout and can't cancel fragment in time, it will cause some new request block
+    // so we will free cancelled request in time.
+    if (status != std::future_status::ready) {
+        LOG(WARNING) << "wait for send reply timeout, " << this->debug_string();
+        std::unique_lock<std::mutex> lock1(ctx->_send_reply_lock);
+        // do not send_reply after free current request
+        ctx->_can_send_reply = false;
+        ctx->_finish_send_reply = true;
+        ctx->_can_send_reply_cv.notify_all();
+    } else {
+        VLOG_NOTICE << "wait send reply finished";
+    }
+
+    // delete _handler_ctx at the end, in case that finish_send_reply can't get detailed info
+    _handler_ctx = nullptr;
 }
 
 } // namespace doris

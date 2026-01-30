@@ -620,6 +620,13 @@ DECLARE_Bool(enable_all_http_auth);
 // Number of webserver workers
 DECLARE_Int32(webserver_num_workers);
 
+// Async replies: stream load only now
+// reply wait timeout only happens if:
+// 1. Stream load fragment execution times out
+//    HTTP request freed → stream load canceled
+// 2. Client disconnects
+DECLARE_mInt32(async_reply_timeout_s);
+
 DECLARE_Bool(enable_single_replica_load);
 // Number of download workers for single replica load
 DECLARE_Int32(single_replica_load_download_num_workers);
