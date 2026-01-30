@@ -1286,6 +1286,8 @@ public class StatisticsUtil {
      * Get the map of column literal value and its row count percentage in the table.
      * The stringValues is like:
      * value1 :percent1 ;value2 :percent2 ;value3 :percent3
+     * Result is ordered by percentage descending so that the hottest value is first.
+     * (GROUP_CONCAT in SQL does not guarantee order, so we sort here.)
      * @return Map of LiteralExpr -> percentage.
      */
     public static LinkedHashMap<Literal, Float> getHotValues(String stringValues, Type type, double avgOccurrences) {
@@ -1314,12 +1316,39 @@ public class StatisticsUtil {
                     }
                 }
             }
+            // Sort by percentage descending so that the hottest value is first.
+            // GROUP_CONCAT in SQL does not preserve subquery ORDER BY, so order is not guaranteed from DB.
             if (!ret.isEmpty()) {
+                List<Map.Entry<Literal, Float>> entries = new ArrayList<>(ret.entrySet());
+                entries.sort((a, b) -> Float.compare(b.getValue(), a.getValue()));
+                ret = Maps.newLinkedHashMap();
+                for (Map.Entry<Literal, Float> e : entries) {
+                    ret.put(e.getKey(), e.getValue());
+                }
                 return ret;
             }
         } catch (Exception e) {
             LOG.info("Failed to parse hot values [{}]. {}", stringValues, e.getMessage());
         }
         return null;
+    }
+
+    public static boolean isBalanced(ColumnStatistic columnStatistic, double rowCount, int instanceNum) {
+        double ndv = columnStatistic.ndv;
+        double maxHotValueCntIncludeNull;
+        Map<Literal, Float> hotValues = columnStatistic.getHotValues();
+        // When hotValues not exist, or exist but unknown, treat nulls as the only hot value.
+        if (columnStatistic.getHotValues() == null || hotValues.isEmpty()) {
+            maxHotValueCntIncludeNull = columnStatistic.numNulls;
+        } else {
+            double rate = hotValues.values().iterator().next();
+            maxHotValueCntIncludeNull = rate * rowCount > columnStatistic.numNulls
+                    ? rate * rowCount : columnStatistic.numNulls;
+        }
+        double rowsPerInstance = (rowCount - maxHotValueCntIncludeNull) / instanceNum;
+        double balanceFactor = maxHotValueCntIncludeNull == 0
+                ? Double.MAX_VALUE : rowsPerInstance / maxHotValueCntIncludeNull;
+        // The larger this factor is, the more balanced the data.
+        return balanceFactor > 2.0 && ndv > instanceNum * 3;
     }
 }

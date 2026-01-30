@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
@@ -62,6 +63,7 @@ public class LogicalPlanDeepCopierTest {
                 groupingSets,
                 scan.getOutput().stream().map(NamedExpression.class::cast).collect(Collectors.toList()),
                 groupingId,
+                RepeatType.GROUPING_SETS,
                 scan
         );
         List<? extends NamedExpression> groupByExprs = repeat.getOutput().subList(0, 1).stream()
