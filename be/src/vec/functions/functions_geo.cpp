@@ -25,7 +25,9 @@
 
 #include "geo/geo_common.h"
 #include "geo/geo_types.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_execute_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
@@ -45,76 +47,37 @@ struct StPoint {
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 2);
         auto return_type = block.get_data_type(result);
-
-        const auto& [left_column, left_const] =
-                unpack_if_const(block.get_by_position(arguments[0]).column);
-        const auto& [right_column, right_const] =
-                unpack_if_const(block.get_by_position(arguments[1]).column);
-
-        const auto size = std::max(left_column->size(), right_column->size());
-
+        auto left_column_ptr = block.get_by_position(arguments[0]).column;
+        auto right_column_ptr = block.get_by_position(arguments[1]).column;
+        const auto size = std::max(left_column_ptr->size(), right_column_ptr->size());
         auto res = ColumnString::create();
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
-        const auto* left_column_f64 = assert_cast<const ColumnFloat64*>(left_column.get());
-        const auto* right_column_f64 = assert_cast<const ColumnFloat64*>(right_column.get());
+
         GeoPoint point;
         std::string buf;
-        if (left_const) {
-            const_vector(left_column_f64, right_column_f64, res, null_map_data, size, point, buf);
-        } else if (right_const) {
-            vector_const(left_column_f64, right_column_f64, res, null_map_data, size, point, buf);
-        } else {
-            vector_vector(left_column_f64, right_column_f64, res, null_map_data, size, point, buf);
-        }
+        auto func = [&](size_t i, double left_val, double right_val) {
+            auto geo_status = point.from_coord(left_val, right_val);
+            if (geo_status != GEO_PARSE_OK) {
+                null_map_data[i] = 1;
+                res->insert_default();
+                return;
+            }
+            buf.clear();
+            point.encode_to(&buf);
+            res->insert_data(buf.data(), buf.size());
+        };
+
+        ExecuteColumn::execute_binary_compile_time_only_const<TYPE_DOUBLE, TYPE_DOUBLE>(
+                left_column_ptr, right_column_ptr, func);
 
         block.replace_by_position(result,
                                   ColumnNullable::create(std::move(res), std::move(null_map)));
         return Status::OK();
     }
 
-    static void loop_do(GeoParseStatus& cur_res, ColumnString::MutablePtr& res, NullMap& null_map,
-                        int row, GeoPoint& point, std::string& buf) {
-        if (cur_res != GEO_PARSE_OK) {
-            null_map[row] = 1;
-            res->insert_default();
-            return;
-        }
 
-        buf.clear();
-        point.encode_to(&buf);
-        res->insert_data(buf.data(), buf.size());
-    }
-
-    static void const_vector(const ColumnFloat64* left_column, const ColumnFloat64* right_column,
-                             ColumnString::MutablePtr& res, NullMap& null_map, const size_t size,
-                             GeoPoint& point, std::string& buf) {
-        double x = left_column->get_element(0);
-        for (int row = 0; row < size; ++row) {
-            auto cur_res = point.from_coord(x, right_column->get_element(row));
-            loop_do(cur_res, res, null_map, row, point, buf);
-        }
-    }
-
-    static void vector_const(const ColumnFloat64* left_column, const ColumnFloat64* right_column,
-                             ColumnString::MutablePtr& res, NullMap& null_map, const size_t size,
-                             GeoPoint& point, std::string& buf) {
-        double y = right_column->get_element(0);
-        for (int row = 0; row < size; ++row) {
-            auto cur_res = point.from_coord(left_column->get_element(row), y);
-            loop_do(cur_res, res, null_map, row, point, buf);
-        }
-    }
-
-    static void vector_vector(const ColumnFloat64* left_column, const ColumnFloat64* right_column,
-                              ColumnString::MutablePtr& res, NullMap& null_map, const size_t size,
-                              GeoPoint& point, std::string& buf) {
-        for (int row = 0; row < size; ++row) {
-            auto cur_res =
-                    point.from_coord(left_column->get_element(row), right_column->get_element(row));
-            loop_do(cur_res, res, null_map, row, point, buf);
-        }
-    }
+    
 };
 
 struct StAsTextName {
@@ -336,9 +299,10 @@ struct StAngle {
         DCHECK_EQ(arguments.size(), 3);
         auto return_type = block.get_data_type(result);
 
-        auto p1 = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto p2 = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        auto p3 = block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
+        auto p1 = block.get_by_position(arguments[0]).column;
+        auto p2 = block.get_by_position(arguments[1]).column;
+        auto p3 = block.get_by_position(arguments[2]).column;
+
         const auto size = p1->size();
         auto res = ColumnFloat64::create();
         res->reserve(size);
@@ -349,38 +313,40 @@ struct StAngle {
         GeoPoint point2;
         GeoPoint point3;
 
-        for (int row = 0; row < size; ++row) {
-            auto shape_value1 = p1->get_data_at(row);
+        auto func = [&](size_t i, StringRef shape_value1, StringRef shape_value2,
+                        StringRef shape_value3) {
             auto pt1 = point1.decode_from(shape_value1.data, shape_value1.size);
             if (!pt1) {
-                null_map_data[row] = 1;
+                null_map_data[i] = 1;
                 res->insert_default();
-                continue;
+                return;
             }
 
-            auto shape_value2 = p2->get_data_at(row);
             auto pt2 = point2.decode_from(shape_value2.data, shape_value2.size);
             if (!pt2) {
-                null_map_data[row] = 1;
+                null_map_data[i] = 1;
                 res->insert_default();
-                continue;
+                return;
             }
-            auto shape_value3 = p3->get_data_at(row);
             auto pt3 = point3.decode_from(shape_value3.data, shape_value3.size);
             if (!pt3) {
-                null_map_data[row] = 1;
+                null_map_data[i] = 1;
                 res->insert_default();
-                continue;
+                return;
             }
 
             double angle = 0;
             if (!GeoPoint::ComputeAngle(&point1, &point2, &point3, &angle)) {
-                null_map_data[row] = 1;
+                null_map_data[i] = 1;
                 res->insert_default();
-                continue;
+                return;
             }
             res->insert_value(angle);
-        }
+        };
+
+        ExecuteColumn::execute_ternary_compile_time_only_const<TYPE_STRING, TYPE_STRING,
+                                                               TYPE_STRING>(p1, p2, p3, func);
+
         block.replace_by_position(result,
                                   ColumnNullable::create(std::move(res), std::move(null_map)));
         return Status::OK();
