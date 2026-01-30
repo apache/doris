@@ -73,7 +73,8 @@ public:
                                         : tnode.except_node.is_colocate) {}
 
 #ifdef BE_TEST
-    SetSourceOperatorX(size_t child_quantity) : _child_quantity(child_quantity) {}
+    SetSourceOperatorX(size_t child_quantity)
+            : _child_quantity(child_quantity), _is_colocate(false) {}
 #endif
     ~SetSourceOperatorX() override = default;
 
