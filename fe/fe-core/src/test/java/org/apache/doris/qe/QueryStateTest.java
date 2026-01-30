@@ -17,6 +17,10 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.mysql.MysqlEofPacket;
+import org.apache.doris.mysql.MysqlErrPacket;
+import org.apache.doris.mysql.MysqlOkPacket;
+
 import org.junit.Assert;
 import org.junit.Test;
 
