@@ -168,7 +168,6 @@ import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAgg;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAggProject;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinLogicalJoin;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinLogicalJoinProject;
-import org.apache.doris.nereids.rules.rewrite.VariantSchemaCast;
 import org.apache.doris.nereids.rules.rewrite.VariantSubPathPruning;
 import org.apache.doris.nereids.rules.rewrite.batch.ApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.batch.CorrelateApplyToUnCorrelateApply;
@@ -275,11 +274,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                             new EliminateAssertNumRows(),
                                             new EliminateSemiJoin()
                                     )
-                            ),
-                            // Auto cast variant element access based on schema template
-                            // This must run before NormalizeSort which converts ORDER BY expressions to slots
-                            topic("variant schema cast before normalize",
-                                    custom(RuleType.VARIANT_SCHEMA_CAST, VariantSchemaCast::new)
                             ),
                             // The rule modification needs to be done after the subquery is unnested,
                             // because for scalarSubQuery, the connection condition is stored in apply in
@@ -517,11 +511,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new EliminateSemiJoin(),
                                 new SimplifyEncodeDecode()
                         )
-                ),
-                // Auto cast variant element access based on schema template
-                // This must run before NormalizeSort which converts ORDER BY expressions to slots
-                topic("variant schema cast before normalize",
-                        custom(RuleType.VARIANT_SCHEMA_CAST, VariantSchemaCast::new)
                 ),
                 // The rule modification needs to be done after the subquery is unnested,
                 // because for scalarSubQuery, the connection condition is stored in apply in the analyzer phase,

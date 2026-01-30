@@ -44,11 +44,11 @@ import java.util.List;
 import java.util.function.Function;
 
 /**
- * Unit tests for VariantSchemaCast expression rewriting.
+ * Unit tests for variant schema template auto-cast expression rewriting.
  */
-public class VariantSchemaCastTest {
+public class VariantSchemaTemplateTest {
 
-    // Expression rewriter extracted from VariantSchemaCast for testing
+    // Expression rewriter for variant schema template auto-cast
     private static final Function<Expression, Expression> EXPRESSION_REWRITER = expr -> {
         if (!(expr instanceof ElementAt)) {
             return expr;
