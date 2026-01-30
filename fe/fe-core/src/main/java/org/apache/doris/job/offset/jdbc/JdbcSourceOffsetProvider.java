@@ -69,7 +69,6 @@ import java.util.stream.Collectors;
 public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     public static final String SPLIT_ID = "splitId";
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    private static final int SNAPSHOT_PARALLELISM_DEFAULT = 4;
     private final int snapshotParallelism;
     private Long jobId;
     private DataSourceType sourceType;
@@ -96,7 +95,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         this.chunkHighWatermarkMap = new HashMap<>();
         this.snapshotParallelism = Integer.parseInt(
                 sourceProperties.getOrDefault(DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
-                        SNAPSHOT_PARALLELISM_DEFAULT + ""));
+                        DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT));
     }
 
     @Override

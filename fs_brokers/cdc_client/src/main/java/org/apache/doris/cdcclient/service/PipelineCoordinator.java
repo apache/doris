@@ -382,7 +382,7 @@ public class PipelineCoordinator {
         // for timeout)
         // snapshot split will be written to the debezium queue all at once.
         // multiple snapshot splits are handled in the source reader.
-        if (isSnapshotSplit && hasData) {
+        if (isSnapshotSplit) {
             LOG.info(
                     "Snapshot split finished, no more data available. Total elapsed: {} ms",
                     elapsedTime);
@@ -399,12 +399,6 @@ public class PipelineCoordinator {
         // 3. No data received after timeout: stop
         if (!hasData) {
             LOG.info("No data received after timeout, stopping. Elapsed: {} ms", elapsedTime);
-            return true;
-        }
-
-        // 4. Snapshot split after timeout (should not reach here, but keep as safety check)
-        if (isSnapshotSplit) {
-            LOG.info("Snapshot split timeout reached, stopping. Elapsed: {} ms", elapsedTime);
             return true;
         }
 

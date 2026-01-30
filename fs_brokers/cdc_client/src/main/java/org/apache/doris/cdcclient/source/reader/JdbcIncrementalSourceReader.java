@@ -61,12 +61,21 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import static org.apache.flink.cdc.connectors.base.source.meta.split.StreamSplit.STREAM_SPLIT_ID;
 
@@ -88,13 +97,19 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     // Support for multiple snapshot splits
     private List<SnapshotReaderContext<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit, 
             Fetcher<SourceRecords, SourceSplitBase>, SnapshotSplitState>> snapshotReaderContexts;
-    private int currentReaderIndex = 0;
+    private Set<String> completedSplitIds = new HashSet<>();
+
+
+    // Parallel polling support
+    private ExecutorService pollExecutor;
+    private List<CompletableFuture<PollResult>> activePollFutures;
     
     // Stream/binlog reader (single reader for stream split)
     private Fetcher<SourceRecords, SourceSplitBase> streamReader;
     private StreamSplit streamSplit;
     private StreamSplitState streamSplitState;
     protected FetchTask<SourceSplitBase> currentFetchTask;
+
 
     public JdbcIncrementalSourceReader() {
         this.serializer = new DebeziumJsonDeserializer();
@@ -104,6 +119,20 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     @Override
     public void initialize(long jobId, DataSource dataSource, Map<String, String> config) {
         this.serializer.init(config);
+        
+        // Initialize thread pool for parallel polling
+        int parallelism = Integer.parseInt(
+            config.getOrDefault(DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
+                    DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT)
+        );
+        this.pollExecutor = Executors.newFixedThreadPool(parallelism,
+            r -> {
+                Thread t = new Thread(r);
+                t.setName("snapshot-reader-" + jobId + "-" +t.getId());
+                t.setDaemon(true);
+                return t;
+            });
+        LOG.info("Initialized poll executor with parallelism: {}", parallelism);
     }
 
     @Override
@@ -223,9 +252,17 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         
         LOG.info("Preparing {} snapshot split(s) for reading", splits.size());
         
+        // Cancel any active poll operations
+        if (activePollFutures != null) {
+            LOG.info("Cancelling {} active poll operations with jobId {}", activePollFutures.size(), baseReq.getJobId());
+            activePollFutures.forEach(f -> f.cancel(true));
+            activePollFutures.clear();
+            activePollFutures = null;
+        }
+        
         // Clear previous contexts
         this.snapshotReaderContexts.clear();
-        this.currentReaderIndex = 0;
+        this.completedSplitIds.clear();
 
         List<CompletableFuture<Void>> futures = new ArrayList<>();
         // Create reader for each split and submit
@@ -251,7 +288,7 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
                 reader.submitTask(splitFetchTask);
                 LOG.info("Created reader {}/{} and submitted split: {} (table: {})",
                         index + 1, splits.size(), split.splitId(), split.getTableId().identifier());
-            }));
+            }, pollExecutor));
         }
 
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
@@ -308,7 +345,7 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     }
 
     @Override
-    public Iterator<SourceRecord> pollRecords() throws InterruptedException {
+    public Iterator<SourceRecord> pollRecords() throws Exception {
         if (!snapshotReaderContexts.isEmpty()) {
             // Snapshot split mode
             return pollRecordsFromSnapshotReaders();
@@ -321,68 +358,146 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     }
     
     /**
-     * Poll records from multiple snapshot readers sequentially.
-     * Directly pulls data from each reader's Debezium queue without extra queue.
+     * Poll records from multiple snapshot readers in parallel.
+     * Uses CompletableFuture.anyOf() to return data from the first completed reader.
      * 
-     * <p>This implementation loops through all readers in a single call.
-     * If a reader has no data, it automatically tries the next one.
-     * Each snapshot split is read only once.
+     * <p>This implementation starts parallel polling on first call, then incrementally
+     * returns results as each reader completes, improving response latency.
      */
     private Iterator<SourceRecord> pollRecordsFromSnapshotReaders() 
-            throws InterruptedException {
+            throws Exception {
         if (snapshotReaderContexts.isEmpty()) {
             return Collections.emptyIterator();
         }
+
+        if (completedSplitIds.size() >= snapshotReaderContexts.size()) {
+            LOG.info("All {} snapshot splits have been completed", snapshotReaderContexts.size());
+            return Collections.emptyIterator();
+        }
         
-        // Try all remaining readers (starting from currentReaderIndex)
-        int totalReaders = snapshotReaderContexts.size();
-        int attempts = totalReaders - currentReaderIndex;
+        // If no active polling, start new parallel polling round
+        if (activePollFutures == null || activePollFutures.isEmpty()) {
+            startParallelPolling();
+        }
         
-        for (int i = 0; i < attempts; i++) {
-            // Check if we've processed all splits
-            if (currentReaderIndex >= totalReaders) {
-                LOG.info("All {} snapshot splits have been processed", totalReaders);
-                return Collections.emptyIterator();
-            }
-            
-            // Get current reader context
+        // Wait for any reader to complete and return its data
+        PollResult result = waitForAnyCompletion();
+        
+        if (result == null) {
+            // All readers completed but no data available
+            LOG.info("All snapshot splits have no data currently");
+            activePollFutures = null;
+            return Collections.emptyIterator();
+        }
+        
+        // Return data from the first completed reader
+        LOG.info("{} Records received from snapshot split {}",
+                result.sourceRecords.getSourceRecordList().size(),
+                result.context.getSplit().splitId());
+
+        SplitRecords splitRecords = new SplitRecords(
+            result.context.getSplit().splitId(), 
+            result.sourceRecords.iterator()
+        );
+        
+        return new FilteredRecordIterator(splitRecords, result.context.getSplitState());
+    }
+    
+    /**
+     * Start parallel polling for all snapshot readers
+     */
+    private void startParallelPolling() {
+        LOG.info("Starting parallel polling for {} snapshot readers", 
+            snapshotReaderContexts.size());
+        
+        activePollFutures = new ArrayList<>();
+        
+        for (int i = 0; i < snapshotReaderContexts.size(); i++) {
+            final int index = i;
             SnapshotReaderContext<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit,
                     Fetcher<SourceRecords, SourceSplitBase>, SnapshotSplitState> context = 
-                snapshotReaderContexts.get(currentReaderIndex);
-            LOG.info("Polling data from snapshot split reader {}/{}: splitId={}",
-                    currentReaderIndex + 1, totalReaders, context.getSplit().splitId());
-            
-            // Poll data directly from this reader's Debezium queue
-            Iterator<SourceRecords> dataIt = context.getReader().pollSplitRecords();
-            
-            if (dataIt == null || !dataIt.hasNext()) {
-                // This reader has no data currently, move to next reader and continue
-                LOG.debug("Split {} has no data, trying next split", context.getSplit().splitId());
-                currentReaderIndex++;
-                continue;
-            }
-            
-            // Has data, process and return
-            SourceRecords sourceRecords = dataIt.next();
-            if (!sourceRecords.getSourceRecordList().isEmpty()) {
-                LOG.info("{} Records received from snapshot split {}",
-                        sourceRecords.getSourceRecordList().size(),
-                        context.getSplit().splitId());
-            }
+                snapshotReaderContexts.get(index);
 
-            // Move to next reader for next call
-            currentReaderIndex++;
+            CompletableFuture<PollResult> future = CompletableFuture.supplyAsync(() -> {
+                try {
+                    LOG.info("Polling from split {}", context.getSplit().splitId());
+                    Iterator<SourceRecords> dataIt = context.getReader().pollSplitRecords();
+
+                    if (dataIt != null && dataIt.hasNext()) {
+                        SourceRecords sourceRecords = dataIt.next();
+                        if (!sourceRecords.getSourceRecordList().isEmpty()) {
+                            return new PollResult(context, sourceRecords, index);
+                        }
+                    }
+                    LOG.info("No data from split {}", context.getSplit().splitId());
+                } catch (Exception e) {
+                    LOG.error("Error polling from split {}", 
+                        context.getSplit().splitId(), e);
+                    throw new RuntimeException("Failed to poll split: " +
+                            context.getSplit().splitId(), e);
+                }
+                return null;
+            }, pollExecutor);
             
-            // Wrap as SplitRecords
-            SplitRecords splitRecords = 
-                new SplitRecords(context.getSplit().splitId(), sourceRecords.iterator());
-            
-            // Use FilteredRecordIterator to filter and update state
-            return new FilteredRecordIterator(splitRecords, context.getSplitState(), this);
+            activePollFutures.add(future);
         }
+    }
+    
+    /**
+     * Wait for any reader to complete and return its result.
+     * Removes completed futures from the active list.
+     * 
+     * @return PollResult from first completed reader with data, or null if all completed without data
+     */
+    private PollResult waitForAnyCompletion() throws Exception {
+        while (!activePollFutures.isEmpty()) {
+            // Wait for any future to complete
+            CompletableFuture<Object> anyOf = CompletableFuture.anyOf(
+                    activePollFutures.toArray(new CompletableFuture[0])
+            );
 
-        LOG.info("All {} snapshot splits have no data currently", totalReaders);
-        return Collections.emptyIterator();
+            anyOf.join(); // Wait for at least one to complete
+
+            // Find and process completed futures
+            Iterator<CompletableFuture<PollResult>> iterator = activePollFutures.iterator();
+            while (iterator.hasNext()) {
+                CompletableFuture<PollResult> future = iterator.next();
+
+                if (future.isDone()) {
+                    iterator.remove(); // Remove from active list
+                    PollResult result = future.get();
+                    if (result != null) {
+                        // Found a reader with data, return immediately
+                        LOG.info("Got result from reader {}, {} futures remaining",
+                                result.context.getSplit().splitId(), activePollFutures.size());
+                        completedSplitIds.add(result.context.getSplit().splitId());
+                        return result;
+                    }
+                    // If result is null (no data), continue checking other futures
+                }
+            }
+        }
+        // All futures completed but none had data
+        return null;
+    }
+    
+    /**
+     * Result from polling a single snapshot reader
+     */
+    private static class PollResult {
+        final SnapshotReaderContext<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit,
+                Fetcher<SourceRecords, SourceSplitBase>, SnapshotSplitState> context;
+        final SourceRecords sourceRecords;
+        final int readerIndex;
+
+        PollResult(SnapshotReaderContext<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit,
+                        Fetcher<SourceRecords, SourceSplitBase>, SnapshotSplitState> context,
+                   SourceRecords sourceRecords,
+                   int readerIndex) {
+            this.context = context;
+            this.sourceRecords = sourceRecords;
+            this.readerIndex = readerIndex;
+        }
     }
     
     /**
@@ -408,7 +523,7 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
                     sourceRecords.getSourceRecordList().size());
         }
         
-        return new FilteredRecordIterator(splitRecords, streamSplitState, this);
+        return new FilteredRecordIterator(splitRecords, streamSplitState);
     }
 
     protected abstract DataType fromDbzColumn(Column splitColumn);
@@ -696,6 +811,13 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
 
     @Override
     public void finishSplitRecords() {
+        // Cancel any active poll operations
+        if (activePollFutures != null) {
+            activePollFutures.forEach(f -> f.cancel(true));
+            activePollFutures.clear();
+            activePollFutures = null;
+        }
+        completedSplitIds.clear();
         // Clean up snapshot readers
         if (!snapshotReaderContexts.isEmpty()) {
             LOG.info("Closing {} snapshot readers", snapshotReaderContexts.size());
@@ -707,7 +829,6 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
                 }
             }
             snapshotReaderContexts.clear();
-            currentReaderIndex = 0;
         }
         
         // Clean up stream reader
@@ -742,8 +863,32 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     @Override
     public void close(JobBaseConfig jobConfig) {
         LOG.info("Close source reader for job {}", jobConfig.getJobId());
+        
+        // Cancel any active poll operations
+        if (activePollFutures != null) {
+            activePollFutures.forEach(f -> f.cancel(true));
+            activePollFutures.clear();
+            activePollFutures = null;
+        }
+        
         // Clean up all readers
         finishSplitRecords();
+        
+        // Shutdown poll executor
+        if (pollExecutor != null && !pollExecutor.isShutdown()) {
+            LOG.info("Shutting down poll executor");
+            pollExecutor.shutdown();
+            try {
+                if (!pollExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    LOG.warn("Poll executor did not terminate in time, forcing shutdown");
+                    pollExecutor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                LOG.warn("Interrupted while waiting for poll executor shutdown");
+                pollExecutor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
         
         if (tableSchemas != null) {
             tableSchemas.clear();
@@ -767,8 +912,7 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         private final SourceSplitState splitState;
         private SourceRecord nextRecord;
 
-        FilteredRecordIterator(SplitRecords currentSplitRecords, SourceSplitState splitState,
-                JdbcIncrementalSourceReader reader) {
+        FilteredRecordIterator(SplitRecords currentSplitRecords, SourceSplitState splitState) {
             this.sourceIterator =
                     currentSplitRecords != null && !currentSplitRecords.isEmpty()
                             ? currentSplitRecords.getIterator()
