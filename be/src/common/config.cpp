@@ -1157,10 +1157,10 @@ DEFINE_mInt64(cache_lock_held_long_tail_threshold_us, "30000000");
 DEFINE_mBool(enable_file_cache_keep_base_compaction_output, "false");
 DEFINE_mBool(enable_file_cache_adaptive_write, "true");
 DEFINE_mDouble(file_cache_keep_base_compaction_output_min_hit_ratio, "0.7");
+DEFINE_mDouble(file_cache_keep_schema_change_output_min_hit_ratio, "0.7");
 
 // if difference below this threshold, we consider cache's progressive upgrading (2.0->3.0) successful
 DEFINE_mDouble(file_cache_meta_store_vs_file_system_diff_num_threshold, "0.3");
-DEFINE_mDouble(file_cache_keep_schema_change_output_min_hit_ratio, "0.7");
 
 DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");
@@ -1168,7 +1168,9 @@ DEFINE_mInt64(file_cache_background_block_lru_update_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_block_lru_update_qps_limit, "1000");
 DEFINE_mBool(enable_reader_dryrun_when_download_file_cache, "true");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
-DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "3000");
+DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "180000");
+DEFINE_mInt64(file_cache_background_ttl_info_update_interval_ms, "180000");
+DEFINE_mInt64(file_cache_background_tablet_id_flush_interval_ms, "1000");
 DEFINE_mInt64(file_cache_background_ttl_gc_batch, "1000");
 DEFINE_mInt64(file_cache_background_lru_dump_interval_ms, "60000");
 // dump queue only if the queue update specific times through several dump intervals
