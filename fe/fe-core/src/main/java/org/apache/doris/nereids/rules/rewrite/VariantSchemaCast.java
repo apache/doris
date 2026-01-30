@@ -22,11 +22,11 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
@@ -89,6 +89,49 @@ public class VariantSchemaCast implements CustomRewriter {
             return new Cast(elementAt, targetType);
         }
 
+        private Expression rewriteSlotReference(SlotReference slotRef) {
+            // Check if the SlotReference's DataType is VariantType with predefinedFields
+            if (!(slotRef.getDataType() instanceof VariantType)) {
+                return slotRef;
+            }
+
+            VariantType variantType = (VariantType) slotRef.getDataType();
+            if (variantType.getPredefinedFields().isEmpty()) {
+                return slotRef;
+            }
+
+            // Extract field name from SlotReference name pattern like "data['field_name']"
+            String slotName = slotRef.getName();
+
+            // Parse field name from pattern like "column['field']" or "column[\"field\"]"
+            int bracketStart = slotName.indexOf('[');
+            if (bracketStart < 0) {
+                return slotRef;
+            }
+
+            int bracketEnd = slotName.lastIndexOf(']');
+            if (bracketEnd <= bracketStart) {
+                return slotRef;
+            }
+
+            // Extract the content between brackets and remove quotes
+            String bracketContent = slotName.substring(bracketStart + 1, bracketEnd);
+            String fieldName = bracketContent;
+            if ((bracketContent.startsWith("'") && bracketContent.endsWith("'"))
+                    || (bracketContent.startsWith("\"") && bracketContent.endsWith("\""))) {
+                fieldName = bracketContent.substring(1, bracketContent.length() - 1);
+            }
+
+            // Find matching field in schema template
+            Optional<VariantField> matchingField = variantType.findMatchingField(fieldName);
+            if (!matchingField.isPresent()) {
+                return slotRef;
+            }
+
+            DataType targetType = matchingField.get().getDataType();
+            return new Cast(slotRef, targetType);
+        }
+
         private Expression rewriteExpression(Expression expr) {
             // Skip Match expressions - they require SlotRef as left operand
             if (expr instanceof Match) {
@@ -111,6 +154,10 @@ public class VariantSchemaCast implements CustomRewriter {
             // Then apply the rewriter to the current expression
             if (newExpr instanceof ElementAt) {
                 return rewriteElementAt((ElementAt) newExpr);
+            }
+            // Handle SlotReference that represents variant element access (e.g., data['field'])
+            if (newExpr instanceof SlotReference) {
+                return rewriteSlotReference((SlotReference) newExpr);
             }
             return newExpr;
         }
@@ -146,22 +193,6 @@ public class VariantSchemaCast implements CustomRewriter {
                     .map(orderKey -> orderKey.withExpression(rewriteExpression(orderKey.getExpr())))
                     .collect(ImmutableList.toImmutableList());
             return topN.withOrderKeys(newOrderKeys);
-        }
-
-        @Override
-        public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void context) {
-            join = (LogicalJoin<? extends Plan, ? extends Plan>) super.visit(join, context);
-            List<Expression> newHashConditions = join.getHashJoinConjuncts().stream()
-                    .map(this::rewriteExpression)
-                    .collect(ImmutableList.toImmutableList());
-            List<Expression> newOtherConditions = join.getOtherJoinConjuncts().stream()
-                    .map(this::rewriteExpression)
-                    .collect(ImmutableList.toImmutableList());
-            List<Expression> newMarkConditions = join.getMarkJoinConjuncts().stream()
-                    .map(this::rewriteExpression)
-                    .collect(ImmutableList.toImmutableList());
-            return join.withJoinConjuncts(newHashConditions, newOtherConditions,
-                    newMarkConditions, join.getJoinReorderContext());
         }
     }
 }

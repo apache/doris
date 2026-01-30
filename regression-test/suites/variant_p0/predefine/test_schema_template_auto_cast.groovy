@@ -60,41 +60,5 @@ suite("test_schema_template_auto_cast", "p0") {
     qt_topn """ SELECT id, data['num_a'] FROM ${tableName}
         ORDER BY data['num_a'] DESC LIMIT 2 """
 
-    // Test 4: JOIN ON clause
-    def leftTable = "test_variant_join_left"
-    def rightTable = "test_variant_join_right"
-
-    sql "DROP TABLE IF EXISTS ${leftTable}"
-    sql "DROP TABLE IF EXISTS ${rightTable}"
-
-    sql """CREATE TABLE ${leftTable} (
-        `id` bigint NULL,
-        `data` variant<'key_*': BIGINT> NOT NULL
-    ) ENGINE=OLAP DUPLICATE KEY(`id`)
-    DISTRIBUTED BY HASH(`id`) BUCKETS 1
-    PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
-
-    sql """CREATE TABLE ${rightTable} (
-        `id` bigint NULL,
-        `info` variant<'key_*': BIGINT> NOT NULL
-    ) ENGINE=OLAP DUPLICATE KEY(`id`)
-    DISTRIBUTED BY HASH(`id`) BUCKETS 1
-    PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
-
-    sql """insert into ${leftTable} values(1, '{"key_val": 100}')"""
-    sql """insert into ${leftTable} values(2, '{"key_val": 200}')"""
-    sql """insert into ${leftTable} values(3, '{"key_val": 300}')"""
-
-    sql """insert into ${rightTable} values(1, '{"key_val": 100}')"""
-    sql """insert into ${rightTable} values(2, '{"key_val": 250}')"""
-    sql """insert into ${rightTable} values(3, '{"key_val": 300}')"""
-
-    qt_join_on """ SELECT l.id, l.data['key_val'], r.info['key_val']
-        FROM ${leftTable} l JOIN ${rightTable} r
-        ON l.data['key_val'] = r.info['key_val']
-        ORDER BY l.id """
-
-    sql "DROP TABLE IF EXISTS ${leftTable}"
-    sql "DROP TABLE IF EXISTS ${rightTable}"
     sql "DROP TABLE IF EXISTS ${tableName}"
 }
