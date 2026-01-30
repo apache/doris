@@ -23,6 +23,10 @@ import org.apache.doris.plugin.Plugin;
 import org.apache.doris.plugin.PluginContext;
 import org.apache.doris.plugin.PluginException;
 import org.apache.doris.plugin.PluginInfo;
+import org.apache.doris.plugin.PluginInfo.PluginType;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * An abstract base class for lineage plugins in Apache Doris.
@@ -37,6 +41,8 @@ import org.apache.doris.plugin.PluginInfo;
  */
 public abstract class AbstractLineagePlugin extends Plugin {
 
+    private static final Logger LOG = LogManager.getLogger(AbstractLineagePlugin.class);
+
     /** Return the only plugin name, this is used in fe.conf. activate_lineage_plugin conf */
     public abstract String getName();
 
@@ -44,6 +50,25 @@ public abstract class AbstractLineagePlugin extends Plugin {
     public void init(PluginInfo info, PluginContext ctx) throws PluginException {
         super.init(info, ctx);
         Env.getCurrentEnv().getLineageEventProcessor().start();
+    }
+
+    @Override
+    public void afterInstall() {
+        refreshLineagePlugins();
+    }
+
+    @Override
+    public void afterUninstall() {
+        refreshLineagePlugins();
+    }
+
+    private void refreshLineagePlugins() {
+        try {
+            Env.getCurrentEnv().getLineageEventProcessor()
+                    .refreshPlugins(Env.getCurrentEnv().getPluginMgr().getActivePluginList(PluginType.LINEAGE));
+        } catch (Exception e) {
+            LOG.warn("failed to refresh lineage plugins", e);
+        }
     }
 
     /**

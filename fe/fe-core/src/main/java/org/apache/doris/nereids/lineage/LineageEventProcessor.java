@@ -32,6 +32,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 /**
@@ -42,8 +43,8 @@ public class LineageEventProcessor {
     private static final Logger LOG = LogManager.getLogger(LineageEventProcessor.class);
     private static final long UPDATE_PLUGIN_INTERVAL_MS = 60 * 1000; // 1min
     private final PluginMgr pluginMgr;
-    private List<Plugin> lineagePlugins;
-    private long lastUpdateTime = 0;
+    private final AtomicReference<List<Plugin>> lineagePlugins = new AtomicReference<>(Collections.emptyList());
+    private volatile long lastUpdateTime = 0;
     private final BlockingQueue<LineageInfo> eventQueue =
             new LinkedBlockingDeque<>(Config.lineage_event_queue_size);
     private final AtomicBoolean isInit = new AtomicBoolean(false);
@@ -65,9 +66,16 @@ public class LineageEventProcessor {
         if (!isInit.compareAndSet(false, true)) {
             return;
         }
+        refreshPlugins(pluginMgr.getActivePluginList(PluginType.LINEAGE));
         workerThread = new Thread(new Worker(), "LineageEventProcessor");
         workerThread.setDaemon(true);
         workerThread.start();
+    }
+
+    public void refreshPlugins(List<Plugin> plugins) {
+        List<Plugin> safePlugins = plugins == null ? Collections.emptyList() : plugins;
+        lineagePlugins.set(safePlugins);
+        lastUpdateTime = System.currentTimeMillis();
     }
 
     /**
@@ -112,15 +120,13 @@ public class LineageEventProcessor {
             LineageInfo lineageInfo;
             while (true) {
                 // update lineage plugin list every UPDATE_PLUGIN_INTERVAL_MS.
-                if (lineagePlugins == null || System.currentTimeMillis() - lastUpdateTime > UPDATE_PLUGIN_INTERVAL_MS) {
-                    lineagePlugins = pluginMgr.getActivePluginList(PluginType.LINEAGE);
-                    lastUpdateTime = System.currentTimeMillis();
-                    if (lineagePlugins == null) {
-                        lineagePlugins = Collections.emptyList();
-                    }
+                List<Plugin> currentPlugins = lineagePlugins.get();
+                if (System.currentTimeMillis() - lastUpdateTime > UPDATE_PLUGIN_INTERVAL_MS) {
+                    refreshPlugins(pluginMgr.getActivePluginList(PluginType.LINEAGE));
+                    currentPlugins = lineagePlugins.get();
                     if (LOG.isDebugEnabled()) {
-                        LOG.debug("update lineage plugins. num: {}, names: {}", lineagePlugins.size(),
-                                lineagePlugins.stream().map(plugin -> {
+                        LOG.debug("update lineage plugins. num: {}, names: {}", currentPlugins.size(),
+                                currentPlugins.stream().map(plugin -> {
                                             if (plugin instanceof AbstractLineagePlugin) {
                                                 return ((AbstractLineagePlugin) plugin).getName();
                                             } else {
@@ -140,7 +146,7 @@ public class LineageEventProcessor {
                     LOG.warn("encounter exception when getting lineage event from queue, ignore", e);
                     continue;
                 }
-                for (Plugin plugin : lineagePlugins) {
+                for (Plugin plugin : currentPlugins) {
                     try {
                         AbstractLineagePlugin lineagePlugin = (AbstractLineagePlugin) plugin;
                         if (lineageInfo == null) {

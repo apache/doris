@@ -42,6 +42,22 @@ public abstract class Plugin implements Closeable {
     }
 
     /**
+     * Invoked after the plugin is installed and registered by PluginMgr.
+     * Default no-op.
+     */
+    public void afterInstall() {
+
+    }
+
+    /**
+     * Invoked after the plugin is uninstalled and unregistered by PluginMgr.
+     * Default no-op.
+     */
+    public void afterUninstall() {
+
+    }
+
+    /**
      * invoke when the plugin uninstall
      */
     @Override
