@@ -46,7 +46,7 @@ Status VExplodeBitmapTableFunction::process_init(Block* block, RuntimeState* sta
             << _expr_context->root()->children().size();
 
     RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute_column(
-            _expr_context.get(), block, block->rows(), _value_column));
+            _expr_context.get(), block, nullptr, block->rows(), _value_column));
 
     return Status::OK();
 }

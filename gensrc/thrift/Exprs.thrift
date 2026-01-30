@@ -320,6 +320,7 @@ struct TExprNode {
   38: optional TVarBinaryLiteral varbinary_literal
   39: optional bool is_cast_nullable
   40: optional TSearchParam search_param
+  41: optional bool short_circuit_evaluation
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

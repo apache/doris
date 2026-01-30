@@ -84,8 +84,8 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block, size_t count,
-                          ColumnPtr& result_column) const override {
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override {
         if (!_predicate->has_value()) {
             result_column = create_always_true_column(count, _data_type->is_nullable());
             return Status::OK();
@@ -95,7 +95,7 @@ public:
 
         // slot
         ColumnPtr slot_column;
-        RETURN_IF_ERROR(_children[0]->execute_column(context, block, count, slot_column));
+        RETURN_IF_ERROR(_children[0]->execute_column(context, block, selector, count, slot_column));
         auto slot_type = _children[0]->execute_type(block);
         temp_block.insert({slot_column, slot_type, _children[0]->expr_name()});
         int slot_id = 0;
