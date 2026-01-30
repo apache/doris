@@ -196,6 +196,7 @@ DEFINE_mDouble(ms_rpc_table_qps_limit_floor, "1.0");
 
 // Throttle downgrade config
 DEFINE_mInt32(ms_backpressure_downgrade_interval_sec, "60");
+DEFINE_mInt32(ms_backpressure_tick_interval_ms, "1000");
 
 // Memory management config
 DEFINE_mInt32(ms_rpc_max_tracked_tables_per_rpc, "10000");

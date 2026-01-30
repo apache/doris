@@ -20,7 +20,6 @@
 #include <chrono>
 #include <map>
 #include <mutex>
-#include <shared_mutex>
 #include <utility>
 #include <vector>
 
@@ -31,14 +30,14 @@ namespace doris::cloud {
 // ============== Data Structures ==============
 
 // QPS snapshot: the current QPS of a table on a specific RPC type
-struct QpsSnapshot {
+struct RpcQpsSnapshot {
     LoadRelatedRpc rpc_type;
     int64_t table_id;
     double current_qps;
 };
 
 // Throttle action: describes what action should be taken
-struct ThrottleAction {
+struct RpcThrottleAction {
     enum class Type { SET_LIMIT, REMOVE_LIMIT };
 
     Type type;
@@ -50,12 +49,12 @@ struct ThrottleAction {
 // ============== ThrottleStateMachine ==============
 
 // Parameters for throttle state machine
-struct ThrottleParams {
+struct RpcThrottleParams {
     int top_k = 3;            // Number of top tables to throttle on each upgrade
     double ratio = 0.5;       // Decay ratio for throttle upgrade
     double floor_qps = 1.0;   // Floor value for table-level QPS limit
 
-    bool operator==(const ThrottleParams& other) const {
+    bool operator==(const RpcThrottleParams& other) const {
         return top_k == other.top_k && ratio == other.ratio && floor_qps == other.floor_qps;
     }
 };
@@ -65,32 +64,32 @@ struct ThrottleParams {
 // - No config dependency: all parameters passed via constructor/update_params
 // - No side effects: only returns action descriptions, doesn't touch throttler
 // - Deterministically testable: same event sequence -> same output
-class ThrottleStateMachine {
+class RpcThrottleStateMachine {
 public:
-    explicit ThrottleStateMachine(ThrottleParams params);
+    explicit RpcThrottleStateMachine(RpcThrottleParams params);
 
     // Runtime update parameters, takes effect on next on_upgrade
     // Note: existing upgrade history is NOT recalculated
-    void update_params(ThrottleParams params);
+    void update_params(RpcThrottleParams params);
 
     // Process a throttle upgrade event
     // qps_snapshot: current QPS snapshot for each (rpc, table), provided by caller
     // Returns: list of actions to execute
-    std::vector<ThrottleAction> on_upgrade(const std::vector<QpsSnapshot>& qps_snapshot);
+    std::vector<RpcThrottleAction> on_upgrade(const std::vector<RpcQpsSnapshot>& qps_snapshot);
 
     // Process a throttle downgrade event (undo the most recent upgrade)
     // Returns: list of actions to execute
-    std::vector<ThrottleAction> on_downgrade();
+    std::vector<RpcThrottleAction> on_downgrade();
 
     // Query current state
     size_t upgrade_level() const;  // Current upgrade level
     double get_current_limit(LoadRelatedRpc rpc_type, int64_t table_id) const;  // 0 = no limit
-    ThrottleParams get_params() const;
+    RpcThrottleParams get_params() const;
 
 private:
     mutable std::mutex _mtx;
 
-    ThrottleParams _params;
+    RpcThrottleParams _params;
 
     // Upgrade history for downgrade rollback
     // changes: (rpc_type, table_id) -> (old_limit, new_limit)
@@ -103,16 +102,16 @@ private:
     std::map<std::pair<LoadRelatedRpc, int64_t>, double> _current_limits;
 };
 
-// ============== UpgradeDowngradeCoordinator ==============
+// ============== ThrottleCoordinator ==============
 
 // Coordinator parameters
-struct CoordinatorParams {
+struct ThrottleCoordinatorParams {
     // Minimum ticks between upgrades
     int upgrade_cooldown_ticks = 10;
     // Ticks after last MS_BUSY to trigger downgrade
     int downgrade_after_ticks = 60;
 
-    bool operator==(const CoordinatorParams& other) const {
+    bool operator==(const ThrottleCoordinatorParams& other) const {
         return upgrade_cooldown_ticks == other.upgrade_cooldown_ticks &&
                downgrade_after_ticks == other.downgrade_after_ticks;
     }
@@ -121,19 +120,25 @@ struct CoordinatorParams {
 // Pure timing control for upgrade/downgrade triggers
 // - No time awareness: based on tick count, driven by caller
 // - No config dependency: all parameters passed via constructor/update_params
-class UpgradeDowngradeCoordinator {
+//
+// Tick to time ratio:
+// - 1 tick = 1 second is the default interpretation
+// - The caller can decide the actual time interval between ticks
+// - For example, if calling tick() every 100ms, then 10 ticks = 1 second
+//   and params should be adjusted accordingly
+class RpcThrottleCoordinator {
 public:
-    explicit UpgradeDowngradeCoordinator(CoordinatorParams params);
+    explicit RpcThrottleCoordinator(ThrottleCoordinatorParams params);
 
     // Runtime update parameters, takes effect on subsequent report_ms_busy/tick calls
     // Note: existing tick counts are NOT reset
-    void update_params(CoordinatorParams params);
+    void update_params(ThrottleCoordinatorParams params);
 
     // Report a MS_BUSY event
     // Returns true if upgrade should be triggered
     bool report_ms_busy();
 
-    // Advance one tick (caller calls this at fixed interval, e.g., every second)
+    // Advance one tick (caller decides actual time between ticks)
     // Returns true if downgrade should be triggered
     bool tick();
 
@@ -144,12 +149,12 @@ public:
     // Query state
     int ticks_since_last_ms_busy() const;
     int ticks_since_last_upgrade() const;
-    CoordinatorParams get_params() const;
+    ThrottleCoordinatorParams get_params() const;
 
 private:
     mutable std::mutex _mtx;
 
-    CoordinatorParams _params;
+    ThrottleCoordinatorParams _params;
     int _ticks_since_last_ms_busy = -1;  // -1 means never received
     int _ticks_since_last_upgrade = -1;  // -1 means never upgraded
     bool _has_pending_upgrades = false;  // Whether there are upgrade records to downgrade

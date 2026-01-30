@@ -21,20 +21,20 @@
 
 namespace doris::cloud {
 
-// ============== ThrottleStateMachine Tests ==============
+// ============== RpcThrottleStateMachine Tests ==============
 
-class ThrottleStateMachineTest : public testing::Test {
+class RpcThrottleStateMachineTest : public testing::Test {
 protected:
     void SetUp() override {}
     void TearDown() override {}
 };
 
-TEST_F(ThrottleStateMachineTest, SingleUpgradeAndDowngrade) {
-    ThrottleParams params {.top_k = 2, .ratio = 0.5, .floor_qps = 1.0};
-    ThrottleStateMachine sm(params);
+TEST_F(RpcThrottleStateMachineTest, SingleUpgradeAndDowngrade) {
+    RpcThrottleParams params {.top_k = 2, .ratio = 0.5, .floor_qps = 1.0};
+    RpcThrottleStateMachine sm(params);
 
     // Construct QPS snapshot: table 100 has QPS=200, table 200 has QPS=100
-    std::vector<QpsSnapshot> snapshot = {
+    std::vector<RpcQpsSnapshot> snapshot = {
             {LoadRelatedRpc::PREPARE_ROWSET, 100, 200.0},
             {LoadRelatedRpc::PREPARE_ROWSET, 200, 100.0},
             {LoadRelatedRpc::PREPARE_ROWSET, 300, 10.0}, // Not in top-2
@@ -46,12 +46,12 @@ TEST_F(ThrottleStateMachineTest, SingleUpgradeAndDowngrade) {
     ASSERT_EQ(actions.size(), 2);
 
     // table 100: new_limit = 200 * 0.5 = 100
-    EXPECT_EQ(actions[0].type, ThrottleAction::Type::SET_LIMIT);
+    EXPECT_EQ(actions[0].type, RpcThrottleAction::Type::SET_LIMIT);
     EXPECT_EQ(actions[0].table_id, 100);
     EXPECT_DOUBLE_EQ(actions[0].qps_limit, 100.0);
 
     // table 200: new_limit = 100 * 0.5 = 50
-    EXPECT_EQ(actions[1].type, ThrottleAction::Type::SET_LIMIT);
+    EXPECT_EQ(actions[1].type, RpcThrottleAction::Type::SET_LIMIT);
     EXPECT_EQ(actions[1].table_id, 200);
     EXPECT_DOUBLE_EQ(actions[1].qps_limit, 50.0);
 
@@ -63,15 +63,15 @@ TEST_F(ThrottleStateMachineTest, SingleUpgradeAndDowngrade) {
 
     // Both tables should be REMOVE_LIMIT (no previous limit)
     for (const auto& action : downgrade_actions) {
-        EXPECT_EQ(action.type, ThrottleAction::Type::REMOVE_LIMIT);
+        EXPECT_EQ(action.type, RpcThrottleAction::Type::REMOVE_LIMIT);
     }
 
     EXPECT_EQ(sm.upgrade_level(), 0);
 }
 
-TEST_F(ThrottleStateMachineTest, MultipleUpgradesThenDowngrades) {
-    ThrottleParams params {.top_k = 1, .ratio = 0.5, .floor_qps = 1.0};
-    ThrottleStateMachine sm(params);
+TEST_F(RpcThrottleStateMachineTest, MultipleUpgradesThenDowngrades) {
+    RpcThrottleParams params {.top_k = 1, .ratio = 0.5, .floor_qps = 1.0};
+    RpcThrottleStateMachine sm(params);
 
     // First upgrade
     auto a1 = sm.on_upgrade({{LoadRelatedRpc::COMMIT_ROWSET, 100, 80.0}});
@@ -88,20 +88,20 @@ TEST_F(ThrottleStateMachineTest, MultipleUpgradesThenDowngrades) {
     // First downgrade: undo second upgrade, restore to 40
     auto d1 = sm.on_downgrade();
     ASSERT_EQ(d1.size(), 1);
-    EXPECT_EQ(d1[0].type, ThrottleAction::Type::SET_LIMIT);
+    EXPECT_EQ(d1[0].type, RpcThrottleAction::Type::SET_LIMIT);
     EXPECT_DOUBLE_EQ(d1[0].qps_limit, 40.0);
 
     // Second downgrade: undo first upgrade, remove limit
     auto d2 = sm.on_downgrade();
     ASSERT_EQ(d2.size(), 1);
-    EXPECT_EQ(d2[0].type, ThrottleAction::Type::REMOVE_LIMIT);
+    EXPECT_EQ(d2[0].type, RpcThrottleAction::Type::REMOVE_LIMIT);
 
     EXPECT_EQ(sm.upgrade_level(), 0);
 }
 
-TEST_F(ThrottleStateMachineTest, FloorQpsEnforced) {
-    ThrottleParams params {.top_k = 1, .ratio = 0.1, .floor_qps = 5.0};
-    ThrottleStateMachine sm(params);
+TEST_F(RpcThrottleStateMachineTest, FloorQpsEnforced) {
+    RpcThrottleParams params {.top_k = 1, .ratio = 0.1, .floor_qps = 5.0};
+    RpcThrottleStateMachine sm(params);
 
     // current_qps=10, 10*0.1=1.0 < floor(5.0), should use floor
     auto actions = sm.on_upgrade({{LoadRelatedRpc::PREPARE_ROWSET, 100, 10.0}});
@@ -109,18 +109,18 @@ TEST_F(ThrottleStateMachineTest, FloorQpsEnforced) {
     EXPECT_DOUBLE_EQ(actions[0].qps_limit, 5.0);
 }
 
-TEST_F(ThrottleStateMachineTest, DowngradeOnEmptyHistoryIsNoop) {
-    ThrottleParams params {};
-    ThrottleStateMachine sm(params);
+TEST_F(RpcThrottleStateMachineTest, DowngradeOnEmptyHistoryIsNoop) {
+    RpcThrottleParams params {};
+    RpcThrottleStateMachine sm(params);
 
     auto actions = sm.on_downgrade();
     EXPECT_TRUE(actions.empty());
     EXPECT_EQ(sm.upgrade_level(), 0);
 }
 
-TEST_F(ThrottleStateMachineTest, UpdateTopKAtRuntime) {
-    ThrottleParams params {.top_k = 1, .ratio = 0.5, .floor_qps = 1.0};
-    ThrottleStateMachine sm(params);
+TEST_F(RpcThrottleStateMachineTest, UpdateTopKAtRuntime) {
+    RpcThrottleParams params {.top_k = 1, .ratio = 0.5, .floor_qps = 1.0};
+    RpcThrottleStateMachine sm(params);
 
     // First upgrade, top_k=1, only table 100 is throttled
     auto a1 = sm.on_upgrade({
@@ -145,9 +145,9 @@ TEST_F(ThrottleStateMachineTest, UpdateTopKAtRuntime) {
     EXPECT_EQ(a2[2].table_id, 300);
 }
 
-TEST_F(ThrottleStateMachineTest, UpdateRatioAtRuntime) {
-    ThrottleParams params {.top_k = 1, .ratio = 0.5, .floor_qps = 1.0};
-    ThrottleStateMachine sm(params);
+TEST_F(RpcThrottleStateMachineTest, UpdateRatioAtRuntime) {
+    RpcThrottleParams params {.top_k = 1, .ratio = 0.5, .floor_qps = 1.0};
+    RpcThrottleStateMachine sm(params);
 
     // First upgrade, ratio=0.5
     auto a1 = sm.on_upgrade({{LoadRelatedRpc::PREPARE_ROWSET, 100, 100.0}});
@@ -161,9 +161,9 @@ TEST_F(ThrottleStateMachineTest, UpdateRatioAtRuntime) {
     EXPECT_DOUBLE_EQ(a2[0].qps_limit, 5.0); // 50 * 0.1
 }
 
-TEST_F(ThrottleStateMachineTest, UpdateFloorQpsAtRuntime) {
-    ThrottleParams params {.top_k = 1, .ratio = 0.01, .floor_qps = 1.0};
-    ThrottleStateMachine sm(params);
+TEST_F(RpcThrottleStateMachineTest, UpdateFloorQpsAtRuntime) {
+    RpcThrottleParams params {.top_k = 1, .ratio = 0.01, .floor_qps = 1.0};
+    RpcThrottleStateMachine sm(params);
 
     // First upgrade, qps=10, 10*0.01=0.1 < floor(1.0), use floor
     auto a1 = sm.on_upgrade({{LoadRelatedRpc::PREPARE_ROWSET, 100, 10.0}});
@@ -177,9 +177,9 @@ TEST_F(ThrottleStateMachineTest, UpdateFloorQpsAtRuntime) {
     EXPECT_DOUBLE_EQ(a2[0].qps_limit, 5.0); // 1*0.01=0.01 < floor(5.0)
 }
 
-TEST_F(ThrottleStateMachineTest, MultipleRpcTypes) {
-    ThrottleParams params {.top_k = 2, .ratio = 0.5, .floor_qps = 1.0};
-    ThrottleStateMachine sm(params);
+TEST_F(RpcThrottleStateMachineTest, MultipleRpcTypes) {
+    RpcThrottleParams params {.top_k = 2, .ratio = 0.5, .floor_qps = 1.0};
+    RpcThrottleStateMachine sm(params);
 
     // Multiple RPC types
     auto actions = sm.on_upgrade({
@@ -210,9 +210,9 @@ TEST_F(ThrottleStateMachineTest, MultipleRpcTypes) {
     EXPECT_EQ(commit_count, 2);
 }
 
-TEST_F(ThrottleStateMachineTest, GetCurrentLimit) {
-    ThrottleParams params {.top_k = 1, .ratio = 0.5, .floor_qps = 1.0};
-    ThrottleStateMachine sm(params);
+TEST_F(RpcThrottleStateMachineTest, GetCurrentLimit) {
+    RpcThrottleParams params {.top_k = 1, .ratio = 0.5, .floor_qps = 1.0};
+    RpcThrottleStateMachine sm(params);
 
     EXPECT_EQ(sm.get_current_limit(LoadRelatedRpc::PREPARE_ROWSET, 100), 0.0);
 
@@ -223,9 +223,9 @@ TEST_F(ThrottleStateMachineTest, GetCurrentLimit) {
     EXPECT_EQ(sm.get_current_limit(LoadRelatedRpc::PREPARE_ROWSET, 100), 0.0);
 }
 
-TEST_F(ThrottleStateMachineTest, GetParams) {
-    ThrottleParams params {.top_k = 5, .ratio = 0.3, .floor_qps = 2.0};
-    ThrottleStateMachine sm(params);
+TEST_F(RpcThrottleStateMachineTest, GetParams) {
+    RpcThrottleParams params {.top_k = 5, .ratio = 0.3, .floor_qps = 2.0};
+    RpcThrottleStateMachine sm(params);
 
     auto got = sm.get_params();
     EXPECT_EQ(got.top_k, 5);
@@ -239,9 +239,9 @@ TEST_F(ThrottleStateMachineTest, GetParams) {
     EXPECT_DOUBLE_EQ(got.floor_qps, 5.0);
 }
 
-TEST_F(ThrottleStateMachineTest, NoActionWhenNotLimiting) {
-    ThrottleParams params {.top_k = 1, .ratio = 0.5, .floor_qps = 1.0};
-    ThrottleStateMachine sm(params);
+TEST_F(RpcThrottleStateMachineTest, NoActionWhenNotLimiting) {
+    RpcThrottleParams params {.top_k = 1, .ratio = 0.5, .floor_qps = 1.0};
+    RpcThrottleStateMachine sm(params);
 
     // If current_qps is already very low, applying ratio would increase it
     // In this case, no action should be produced
@@ -249,9 +249,9 @@ TEST_F(ThrottleStateMachineTest, NoActionWhenNotLimiting) {
     EXPECT_TRUE(actions.empty()) << "Should not produce action when not actually limiting";
 }
 
-TEST_F(ThrottleStateMachineTest, OnlyLimitWhenQpsHighEnough) {
-    ThrottleParams params {.top_k = 2, .ratio = 0.5, .floor_qps = 1.0};
-    ThrottleStateMachine sm(params);
+TEST_F(RpcThrottleStateMachineTest, OnlyLimitWhenQpsHighEnough) {
+    RpcThrottleParams params {.top_k = 2, .ratio = 0.5, .floor_qps = 1.0};
+    RpcThrottleStateMachine sm(params);
 
     // Table 100: high QPS, should be limited
     // Table 200: low QPS, should NOT be limited
@@ -267,17 +267,17 @@ TEST_F(ThrottleStateMachineTest, OnlyLimitWhenQpsHighEnough) {
     EXPECT_EQ(actions[1].table_id, 300);
 }
 
-// ============== UpgradeDowngradeCoordinator Tests ==============
+// ============== RpcThrottleCoordinator Tests ==============
 
-class CoordinatorTest : public testing::Test {
+class RpcThrottleCoordinatorTest : public testing::Test {
 protected:
     void SetUp() override {}
     void TearDown() override {}
 };
 
-TEST_F(CoordinatorTest, UpgradeCooldown) {
-    CoordinatorParams params {.upgrade_cooldown_ticks = 10, .downgrade_after_ticks = 60};
-    UpgradeDowngradeCoordinator coord(params);
+TEST_F(RpcThrottleCoordinatorTest, UpgradeCooldown) {
+    ThrottleCoordinatorParams params {.upgrade_cooldown_ticks = 10, .downgrade_after_ticks = 60};
+    RpcThrottleCoordinator coord(params);
 
     // First MS_BUSY should trigger upgrade
     EXPECT_TRUE(coord.report_ms_busy());
@@ -293,10 +293,10 @@ TEST_F(CoordinatorTest, UpgradeCooldown) {
     EXPECT_TRUE(coord.report_ms_busy());
 }
 
-TEST_F(CoordinatorTest, DowngradeAfterQuietPeriod) {
-    CoordinatorParams params {
+TEST_F(RpcThrottleCoordinatorTest, DowngradeAfterQuietPeriod) {
+    ThrottleCoordinatorParams params {
             .upgrade_cooldown_ticks = 5, .downgrade_after_ticks = 10};
-    UpgradeDowngradeCoordinator coord(params);
+    RpcThrottleCoordinator coord(params);
 
     // Trigger an upgrade
     coord.report_ms_busy();
@@ -311,10 +311,10 @@ TEST_F(CoordinatorTest, DowngradeAfterQuietPeriod) {
     EXPECT_TRUE(coord.tick());
 }
 
-TEST_F(CoordinatorTest, MsBusyResetsDowngradeTimer) {
-    CoordinatorParams params {
+TEST_F(RpcThrottleCoordinatorTest, MsBusyResetsDowngradeTimer) {
+    ThrottleCoordinatorParams params {
             .upgrade_cooldown_ticks = 5, .downgrade_after_ticks = 10};
-    UpgradeDowngradeCoordinator coord(params);
+    RpcThrottleCoordinator coord(params);
 
     coord.report_ms_busy();
     coord.set_has_pending_upgrades(true);
@@ -336,10 +336,10 @@ TEST_F(CoordinatorTest, MsBusyResetsDowngradeTimer) {
     EXPECT_TRUE(coord.tick());
 }
 
-TEST_F(CoordinatorTest, NoDowngradeWithoutPendingUpgrades) {
-    CoordinatorParams params {
+TEST_F(RpcThrottleCoordinatorTest, NoDowngradeWithoutPendingUpgrades) {
+    ThrottleCoordinatorParams params {
             .upgrade_cooldown_ticks = 5, .downgrade_after_ticks = 3};
-    UpgradeDowngradeCoordinator coord(params);
+    RpcThrottleCoordinator coord(params);
 
     coord.report_ms_busy();
     // Don't set has_pending_upgrades
@@ -349,9 +349,9 @@ TEST_F(CoordinatorTest, NoDowngradeWithoutPendingUpgrades) {
     }
 }
 
-TEST_F(CoordinatorTest, UpdateUpgradeCooldownAtRuntime) {
-    CoordinatorParams params {.upgrade_cooldown_ticks = 10, .downgrade_after_ticks = 60};
-    UpgradeDowngradeCoordinator coord(params);
+TEST_F(RpcThrottleCoordinatorTest, UpdateUpgradeCooldownAtRuntime) {
+    ThrottleCoordinatorParams params {.upgrade_cooldown_ticks = 10, .downgrade_after_ticks = 60};
+    RpcThrottleCoordinator coord(params);
 
     EXPECT_TRUE(coord.report_ms_busy());
 
@@ -369,10 +369,10 @@ TEST_F(CoordinatorTest, UpdateUpgradeCooldownAtRuntime) {
     EXPECT_TRUE(coord.report_ms_busy()); // Can trigger upgrade now
 }
 
-TEST_F(CoordinatorTest, UpdateDowngradeIntervalAtRuntime) {
-    CoordinatorParams params {
+TEST_F(RpcThrottleCoordinatorTest, UpdateDowngradeIntervalAtRuntime) {
+    ThrottleCoordinatorParams params {
             .upgrade_cooldown_ticks = 1, .downgrade_after_ticks = 20};
-    UpgradeDowngradeCoordinator coord(params);
+    RpcThrottleCoordinator coord(params);
 
     coord.report_ms_busy();
     coord.set_has_pending_upgrades(true);
@@ -389,10 +389,10 @@ TEST_F(CoordinatorTest, UpdateDowngradeIntervalAtRuntime) {
     EXPECT_TRUE(coord.tick());
 }
 
-TEST_F(CoordinatorTest, UpdateBothParamsAtRuntime) {
-    CoordinatorParams params {
+TEST_F(RpcThrottleCoordinatorTest, UpdateBothParamsAtRuntime) {
+    ThrottleCoordinatorParams params {
             .upgrade_cooldown_ticks = 100, .downgrade_after_ticks = 100};
-    UpgradeDowngradeCoordinator coord(params);
+    RpcThrottleCoordinator coord(params);
 
     EXPECT_TRUE(coord.report_ms_busy());
     coord.set_has_pending_upgrades(true);
@@ -414,9 +414,9 @@ TEST_F(CoordinatorTest, UpdateBothParamsAtRuntime) {
     EXPECT_TRUE(coord.report_ms_busy());
 }
 
-TEST_F(CoordinatorTest, TicksSinceLastMsBusy) {
-    CoordinatorParams params {};
-    UpgradeDowngradeCoordinator coord(params);
+TEST_F(RpcThrottleCoordinatorTest, TicksSinceLastMsBusy) {
+    ThrottleCoordinatorParams params {};
+    RpcThrottleCoordinator coord(params);
 
     EXPECT_EQ(coord.ticks_since_last_ms_busy(), -1);
 
@@ -432,9 +432,9 @@ TEST_F(CoordinatorTest, TicksSinceLastMsBusy) {
     EXPECT_EQ(coord.ticks_since_last_ms_busy(), 6);
 }
 
-TEST_F(CoordinatorTest, TicksSinceLastUpgrade) {
-    CoordinatorParams params {};
-    UpgradeDowngradeCoordinator coord(params);
+TEST_F(RpcThrottleCoordinatorTest, TicksSinceLastUpgrade) {
+    ThrottleCoordinatorParams params {};
+    RpcThrottleCoordinator coord(params);
 
     EXPECT_EQ(coord.ticks_since_last_upgrade(), -1);
 
@@ -457,9 +457,9 @@ TEST_F(CoordinatorTest, TicksSinceLastUpgrade) {
     EXPECT_EQ(coord.ticks_since_last_upgrade(), 0);
 }
 
-TEST_F(CoordinatorTest, GetParams) {
-    CoordinatorParams params {.upgrade_cooldown_ticks = 15, .downgrade_after_ticks = 30};
-    UpgradeDowngradeCoordinator coord(params);
+TEST_F(RpcThrottleCoordinatorTest, GetParams) {
+    ThrottleCoordinatorParams params {.upgrade_cooldown_ticks = 15, .downgrade_after_ticks = 30};
+    RpcThrottleCoordinator coord(params);
 
     auto got = coord.get_params();
     EXPECT_EQ(got.upgrade_cooldown_ticks, 15);
@@ -475,22 +475,22 @@ TEST_F(CoordinatorTest, GetParams) {
 
 TEST(IntegrationTest, FullUpgradeDowngradeCycle) {
     // Full in-memory upgrade/downgrade cycle, no time/config/bvar dependency
-    ThrottleParams tp {.top_k = 2, .ratio = 0.5, .floor_qps = 1.0};
-    ThrottleStateMachine sm(tp);
+    RpcThrottleParams tp {.top_k = 2, .ratio = 0.5, .floor_qps = 1.0};
+    RpcThrottleStateMachine sm(tp);
 
-    CoordinatorParams cp {.upgrade_cooldown_ticks = 3, .downgrade_after_ticks = 5};
-    UpgradeDowngradeCoordinator coord(cp);
+    ThrottleCoordinatorParams cp {.upgrade_cooldown_ticks = 3, .downgrade_after_ticks = 5};
+    RpcThrottleCoordinator coord(cp);
 
     // Simulate 3 tables with QPS data
     auto make_snapshot = [](double qps1, double qps2, double qps3) {
-        return std::vector<QpsSnapshot> {
+        return std::vector<RpcQpsSnapshot> {
                 {LoadRelatedRpc::PREPARE_ROWSET, 100, qps1},
                 {LoadRelatedRpc::PREPARE_ROWSET, 200, qps2},
                 {LoadRelatedRpc::PREPARE_ROWSET, 300, qps3},
         };
     };
 
-    std::vector<ThrottleAction> all_actions;
+    std::vector<RpcThrottleAction> all_actions;
 
     // T=0: MS_BUSY, trigger first upgrade
     ASSERT_TRUE(coord.report_ms_busy());
@@ -542,11 +542,11 @@ TEST(IntegrationTest, FullUpgradeDowngradeCycle) {
 }
 
 TEST(IntegrationTest, DynamicParamsDuringCycle) {
-    ThrottleParams tp {.top_k = 1, .ratio = 0.5, .floor_qps = 1.0};
-    ThrottleStateMachine sm(tp);
+    RpcThrottleParams tp {.top_k = 1, .ratio = 0.5, .floor_qps = 1.0};
+    RpcThrottleStateMachine sm(tp);
 
-    CoordinatorParams cp {.upgrade_cooldown_ticks = 5, .downgrade_after_ticks = 10};
-    UpgradeDowngradeCoordinator coord(cp);
+    ThrottleCoordinatorParams cp {.upgrade_cooldown_ticks = 5, .downgrade_after_ticks = 10};
+    RpcThrottleCoordinator coord(cp);
 
     // T=0: First upgrade
     coord.report_ms_busy();
@@ -563,7 +563,7 @@ TEST(IntegrationTest, DynamicParamsDuringCycle) {
     // Runtime update: change ratio to 0.1
     sm.update_params({.top_k = 1, .ratio = 0.1, .floor_qps = 1.0});
 
-    // T=4: ticks
+    // T=4: tick
     coord.tick();
 
     // T=5: cooldown passed, second upgrade with new ratio

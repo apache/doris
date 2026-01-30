@@ -252,6 +252,12 @@ DECLARE_mDouble(ms_rpc_table_qps_limit_floor);
 // Time without MS_BUSY before triggering throttle downgrade (seconds)
 DECLARE_mInt32(ms_backpressure_downgrade_interval_sec);
 
+// Tick interval for coordinator's timer (milliseconds)
+// The coordinator internally uses "ticks" as time units, and this config converts
+// real time to ticks. Lower values = more frequent checks but higher CPU usage.
+// Default: 1000ms (1 tick = 1 second)
+DECLARE_mInt32(ms_backpressure_tick_interval_ms);
+
 // ------------ Memory management config ------------
 
 // Maximum number of tables to track per RPC type (prevents unbounded memory growth)

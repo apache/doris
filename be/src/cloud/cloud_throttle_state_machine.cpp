@@ -23,33 +23,33 @@
 
 namespace doris::cloud {
 
-// ============== ThrottleStateMachine ==============
+// ============== RpcThrottleStateMachine ==============
 
-ThrottleStateMachine::ThrottleStateMachine(ThrottleParams params) : _params(params) {
-    LOG(INFO) << "ThrottleStateMachine initialized: top_k=" << params.top_k
+RpcThrottleStateMachine::RpcThrottleStateMachine(RpcThrottleParams params) : _params(params) {
+    LOG(INFO) << "RpcThrottleStateMachine initialized: top_k=" << params.top_k
               << ", ratio=" << params.ratio << ", floor_qps=" << params.floor_qps;
 }
 
-void ThrottleStateMachine::update_params(ThrottleParams params) {
+void RpcThrottleStateMachine::update_params(RpcThrottleParams params) {
     std::lock_guard lock(_mtx);
     _params = params;
-    LOG(INFO) << "ThrottleStateMachine params updated: top_k=" << params.top_k
+    LOG(INFO) << "RpcThrottleStateMachine params updated: top_k=" << params.top_k
               << ", ratio=" << params.ratio << ", floor_qps=" << params.floor_qps;
 }
 
-std::vector<ThrottleAction> ThrottleStateMachine::on_upgrade(
-        const std::vector<QpsSnapshot>& qps_snapshot) {
+std::vector<RpcThrottleAction> RpcThrottleStateMachine::on_upgrade(
+        const std::vector<RpcQpsSnapshot>& qps_snapshot) {
     std::lock_guard lock(_mtx);
 
-    ThrottleUpgradeRecord record;
-    std::vector<ThrottleAction> actions;
+    UpgradeRecord record;
+    std::vector<RpcThrottleAction> actions;
 
     int top_k = _params.top_k;
     double ratio = _params.ratio;
     double floor_qps = _params.floor_qps;
 
     // Group snapshot by rpc_type
-    std::map<LoadRelatedRpc, std::vector<QpsSnapshot>> snapshot_by_rpc;
+    std::map<LoadRelatedRpc, std::vector<RpcQpsSnapshot>> snapshot_by_rpc;
     for (const auto& snapshot : qps_snapshot) {
         snapshot_by_rpc[snapshot.rpc_type].push_back(snapshot);
     }
@@ -67,7 +67,7 @@ std::vector<ThrottleAction> ThrottleStateMachine::on_upgrade(
 
         // Sort by QPS in descending order
         std::sort(snapshots.begin(), snapshots.end(),
-                  [](const QpsSnapshot& a, const QpsSnapshot& b) {
+                  [](const RpcQpsSnapshot& a, const RpcQpsSnapshot& b) {
                       return a.current_qps > b.current_qps;
                   });
 
@@ -97,8 +97,8 @@ std::vector<ThrottleAction> ThrottleStateMachine::on_upgrade(
 
             // Only apply if it's actually limiting
             if (new_limit < snapshot.current_qps || old_limit > 0) {
-                ThrottleAction action;
-                action.type = ThrottleAction::Type::SET_LIMIT;
+                RpcThrottleAction action;
+                action.type = RpcThrottleAction::Type::SET_LIMIT;
                 action.rpc_type = rpc_type;
                 action.table_id = snapshot.table_id;
                 action.qps_limit = new_limit;
@@ -122,10 +122,10 @@ std::vector<ThrottleAction> ThrottleStateMachine::on_upgrade(
     return actions;
 }
 
-std::vector<ThrottleAction> ThrottleStateMachine::on_downgrade() {
+std::vector<RpcThrottleAction> RpcThrottleStateMachine::on_downgrade() {
     std::lock_guard lock(_mtx);
 
-    std::vector<ThrottleAction> actions;
+    std::vector<RpcThrottleAction> actions;
 
     if (_upgrade_history.empty()) {
         return actions;
@@ -140,8 +140,8 @@ std::vector<ThrottleAction> ThrottleStateMachine::on_downgrade() {
 
         if (old_limit > 0) {
             // Restore the previous limit
-            ThrottleAction action;
-            action.type = ThrottleAction::Type::SET_LIMIT;
+            RpcThrottleAction action;
+            action.type = RpcThrottleAction::Type::SET_LIMIT;
             action.rpc_type = rpc_type;
             action.table_id = table_id;
             action.qps_limit = old_limit;
@@ -153,8 +153,8 @@ std::vector<ThrottleAction> ThrottleStateMachine::on_downgrade() {
                       << ", table_id=" << table_id << ", restored_limit=" << old_limit;
         } else {
             // No previous limit, remove it entirely
-            ThrottleAction action;
-            action.type = ThrottleAction::Type::REMOVE_LIMIT;
+            RpcThrottleAction action;
+            action.type = RpcThrottleAction::Type::REMOVE_LIMIT;
             action.rpc_type = rpc_type;
             action.table_id = table_id;
 
@@ -171,12 +171,12 @@ std::vector<ThrottleAction> ThrottleStateMachine::on_downgrade() {
     return actions;
 }
 
-size_t ThrottleStateMachine::upgrade_level() const {
+size_t RpcThrottleStateMachine::upgrade_level() const {
     std::lock_guard lock(_mtx);
     return _upgrade_history.size();
 }
 
-double ThrottleStateMachine::get_current_limit(LoadRelatedRpc rpc_type, int64_t table_id) const {
+double RpcThrottleStateMachine::get_current_limit(LoadRelatedRpc rpc_type, int64_t table_id) const {
     std::lock_guard lock(_mtx);
     auto it = _current_limits.find({rpc_type, table_id});
     if (it != _current_limits.end()) {
@@ -185,29 +185,29 @@ double ThrottleStateMachine::get_current_limit(LoadRelatedRpc rpc_type, int64_t 
     return 0.0;
 }
 
-ThrottleParams ThrottleStateMachine::get_params() const {
+RpcThrottleParams RpcThrottleStateMachine::get_params() const {
     std::lock_guard lock(_mtx);
     return _params;
 }
 
-// ============== UpgradeDowngradeCoordinator ==============
+// ============== RpcThrottleCoordinator ==============
 
-UpgradeDowngradeCoordinator::UpgradeDowngradeCoordinator(CoordinatorParams params)
+RpcThrottleCoordinator::RpcThrottleCoordinator(ThrottleCoordinatorParams params)
         : _params(params) {
-    LOG(INFO) << "UpgradeDowngradeCoordinator initialized: upgrade_cooldown_ticks="
+    LOG(INFO) << "RpcThrottleCoordinator initialized: upgrade_cooldown_ticks="
               << params.upgrade_cooldown_ticks
               << ", downgrade_after_ticks=" << params.downgrade_after_ticks;
 }
 
-void UpgradeDowngradeCoordinator::update_params(CoordinatorParams params) {
+void RpcThrottleCoordinator::update_params(ThrottleCoordinatorParams params) {
     std::lock_guard lock(_mtx);
     _params = params;
-    LOG(INFO) << "UpgradeDowngradeCoordinator params updated: upgrade_cooldown_ticks="
+    LOG(INFO) << "RpcThrottleCoordinator params updated: upgrade_cooldown_ticks="
               << params.upgrade_cooldown_ticks
               << ", downgrade_after_ticks=" << params.downgrade_after_ticks;
 }
 
-bool UpgradeDowngradeCoordinator::report_ms_busy() {
+bool RpcThrottleCoordinator::report_ms_busy() {
     std::lock_guard lock(_mtx);
 
     // Reset tick counter since last MS_BUSY
@@ -230,7 +230,7 @@ bool UpgradeDowngradeCoordinator::report_ms_busy() {
     return false;  // Cooling down
 }
 
-bool UpgradeDowngradeCoordinator::tick() {
+bool RpcThrottleCoordinator::tick() {
     std::lock_guard lock(_mtx);
 
     // Increment tick counters
@@ -256,22 +256,22 @@ bool UpgradeDowngradeCoordinator::tick() {
     return false;
 }
 
-void UpgradeDowngradeCoordinator::set_has_pending_upgrades(bool has) {
+void RpcThrottleCoordinator::set_has_pending_upgrades(bool has) {
     std::lock_guard lock(_mtx);
     _has_pending_upgrades = has;
 }
 
-int UpgradeDowngradeCoordinator::ticks_since_last_ms_busy() const {
+int RpcThrottleCoordinator::ticks_since_last_ms_busy() const {
     std::lock_guard lock(_mtx);
     return _ticks_since_last_ms_busy;
 }
 
-int UpgradeDowngradeCoordinator::ticks_since_last_upgrade() const {
+int RpcThrottleCoordinator::ticks_since_last_upgrade() const {
     std::lock_guard lock(_mtx);
     return _ticks_since_last_upgrade;
 }
 
-CoordinatorParams UpgradeDowngradeCoordinator::get_params() const {
+ThrottleCoordinatorParams RpcThrottleCoordinator::get_params() const {
     std::lock_guard lock(_mtx);
     return _params;
 }

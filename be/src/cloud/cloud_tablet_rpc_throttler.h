@@ -27,10 +27,13 @@
 #include <shared_mutex>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
+#include "butil/containers/flat_map.h"
 #include "cloud/cloud_throttle_state_machine.h"
+#include "util/countdown_latch.h"
 
 namespace doris::cloud {
 
@@ -161,10 +164,6 @@ private:
             _throttled_table_counts;
 };
 
-// Forward declarations
-class ThrottleStateMachine;
-class UpgradeDowngradeCoordinator;
-
 // MS backpressure handler that coordinates QPS statistics, throttle upgrade and downgrade
 // Uses state machine for decisions, providing better testability
 class MSBackpressureHandler {
@@ -188,8 +187,8 @@ public:
     void after_rpc(LoadRelatedRpc rpc_type, int64_t table_id);
 
     // Runtime update parameters
-    void update_throttle_params(ThrottleParams params);
-    void update_coordinator_params(CoordinatorParams params);
+    void update_throttle_params(RpcThrottleParams params);
+    void update_coordinator_params(ThrottleCoordinatorParams params);
 
     // Get seconds since last MS_BUSY (for monitoring)
     int64_t seconds_since_last_ms_busy() const;
@@ -200,18 +199,25 @@ public:
     int ticks_since_last_upgrade() const;
 
 private:
+    // Background thread callback that periodically calls try_downgrade()
+    void _tick_thread_callback();
+
     // Apply actions to the throttler
-    void apply_actions(const std::vector<ThrottleAction>& actions);
+    void apply_actions(const std::vector<RpcThrottleAction>& actions);
 
     // Build QPS snapshot from registry
-    std::vector<QpsSnapshot> build_qps_snapshot() const;
+    std::vector<RpcQpsSnapshot> build_qps_snapshot() const;
 
     TableRpcQpsRegistry* _qps_registry;
     TableRpcThrottler* _throttler;
 
     // State machine components
-    std::unique_ptr<ThrottleStateMachine> _state_machine;
-    std::unique_ptr<UpgradeDowngradeCoordinator> _coordinator;
+    std::unique_ptr<RpcThrottleStateMachine> _state_machine;
+    std::unique_ptr<RpcThrottleCoordinator> _coordinator;
+
+    // Background thread for periodic tick
+    std::unique_ptr<std::thread> _tick_thread;
+    butil::CountDownLatch _stop_latch;
 
     // For bvar compatibility only - track approximate seconds since last MS_BUSY
     mutable std::mutex _mutex;
