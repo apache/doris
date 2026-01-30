@@ -87,8 +87,7 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
                     "database" = "${pgDB}",
                     "schema" = "${pgSchema}",
                     "include_tables" = "${table1},${table2}", 
-                    "offset" = "initial",
-                    "snapshot_parallelism" = "1"
+                    "offset" = "initial"
                 )
                 TO DATABASE ${currentDb} (
                   "table.create.properties.replication_num" = "1"

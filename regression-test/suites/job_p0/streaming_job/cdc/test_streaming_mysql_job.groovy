@@ -91,8 +91,7 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
                     "password" = "123456",
                     "database" = "${mysqlDb}",
                     "include_tables" = "${table3},${table1},${table2}", 
-                    "offset" = "initial",
-                    "snapshot_parallelism" = "1"
+                    "offset" = "initial"
                 )
                 TO DATABASE ${currentDb} (
                   "table.create.properties.replication_num" = "1"
