@@ -18,9 +18,12 @@
 package org.apache.doris.datasource.trinoconnector.source;
 
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.FunctionGenTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalog;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
+import org.apache.doris.tablefunction.KafkaTableValuedFunction;
 import org.apache.doris.thrift.TFileAttributes;
 
 import io.trino.Session;
@@ -45,7 +48,12 @@ public class TrinoConnectorSource {
 
     public TrinoConnectorSource(TupleDescriptor desc) {
         this.desc = desc;
-        this.trinoConnectorExtTable = (TrinoConnectorExternalTable) desc.getTable();
+        TableIf table = desc.getTable();
+        if (table instanceof FunctionGenTable) {
+            this.trinoConnectorExtTable = ((KafkaTableValuedFunction)((FunctionGenTable) table).getTvf()).getTrinoTable();
+        } else {
+            this.trinoConnectorExtTable = (TrinoConnectorExternalTable) desc.getTable();
+        }
         this.trinoConnectorExternalCatalog = (TrinoConnectorExternalCatalog) trinoConnectorExtTable.getCatalog();
         this.catalogHandle = trinoConnectorExternalCatalog.getTrinoCatalogHandle();
         this.trinoConnectorTableHandle = trinoConnectorExtTable.getConnectorTableHandle();

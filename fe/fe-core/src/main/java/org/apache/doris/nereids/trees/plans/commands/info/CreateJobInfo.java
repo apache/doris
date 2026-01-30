@@ -332,7 +332,7 @@ public class CreateJobInfo {
         if (logicalPlan instanceof InsertIntoTableCommand) {
             InsertIntoTableCommand insertIntoTableCommand = (InsertIntoTableCommand) logicalPlan;
             try {
-                insertIntoTableCommand.initPlan(ConnectContext.get(), ConnectContext.get().getExecutor(), false);
+                // insertIntoTableCommand.initPlan(ConnectContext.get(), ConnectContext.get().getExecutor(), false);
                 return new StreamingInsertJob(labelNameOptional.get(),
                         JobStatus.PENDING,
                         currentDbName,

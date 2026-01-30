@@ -20,11 +20,16 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.JdbcTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
+import org.apache.doris.datasource.jdbc.source.JdbcScanNode;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalog;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
+import org.apache.doris.datasource.trinoconnector.source.TrinoConnectorScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.SessionVariable;
@@ -69,6 +74,7 @@ public class KafkaTableValuedFunction extends TableValuedFunctionIf {
 
     private TrinoConnectorExternalCatalog trinoCatalog;
     private TrinoConnectorExternalDatabase trinoDatabase;
+    @Getter
     private TrinoConnectorExternalTable trinoTable;
     
     public KafkaTableValuedFunction(Map<String, String> params) throws AnalysisException {
@@ -127,11 +133,6 @@ public class KafkaTableValuedFunction extends TableValuedFunctionIf {
     
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
-        // This TVF is designed for streaming jobs where it gets rewritten by
-        // KafkaSourceOffsetProvider.rewriteTvfParams() to a direct table reference.
-        // Direct scanning via ScanNode is not supported.
-        throw new UnsupportedOperationException(
-                "kafka() TVF does not support direct scanning. "
-                + "It should be used with CREATE JOB ... ON STREAMING.");
+        return new TrinoConnectorScanNode(id, desc, false, sv);
     }
 }
