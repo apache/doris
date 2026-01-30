@@ -55,6 +55,7 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_execute_util.h"
 #include "vec/columns/column_varbinary.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/hash_table/phmap_fwd_decl.h"
@@ -1875,26 +1876,12 @@ public:
         auto& res_offsets = res->get_offsets();
         auto& res_chars = res->get_chars();
         res_offsets.resize(input_rows_count);
-        ColumnPtr content_column;
-        bool content_const = false;
-        std::tie(content_column, content_const) =
-                unpack_if_const(block.get_by_position(arguments[0]).column);
-
-        const auto* str_col = assert_cast<const ColumnString*>(content_column.get());
-
         // Handle both constant and non-constant delimiter parameters
         ColumnPtr delimiter_column_ptr;
         bool delimiter_const = false;
         std::tie(delimiter_column_ptr, delimiter_const) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
         const auto* delimiter_col = assert_cast<const ColumnString*>(delimiter_column_ptr.get());
-
-        ColumnPtr part_num_column_ptr;
-        bool part_num_const = false;
-        std::tie(part_num_column_ptr, part_num_const) =
-                unpack_if_const(block.get_by_position(arguments[2]).column);
-        const ColumnInt32* part_num_col =
-                assert_cast<const ColumnInt32*>(part_num_column_ptr.get());
 
         // For constant multi-character delimiters, create StringRef and StringSearch only once
         std::optional<StringRef> const_delimiter_ref;
@@ -1904,16 +1891,12 @@ public:
             const_search.emplace(&const_delimiter_ref.value());
         }
 
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            auto str = str_col->get_data_at(content_const ? 0 : i);
-            auto delimiter = delimiter_col->get_data_at(delimiter_const ? 0 : i);
+        auto func = [&](size_t i, StringRef str, StringRef delimiter, int32_t part_number) ALWAYS_INLINE {
             int32_t delimiter_size = delimiter.size;
-
-            auto part_number = part_num_col->get_element(part_num_const ? 0 : i);
 
             if (part_number == 0 || delimiter_size == 0) {
                 StringOP::push_empty_string(i, res_chars, res_offsets);
-                continue;
+                return;
             }
 
             if (part_number > 0) {
@@ -2025,7 +2008,12 @@ public:
                                                 res_offsets);
                 }
             }
-        }
+        };
+
+        ExecuteColumn::execute_ternary_compile_time_only_const<TYPE_STRING, TYPE_STRING, TYPE_INT>(
+                block.get_by_position(arguments[0]).column,
+                block.get_by_position(arguments[1]).column,
+                block.get_by_position(arguments[2]).column, func);
 
         block.get_by_position(result).column = std::move(res);
         return Status::OK();
