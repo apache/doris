@@ -19,14 +19,19 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
@@ -64,7 +69,23 @@ public class VariantSchemaCast implements CustomRewriter {
 
     private static class PlanRewriter extends DefaultPlanRewriter<Void> {
 
-        private Expression rewriteElementAt(ElementAt elementAt) {
+        private final java.util.function.Function<Expression, Expression> expressionRewriter = expr -> {
+            // Skip Match expressions - they require SlotRef as left operand
+            if (expr instanceof Match) {
+                return expr;
+            }
+            // Handle ElementAt expressions
+            if (expr instanceof ElementAt) {
+                return rewriteElementAt((ElementAt) expr);
+            }
+            // Handle SlotReference that represents variant element access (e.g., data['field'])
+            if (expr instanceof SlotReference) {
+                return rewriteSlotReference((SlotReference) expr);
+            }
+            return expr;
+        };
+
+        private static Expression rewriteElementAt(ElementAt elementAt) {
             Expression left = elementAt.left();
             Expression right = elementAt.right();
 
@@ -89,7 +110,7 @@ public class VariantSchemaCast implements CustomRewriter {
             return new Cast(elementAt, targetType);
         }
 
-        private Expression rewriteSlotReference(SlotReference slotRef) {
+        private static Expression rewriteSlotReference(SlotReference slotRef) {
             // Check if the SlotReference's DataType is VariantType with predefinedFields
             if (!(slotRef.getDataType() instanceof VariantType)) {
                 return slotRef;
@@ -133,33 +154,17 @@ public class VariantSchemaCast implements CustomRewriter {
         }
 
         private Expression rewriteExpression(Expression expr) {
-            // Skip Match expressions - they require SlotRef as left operand
-            if (expr instanceof Match) {
-                return expr;
-            }
+            return expr.rewriteDownShortCircuit(expressionRewriter);
+        }
 
-            // Recursively rewrite children first
-            boolean childrenChanged = false;
-            ImmutableList.Builder<Expression> newChildren = ImmutableList.builder();
-            for (Expression child : expr.children()) {
-                Expression newChild = rewriteExpression(child);
-                newChildren.add(newChild);
-                if (newChild != child) {
-                    childrenChanged = true;
-                }
+        private NamedExpression rewriteNamedExpression(NamedExpression expr) {
+            Expression rewritten = rewriteExpression(expr);
+            if (rewritten instanceof NamedExpression) {
+                return (NamedExpression) rewritten;
             }
-
-            Expression newExpr = childrenChanged ? expr.withChildren(newChildren.build()) : expr;
-
-            // Then apply the rewriter to the current expression
-            if (newExpr instanceof ElementAt) {
-                return rewriteElementAt((ElementAt) newExpr);
-            }
-            // Handle SlotReference that represents variant element access (e.g., data['field'])
-            if (newExpr instanceof SlotReference) {
-                return rewriteSlotReference((SlotReference) newExpr);
-            }
-            return newExpr;
+            // If the result is not a NamedExpression (e.g., Cast), wrap it in an Alias
+            // Preserve the original ExprId to maintain consistency
+            return new Alias(expr.getExprId(), rewritten, expr.getName());
         }
 
         @Override
@@ -173,8 +178,11 @@ public class VariantSchemaCast implements CustomRewriter {
 
         @Override
         public Plan visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
-            // Don't rewrite SELECT projections - BE expects Variant type for ElementAt in SELECT
-            return super.visit(project, context);
+            project = (LogicalProject<? extends Plan>) super.visit(project, context);
+            List<NamedExpression> newProjects = project.getProjects().stream()
+                    .map(this::rewriteNamedExpression)
+                    .collect(ImmutableList.toImmutableList());
+            return project.withProjects(newProjects);
         }
 
         @Override
@@ -193,6 +201,43 @@ public class VariantSchemaCast implements CustomRewriter {
                     .map(orderKey -> orderKey.withExpression(rewriteExpression(orderKey.getExpr())))
                     .collect(ImmutableList.toImmutableList());
             return topN.withOrderKeys(newOrderKeys);
+        }
+
+        @Override
+        public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, Void context) {
+            aggregate = (LogicalAggregate<? extends Plan>) super.visit(aggregate, context);
+            List<Expression> newGroupByExprs = aggregate.getGroupByExpressions().stream()
+                    .map(this::rewriteExpression)
+                    .collect(ImmutableList.toImmutableList());
+            List<NamedExpression> newOutputExprs = aggregate.getOutputExpressions().stream()
+                    .map(this::rewriteNamedExpression)
+                    .collect(ImmutableList.toImmutableList());
+            return aggregate.withGroupByAndOutput(newGroupByExprs, newOutputExprs);
+        }
+
+        @Override
+        public Plan visitLogicalHaving(LogicalHaving<? extends Plan> having, Void context) {
+            having = (LogicalHaving<? extends Plan>) super.visit(having, context);
+            Set<Expression> newConjuncts = having.getConjuncts().stream()
+                    .map(this::rewriteExpression)
+                    .collect(ImmutableSet.toImmutableSet());
+            return having.withConjuncts(newConjuncts);
+        }
+
+        @Override
+        public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void context) {
+            join = (LogicalJoin<? extends Plan, ? extends Plan>) super.visit(join, context);
+            List<Expression> newHashConditions = join.getHashJoinConjuncts().stream()
+                    .map(this::rewriteExpression)
+                    .collect(ImmutableList.toImmutableList());
+            List<Expression> newOtherConditions = join.getOtherJoinConjuncts().stream()
+                    .map(this::rewriteExpression)
+                    .collect(ImmutableList.toImmutableList());
+            List<Expression> newMarkConditions = join.getMarkJoinConjuncts().stream()
+                    .map(this::rewriteExpression)
+                    .collect(ImmutableList.toImmutableList());
+            return join.withJoinConjuncts(newHashConditions, newOtherConditions,
+                    newMarkConditions, join.getJoinReorderContext());
         }
     }
 }
