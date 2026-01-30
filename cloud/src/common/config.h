@@ -320,6 +320,10 @@ CONF_Int32(parallel_txn_lazy_commit_num_threads, "0"); // hardware concurrency i
 CONF_mInt64(txn_lazy_max_rowsets_per_batch, "1000");
 CONF_mBool(txn_lazy_commit_shuffle_partitions, "true");
 CONF_Int64(txn_lazy_commit_shuffle_seed, "0"); // 0 means generate a random seed
+// WARNING: All meta-servers MUST be upgraded before changing this to true.
+// When enabled, defer deleting pending delete bitmaps until lazy commit completes.
+// This reduces contention during transaction commit by extending delete bitmap locks.
+CONF_mBool(txn_lazy_commit_defer_deleting_pending_delete_bitmaps, "false");
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
 CONF_Int32(max_restore_job_rowsets_per_batch, "1000");

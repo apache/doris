@@ -274,8 +274,9 @@ under the License.
         <hikaricp.version>6.0.0</hikaricp.version>
         <thrift.version>0.16.0</thrift.version>
         <tomcat-embed.version>9.0.104</tomcat-embed.version>
-        <log4j2.version>2.25.2</log4j2.version>
-        <log4j-1.2.version>2.25.2</log4j-1.2.version>
+        <log4j2.version>2.25.3</log4j2.version>
+        <log4j-1.2.version>2.25.3</log4j-1.2.version>
+        <mqtt.version>1.2.5</mqtt.version>
         <slf4j.version>2.0.17</slf4j.version>
         <metrics-core.version>4.0.2</metrics-core.version>
         <!--Netty 4.1.94 is not compatible with arrow flight.-->
@@ -303,6 +304,7 @@ under the License.
         <automaton.version>1.11-8</automaton.version>
         <generex.version>1.0.1</generex.version>
         <jetty-servlet.version>11.0.26</jetty-servlet.version>
+        <jetty-websocket.version>9.4.58.v20250814</jetty-websocket.version>
         <logging-interceptor.version>4.12.0</logging-interceptor.version>
         <okhttp.version>4.9.3</okhttp.version>
         <okio.version>3.4.0</okio.version>
@@ -453,6 +455,11 @@ under the License.
                 <groupId>org.apache.ivy</groupId>
                 <artifactId>ivy</artifactId>
                 <version>${ivy.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty.websocket</groupId>
+                <artifactId>websocket-client</artifactId>
+                <version>${jetty-websocket.version}</version>
             </dependency>
             <!-- has conflict with jakarta.servlet-api-->
             <dependency>
@@ -870,6 +877,16 @@ under the License.
                 <groupId>org.apache.doris</groupId>
                 <artifactId>je</artifactId>
                 <version>${je.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.apache.ant</groupId>
+                        <artifactId>ant</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.checkerframework</groupId>
+                        <artifactId>checker</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.jmockit/jmockit -->
             <dependency>
@@ -918,7 +935,7 @@ under the License.
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>
                 <artifactId>log4j-slf4j2-impl</artifactId>
-                <version>2.20.0</version>
+                <version>${log4j2.version}</version>
                 <exclusions>
                     <exclusion>
                         <groupId>org.apache.logging.log4j</groupId>
@@ -951,6 +968,11 @@ under the License.
                 <groupId>io.dropwizard.metrics</groupId>
                 <artifactId>metrics-core</artifactId>
                 <version>${metrics-core.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.paho</groupId>
+                <artifactId>org.eclipse.paho.client.mqttv3</artifactId>
+                <version>${mqtt.version}</version>
             </dependency>
             <!-- velocity-engine-core dependency-->
             <dependency>
