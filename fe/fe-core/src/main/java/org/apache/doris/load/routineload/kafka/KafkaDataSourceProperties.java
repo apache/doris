@@ -34,6 +34,8 @@ import lombok.Setter;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -47,6 +49,8 @@ import java.util.regex.Pattern;
  * Kafka data source properties
  */
 public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
+
+    private static final Logger LOG = LogManager.getLogger(KafkaDataSourceProperties.class);
 
     private static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
 
@@ -243,6 +247,114 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
                 this.customKafkaProperties.put(propertyKey.substring(propertyKey.indexOf(".") + 1), propertyValue);
             }
             // can be extended in the future which other prefix
+        }
+        
+        // Validate AWS MSK IAM authentication configuration if present
+        validateAwsMskIamConfig();
+    }
+
+    /**
+     * Validate AWS MSK IAM authentication configuration.
+     * When using AWS MSK with IAM authentication, the following properties should be configured:
+     * - security.protocol = SASL_SSL
+     * - sasl.mechanism = OAUTHBEARER
+     * - aws.region = <your-aws-region> (optional, defaults to us-east-1)
+     * 
+     * Credential options (choose one):
+     * - Option 1: Explicit AK/SK
+     *   - aws.access.key = <access-key-id>
+     *   - aws.secret.key = <secret-access-key>
+     *   - aws.session.token = <session-token> (optional)
+     * - Option 2: IAM Role (Assume Role)
+     *   - aws.msk.iam.role.arn = <role-arn>
+     * - Option 3: AWS Profile
+     *   - aws.profile.name = <profile-name>
+     * - Option 4: EC2 Instance Profile / ECS Task Role (default)
+     * - Option 5: Environment variables
+     * 
+     * This method provides helpful error messages for common misconfigurations.
+     */
+    private void validateAwsMskIamConfig() throws AnalysisException {
+        String securityProtocol = customKafkaProperties.get(KafkaConfiguration.SECURITY_PROTOCOL);
+        String saslMechanism = customKafkaProperties.get(KafkaConfiguration.SASL_MECHANISM);
+        
+        // Check if AWS MSK IAM authentication is being used
+        boolean hasAwsRegion = customKafkaProperties.containsKey(KafkaConfiguration.AWS_REGION);
+        boolean hasAccessKey = customKafkaProperties.containsKey(KafkaConfiguration.AWS_ACCESS_KEY);
+        boolean hasSecretKey = customKafkaProperties.containsKey(KafkaConfiguration.AWS_SECRET_KEY);
+        boolean hasRoleArn = customKafkaProperties.containsKey(KafkaConfiguration.AWS_MSK_IAM_ROLE_ARN);
+        boolean hasProfileName = customKafkaProperties.containsKey(KafkaConfiguration.AWS_PROFILE_NAME);
+        
+        boolean isAwsMskIam = hasAwsRegion || hasAccessKey || hasSecretKey || hasRoleArn || hasProfileName;
+        
+        // If AWS-related property is set, validate the complete configuration
+        if (isAwsMskIam) {
+            // security.protocol should be SASL_SSL for AWS MSK IAM
+            if (securityProtocol == null) {
+                throw new AnalysisException("When using AWS MSK IAM authentication, "
+                        + "'property.security.protocol' must be set to 'SASL_SSL'");
+            }
+            
+            if (!"SASL_SSL".equalsIgnoreCase(securityProtocol)) {
+                throw new AnalysisException("For AWS MSK IAM authentication, "
+                        + "'property.security.protocol' should be 'SASL_SSL', but got: " + securityProtocol);
+            }
+            
+            // sasl.mechanism should be OAUTHBEARER for AWS MSK IAM
+            if (saslMechanism == null) {
+                throw new AnalysisException("When using AWS MSK IAM authentication, "
+                        + "'property.sasl.mechanism' must be set to 'OAUTHBEARER'. "
+                        + "Doris will automatically use AWS SDK to generate IAM tokens.");
+            }
+            
+            if (!"OAUTHBEARER".equalsIgnoreCase(saslMechanism)) {
+                throw new AnalysisException("For AWS MSK IAM authentication, "
+                        + "'property.sasl.mechanism' must be 'OAUTHBEARER', but got: " + saslMechanism + ". "
+                        + "AWS_MSK_IAM is not directly supported by librdkafka. "
+                        + "Use OAUTHBEARER and Doris will handle AWS IAM token generation.");
+            }
+            
+            // Validate explicit AK/SK configuration - both must be provided together
+            if (hasAccessKey != hasSecretKey) {
+                throw new AnalysisException("When using explicit AWS credentials, "
+                        + "both 'property.aws.access.key' and 'property.aws.secret.key' must be provided together.");
+            }
+            
+            // Log configuration details
+            if (hasAwsRegion) {
+                LOG.info("AWS MSK IAM authentication configured for region: {}", 
+                    customKafkaProperties.get(KafkaConfiguration.AWS_REGION));
+            } else {
+                LOG.info("AWS MSK IAM authentication using default region: us-east-1");
+            }
+            
+            if (hasAccessKey && hasSecretKey) {
+                LOG.info("AWS MSK IAM using explicit credentials (Access Key ID provided)");
+            } else if (hasRoleArn) {
+                LOG.info("AWS MSK IAM role configured: {}", 
+                    customKafkaProperties.get(KafkaConfiguration.AWS_MSK_IAM_ROLE_ARN));
+            } else if (hasProfileName) {
+                LOG.info("AWS MSK IAM using AWS profile: {}", 
+                    customKafkaProperties.get(KafkaConfiguration.AWS_PROFILE_NAME));
+            } else {
+                LOG.info("AWS MSK IAM using default credentials chain (Instance Profile / Environment Variables)");
+            }
+        }
+        
+        // Validate SASL_SSL configuration
+        if ("SASL_SSL".equalsIgnoreCase(securityProtocol)) {
+            if (saslMechanism == null) {
+                throw new AnalysisException("When 'property.security.protocol' is set to 'SASL_SSL', "
+                        + "'property.sasl.mechanism' must also be specified. "
+                        + "Valid values include: PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, OAUTHBEARER");
+            }
+        }
+        
+        // For OAUTHBEARER without AWS config, warn user
+        if ("OAUTHBEARER".equalsIgnoreCase(saslMechanism) && !isAwsMskIam) {
+            LOG.warn("OAUTHBEARER mechanism is configured without AWS MSK IAM settings. "
+                    + "If you're using AWS MSK with IAM authentication, please set 'property.aws.region'. "
+                    + "Otherwise, ensure you have configured appropriate SASL OAUTHBEARER settings.");
         }
     }
 

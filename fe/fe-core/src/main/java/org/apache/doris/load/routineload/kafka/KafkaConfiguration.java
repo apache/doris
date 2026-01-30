@@ -46,6 +46,38 @@ public enum KafkaConfiguration {
 
     KAFKA_TEXT_TABLE_NAME_FIELD_DELIMITER("kafka_text_table_name_field_delimiter", ",",
             value -> value.replace(" ", ""));
+
+    // Common Kafka property names used for security and authentication
+    // These are passed through property.* prefix and validated for correctness
+    public static final String SECURITY_PROTOCOL = "security.protocol";
+    public static final String SASL_MECHANISM = "sasl.mechanism";
+    public static final String SASL_JAAS_CONFIG = "sasl.jaas.config";
+    
+    // AWS MSK IAM authentication properties
+    // For AWS MSK IAM authentication, use:
+    // - property.security.protocol = SASL_SSL
+    // - property.sasl.mechanism = OAUTHBEARER
+    // - property.aws.region = <your-region> (e.g., us-east-1)
+    // 
+    // Credential options (choose one):
+    // Option 1: Explicit AK/SK (long-term credentials only, not temporary credentials)
+    // - property.aws.access.key = <access-key-id>
+    // - property.aws.secret.key = <secret-access-key>
+    //
+    // Option 2: IAM Role (Assume Role)
+    // - property.aws.msk.iam.role.arn = <role-arn>
+    //
+    // Option 3: AWS Profile
+    // - property.aws.profile.name = <profile>
+    //
+    // Option 4: EC2 Instance Profile / ECS Task Role (default, no config needed)
+    //
+    // Option 5: Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+    public static final String AWS_REGION = "aws.region";
+    public static final String AWS_ACCESS_KEY = "aws.access.key";
+    public static final String AWS_SECRET_KEY = "aws.secret.key";
+    public static final String AWS_MSK_IAM_ROLE_ARN = "aws.msk.iam.role.arn";
+    public static final String AWS_PROFILE_NAME = "aws.profile.name";
     private final String name;
 
     public String getName() {
