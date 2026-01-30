@@ -397,6 +397,24 @@ Status DataTypeDateSerDe<T>::from_string(StringRef& str, IColumn& column,
 }
 
 template <PrimitiveType T>
+Status DataTypeDateSerDe<T>::from_string(const std::string& str, Field& field,
+                                         const FormatOptions& options) const {
+    CastParameters params {.status = Status::OK(), .is_strict = false};
+
+    CppType res;
+    // set false to `is_strict`, it will not set error code cuz we dont need then speed up the process.
+    // then we rely on return value to check success.
+    // return value only represent OK or InvalidArgument for other error(like InternalError) in parser, MUST throw
+    // Exception!
+    if (!CastToDateOrDatetime::from_string_non_strict_mode<IsDatetime>(
+                StringRef(str), res, options.timezone, params)) [[unlikely]] {
+        return Status::InvalidArgument("parse date or datetime fail, string: '{}'", str);
+    }
+    field = Field::create_field<T>(std::move(res));
+    return Status::OK();
+}
+
+template <PrimitiveType T>
 Status DataTypeDateSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& column,
                                                      const FormatOptions& options) const {
     auto& col_data = assert_cast<ColumnType&>(column);

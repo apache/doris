@@ -76,7 +76,8 @@ Result<WrapperField*> WrapperField::create(const TabletColumn& column, uint32_t 
 WrapperField* WrapperField::create_by_type(const FieldType& type, int64_t var_length) {
     Field* rep = FieldFactory::create_by_type(type);
     if (rep == nullptr) {
-        return nullptr;
+        throw Exception(Status::InternalError("Unsupport field creation of type {}",
+                                              static_cast<int>(type)));
     }
     bool is_string_type =
             (type == FieldType::OLAP_FIELD_TYPE_CHAR ||

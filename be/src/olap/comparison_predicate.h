@@ -134,13 +134,13 @@ public:
         _evaluate_bit<true>(column, sel, size, flags);
     }
 
-    bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        if (statistic.first->is_null() && statistic.second->is_null()) {
+    bool evaluate_and(const ZoneMapInfo& zone_map_info) const override {
+        if (zone_map_info.is_all_null) {
             return false;
         }
 
-        T tmp_min_value = get_zone_map_value<Type, T>(statistic.first->cell_ptr());
-        T tmp_max_value = get_zone_map_value<Type, T>(statistic.second->cell_ptr());
+        T tmp_min_value = T(zone_map_info.min_value.template get<Type>());
+        T tmp_max_value = T(zone_map_info.max_value.template get<Type>());
 
         if constexpr (PT == PredicateType::EQ) {
             return _operator(Compare::less_equal(tmp_min_value, _value) &&
@@ -254,13 +254,13 @@ public:
         return row_ranges->count() > 0;
     }
 
-    bool is_always_true(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        if (statistic.first->is_null() || statistic.second->is_null()) {
+    bool is_always_true(const ZoneMapInfo& zone_map_info) const override {
+        if (zone_map_info.has_null) {
             return false;
         }
 
-        T tmp_min_value = get_zone_map_value<Type, T>(statistic.first->cell_ptr());
-        T tmp_max_value = get_zone_map_value<Type, T>(statistic.second->cell_ptr());
+        T tmp_min_value = T(zone_map_info.min_value.template get<Type>());
+        T tmp_max_value = T(zone_map_info.max_value.template get<Type>());
 
         if constexpr (PT == PredicateType::LT) {
             return _value > tmp_max_value;
@@ -275,13 +275,13 @@ public:
         return false;
     }
 
-    bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        if (statistic.first->is_null() || statistic.second->is_null()) {
+    bool evaluate_del(const ZoneMapInfo& zone_map_info) const override {
+        if (zone_map_info.has_null) {
             return false;
         }
 
-        T tmp_min_value = get_zone_map_value<Type, T>(statistic.first->cell_ptr());
-        T tmp_max_value = get_zone_map_value<Type, T>(statistic.second->cell_ptr());
+        T tmp_min_value = T(zone_map_info.min_value.template get<Type>());
+        T tmp_max_value = T(zone_map_info.max_value.template get<Type>());
 
         if constexpr (PT == PredicateType::EQ) {
             return tmp_min_value == _value && tmp_max_value == _value;

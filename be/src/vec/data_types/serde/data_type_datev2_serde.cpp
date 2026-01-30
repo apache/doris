@@ -229,6 +229,23 @@ Status DataTypeDateV2SerDe::from_string_batch(const ColumnString& col_str, Colum
     return Status::OK();
 }
 
+Status DataTypeDateV2SerDe::from_string(const std::string& str, Field& field,
+                                        const FormatOptions& options) const {
+    CastParameters params {.status = Status::OK(), .is_strict = false};
+
+    DateV2Value<DateV2ValueType> res;
+    // set false to `is_strict`, it will not set error code cuz we dont need then speed up the process.
+    // then we rely on return value to check success.
+    // return value only represent OK or InvalidArgument for other error(like InternalError) in parser, MUST throw
+    // Exception!
+    if (!CastToDateV2::from_string_non_strict_mode(StringRef(str), res, options.timezone, params))
+            [[unlikely]] {
+        return Status::InvalidArgument("parse datev2 fail, string: '{}'", str);
+    }
+    field = Field::create_field<TYPE_DATEV2>(std::move(res));
+    return Status::OK();
+}
+
 Status DataTypeDateV2SerDe::from_string_strict_mode_batch(
         const ColumnString& col_str, IColumn& col_res, const FormatOptions& options,
         const NullMap::value_type* null_map) const {

@@ -240,14 +240,14 @@ public:
         _evaluate_bit<false>(column, sel, size, flags);
     }
 
-    bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        if (statistic.first->is_null() && statistic.second->is_null()) {
+    bool evaluate_and(const ZoneMapInfo& zone_map_info) const override {
+        if (zone_map_info.is_all_null) {
             return false;
         }
         if constexpr (PT == PredicateType::IN_LIST) {
-            return Compare::less_equal(get_zone_map_value<Type, T>(statistic.first->cell_ptr()),
+            return Compare::less_equal(T(zone_map_info.min_value.template get<Type>()),
                                        _max_value) &&
-                   Compare::greater_equal(get_zone_map_value<Type, T>(statistic.second->cell_ptr()),
+                   Compare::greater_equal(T(zone_map_info.max_value.template get<Type>()),
                                           _min_value);
         } else {
             return true;
@@ -349,15 +349,13 @@ public:
         return false;
     }
 
-    bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        if (statistic.first->is_null() || statistic.second->is_null()) {
+    bool evaluate_del(const ZoneMapInfo& zone_map_info) const override {
+        if (zone_map_info.has_null) {
             return false;
         }
         if constexpr (PT == PredicateType::NOT_IN_LIST) {
-            return Compare::greater(get_zone_map_value<Type, T>(statistic.first->cell_ptr()),
-                                    _max_value) ||
-                   Compare::less(get_zone_map_value<Type, T>(statistic.second->cell_ptr()),
-                                 _min_value);
+            return Compare::greater(T(zone_map_info.min_value.template get<Type>()), _max_value) ||
+                   Compare::less(T(zone_map_info.max_value.template get<Type>()), _min_value);
         } else {
             return false;
         }
