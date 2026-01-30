@@ -18,6 +18,7 @@
 package org.apache.doris.mysql.authenticate.ldap;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.common.LdapConfig;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.mysql.authenticate.AuthenticateResponse;
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
@@ -27,6 +28,7 @@ import org.apache.doris.mysql.privilege.Auth;
 import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -142,5 +144,28 @@ public class LdapAuthenticatorTest {
     @Test
     public void testGetPasswordResolver() {
         Assert.assertTrue(ldapAuthenticator.getPasswordResolver() instanceof ClearPasswordResolver);
+    }
+
+    @Test
+    public void testEmptyPassword() throws IOException {
+        setCheckPassword(true);
+        setGetUserInDoris(true);
+        AuthenticateRequest request = new AuthenticateRequest(USER_NAME, new ClearPassword(""), IP);
+        //running test with non-specified value - ldap_allow_empty_pass should be true
+        AuthenticateResponse response = ldapAuthenticator.authenticate(request);
+        Assert.assertTrue(response.isSuccess());
+        //running test with specified value - true - ldap_allow_empty_pass is explicitly set to true
+        LdapConfig.ldap_allow_empty_pass = true;
+        response = ldapAuthenticator.authenticate(request);
+        Assert.assertTrue(response.isSuccess());
+        //running test with specified value - false - ldap_allow_empty_pass is explicitly set to false
+        LdapConfig.ldap_allow_empty_pass = false;
+        response = ldapAuthenticator.authenticate(request);
+        Assert.assertFalse(response.isSuccess());
+    }
+
+    @After
+    public void tearDown() {
+        LdapConfig.ldap_allow_empty_pass = true; // restoring default value for other tests
     }
 }

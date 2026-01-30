@@ -19,9 +19,11 @@ package org.apache.doris.mysql.authenticate.ldap;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LdapConfig;
+import org.apache.doris.common.util.NetUtils;
 
 import mockit.Expectations;
 import mockit.Tested;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -94,5 +96,29 @@ public class LdapClientTest {
             }
         };
         Assert.assertEquals(1, ldapClient.getGroups("zhangsan").size());
+    }
+
+    @Test
+    public void testSecuredProtocolIsUsed() {
+        //testing default case with not specified property ldap_use_ssl or it is specified as false
+        String insecureUrl = LdapConfig.getConnectionURL(
+                NetUtils.getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port));
+
+        Assert.assertNotNull("connection URL should not be null", insecureUrl);
+        Assert.assertTrue("with ldap_use_ssl = false or not specified URL should start with ldap, but received: " + insecureUrl,
+                          insecureUrl.startsWith("ldap://"));
+
+        //testing new case with specified property ldap_use_ssl as true
+        LdapConfig.ldap_use_ssl = true;
+        String secureUrl = LdapConfig.getConnectionURL(
+                NetUtils.getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port));
+        Assert.assertNotNull("connection URL should not be null", secureUrl);
+        Assert.assertTrue("with ldap_use_ssl = true URL should start with ldaps, but received: " + secureUrl,
+                          secureUrl.startsWith("ldaps://"));
+    }
+
+    @After
+    public void tearDown() {
+        LdapConfig.ldap_use_ssl = false; // restoring default value for other tests
     }
 }

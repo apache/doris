@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.LdapConfig;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.mysql.authenticate.AuthenticateResponse;
 import org.apache.doris.mysql.authenticate.Authenticator;
@@ -84,7 +85,7 @@ public class LdapAuthenticator implements Authenticator {
 
     /**
      * The LDAP authentication process is as follows:
-     * step1: Check the LDAP password.
+     * step1: Check the LDAP password (if ldap_allow_empty_pass is false login with empty pass is prohibited).
      * step2: Get the LDAP groups privileges as a role, saved into ConnectContext.
      * step3: Set current userIdentity. If the user account does not exist in Doris, login as a temporary user.
      * Otherwise, login to the Doris account.
@@ -94,6 +95,14 @@ public class LdapAuthenticator implements Authenticator {
         String userName = ClusterNamespace.getNameFromFullName(qualifiedUser);
         if (LOG.isDebugEnabled()) {
             LOG.debug("user:{}", userName);
+        }
+
+        //not allow to login in case when empty password is specified but such mode is disabled by configuration
+        if (Strings.isNullOrEmpty(password) && !LdapConfig.ldap_allow_empty_pass) {
+            LOG.info("user:{} is not allowed to login to LDAP with empty password because ldap_allow_empty_pass:{}",
+                    userName, LdapConfig.ldap_allow_empty_pass);
+            ErrorReport.report(ErrorCode.ERR_EMPTY_PASSWORD, qualifiedUser + "@" + remoteIp);
+            return AuthenticateResponse.failedResponse;
         }
 
         // check user password by ldap server.
