@@ -22,6 +22,9 @@ import org.apache.doris.thrift.TUnit;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 // Counter means indicators field. The counter's name is key, the counter itself is value.
 public class Counter {
     @SerializedName(value = "value")
@@ -136,6 +139,19 @@ public class Counter {
 
         Counter other = (Counter) rhs;
         return other.value == value && other.type == type && other.level == level;
+    }
+
+    /**
+     * Convert counter to a structured map for YAML serialization.
+     * Returns a map containing raw value, formatted display string, and unit type.
+     */
+    public Map<String, Object> toMap() {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("raw", getValue());
+        map.put("display", print());
+        TUnit unitType = getType();
+        map.put("unit", unitType != null ? unitType.name() : "UNKNOWN");
+        return map;
     }
 
 }

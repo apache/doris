@@ -286,13 +286,14 @@ public class QueryProfileAction extends RestBaseController {
                 return ResponseEntityBuilder.badRequest(e.getMessage());
             }
         }
-
-        if (format.equals("text")) {
-            return getTextProfile(request, queryId, isAllNode);
-        } else if (format.equals("json")) {
-            return getJsonProfile(request, queryId, isAllNode);
-        } else {
-            return ResponseEntityBuilder.badRequest("Invalid profile format: " + format);
+        switch (format) {
+            case "text":
+            case "yaml":
+                return getFormattedProfile(request, format, queryId, isAllNode);
+            case "json":
+                return getJsonProfile(request, queryId, isAllNode);
+            default:
+                return ResponseEntityBuilder.badRequest("Invalid profile format: " + format);
         }
     }
 
@@ -385,17 +386,35 @@ public class QueryProfileAction extends RestBaseController {
     }
 
     @NotNull
-    private ResponseEntity getTextProfile(HttpServletRequest request, String queryId, boolean isAllNode) {
+    private ResponseEntity getFormattedProfile(HttpServletRequest request, String format,
+            String queryId, boolean isAllNode) {
         Map<String, String> profileMap = Maps.newHashMap();
         if (isAllNode) {
-            return getProfileFromAllFrontends(request, "text", queryId, "", "");
+            return getProfileFromAllFrontends(request, format, queryId, "", "");
         } else {
-            String profile = ProfileManager.getInstance().getProfile(queryId);
+            String profile = ProfileManager.getInstance().getProfile(queryId, format);
             if (!Strings.isNullOrEmpty(profile)) {
                 profileMap.put("profile", profile);
             }
         }
         return ResponseEntityBuilder.ok(profileMap);
+    }
+
+
+    @NotNull
+    private ResponseEntity getYamlProfile(HttpServletRequest request, String queryId, boolean isAllNode) {
+        Map<String, String> graph = Maps.newHashMap();
+        if (isAllNode) {
+            return getProfileFromAllFrontends(request, "json", queryId, null, null);
+        } else {
+            try {
+                String brief = ProfileManager.getInstance().getProfileAsYaml(queryId);
+                graph.put("profile", brief);
+            } catch (Exception e) {
+                LOG.warn("get profile graph error, queryId:{}", queryId, e);
+            }
+        }
+        return ResponseEntityBuilder.ok(graph);
     }
 
     @NotNull

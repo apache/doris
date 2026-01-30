@@ -96,11 +96,20 @@ public class ProfileManager extends MasterDaemon {
         public StatsErrorEstimator statsErrorEstimator;
 
         // lazy load profileContent because sometimes profileContent is very large
-        public String getProfileContent() {
+        public String getProfileContent(String format) {
             // Not cache the profile content because it may change during insert
             // into select statement, we need use this to check process.
             // And also, cache the content will double usage of the memory in FE.
-            return profile.getProfileByLevel();
+            switch (format) {
+                case "yaml":
+                    return profile.getProfileAsYaml();
+                default:
+                    return profile.getProfileByLevel();
+            }
+        }
+
+        public String getProfileContentAsYaml() {
+            return profile.getProfileAsYaml();
         }
 
         public String getProfileBrief() {
@@ -438,7 +447,7 @@ public class ProfileManager extends MasterDaemon {
         return summary;
     }
 
-    public String getProfile(String id) {
+    public String getProfile(String id, String format) {
         List<Future<TGetRealtimeExecStatusResponse>> futures = createFetchRealTimeProfileTasks(id, "profile");
         // beAddr of reportExecStatus of QeProcessorImpl is meaningless, so assign a dummy address
         // to avoid compile failing.
@@ -465,7 +474,43 @@ public class ProfileManager extends MasterDaemon {
                 return null;
             }
 
-            return element.getProfileContent();
+            return element.getProfileContent(format);
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    /**
+     * Get profile in YAML format by query ID.
+     * This fetches real-time profile from BEs first (same as getProfile),
+     * then returns the profile content in structured YAML format.
+     */
+    public String getProfileAsYaml(String id) {
+        List<Future<TGetRealtimeExecStatusResponse>> futures = createFetchRealTimeProfileTasks(id, "profile");
+        TNetworkAddress dummyAddr = new TNetworkAddress();
+        for (Future<TGetRealtimeExecStatusResponse> future : futures) {
+            try {
+                TGetRealtimeExecStatusResponse resp = future.get(5, TimeUnit.SECONDS);
+                if (resp != null) {
+                    QeProcessorImpl.INSTANCE.reportExecStatus(resp.getReportExecStatusParams(), dummyAddr);
+                }
+            } catch (Exception e) {
+                LOG.warn("Failed to get real-time profile for YAML, id {}, error: {}", id, e.getMessage(), e);
+            }
+        }
+
+        if (!futures.isEmpty()) {
+            LOG.info("Get real-time exec status finished (YAML), id {}", id);
+        }
+
+        readLock.lock();
+        try {
+            ProfileElement element = queryIdToProfileMap.get(id);
+            if (element == null) {
+                return null;
+            }
+
+            return element.getProfileContentAsYaml();
         } finally {
             readLock.unlock();
         }
