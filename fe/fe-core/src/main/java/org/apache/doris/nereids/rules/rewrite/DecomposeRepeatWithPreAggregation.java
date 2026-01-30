@@ -407,11 +407,7 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         if (groupingSets.size() <= connectContext.getSessionVariable().decomposeRepeatThreshold) {
             return -1;
         }
-        int maxGroupIndex = findMaxGroupingSetIndex(groupingSets);
-        if (maxGroupIndex < 0) {
-            return -1;
-        }
-        return maxGroupIndex;
+        return findMaxGroupingSetIndex(groupingSets);
     }
 
     /**
@@ -435,6 +431,9 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
                 maxSize = groupingSets.get(i).size();
                 maxGroupIndex = i;
             }
+        }
+        if (groupingSets.get(maxGroupIndex).isEmpty()) {
+            return -1;
         }
         // Second pass: verify that the max-size grouping set contains all other grouping sets
         ImmutableSet<Expression> maxGroup = ImmutableSet.copyOf(groupingSets.get(maxGroupIndex));
