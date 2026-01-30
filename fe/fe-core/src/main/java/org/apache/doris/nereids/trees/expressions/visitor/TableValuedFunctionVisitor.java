@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Partitions;
 import org.apache.doris.nereids.trees.expressions.functions.table.Query;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.expressions.functions.table.Tablets;
 import org.apache.doris.nereids.trees.expressions.functions.table.Tasks;
 
 /** TableValuedFunctionVisitor */
@@ -131,5 +132,9 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitQuery(Query query, C context) {
         return visitTableValuedFunction(query, context);
+    }
+
+    default R visitTablets(Tablets tablets, C context) {
+        return visitTableValuedFunction(tablets, context);
     }
 }

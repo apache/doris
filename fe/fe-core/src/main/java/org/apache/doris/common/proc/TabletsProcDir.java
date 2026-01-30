@@ -32,9 +32,9 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.statistics.query.QueryStatsUtil;
 import org.apache.doris.system.Backend;
+import org.apache.doris.tablefunction.TabletsTableValuedFunction;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.ArrayList;
@@ -48,24 +48,6 @@ import java.util.Map;
  * show tablets' detail info within an index
  */
 public class TabletsProcDir implements ProcDirInterface {
-    public static final ImmutableList<String> TITLE_NAMES;
-
-    static {
-        ImmutableList.Builder<String> builder = new ImmutableList.Builder<String>()
-                .add("TabletId").add("ReplicaId").add("BackendId").add("SchemaHash").add("Version")
-                .add("LstSuccessVersion").add("LstFailedVersion").add("LstFailedTime")
-                .add("LocalDataSize").add("RemoteDataSize").add("RowCount").add("State")
-                .add("LstConsistencyCheckTime").add("CheckVersion")
-                .add("VisibleVersionCount").add("VersionCount").add("QueryHits").add("PathHash").add("Path")
-                .add("MetaUrl").add("CompactionStatus")
-                .add("CooldownReplicaId").add("CooldownMetaId");
-
-        if (Config.isCloudMode()) {
-            builder.add("PrimaryBackendId");
-        }
-
-        TITLE_NAMES = builder.build();
-    }
 
     private Table table;
     private MaterializedIndex index;
@@ -197,7 +179,7 @@ public class TabletsProcDir implements ProcDirInterface {
         return tabletInfos;
     }
 
-    private List<List<Comparable>> fetchComparableResult() throws AnalysisException {
+    public List<List<Comparable>> fetchComparableResult() throws AnalysisException {
         return fetchComparableResult(-1, -1, null);
     }
 
@@ -210,7 +192,7 @@ public class TabletsProcDir implements ProcDirInterface {
 
         // set result
         BaseProcResult result = new BaseProcResult();
-        result.setNames(TITLE_NAMES);
+        result.setNames(TabletsTableValuedFunction.getTabletsTitleNames());
 
         for (int i = 0; i < tabletInfos.size(); i++) {
             List<Comparable> info = tabletInfos.get(i);
@@ -250,9 +232,9 @@ public class TabletsProcDir implements ProcDirInterface {
     }
 
     public static int analyzeColumn(String columnName) throws AnalysisException {
-        for (String title : TITLE_NAMES) {
+        for (String title : TabletsTableValuedFunction.getTabletsTitleNames()) {
             if (title.equalsIgnoreCase(columnName)) {
-                return TITLE_NAMES.indexOf(title);
+                return TabletsTableValuedFunction.getTabletsTitleNames().indexOf(title);
             }
         }
 
