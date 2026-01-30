@@ -49,6 +49,7 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
@@ -307,6 +308,22 @@ public class BrokerLoadJob extends BulkLoadJob {
                 }
                 boolean isEnableMemtableOnSinkNode =
                         table.getTableProperty().getUseSchemaLightChange() && this.enableMemTableOnSinkNode;
+                boolean hasInvertedIndexV1 = false;
+                if (table.getIndexes() != null) {
+                    for (org.apache.doris.catalog.Index index : table.getIndexes()) {
+                        if (index.getIndexType() == IndexDefinition.IndexType.INVERTED) {
+                            if (table.getInvertedIndexFileStorageFormat()
+                                    == org.apache.doris.thrift.TInvertedIndexFileStorageFormat.V1) {
+                                hasInvertedIndexV1 = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (isPartialUpdate() || hasInvertedIndexV1 || Config.isCloudMode()) {
+                    isEnableMemtableOnSinkNode = false;
+                }
+
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = createTask(db, table, brokerFileGroups,
                         isEnableMemtableOnSinkNode, batchSize, aggKey, attachment);
