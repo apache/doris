@@ -23,14 +23,14 @@ suite("test_nereids_show_functions") {
     sql """DROP FUNCTION IF EXISTS ${dbName}.${functionName}(INT);"""
     sql """CREATE ALIAS FUNCTION ${dbName}.${functionName}(INT) WITH PARAMETER(id)  AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));"""
 
-    checkNereidsExecute("use ${dbName}; show builtin functions;")
-    checkNereidsExecute("use ${dbName}; show builtin functions like 'ye%'")
-    checkNereidsExecute("use ${dbName}; show full builtin functions;")
-    checkNereidsExecute("use ${dbName}; show full builtin functions like 'ye%';")
+    checkNereidsExecute("show builtin functions;")
+    checkNereidsExecute("show builtin functions like 'ye%'")
+    checkNereidsExecute("show full builtin functions;")
+    checkNereidsExecute("show full builtin functions like 'ye%';")
     checkNereidsExecute("use ${dbName}; show functions;")
     checkNereidsExecute("use ${dbName}; show functions like '${functionName}%'")
     checkNereidsExecute("use ${dbName}; show full functions like '${functionName}%';")
-    def res = sql """use ${dbName}; show builtin functions like '%yow%';"""
+    def res = sql """show builtin functions like '%yow%';"""
     assertTrue(res.size() == 1)
     def res1 = sql """use ${dbName}; show functions;"""
     assertTrue(res1.size() == 1)
@@ -45,22 +45,22 @@ suite("test_nereids_show_functions") {
     assertEquals(res3.get(0).get(3), "")
     assertEquals(res3.get(0).get(4), "")
 
-    checkNereidsExecute("show builtin functions from ${dbName};")
-    checkNereidsExecute("show builtin functions from ${dbName} like 'ye%';")
-    checkNereidsExecute("show full builtin functions from ${dbName};")
-    checkNereidsExecute("show full builtin functions from ${dbName} like 'ye%';")
+    checkNereidsExecute("show builtin functions;")
+    checkNereidsExecute("show builtin functions like 'ye%';")
+    checkNereidsExecute("show full builtin functions;")
+    checkNereidsExecute("show full builtin functions like 'ye%';")
     checkNereidsExecute("show functions from ${dbName};")
     checkNereidsExecute("show functions from ${dbName} like '${functionName}%';")
     checkNereidsExecute("show full functions from ${dbName};")
     checkNereidsExecute("show full functions from ${dbName} like '${functionName}%';")
-    def res4 = sql """show builtin functions from ${dbName} like '%yow%';"""
+    def res4 = sql """show builtin functions like '%yow%';"""
     assertTrue(res4.size() == 1)
     def res5 = sql """show functions from ${dbName}"""
     assertTrue(res5.size() == 1)
     def res6 = sql """show functions from ${dbName} like '${functionName}%';"""
     assertTrue(res6.size() == 1)
     // in nereids, each column of 'show full functions' is empty string, except Signature.
-    def res7 = sql """show full functions from ${dbName} like '${functionName}%';"""
+    def res7 = sql """show full functions like '${functionName}%';"""
     assertTrue(res7.size() == 1)
     assertEquals(res7.get(0).get(0), functionName)
     assertEquals(res7.get(0).get(1), "")
@@ -68,15 +68,15 @@ suite("test_nereids_show_functions") {
     assertEquals(res7.get(0).get(3), "")
     assertEquals(res7.get(0).get(4), "")
 
-    checkNereidsExecute("show builtin functions in ${dbName};")
-    checkNereidsExecute("show builtin functions in ${dbName} like 'ye%';")
-    checkNereidsExecute("show full builtin functions in ${dbName};")
-    checkNereidsExecute("show full builtin functions in ${dbName} like 'ye%';")
+    checkNereidsExecute("show builtin functions;")
+    checkNereidsExecute("show builtin functions like 'ye%';")
+    checkNereidsExecute("show full builtin functions;")
+    checkNereidsExecute("show full builtin functions like 'ye%';")
     checkNereidsExecute("show functions in ${dbName};")
     checkNereidsExecute("show functions in ${dbName} like '${functionName}%';")
     checkNereidsExecute("show full functions in ${dbName};")
     checkNereidsExecute("show full functions in ${dbName} like '${functionName}%';")
-    def res8 = sql """show builtin functions in ${dbName} like '%yow%';"""
+    def res8 = sql """show builtin functions like '%yow%';"""
     assertTrue(res8.size() == 1)
     def res9 = sql """show functions in ${dbName}"""
     assertTrue(res9.size() == 1)
