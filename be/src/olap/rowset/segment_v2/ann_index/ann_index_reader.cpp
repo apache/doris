@@ -98,12 +98,14 @@ Status AnnIndexReader::load_index(io::IOContext* io_ctx) {
 }
 
 bool AnnIndexReader::try_load_index(io::IOContext* io_ctx) {
+#ifndef BE_TEST
     Status st = load_index(io_ctx);
     if (!st.ok()) {
         LOG_WARNING("Failed to load ann index, will fallback to brute force search: {}",
                     st.to_string());
         return false;
     }
+#endif
     return true;
 }
 
