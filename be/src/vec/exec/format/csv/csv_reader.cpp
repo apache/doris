@@ -223,6 +223,7 @@ void CsvReader::_init_file_description() {
     if (_range.__isset.fs_name) {
         _file_description.fs_name = _range.fs_name;
     }
+    _file_description.file_cache_admission = _range.file_cache_admission;
 }
 
 Status CsvReader::init_reader(bool is_load) {

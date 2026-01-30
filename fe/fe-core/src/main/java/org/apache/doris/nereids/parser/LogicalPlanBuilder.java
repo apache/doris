@@ -57,6 +57,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.FileCacheAdmissionManager;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.dictionary.LayoutType;
 import org.apache.doris.info.PartitionNamesInfo;
@@ -1093,6 +1094,8 @@ import org.antlr.v4.runtime.Token;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
 import org.antlr.v4.runtime.tree.TerminalNode;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -1108,6 +1111,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -1116,6 +1120,8 @@ import java.util.stream.Collectors;
  */
 @SuppressWarnings({"OptionalUsedAsFieldOrParameterType", "OptionalGetWithoutIsPresent"})
 public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
+    private static final Logger LOG = LogManager.getLogger(LogicalPlanBuilder.class);
+
     private static String JOB_NAME = "jobName";
     private static String TASK_ID = "taskId";
 
@@ -9079,6 +9085,47 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new WarmUpClusterCommand(warmUpItems, srcCluster, dstCluster, isForce, isWarmUpWithTable, properties);
     }
 
+    void fileCacheAdmissionCheck(DorisParser.WarmUpSelectContext ctx) {
+        DorisParser.WarmUpSingleTableRefContext tableRef = ctx.warmUpSingleTableRef();
+        List<String> identifierParts = visitMultipartIdentifier(tableRef.multipartIdentifier());
+
+        int partCount = identifierParts.size();
+        String table = identifierParts.get(partCount - 1);
+        String database = (partCount >= 2)
+                ? identifierParts.get(partCount - 2) : ConnectContext.get().getDatabase();
+        String catalog = (partCount == 3)
+                ? identifierParts.get(partCount - 3) : ConnectContext.get().getCurrentCatalog().getName();
+
+        UserIdentity currentUser = ConnectContext.get().getCurrentUserIdentity();
+        String userIdentity = currentUser.getQualifiedUser() + "@" + currentUser.getHost();
+
+        if (!"internal".equals(catalog)) {
+            AtomicReference<String> reason = new AtomicReference<>("");
+
+            long startTime = System.nanoTime();
+
+            boolean admissionResultAtTableLevel = FileCacheAdmissionManager.getInstance().isAdmittedAtTableLevel(
+                    userIdentity, catalog, database, table, reason);
+
+            long endTime = System.nanoTime();
+            double durationMs = (double) (endTime - startTime) / 1_000_000;
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("File cache admission control cost {} ms", String.format("%.6f", durationMs));
+            }
+
+            if (!admissionResultAtTableLevel) {
+                throw new AnalysisException("WARM UP SELECT denied by file cache admission control, reason: "
+                        + reason);
+            }
+        } else {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Skip file cache admission control for non-external table: {}.{}",
+                        database, table);
+            }
+        }
+    }
+
     @Override
     public LogicalPlan visitWarmUpSelect(DorisParser.WarmUpSelectContext ctx) {
         LogicalPlan relation = visitWarmUpSingleTableRef(ctx.warmUpSingleTableRef());
@@ -9104,6 +9151,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (Config.isCloudMode() && ConnectContext.get().getSessionVariable().isDisableFileCache()) {
             throw new AnalysisException("WARM UP SELECT requires session variable"
                     + " disable_file_cache=false in cloud mode");
+        }
+
+        if (Config.enable_file_cache_admission_control) {
+            fileCacheAdmissionCheck(ctx);
         }
 
         UnboundBlackholeSink<?> sink = new UnboundBlackholeSink<>(project,

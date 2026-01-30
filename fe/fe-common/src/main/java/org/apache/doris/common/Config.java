@@ -3762,6 +3762,18 @@ public class Config extends ConfigBase {
     })
     public static int first_error_msg_max_length = 256;
 
+    @ConfField(mutable = false, description = {
+        "是否启用文件缓存准入控制（黑白名单）",
+        "Whether to enable file cache admission control(Blocklist and Allowlist)"
+    })
+    public static boolean enable_file_cache_admission_control = false;
+
+    @ConfField(mutable = true, description = {
+        "存储准入规则的JSON文件目录",
+        "Directory path for storing admission rules JSON files"
+    })
+    public static String file_cache_admission_control_json_dir = "";
+
     @ConfField
     public static String cloud_snapshot_handler_class = "org.apache.doris.cloud.snapshot.CloudSnapshotHandler";
     @ConfField

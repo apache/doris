@@ -76,7 +76,8 @@ public class SplitAssignmentTest {
                 mockSplitGenerator,
                 mockSplitToScanRange,
                 locationProperties,
-                pathPartitionKeys
+                pathPartitionKeys,
+                true
         );
     }
 
@@ -92,7 +93,8 @@ public class SplitAssignmentTest {
                 mockBackendPolicy.computeScanRangeAssignment((List<Split>) any);
                 result = batch;
 
-                mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys);
+                mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys,
+                        true);
                 result = mockScanRangeLocations;
             }
         };
@@ -127,7 +129,8 @@ public class SplitAssignmentTest {
                 mockSplitGenerator,
                 mockSplitToScanRange,
                 locationProperties,
-                pathPartitionKeys
+                pathPartitionKeys,
+                true
         );
 
         new MockUp<SplitAssignment>() {
@@ -196,7 +199,8 @@ public class SplitAssignmentTest {
                 mockBackendPolicy.computeScanRangeAssignment((List<Split>) any);
                 result = batch;
 
-                mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys);
+                mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys,
+                        true);
                 result = mockScanRangeLocations;
             }
         };
@@ -226,7 +230,8 @@ public class SplitAssignmentTest {
                 result = batch;
                 minTimes = 0;
 
-                mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys);
+                mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys,
+                        true);
                 result = mockScanRangeLocations;
                 minTimes = 0;
             }
@@ -257,7 +262,8 @@ public class SplitAssignmentTest {
                 mockBackendPolicy.computeScanRangeAssignment((List<Split>) any);
                 result = batch;
 
-                mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys);
+                mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys,
+                        true);
                 result = mockScanRangeLocations;
             }
         };
@@ -287,7 +293,8 @@ public class SplitAssignmentTest {
                 mockBackendPolicy.computeScanRangeAssignment((List<Split>) any);
                 result = batch;
 
-                mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys);
+                mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys,
+                        true);
                 result = mockScanRangeLocations;
             }
         };
@@ -339,7 +346,8 @@ public class SplitAssignmentTest {
                 mockBackendPolicy.computeScanRangeAssignment((List<Split>) any);
                 result = batch;
 
-                mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys);
+                mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys,
+                        true);
                 result = mockScanRangeLocations;
             }
         };
@@ -383,7 +391,8 @@ public class SplitAssignmentTest {
                 mockBackendPolicy.computeScanRangeAssignment((List<Split>) any);
                 result = batch;
 
-                mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys);
+                mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys,
+                        true);
                 result = mockScanRangeLocations;
             }
         };
