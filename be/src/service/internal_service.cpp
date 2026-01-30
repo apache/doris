@@ -230,7 +230,7 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                                    ? config::brpc_light_work_pool_max_queue_size
                                    : std::max(10240, CpuInfo::num_cores() * 320),
                            "brpc_light") {
-    if (config::arrow_flight_sql_port != -1) {
+    if (config::enable_arrow_flight) {
         _arrow_flight_work_pool.emplace(config::brpc_arrow_flight_work_pool_threads != -1
                                                 ? config::brpc_arrow_flight_work_pool_threads
                                                 : std::max(512, CpuInfo::num_cores() * 2),

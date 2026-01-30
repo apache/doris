@@ -97,8 +97,10 @@ DECLARE_Int32(be_port);
 DECLARE_Int32(brpc_port);
 
 // port for arrow flight sql
-// Default -1, do not start arrow flight sql server.
 DECLARE_Int32(arrow_flight_sql_port);
+
+// Whether to enable arrow flight service
+DECLARE_Bool(enable_arrow_flight);
 
 // port for cdc client scan oltp cdc data
 DECLARE_Int32(cdc_client_port);
