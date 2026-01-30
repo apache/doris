@@ -988,7 +988,6 @@ Status StreamingAggLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_close_timer);
     if (Base::_closed) {
         return Status::OK();

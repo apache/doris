@@ -199,7 +199,6 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
 }
 
 Status ExchangeLocalState::close(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();

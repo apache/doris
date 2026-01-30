@@ -64,7 +64,6 @@ Status NestedLoopJoinProbeLocalState::open(RuntimeState* state) {
 }
 
 Status NestedLoopJoinProbeLocalState::close(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();

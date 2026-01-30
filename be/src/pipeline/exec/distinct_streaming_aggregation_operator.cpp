@@ -426,7 +426,6 @@ Status DistinctStreamingAggLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_close_timer);
     /// _hash_table_size_counter may be null if prepare failed.
     if (_hash_table_size_counter && !_probe_expr_ctxs.empty()) {

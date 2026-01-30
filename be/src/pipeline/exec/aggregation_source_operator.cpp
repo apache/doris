@@ -613,7 +613,6 @@ void AggLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* place
 }
 
 Status AggLocalState::close(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
