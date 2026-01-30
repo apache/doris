@@ -1614,6 +1614,11 @@ DEFINE_mInt32(schema_dict_cache_capacity, "4096");
 // ATTN: this config is only for test
 DEFINE_mBool(enable_prune_delete_sign_when_base_compaction, "true");
 
+// Time threshold in seconds for pruning delete sign = 1 rows in base/full compaction.
+// Only prune delete sign rows when the minimum newest_write_timestamp of input rowsets
+// is older than this threshold. Default 0 means no time-based restriction.
+DEFINE_mInt64(base_compaction_prune_delete_sign_min_age_seconds, "0");
+
 DEFINE_mBool(enable_mow_verbose_log, "false");
 
 DEFINE_mInt32(tablet_sched_delay_time_ms, "5000");

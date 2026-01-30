@@ -550,14 +550,36 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     }
     bool cumu_delete = read_params.reader_type == ReaderType::READER_CUMULATIVE_COMPACTION &&
                        config::enable_delete_when_cumu_compaction;
+
     // Delete sign could not be applied when delete on cumu compaction is enabled, bucause it is meant for delete with predicates.
     // If delete design is applied on cumu compaction, it will lose effect when doing base compaction.
     // `_delete_sign_available` indicates the condition where we could apply delete signs to data.
-    _delete_sign_available = (((read_params.reader_type == ReaderType::READER_BASE_COMPACTION ||
-                                read_params.reader_type == ReaderType::READER_FULL_COMPACTION) &&
-                               config::enable_prune_delete_sign_when_base_compaction) ||
-                              read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
-                              read_params.reader_type == ReaderType::READER_CHECKSUM);
+    _delete_sign_available = false;
+
+    if ((read_params.reader_type == ReaderType::READER_BASE_COMPACTION ||
+         read_params.reader_type == ReaderType::READER_FULL_COMPACTION) &&
+        config::enable_prune_delete_sign_when_base_compaction) {
+        // Check time threshold for base/full compaction
+        int64_t min_age_seconds = config::base_compaction_prune_delete_sign_min_age_seconds;
+        if (min_age_seconds > 0 && !read_params.rs_splits.empty()) {
+            // Find the minimum newest_write_timestamp among all input rowsets
+            int64_t min_newest_write_timestamp = std::numeric_limits<int64_t>::max();
+            for (const auto& rs_split : read_params.rs_splits) {
+                if (rs_split.rs_reader && rs_split.rs_reader->rowset()) {
+                    int64_t timestamp = rs_split.rs_reader->rowset()->newest_write_timestamp();
+                    min_newest_write_timestamp = std::min(min_newest_write_timestamp, timestamp);
+                }
+            }
+            if (::time(nullptr) - min_newest_write_timestamp >= min_age_seconds) {
+                _delete_sign_available = true;
+            }
+        } else {
+            _delete_sign_available = true;
+        }
+    } else if (read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
+               read_params.reader_type == ReaderType::READER_CHECKSUM) {
+        _delete_sign_available = true;
+    }
 
     // `_filter_delete` indicates the condition where we should execlude deleted tuples when reading data.
     // However, queries will not use this condition but generate special where predicates to filter data.
