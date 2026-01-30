@@ -37,9 +37,7 @@ import java.util.Map;
  * SELECT * FROM kafka(
  *     "catalog" = "kafka_catalog",
  *     "database" = "default",
- *     "table" = "my_topic",
- *     "kafka_default_offsets" = "OFFSET_BEGINNING",
- *     "max_batch_rows" = "100000"
+ *     "table" = "my_topic"
  * );
  * </pre>
  * 

@@ -97,7 +97,6 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -140,14 +139,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private Map<Integer, AbstractStreamingTask> runningKafkaPartitionTasks = new ConcurrentHashMap<>();
     
     /**
-     * Counter for completed partition tasks in the current batch.
+     * Active partitions that have running pipelines.
+     * A partition is active when it has a task running or pending.
+     * A partition becomes idle when it has no more data to consume.
      */
-    private AtomicInteger completedPartitionCount = new AtomicInteger(0);
-    
-    /**
-     * Total number of partitions in the current batch.
-     */
-    private int currentBatchPartitionCount = 0;
+    private java.util.Set<Integer> activePartitions = ConcurrentHashMap.newKeySet();
     
     SourceOffsetProvider offsetProvider;
     @Getter
@@ -498,7 +494,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             }
             return null;
         }
-        
+
         // For other sources (S3, JDBC, etc.), create a single task
         if (tvfType != null) {
             this.runningStreamTask = createStreamingInsertTask();
@@ -532,8 +528,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
     
     /**
-     * Create multiple Kafka partition tasks for parallel execution.
+     * Create multiple Kafka partition tasks for parallel execution (initial creation).
      * Each task handles exactly one partition for exactly-once semantics.
+     * Called during PENDING state to start all partition pipelines.
      * 
      * @return list of created tasks, or empty list if no data to consume
      */
@@ -556,42 +553,98 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (originTvfProps == null) {
             this.originTvfProps = getCurrentTvf().getProperties().getMap();
         }
-        
-        // Clear previous batch state
+
+        // Clear previous state
         runningKafkaPartitionTasks.clear();
-        completedPartitionCount.set(0);
-        currentBatchPartitionCount = partitionOffsets.size();
+        activePartitions.clear();
         
         for (KafkaPartitionOffset partitionOffset : partitionOffsets) {
-            StreamingInsertTask task = new StreamingInsertTask(
-                    getJobId(),
-                    Env.getCurrentEnv().getNextId(),
-                    getExecuteSql(),
-                    offsetProvider,
-                    getCurrentDbName(),
-                    jobProperties,
-                    originTvfProps,
-                    getCreateUser(),
-                    partitionOffset
-            );
-            
-            Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(task);
-            task.setStatus(TaskStatus.PENDING);
-            runningKafkaPartitionTasks.put(partitionOffset.getPartitionId(), task);
-            recordTasks(task);
-            tasks.add(task);
-            
-            log.info("Created Kafka partition task {} for job {}, partition {}, offset range [{}, {})",
-                    task.getTaskId(), getJobId(), partitionOffset.getPartitionId(),
-                    partitionOffset.getStartOffset(), partitionOffset.getEndOffset());
+            StreamingInsertTask task = createTaskForPartition(partitionOffset);
+            if (task != null) {
+                tasks.add(task);
+            }
         }
-        
+
+        log.info("Created {} Kafka partition tasks for job {}, active partitions: {}",
+                tasks.size(), getJobId(), activePartitions);
+
         return tasks;
+    }
+
+    /**
+     * Create a task for a specific partition offset.
+     *
+     * @param partitionOffset the partition offset range
+     * @return the created task, or null if failed
+     */
+    private StreamingInsertTask createTaskForPartition(KafkaPartitionOffset partitionOffset) {
+        int partitionId = partitionOffset.getPartitionId();
+
+        StreamingInsertTask task = new StreamingInsertTask(
+                getJobId(),
+                Env.getCurrentEnv().getNextId(),
+                getExecuteSql(),
+                offsetProvider,
+                getCurrentDbName(),
+                jobProperties,
+                originTvfProps,
+                getCreateUser(),
+                partitionOffset
+        );
+
+        Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(task);
+        task.setStatus(TaskStatus.PENDING);
+        runningKafkaPartitionTasks.put(partitionId, task);
+        activePartitions.add(partitionId);
+        recordTasks(task);
+
+        log.info("Created Kafka partition task {} for job {}, partition {}, offset range [{}, {})",
+                task.getTaskId(), getJobId(), partitionId,
+                partitionOffset.getStartOffset(), partitionOffset.getEndOffset());
+
+        return task;
+    }
+
+    /**
+     * Create the next task for a specific partition after the previous task completes.
+     * This is the core of the independent pipeline model - each partition creates
+     * its own next task without waiting for other partitions.
+     *
+     * @param partitionId the Kafka partition ID
+     * @return the created task, or null if no more data for this partition
+     */
+    protected StreamingInsertTask createNextTaskForPartition(int partitionId) {
+        if (!(offsetProvider instanceof KafkaSourceOffsetProvider)) {
+            log.warn("createNextTaskForPartition called but offsetProvider is not KafkaSourceOffsetProvider");
+            return null;
+        }
+
+        KafkaSourceOffsetProvider kafkaProvider = (KafkaSourceOffsetProvider) offsetProvider;
+
+        // Get the next offset range for this partition
+        KafkaPartitionOffset nextOffset = kafkaProvider.getNextPartitionOffset(partitionId, jobProperties);
+
+        if (nextOffset == null || nextOffset.isEmpty()) {
+            // No more data for this partition, mark it as idle
+            activePartitions.remove(partitionId);
+            log.info("Partition {} has no more data, stopping its pipeline. Active partitions: {}",
+                    partitionId, activePartitions);
+            return null;
+        }
+
+        if (originTvfProps == null) {
+            this.originTvfProps = getCurrentTvf().getProperties().getMap();
+        }
+
+        return createTaskForPartition(nextOffset);
     }
     
     /**
      * Callback when a Kafka partition task completes successfully.
-     * Updates the partition's offset and checks if all partitions are done.
+     * Updates the partition's offset and immediately creates the next task for this partition.
+     *
+     * This implements the independent pipeline model where each partition runs its own
+     * continuous pipeline without waiting for other partitions.
      * 
      * @param task the completed task
      * @param partitionId the Kafka partition ID
@@ -617,22 +670,70 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 log.info("Kafka partition {} task {} success, consumed {} rows, new offset: {}",
                         partitionId, task.getTaskId(), consumedRows, newOffset);
             }
-            
-            // Check if all partitions in this batch are complete
-            int completed = completedPartitionCount.incrementAndGet();
-            if (completed >= currentBatchPartitionCount) {
-                log.info("All {} Kafka partition tasks completed for job {}, creating next batch",
-                        currentBatchPartitionCount, getJobId());
-                // Create next batch of tasks
-                List<AbstractStreamingTask> nextTasks = createKafkaPartitionTasks();
-                if (!nextTasks.isEmpty()) {
-                    // Tasks will be scheduled by the job scheduler
-                    log.info("Created {} new Kafka partition tasks for next batch", nextTasks.size());
-                }
+
+            // Immediately create the next task for this partition (independent pipeline)
+            StreamingInsertTask nextTask = createNextTaskForPartition(partitionId);
+            if (nextTask != null) {
+                log.info("Created next task {} for partition {} (independent pipeline)",
+                        nextTask.getTaskId(), partitionId);
+            } else {
+                log.info("Partition {} pipeline stopped (no more data), active partitions: {}",
+                        partitionId, activePartitions);
             }
         } finally {
             writeUnlock();
         }
+    }
+
+    /**
+     * Restart idle Kafka partitions that have new data available.
+     * Called by StreamingJobSchedulerTask during RUNNING state to check for
+     * partitions that stopped due to no data but now have new messages.
+     */
+    public void restartIdleKafkaPartitions() {
+        if (!(offsetProvider instanceof KafkaSourceOffsetProvider)) {
+            return;
+        }
+
+        KafkaSourceOffsetProvider kafkaProvider = (KafkaSourceOffsetProvider) offsetProvider;
+        java.util.Set<Integer> allPartitions = kafkaProvider.getAllPartitionIds();
+
+        int restartedCount = 0;
+        for (Integer partitionId : allPartitions) {
+            // Skip partitions that are already active
+            if (activePartitions.contains(partitionId)) {
+                continue;
+            }
+
+            // Check if this idle partition now has new data
+            if (kafkaProvider.hasMoreDataForPartition(partitionId)) {
+                writeLock();
+                try {
+                    // Double-check after acquiring lock
+                    if (!activePartitions.contains(partitionId)) {
+                        StreamingInsertTask task = createNextTaskForPartition(partitionId);
+                        if (task != null) {
+                            restartedCount++;
+                            log.info("Restarted idle partition {} with new task {}",
+                                    partitionId, task.getTaskId());
+                        }
+                    }
+                } finally {
+                    writeUnlock();
+                }
+            }
+        }
+
+        if (restartedCount > 0) {
+            log.info("Restarted {} idle Kafka partitions for job {}", restartedCount, getJobId());
+        }
+    }
+
+    /**
+     * Get the set of currently active partitions.
+     */
+    public java.util.Set<Integer> getActivePartitions() {
+        return java.util.Collections.unmodifiableSet(activePartitions);
     }
     
     /**
@@ -723,8 +824,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 task.closeOrReleaseResources();
             }
             runningKafkaPartitionTasks.clear();
-            completedPartitionCount.set(0);
-            currentBatchPartitionCount = 0;
+            activePartitions.clear();
         }
     }
 
@@ -1262,9 +1362,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (null == runningKafkaPartitionTasks) {
             runningKafkaPartitionTasks = new ConcurrentHashMap<>();
         }
-        
-        if (null == completedPartitionCount) {
-            completedPartitionCount = new AtomicInteger(0);
+
+        // Initialize active partitions set
+        if (null == activePartitions) {
+            activePartitions = ConcurrentHashMap.newKeySet();
         }
     }
 

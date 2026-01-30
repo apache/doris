@@ -208,4 +208,157 @@ public class KafkaSourceOffsetProviderTest {
         Assert.assertTrue(persistInfo.contains("topic"));
         Assert.assertTrue(persistInfo.contains("100"));
     }
+    
+    // ============ Tests for Independent Pipeline Model ============
+    
+    @Test
+    public void testGetNextPartitionOffsetSinglePartitionWithData() {
+        // Set up current offset
+        KafkaOffset currentOffset = new KafkaOffset("topic", "catalog", "db");
+        currentOffset.updatePartitionOffset(0, 100L);
+        currentOffset.updatePartitionOffset(1, 200L);
+        provider.setCurrentOffset(currentOffset);
+        
+        // Set up latest offsets
+        Map<Integer, Long> latestOffsets = new HashMap<>();
+        latestOffsets.put(0, 500L);
+        latestOffsets.put(1, 200L);  // No new data
+        provider.setLatestOffsets(latestOffsets);
+        provider.setMaxBatchRows(100L);
+        
+        StreamingJobProperties jobProps = new StreamingJobProperties(new HashMap<>());
+        
+        // Partition 0 has data
+        KafkaPartitionOffset offset0 = provider.getNextPartitionOffset(0, jobProps);
+        Assert.assertNotNull(offset0);
+        Assert.assertEquals(0, offset0.getPartitionId());
+        Assert.assertEquals(100L, offset0.getStartOffset());
+        Assert.assertEquals(200L, offset0.getEndOffset());
+        
+        // Partition 1 has no data
+        KafkaPartitionOffset offset1 = provider.getNextPartitionOffset(1, jobProps);
+        Assert.assertNull(offset1);
+    }
+    
+    @Test
+    public void testGetNextPartitionOffsetLimitedByLatest() {
+        KafkaOffset currentOffset = new KafkaOffset("topic", "catalog", "db");
+        currentOffset.updatePartitionOffset(0, 900L);
+        provider.setCurrentOffset(currentOffset);
+        
+        Map<Integer, Long> latestOffsets = new HashMap<>();
+        latestOffsets.put(0, 930L);  // Only 30 messages available
+        provider.setLatestOffsets(latestOffsets);
+        provider.setMaxBatchRows(100L);
+        
+        StreamingJobProperties jobProps = new StreamingJobProperties(new HashMap<>());
+        KafkaPartitionOffset offset = provider.getNextPartitionOffset(0, jobProps);
+        
+        Assert.assertNotNull(offset);
+        Assert.assertEquals(900L, offset.getStartOffset());
+        Assert.assertEquals(930L, offset.getEndOffset());  // Limited by latest, not maxBatchRows
+    }
+    
+    @Test
+    public void testHasMoreDataForPartitionTrue() {
+        KafkaOffset currentOffset = new KafkaOffset("topic", "catalog", "db");
+        currentOffset.updatePartitionOffset(0, 100L);
+        currentOffset.updatePartitionOffset(1, 200L);
+        provider.setCurrentOffset(currentOffset);
+        
+        Map<Integer, Long> latestOffsets = new HashMap<>();
+        latestOffsets.put(0, 500L);  // Has data
+        latestOffsets.put(1, 200L);  // No data
+        provider.setLatestOffsets(latestOffsets);
+        
+        Assert.assertTrue(provider.hasMoreDataForPartition(0));
+        Assert.assertFalse(provider.hasMoreDataForPartition(1));
+    }
+    
+    @Test
+    public void testHasMoreDataForPartitionUnknownPartition() {
+        KafkaOffset currentOffset = new KafkaOffset("topic", "catalog", "db");
+        currentOffset.updatePartitionOffset(0, 100L);
+        provider.setCurrentOffset(currentOffset);
+        
+        Map<Integer, Long> latestOffsets = new HashMap<>();
+        latestOffsets.put(0, 500L);
+        provider.setLatestOffsets(latestOffsets);
+        
+        // Partition 99 doesn't exist
+        Assert.assertFalse(provider.hasMoreDataForPartition(99));
+    }
+    
+    @Test
+    public void testGetAllPartitionIds() {
+        KafkaOffset currentOffset = new KafkaOffset("topic", "catalog", "db");
+        currentOffset.updatePartitionOffset(0, 100L);
+        currentOffset.updatePartitionOffset(1, 200L);
+        currentOffset.updatePartitionOffset(2, 300L);
+        provider.setCurrentOffset(currentOffset);
+        
+        java.util.Set<Integer> partitionIds = provider.getAllPartitionIds();
+        
+        Assert.assertEquals(3, partitionIds.size());
+        Assert.assertTrue(partitionIds.contains(0));
+        Assert.assertTrue(partitionIds.contains(1));
+        Assert.assertTrue(partitionIds.contains(2));
+    }
+    
+    @Test
+    public void testGetAllPartitionIdsEmpty() {
+        // No current offset set
+        java.util.Set<Integer> partitionIds = provider.getAllPartitionIds();
+        Assert.assertTrue(partitionIds.isEmpty());
+    }
+    
+    @Test
+    public void testIndependentPipelineScenario() {
+        // Simulates the independent pipeline model:
+        // 1. Create initial tasks for all partitions
+        // 2. Partition 0 completes, gets new task immediately
+        // 3. Partition 1 has no more data, becomes idle
+        // 4. Later, partition 1 gets new data and restarts
+        
+        KafkaOffset currentOffset = new KafkaOffset("topic", "catalog", "db");
+        currentOffset.updatePartitionOffset(0, 0L);
+        currentOffset.updatePartitionOffset(1, 0L);
+        provider.setCurrentOffset(currentOffset);
+        
+        Map<Integer, Long> latestOffsets = new HashMap<>();
+        latestOffsets.put(0, 200L);
+        latestOffsets.put(1, 50L);
+        provider.setLatestOffsets(latestOffsets);
+        provider.setMaxBatchRows(100L);
+        
+        StreamingJobProperties jobProps = new StreamingJobProperties(new HashMap<>());
+        
+        // Step 1: Get initial offsets
+        List<KafkaPartitionOffset> initialOffsets = provider.getNextPartitionOffsets(jobProps);
+        Assert.assertEquals(2, initialOffsets.size());
+        
+        // Step 2: Partition 0 completes (consumed 100 rows), gets next task
+        provider.updatePartitionOffset(0, 100L);
+        KafkaPartitionOffset nextOffset0 = provider.getNextPartitionOffset(0, jobProps);
+        Assert.assertNotNull(nextOffset0);
+        Assert.assertEquals(100L, nextOffset0.getStartOffset());
+        Assert.assertEquals(200L, nextOffset0.getEndOffset());
+        
+        // Step 3: Partition 1 completes (consumed 50 rows), no more data
+        provider.updatePartitionOffset(1, 50L);
+        KafkaPartitionOffset nextOffset1 = provider.getNextPartitionOffset(1, jobProps);
+        Assert.assertNull(nextOffset1);  // No more data
+        Assert.assertFalse(provider.hasMoreDataForPartition(1));
+        
+        // Step 4: New data arrives for partition 1
+        latestOffsets.put(1, 150L);
+        provider.setLatestOffsets(latestOffsets);
+        Assert.assertTrue(provider.hasMoreDataForPartition(1));
+        
+        // Step 5: Partition 1 restarts
+        KafkaPartitionOffset restartOffset1 = provider.getNextPartitionOffset(1, jobProps);
+        Assert.assertNotNull(restartOffset1);
+        Assert.assertEquals(50L, restartOffset1.getStartOffset());
+        Assert.assertEquals(150L, restartOffset1.getEndOffset());
+    }
 }

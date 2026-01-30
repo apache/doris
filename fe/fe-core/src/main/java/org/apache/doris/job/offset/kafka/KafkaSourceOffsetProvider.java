@@ -180,21 +180,74 @@ public class KafkaSourceOffsetProvider implements SourceOffsetProvider {
         
         for (Map.Entry<Integer, Long> entry : currentOffset.getPartitionOffsets().entrySet()) {
             int partitionId = entry.getKey();
-            long currentPos = entry.getValue();
-            long latestPos = latestOffsets.getOrDefault(partitionId, currentPos);
-            
-            // Only create task if there's data to consume
-            if (currentPos < latestPos) {
-                // Calculate the end offset for this batch
-                long endOffset = Math.min(currentPos + maxBatchRows, latestPos);
-                offsets.add(new KafkaPartitionOffset(partitionId, currentPos, endOffset));
-                
-                log.debug("Partition {} offset range: [{}, {}), latest: {}", 
-                        partitionId, currentPos, endOffset, latestPos);
+            KafkaPartitionOffset partitionOffset = getNextPartitionOffset(partitionId, jobProps);
+            if (partitionOffset != null) {
+                offsets.add(partitionOffset);
             }
         }
         
         return offsets;
+    }
+    
+    /**
+     * Get the next offset range for a single partition.
+     * Returns null if there is no more data to consume for this partition.
+     * 
+     * @param partitionId the Kafka partition ID
+     * @param jobProps job properties (not used currently but kept for API consistency)
+     * @return the next offset range, or null if no data available
+     */
+    public KafkaPartitionOffset getNextPartitionOffset(int partitionId, StreamingJobProperties jobProps) {
+        if (currentOffset == null || currentOffset.getPartitionOffsets() == null) {
+            return null;
+        }
+        
+        long currentPos = currentOffset.getPartitionOffset(partitionId);
+        long latestPos = latestOffsets.getOrDefault(partitionId, currentPos);
+        
+        // No more data if current >= latest
+        if (currentPos >= latestPos) {
+            log.debug("Partition {} has no more data: current={}, latest={}", 
+                    partitionId, currentPos, latestPos);
+            return null;
+        }
+        
+        // Calculate the end offset for this batch
+        long endOffset = Math.min(currentPos + maxBatchRows, latestPos);
+        
+        log.debug("Partition {} offset range: [{}, {}), latest: {}", 
+                partitionId, currentPos, endOffset, latestPos);
+        
+        return new KafkaPartitionOffset(partitionId, currentPos, endOffset);
+    }
+    
+    /**
+     * Check if a specific partition has more data to consume.
+     * 
+     * @param partitionId the Kafka partition ID
+     * @return true if the partition has unconsumed data
+     */
+    public boolean hasMoreDataForPartition(int partitionId) {
+        if (currentOffset == null || currentOffset.getPartitionOffsets() == null) {
+            return false;
+        }
+        
+        long currentPos = currentOffset.getPartitionOffset(partitionId);
+        long latestPos = latestOffsets.getOrDefault(partitionId, currentPos);
+        
+        return currentPos < latestPos;
+    }
+    
+    /**
+     * Get all partition IDs that have been initialized.
+     * 
+     * @return set of partition IDs
+     */
+    public java.util.Set<Integer> getAllPartitionIds() {
+        if (currentOffset == null || currentOffset.getPartitionOffsets() == null) {
+            return java.util.Collections.emptySet();
+        }
+        return currentOffset.getPartitionOffsets().keySet();
     }
     
     @Override

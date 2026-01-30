@@ -245,20 +245,22 @@ public class TrinoConnectorExternalTable extends ExternalTable {
         // Get connector name to check if it's Kafka
         String connectorNameStr = trinoConnectorCatalog.getConnectorName() != null
                 ? trinoConnectorCatalog.getConnectorName().toString() : "";
-        
+        Map<String, String> props = trinoConnectorCatalog.getCatalogProperty().getProperties();
         // Kafka connector needs hidden columns for offset filtering
         if ("kafka".equalsIgnoreCase(connectorNameStr)) {
-            return true;
+            if (props.containsKey("trino.kafka.hide-internal-columns")) {
+                String hideInternal = props.get("trino.kafka.hide-internal-columns");
+                if ("false".equalsIgnoreCase(hideInternal)) {
+                    return true;
+                } else {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        } else {
+            return false;
         }
-        
-        // Check catalog property for explicit configuration
-        Map<String, String> props = trinoConnectorCatalog.getCatalogProperty().getProperties();
-        String includeHidden = props.get("include_hidden_columns");
-        if ("true".equalsIgnoreCase(includeHidden)) {
-            return true;
-        }
-        
-        return false;
     }
 
     public ConnectorTableHandle getConnectorTableHandle() {

@@ -20,15 +20,16 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalog;
+import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
+import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.SessionVariable;
 
-import com.google.common.collect.ImmutableList;
+import com.google.common.base.Joiner;
 import lombok.Getter;
 
 import java.util.List;
@@ -60,91 +61,50 @@ public class KafkaTableValuedFunction extends TableValuedFunctionIf {
     public static final String PARAM_CATALOG = "catalog";
     public static final String PARAM_DATABASE = "database";
     public static final String PARAM_TABLE = "table";
-    public static final String PARAM_DEFAULT_OFFSETS = "kafka_default_offsets";
-    public static final String PARAM_MAX_BATCH_ROWS = "max_batch_rows";
-    
-    // Default values
-    public static final String DEFAULT_DATABASE = "default";
-    public static final String DEFAULT_OFFSETS = "OFFSET_END";
-    public static final long DEFAULT_MAX_BATCH_ROWS = 100000L;
     
     private final String catalogName;
     private final String databaseName;
     private final String tableName;
-    private final String defaultOffsets;
-    private final long maxBatchRows;
-    
     private final Map<String, String> properties;
+
+    private TrinoConnectorExternalCatalog trinoCatalog;
+    private TrinoConnectorExternalDatabase trinoDatabase;
+    private TrinoConnectorExternalTable trinoTable;
     
     public KafkaTableValuedFunction(Map<String, String> params) throws AnalysisException {
         this.properties = params;
         
         // Parse required parameters
         this.catalogName = getRequiredParam(params, PARAM_CATALOG);
+        this.databaseName = getRequiredParam(params, PARAM_DATABASE);
         this.tableName = getRequiredParam(params, PARAM_TABLE);
-        
-        // Parse optional parameters with defaults
-        this.databaseName = params.getOrDefault(PARAM_DATABASE, DEFAULT_DATABASE);
-        this.defaultOffsets = params.getOrDefault(PARAM_DEFAULT_OFFSETS, DEFAULT_OFFSETS);
-        
-        String maxBatchRowsStr = params.get(PARAM_MAX_BATCH_ROWS);
-        if (maxBatchRowsStr != null) {
-            try {
-                this.maxBatchRows = Long.parseLong(maxBatchRowsStr);
-            } catch (NumberFormatException e) {
-                throw new AnalysisException(PARAM_MAX_BATCH_ROWS + " must be a valid number");
-            }
-        } else {
-            this.maxBatchRows = DEFAULT_MAX_BATCH_ROWS;
-        }
-        
+
         // Validate the catalog exists and is a Kafka connector
         validateKafkaCatalog();
-        
-        // Validate default offsets
-        validateDefaultOffsets();
     }
     
     /**
      * Validate that the specified catalog exists and is a Trino Kafka connector.
      */
     private void validateKafkaCatalog() throws AnalysisException {
-        CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
-        if (catalog == null) {
-            throw new AnalysisException("Catalog not found: " + catalogName);
-        }
-        
+        CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(catalogName);
         if (!(catalog instanceof TrinoConnectorExternalCatalog)) {
             throw new AnalysisException(
                     "Catalog '" + catalogName + "' must be a Trino Connector catalog. "
                     + "Please create a Trino Kafka catalog first.");
         }
-        
-        TrinoConnectorExternalCatalog trinoCatalog = (TrinoConnectorExternalCatalog) catalog;
-        String connectorName = trinoCatalog.getConnectorName() != null 
+
+        this.trinoCatalog = (TrinoConnectorExternalCatalog) catalog;
+        String connectorName = trinoCatalog.getConnectorName() != null
                 ? trinoCatalog.getConnectorName().toString() : "";
         
         if (!"kafka".equalsIgnoreCase(connectorName)) {
             throw new AnalysisException(
                     "Catalog '" + catalogName + "' must be a Kafka connector, but found: " + connectorName);
         }
-    }
-    
-    /**
-     * Validate the kafka_default_offsets parameter.
-     */
-    private void validateDefaultOffsets() throws AnalysisException {
-        String upper = defaultOffsets.toUpperCase();
-        if (!"OFFSET_BEGINNING".equals(upper) && !"OFFSET_END".equals(upper)) {
-            // Try to parse as a number
-            try {
-                Long.parseLong(defaultOffsets);
-            } catch (NumberFormatException e) {
-                throw new AnalysisException(
-                        "Invalid " + PARAM_DEFAULT_OFFSETS + ": " + defaultOffsets 
-                        + ". Expected: OFFSET_BEGINNING, OFFSET_END, or a numeric offset value.");
-            }
-        }
+
+        this.trinoDatabase = (TrinoConnectorExternalDatabase) catalog.getDbOrAnalysisException(this.databaseName);
+        this.trinoTable = this.trinoDatabase.getTableOrAnalysisException(this.tableName);
     }
     
     private String getRequiredParam(Map<String, String> params, String key) throws AnalysisException {
@@ -157,17 +117,12 @@ public class KafkaTableValuedFunction extends TableValuedFunctionIf {
     
     @Override
     public String getTableName() {
-        return "KafkaTableValuedFunction";
+        return Joiner.on(".").join(this.catalogName, this.databaseName, this.tableName);
     }
-    
+
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
-        // Return a placeholder schema since the actual columns come from the Trino Kafka table.
-        // When used in streaming jobs, the TVF is rewritten to reference the actual table.
-        // This placeholder allows the TVF to be parsed and validated.
-        return ImmutableList.of(
-                new Column("_placeholder", ScalarType.createStringType())
-        );
+        return trinoTable.getFullSchema();
     }
     
     @Override
@@ -178,12 +133,5 @@ public class KafkaTableValuedFunction extends TableValuedFunctionIf {
         throw new UnsupportedOperationException(
                 "kafka() TVF does not support direct scanning. "
                 + "It should be used with CREATE JOB ... ON STREAMING.");
-    }
-    
-    /**
-     * Get the full table identifier as: catalog.database.table
-     */
-    public String getFullTableName() {
-        return catalogName + "." + databaseName + "." + tableName;
     }
 }

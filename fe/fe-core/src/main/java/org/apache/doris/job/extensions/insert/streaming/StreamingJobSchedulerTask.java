@@ -72,8 +72,16 @@ public class StreamingJobSchedulerTask extends AbstractTask {
     }
 
     private void handleRunningState() throws JobException {
+        // 1. Process timeout tasks (for StreamingMultiTblTask)
         streamingInsertJob.processTimeoutTasks();
+        
+        // 2. Fetch remote metadata (updates latest offsets for all partitions)
         streamingInsertJob.fetchMeta();
+        
+        // 3. For Kafka jobs: restart idle partitions that now have new data
+        if (streamingInsertJob.isKafkaStreamingJob()) {
+            streamingInsertJob.restartIdleKafkaPartitions();
+        }
     }
 
     private void autoResumeHandler() throws JobException {
