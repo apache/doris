@@ -17,8 +17,11 @@
 
 #pragma once
 
+#include <arrow/result.h>
+
 #include <iostream>
 
+#include "common/compiler_util.h"
 #include "common/status.h"
 
 // This files contains some utilities to convert Doris internal
@@ -71,5 +74,34 @@ Status arrow_pretty_print(const arrow::Array& rb, std::ostream* os);
 
 Status to_doris_status(const arrow::Status& status);
 arrow::Status to_arrow_status(const Status& status);
+
+template <typename T>
+inline void assign_from_result(T& output, const arrow::Result<T>& result) {
+    output = *result;
+}
+
+template <typename T>
+inline void assign_from_result(T& output, arrow::Result<T>&& result) {
+    output = std::move(*result);
+}
+
+template <typename T>
+inline void assign_from_result(T* output, const arrow::Result<T>& result) {
+    *output = *result;
+}
+
+template <typename T>
+inline void assign_from_result(T* output, arrow::Result<T>&& result) {
+    *output = std::move(*result);
+}
+
+#define RETURN_DORIS_STATUS_IF_RESULT_ERROR(output, result_expr)                \
+    do {                                                                        \
+        auto&& _result_ = (result_expr);                                        \
+        if (UNLIKELY(!_result_.ok())) {                                         \
+            return to_doris_status(_result_.status());                          \
+        }                                                                       \
+        assign_from_result(output, std::forward<decltype(_result_)>(_result_)); \
+    } while (0)
 
 } // namespace doris
