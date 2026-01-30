@@ -1643,20 +1643,6 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
             insert_into_subcolumn(i, true);
         }
         break;
-    case ParseConfig::ParseTo::BothSubcolumnsAndDocValueColumn:
-        for (size_t i = 0; i < paths.size(); ++i) {
-            auto* subcolumn = insert_into_subcolumn(i, true);
-            if (!subcolumn) {
-                continue;
-            }
-            const auto path = paths[i].get_path();
-            insert_unique_path_or_throw(path);
-            if (!paths[i].empty()) {
-                subcolumn->serialize_to_binary_column(doc_value_data_paths, path,
-                                                      doc_value_data_values, old_num_rows);
-            }
-        }
-        break;
     case ParseConfig::ParseTo::OnlyDocValueColumn:
         ColumnVariant::Subcolumn tmp_subcolumn(0, true);
         for (size_t i = 0; i < paths.size(); ++i) {
@@ -2085,10 +2071,8 @@ Status _parse_and_materialize_variant_columns(Block& block,
         var_column->finalize();
 
         MutableColumnPtr variant_column;
-        // doc snapshot mode, parse the doc snapshot column to subcolumns
-        if (var.is_doc_mode() &&
-            configs[i].parse_to == ParseConfig::ParseTo::BothSubcolumnsAndDocValueColumn) {
-            materialize_docs_to_subcolumns(var);
+        // doc snapshot mode, no need to parse
+        if (var.is_doc_mode()) {
             continue;
         }
         if (!var.is_scalar_variant()) {
@@ -2174,22 +2158,11 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
             return Status::InternalError("column is not variant type, column name: {}",
                                          column.name());
         }
-        // if doc mode is not enabled, no need to parse to doc value column
-        if (!column.variant_enable_doc_mode()) {
-            configs[i].parse_to = ParseConfig::ParseTo::OnlySubcolumns;
-            continue;
-        }
-
-        auto column_size = block.get_by_position(variant_column_pos[i]).column->size();
-
-        // if column size is greater than min rows, parse to both subcolumns and doc value column
-        if (column_size > column.variant_doc_materialization_min_rows()) {
-            configs[i].parse_to = ParseConfig::ParseTo::BothSubcolumnsAndDocValueColumn;
-        }
-
-        // if column size is less than min rows, parse to only doc value column
-        else {
+        // if doc mode is enabled, need to parse to doc value column
+        if (column.variant_enable_doc_mode()) {
             configs[i].parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
+        } else {
+            configs[i].parse_to = ParseConfig::ParseTo::OnlySubcolumns;
         }
     }
 

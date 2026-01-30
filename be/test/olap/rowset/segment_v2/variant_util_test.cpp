@@ -153,40 +153,6 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeBinaryToSubcolumns) {
     cfg.parse_to = vectorized::ParseConfig::ParseTo::OnlyDocValueColumn;
     parse_json_to_variant(*variant, *json_col, cfg);
     ASSERT_TRUE(variant->is_doc_mode());
-
-    vectorized::Block block;
-    block.insert({variant->get_ptr(), std::make_shared<vectorized::DataTypeVariant>(0), "v"});
-
-    vectorized::ParseConfig parse_cfg;
-    parse_cfg.enable_flatten_nested = false;
-    parse_cfg.parse_to = vectorized::ParseConfig::ParseTo::BothSubcolumnsAndDocValueColumn;
-    Status st =
-            parse_and_materialize_variant_columns(block, std::vector<uint32_t> {0}, {parse_cfg});
-    EXPECT_TRUE(st.ok()) << st.to_string();
-
-    const auto& out =
-            assert_cast<const vectorized::ColumnVariant&>(*block.get_by_position(0).column);
-    EXPECT_FALSE(out.is_doc_mode());
-
-    const auto* sub_a = out.get_subcolumn(vectorized::PathInData("a"));
-    const auto* sub_b = out.get_subcolumn(vectorized::PathInData("b"));
-    ASSERT_TRUE(sub_a != nullptr);
-    ASSERT_TRUE(sub_b != nullptr);
-
-    vectorized::FieldWithDataType f;
-    sub_a->get(0, f);
-    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
-    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 1);
-    sub_a->get(1, f);
-    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
-    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 2);
-
-    sub_b->get(0, f);
-    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_STRING);
-    EXPECT_EQ(f.field.get<TYPE_STRING>(), "x");
-    sub_b->get(1, f);
-    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_STRING);
-    EXPECT_EQ(f.field.get<TYPE_STRING>(), "y");
 }
 
 TEST(VariantUtilTest, ParseVariantColumns_DocModeRejectOnlySubcolumnsConfig) {
@@ -199,16 +165,6 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeRejectOnlySubcolumnsConfig) {
     cfg.parse_to = vectorized::ParseConfig::ParseTo::OnlyDocValueColumn;
     parse_json_to_variant(*variant, *json_col, cfg);
     ASSERT_TRUE(variant->is_doc_mode());
-
-    vectorized::Block block;
-    block.insert({variant->get_ptr(), std::make_shared<vectorized::DataTypeVariant>(0), "v"});
-
-    vectorized::ParseConfig parse_cfg;
-    parse_cfg.enable_flatten_nested = false;
-    parse_cfg.parse_to = vectorized::ParseConfig::ParseTo::BothSubcolumnsAndDocValueColumn;
-    Status st =
-            parse_and_materialize_variant_columns(block, std::vector<uint32_t> {0}, {parse_cfg});
-    EXPECT_TRUE(st.ok()) << st.to_string();
 }
 
 // Generate sparse JSON rows: each row contains `keys_per_row` keys chosen from
