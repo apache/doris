@@ -1029,8 +1029,8 @@ TEST_F(OccurBooleanQueryTest, ShouldOnlyAllQueryScoring) {
     _ctx.segment_num_rows = 10;
 
     std::vector<std::pair<Occur, QueryPtr>> clauses;
-    clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(std::vector<uint32_t> {1, 2},
-                                                                    2.0F));
+    clauses.emplace_back(Occur::SHOULD,
+                         std::make_shared<MockQuery>(std::vector<uint32_t> {1, 2}, 2.0F));
     clauses.emplace_back(Occur::SHOULD, std::make_shared<AllQuery>(10));
 
     OccurBooleanQuery query(std::move(clauses));
