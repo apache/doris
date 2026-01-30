@@ -120,7 +120,8 @@ private:
                        Selector* selector, size_t count, ColumnPtr& result_column,
                        ColumnPtr* arg_column) const {
         DCHECK(_open_finished || block == nullptr);
-
+        DCHECK(!(filter != nullptr && selector != nullptr))
+                << "filter and selector can not be both set";
         ColumnPtr argument_column;
         RETURN_IF_ERROR(
                 _children[0]->execute_column(context, block, selector, count, argument_column));
