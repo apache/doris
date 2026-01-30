@@ -139,8 +139,8 @@ public:
 
     void set_microsecond(uint64_t microsecond) { _utc_dt.set_microsecond(microsecond); }
 
-    bool unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const {
-        return _utc_dt.unix_timestamp(timestamp, ctz);
+    void unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const {
+        _utc_dt.unix_timestamp(timestamp, ctz);
     }
 
     // Convert UTC time to local time based on the given timezone
