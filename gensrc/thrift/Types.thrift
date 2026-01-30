@@ -758,6 +758,7 @@ enum TMetadataType {
   HUDI = 11,
   PAIMON = 12,
   PARQUET = 13,
+  TABLETS = 14,
 }
 
 // deprecated
