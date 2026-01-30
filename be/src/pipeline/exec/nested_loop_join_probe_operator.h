@@ -39,11 +39,16 @@ public:
     using Parent = NestedLoopJoinProbeOperatorX;
     ENABLE_FACTORY_CREATOR(NestedLoopJoinProbeLocalState);
     NestedLoopJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent);
-    ~NestedLoopJoinProbeLocalState() = default;
+    ~NestedLoopJoinProbeLocalState() override = default;
 
-#define CLEAR_BLOCK                                                  \
-    for (size_t i = 0; i < column_to_keep; ++i) {                    \
-        block->get_by_position(i).column->assume_mutable()->clear(); \
+#define CLEAR_BLOCK                                      \
+    for (size_t i = 0; i < column_to_keep; ++i) {        \
+        auto& column = block->get_by_position(i).column; \
+        if (column->is_exclusive()) {                    \
+            column->assume_mutable()->clear();           \
+        } else {                                         \
+            column = column->clone_empty();              \
+        }                                                \
     }
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
