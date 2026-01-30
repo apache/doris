@@ -22,3 +22,23 @@
 3	50
 2	30
 
+-- !select_arithmetic --
+1	30
+2	70
+3	110
+4	40
+
+-- !group_by --
+alice	25
+bob	30
+charlie	50
+
+-- !having --
+alice	25
+bob	30
+charlie	50
+
+-- !join_on --
+1	first
+2	second
+

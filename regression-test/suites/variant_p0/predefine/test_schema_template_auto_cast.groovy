@@ -60,5 +60,55 @@ suite("test_schema_template_auto_cast", "p0") {
     qt_topn """ SELECT id, data['num_a'] FROM ${tableName}
         ORDER BY data['num_a'] DESC LIMIT 2 """
 
+    // Test 4: SELECT with auto-cast (arithmetic operations)
+    qt_select_arithmetic """ SELECT id, data['num_a'] + data['num_b'] as sum_val
+        FROM ${tableName} ORDER BY id """
+
+    // Test 5: GROUP BY with auto-cast
+    qt_group_by """ SELECT data['str_name'], SUM(data['num_a']) as total
+        FROM ${tableName} GROUP BY data['str_name'] ORDER BY data['str_name'] """
+
+    // Test 6: HAVING with auto-cast
+    qt_having """ SELECT data['str_name'], SUM(data['num_a']) as total
+        FROM ${tableName} GROUP BY data['str_name']
+        HAVING SUM(data['num_a']) > 20 ORDER BY data['str_name'] """
+
     sql "DROP TABLE IF EXISTS ${tableName}"
+
+    // Test 7: JOIN ON with auto-cast
+    def leftTable = "test_variant_join_left"
+    def rightTable = "test_variant_join_right"
+
+    sql "DROP TABLE IF EXISTS ${leftTable}"
+    sql "DROP TABLE IF EXISTS ${rightTable}"
+
+    sql """CREATE TABLE ${leftTable} (
+        `id` bigint NULL,
+        `data` variant<'key_*': BIGINT> NOT NULL
+    ) ENGINE=OLAP DUPLICATE KEY(`id`)
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
+
+    sql """CREATE TABLE ${rightTable} (
+        `id` bigint NULL,
+        `info` variant<'key_*': BIGINT, 'name_*': STRING> NOT NULL
+    ) ENGINE=OLAP DUPLICATE KEY(`id`)
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
+
+    sql """insert into ${leftTable} values(1, '{"key_id": 100}')"""
+    sql """insert into ${leftTable} values(2, '{"key_id": 200}')"""
+    sql """insert into ${leftTable} values(3, '{"key_id": 300}')"""
+
+    sql """insert into ${rightTable} values(1, '{"key_id": 100, "name_val": "first"}')"""
+    sql """insert into ${rightTable} values(2, '{"key_id": 200, "name_val": "second"}')"""
+    sql """insert into ${rightTable} values(3, '{"key_id": 400, "name_val": "fourth"}')"""
+
+    qt_join_on """ SELECT l.id, r.info['name_val']
+        FROM ${leftTable} l JOIN ${rightTable} r
+        ON l.data['key_id'] = r.info['key_id']
+        ORDER BY l.id """
+
+    sql "DROP TABLE IF EXISTS ${leftTable}"
+    sql "DROP TABLE IF EXISTS ${rightTable}"
 }
