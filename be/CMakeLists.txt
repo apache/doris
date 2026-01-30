@@ -614,6 +614,12 @@ set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-core-static)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-shared-static)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-contribs-lib)
 
+# paimon-cpp internal dependencies (renamed with _paimon suffix)
+# These must come after paimon libraries to resolve symbols
+set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} roaring_bitmap_paimon)
+set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} xxhash_paimon)
+set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} fmt_paimon)
+
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
 
 # Add all external dependencies. They should come after the palo libs.
@@ -846,12 +852,6 @@ endif()
 option(BUILD_FILE_CACHE_MICROBENCH_TOOL "Build file cache mirobench Tool" OFF)
 if (BUILD_FILE_CACHE_MICROBENCH_TOOL)
     add_subdirectory(${SRC_DIR}/io/tools)
-    install(FILES
-        ${BASE_DIR}/../bin/start_file_cache_microbench.sh
-        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
-        GROUP_READ GROUP_WRITE GROUP_EXECUTE
-        WORLD_READ WORLD_EXECUTE
-        DESTINATION ${OUTPUT_DIR}/bin)
 endif()
 
 option(BUILD_INDEX_TOOL "Build index tool" OFF)
