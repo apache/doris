@@ -196,7 +196,6 @@ struct PredicateTypeTraits {
         }                                                                                 \
     }
 
-
 struct ZoneMapInfo {
     vectorized::Field min_value;
     vectorized::Field max_value;
@@ -268,17 +267,11 @@ public:
 
     virtual bool support_zonemap() const { return true; }
 
-    virtual bool evaluate_and(const ZoneMapInfo& zone_map_info) const {
-        return true;
-    }
+    virtual bool evaluate_and(const ZoneMapInfo& zone_map_info) const { return true; }
 
-    virtual bool is_always_true(const ZoneMapInfo& zone_map_info) const {
-        return false;
-    }
+    virtual bool is_always_true(const ZoneMapInfo& zone_map_info) const { return false; }
 
-    virtual bool evaluate_del(const ZoneMapInfo& zone_map_info) const {
-        return false;
-    }
+    virtual bool evaluate_del(const ZoneMapInfo& zone_map_info) const { return false; }
 
     virtual bool evaluate_and(const vectorized::ParquetBlockSplitBloomFilter* bf) const {
         return true;

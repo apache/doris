@@ -447,8 +447,7 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
     }
     // TODO: this work to get min/max value seems should only do once
     ZoneMapInfo zone_map_info;
-    RETURN_IF_ERROR(
-            _parse_zone_map_skip_null(*_segment_zone_map, zone_map_info));
+    RETURN_IF_ERROR(_parse_zone_map_skip_null(*_segment_zone_map, zone_map_info));
 
     dst->reserve(*n);
     if (zone_map_info.is_all_null) {
@@ -470,8 +469,7 @@ Status ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicat
     ZoneMapInfo zone_map_info;
     RETURN_IF_ERROR(_parse_zone_map(*_segment_zone_map, zone_map_info));
 
-    *matched = _zone_map_match_condition(*_segment_zone_map, zone_map_info,
-                                         col_predicates);
+    *matched = _zone_map_match_condition(*_segment_zone_map, zone_map_info, col_predicates);
     return Status::OK();
 }
 
@@ -488,8 +486,7 @@ Status ColumnReader::prune_predicates_by_zone_map(
 
     for (auto it = predicates.begin(); it != predicates.end();) {
         auto predicate = *it;
-        if (predicate->column_id() == column_id &&
-            predicate->is_always_true(zone_map_info)) {
+        if (predicate->column_id() == column_id && predicate->is_always_true(zone_map_info)) {
             *pruned = true;
             it = predicates.erase(it);
         } else {
@@ -564,14 +561,15 @@ Status ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, ZoneMapInfo& zon
     return Status::OK();
 }
 
-Status ColumnReader::_parse_zone_map_skip_null(const ZoneMapPB& zone_map, ZoneMapInfo& zone_map_info) const {
+Status ColumnReader::_parse_zone_map_skip_null(const ZoneMapPB& zone_map,
+                                               ZoneMapInfo& zone_map_info) const {
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
         vectorized::DataTypeSerDe::FormatOptions opt;
-        RETURN_IF_ERROR(_data_type->get_serde()->from_string(zone_map.max(),
-                                                             zone_map_info.max_value, opt));
-        RETURN_IF_ERROR(_data_type->get_serde()->from_string(zone_map.min(),
-                                                             zone_map_info.min_value, opt));
+        RETURN_IF_ERROR(
+                _data_type->get_serde()->from_string(zone_map.max(), zone_map_info.max_value, opt));
+        RETURN_IF_ERROR(
+                _data_type->get_serde()->from_string(zone_map.min(), zone_map_info.min_value, opt));
     } else {
         zone_map_info.is_all_null = true;
     }

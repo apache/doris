@@ -22,7 +22,7 @@
 namespace doris::vectorized {
 
 Status DataTypeQuantileStateSerDe::from_string(const std::string& str, Field& field,
-                   const FormatOptions& options) const {
+                                               const FormatOptions& options) const {
     QuantileState value;
     if (!value.deserialize(Slice(str.data(), str.size()))) {
         return Status::InternalError("deserialize QuantileState from string fail!");
