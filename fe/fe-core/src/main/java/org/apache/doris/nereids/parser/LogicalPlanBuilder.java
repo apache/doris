@@ -355,6 +355,7 @@ import org.apache.doris.nereids.DorisParser.ShowAnalyzeContext;
 import org.apache.doris.nereids.DorisParser.ShowAnalyzeTaskContext;
 import org.apache.doris.nereids.DorisParser.ShowAuthorsContext;
 import org.apache.doris.nereids.DorisParser.ShowBackendsContext;
+import org.apache.doris.nereids.DorisParser.ShowBackendsWithIdsContext;
 import org.apache.doris.nereids.DorisParser.ShowBackupContext;
 import org.apache.doris.nereids.DorisParser.ShowBrokerContext;
 import org.apache.doris.nereids.DorisParser.ShowBuildIndexContext;
@@ -6374,6 +6375,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitShowBackends(ShowBackendsContext ctx) {
         return new ShowBackendsCommand();
+    }
+
+    @Override
+    public LogicalPlan visitShowBackendsWithIds(ShowBackendsWithIdsContext ctx) {
+        List<Long> backendIds = ctx.backendIds.stream()
+                .map(token -> Long.parseLong(token.getText()))
+                .collect(Collectors.toList());
+        return new ShowBackendsCommand(backendIds);
     }
 
     @Override
