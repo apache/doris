@@ -40,6 +40,10 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.ColumnStatisticBuilder;
+import org.apache.doris.statistics.Statistics;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
@@ -51,6 +55,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -273,7 +278,7 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
 
     @Test
     public void testCanOptimize() throws Exception {
-        Method method = rule.getClass().getDeclaredMethod("canOptimize", LogicalAggregate.class);
+        Method method = rule.getClass().getDeclaredMethod("canOptimize", LogicalAggregate.class, ConnectContext.class);
         method.setAccessible(true);
 
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
@@ -304,7 +309,7 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
                 ImmutableList.of(a, b, c, d, sumAlias),
                 repeat);
 
-        int result = (int) method.invoke(rule, aggregate);
+        int result = (int) method.invoke(rule, aggregate, connectContext);
         Assertions.assertEquals(0, result);
 
         // Test case 2: Child is not LogicalRepeat
@@ -312,7 +317,7 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
                 ImmutableList.of(a),
                 ImmutableList.of(a, sumAlias),
                 emptyRelation);
-        result = (int) method.invoke(rule, aggregateWithNonRepeat);
+        result = (int) method.invoke(rule, aggregateWithNonRepeat, connectContext);
         Assertions.assertEquals(-1, result);
 
         // Test case 3: Unsupported aggregate function (Avg)
@@ -323,7 +328,7 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
                 ImmutableList.of(a, b, c, d),
                 ImmutableList.of(a, b, c, d, avgAlias),
                 repeat);
-        result = (int) method.invoke(rule, aggregateWithCount);
+        result = (int) method.invoke(rule, aggregateWithCount, connectContext);
         Assertions.assertEquals(-1, result);
 
         // Test case 4: Grouping sets size <= 3
@@ -341,7 +346,7 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
                 ImmutableList.of(a, b),
                 ImmutableList.of(a, b, sumAlias),
                 smallRepeat);
-        result = (int) method.invoke(rule, aggregateWithSmallRepeat);
+        result = (int) method.invoke(rule, aggregateWithSmallRepeat, connectContext);
         Assertions.assertEquals(-1, result);
     }
 
@@ -393,7 +398,7 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
     @Test
     public void testConstructProducer() throws Exception {
         Method method = rule.getClass().getDeclaredMethod("constructProducer",
-                LogicalAggregate.class, int.class, DistinctSelectorContext.class, Map.class);
+                LogicalAggregate.class, int.class, DistinctSelectorContext.class, Map.class, ConnectContext.class);
         method.setAccessible(true);
 
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
@@ -414,7 +419,7 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
         LogicalRepeat<Plan> repeat = new LogicalRepeat<>(
                 groupingSets,
                 (List) ImmutableList.of(a, b, c, d),
-                null,
+                RepeatType.GROUPING_SETS,
                 emptyRelation);
         Sum sumFunc = new Sum(d);
         Alias sumAlias = new Alias(sumFunc, "sum_d");
@@ -425,7 +430,7 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
 
         Map<Slot, Slot> preToCloneSlotMap = new HashMap<>();
         LogicalCTEProducer<LogicalAggregate<Plan>> result = (LogicalCTEProducer<LogicalAggregate<Plan>>)
-                method.invoke(rule, aggregate, 0, ctx, preToCloneSlotMap);
+                method.invoke(rule, aggregate, 0, ctx, preToCloneSlotMap, connectContext);
 
         Assertions.assertNotNull(result);
         Assertions.assertNotNull(result.child());
@@ -484,5 +489,240 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
         Assertions.assertNotNull(result);
         Assertions.assertEquals(2, result.getGroupingSets().size());
         Assertions.assertTrue(groupingFunctionSlots.isEmpty());
+    }
+
+    @Test
+    public void testChoosePreAggShuffleKeyPartitionExprs() throws Exception {
+        Method method = rule.getClass().getDeclaredMethod("choosePreAggShuffleKeyPartitionExprs",
+                LogicalRepeat.class, int.class, List.class, org.apache.doris.qe.ConnectContext.class);
+        method.setAccessible(true);
+
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE);
+
+        List<Expression> maxGroupByList = ImmutableList.of(a, b, c);
+        LogicalEmptyRelation emptyRelation = new LogicalEmptyRelation(
+                org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator.newRelationId(),
+                ImmutableList.of());
+        List<List<Expression>> groupingSets = ImmutableList.of(
+                ImmutableList.of(a, b, c),
+                ImmutableList.of(a, b),
+                ImmutableList.of(a)
+        );
+        LogicalRepeat<Plan> repeatRollup = new LogicalRepeat<>(
+                groupingSets,
+                (List) ImmutableList.of(a, b, c),
+                null,
+                RepeatType.ROLLUP,
+                emptyRelation);
+        LogicalRepeat<Plan> repeatGroupingSets = new LogicalRepeat<>(
+                groupingSets,
+                (List) ImmutableList.of(a, b, c),
+                new SlotReference("grouping_id", IntegerType.INSTANCE),
+                RepeatType.GROUPING_SETS,
+                emptyRelation);
+        LogicalRepeat<Plan> repeatCube = new LogicalRepeat<>(
+                groupingSets,
+                (List) ImmutableList.of(a, b, c),
+                new SlotReference("grouping_id", IntegerType.INSTANCE),
+                RepeatType.CUBE,
+                emptyRelation);
+
+        // Case 1: Session variable decomposeRepeatShuffleIndexInMaxGroup = 0, should return third expr
+        connectContext.getSessionVariable().decomposeRepeatShuffleIndexInMaxGroup = 2;
+        @SuppressWarnings("unchecked")
+        Optional<List<Expression>> result2 = (Optional<List<Expression>>) method.invoke(
+                rule, repeatRollup, 0, maxGroupByList, connectContext);
+        Assertions.assertTrue(result2.isPresent());
+        Assertions.assertEquals(1, result2.get().size());
+        Assertions.assertEquals(c, result2.get().get(0));
+
+        // Case 2: Session variable = -1 (default), fall through to repeat-type logic (may be empty if no stats)
+        connectContext.getSessionVariable().decomposeRepeatShuffleIndexInMaxGroup = -1;
+        @SuppressWarnings("unchecked")
+        Optional<List<Expression>> resultDefault = (Optional<List<Expression>>) method.invoke(
+                rule, repeatRollup, 0, maxGroupByList, connectContext);
+        // With no column stats, chooseByRollupPrefixThenNdv typically returns empty
+        Assertions.assertEquals(resultDefault, Optional.empty());
+
+        // Case 3: Session variable out of range (>= size), should not use index, fall through
+        connectContext.getSessionVariable().decomposeRepeatShuffleIndexInMaxGroup = 10;
+        @SuppressWarnings("unchecked")
+        Optional<List<Expression>> resultOutOfRange = (Optional<List<Expression>>) method.invoke(
+                rule, repeatRollup, 0, maxGroupByList, connectContext);
+        Assertions.assertEquals(resultOutOfRange, Optional.empty());
+
+        // Case 4: RepeatType GROUPING_SETS and CUBE (smoke test, result depends on stats)
+        connectContext.getSessionVariable().decomposeRepeatShuffleIndexInMaxGroup = -1;
+        @SuppressWarnings("unchecked")
+        Optional<List<Expression>> resultGs = (Optional<List<Expression>>) method.invoke(
+                rule, repeatGroupingSets, 0, maxGroupByList, connectContext);
+        Assertions.assertEquals(resultGs, Optional.empty());
+
+        // Case 5: RepeatType GROUPING_SETS and CUBE (smoke test, result depends on stats)
+        connectContext.getSessionVariable().decomposeRepeatShuffleIndexInMaxGroup = -1;
+        @SuppressWarnings("unchecked")
+        Optional<List<Expression>> resultCb = (Optional<List<Expression>>) method.invoke(
+                rule, repeatCube, 0, maxGroupByList, connectContext);
+        Assertions.assertEquals(resultCb, Optional.empty());
+
+        // Restore default
+        connectContext.getSessionVariable().decomposeRepeatShuffleIndexInMaxGroup = -1;
+    }
+
+    /** Helper: build Statistics with column ndv for given expressions. */
+    private static Statistics statsWithNdv(Map<Expression, Double> exprToNdv) {
+        Map<Expression, ColumnStatistic> map = new HashMap<>();
+        for (Map.Entry<Expression, Double> e : exprToNdv.entrySet()) {
+            ColumnStatistic col = new ColumnStatisticBuilder(1)
+                    .setNdv(e.getValue())
+                    .setAvgSizeByte(4)
+                    .setNumNulls(0)
+                    .setMinValue(0)
+                    .setMaxValue(100)
+                    .setIsUnknown(false)
+                    .setUpdatedTime("")
+                    .build();
+            map.put(e.getKey(), col);
+        }
+        return new Statistics(100, map);
+    }
+
+    @Test
+    public void testChooseByNdv() throws Exception {
+        Method method = rule.getClass().getDeclaredMethod("chooseByNdv",
+                List.class, Statistics.class, int.class);
+        method.setAccessible(true);
+
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE);
+        List<Expression> candidates = ImmutableList.of(a, b, c);
+
+        // a:50, b:80, c:60; totalInstanceNum=70 -> max ndv is b(80), 80 > 70 -> return b
+        Map<Expression, Double> exprToNdv = new HashMap<>();
+        exprToNdv.put(a, 50.0);
+        exprToNdv.put(b, 80.0);
+        exprToNdv.put(c, 60.0);
+        Statistics stats = statsWithNdv(exprToNdv);
+
+        @SuppressWarnings("unchecked")
+        Optional<Expression> chosen = (Optional<Expression>) method.invoke(rule, candidates, stats, 70);
+        Assertions.assertTrue(chosen.isPresent());
+        Assertions.assertEquals(b, chosen.get());
+
+        // max ndv 80 not > totalInstanceNum 100 -> empty
+        @SuppressWarnings("unchecked")
+        Optional<Expression> empty = (Optional<Expression>) method.invoke(rule, candidates, stats, 100);
+        Assertions.assertFalse(empty.isPresent());
+
+        // boundary: ndv == totalInstanceNum does NOT return (logic is > not >=)
+        @SuppressWarnings("unchecked")
+        Optional<Expression> boundary = (Optional<Expression>) method.invoke(rule, candidates, stats, 80);
+        Assertions.assertFalse(boundary.isPresent());
+
+        // inputStats null -> empty
+        @SuppressWarnings("unchecked")
+        Optional<Expression> emptyNullStats = (Optional<Expression>) method.invoke(rule, candidates, null, 10);
+        Assertions.assertFalse(emptyNullStats.isPresent());
+
+        // empty candidates -> empty
+        @SuppressWarnings("unchecked")
+        Optional<Expression> emptyCandidates = (Optional<Expression>) method.invoke(
+                rule, ImmutableList.of(), stats, 10);
+        Assertions.assertFalse(emptyCandidates.isPresent());
+    }
+
+    @Test
+    public void testChooseByRollupPrefixThenNdv() throws Exception {
+        Method method = rule.getClass().getDeclaredMethod("chooseByRollupPrefixThenNdv",
+                List.class, Statistics.class, int.class);
+        method.setAccessible(true);
+
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE);
+        List<Expression> candidates = ImmutableList.of(a, b, c);
+
+        // a:100, b:50, c:200; totalInstanceNum=80 -> first with ndv>=80 is a(100)
+        Map<Expression, Double> exprToNdv = new HashMap<>();
+        exprToNdv.put(a, 100.0);
+        exprToNdv.put(b, 50.0);
+        exprToNdv.put(c, 200.0);
+        Statistics stats = statsWithNdv(exprToNdv);
+
+        @SuppressWarnings("unchecked")
+        Optional<Expression> chosen = (Optional<Expression>) method.invoke(rule, candidates, stats, 80);
+        Assertions.assertTrue(chosen.isPresent());
+        Assertions.assertEquals(a, chosen.get());
+
+        // totalInstanceNum=300 -> none >= 300 -> empty
+        @SuppressWarnings("unchecked")
+        Optional<Expression> empty = (Optional<Expression>) method.invoke(rule, candidates, stats, 300);
+        Assertions.assertFalse(empty.isPresent());
+
+        // totalInstanceNum=200 -> first with ndv>=200 is c(200)
+        @SuppressWarnings("unchecked")
+        Optional<Expression> chosenC = (Optional<Expression>) method.invoke(rule, candidates, stats, 200);
+        Assertions.assertTrue(chosenC.isPresent());
+        Assertions.assertEquals(c, chosenC.get());
+
+        // inputStats null -> estimateNdv returns -1, no candidate >= any positive total -> empty
+        @SuppressWarnings("unchecked")
+        Optional<Expression> emptyWhenNullStats = (Optional<Expression>) method.invoke(rule, candidates, null, 10);
+        Assertions.assertFalse(emptyWhenNullStats.isPresent());
+    }
+
+    @Test
+    public void testChooseByAppearanceThenNdv() throws Exception {
+        Method method = rule.getClass().getDeclaredMethod("chooseByAppearanceThenNdv",
+                List.class, int.class, List.class, Statistics.class, int.class);
+        method.setAccessible(true);
+
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE);
+        List<Expression> candidates = ImmutableList.of(a, b, c);
+
+        // grouping sets: index 0 = max (a,b,c), index 1 = (a,b), index 2 = (a)
+        // non-max: (a,b) and (a). a appears 2, b appears 1, c appears 1.
+        // countToCandidate: 1->[b,c], 2->[a]. TreeMap iterates 1 then 2.
+        // For count 1: chooseByNdv([b,c], stats, total). Need ndv > total to return. b:60, c:80, total=50 -> max ndv 80>50 -> return c.
+        List<List<Expression>> groupingSets = ImmutableList.of(
+                ImmutableList.of(a, b, c),
+                ImmutableList.of(a, c),
+                ImmutableList.of(c)
+        );
+
+        Map<Expression, Double> exprToNdv = new HashMap<>();
+        exprToNdv.put(a, 40.0);
+        exprToNdv.put(b, 60.0);
+        exprToNdv.put(c, 50.0);
+        Statistics stats = statsWithNdv(exprToNdv);
+
+        @SuppressWarnings("unchecked")
+        Optional<Expression> chosen = (Optional<Expression>) method.invoke(
+                rule, groupingSets, -1, candidates, stats, 45);
+        Assertions.assertTrue(chosen.isPresent());
+        Assertions.assertEquals(c, chosen.get());
+
+        // When no candidate has ndv > totalInstanceNum, return empty
+        @SuppressWarnings("unchecked")
+        Optional<Expression> empty = (Optional<Expression>) method.invoke(
+                rule, groupingSets, -1, candidates, stats, 1000);
+        Assertions.assertFalse(empty.isPresent());
+
+        @SuppressWarnings("unchecked")
+        Optional<Expression> chosen2 = (Optional<Expression>) method.invoke(
+                rule, groupingSets, -1, candidates, stats, 50);
+        Assertions.assertTrue(chosen2.isPresent());
+        Assertions.assertEquals(b, chosen2.get());
+
+        // inputStats null -> chooseByNdv returns empty for every group -> empty
+        @SuppressWarnings("unchecked")
+        Optional<Expression> emptyNullStats = (Optional<Expression>) method.invoke(
+                rule, groupingSets, -1, candidates, null, 50);
+        Assertions.assertFalse(emptyNullStats.isPresent());
     }
 }

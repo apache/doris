@@ -568,11 +568,11 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
                 }
             }
         }
-        Map<Integer, List<Expression>> countToCandidate = new TreeMap<>();
+        TreeMap<Integer, List<Expression>> countToCandidate = new TreeMap<>();
         for (Map.Entry<Expression, Integer> entry : appearCount.entrySet()) {
             countToCandidate.computeIfAbsent(entry.getValue(), v -> new ArrayList<>()).add(entry.getKey());
         }
-        for (Map.Entry<Integer, List<Expression>> entry : countToCandidate.entrySet()) {
+        for (Map.Entry<Integer, List<Expression>> entry : countToCandidate.descendingMap().entrySet()) {
             Optional<Expression> chosen = chooseByNdv(entry.getValue(), inputStats, totalInstanceNum);
             if (chosen.isPresent()) {
                 return chosen;
