@@ -153,11 +153,14 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     if (state->low_memory_mode()) {
         set_low_memory_mode(state);
     }
+    SinkInfo sink_info = {.channel_id = &local_state._channel_id,
+                          .partitioner = local_state._partitioner.get(),
+                          .local_state = &local_state,
+                          .shuffle_idx_to_instance_idx = &_shuffle_idx_to_instance_idx};
     RETURN_IF_ERROR(local_state._exchanger->sink(
             state, in_block, eos,
             {local_state._compute_hash_value_timer, local_state._distribute_timer, nullptr},
-            {&local_state._channel_id, local_state._partitioner.get(), &local_state,
-             &_shuffle_idx_to_instance_idx}));
+            sink_info));
 
     // If all exchange sources ended due to limit reached, current task should also finish
     if (local_state._exchanger->_running_source_operators == 0) {
