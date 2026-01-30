@@ -184,7 +184,7 @@ Status AnnIndexColumnWriter::finish() {
                         "Remaining data size {} is less than minimum {} rows required for ANN "
                         "index "
                         "training. Skipping index building for this segment.",
-                        _float_array.size(), min_train_rows * _vector_index->get_dimension());
+                        num_rows, min_train_rows);
                 return Status::OK();
             }
         }
