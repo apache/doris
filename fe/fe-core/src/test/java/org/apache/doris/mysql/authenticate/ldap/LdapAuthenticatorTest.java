@@ -161,7 +161,7 @@ public class LdapAuthenticatorTest {
         //running test with specified value - false - ldap_allow_empty_pass is explicitly set to false
         LdapConfig.ldap_allow_empty_pass = false;
         response = ldapAuthenticator.authenticate(request);
-        Assert.assertFalse(response.isSuccess());   
+        Assert.assertFalse(response.isSuccess());
     }
 
     @After
