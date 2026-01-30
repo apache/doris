@@ -191,7 +191,7 @@ Status EsScanner::_get_next(std::vector<vectorized::MutableColumnPtr>& columns) 
 }
 
 Status EsScanner::close(RuntimeState* state) {
-    if (!_try_close()) {
+    if (_is_closed) {
         return Status::OK();
     }
 

@@ -164,6 +164,8 @@ Status JniConnector::get_statistics(JNIEnv* env, std::map<std::string, std::stri
 }
 
 Status JniConnector::close() {
+    // JniConnector should not be closed multiple times. Just test in debug mode.
+    DCHECK(!_closed);
     if (!_closed) {
         JNIEnv* env = nullptr;
         RETURN_IF_ERROR(Jni::Env::Get(&env));
@@ -198,6 +200,7 @@ Status JniConnector::close() {
             RETURN_IF_ERROR(
                     _jni_scanner_obj.call_void_method(env, _jni_scanner_release_table).call());
             RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_close).call());
+            _closed = true;
         }
     }
     return Status::OK();
