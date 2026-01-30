@@ -34,5 +34,5 @@ public class DataSourceConfigKeys {
     public static final String OFFSET_LATEST = "latest";
     public static final String SNAPSHOT_SPLIT_SIZE = "snapshot_split_size";
     public static final String SNAPSHOT_PARALLELISM = "snapshot_parallelism";
-    public static final String SNAPSHOT_PARALLELISM_DEFAULT = "4";
+    public static final String SNAPSHOT_PARALLELISM_DEFAULT = "1";
 }
