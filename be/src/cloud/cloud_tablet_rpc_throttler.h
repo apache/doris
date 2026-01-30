@@ -30,6 +30,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "cloud/cloud_throttle_state_machine.h"
+
 namespace doris::cloud {
 
 // Load-related RPC types that need table-level QPS statistics
@@ -159,26 +161,24 @@ private:
             _throttled_table_counts;
 };
 
-// Record of a throttle upgrade operation, used for downgrade rollback
-struct ThrottleUpgradeRecord {
-    int64_t timestamp_ms;
-    // (rpc_type, table_id) -> (old_qps_limit, new_qps_limit)
-    // old_qps_limit = 0 means no previous limit
-    std::map<std::pair<LoadRelatedRpc, int64_t>, std::pair<double, double>> changes;
-};
+// Forward declarations
+class ThrottleStateMachine;
+class UpgradeDowngradeCoordinator;
 
 // MS backpressure handler that coordinates QPS statistics, throttle upgrade and downgrade
+// Uses state machine for decisions, providing better testability
 class MSBackpressureHandler {
 public:
     MSBackpressureHandler(TableRpcQpsRegistry* qps_registry, TableRpcThrottler* throttler);
-    ~MSBackpressureHandler() = default;
+    ~MSBackpressureHandler();
 
     // Called when receiving MS_BUSY response
     // Returns true if throttle upgrade was triggered
     bool on_ms_busy();
 
-    // Called periodically to check if throttle should be downgraded
-    void try_downgrade();
+    // Called periodically (e.g., every second) to drive the coordinator's tick
+    // Returns true if throttle downgrade was triggered
+    bool try_downgrade();
 
     // Called before RPC execution, performs throttle wait
     // Returns the time point to wait until
@@ -187,31 +187,35 @@ public:
     // Called after RPC execution, records QPS statistics
     void after_rpc(LoadRelatedRpc rpc_type, int64_t table_id);
 
-    // Get the time of the last MS_BUSY response
-    std::chrono::steady_clock::time_point last_ms_busy_time() const;
+    // Runtime update parameters
+    void update_throttle_params(ThrottleParams params);
+    void update_coordinator_params(CoordinatorParams params);
 
-    // Get the time of the last throttle upgrade
-    std::chrono::steady_clock::time_point last_upgrade_time() const;
-
-    // Get seconds since last MS_BUSY
+    // Get seconds since last MS_BUSY (for monitoring)
     int64_t seconds_since_last_ms_busy() const;
 
-private:
-    // Perform throttle upgrade
-    void upgrade_throttle();
+    // Query current state
+    size_t upgrade_level() const;
+    int ticks_since_last_ms_busy() const;
+    int ticks_since_last_upgrade() const;
 
-    // Perform throttle downgrade (undo the most recent upgrade)
-    void downgrade_throttle();
+private:
+    // Apply actions to the throttler
+    void apply_actions(const std::vector<ThrottleAction>& actions);
+
+    // Build QPS snapshot from registry
+    std::vector<QpsSnapshot> build_qps_snapshot() const;
 
     TableRpcQpsRegistry* _qps_registry;
     TableRpcThrottler* _throttler;
 
+    // State machine components
+    std::unique_ptr<ThrottleStateMachine> _state_machine;
+    std::unique_ptr<UpgradeDowngradeCoordinator> _coordinator;
+
+    // For bvar compatibility only - track approximate seconds since last MS_BUSY
     mutable std::mutex _mutex;
     std::chrono::steady_clock::time_point _last_ms_busy_time;
-    std::chrono::steady_clock::time_point _last_upgrade_time;
-
-    // Upgrade history for downgrade rollback
-    std::vector<ThrottleUpgradeRecord> _upgrade_history;
 };
 
 // Global bvar metrics for backpressure handling

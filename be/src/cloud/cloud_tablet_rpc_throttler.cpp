@@ -316,10 +316,27 @@ size_t TableRpcThrottler::get_throttled_table_count(LoadRelatedRpc rpc_type) con
 
 MSBackpressureHandler::MSBackpressureHandler(TableRpcQpsRegistry* qps_registry,
                                              TableRpcThrottler* throttler)
-        : _qps_registry(qps_registry), _throttler(throttler) {
-    _last_ms_busy_time = std::chrono::steady_clock::time_point::min();
-    _last_upgrade_time = std::chrono::steady_clock::time_point::min();
+        : _qps_registry(qps_registry),
+          _throttler(throttler),
+          _last_ms_busy_time(std::chrono::steady_clock::time_point::min()) {
+    // Initialize state machine with config values
+    ThrottleParams throttle_params {
+            .top_k = config::ms_backpressure_upgrade_top_k,
+            .ratio = config::ms_backpressure_throttle_ratio,
+            .floor_qps = config::ms_rpc_table_qps_limit_floor,
+    };
+    _state_machine = std::make_unique<ThrottleStateMachine>(throttle_params);
+
+    // Initialize coordinator with config values
+    // Note: config is in seconds, coordinator uses ticks (1 tick = 1 second in production)
+    CoordinatorParams coordinator_params {
+            .upgrade_cooldown_ticks = config::ms_backpressure_upgrade_interval_sec,
+            .downgrade_after_ticks = config::ms_backpressure_downgrade_interval_sec,
+    };
+    _coordinator = std::make_unique<UpgradeDowngradeCoordinator>(coordinator_params);
 }
+
+MSBackpressureHandler::~MSBackpressureHandler() = default;
 
 bool MSBackpressureHandler::on_ms_busy() {
     g_ms_busy_count << 1;
@@ -328,129 +345,59 @@ bool MSBackpressureHandler::on_ms_busy() {
         return false;
     }
 
-    auto now = std::chrono::steady_clock::now();
+    // Update time tracking for bvar compatibility
+    {
+        std::lock_guard lock(_mutex);
+        _last_ms_busy_time = std::chrono::steady_clock::now();
+    }
 
-    std::lock_guard lock(_mutex);
-    _last_ms_busy_time = now;
-
-    // Check if enough time has passed since the last upgrade
-    auto elapsed_sec =
-            std::chrono::duration_cast<std::chrono::seconds>(now - _last_upgrade_time).count();
-    if (elapsed_sec < config::ms_backpressure_upgrade_interval_sec) {
-        LOG(INFO) << "Received MS_BUSY but skipping upgrade (last upgrade was " << elapsed_sec
-                  << "s ago, need " << config::ms_backpressure_upgrade_interval_sec << "s)";
+    // Check with coordinator if upgrade should be triggered
+    if (!_coordinator->report_ms_busy()) {
+        LOG(INFO) << "Received MS_BUSY but skipping upgrade (cooling down)";
         return false;
     }
 
     LOG(INFO) << "Received MS_BUSY, triggering throttle upgrade";
-    upgrade_throttle();
-    _last_upgrade_time = now;
+
+    // Build QPS snapshot from registry
+    auto snapshot = build_qps_snapshot();
+
+    // Get actions from state machine
+    auto actions = _state_machine->on_upgrade(snapshot);
+
+    // Apply actions to throttler
+    apply_actions(actions);
+
+    // Update coordinator's pending state
+    _coordinator->set_has_pending_upgrades(_state_machine->upgrade_level() > 0);
+
+    g_backpressure_upgrade_count << 1;
     return true;
 }
 
-void MSBackpressureHandler::upgrade_throttle() {
-    ThrottleUpgradeRecord record;
-    record.timestamp_ms =
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now().time_since_epoch())
-                    .count();
-
-    int top_k = config::ms_backpressure_upgrade_top_k;
-    double ratio = config::ms_backpressure_throttle_ratio;
-    double floor_qps = config::ms_rpc_table_qps_limit_floor;
-
-    // For each load-related RPC type, find top-k tables and apply throttling
-    for (size_t i = 0; i < static_cast<size_t>(LoadRelatedRpc::COUNT); ++i) {
-        LoadRelatedRpc rpc_type = static_cast<LoadRelatedRpc>(i);
-        auto top_tables = _qps_registry->get_top_k_tables(rpc_type, top_k);
-
-        for (const auto& [table_id, current_qps] : top_tables) {
-            double old_limit = _throttler->get_qps_limit(rpc_type, table_id);
-            double new_limit;
-
-            if (old_limit > 0) {
-                // Already has a limit, reduce it further
-                new_limit = old_limit * ratio;
-            } else {
-                // No limit yet, set based on current QPS
-                new_limit = current_qps * ratio;
-            }
-
-            // Ensure we don't go below the floor
-            new_limit = std::max(new_limit, floor_qps);
-
-            // Only apply if it's actually limiting
-            if (new_limit < current_qps || old_limit > 0) {
-                _throttler->set_qps_limit(rpc_type, table_id, new_limit);
-                record.changes[{rpc_type, table_id}] = {old_limit, new_limit};
-
-                LOG(INFO) << "Throttle upgrade: rpc=" << load_related_rpc_name(rpc_type)
-                          << ", table_id=" << table_id << ", current_qps=" << current_qps
-                          << ", old_limit=" << old_limit << ", new_limit=" << new_limit;
-            }
-        }
-    }
-
-    if (!record.changes.empty()) {
-        _upgrade_history.push_back(std::move(record));
-        g_backpressure_upgrade_count << 1;
-    }
-}
-
-void MSBackpressureHandler::try_downgrade() {
+bool MSBackpressureHandler::try_downgrade() {
     if (!config::enable_ms_backpressure_handling) {
-        return;
+        return false;
     }
 
-    auto now = std::chrono::steady_clock::now();
-
-    std::lock_guard lock(_mutex);
-
-    // Check if enough time has passed since the last MS_BUSY
-    auto elapsed_sec =
-            std::chrono::duration_cast<std::chrono::seconds>(now - _last_ms_busy_time).count();
-    if (elapsed_sec < config::ms_backpressure_downgrade_interval_sec) {
-        return;
+    // Advance coordinator by one tick
+    if (!_coordinator->tick()) {
+        return false;
     }
 
-    // No MS_BUSY for a while, try to downgrade
-    if (!_upgrade_history.empty()) {
-        LOG(INFO) << "No MS_BUSY for " << elapsed_sec << "s, triggering throttle downgrade";
-        downgrade_throttle();
-    }
-}
+    LOG(INFO) << "Triggering throttle downgrade";
 
-void MSBackpressureHandler::downgrade_throttle() {
-    if (_upgrade_history.empty()) {
-        return;
-    }
+    // Get actions from state machine
+    auto actions = _state_machine->on_downgrade();
 
-    // Undo the most recent upgrade
-    const auto& record = _upgrade_history.back();
+    // Apply actions to throttler
+    apply_actions(actions);
 
-    for (const auto& [key, limits] : record.changes) {
-        const auto& [rpc_type, table_id] = key;
-        double old_limit = limits.first;
+    // Update coordinator's pending state
+    _coordinator->set_has_pending_upgrades(_state_machine->upgrade_level() > 0);
 
-        if (old_limit > 0) {
-            // Restore the previous limit
-            _throttler->set_qps_limit(rpc_type, table_id, old_limit);
-            LOG(INFO) << "Throttle downgrade: rpc=" << load_related_rpc_name(rpc_type)
-                      << ", table_id=" << table_id << ", restored_limit=" << old_limit;
-        } else {
-            // No previous limit, remove it entirely
-            _throttler->remove_qps_limit(rpc_type, table_id);
-            LOG(INFO) << "Throttle downgrade: rpc=" << load_related_rpc_name(rpc_type)
-                      << ", table_id=" << table_id << ", removed limit";
-        }
-    }
-
-    _upgrade_history.pop_back();
     g_backpressure_downgrade_count << 1;
-
-    // Reset last_ms_busy_time to allow future downgrades to happen sooner
-    // (if no new MS_BUSY is received)
-    _last_ms_busy_time = std::chrono::steady_clock::now();
+    return true;
 }
 
 std::chrono::steady_clock::time_point MSBackpressureHandler::before_rpc(LoadRelatedRpc rpc_type,
@@ -470,14 +417,12 @@ void MSBackpressureHandler::after_rpc(LoadRelatedRpc rpc_type, int64_t table_id)
     _qps_registry->record(rpc_type, table_id);
 }
 
-std::chrono::steady_clock::time_point MSBackpressureHandler::last_ms_busy_time() const {
-    std::lock_guard lock(_mutex);
-    return _last_ms_busy_time;
+void MSBackpressureHandler::update_throttle_params(ThrottleParams params) {
+    _state_machine->update_params(params);
 }
 
-std::chrono::steady_clock::time_point MSBackpressureHandler::last_upgrade_time() const {
-    std::lock_guard lock(_mutex);
-    return _last_upgrade_time;
+void MSBackpressureHandler::update_coordinator_params(CoordinatorParams params) {
+    _coordinator->update_params(params);
 }
 
 int64_t MSBackpressureHandler::seconds_since_last_ms_busy() const {
@@ -488,6 +433,49 @@ int64_t MSBackpressureHandler::seconds_since_last_ms_busy() const {
     return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() -
                                                             _last_ms_busy_time)
             .count();
+}
+
+size_t MSBackpressureHandler::upgrade_level() const {
+    return _state_machine->upgrade_level();
+}
+
+int MSBackpressureHandler::ticks_since_last_ms_busy() const {
+    return _coordinator->ticks_since_last_ms_busy();
+}
+
+int MSBackpressureHandler::ticks_since_last_upgrade() const {
+    return _coordinator->ticks_since_last_upgrade();
+}
+
+void MSBackpressureHandler::apply_actions(const std::vector<ThrottleAction>& actions) {
+    for (const auto& action : actions) {
+        switch (action.type) {
+        case ThrottleAction::Type::SET_LIMIT:
+            _throttler->set_qps_limit(action.rpc_type, action.table_id, action.qps_limit);
+            break;
+        case ThrottleAction::Type::REMOVE_LIMIT:
+            _throttler->remove_qps_limit(action.rpc_type, action.table_id);
+            break;
+        }
+    }
+}
+
+std::vector<QpsSnapshot> MSBackpressureHandler::build_qps_snapshot() const {
+    std::vector<QpsSnapshot> snapshot;
+
+    // For each RPC type, get top-k tables
+    int top_k = _state_machine->get_params().top_k;
+
+    for (size_t i = 0; i < static_cast<size_t>(LoadRelatedRpc::COUNT); ++i) {
+        LoadRelatedRpc rpc_type = static_cast<LoadRelatedRpc>(i);
+        auto top_tables = _qps_registry->get_top_k_tables(rpc_type, top_k);
+
+        for (const auto& [table_id, qps] : top_tables) {
+            snapshot.push_back({rpc_type, table_id, qps});
+        }
+    }
+
+    return snapshot;
 }
 
 } // namespace doris::cloud
