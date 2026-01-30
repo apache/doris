@@ -468,7 +468,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
                 Set<ExprId> intersectId = Sets.intersection(new HashSet<>(parentHashExprIds),
                         new HashSet<>(groupByExprIds));
                 if (!intersectId.isEmpty() && intersectId.size() < groupByExprIds.size()) {
-                    if (shouldUseParent(parentHashExprIds, agg)) {
+                    if (shouldUseParent(parentHashExprIds, agg, context)) {
                         addRequestPropertyToChildren(PhysicalProperties.createHash(
                                 Utils.fastToImmutableList(intersectId), ShuffleType.REQUIRE));
                     }
@@ -482,7 +482,11 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         return null;
     }
 
-    private boolean shouldUseParent(List<ExprId> parentHashExprIds, PhysicalHashAggregate<? extends Plan> agg) {
+    private boolean shouldUseParent(List<ExprId> parentHashExprIds, PhysicalHashAggregate<? extends Plan> agg,
+            PlanContext context) {
+        if (!context.getConnectContext().getSessionVariable().aggShuffleUseParentKey) {
+            return false;
+        }
         Optional<GroupExpression> groupExpression = agg.getGroupExpression();
         if (!groupExpression.isPresent()) {
             return true;
