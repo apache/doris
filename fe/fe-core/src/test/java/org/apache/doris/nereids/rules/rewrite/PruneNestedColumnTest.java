@@ -284,6 +284,31 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 ImmutableList.of(path("s", "data", "*", "*", "b")),
                 ImmutableList.of()
         );
+
+        createTable(
+                "CREATE TABLE `view_baseall_drop_nereids` (\n"
+                        + "            `k1` int(11) NULL,\n"
+                        + "            `k3` array<int> NULL\n"
+                        + "        ) ENGINE=OLAP\n"
+                        + "        DUPLICATE KEY(`k1`)\n"
+                        + "        COMMENT 'OLAP'\n"
+                        + "        DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n"
+                        + "        PROPERTIES (\n"
+                        + "        \"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "        \"is_being_synced\" = \"false\",\n"
+                        + "        \"storage_format\" = \"V2\",\n"
+                        + "        \"light_schema_change\" = \"true\",\n"
+                        + "        \"disable_auto_compaction\" = \"false\",\n"
+                        + "        \"enable_single_replica_compaction\" = \"false\"\n"
+                        + "        )"
+        );
+        createView("create view IF NOT EXISTS test_view7_drop_nereids (k1,k2,k3,k4) as\n"
+                + "            select *, array_filter(x->x>0,k3),array_filter(`k3`, array_map(x -> x > 0, `k3`)) from view_baseall_drop_nereids order by k1");
+        assertColumn("select * from test_view7_drop_nereids order by k1",
+                "array<int>",
+                ImmutableList.of(path("k3")),
+                ImmutableList.of()
+        );
     }
 
     @Test

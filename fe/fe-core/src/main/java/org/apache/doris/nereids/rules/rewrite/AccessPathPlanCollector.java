@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.NestedColumnPrunable;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
 
@@ -222,7 +223,20 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                 Slot innerSlot = (Slot) output.child(0);
                 Collection<CollectAccessPathResult> outerSlotAccessPaths = allSlotToAccessPaths.get(
                         output.getExprId().asInt());
-                allSlotToAccessPaths.putAll(innerSlot.getExprId().asInt(), outerSlotAccessPaths);
+                // for (CollectAccessPathResult outerSlotAccessPath : outerSlotAccessPaths) {
+                //     List<String> outerPath = outerSlotAccessPath.getPath();
+                //     List<String> replaceSlotNamePath = new ArrayList<>();
+                //     replaceSlotNamePath.add(innerSlot.getName());
+                //     replaceSlotNamePath.addAll(outerPath.subList(1, outerPath.size()));
+                //     allSlotToAccessPaths.put(
+                //             innerSlot.getExprId().asInt(),
+                //             new CollectAccessPathResult(replaceSlotNamePath, outerSlotAccessPath.isPredicate(), outerSlotAccessPath.getType())
+                //     );
+                // }
+                allSlotToAccessPaths.putAll(
+                                    innerSlot.getExprId().asInt(),
+                                    outerSlotAccessPaths
+                        );
             } else {
                 exprCollector.collect(output);
             }
