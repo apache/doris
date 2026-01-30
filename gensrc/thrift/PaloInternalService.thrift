@@ -426,7 +426,8 @@ struct TQueryOptions {
 
 
   185: optional bool enable_parquet_file_page_cache = true;
-
+  // Use paimon-cpp to read Paimon splits on BE
+  186: optional bool enable_paimon_cpp_reader = false;
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

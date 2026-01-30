@@ -344,6 +344,17 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
     echo "Finished patching ${ARROW_SOURCE}"
 fi
 
+# paimon-cpp patch (for Doris integration, e.g. ORC v1 compatibility)
+if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
+    cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/paimon-cpp-b1ffd6f73e5edf57aac24ec2eaf6d2ef9e9a9850.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${PAIMON_CPP_SOURCE}"
+fi
+
 # patch librdkafka to avoid crash
 if [[ " ${TP_ARCHIVES[*]} " =~ " LIBRDKAFKA " ]]; then
     if [[ "${LIBRDKAFKA_SOURCE}" == "librdkafka-2.11.0" ]]; then
