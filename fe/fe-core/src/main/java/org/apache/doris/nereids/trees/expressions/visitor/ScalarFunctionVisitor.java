@@ -233,6 +233,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromIso8601Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.G;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Gamma;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Gcd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetVariantType;
@@ -1400,6 +1401,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitG(G g, C context) {
         return visitScalarFunction(g, context);
+    }
+
+    default R visitGamma(Gamma gamma, C context) {
+        return visitScalarFunction(gamma, context);
     }
 
     default R visitGcd(Gcd gcd, C context) {
