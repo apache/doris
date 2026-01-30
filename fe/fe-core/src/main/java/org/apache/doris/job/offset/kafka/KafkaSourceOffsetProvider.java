@@ -83,8 +83,8 @@ public class KafkaSourceOffsetProvider implements SourceOffsetProvider {
     public static final long OFFSET_END_VAL = -1L;
     
     // Kafka hidden column names
-    private static final String PARTITION_COLUMN = "_partition";
-    private static final String OFFSET_COLUMN = "_offset";
+    private static final String PARTITION_COLUMN = "_partition_id";
+    private static final String OFFSET_COLUMN = "_partition_offset";
     
     // Current offset state for all partitions
     private KafkaOffset currentOffset;
@@ -341,7 +341,9 @@ public class KafkaSourceOffsetProvider implements SourceOffsetProvider {
         
         // Combine all conditions with AND
         Expression filterExpr = new And(partitionFilter, new And(offsetGte, offsetLt));
-        
+
+        log.info("create offset filter for partition {}: [{}, {})",
+                partitionOffset.getPartitionId(), partitionOffset.getStartOffset(), partitionOffset.getEndOffset());
         // Create LogicalFilter with the table relation as child
         return new LogicalFilter<>(ImmutableSet.of(filterExpr), tableRelation);
     }
