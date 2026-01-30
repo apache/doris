@@ -14,16 +14,13 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/be/src/udf/udf.cpp
-// and modified by Doris
 
-#include "udf/udf.h"
+#include "vec/exprs/function_context.h"
 
 #include <iostream>
 #include <utility>
 
-// Be careful what this includes since this needs to be linked into the UDF's
+// Be careful what this includes since this needs to be linked into UDF's
 // binary. For example, it would be unfortunate if they had a random dependency
 // on libhdfs.
 #include "common/cast_set.h"

@@ -362,13 +362,9 @@ Status FileScanner::_process_late_arrival_conjuncts(bool* changed,
     *changed = false;
     if (_push_down_conjuncts.size() < _conjuncts.size()) {
         *changed = true;
-        _push_down_conjuncts.clear();
-        _push_down_conjuncts.resize(_conjuncts.size());
-        for (size_t i = 0; i != _conjuncts.size(); ++i) {
-            RETURN_IF_ERROR(_conjuncts[i]->clone(_state, _push_down_conjuncts[i]));
-        }
+        _push_down_conjuncts = _conjuncts;
+        _conjuncts.clear();
         RETURN_IF_ERROR(_process_conjuncts());
-        _discard_conjuncts();
         new_push_down_conjuncts = _push_down_conjuncts;
     }
     if (_applied_rf_num == _total_rf_num) {

@@ -29,7 +29,6 @@
 #include "common/status.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
-#include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_variant.h"
