@@ -49,6 +49,8 @@ class StartTabletJobResponse;
 class TabletJobInfoPB;
 class TabletStatsPB;
 class TabletIndexPB;
+class HostLevelMSRpcRateLimiters;
+class MSBackpressureHandler;
 
 using StorageVaultInfos = std::vector<
         std::tuple<std::string, std::variant<S3Conf, HdfsVaultInfo>, StorageVaultPB_PathFormat>>;
@@ -169,6 +171,14 @@ public:
                                    int64_t& max_reserved_snapshots,
                                    int64_t& snapshot_interval_seconds);
 
+    void set_host_level_ms_rpc_rate_limiters(HostLevelMSRpcRateLimiters* limiters) {
+        host_level_ms_rpc_rate_limiters_ = limiters;
+    }
+
+    void set_ms_backpressure_handler(MSBackpressureHandler* handler) {
+        ms_backpressure_handler_ = handler;
+    }
+
 private:
     bool sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64_t old_max_version,
                                             std::ranges::range auto&& rs_metas,
@@ -197,6 +207,9 @@ private:
     void check_table_size_correctness(RowsetMeta& rs_meta);
     int64_t get_segment_file_size(RowsetMeta& rs_meta);
     int64_t get_inverted_index_file_size(RowsetMeta& rs_meta);
+
+    HostLevelMSRpcRateLimiters* host_level_ms_rpc_rate_limiters_ {nullptr};
+    MSBackpressureHandler* ms_backpressure_handler_ {nullptr};
 };
 
 } // namespace cloud

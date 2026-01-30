@@ -195,5 +195,76 @@ DECLARE_mBool(enable_cache_read_from_peer);
 
 DECLARE_mInt64(cache_read_from_peer_expired_seconds);
 
+// MS RPC rate limiting config
+// Enable host-level rate limiting for MS RPCs to prevent burst traffic
+DECLARE_mBool(enable_ms_rpc_host_level_rate_limit);
+
+// Per-RPC QPS limit configs (per CPU core)
+// QPS limit = config_value * num_cores
+// Set to 0 to disable rate limiting for a specific RPC
+// Set to -1 to use ms_rpc_qps_default config value
+DECLARE_mInt32(ms_rpc_qps_default);
+DECLARE_mInt32(ms_rpc_qps_get_tablet_meta);
+DECLARE_mInt32(ms_rpc_qps_get_rowset);
+DECLARE_mInt32(ms_rpc_qps_prepare_rowset);
+DECLARE_mInt32(ms_rpc_qps_commit_rowset);
+DECLARE_mInt32(ms_rpc_qps_update_tmp_rowset);
+DECLARE_mInt32(ms_rpc_qps_commit_txn);
+DECLARE_mInt32(ms_rpc_qps_abort_txn);
+DECLARE_mInt32(ms_rpc_qps_precommit_txn);
+DECLARE_mInt32(ms_rpc_qps_get_obj_store_info);
+DECLARE_mInt32(ms_rpc_qps_start_tablet_job);
+DECLARE_mInt32(ms_rpc_qps_finish_tablet_job);
+DECLARE_mInt32(ms_rpc_qps_get_delete_bitmap);
+DECLARE_mInt32(ms_rpc_qps_update_delete_bitmap);
+DECLARE_mInt32(ms_rpc_qps_get_delete_bitmap_update_lock);
+DECLARE_mInt32(ms_rpc_qps_remove_delete_bitmap_update_lock);
+DECLARE_mInt32(ms_rpc_qps_get_instance);
+DECLARE_mInt32(ms_rpc_qps_prepare_restore_job);
+DECLARE_mInt32(ms_rpc_qps_commit_restore_job);
+DECLARE_mInt32(ms_rpc_qps_finish_restore_job);
+DECLARE_mInt32(ms_rpc_qps_list_snapshots);
+DECLARE_mInt32(ms_rpc_qps_update_packed_file_info);
+
+// ============== Table-level backpressure handling config ==============
+
+// Enable MS backpressure response handling (table-level adaptive throttling)
+DECLARE_mBool(enable_ms_backpressure_handling);
+
+// ------------ Throttle upgrade config ------------
+
+// Minimum interval between throttle upgrades after receiving MS_BUSY (seconds)
+DECLARE_mInt32(ms_backpressure_upgrade_interval_sec);
+
+// Number of top-k tables to throttle on each upgrade
+DECLARE_mInt32(ms_backpressure_upgrade_top_k);
+
+// QPS decay ratio when upgrading throttle
+// New limit = current QPS * ratio (first time) or current limit * ratio (already limited)
+DECLARE_mDouble(ms_backpressure_throttle_ratio);
+
+// Floor value for table-level QPS limit
+// Throttle upgrade will not reduce QPS limit below this value
+DECLARE_mDouble(ms_rpc_table_qps_limit_floor);
+
+// ------------ Throttle downgrade config ------------
+
+// Time without MS_BUSY before triggering throttle downgrade (seconds)
+DECLARE_mInt32(ms_backpressure_downgrade_interval_sec);
+
+// Tick interval for coordinator's timer (milliseconds)
+// The coordinator internally uses "ticks" as time units, and this config converts
+// real time to ticks. Lower values = more frequent checks but higher CPU usage.
+// Default: 1000ms (1 tick = 1 second)
+DECLARE_mInt32(ms_backpressure_tick_interval_ms);
+
+// ------------ Memory management config ------------
+
+// Maximum number of tables to track per RPC type (prevents unbounded memory growth)
+DECLARE_mInt32(ms_rpc_max_tracked_tables_per_rpc);
+
+// Interval for cleaning up inactive table counters (seconds)
+DECLARE_mInt32(ms_rpc_table_counter_cleanup_interval_sec);
+
 #include "common/compile_check_end.h"
 } // namespace doris::config
