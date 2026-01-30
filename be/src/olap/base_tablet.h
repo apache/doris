@@ -25,6 +25,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "io/io_common.h"
 #include "olap/iterators.h"
 #include "olap/olap_common.h"
 #include "olap/partial_update_info.h"
@@ -397,9 +398,43 @@ public:
     std::atomic<int64_t> compaction_count = 0;
 
     CompactionStage compaction_stage = CompactionStage::NOT_SCHEDULED;
-    std::mutex sample_info_lock;
-    std::vector<CompactionSampleInfo> sample_infos;
+    // Separate sample_infos for each compaction type to avoid race condition
+    // when different types of compaction run concurrently on the same tablet
+    std::mutex cumu_sample_info_lock;
+    std::mutex base_sample_info_lock;
+    std::mutex full_sample_info_lock;
+    std::vector<CompactionSampleInfo> cumu_sample_infos;
+    std::vector<CompactionSampleInfo> base_sample_infos;
+    std::vector<CompactionSampleInfo> full_sample_infos;
     Status last_compaction_status = Status::OK();
+
+    std::mutex& get_sample_info_lock(ReaderType reader_type) {
+        switch (reader_type) {
+        case ReaderType::READER_CUMULATIVE_COMPACTION:
+            return cumu_sample_info_lock;
+        case ReaderType::READER_BASE_COMPACTION:
+            return base_sample_info_lock;
+        case ReaderType::READER_FULL_COMPACTION:
+            return full_sample_info_lock;
+        default:
+            // For other compaction types, use base_sample_info_lock as default
+            return base_sample_info_lock;
+        }
+    }
+
+    std::vector<CompactionSampleInfo>& get_sample_infos(ReaderType reader_type) {
+        switch (reader_type) {
+        case ReaderType::READER_CUMULATIVE_COMPACTION:
+            return cumu_sample_infos;
+        case ReaderType::READER_BASE_COMPACTION:
+            return base_sample_infos;
+        case ReaderType::READER_FULL_COMPACTION:
+            return full_sample_infos;
+        default:
+            // For other compaction types, use base_sample_infos as default
+            return base_sample_infos;
+        }
+    }
 
     // Density ratio for sparse optimization (non_null_cells / total_cells)
     // Value range: [0.0, 1.0], smaller value means more sparse
