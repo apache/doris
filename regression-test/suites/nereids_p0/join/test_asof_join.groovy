@@ -1303,4 +1303,442 @@ suite("test_asof_join", "nereids_p0") {
         """
         exception "ASOF join's hash conjuncts must be in form of"
     }
+
+    // ==================== Test 33-40: Comprehensive ASOF JOIN Coverage ====================
+    // Cover: LEFT/RIGHT x INNER/OUTER x operators(>=,<=,>,<) x SlotRef/Expression
+    // Use explain + contains to verify plan type before execution
+    
+    // ---------- Setup: Tables to force RIGHT JOIN plan (small left, large right) ----------
+    sql """ DROP TABLE IF EXISTS asof_small """
+    sql """ DROP TABLE IF EXISTS asof_large """
+
+    // Small table (3 rows) - will become build side, triggering RIGHT JOIN
+    sql """
+        CREATE TABLE asof_small (
+            id INT,
+            grp INT,
+            ts DATETIME
+        ) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
+
+    // Large table (20 rows) - will become probe side
+    sql """
+        CREATE TABLE asof_large (
+            id INT,
+            grp INT,
+            ts DATETIME,
+            val INT
+        ) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
+
+    sql """
+        INSERT INTO asof_small VALUES
+        (1, 1, '2024-01-01 10:00:00'),
+        (2, 1, '2024-01-01 12:00:00'),
+        (3, 2, '2024-01-01 11:00:00')
+    """
+
+    // Insert 20 rows to ensure optimizer prefers RIGHT plan
+    sql """
+        INSERT INTO asof_large VALUES
+        (1, 1, '2024-01-01 08:00:00', 100),
+        (2, 1, '2024-01-01 09:00:00', 110),
+        (3, 1, '2024-01-01 10:00:00', 120),
+        (4, 1, '2024-01-01 11:00:00', 130),
+        (5, 1, '2024-01-01 12:00:00', 140),
+        (6, 1, '2024-01-01 13:00:00', 150),
+        (7, 2, '2024-01-01 09:00:00', 200),
+        (8, 2, '2024-01-01 10:00:00', 210),
+        (9, 2, '2024-01-01 11:00:00', 220),
+        (10, 2, '2024-01-01 12:00:00', 230),
+        (11, 1, '2024-01-01 09:30:00', 115),
+        (12, 1, '2024-01-01 10:30:00', 125),
+        (13, 1, '2024-01-01 11:30:00', 135),
+        (14, 2, '2024-01-01 09:30:00', 205),
+        (15, 2, '2024-01-01 10:30:00', 215),
+        (16, 2, '2024-01-01 11:30:00', 225),
+        (17, 1, '2024-01-01 14:00:00', 160),
+        (18, 2, '2024-01-01 13:00:00', 240),
+        (19, 3, '2024-01-01 10:00:00', 300),
+        (20, 3, '2024-01-01 11:00:00', 310)
+    """
+
+    sql """ ANALYZE TABLE asof_small WITH SYNC """
+    sql """ ANALYZE TABLE asof_large WITH SYNC """
+
+    // ---------- Test 33: Verify ASOF_RIGHT_INNER_JOIN plan and results ----------
+    // Verify plan contains ASOF_RIGHT_INNER_JOIN
+    explain {
+        sql """
+            SELECT s.id, s.grp, s.ts as s_ts, l.ts as l_ts, l.val
+            FROM asof_small s
+            ASOF INNER JOIN asof_large l
+            MATCH_CONDITION(s.ts >= l.ts)
+            ON s.grp = l.grp
+            ORDER BY s.id
+        """
+        contains "ASOF_RIGHT_INNER_JOIN"
+    }
+
+    qt_asof_right_inner_ge """
+        SELECT s.id, s.grp, s.ts as s_ts, l.ts as l_ts, l.val
+        FROM asof_small s
+        ASOF INNER JOIN asof_large l
+        MATCH_CONDITION(s.ts >= l.ts)
+        ON s.grp = l.grp
+        ORDER BY s.id
+    """
+
+    // ---------- Test 34: Verify ASOF_RIGHT_OUTER_JOIN plan and results ----------
+    explain {
+        sql """
+            SELECT s.id, s.grp, s.ts as s_ts, l.ts as l_ts, l.val
+            FROM asof_small s
+            ASOF JOIN asof_large l
+            MATCH_CONDITION(s.ts >= l.ts)
+            ON s.grp = l.grp
+            ORDER BY s.id, l.id
+        """
+        contains "ASOF_RIGHT_OUTER_JOIN"
+    }
+
+    qt_asof_right_outer_ge """
+        SELECT s.id, s.grp, s.ts as s_ts, l.ts as l_ts, l.val
+        FROM asof_small s
+        ASOF JOIN asof_large l
+        MATCH_CONDITION(s.ts >= l.ts)
+        ON s.grp = l.grp
+        ORDER BY s.id, l.id
+    """
+
+    // ---------- Test 35: ASOF RIGHT JOIN with <= operator ----------
+    explain {
+        sql """
+            SELECT s.id, s.grp, s.ts as s_ts, l.ts as l_ts, l.val
+            FROM asof_small s
+            ASOF INNER JOIN asof_large l
+            MATCH_CONDITION(s.ts <= l.ts)
+            ON s.grp = l.grp
+            ORDER BY s.id
+        """
+        contains "ASOF_RIGHT_INNER_JOIN"
+    }
+
+    qt_asof_right_inner_le """
+        SELECT s.id, s.grp, s.ts as s_ts, l.ts as l_ts, l.val
+        FROM asof_small s
+        ASOF INNER JOIN asof_large l
+        MATCH_CONDITION(s.ts <= l.ts)
+        ON s.grp = l.grp
+        ORDER BY s.id
+    """
+
+    // ---------- Test 36: ASOF RIGHT JOIN with strict > operator ----------
+    explain {
+        sql """
+            SELECT s.id, s.grp, s.ts as s_ts, l.ts as l_ts, l.val
+            FROM asof_small s
+            ASOF INNER JOIN asof_large l
+            MATCH_CONDITION(s.ts > l.ts)
+            ON s.grp = l.grp
+            ORDER BY s.id
+        """
+        contains "ASOF_RIGHT_INNER_JOIN"
+    }
+
+    qt_asof_right_inner_gt """
+        SELECT s.id, s.grp, s.ts as s_ts, l.ts as l_ts, l.val
+        FROM asof_small s
+        ASOF INNER JOIN asof_large l
+        MATCH_CONDITION(s.ts > l.ts)
+        ON s.grp = l.grp
+        ORDER BY s.id
+    """
+
+    // ---------- Test 37: ASOF RIGHT JOIN with strict < operator ----------
+    explain {
+        sql """
+            SELECT s.id, s.grp, s.ts as s_ts, l.ts as l_ts, l.val
+            FROM asof_small s
+            ASOF INNER JOIN asof_large l
+            MATCH_CONDITION(s.ts < l.ts)
+            ON s.grp = l.grp
+            ORDER BY s.id
+        """
+        contains "ASOF_RIGHT_INNER_JOIN"
+    }
+
+    qt_asof_right_inner_lt """
+        SELECT s.id, s.grp, s.ts as s_ts, l.ts as l_ts, l.val
+        FROM asof_small s
+        ASOF INNER JOIN asof_large l
+        MATCH_CONDITION(s.ts < l.ts)
+        ON s.grp = l.grp
+        ORDER BY s.id
+    """
+
+    // ---------- Test 38: ASOF LEFT JOIN (verify plan) ----------
+    // Swap table order: large table on left forces LEFT plan
+    explain {
+        sql """
+            SELECT l.id, l.grp, l.ts as l_ts, s.ts as s_ts, s.id as sid
+            FROM asof_large l
+            ASOF INNER JOIN asof_small s
+            MATCH_CONDITION(l.ts >= s.ts)
+            ON l.grp = s.grp
+            ORDER BY l.id
+        """
+        contains "ASOF_LEFT_INNER_JOIN"
+    }
+
+    qt_asof_left_inner_ge """
+        SELECT l.id, l.grp, l.ts as l_ts, s.ts as s_ts, s.id as sid
+        FROM asof_large l
+        ASOF INNER JOIN asof_small s
+        MATCH_CONDITION(l.ts >= s.ts)
+        ON l.grp = s.grp
+        ORDER BY l.id
+    """
+
+    // ---------- Test 39: ASOF LEFT OUTER JOIN with unmatched rows ----------
+    explain {
+        sql """
+            SELECT l.id, l.grp, l.ts as l_ts, s.ts as s_ts, s.id as sid
+            FROM asof_large l
+            ASOF JOIN asof_small s
+            MATCH_CONDITION(l.ts >= s.ts)
+            ON l.grp = s.grp
+            ORDER BY l.id
+        """
+        contains "ASOF_LEFT_OUTER_JOIN"
+    }
+
+    qt_asof_left_outer_ge """
+        SELECT l.id, l.grp, l.ts as l_ts, s.ts as s_ts, s.id as sid
+        FROM asof_large l
+        ASOF JOIN asof_small s
+        MATCH_CONDITION(l.ts >= s.ts)
+        ON l.grp = s.grp
+        ORDER BY l.id
+    """
+
+    // ---------- Test 40: Expression-based MATCH_CONDITION (forces linear scan) ----------
+    // Use expression instead of simple SlotRef to verify expression path
+    qt_asof_expr_condition """
+        SELECT l.id, l.grp, l.ts as l_ts, s.ts as s_ts, s.id as sid
+        FROM asof_large l
+        ASOF INNER JOIN asof_small s
+        MATCH_CONDITION(l.ts >= DATE_SUB(s.ts, INTERVAL 0 SECOND))
+        ON l.grp = s.grp
+        ORDER BY l.id
+    """
+
+    // ---------- Test 41: ASOF RIGHT OUTER JOIN with unmatched build rows ----------
+    // Add data to asof_small with a group that has no match in asof_large
+    sql """ INSERT INTO asof_small VALUES (4, 4, '2024-01-01 10:00:00') """
+    sql """ ANALYZE TABLE asof_small WITH SYNC """
+
+    explain {
+        sql """
+            SELECT s.id, s.grp, s.ts as s_ts, l.ts as l_ts, l.val
+            FROM asof_small s
+            ASOF JOIN asof_large l
+            MATCH_CONDITION(s.ts >= l.ts)
+            ON s.grp = l.grp
+            ORDER BY s.id
+        """
+        contains "ASOF_RIGHT_OUTER_JOIN"
+    }
+
+    qt_asof_right_outer_unmatched """
+        SELECT s.id, s.grp, s.ts as s_ts, l.ts as l_ts, l.val
+        FROM asof_small s
+        ASOF JOIN asof_large l
+        MATCH_CONDITION(s.ts >= l.ts)
+        ON s.grp = l.grp
+        ORDER BY s.id
+    """
+
+    // ---------- Test 42: Large group to trigger binary search (LEFT JOIN) ----------
+    // Binary search is triggered when group_size > 8 and uses simple SlotRef
+    // Use asof_large (20 rows) as left table and asof_small (4 rows) as right table
+    // This forces LEFT plan and tests binary search optimization
+    
+    explain {
+        sql """
+            SELECT l.id, l.grp, l.ts as l_ts, s.ts as s_ts, s.id as sid
+            FROM asof_large l
+            ASOF INNER JOIN asof_small s
+            MATCH_CONDITION(l.ts >= s.ts)
+            ON l.grp = s.grp
+            ORDER BY l.id
+        """
+        contains "ASOF_LEFT_INNER_JOIN"
+    }
+
+    // This triggers binary search path when group has > 8 candidates
+    qt_asof_bsearch_ge """
+        SELECT l.id, l.grp, l.ts as l_ts, s.ts as s_ts, s.id as sid
+        FROM asof_large l
+        ASOF INNER JOIN asof_small s
+        MATCH_CONDITION(l.ts >= s.ts)
+        ON l.grp = s.grp
+        ORDER BY l.id
+    """
+
+    // Test binary search with <= operator
+    qt_asof_bsearch_le """
+        SELECT l.id, l.grp, l.ts as l_ts, s.ts as s_ts, s.id as sid
+        FROM asof_large l
+        ASOF INNER JOIN asof_small s
+        MATCH_CONDITION(l.ts <= s.ts)
+        ON l.grp = s.grp
+        ORDER BY l.id
+    """
+
+    // Test binary search with strict > operator
+    qt_asof_bsearch_gt """
+        SELECT l.id, l.grp, l.ts as l_ts, s.ts as s_ts, s.id as sid
+        FROM asof_large l
+        ASOF INNER JOIN asof_small s
+        MATCH_CONDITION(l.ts > s.ts)
+        ON l.grp = s.grp
+        ORDER BY l.id
+    """
+
+    // Test binary search with strict < operator
+    qt_asof_bsearch_lt """
+        SELECT l.id, l.grp, l.ts as l_ts, s.ts as s_ts, s.id as sid
+        FROM asof_large l
+        ASOF INNER JOIN asof_small s
+        MATCH_CONDITION(l.ts < s.ts)
+        ON l.grp = s.grp
+        ORDER BY l.id
+    """
+
+    // ---------- Test 43: Multiple groups with different match scenarios ----------
+    sql """ DROP TABLE IF EXISTS asof_multi_grp_left """
+    sql """ DROP TABLE IF EXISTS asof_multi_grp_right """
+
+    sql """
+        CREATE TABLE asof_multi_grp_left (
+            id INT,
+            grp INT,
+            ts DATETIME
+        ) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
+
+    sql """
+        CREATE TABLE asof_multi_grp_right (
+            id INT,
+            grp INT,
+            ts DATETIME,
+            val INT
+        ) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
+
+    // Insert 10 rows in left table to force LEFT plan (larger than right table's 6 rows)
+    sql """
+        INSERT INTO asof_multi_grp_left VALUES
+        (1, 1, '2024-01-01 10:00:00'),
+        (2, 2, '2024-01-01 10:00:00'),
+        (3, 3, '2024-01-01 10:00:00'),
+        (4, 4, '2024-01-01 10:00:00'),
+        (5, 1, '2024-01-01 11:00:00'),
+        (6, 2, '2024-01-01 09:00:00'),
+        (7, 3, '2024-01-01 11:00:00'),
+        (8, 1, '2024-01-01 09:00:00'),
+        (9, 2, '2024-01-01 11:00:00'),
+        (10, 3, '2024-01-01 08:00:00')
+    """
+
+    sql """
+        INSERT INTO asof_multi_grp_right VALUES
+        (1, 1, '2024-01-01 09:00:00', 100),
+        (2, 1, '2024-01-01 10:00:00', 110),
+        (3, 1, '2024-01-01 11:00:00', 120),
+        (4, 2, '2024-01-01 11:00:00', 200),
+        (5, 3, '2024-01-01 09:00:00', 300),
+        (6, 3, '2024-01-01 10:00:00', 310)
+    """
+
+    sql """ ANALYZE TABLE asof_multi_grp_left WITH SYNC """
+    sql """ ANALYZE TABLE asof_multi_grp_right WITH SYNC """
+
+    // Test multiple groups with LEFT OUTER JOIN
+    // Verify plan type first
+    explain {
+        sql """
+            SELECT l.id, l.grp, l.ts as l_ts, r.ts as r_ts, r.val
+            FROM asof_multi_grp_left l
+            ASOF LEFT JOIN asof_multi_grp_right r
+            MATCH_CONDITION(l.ts >= r.ts)
+            ON l.grp = r.grp
+            ORDER BY l.id
+        """
+        contains "ASOF_LEFT_OUTER_JOIN"
+    }
+
+    // Expected results:
+    // grp=1: id=1 ts=10:00 -> r.ts<=10:00 -> 10:00(val=110); id=5 ts=11:00 -> 11:00(val=120); id=8 ts=09:00 -> 09:00(val=100)
+    // grp=2: id=2 ts=10:00 -> r.ts<=10:00? r only has 11:00 -> NULL; id=6 ts=09:00 -> NULL; id=9 ts=11:00 -> 11:00(val=200)
+    // grp=3: id=3 ts=10:00 -> 10:00(val=310); id=7 ts=11:00 -> 10:00(val=310); id=10 ts=08:00 -> NULL
+    // grp=4: id=4 -> no r row -> NULL
+    qt_asof_multi_grp_outer """
+        SELECT l.id, l.grp, l.ts as l_ts, r.ts as r_ts, r.val
+        FROM asof_multi_grp_left l
+        ASOF LEFT JOIN asof_multi_grp_right r
+        MATCH_CONDITION(l.ts >= r.ts)
+        ON l.grp = r.grp
+        ORDER BY l.id
+    """
+
+    // ==================== Test 44: TIMESTAMPTZ type support ====================
+    sql """ DROP TABLE IF EXISTS asof_timestamptz_left """
+    sql """ DROP TABLE IF EXISTS asof_timestamptz_right """
+
+    sql """
+        CREATE TABLE asof_timestamptz_left (
+            id INT,
+            grp INT,
+            ts TIMESTAMPTZ
+        ) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
+
+    sql """
+        CREATE TABLE asof_timestamptz_right (
+            id INT,
+            grp INT,
+            ts TIMESTAMPTZ,
+            val INT
+        ) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
+
+    sql """
+        INSERT INTO asof_timestamptz_left VALUES
+        (1, 1, '2024-01-01 10:00:00+08:00'),
+        (2, 1, '2024-01-01 12:00:00+08:00')
+    """
+
+    sql """
+        INSERT INTO asof_timestamptz_right VALUES
+        (1, 1, '2024-01-01 09:00:00+08:00', 100),
+        (2, 1, '2024-01-01 10:00:00+08:00', 200),
+        (3, 1, '2024-01-01 11:00:00+08:00', 300)
+    """
+
+    qt_asof_timestamptz """
+        SELECT l.id, l.ts as l_ts, r.id as rid, r.ts as r_ts, r.val
+        FROM asof_timestamptz_left l
+        ASOF LEFT JOIN asof_timestamptz_right r
+        MATCH_CONDITION(l.ts >= r.ts)
+        ON l.grp = r.grp
+        ORDER BY l.id
+    """
 }

@@ -629,6 +629,10 @@ struct HashJoinSharedState : public JoinSharedState {
     std::vector<std::vector<uint32_t>> asof_sorted_bucket_indices;
     // The match column from build side for ASOF comparison
     vectorized::ColumnPtr asof_build_match_column;
+    // The match column from probe side for ASOF comparison (used in ASOF RIGHT JOIN)
+    vectorized::ColumnPtr asof_probe_match_column;
+    // The probe match column name (used to extract probe column during probe phase)
+    std::string asof_probe_match_column_name;
     // Whether the inequality is >= or > (true) vs <= or < (false)
     bool asof_inequality_is_greater = true;
     // Whether the inequality is strict (> or <) vs non-strict (>= or <=)

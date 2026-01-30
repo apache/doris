@@ -91,12 +91,14 @@ Status HashJoinProbeLocalState::open(RuntimeState* state) {
             _shared_state->asof_inequality_is_strict =
                     (opcode == TExprOpcode::GT || opcode == TExprOpcode::LT);
 
-            // Extract match column only when right child is a simple SlotRef
+            // Extract match columns when children are simple SlotRefs
             // For expressions like "r.ts + INTERVAL 1 HOUR", we cannot guarantee
             // monotonicity, so we skip sorting and rely on linear scan
             if (conjunct->root()->get_num_children() >= 2 && _shared_state->build_block) {
+                auto left_child = conjunct->root()->get_child(0);
                 auto right_child = conjunct->root()->get_child(1);
-                // Only process when right child is a direct SlotRef (not an expression)
+
+                // Extract build side match column (right child of condition)
                 if (right_child && right_child->is_slot_ref()) {
                     auto* slot_ref = static_cast<vectorized::VSlotRef*>(right_child.get());
                     auto& build_block = *_shared_state->build_block;
@@ -118,12 +120,21 @@ Status HashJoinProbeLocalState::open(RuntimeState* state) {
                             if (bucket_indices.size() > 1) {
                                 std::sort(bucket_indices.begin(), bucket_indices.end(),
                                           [match_col](uint32_t a, uint32_t b) {
-                                              return match_col->compare_at(a - 1, b - 1,
-                                                                           *match_col, 1) < 0;
+                                              return match_col->compare_at(a - 1, b - 1, *match_col,
+                                                                           1) < 0;
                                           });
                             }
                         }
                     }
+                }
+
+                // Extract probe side match column (left child of condition)
+                // This is used for ASOF RIGHT JOIN to find best probe for each build
+                if (left_child && left_child->is_slot_ref()) {
+                    // Note: probe match column will be set during probe phase
+                    // when we have access to the probe block
+                    _shared_state->asof_probe_match_column_name =
+                            static_cast<vectorized::VSlotRef*>(left_child.get())->column_name();
                 }
             }
         }
@@ -490,6 +501,19 @@ Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* inpu
             input_block->swap(local_state._probe_block);
             COUNTER_SET(local_state._memory_used_counter,
                         (int64_t)local_state._probe_block.allocated_bytes());
+        }
+
+        // For ASOF RIGHT JOIN, extract probe match column on first probe block
+        if (!local_state._shared_state->asof_probe_match_column_name.empty() &&
+            !local_state._shared_state->asof_probe_match_column) {
+            const std::string& col_name = local_state._shared_state->asof_probe_match_column_name;
+            for (size_t i = 0; i < local_state._probe_block.columns(); ++i) {
+                if (local_state._probe_block.get_by_position(i).name == col_name) {
+                    local_state._shared_state->asof_probe_match_column =
+                            local_state._probe_block.get_by_position(i).column;
+                    break;
+                }
+            }
         }
     }
     return Status::OK();
