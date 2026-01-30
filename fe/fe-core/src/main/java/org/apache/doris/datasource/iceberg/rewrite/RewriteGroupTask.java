@@ -271,9 +271,9 @@ public class RewriteGroupTask implements TransientTaskExecutor {
      *
      * The core idea is to precisely control the number of output files:
      * 1. Calculate expected file count based on data size and target file size
-     * 2. If expected file count is small (e.g., <= threshold), use GATHER to collect
-     *    data to a single node, ensuring minimal file output
-     * 3. Otherwise, limit parallelism to avoid too many writers
+     * 2. If expected file count is not greater than available BE count, use GATHER
+     *    to collect data to a single node, avoiding excessive writers
+     * 3. Otherwise, limit per-BE parallelism so total writers <= expected files
      *
      * @return RewriteStrategy containing parallelism and distribution settings
      */
@@ -284,6 +284,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
 
         // 2. Use available BE count passed from constructor
         int availableBeCount = this.availableBeCount;
+        int safeBeCount = Math.max(1, availableBeCount);
 
         // 3. Get default parallelism from session variable (pipeline task num)
         int defaultParallelism = getDefaultPipelineParallelism();
@@ -293,18 +294,18 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         int optimalParallelism;
 
         // Threshold for using GATHER distribution
-        // When expected files <= this threshold, collect all data to single node
-        final int gatherThreshold = 1;
+        // When expected files <= available BEs, collect all data to single node
+        final int gatherThreshold = safeBeCount;
 
         if (expectedFileCount <= gatherThreshold) {
             // Small data volume: use GATHER to write to single node
+            // Keep parallelism <= expected files to avoid extra output files
             useGather = true;
-            optimalParallelism = 1;
+            optimalParallelism = Math.max(1, Math.min(defaultParallelism, expectedFileCount));
         } else {
-            // Larger data volume: limit parallelism based on expected file count
-            optimalParallelism = Math.max(1,
-                    Math.min(expectedFileCount,
-                            Math.min(availableBeCount, defaultParallelism)));
+            // Larger data volume: limit per-BE parallelism so total writers <= expected files
+            int maxParallelismByFileCount = Math.max(1, expectedFileCount / safeBeCount);
+            optimalParallelism = Math.max(1, Math.min(defaultParallelism, maxParallelismByFileCount));
         }
 
         LOG.info("[Rewrite Task] taskId: {}, totalSize: {} bytes, targetFileSize: {} bytes, "
