@@ -93,6 +93,8 @@ import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.metric.ListMetricVisitor;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
@@ -151,6 +153,9 @@ import org.apache.doris.thrift.TDescribeTablesParams;
 import org.apache.doris.thrift.TDescribeTablesResult;
 import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TEncryptionKey;
+import org.apache.doris.thrift.TFeResult;
+import org.apache.doris.thrift.TFetchFeMetricsRequest;
+import org.apache.doris.thrift.TFetchFeMetricsResult;
 import org.apache.doris.thrift.TFetchLoadJobRequest;
 import org.apache.doris.thrift.TFetchLoadJobResult;
 import org.apache.doris.thrift.TFetchResourceResult;
@@ -307,6 +312,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -4705,6 +4711,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.addToErrorMsgs(e.getMessage());
             return result;
         }
+    }
+
+    @Override
+    public TFetchFeMetricsResult fetchFrontendMetrics(TFetchFeMetricsRequest request) throws TException {
+        TFetchFeMetricsResult result = new TFetchFeMetricsResult();
+        List<List<String>> metricsList = new LinkedList<>();
+        MetricRepo.getMetric(new ListMetricVisitor(metricsList, FrontendOptions.getLocalHostAddress()));
+        result.setMetricsList(metricsList);
+        return result;
     }
 
     private TStatus checkMaster() {
