@@ -5520,11 +5520,11 @@ int InstanceRecycler::scan_and_recycle(
     };
 
     std::unique_ptr<RangeGetIterator> it;
-    do {
+    while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
         if (get_range_retried > 1000) {
-            err = "txn_get exceeds max retry, may not scan all keys";
-            ret = -1;
-            return -1;
+            err = "txn_get exceeds max retry(1000), may not scan all keys";
+            ret = -3;
+            return ret;
         }
         int get_ret = txn_get(txn_kv_.get(), begin, end, it);
         if (get_ret != 0) { // txn kv may complain "Request for future version"
@@ -5547,19 +5547,19 @@ int InstanceRecycler::scan_and_recycle(
                 begin = k;
                 VLOG_DEBUG << "iterator has no more kvs. key=" << hex(k);
             }
-            // if we want to continue scanning, the recycle_func should not return non-zero
+            // FIXME(gavin): if we want to continue scanning, the recycle_func should not return non-zero
             if (recycle_func(k, v) != 0) {
                 err = "recycle_func error";
                 ret = -1;
             }
         }
         begin.push_back('\x00'); // Update to next smallest key for iteration
-        // if we want to continue scanning, the recycle_func should not return non-zero
+        // FIXME(gavin): if we want to continue scanning, the loop_done should not return non-zero
         if (loop_done && loop_done() != 0) {
             err = "loop_done error";
             ret = -1;
         }
-    } while (it->more() && !stopped());
+    }
     return ret;
 }
 
