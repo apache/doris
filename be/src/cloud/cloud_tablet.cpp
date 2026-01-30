@@ -1595,10 +1595,20 @@ void CloudTablet::_submit_segment_download_task(const RowsetSharedPtr& rs,
     // clang-format off
     const auto& rowset_meta = rs->rowset_meta();
     auto self = std::dynamic_pointer_cast<CloudTablet>(shared_from_this());
+    // Use rowset_meta->fs() instead of storage_resource->fs to support packed file.
+    // RowsetMeta::fs() wraps the underlying FileSystem with PackedFileSystem when
+    // packed_slice_locations is not empty, which correctly maps segment file paths
+    // to their actual locations within packed files.
+    auto file_system = rowset_meta->fs();
+    if (!file_system) {
+        LOG(WARNING) << "failed to get file system for tablet_id=" << _tablet_meta->tablet_id()
+                     << ", rowset_id=" << rowset_meta->rowset_id();
+        return;
+    }
     _engine.file_cache_block_downloader().submit_download_task(io::DownloadFileMeta {
             .path = storage_resource->remote_segment_path(*rowset_meta, seg_id),
             .file_size = rs->rowset_meta()->segment_file_size(seg_id),
-            .file_system = storage_resource->fs,
+            .file_system = file_system,
             .ctx = {
                     .expiration_time = expiration_time,
                     .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
@@ -1633,10 +1643,17 @@ void CloudTablet::_submit_inverted_index_download_task(const RowsetSharedPtr& rs
     // clang-format off
     const auto& rowset_meta = rs->rowset_meta();
     auto self = std::dynamic_pointer_cast<CloudTablet>(shared_from_this());
+    // Use rowset_meta->fs() instead of storage_resource->fs to support packed file for idx files.
+    auto file_system = rowset_meta->fs();
+    if (!file_system) {
+        LOG(WARNING) << "failed to get file system for tablet_id=" << _tablet_meta->tablet_id()
+                     << ", rowset_id=" << rowset_meta->rowset_id();
+        return;
+    }
     io::DownloadFileMeta meta {
             .path = idx_path,
             .file_size = idx_size,
-            .file_system = storage_resource->fs,
+            .file_system = file_system,
             .ctx = {
                     .expiration_time = expiration_time,
                     .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,

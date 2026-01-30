@@ -22,6 +22,11 @@ suite('test_clean_stale_rs_index_file_cache', 'docker') {
     if (!isCloudMode()) {
         return;
     }
+
+    // Randomly enable or disable packed_file to test both scenarios
+    def enablePackedFile = new Random().nextBoolean()
+    logger.info("Running test with enable_packed_file=${enablePackedFile}")
+
     def options = new ClusterOptions()
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
@@ -35,7 +40,7 @@ suite('test_clean_stale_rs_index_file_cache', 'docker') {
         'tablet_rowset_stale_sweep_by_size=false',
         'tablet_rowset_stale_sweep_time_sec=60',
         'vacuum_stale_rowsets_interval_s=10',
-        'enable_packed_file=false',
+        "enable_packed_file=${enablePackedFile}",
     ]
     options.setFeNum(1)
     options.setBeNum(1)
