@@ -604,6 +604,18 @@ public:
                        : 0;
     }
 
+    int64_t in_set_to_bitset_max_size() const {
+        return _query_options.__isset.in_set_to_bitset_max_size
+                       ? _query_options.in_set_to_bitset_max_size
+                       : 0;
+    }
+
+    int64_t in_set_to_bitset_max_range() const {
+        return _query_options.__isset.in_set_to_bitset_max_range
+                       ? _query_options.in_set_to_bitset_max_range
+                       : 0;
+    }
+
     void set_be_exec_version(int32_t version) noexcept { _query_options.be_exec_version = version; }
 
     using LocalState = doris::pipeline::PipelineXLocalStateBase;

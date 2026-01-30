@@ -717,13 +717,13 @@ Status ScanLocalState<Derived>::_normalize_in_predicate(
         }
         is_in = !tmp->is_not_in();
 
-        if (state->hybrid_set->contain_null() && tmp->is_not_in()) {
+        if (state->get_hybrid_set()->contain_null() && tmp->is_not_in()) {
             _eos = true;
             _scan_dependency->set_ready();
             return Status::OK();
         }
-        hybrid_set = state->hybrid_set;
-        iter = state->hybrid_set->begin();
+        hybrid_set = state->get_hybrid_set();
+        iter = state->get_hybrid_set()->begin();
     }
 
     if (iter) {

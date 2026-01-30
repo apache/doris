@@ -1082,6 +1082,9 @@ DECLARE_mInt64(big_column_size_buffer);
 DECLARE_mInt64(small_column_size_buffer);
 
 DECLARE_mInt32(runtime_filter_sampling_frequency);
+DECLARE_mInt64(in_set_to_bitset_max_size);
+DECLARE_mInt64(in_set_to_bitset_max_range);
+
 DECLARE_mInt32(execution_max_rpc_timeout_sec);
 DECLARE_mBool(execution_ignore_eovercrowded);
 
