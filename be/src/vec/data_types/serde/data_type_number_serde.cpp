@@ -310,6 +310,13 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
 
     /// buffers[0] is a null bitmap and buffers[1] are actual values
     std::shared_ptr<arrow::Buffer> buffer = arrow_array->data()->buffers[1];
+
+    // Handle empty array case: buffer can be null when row_count is 0.
+    // Passing nullptr to memcpy (via col_data.insert) is undefined behavior even if size is 0.
+    if (row_count == 0 || buffer == nullptr) {
+        return Status::OK();
+    }
+
     const auto* raw_data =
             reinterpret_cast<const typename PrimitiveTypeTraits<T>::CppType*>(buffer->data()) +
             start;
