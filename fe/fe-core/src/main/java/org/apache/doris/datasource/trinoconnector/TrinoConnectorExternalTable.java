@@ -125,10 +125,13 @@ public class TrinoConnectorExternalTable extends ExternalTable {
         // 5. Get ColumnMetadata
         ImmutableMap.Builder<String, ColumnMetadata> columnMetadataMapBuilder = ImmutableMap.builder();
         List<Column> columns = Lists.newArrayListWithCapacity(columnHandleMap.size());
+        boolean includeHiddenColumns = shouldIncludeHiddenColumns(trinoConnectorCatalog);
         for (ColumnHandle columnHandle : columnHandleMap.values()) {
             ColumnMetadata columnMetadata = connectorMetadata.getColumnMetadata(connectorSession,
                     connectorTableHandle.get(), columnHandle);
-            if (columnMetadata.isHidden()) {
+            // Skip hidden columns unless explicitly configured to include them
+            // Kafka connector needs hidden columns (_partition, _offset, etc.) for offset filtering
+            if (columnMetadata.isHidden() && !includeHiddenColumns) {
                 continue;
             }
             columnMetadataMapBuilder.put(columnMetadata.getName(), columnMetadata);
@@ -227,6 +230,35 @@ public class TrinoConnectorExternalTable extends ExternalTable {
 
     private int getMaxDatetimePrecision(int precision) {
         return Math.min(precision, 6);
+    }
+
+    /**
+     * Determine whether hidden columns should be included in the schema.
+     * 
+     * For Kafka connector, hidden columns like _partition, _offset, _timestamp are needed
+     * for offset filtering in streaming jobs.
+     * 
+     * @param trinoConnectorCatalog the Trino connector catalog
+     * @return true if hidden columns should be included, false otherwise
+     */
+    private boolean shouldIncludeHiddenColumns(TrinoConnectorExternalCatalog trinoConnectorCatalog) {
+        // Get connector name to check if it's Kafka
+        String connectorNameStr = trinoConnectorCatalog.getConnectorName() != null
+                ? trinoConnectorCatalog.getConnectorName().toString() : "";
+        
+        // Kafka connector needs hidden columns for offset filtering
+        if ("kafka".equalsIgnoreCase(connectorNameStr)) {
+            return true;
+        }
+        
+        // Check catalog property for explicit configuration
+        Map<String, String> props = trinoConnectorCatalog.getCatalogProperty().getProperties();
+        String includeHidden = props.get("include_hidden_columns");
+        if ("true".equalsIgnoreCase(includeHidden)) {
+            return true;
+        }
+        
+        return false;
     }
 
     public ConnectorTableHandle getConnectorTableHandle() {

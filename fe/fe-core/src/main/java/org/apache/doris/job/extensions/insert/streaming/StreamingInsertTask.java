@@ -26,7 +26,9 @@ import org.apache.doris.job.base.Job;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertTask;
+import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
+import org.apache.doris.job.offset.kafka.KafkaPartitionOffset;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -58,6 +60,12 @@ public class StreamingInsertTask extends AbstractStreamingTask {
     private StreamingJobProperties jobProperties;
     private Map<String, String> originTvfProps;
     SourceOffsetProvider offsetProvider;
+    
+    /**
+     * Kafka partition offset for this task (only for Kafka streaming jobs).
+     * When set, this task handles a specific partition with the given offset range.
+     */
+    private KafkaPartitionOffset kafkaPartitionOffset;
 
     public StreamingInsertTask(long jobId,
                                long taskId,
@@ -73,6 +81,29 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         this.offsetProvider = offsetProvider;
         this.jobProperties = jobProperties;
         this.originTvfProps = originTvfProps;
+        this.kafkaPartitionOffset = null;
+    }
+    
+    /**
+     * Constructor for Kafka partition-specific tasks.
+     * Each task handles exactly one Kafka partition for exactly-once semantics.
+     */
+    public StreamingInsertTask(long jobId,
+                               long taskId,
+                               String sql,
+                               SourceOffsetProvider offsetProvider,
+                               String currentDb,
+                               StreamingJobProperties jobProperties,
+                               Map<String, String> originTvfProps,
+                               UserIdentity userIdentity,
+                               KafkaPartitionOffset kafkaPartitionOffset) {
+        super(jobId, taskId, userIdentity);
+        this.sql = sql;
+        this.currentDb = currentDb;
+        this.offsetProvider = offsetProvider;
+        this.jobProperties = jobProperties;
+        this.originTvfProps = originTvfProps;
+        this.kafkaPartitionOffset = kafkaPartitionOffset;
     }
 
     @Override
@@ -88,8 +119,16 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         StatementContext statementContext = new StatementContext();
         ctx.setStatementContext(statementContext);
 
-        this.runningOffset = offsetProvider.getNextOffset(jobProperties, originTvfProps);
-        log.info("streaming insert task {} get running offset: {}", taskId, runningOffset.toString());
+        // For Kafka partition tasks, use the pre-assigned partition offset
+        // For other sources (S3, etc.), get the next offset from the provider
+        if (kafkaPartitionOffset != null) {
+            this.runningOffset = kafkaPartitionOffset;
+            log.info("streaming insert task {} using kafka partition offset: {}", taskId, runningOffset.toString());
+        } else {
+            this.runningOffset = offsetProvider.getNextOffset(jobProperties, originTvfProps);
+            log.info("streaming insert task {} get running offset: {}", taskId, runningOffset.toString());
+        }
+        
         InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) new NereidsParser().parseSingle(sql);
         baseCommand.setJobId(getTaskId());
         StmtExecutor baseStmtExecutor =
@@ -143,8 +182,33 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         }
 
         StreamingInsertJob streamingInsertJob = (StreamingInsertJob) job;
-        streamingInsertJob.onStreamTaskSuccess(this);
+        
+        // For Kafka partition tasks, use the partition-specific callback
+        if (kafkaPartitionOffset != null) {
+            long consumedRows = getConsumedRowCount();
+            streamingInsertJob.onKafkaPartitionTaskSuccess(this, 
+                    kafkaPartitionOffset.getPartitionId(), consumedRows);
+        } else {
+            // Standard callback for non-Kafka sources
+            streamingInsertJob.onStreamTaskSuccess(this);
+        }
         return true;
+    }
+    
+    /**
+     * Get the number of rows consumed by this task.
+     * Used for updating Kafka partition offsets after task completion.
+     */
+    public long getConsumedRowCount() {
+        List<LoadJob> loadJobs = Env.getCurrentEnv().getLoadManager()
+                .queryLoadJobsByJobIds(Arrays.asList(this.getTaskId()));
+        if (!loadJobs.isEmpty()) {
+            LoadJob loadJob = loadJobs.get(0);
+            if (loadJob.getLoadStatistic() != null) {
+                return loadJob.getLoadStatistic().getScannedRows();
+            }
+        }
+        return 0;
     }
 
     @Override
