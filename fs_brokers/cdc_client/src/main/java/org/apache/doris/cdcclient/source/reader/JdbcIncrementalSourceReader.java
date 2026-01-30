@@ -874,22 +874,6 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         // Clean up all readers
         finishSplitRecords();
         
-        // Shutdown poll executor
-        if (pollExecutor != null && !pollExecutor.isShutdown()) {
-            LOG.info("Shutting down poll executor");
-            pollExecutor.shutdown();
-            try {
-                if (!pollExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                    LOG.warn("Poll executor did not terminate in time, forcing shutdown");
-                    pollExecutor.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                LOG.warn("Interrupted while waiting for poll executor shutdown");
-                pollExecutor.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
-        }
-        
         if (tableSchemas != null) {
             tableSchemas.clear();
             tableSchemas = null;

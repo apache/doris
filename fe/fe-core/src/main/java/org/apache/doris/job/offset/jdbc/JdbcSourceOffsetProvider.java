@@ -233,12 +233,16 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public boolean hasMoreDataToConsume() {
-        if (!hasMoreData) {
-            return false;
-        }
-
         if (currentOffset == null) {
             return true;
+        }
+
+        if (currentOffset.snapshotSplit()) {
+            return true;
+        }
+
+        if (!hasMoreData) {
+            return false;
         }
 
         if (CollectionUtils.isNotEmpty(remainingSplits)) {
