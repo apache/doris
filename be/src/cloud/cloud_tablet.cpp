@@ -469,11 +469,18 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                     }
                     // clang-format off
                     auto self = std::dynamic_pointer_cast<CloudTablet>(shared_from_this());
+                    auto file_system = rowset_meta->fs();
+                    if (!file_system) {
+                        LOG(WARNING) << "failed to get file system for tablet_id="
+                                     << _tablet_meta->tablet_id() << ", rowset_id="
+                                     << rowset_meta->rowset_id();
+                        continue;
+                    }
                     if (!config::file_cache_enable_only_warm_up_idx) {
                         _engine.file_cache_block_downloader().submit_download_task(io::DownloadFileMeta {
                                 .path = storage_resource.value()->remote_segment_path(*rowset_meta, seg_id),
                                 .file_size = rs->rowset_meta()->segment_file_size(seg_id),
-                                .file_system = storage_resource.value()->fs,
+                                .file_system = file_system,
                                 .ctx =
                                         {
                                                 .expiration_time = expiration_time,
@@ -505,7 +512,7 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                         io::DownloadFileMeta meta {
                                 .path = idx_path,
                                 .file_size = idx_size,
-                                .file_system = storage_resource.value()->fs,
+                                .file_system = file_system,
                                 .ctx =
                                         {
                                                 .expiration_time = expiration_time,

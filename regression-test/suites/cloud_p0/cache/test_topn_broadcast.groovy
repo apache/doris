@@ -21,6 +21,9 @@ import org.apache.doris.regression.suite.ClusterOptions
 
 suite("test_topn_broadcast", "docker") {
 
+    // Randomly enable or disable packed_file to test both scenarios
+    def enablePackedFile = new Random().nextBoolean()
+    logger.info("Running test with enable_packed_file=${enablePackedFile}")
 
     def options = new ClusterOptions()
 
@@ -32,7 +35,8 @@ suite("test_topn_broadcast", "docker") {
     options.beConfigs += ['enable_file_cache=true', 'enable_java_support=false', 'file_cache_enter_disk_resource_limit_mode_percent=99',
                           'file_cache_background_lru_dump_interval_ms=2000', 'file_cache_background_lru_log_replay_interval_ms=500',
                           'disable_auto_compation=true', 'file_cache_enter_need_evict_cache_in_advance_percent=99',
-                          'file_cache_background_lru_dump_update_cnt_threshold=0'
+                          'file_cache_background_lru_dump_update_cnt_threshold=0',
+                          "enable_packed_file=${enablePackedFile}",
                         ]
 
     docker(options) {
