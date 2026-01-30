@@ -116,7 +116,10 @@ Status VCaseExpr::execute_column(VExprContext* context, const Block* block, size
     } else {
         result_column = _execute_impl<uint8_t>(when_columns, then_columns, rows_count);
     }
-    DCHECK_EQ(result_column->size(), count);
+    if (result_column->size() != count) {
+        return Status::InternalError("case when result column size {} not equal input count {}",
+                                     result_column->size(), count);
+    }
     return Status::OK();
 }
 
