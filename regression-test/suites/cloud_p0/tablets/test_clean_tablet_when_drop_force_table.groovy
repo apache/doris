@@ -22,6 +22,11 @@ suite('test_clean_tablet_when_drop_force_table', 'docker') {
     if (!isCloudMode()) {
         return;
     }
+
+    // Randomly enable or disable packed_file to test both scenarios
+    def enablePackedFile = new Random().nextBoolean()
+    logger.info("Running test with enable_packed_file=${enablePackedFile}")
+
     def options = new ClusterOptions()
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
@@ -35,7 +40,7 @@ suite('test_clean_tablet_when_drop_force_table', 'docker') {
         'write_buffer_size=10240',
         'write_buffer_size_for_agg=10240',
         'sys_log_verbose_modules=task_worker_pool',
-        'enable_packed_file=false',
+        "enable_packed_file=${enablePackedFile}",
     ]
     options.setFeNum(3)
     options.setBeNum(3)

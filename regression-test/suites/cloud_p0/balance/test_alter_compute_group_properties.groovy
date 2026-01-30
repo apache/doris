@@ -22,11 +22,19 @@ suite('test_alter_compute_group_properties', 'docker') {
     if (!isCloudMode()) {
         return;
     }
+
+    // Randomly enable or disable packed_file to test both scenarios
+    def enablePackedFile = new Random().nextBoolean()
+    logger.info("Running test with enable_packed_file=${enablePackedFile}")
+
     def options = new ClusterOptions()
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
         'cloud_tablet_rebalancer_interval_second=1',
         'sys_log_verbose_modules=org',
+    ]
+    options.beConfigs += [
+        "enable_packed_file=${enablePackedFile}",
     ]
     options.setFeNum(1)
     options.setBeNum(1)
