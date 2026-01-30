@@ -113,6 +113,9 @@ TEST(CompactionRWSeparationTest, CommitTxnUpdatesLastActiveCluster) {
         rowset->set_data_disk_size(1024);
         rowset->mutable_tablet_schema()->set_schema_version(0);
         rowset->set_txn_expiration(::time(nullptr) + 3600);
+        // Set load_id so that prepare_rowset records load_cluster_id in TxnInfoPB
+        rowset->mutable_load_id()->set_hi(1);
+        rowset->mutable_load_id()->set_lo(1);
 
         meta_service.prepare_rowset(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
