@@ -1042,6 +1042,7 @@ private:
             if (code != MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE &&
                 code != MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE &&
                 code != MetaServiceCode::KV_TXN_STORE_CREATE_RETRYABLE &&
+                code != MetaServiceCode::KV_TXN_MAYBE_COMMITTED &&
                 code != MetaServiceCode::KV_TXN_TOO_OLD &&
                 (!config::enable_retry_txn_conflict || code != MetaServiceCode::KV_TXN_CONFLICT)) {
                 return;
@@ -1065,6 +1066,8 @@ private:
                         code == MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE   ? KV_TXN_COMMIT_ERR
                         : code == MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE    ? KV_TXN_GET_ERR
                         : code == MetaServiceCode::KV_TXN_STORE_CREATE_RETRYABLE ? KV_TXN_CREATE_ERR
+                        : code == MetaServiceCode::KV_TXN_MAYBE_COMMITTED
+                                ? MetaServiceCode::KV_TXN_MAYBE_COMMITTED
                         : code == MetaServiceCode::KV_TXN_CONFLICT
                                 ? KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES
                                 : MetaServiceCode::KV_TXN_TOO_OLD);
