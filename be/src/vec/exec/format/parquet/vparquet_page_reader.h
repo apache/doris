@@ -65,6 +65,7 @@ inline bool should_cache_decompressed(const tparquet::PageHeader* header,
                                       const tparquet::ColumnMetaData& metadata) {
     if (header->compressed_page_size <= 0) return true;
     if (metadata.codec == tparquet::CompressionCodec::UNCOMPRESSED) return true;
+    if (header->uncompressed_page_size == 0) return true;
 
     double ratio = static_cast<double>(header->uncompressed_page_size) /
                    static_cast<double>(header->compressed_page_size);

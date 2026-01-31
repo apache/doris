@@ -81,6 +81,13 @@ Status ByteArrayDictDecoder::read_dict_values_to_column(MutableColumnPtr& doris_
 MutableColumnPtr ByteArrayDictDecoder::convert_dict_column_to_string_column(
         const ColumnInt32* dict_column) {
     auto res = ColumnString::create();
+    if (_dict_items.empty()) {
+        if (dict_column->size() > 0) {
+            LOG(ERROR) << "Attempt to convert dict column with empty dictionary, column size: "
+                       << dict_column->size();
+        }
+        return res;
+    }
     std::vector<StringRef> dict_values(dict_column->size());
     const auto& data = dict_column->get_data();
     for (size_t i = 0; i < dict_column->size(); ++i) {
@@ -106,7 +113,7 @@ Status ByteArrayDictDecoder::_decode_values(MutableColumnPtr& doris_column, Data
     size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
     if (doris_column->is_column_dictionary()) {
         ColumnDictI32& dict_column = assert_cast<ColumnDictI32&>(*doris_column);
-        if (dict_column.dict_size() == 0) {
+        if (dict_column.dict_size() == 0 && !_dict_items.empty()) {
             //If the dictionary grows too big, whether in size or number of distinct values,
             // the encoding will fall back to the plain encoding.
             dict_column.insert_many_dict_data(_dict_items.data(),

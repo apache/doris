@@ -417,12 +417,21 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
     if (!dict_loaded) {
         // Load and decompress dictionary page from file
         if (_block_compress_codec != nullptr) {
+            auto dict_num = header->dictionary_page_header.num_values;
+            if (dict_num == 0 && uncompressed_size != 0) {
+                return Status::IOError(
+                        "Dictionary page's num_values is {} but uncompressed_size is {}", dict_num,
+                        uncompressed_size);
+            }
             Slice compressed_data;
-            RETURN_IF_ERROR(_page_reader->get_page_data(compressed_data));
             Slice dict_slice(dict_data.get(), uncompressed_size);
-            RETURN_IF_ERROR(_block_compress_codec->decompress(compressed_data, &dict_slice));
+            if (dict_num != 0) {
+                RETURN_IF_ERROR(_page_reader->get_page_data(compressed_data));
+                RETURN_IF_ERROR(_block_compress_codec->decompress(compressed_data, &dict_slice));
+            }
 
             // Decide whether to cache decompressed or compressed dictionary based on threshold
+            // If uncompressed_page_size == 0, should_cache_decompressed will return true
             bool cache_payload_decompressed = should_cache_decompressed(header, _metadata);
 
             if (_page_read_ctx.enable_parquet_file_page_cache &&
@@ -431,16 +440,23 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
                 std::vector<uint8_t> empty_levels; // Dictionary pages don't have levels
                 if (cache_payload_decompressed) {
                     // Cache the decompressed dictionary page
+                    // If dict_num == 0, `dict_slice` will be empty
                     _insert_page_into_cache(empty_levels, dict_slice);
                     _chunk_statistics.page_cache_decompressed_write_counter += 1;
                 } else {
                     if (config::enable_parquet_cache_compressed_pages) {
+                        DCHECK(!compressed_data.empty());
                         // Cache the compressed dictionary page
                         _insert_page_into_cache(empty_levels,
                                                 Slice(compressed_data.data, compressed_data.size));
                         _chunk_statistics.page_cache_compressed_write_counter += 1;
                     }
                 }
+            }
+            // `get_page_data` not called, we should skip the page data
+            // Because `_insert_page_into_cache` will use _page_reader, we should exec `skip_page_data` after `_insert_page_into_cache`
+            if (dict_num == 0) {
+                _page_reader->skip_page_data();
             }
         } else {
             Slice dict_slice;
