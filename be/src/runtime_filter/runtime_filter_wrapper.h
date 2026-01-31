@@ -86,6 +86,8 @@ public:
 
     bool contain_null() const;
 
+    bool is_detected_in_filter() const { return _detected_in_filter; }
+
     std::string debug_string() const;
 
     // set_state may called in SyncSizeClosure's rpc thread
@@ -120,6 +122,17 @@ public:
         }
     }
 
+    bool detect_in_filter() {
+        if (get_real_type() != RuntimeFilterType::IN_FILTER) {
+            return false;
+        }
+        if (_state != State::READY) {
+            return false;
+        }
+        _detected_in_filter = true;
+        return true;
+    }
+
 private:
     // used by shuffle runtime filter
     // assign this filter by protobuf
@@ -138,6 +151,10 @@ private:
     std::shared_ptr<HybridSetBase> _hybrid_set;
     std::shared_ptr<BloomFilterFuncBase> _bloom_filter_func;
     std::shared_ptr<BitmapFilterFuncBase> _bitmap_filter_func;
+
+    // disable always_true logic if detected in filter
+    // to make left_semi_direct_return_opt work correctly
+    bool _detected_in_filter = false;
 
     // Wrapper is the core structure of runtime filter. If filter is local, wrapper may be shared
     // by producer and consumer. To avoid read-write conflict, we need a rwlock to ensure operations

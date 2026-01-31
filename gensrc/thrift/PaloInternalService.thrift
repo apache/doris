@@ -424,6 +424,8 @@ struct TQueryOptions {
   183: optional bool enable_use_hybrid_sort = false;
   184: optional i32 cte_max_recursion_depth;
 
+  185: optional bool enable_left_semi_direct_return_opt;
+
 
   185: optional bool enable_parquet_file_page_cache = true;
 

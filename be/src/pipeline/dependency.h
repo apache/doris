@@ -622,6 +622,12 @@ struct HashJoinSharedState : public JoinSharedState {
     // memory in `_hash_table_variants`. So before execution, we should use a local _hash_table_variants
     // which has a shared hash table in it.
     std::vector<std::shared_ptr<JoinDataVariants>> hash_table_variant_vector;
+
+    // whether left semi join could directly return
+    // if runtime filters contains local in filter, we can make sure all input rows are matched
+    // local filter will always be applied, and in filter could guarantee precise filtering
+    // ATTN: we should disable always_true logic for in filter when we set this flag
+    bool left_semi_direct_return = false;
 };
 
 struct PartitionedHashJoinSharedState

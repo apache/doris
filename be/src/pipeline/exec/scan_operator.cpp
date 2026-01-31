@@ -373,7 +373,8 @@ Status ScanLocalState<Derived>::_normalize_predicate(vectorized::VExprContext* c
                                         rf_expr->filter_id(),
                                         rf_expr->predicate_filtered_rows_counter(),
                                         rf_expr->predicate_input_rows_counter(),
-                                        rf_expr->predicate_always_true_rows_counter());
+                                        rf_expr->predicate_always_true_rows_counter(),
+                                        context->get_runtime_filter_selectivity());
                             }
                         };
                         switch (expr->node_type()) {
