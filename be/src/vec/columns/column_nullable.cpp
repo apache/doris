@@ -115,8 +115,7 @@ void ColumnNullable::update_crcs_with_value(uint32_t* __restrict hashes, doris::
 }
 
 void ColumnNullable::update_crc32c_batch(uint32_t* __restrict hashes,
-                                         const uint8_t* __restrict null_map) const {
-    DCHECK(null_map == nullptr);
+                                         const uint8_t* __restrict /* null_map */) const {
     const auto* __restrict real_null_data =
             assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
     if (_nested_column->support_replace_column_null_data()) {
@@ -135,8 +134,7 @@ void ColumnNullable::update_crc32c_batch(uint32_t* __restrict hashes,
 }
 
 void ColumnNullable::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
-                                          const uint8_t* __restrict null_map) const {
-    DCHECK(null_map == nullptr);
+                                          const uint8_t* __restrict /* null_map */) const {
     const auto* __restrict real_null_data =
             assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
     constexpr int NULL_VALUE = 0;

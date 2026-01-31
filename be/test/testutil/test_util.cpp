@@ -279,7 +279,8 @@ void check_or_generate_res_file(const std::string& res_file_path,
             std::string value;
             size_t col_idx = 0;
             while (std::getline(line_stream, value, ';')) {
-                EXPECT_EQ(value, res_columns[col_idx][line_idx]);
+                EXPECT_EQ(value, res_columns[col_idx][line_idx])
+                        << "line: " << line_idx << " col: " << col_idx;
                 col_idx++;
             }
             line_idx++;
