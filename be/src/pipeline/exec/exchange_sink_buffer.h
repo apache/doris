@@ -18,6 +18,7 @@
 #pragma once
 
 #include <brpc/controller.h>
+#include <bthread/mutex.h>
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
@@ -136,7 +137,9 @@ struct RpcInstance {
     InstanceLoId id;
 
     // Mutex for thread-safe access to this instance's data
-    std::unique_ptr<std::mutex> mutex;
+    // Using bthread mutex here because the rpc callback thread is a bthread and it will
+    // try to hold the lock and access rpc instance.
+    std::unique_ptr<bthread::Mutex> mutex;
 
     // Sequence number for RPC packets, incremented for each packet sent
     int64_t seq = 0;
@@ -320,13 +323,13 @@ private:
     inline void _ended(RpcInstance& ins);
     inline void _failed(InstanceLoId id, const std::string& err);
     inline void _set_receiver_eof(RpcInstance& ins);
-    inline void _turn_off_channel(RpcInstance& ins, std::unique_lock<std::mutex>& with_lock);
+    inline void _turn_off_channel(RpcInstance& ins, std::unique_lock<bthread::Mutex>& with_lock);
 
 #else
     virtual void _ended(RpcInstance& ins);
     virtual void _failed(InstanceLoId id, const std::string& err);
     virtual void _set_receiver_eof(RpcInstance& ins);
-    virtual void _turn_off_channel(RpcInstance& ins, std::unique_lock<std::mutex>& with_lock);
+    virtual void _turn_off_channel(RpcInstance& ins, std::unique_lock<bthread::Mutex>& with_lock);
 #endif
 
     void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
