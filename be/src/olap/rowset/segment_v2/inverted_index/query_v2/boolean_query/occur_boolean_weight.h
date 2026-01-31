@@ -63,10 +63,20 @@ private:
                                                       std::vector<ScorerPtr> should_scorers,
                                                       CombinerT combiner, size_t num_all_scorers);
     ScorerPtr build_exclude_opt(std::vector<ScorerPtr> must_not_scorers);
+
+    ScorerPtr effective_must_scorer(std::vector<ScorerPtr> must_scorers,
+                                    size_t must_num_all_scorers);
+
+    template <typename CombinerT>
+    SpecializedScorer effective_should_scorer_for_union(SpecializedScorer should_scorer,
+                                                        size_t should_num_all_scorers,
+                                                        CombinerT combiner);
+
     template <typename CombinerT>
     SpecializedScorer build_positive_opt(CombinationMethod& should_opt,
                                          std::vector<ScorerPtr> must_scorers, CombinerT combiner,
-                                         size_t num_all_scorers = 0);
+                                         const AllAndEmptyScorerCounts& must_special_counts,
+                                         const AllAndEmptyScorerCounts& should_special_counts);
 
     template <typename CombinerT>
     SpecializedScorer scorer_union(std::vector<ScorerPtr> scorers, CombinerT combiner);
