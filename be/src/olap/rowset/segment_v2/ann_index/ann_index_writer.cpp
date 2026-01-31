@@ -160,8 +160,11 @@ Status AnnIndexColumnWriter::finish() {
         if (_need_save_index) {
             return _vector_index->save(_dir.get());
         } else {
-            LOG_ERROR("No remaining data to train/add and index is already saved.");
-            return Status::OK();
+            // No data was added at all. This can happen if the segment has 0 rows
+            // or all rows were filtered out. We need to delete the directory entry
+            // to avoid writing an empty/invalid index file.
+            LOG_INFO("No data to train/add for ANN index. Skipping index building.");
+            return _index_file_writer->delete_index(_index_meta);
         }
     } else {
         DCHECK(_float_array.size() % _vector_index->get_dimension() == 0);
@@ -180,12 +183,14 @@ Status AnnIndexColumnWriter::finish() {
             } else {
                 // Not enough data to train and no data added before.
                 // Means this is a very small segment, we can skip the index building.
+                // We need to delete the directory entry from index_file_writer to avoid
+                // writing an empty/invalid index file which causes "IndexInput read past EOF" error.
                 LOG_INFO(
                         "Remaining data size {} is less than minimum {} rows required for ANN "
                         "index "
                         "training. Skipping index building for this segment.",
                         num_rows, min_train_rows);
-                return Status::OK();
+                return _index_file_writer->delete_index(_index_meta);
             }
         }
     }

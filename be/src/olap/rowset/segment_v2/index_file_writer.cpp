@@ -228,8 +228,10 @@ Status IndexFileWriter::begin_close() {
 }
 
 Status IndexFileWriter::finish_close() {
+    LOG_INFO("IndexFileWriter::finish_close called");
     DCHECK(_closed) << debug_string();
     if (_indices_dirs.empty()) {
+        LOG_INFO("IndexFileWriter::finish_close called with empty indices_dirs");
         // An empty file must still be created even if there are no indexes to write
         if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr ||
             dynamic_cast<io::S3FileWriter*>(_idx_v2_writer.get()) != nullptr ||
