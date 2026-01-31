@@ -50,12 +50,35 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 public class S3Properties extends AbstractS3CompatibleProperties {
 
     private static final Logger LOG = LogManager.getLogger(S3Properties.class);
+
+    // Cached credential providers to prevent thread leak.
+    // Each credential provider creates internal ScheduledExecutorService threads for credential refresh.
+    // Without caching, every call creates new threads that are never cleaned up.
+    private static volatile InstanceProfileCredentialsProvider cachedInstanceProfileProvider = null;
+    private static final Object LOCK = new Object();
+
+    // Cache for role-based credential providers, keyed by region:roleArn:externalId:mode
+    private static final ConcurrentMap<String, AwsCredentialsProvider> ROLE_CREDENTIALS_CACHE =
+            new ConcurrentHashMap<>();
+
+    private static InstanceProfileCredentialsProvider getCachedInstanceProfileProvider() {
+        if (cachedInstanceProfileProvider == null) {
+            synchronized (LOCK) {
+                if (cachedInstanceProfileProvider == null) {
+                    cachedInstanceProfileProvider = InstanceProfileCredentialsProvider.create();
+                }
+            }
+        }
+        return cachedInstanceProfileProvider;
+    }
 
     public static final String USE_PATH_STYLE = "use_path_style";
 
@@ -310,21 +333,27 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             return credentialsProvider;
         }
         if (StringUtils.isNotBlank(s3IAMRole)) {
-            StsClient stsClient = StsClient.builder()
-                    .region(Region.of(region))
-                    .credentialsProvider(InstanceProfileCredentialsProvider.create())
-                    .build();
+            // Cache role-based credentials by region:roleArn:externalId:mode
+            String cacheKey = "v1:" + region + ":" + s3IAMRole + ":"
+                    + (s3ExternalId != null ? s3ExternalId : "");
+            return ROLE_CREDENTIALS_CACHE.computeIfAbsent(cacheKey, k -> {
+                // Note: StsClient is intentionally not closed as it's cached for the FE process lifetime
+                StsClient stsClient = StsClient.builder()
+                        .region(Region.of(region))
+                        .credentialsProvider(getCachedInstanceProfileProvider())
+                        .build();
 
-            return StsAssumeRoleCredentialsProvider.builder()
-                    .stsClient(stsClient)
-                    .refreshRequest(builder -> {
-                        builder.roleArn(s3IAMRole).roleSessionName("aws-sdk-java-v2-fe");
-                        if (StringUtils.isNotBlank(s3ExternalId)) {
-                            builder.externalId(s3ExternalId);
-                        }
-                    }).build();
+                return StsAssumeRoleCredentialsProvider.builder()
+                        .stsClient(stsClient)
+                        .refreshRequest(builder -> {
+                            builder.roleArn(s3IAMRole).roleSessionName("aws-sdk-java-v2-fe");
+                            if (StringUtils.isNotBlank(s3ExternalId)) {
+                                builder.externalId(s3ExternalId);
+                            }
+                        }).build();
+            });
         }
-        // For anonymous access (no credentials required)
+        // For anonymous access (no credentials required) - AnonymousCredentialsProvider is stateless
         return AnonymousCredentialsProvider.create();
     }
 
@@ -334,20 +363,26 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             return credentialsProvider;
         }
         if (StringUtils.isNotBlank(s3IAMRole)) {
-            StsClient stsClient = StsClient.builder()
-                    .region(Region.of(region))
-                    .credentialsProvider(AwsCredentialsProviderFactory.createV2(
-                            awsCredentialsProviderMode,
-                            false))
-                    .build();
-            return StsAssumeRoleCredentialsProvider.builder()
-                    .stsClient(stsClient)
-                    .refreshRequest(builder -> {
-                        builder.roleArn(s3IAMRole).roleSessionName("aws-sdk-java-v2-fe");
-                        if (StringUtils.isNotBlank(s3ExternalId)) {
-                            builder.externalId(s3ExternalId);
-                        }
-                    }).build();
+            // Cache role-based credentials by region:roleArn:externalId:mode
+            String cacheKey = "v2:" + region + ":" + s3IAMRole + ":"
+                    + (s3ExternalId != null ? s3ExternalId : "") + ":" + awsCredentialsProviderMode;
+            return ROLE_CREDENTIALS_CACHE.computeIfAbsent(cacheKey, k -> {
+                // Note: StsClient is intentionally not closed as it's cached for the FE process lifetime
+                StsClient stsClient = StsClient.builder()
+                        .region(Region.of(region))
+                        .credentialsProvider(AwsCredentialsProviderFactory.createV2(
+                                awsCredentialsProviderMode,
+                                false))
+                        .build();
+                return StsAssumeRoleCredentialsProvider.builder()
+                        .stsClient(stsClient)
+                        .refreshRequest(builder -> {
+                            builder.roleArn(s3IAMRole).roleSessionName("aws-sdk-java-v2-fe");
+                            if (StringUtils.isNotBlank(s3ExternalId)) {
+                                builder.externalId(s3ExternalId);
+                            }
+                        }).build();
+            });
         }
         return AwsCredentialsProviderFactory.createV2(
                 awsCredentialsProviderMode,
