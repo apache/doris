@@ -92,7 +92,6 @@ public:
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
               _is_reverse(is_reverse),
-              _num_columns(cast_set<int>(_iter->schema().num_column_ids())),
               _num_key_columns(cast_set<int>(_iter->schema().num_key_columns())),
               _compare_columns(read_orderby_key_columns) {}
 
@@ -175,7 +174,6 @@ private:
     size_t _index_in_block = -1;
     // 4096 minus 16 + 16 bytes padding that in padding pod array
     int _block_row_max = 4064;
-    int _num_columns;
     int _num_key_columns;
     std::vector<uint32_t>* _compare_columns;
     std::vector<RowLocation> _block_row_locations;
