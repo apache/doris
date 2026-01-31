@@ -52,6 +52,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.tablefunction.TabletsTableValuedFunction;
 
 import com.google.common.collect.Lists;
 
@@ -276,7 +277,7 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
      */
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        for (String title : TabletsProcDir.TITLE_NAMES) {
+        for (String title : TabletsTableValuedFunction.getTabletsTitleNames()) {
             builder.addColumn(new Column(title, ScalarType.createVarchar(128)));
         }
         return builder.build();

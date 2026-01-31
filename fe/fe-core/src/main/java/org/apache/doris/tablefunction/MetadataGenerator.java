@@ -28,6 +28,7 @@ import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
@@ -43,9 +44,12 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.PartitionsProcDir;
+import org.apache.doris.common.proc.TabletsProcDir;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
@@ -105,6 +109,7 @@ import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TSchemaTableRequestParams;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TTabletsMetadataParams;
 import org.apache.doris.thrift.TTasksMetadataParams;
 import org.apache.doris.thrift.TUserIdentity;
 
@@ -115,6 +120,8 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
@@ -128,7 +135,9 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class MetadataGenerator {
@@ -278,6 +287,9 @@ public class MetadataGenerator {
                 break;
             case PARTITION_VALUES:
                 result = partitionValuesMetadataResult(params);
+                break;
+            case TABLETS:
+                result = tabletsMetadataResult(params);
                 break;
             default:
                 return errorResult("Metadata table params is not set.");
@@ -1928,4 +1940,72 @@ public class MetadataGenerator {
         return dataBatch;
     }
 
+    private static TFetchSchemaTableDataResult tabletsMetadataResult(TMetadataTableRequestParams params)
+            throws TException {
+        if (!params.isSetTabletsMetadataParams()) {
+            return errorResult("tablets metadata param is not set.");
+        }
+        TTabletsMetadataParams tabletsMetadataParams = params.getTabletsMetadataParams();
+        String databaseName = tabletsMetadataParams.getDatabaseName();
+        String tableName = tabletsMetadataParams.getTableName();
+        List<String> partitionNames = tabletsMetadataParams.getPartitionNames();
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        Database db;
+        OlapTable olapTable = null;
+        try {
+            // check access first
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "tablets tvf");
+            }
+            Env env = Env.getCurrentEnv();
+            db = env.getInternalCatalog().getDbOrAnalysisException(databaseName);
+            olapTable = db.getOlapTableOrAnalysisException(tableName);
+            olapTable.readLock();
+            Collection<Partition> tablePartitions = olapTable.getPartitions();
+            List<String> tablePartitionNames = tablePartitions.stream()
+                    .map(Partition::getName).collect(Collectors.toList());
+            Collection<Partition> targetPartitions;
+            if (CollectionUtils.isNotEmpty(partitionNames)) {
+                Set<String> existedPartitionNames = partitionNames.stream()
+                        .filter(p -> StringUtils.isNotEmpty(p) && StringUtils.isNotBlank(p)
+                            && tablePartitionNames.contains(p))
+                        .collect(Collectors.toSet());
+                targetPartitions = tablePartitions.stream()
+                        .filter(t -> existedPartitionNames.contains(t.getName())).collect(Collectors.toList());
+            } else {
+                targetPartitions = new ArrayList<>(tablePartitions);
+            }
+            List<List<Comparable>> tabletInfos = new ArrayList<>();
+            for (Partition partition : targetPartitions) {
+                for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
+                    TabletsProcDir procDir = new TabletsProcDir(olapTable, index);
+                    List<List<Comparable>> fetchedComparableResult = procDir.fetchComparableResult();
+                    tabletInfos.addAll(fetchedComparableResult);
+                }
+            }
+            for (List<Comparable> tabletInfo : tabletInfos) {
+                TRow trow = new TRow();
+                for (Comparable item : tabletInfo) {
+                    if (item != null) {
+                        trow.addToColumnValue(new TCell().setStringVal(item.toString()));
+                    } else {
+                        trow.addToColumnValue(new TCell().setStringVal("NULL"));
+                    }
+                }
+                dataBatch.add(trow);
+            }
+            result.setDataBatch(dataBatch);
+            result.setStatus(new TStatus(TStatusCode.OK));
+        } catch (Exception e) {
+            LOG.warn("error when fetching tablets metadata, db: {}, table: {}, partitions: {}",
+                    databaseName, tableName, partitionNames);
+            throw new TException(e);
+        } finally {
+            if (olapTable != null) {
+                olapTable.readUnlock();
+            }
+        }
+        return result;
+    }
 }
