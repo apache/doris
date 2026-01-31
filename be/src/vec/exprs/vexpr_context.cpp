@@ -327,7 +327,12 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
     }
     if (can_filter_all) {
         for (auto& col : columns_to_filter) {
-            block->get_by_position(col).column->assume_mutable()->clear();
+            auto& column = block->get_by_position(col).column;
+            if (column->is_exclusive()) {
+                column->assume_mutable()->clear();
+            } else {
+                column = column->clone_empty();
+            }
         }
     } else {
         try {
@@ -365,8 +370,12 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
     }
     if (can_filter_all) {
         for (auto& col : columns_to_filter) {
-            // NOLINTNEXTLINE(performance-move-const-arg)
-            std::move(*block->get_by_position(col).column).assume_mutable()->clear();
+            auto& column = block->get_by_position(col).column;
+            if (column->is_exclusive()) {
+                column->assume_mutable()->clear();
+            } else {
+                column = column->clone_empty();
+            }
         }
     } else {
         RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(block, columns_to_filter, filter));
