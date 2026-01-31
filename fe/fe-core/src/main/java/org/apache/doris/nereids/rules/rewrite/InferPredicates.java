@@ -104,16 +104,20 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
                 right = inferNewPredicate(right, expressions);
                 break;
             case INNER_JOIN:
+            case ASOF_LEFT_INNER_JOIN:
+            case ASOF_RIGHT_INNER_JOIN:
             case LEFT_SEMI_JOIN:
             case RIGHT_SEMI_JOIN:
                 left = inferNewPredicateRemoveUselessIsNull(left, expressions, join, context.getCascadesContext());
                 right = inferNewPredicateRemoveUselessIsNull(right, expressions, join, context.getCascadesContext());
                 break;
             case LEFT_OUTER_JOIN:
+            case ASOF_LEFT_OUTER_JOIN:
             case LEFT_ANTI_JOIN:
                 right = inferNewPredicateRemoveUselessIsNull(right, expressions, join, context.getCascadesContext());
                 break;
             case RIGHT_OUTER_JOIN:
+            case ASOF_RIGHT_OUTER_JOIN:
             case RIGHT_ANTI_JOIN:
                 left = inferNewPredicateRemoveUselessIsNull(left, expressions, join, context.getCascadesContext());
                 break;

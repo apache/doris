@@ -30,6 +30,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vslot_ref.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -313,6 +314,13 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
 
         return do_mark_join_conjuncts(output_block, ignore_null_map ? nullptr : null_map);
     } else if (_have_other_join_conjunct) {
+        // ASOF JOIN: use other_join_conjunct to find closest match
+        if constexpr (JoinOpType == TJoinOp::ASOF_LEFT_INNER_JOIN ||
+                      JoinOpType == TJoinOp::ASOF_RIGHT_INNER_JOIN ||
+                      JoinOpType == TJoinOp::ASOF_LEFT_OUTER_JOIN ||
+                      JoinOpType == TJoinOp::ASOF_RIGHT_OUTER_JOIN) {
+            return do_asof_join_conjuncts(output_block);
+        }
         return do_other_join_conjuncts(output_block, hash_table_ctx.hash_table->get_visited());
     }
 
@@ -580,6 +588,293 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
                 {std::move(filter_column), std::make_shared<vectorized::DataTypeUInt8>(), ""});
         return finalize_block_with_filter(output_block, result_column_id, result_column_id);
     }
+}
+
+// Helper struct for ASOF JOIN match context to reduce parameter passing
+struct AsofMatchContext {
+    const vectorized::IColumn* probe_col = nullptr;
+    const vectorized::IColumn* build_col = nullptr;
+    const vectorized::IColumn* build_col_raw = nullptr;
+    const vectorized::IColumn* probe_col_raw = nullptr;
+    const uint8_t* conjunct_filter = nullptr;
+    bool use_slot_ref_comparison = false;
+    bool is_greater = false;
+    bool is_strict = false;
+    bool is_right_join = false; // true for ASOF RIGHT JOIN (build-driven)
+
+    // Check if a row satisfies the inequality condition
+    bool satisfies(size_t row_idx) const {
+        if (use_slot_ref_comparison && probe_col && build_col) {
+            int cmp = probe_col->compare_at(row_idx, row_idx, *build_col, 1);
+            if (is_greater) {
+                return is_strict ? (cmp > 0) : (cmp >= 0);
+            }
+            return is_strict ? (cmp < 0) : (cmp <= 0);
+        }
+        return conjunct_filter ? (conjunct_filter[row_idx] != 0) : false;
+    }
+
+    // Compare two candidate values to determine which is "better" (closer match)
+    // For LEFT JOIN: compare build values (find best build for each probe)
+    // For RIGHT JOIN: compare probe values (find best probe for each build)
+    // Returns true if 'current' is better than 'best'
+    bool is_better_match(size_t current_idx, size_t best_idx,
+                         const vectorized::ColumnOffset32& build_indexs,
+                         const vectorized::ColumnOffset32& probe_indexs) const {
+        int cmp = 0;
+        if (is_right_join) {
+            // RIGHT JOIN: compare probe values (r.ts)
+            // Note: build_col holds the right side of expression (r.ts = probe side after swap)
+            if (use_slot_ref_comparison && build_col) {
+                cmp = build_col->compare_at(current_idx, best_idx, *build_col, 1);
+            } else if (probe_col_raw) {
+                uint32_t curr_probe = probe_indexs.get_element(current_idx);
+                uint32_t best_probe = probe_indexs.get_element(best_idx);
+                cmp = probe_col_raw->compare_at(curr_probe, best_probe, *probe_col_raw, 1);
+            } else {
+                return false;
+            }
+            // For RIGHT JOIN with is_greater (build >= probe), we want LARGEST probe
+            // For RIGHT JOIN with !is_greater (build <= probe), we want SMALLEST probe
+            return is_greater ? (cmp > 0) : (cmp < 0);
+        } else {
+            // LEFT JOIN: compare build values
+            if (use_slot_ref_comparison && build_col) {
+                cmp = build_col->compare_at(current_idx, best_idx, *build_col, 1);
+            } else if (build_col_raw) {
+                uint32_t curr_build = build_indexs.get_element(current_idx);
+                uint32_t best_build = build_indexs.get_element(best_idx);
+                cmp = build_col_raw->compare_at(curr_build - 1, best_build - 1, *build_col_raw, 1);
+            } else {
+                return false;
+            }
+            // For LEFT JOIN with is_greater (probe >= build), we want LARGEST build
+            // For LEFT JOIN with !is_greater (probe <= build), we want SMALLEST build
+            return is_greater ? (cmp > 0) : (cmp < 0);
+        }
+    }
+};
+
+template <int JoinOpType>
+Status ProcessHashTableProbe<JoinOpType>::do_asof_join_conjuncts(vectorized::Block* output_block) {
+    auto row_count = output_block->rows();
+    if (!row_count) {
+        return Status::OK();
+    }
+
+    SCOPED_TIMER(_parent->_non_equal_join_conjuncts_timer);
+    size_t orig_columns = output_block->columns();
+    constexpr bool is_outer_join = JoinOpType == TJoinOp::ASOF_LEFT_OUTER_JOIN ||
+                                   JoinOpType == TJoinOp::ASOF_RIGHT_OUTER_JOIN;
+    constexpr bool is_right_join = JoinOpType == TJoinOp::ASOF_RIGHT_INNER_JOIN ||
+                                   JoinOpType == TJoinOp::ASOF_RIGHT_OUTER_JOIN;
+
+    // Initialize match context
+    AsofMatchContext ctx;
+    ctx.is_greater = _parent->_shared_state->asof_inequality_is_greater;
+    ctx.is_strict = _parent->_shared_state->asof_inequality_is_strict;
+    ctx.build_col_raw = _parent->_shared_state->asof_build_match_column.get();
+    ctx.probe_col_raw = _parent->_shared_state->asof_probe_match_column.get();
+    ctx.is_right_join = is_right_join;
+
+    // Try to extract slot ref columns for direct comparison
+    if (!_parent->_other_join_conjuncts.empty()) {
+        auto& conjunct = _parent->_other_join_conjuncts[0];
+        if (conjunct && conjunct->root() && conjunct->root()->get_num_children() >= 2) {
+            auto left_child = conjunct->root()->get_child(0);
+            auto right_child = conjunct->root()->get_child(1);
+            if (left_child && left_child->is_slot_ref() && right_child &&
+                right_child->is_slot_ref()) {
+                int left_idx = static_cast<vectorized::VSlotRef*>(left_child.get())->column_id();
+                int right_idx = static_cast<vectorized::VSlotRef*>(right_child.get())->column_id();
+                if (left_idx >= 0 && left_idx < (int)output_block->columns() && right_idx >= 0 &&
+                    right_idx < (int)output_block->columns()) {
+                    ctx.probe_col = output_block->get_by_position(left_idx).column.get();
+                    ctx.build_col = output_block->get_by_position(right_idx).column.get();
+                    ctx.use_slot_ref_comparison = true;
+                }
+            }
+        }
+    }
+
+    // Pre-evaluate conjunct for expression-based conditions
+    vectorized::IColumn::Filter conjunct_filter(row_count, 1);
+    if (!ctx.use_slot_ref_comparison && !_parent->_other_join_conjuncts.empty()) {
+        bool can_be_filter_all = false;
+        RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts(
+                _parent->_other_join_conjuncts, nullptr, output_block, &conjunct_filter,
+                &can_be_filter_all));
+        ctx.conjunct_filter = conjunct_filter.data();
+    }
+
+    // Build filter marking best match for each driver group
+    auto filter_column = vectorized::ColumnUInt8::create(row_count, 0);
+    auto* __restrict filter_map = filter_column->get_data().data();
+
+    if constexpr (is_right_join) {
+        // RIGHT JOIN: build-driven - group by build_indexs, find best probe for each build
+        // First, build a mapping from build_idx to row indices
+        std::unordered_map<uint32_t, std::vector<size_t>> build_groups;
+        for (size_t i = 0; i < row_count; ++i) {
+            uint32_t build_idx = _build_indexs.get_element(i);
+            build_groups[build_idx].push_back(i);
+        }
+
+        // Process each build row group
+        for (auto& [build_idx, group_indices] : build_groups) {
+            if (build_idx == 0) {
+                // Null placeholder for outer join
+                if constexpr (is_outer_join) {
+                    if (!group_indices.empty()) {
+                        filter_map[group_indices[0]] = 1;
+                    }
+                }
+                continue;
+            }
+
+            ssize_t best_match = -1;
+            for (size_t i : group_indices) {
+                if (!ctx.satisfies(i)) {
+                    continue;
+                }
+                if (best_match < 0 ||
+                    ctx.is_better_match(i, best_match, _build_indexs, _probe_indexs)) {
+                    best_match = i;
+                }
+            }
+
+            if (best_match >= 0) {
+                filter_map[best_match] = 1;
+            } else if constexpr (is_outer_join) {
+                // No match found, use first row as null placeholder
+                if (!group_indices.empty()) {
+                    filter_map[group_indices[0]] = 1;
+                }
+            }
+        }
+    } else {
+        // LEFT JOIN: probe-driven - group by probe_indexs, find best build for each probe
+        for (size_t group_start = 0; group_start < row_count;) {
+            uint32_t probe_idx = _probe_indexs.get_element(group_start);
+            size_t group_end = group_start + 1;
+            while (group_end < row_count && _probe_indexs.get_element(group_end) == probe_idx) {
+                ++group_end;
+            }
+
+            ssize_t best_match = -1, null_placeholder = -1;
+            bool use_binary_search = (group_end - group_start > 8) && ctx.build_col_raw &&
+                                     ctx.use_slot_ref_comparison;
+
+            if (use_binary_search) {
+                // Binary search path for large groups with simple slot refs
+                std::vector<size_t> valid_indices;
+                valid_indices.reserve(group_end - group_start);
+                for (size_t i = group_start; i < group_end; ++i) {
+                    if (_build_indexs.get_element(i) == 0) {
+                        null_placeholder = i;
+                    } else {
+                        valid_indices.push_back(i);
+                    }
+                }
+
+                if (!valid_indices.empty()) {
+                    std::sort(valid_indices.begin(), valid_indices.end(),
+                              [&ctx](size_t a, size_t b) {
+                                  return ctx.build_col->compare_at(a, b, *ctx.build_col, 1) < 0;
+                              });
+
+                    best_match = find_best_match_binary_search(ctx, valid_indices, group_start);
+                }
+            } else {
+                // Linear scan for small groups or expression conditions
+                for (size_t i = group_start; i < group_end; ++i) {
+                    if (_build_indexs.get_element(i) == 0) {
+                        null_placeholder = i;
+                        continue;
+                    }
+                    if (!ctx.satisfies(i)) {
+                        continue;
+                    }
+                    if (best_match < 0 ||
+                        ctx.is_better_match(i, best_match, _build_indexs, _probe_indexs)) {
+                        best_match = i;
+                    }
+                }
+            }
+
+            // Mark best match or null placeholder for outer join
+            if (best_match >= 0) {
+                filter_map[best_match] = 1;
+            } else if constexpr (is_outer_join) {
+                if (null_placeholder >= 0) {
+                    filter_map[null_placeholder] = 1;
+                }
+            }
+            group_start = group_end;
+        }
+    }
+
+    auto result_column_id = output_block->columns();
+    output_block->insert(
+            {std::move(filter_column), std::make_shared<vectorized::DataTypeUInt8>(), ""});
+    return finalize_block_with_filter(output_block, result_column_id, orig_columns);
+}
+
+// Binary search helper for ASOF JOIN - finds best match in sorted indices
+template <int JoinOpType>
+ssize_t ProcessHashTableProbe<JoinOpType>::find_best_match_binary_search(
+        const AsofMatchContext& ctx, const std::vector<size_t>& valid_indices,
+        size_t probe_row) const {
+    if (valid_indices.empty() || !ctx.probe_col || !ctx.build_col) {
+        return -1;
+    }
+
+    ssize_t result = -1;
+    if (ctx.is_greater) {
+        // For >= or >: find largest build value satisfying condition
+        auto it = std::upper_bound(valid_indices.begin(), valid_indices.end(), probe_row,
+                                   [&ctx](size_t probe_idx, size_t build_idx) {
+                                       return ctx.probe_col->compare_at(probe_idx, build_idx,
+                                                                        *ctx.build_col, 1) < 0;
+                                   });
+        if (it != valid_indices.begin()) {
+            --it;
+            if (ctx.is_strict) {
+                int cmp = ctx.probe_col->compare_at(probe_row, *it, *ctx.build_col, 1);
+                if (cmp == 0 && it != valid_indices.begin()) {
+                    --it;
+                    result = *it;
+                } else if (cmp != 0) {
+                    result = *it;
+                }
+            } else {
+                result = *it;
+            }
+        }
+    } else {
+        // For <= or <: find smallest build value satisfying condition
+        auto it = std::lower_bound(valid_indices.begin(), valid_indices.end(), probe_row,
+                                   [&ctx](size_t build_idx, size_t probe_idx) {
+                                       return ctx.build_col->compare_at(build_idx, probe_idx,
+                                                                        *ctx.probe_col, 1) < 0;
+                                   });
+        if (it != valid_indices.end()) {
+            if (ctx.is_strict) {
+                int cmp = ctx.probe_col->compare_at(probe_row, *it, *ctx.build_col, 1);
+                if (cmp == 0) {
+                    ++it;
+                    if (it != valid_indices.end()) {
+                        result = *it;
+                    }
+                } else {
+                    result = *it;
+                }
+            } else {
+                result = *it;
+            }
+        }
+    }
+    return result;
 }
 
 template <int JoinOpType>

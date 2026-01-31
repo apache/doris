@@ -52,10 +52,15 @@ class OuterJoinLAsscomProjectTest implements MemoPatternMatchSupported {
 
     @Test
     void testJoinLAsscomProject() {
+        testJoinLAsscomProjectHelper(JoinType.LEFT_OUTER_JOIN);
+        testJoinLAsscomProjectHelper(JoinType.ASOF_LEFT_OUTER_JOIN);
+    }
+
+    private void testJoinLAsscomProjectHelper(JoinType joinType) {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .join(scan2, joinType, Pair.of(0, 0))
                 .project(ImmutableList.of(0, 1, 2))
-                .join(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(1, 1))
+                .join(scan3, joinType, Pair.of(1, 1))
                 .projectAll()
                 .build();
 
@@ -64,17 +69,17 @@ class OuterJoinLAsscomProjectTest implements MemoPatternMatchSupported {
                 .applyExploration(OuterJoinLAsscomProject.INSTANCE.build())
                 .printlnExploration()
                 .matchesExploration(
-                    logicalProject(
-                        logicalJoin(
-                            logicalProject(logicalJoin(
-                                    logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
-                                    logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
-                            )),
-                            logicalProject(
-                                    logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2"))
-                            ).when(project -> project.getProjects().size() == 1)
+                        logicalProject(
+                                logicalJoin(
+                                        logicalProject(logicalJoin(
+                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
+                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
+                                        )),
+                                        logicalProject(
+                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2"))
+                                        ).when(project -> project.getProjects().size() == 1)
+                                )
                         )
-                    )
                 );
     }
 
@@ -87,35 +92,68 @@ class OuterJoinLAsscomProjectTest implements MemoPatternMatchSupported {
                 .projectAll()
                 .build();
 
+        LogicalPlan plan2 = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.ASOF_LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .alias(ImmutableList.of(0, 2), ImmutableList.of("t1.id", "t2.id"))
+                .join(scan3, JoinType.ASOF_LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .projectAll()
+                .build();
+
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyTopDown(new PushDownAliasThroughJoin())
                 .printlnTree()
                 .applyExploration(OuterJoinLAsscomProject.INSTANCE.build())
                 .printlnExploration()
                 .matchesExploration(
-                    logicalProject(
-                        logicalJoin(
-                            logicalProject(
+                        logicalProject(
                                 logicalJoin(
-                                    logicalProject(logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1"))),
-                                    logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
+                                        logicalProject(
+                                                logicalJoin(
+                                                        logicalProject(logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1"))),
+                                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
+                                                )
+                                        ).when(project -> project.getProjects().size() == 3), // t1.id Add t3.id, t3.name
+                                        logicalProject(
+                                                logicalProject(logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2")))
+                                        ).when(project -> project.getProjects().size() == 1)
                                 )
-                            ).when(project -> project.getProjects().size() == 3), // t1.id Add t3.id, t3.name
-                            logicalProject(
-                                logicalProject(logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2")))
-                            ).when(project -> project.getProjects().size() == 1)
                         )
-                    )
+                );
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan2)
+                .applyTopDown(new PushDownAliasThroughJoin())
+                .printlnTree()
+                .applyExploration(OuterJoinLAsscomProject.INSTANCE.build())
+                .printlnExploration()
+                .matchesExploration(
+                        logicalProject(
+                                logicalJoin(
+                                        logicalProject(
+                                                logicalJoin(
+                                                        logicalProject(logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1"))),
+                                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
+                                                )
+                                        ).when(project -> project.getProjects().size() == 3), // t1.id Add t3.id, t3.name
+                                        logicalProject(
+                                                logicalProject(logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2")))
+                                        ).when(project -> project.getProjects().size() == 1)
+                                )
+                        )
                 );
     }
 
     @Test
     void testAliasTopMultiHashJoin() {
+        testAliasTopMultiHashJoinHelper(JoinType.LEFT_OUTER_JOIN);
+        testAliasTopMultiHashJoinHelper(JoinType.ASOF_LEFT_OUTER_JOIN);
+    }
+
+    private void testAliasTopMultiHashJoinHelper(JoinType joinType) {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0)) // t1.id=t2.id
+                .join(scan2, joinType, Pair.of(0, 0)) // t1.id=t2.id
                 .alias(ImmutableList.of(0, 2), ImmutableList.of("t1.id", "t2.id"))
                 // t1.id=t3.id t2.id = t3.id
-                .join(scan3, JoinType.LEFT_OUTER_JOIN, ImmutableList.of(Pair.of(0, 0), Pair.of(1, 0)))
+                .join(scan3, joinType, ImmutableList.of(Pair.of(0, 0), Pair.of(1, 0)))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
@@ -126,8 +164,13 @@ class OuterJoinLAsscomProjectTest implements MemoPatternMatchSupported {
 
     @Test
     void testAliasTopMultiHashJoinLeftOuterInner() {
+        testAliasTopMultiHashJoinLeftOuterInnerHelper(JoinType.LEFT_OUTER_JOIN);
+        testAliasTopMultiHashJoinLeftOuterInnerHelper(JoinType.ASOF_LEFT_OUTER_JOIN);
+    }
+
+    private void testAliasTopMultiHashJoinLeftOuterInnerHelper(JoinType joinType) {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0)) // t1.id=t2.id
+                .join(scan2, joinType, Pair.of(0, 0)) // t1.id=t2.id
                 .alias(ImmutableList.of(0, 2), ImmutableList.of("t1.id", "t2.id"))
                 // t1.id=t3.id t2.id=t3.id
                 .join(scan3, JoinType.INNER_JOIN, ImmutableList.of(Pair.of(0, 0), Pair.of(1, 0)))
@@ -141,12 +184,17 @@ class OuterJoinLAsscomProjectTest implements MemoPatternMatchSupported {
 
     @Test
     public void testHashAndOther() {
+        testHashAndOtherHelper(JoinType.LEFT_OUTER_JOIN);
+        testHashAndOtherHelper(JoinType.ASOF_LEFT_OUTER_JOIN);
+    }
+
+    private void testHashAndOtherHelper(JoinType joinType) {
         List<Expression> bottomHashJoinConjunct = ImmutableList.of(
                 new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0)));
         List<Expression> bottomOtherJoinConjunct = ImmutableList.of(
                 new GreaterThan(scan1.getOutput().get(1), scan2.getOutput().get(1)));
         LogicalPlan project = new LogicalPlanBuilder(scan1)
-                .join(scan2, JoinType.LEFT_OUTER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
+                .join(scan2, joinType, bottomHashJoinConjunct, bottomOtherJoinConjunct)
                 .alias(ImmutableList.of(0, 1, 2, 3), ImmutableList.of("t1.id", "t1.name", "t2.id", "t2.name"))
                 .build();
 
@@ -157,7 +205,7 @@ class OuterJoinLAsscomProjectTest implements MemoPatternMatchSupported {
                 new GreaterThan(project.getOutput().get(1), scan3.getOutput().get(1)),
                 new GreaterThan(project.getOutput().get(3), scan3.getOutput().get(1)));
         LogicalPlan plan = new LogicalPlanBuilder(project)
-                .join(scan3, JoinType.LEFT_OUTER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
+                .join(scan3, joinType, topHashJoinConjunct, topOtherJoinConjunct)
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
@@ -170,13 +218,18 @@ class OuterJoinLAsscomProjectTest implements MemoPatternMatchSupported {
 
     @Test
     public void testJoinConjunctNullableWhenLAssociate() {
+        testJoinConjunctNullableWhenLAssociateHelper(JoinType.LEFT_OUTER_JOIN);
+        testJoinConjunctNullableWhenLAssociateHelper(JoinType.ASOF_LEFT_OUTER_JOIN);
+    }
+
+    private void testJoinConjunctNullableWhenLAssociateHelper(JoinType joinType) {
         // t1 left outer join t2
         List<Expression> bottomHashJoinConjunct = ImmutableList.of(
                 new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0)));
         List<Expression> bottomOtherJoinConjunct = ImmutableList.of(
                 new GreaterThan(scan1.getOutput().get(1), scan2.getOutput().get(1)));
         LogicalPlan bottomJoin = new LogicalPlanBuilder(scan1)
-                .join(scan2, JoinType.LEFT_OUTER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
+                .join(scan2, joinType, bottomHashJoinConjunct, bottomOtherJoinConjunct)
                 .build();
         LogicalPlan bottomProject = new LogicalProject<>(
                 bottomJoin.getOutput().stream().map(NamedExpression.class::cast).collect(Collectors.toList()),
@@ -188,7 +241,7 @@ class OuterJoinLAsscomProjectTest implements MemoPatternMatchSupported {
         List<Expression> topOtherJoinConjunct = ImmutableList.of(
                 new GreaterThan(bottomProject.getOutput().get(1), scan3.getOutput().get(1)));
         LogicalPlan topJoin = new LogicalPlanBuilder(bottomProject)
-                .join(scan3, JoinType.LEFT_OUTER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
+                .join(scan3, joinType, topHashJoinConjunct, topOtherJoinConjunct)
                 .build();
 
         LogicalPlan plan = new LogicalProject<>(

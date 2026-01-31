@@ -17,6 +17,7 @@
 
 #include "hashjoin_probe_operator.h"
 
+#include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 
 #include <string>
@@ -75,6 +76,70 @@ Status HashJoinProbeLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(JoinProbeLocalState::open(state));
 
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
+
+    // For ASOF JOIN, detect the inequality direction and sort bucket indices by match column
+    if (is_asof_join(p._join_op) && !_other_join_conjuncts.empty()) {
+        auto& conjunct = _other_join_conjuncts[0];
+        if (conjunct && conjunct->root()) {
+            TExprOpcode::type opcode = conjunct->root()->op();
+            // For >=, >: inequality_is_greater = true (find LARGEST build value)
+            // For <=, <: inequality_is_greater = false (find SMALLEST build value)
+            _shared_state->asof_inequality_is_greater =
+                    (opcode == TExprOpcode::GE || opcode == TExprOpcode::GT);
+            // For >, <: inequality_is_strict = true (exclude exact matches)
+            // For >=, <=: inequality_is_strict = false (include exact matches)
+            _shared_state->asof_inequality_is_strict =
+                    (opcode == TExprOpcode::GT || opcode == TExprOpcode::LT);
+
+            // Extract match columns when children are simple SlotRefs
+            // For expressions like "r.ts + INTERVAL 1 HOUR", we cannot guarantee
+            // monotonicity, so we skip sorting and rely on linear scan
+            if (conjunct->root()->get_num_children() >= 2 && _shared_state->build_block) {
+                auto left_child = conjunct->root()->get_child(0);
+                auto right_child = conjunct->root()->get_child(1);
+
+                // Extract build side match column (right child of condition)
+                if (right_child && right_child->is_slot_ref()) {
+                    auto* slot_ref = static_cast<vectorized::VSlotRef*>(right_child.get());
+                    auto& build_block = *_shared_state->build_block;
+                    const std::string& col_name = slot_ref->column_name();
+                    for (size_t i = 0; i < build_block.columns(); ++i) {
+                        if (build_block.get_by_position(i).name == col_name) {
+                            _shared_state->asof_build_match_column =
+                                    build_block.get_by_position(i).column;
+                            break;
+                        }
+                    }
+
+                    // Sort bucket indices by match column value (ascending order)
+                    // This enables binary search optimization for simple SlotRef comparisons
+                    const auto* match_col = _shared_state->asof_build_match_column.get();
+                    if (match_col) {
+                        auto& sorted_indices = _shared_state->asof_sorted_bucket_indices;
+                        for (auto& bucket_indices : sorted_indices) {
+                            if (bucket_indices.size() > 1) {
+                                std::sort(bucket_indices.begin(), bucket_indices.end(),
+                                          [match_col](uint32_t a, uint32_t b) {
+                                              return match_col->compare_at(a - 1, b - 1, *match_col,
+                                                                           1) < 0;
+                                          });
+                            }
+                        }
+                    }
+                }
+
+                // Extract probe side match column (left child of condition)
+                // This is used for ASOF RIGHT JOIN to find best probe for each build
+                if (left_child && left_child->is_slot_ref()) {
+                    // Note: probe match column will be set during probe phase
+                    // when we have access to the probe block
+                    _shared_state->asof_probe_match_column_name =
+                            static_cast<vectorized::VSlotRef*>(left_child.get())->column_name();
+                }
+            }
+        }
+    }
+
     Status res;
     std::visit(
             [&](auto&& join_op_variants, auto have_other_join_conjunct) {
@@ -422,7 +487,8 @@ Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* inpu
         std::vector<int> res_col_ids(local_state._probe_expr_ctxs.size());
         RETURN_IF_ERROR(_do_evaluate(*input_block, local_state._probe_expr_ctxs,
                                      *local_state._probe_expr_call_timer, res_col_ids));
-        if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
+        if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN ||
+            _join_op == TJoinOp::ASOF_RIGHT_OUTER_JOIN) {
             local_state._probe_column_convert_to_null =
                     local_state._convert_block_to_null(*input_block);
         }
@@ -435,6 +501,19 @@ Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* inpu
             input_block->swap(local_state._probe_block);
             COUNTER_SET(local_state._memory_used_counter,
                         (int64_t)local_state._probe_block.allocated_bytes());
+        }
+
+        // For ASOF RIGHT JOIN, extract probe match column on first probe block
+        if (!local_state._shared_state->asof_probe_match_column_name.empty() &&
+            !local_state._shared_state->asof_probe_match_column) {
+            const std::string& col_name = local_state._shared_state->asof_probe_match_column_name;
+            for (size_t i = 0; i < local_state._probe_block.columns(); ++i) {
+                if (local_state._probe_block.get_by_position(i).name == col_name) {
+                    local_state._shared_state->asof_probe_match_column =
+                            local_state._probe_block.get_by_position(i).column;
+                    break;
+                }
+            }
         }
     }
     return Status::OK();

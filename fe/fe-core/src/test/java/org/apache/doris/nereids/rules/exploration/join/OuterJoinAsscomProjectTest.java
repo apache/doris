@@ -49,13 +49,18 @@ public class OuterJoinAsscomProjectTest {
 
     @Test
     public void testJoinConjunctNullableWhenAssociate() {
+        testJoinConjunctNullableWhenAssociateHelper(JoinType.LEFT_OUTER_JOIN);
+        testJoinConjunctNullableWhenAssociateHelper(JoinType.ASOF_LEFT_OUTER_JOIN);
+    }
+
+    public void testJoinConjunctNullableWhenAssociateHelper(JoinType joinType) {
         // t1 left outer join t2
         List<Expression> bottomHashJoinConjunct = ImmutableList.of(
                 new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0)));
         List<Expression> bottomOtherJoinConjunct = ImmutableList.of(
                 new GreaterThan(scan1.getOutput().get(1), scan2.getOutput().get(1)));
         LogicalPlan bottomJoin = new LogicalPlanBuilder(scan1)
-                .join(scan2, JoinType.LEFT_OUTER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
+                .join(scan2, joinType, bottomHashJoinConjunct, bottomOtherJoinConjunct)
                 .build();
         LogicalPlan bottomProject = new LogicalProject<>(
                 bottomJoin.getOutput().stream().map(NamedExpression.class::cast).collect(Collectors.toList()),
@@ -67,11 +72,11 @@ public class OuterJoinAsscomProjectTest {
         List<Expression> topOtherJoinConjunct = ImmutableList.of(
                 new GreaterThan(bottomProject.getOutput().get(3).withNullable(true), scan3.getOutput().get(1)));
         LogicalPlan topJoin = new LogicalPlanBuilder(bottomProject)
-                .join(scan3, JoinType.LEFT_OUTER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
+                .join(scan3, joinType, topHashJoinConjunct, topOtherJoinConjunct)
                 .build();
         LogicalPlan plan = new LogicalProject<>(
                 topJoin.getOutput().stream().map(NamedExpression.class::cast).collect(
-                Collectors.toList()), topJoin);
+                        Collectors.toList()), topJoin);
 
         List<Plan> allPlan = PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .printlnOrigin()

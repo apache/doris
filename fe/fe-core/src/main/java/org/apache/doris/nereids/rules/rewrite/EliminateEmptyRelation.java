@@ -231,12 +231,12 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
     }
 
     private boolean canReplaceJoinByEmptyRelation(LogicalJoin<?, ?> join) {
-        return !join.isMarkJoin() && ((join.getJoinType() == JoinType.INNER_JOIN
+        return !join.isMarkJoin() && ((join.getJoinType().isInnerJoin()
             || join.getJoinType() == JoinType.LEFT_SEMI_JOIN
             || join.getJoinType() == JoinType.RIGHT_SEMI_JOIN
             || join.getJoinType() == JoinType.CROSS_JOIN)
-            || (join.getJoinType() == JoinType.LEFT_OUTER_JOIN && join.left() instanceof EmptyRelation)
-            || (join.getJoinType() == JoinType.RIGHT_OUTER_JOIN && join.right() instanceof EmptyRelation));
+            || (join.getJoinType().isLeftOuterJoin() && join.left() instanceof EmptyRelation)
+            || (join.getJoinType().isRightOuterJoin() && join.right() instanceof EmptyRelation));
     }
 
 }

@@ -108,7 +108,7 @@ class PushFilterInsideJoinTest implements MemoPatternMatchSupported {
     @Test
     public void testShouldNotPushInsideJoin() {
         for (JoinType joinType : JoinType.values()) {
-            if (JoinType.INNER_JOIN == joinType || JoinType.CROSS_JOIN == joinType) {
+            if (joinType.isInnerOrCrossJoin()) {
                 continue;
             }
             shouldNotPushInsideJoin(joinType);

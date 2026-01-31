@@ -31,6 +31,7 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -49,6 +50,8 @@ public class PushDownFilterThroughJoinTest implements MemoPatternMatchSupported 
     private LogicalPlan rStudent;
     private LogicalPlan rScore;
 
+    private ConnectContext connectContext;
+
     /**
      * ut before.
      */
@@ -57,16 +60,21 @@ public class PushDownFilterThroughJoinTest implements MemoPatternMatchSupported 
         rStudent = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student,
                 ImmutableList.of(""));
         rScore = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.score, ImmutableList.of(""));
+        connectContext = MemoTestUtils.createConnectContext();
     }
 
     @Test
     public void oneSide() {
         testLeft(JoinType.CROSS_JOIN);
         testLeft(JoinType.INNER_JOIN);
+        testLeft(JoinType.ASOF_LEFT_INNER_JOIN);
+        testLeft(JoinType.ASOF_RIGHT_INNER_JOIN);
         testLeft(JoinType.LEFT_OUTER_JOIN);
+        testLeft(JoinType.ASOF_LEFT_OUTER_JOIN);
         testLeft(JoinType.LEFT_SEMI_JOIN);
         testLeft(JoinType.LEFT_ANTI_JOIN);
         testRight(JoinType.RIGHT_OUTER_JOIN);
+        testRight(JoinType.ASOF_RIGHT_OUTER_JOIN);
         testRight(JoinType.RIGHT_SEMI_JOIN);
         testRight(JoinType.RIGHT_ANTI_JOIN);
     }
@@ -81,7 +89,7 @@ public class PushDownFilterThroughJoinTest implements MemoPatternMatchSupported 
                 .filter(whereCondition)
                 .build();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+        PlanChecker.from(connectContext, plan)
                 .applyTopDown(PushDownFilterThroughJoin.INSTANCE)
                 .matchesFromRoot(
                         logicalJoin(
@@ -102,7 +110,7 @@ public class PushDownFilterThroughJoinTest implements MemoPatternMatchSupported 
                 .filter(whereCondition)
                 .build();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+        PlanChecker.from(connectContext, plan)
                 .applyTopDown(PushDownFilterThroughJoin.INSTANCE)
                 .matchesFromRoot(
                         logicalJoin(
@@ -133,7 +141,7 @@ public class PushDownFilterThroughJoinTest implements MemoPatternMatchSupported 
                 .build();
 
         if (joinType.isInnerJoin()) {
-            PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+            PlanChecker.from(connectContext, plan)
                     .applyTopDown(PushDownFilterThroughJoin.INSTANCE)
                     .printlnTree()
                     .matchesFromRoot(
@@ -146,7 +154,7 @@ public class PushDownFilterThroughJoinTest implements MemoPatternMatchSupported 
                     );
         }
         if (joinType.isCrossJoin()) {
-            PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+            PlanChecker.from(connectContext, plan)
                     .applyTopDown(PushDownFilterThroughJoin.INSTANCE)
                     .printlnTree()
                     .matchesFromRoot(
@@ -165,9 +173,11 @@ public class PushDownFilterThroughJoinTest implements MemoPatternMatchSupported 
     @Test
     public void bothSideToOneSide() {
         bothSideToLeft(JoinType.LEFT_OUTER_JOIN);
+        bothSideToLeft(JoinType.ASOF_LEFT_OUTER_JOIN);
         bothSideToLeft(JoinType.LEFT_ANTI_JOIN);
         bothSideToLeft(JoinType.LEFT_SEMI_JOIN);
         bothSideToRight(JoinType.RIGHT_OUTER_JOIN);
+        bothSideToRight(JoinType.ASOF_RIGHT_OUTER_JOIN);
         bothSideToRight(JoinType.RIGHT_ANTI_JOIN);
         bothSideToRight(JoinType.RIGHT_SEMI_JOIN);
     }
@@ -182,7 +192,7 @@ public class PushDownFilterThroughJoinTest implements MemoPatternMatchSupported 
                 .filter(whereCondition)
                 .build();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+        PlanChecker.from(connectContext, plan)
                 .applyTopDown(PushDownFilterThroughJoin.INSTANCE)
                 .matchesFromRoot(
                         logicalFilter(
@@ -205,7 +215,7 @@ public class PushDownFilterThroughJoinTest implements MemoPatternMatchSupported 
                 .filter(whereCondition)
                 .build();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+        PlanChecker.from(connectContext, plan)
                 .applyTopDown(PushDownFilterThroughJoin.INSTANCE)
                 .matchesFromRoot(
                         logicalFilter(

@@ -95,9 +95,11 @@ JoinProbeOperatorX<LocalStateType>::JoinProbeOperatorX(ObjectPool* pool, const T
                                       !tnode.hash_join_node.other_join_conjuncts.empty()) ||
                                      tnode.hash_join_node.__isset.vother_join_conjunct)),
           _match_all_probe(_join_op == TJoinOp::LEFT_OUTER_JOIN ||
-                           _join_op == TJoinOp::FULL_OUTER_JOIN),
+                           _join_op == TJoinOp::FULL_OUTER_JOIN ||
+                           _join_op == TJoinOp::ASOF_LEFT_OUTER_JOIN),
           _match_all_build(_join_op == TJoinOp::RIGHT_OUTER_JOIN ||
-                           _join_op == TJoinOp::FULL_OUTER_JOIN),
+                           _join_op == TJoinOp::FULL_OUTER_JOIN ||
+                           _join_op == TJoinOp::ASOF_RIGHT_OUTER_JOIN),
           _build_unique(!_have_other_join_conjunct &&
                         (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
                          _join_op == TJoinOp::LEFT_ANTI_JOIN ||

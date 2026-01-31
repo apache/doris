@@ -41,6 +41,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -98,11 +99,13 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.SqlModeHelper;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
@@ -757,8 +760,42 @@ public class BindExpression implements AnalysisRuleFactory {
                 otherJoinConjuncts.add(conjunct);
             }
         }
+        List<Expression> hashConjuncts = hashJoinConjuncts.build();
+        List<Expression> otherConjuncts = otherJoinConjuncts.build();
+        if (join.getJoinType().isAsofJoin()) {
+            // validate hash conjuncts
+            if (!JoinUtils.extractExpressionForHashTable(join.left().getOutput(), join.right().getOutput(),
+                    hashConjuncts).second.isEmpty()) {
+                throw new AnalysisException(String.format("ASOF join's hash conjuncts must be"
+                        + " in form of t1.col = t2.col but its %s", hashConjuncts));
+            }
+            // validate match_condition's data type
+            boolean isValid = false;
+            if (otherConjuncts.size() == 1) {
+                Expression conjunct = otherConjuncts.get(0);
+                if (conjunct instanceof ComparisonPredicate) {
+                    if (conjunct.child(0).getDataType().isDateLikeType()
+                            && conjunct.child(1).getDataType().isDateLikeType()) {
+                        Set<Slot> leftSlots = join.left().getOutputSet();
+                        Set<Slot> rightSlots = join.right().getOutputSet();
+                        Set<Slot> usedSlots = conjunct.getInputSlots();
+                        if (leftSlots.containsAll(usedSlots) || rightSlots.containsAll(usedSlots)) {
+                            throw new AnalysisException("MATCH_CONDITION must specify column from both table");
+                        }
+                        isValid = true;
+                    } else {
+                        throw new AnalysisException("only allow date, datetime and timestamptz in MATCH_CONDITION");
+                    }
+                }
+            }
+            if (!isValid) {
+                // other unexpected error
+                throw new AnalysisException(String.format("MATCH_CONDITION is invalid %s",
+                        Joiner.on(",").join(otherConjuncts)));
+            }
+        }
         return new LogicalJoin<>(join.getJoinType(),
-                hashJoinConjuncts.build(), otherJoinConjuncts.build(),
+                hashConjuncts, otherConjuncts,
                 join.getDistributeHint(), join.getMarkJoinSlotReference(), join.getExceptAsteriskOutputs(),
                 join.children(), null);
     }
@@ -828,10 +865,10 @@ public class BindExpression implements AnalysisRuleFactory {
         }
 
         return new LogicalJoin<>(
-                using.getJoinType() == JoinType.CROSS_JOIN ? JoinType.INNER_JOIN : using.getJoinType(),
-                hashEqExprs.build(), ImmutableList.of(),
-                using.getDistributeHint(), Optional.empty(), rightConjunctsSlots,
-                using.children(), null);
+                    using.getJoinType() == JoinType.CROSS_JOIN ? JoinType.INNER_JOIN : using.getJoinType(),
+                    hashEqExprs.build(), using.getMatchCondition().map(ImmutableList::of).orElse(ImmutableList.of()),
+                    using.getDistributeHint(), Optional.empty(), rightConjunctsSlots,
+                    using.children(), null);
     }
 
     private Plan bindProject(MatchingContext<LogicalProject<Plan>> ctx) {

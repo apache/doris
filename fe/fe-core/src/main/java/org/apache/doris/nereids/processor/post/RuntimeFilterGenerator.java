@@ -86,6 +86,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             JoinType.LEFT_ANTI_JOIN,
             JoinType.FULL_OUTER_JOIN,
             JoinType.LEFT_OUTER_JOIN,
+            JoinType.ASOF_LEFT_OUTER_JOIN,
             JoinType.NULL_AWARE_LEFT_ANTI_JOIN
     );
 

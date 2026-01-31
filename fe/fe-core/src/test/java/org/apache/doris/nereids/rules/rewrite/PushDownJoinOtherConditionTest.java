@@ -66,10 +66,14 @@ class PushDownJoinOtherConditionTest implements MemoPatternMatchSupported {
     void oneSide() {
         oneSide(JoinType.CROSS_JOIN, false);
         oneSide(JoinType.INNER_JOIN, false);
+        oneSide(JoinType.ASOF_LEFT_INNER_JOIN, false);
+        oneSide(JoinType.ASOF_RIGHT_INNER_JOIN, false);
         oneSide(JoinType.LEFT_OUTER_JOIN, true);
+        oneSide(JoinType.ASOF_LEFT_OUTER_JOIN, true);
         oneSide(JoinType.LEFT_SEMI_JOIN, true);
         oneSide(JoinType.LEFT_ANTI_JOIN, true);
         oneSide(JoinType.RIGHT_OUTER_JOIN, false);
+        oneSide(JoinType.ASOF_RIGHT_OUTER_JOIN, false);
         oneSide(JoinType.RIGHT_SEMI_JOIN, false);
         oneSide(JoinType.RIGHT_ANTI_JOIN, false);
     }
@@ -114,6 +118,8 @@ class PushDownJoinOtherConditionTest implements MemoPatternMatchSupported {
     void bothSideToBothSide() {
         bothSideToBothSide(JoinType.CROSS_JOIN);
         bothSideToBothSide(JoinType.INNER_JOIN);
+        bothSideToBothSide(JoinType.ASOF_LEFT_INNER_JOIN);
+        bothSideToBothSide(JoinType.ASOF_RIGHT_INNER_JOIN);
         bothSideToBothSide(JoinType.LEFT_SEMI_JOIN);
         bothSideToBothSide(JoinType.RIGHT_SEMI_JOIN);
     }
@@ -141,8 +147,10 @@ class PushDownJoinOtherConditionTest implements MemoPatternMatchSupported {
     @Test
     void bothSideToOneSide() {
         bothSideToOneSide(JoinType.LEFT_OUTER_JOIN, true);
+        bothSideToOneSide(JoinType.ASOF_LEFT_OUTER_JOIN, true);
         bothSideToOneSide(JoinType.LEFT_ANTI_JOIN, true);
         bothSideToOneSide(JoinType.RIGHT_OUTER_JOIN, false);
+        bothSideToOneSide(JoinType.ASOF_RIGHT_OUTER_JOIN, false);
         bothSideToOneSide(JoinType.RIGHT_ANTI_JOIN, false);
     }
 

@@ -33,7 +33,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -50,7 +49,6 @@ import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -63,7 +61,6 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.HashSet;
@@ -205,12 +202,16 @@ public class SaltJoin extends OneRewriteRuleFactory {
         switch (join.getJoinType()) {
             case INNER_JOIN:
             case LEFT_OUTER_JOIN:
+            case ASOF_LEFT_INNER_JOIN:
+            case ASOF_RIGHT_INNER_JOIN:
+            case ASOF_LEFT_OUTER_JOIN:
                 leftProject = addRandomSlot(leftSkewExpr, skewSideValues, join.left(), factor, type,
                         statementContext);
                 rightProject = expandSkewValueRows(rightSkewExpr, expandSideValues, join.right(), factor, type,
                         statementContext);
                 break;
             case RIGHT_OUTER_JOIN:
+            case ASOF_RIGHT_OUTER_JOIN:
                 leftProject = expandSkewValueRows(leftSkewExpr, expandSideValues, join.left(), factor, type,
                         statementContext);
                 rightProject = addRandomSlot(rightSkewExpr, skewSideValues, join.right(), factor, type,
@@ -370,38 +371,5 @@ public class SaltJoin extends OneRewriteRuleFactory {
             }
         }
         return ImmutableList.of();
-    }
-
-    private static LogicalJoin<Plan, Plan> addNotNull(LogicalJoin<Plan, Plan> join, Expression skewConjunct,
-            Set<Expression> skewValuesSet) {
-        if (skewConjunct instanceof NullSafeEqual) {
-            return join;
-        }
-        boolean containsNull = skewValuesSet.stream().anyMatch(value -> value instanceof NullLiteral);
-        if (!containsNull) {
-            return join;
-        }
-
-        LogicalFilter<Plan> leftFilter =
-                new LogicalFilter<>(ImmutableSet.of(new Not(new IsNull(skewConjunct.child(0)))), join.left());
-        LogicalFilter<Plan> rightFilter =
-                new LogicalFilter<>(ImmutableSet.of(new Not(new IsNull(skewConjunct.child(1)))), join.right());
-        DistributeHint hint = join.getDistributeHint();
-        switch (join.getJoinType()) {
-            case INNER_JOIN:
-                hint.setStatus(HintStatus.SUCCESS);
-                hint.setSkewInfo(hint.getSkewInfo().withSuccessInSaltJoin(true));
-                return join.withDistributeHintChildren(hint, leftFilter, rightFilter);
-            case LEFT_OUTER_JOIN:
-                hint.setStatus(HintStatus.SUCCESS);
-                hint.setSkewInfo(hint.getSkewInfo().withSuccessInSaltJoin(true));
-                return join.withDistributeHintChildren(hint, join.left(), rightFilter);
-            case RIGHT_OUTER_JOIN:
-                hint.setStatus(HintStatus.SUCCESS);
-                hint.setSkewInfo(hint.getSkewInfo().withSuccessInSaltJoin(true));
-                return join.withDistributeHintChildren(hint, leftFilter, join.right());
-            default:
-                return join;
-        }
     }
 }

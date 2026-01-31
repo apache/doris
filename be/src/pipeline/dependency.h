@@ -622,6 +622,21 @@ struct HashJoinSharedState : public JoinSharedState {
     // memory in `_hash_table_variants`. So before execution, we should use a local _hash_table_variants
     // which has a shared hash table in it.
     std::vector<std::shared_ptr<JoinDataVariants>> hash_table_variant_vector;
+
+    // ASOF JOIN specific fields
+    // For each bucket, store sorted row indices by asof_match_column value
+    // Key: bucket_num, Value: row indices sorted by match column (ascending for >=, descending for <=)
+    std::vector<std::vector<uint32_t>> asof_sorted_bucket_indices;
+    // The match column from build side for ASOF comparison
+    vectorized::ColumnPtr asof_build_match_column;
+    // The match column from probe side for ASOF comparison (used in ASOF RIGHT JOIN)
+    vectorized::ColumnPtr asof_probe_match_column;
+    // The probe match column name (used to extract probe column during probe phase)
+    std::string asof_probe_match_column_name;
+    // Whether the inequality is >= or > (true) vs <= or < (false)
+    bool asof_inequality_is_greater = true;
+    // Whether the inequality is strict (> or <) vs non-strict (>= or <=)
+    bool asof_inequality_is_strict = false;
 };
 
 struct PartitionedHashJoinSharedState
