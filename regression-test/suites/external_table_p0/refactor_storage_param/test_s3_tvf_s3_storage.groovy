@@ -176,7 +176,7 @@ suite("test_s3_tvf_s3_storage", "p0,external,external_docker") {
         ak = context.config.otherConfigs.get("aliYunAk")
         sk = context.config.otherConfigs.get("aliYunSk")
         s3_endpoint = getConfigOrDefault("aliYunEndpoint","oss-cn-hongkong.aliyuncs.com")
-        region = getConfigOrDefault ("aliYunRegion","oss-cn-hongkong")
+        region = getConfigOrDefault ("aliYunRegion","cn-hongkong")
         bucket = getConfigOrDefault ("aliYunBucket","doris-regression-hk");
 
 
@@ -185,6 +185,8 @@ suite("test_s3_tvf_s3_storage", "p0,external,external_docker") {
         s3_tvf("http://${bucket}.${s3_endpoint}", "", "s3.access_key", "s3.secret_key", "region", "false");
         s3_tvf("http://${bucket}.${s3_endpoint}", "", "AWS_ACCESS_KEY", "AWS_SECRET_KEY", "region", "false");
         s3_tvf("http://${bucket}.${s3_endpoint}", "", "s3.access_key", "s3.secret_key", "s3.region", "false");
+        s3_tvf("oss://${bucket}.${s3_endpoint}", "", "s3.access_key", "s3.secret_key", "s3.region", "false");
+        s3_tvf("s3://${bucket}.${s3_endpoint}", "", "s3.access_key", "s3.secret_key", "s3.region", "false");
         shouldFail {
             // it's OSS 
             s3_tvf("http://${bucket}.${s3_endpoint}", "", "s3.access_key", "cos.secret_key", "region", "false");
