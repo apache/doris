@@ -414,19 +414,6 @@ void convert_tmp_rowsets(
         stats.segment_size += tmp_rowset_pb.data_disk_size();
 
         if (is_versioned_write) {
-            std::string meta_rowset_key = versioned::meta_rowset_key(
-                    {instance_id, tmp_rowset_pb.tablet_id(), tmp_rowset_pb.rowset_id_v2()});
-            if (config::enable_recycle_rowset_strip_key_bounds) {
-                doris::RowsetMetaCloudPB rowset_meta_copy = tmp_rowset_pb;
-                // Strip key bounds to shrink operation log for ts compaction recycle entries
-                rowset_meta_copy.clear_segments_key_bounds();
-                rowset_meta_copy.clear_segments_key_bounds_truncated();
-                blob_put(txn.get(), meta_rowset_key, rowset_meta_copy.SerializeAsString(), 0);
-            } else {
-                blob_put(txn.get(), meta_rowset_key, tmp_rowset_pb.SerializeAsString(), 0);
-            }
-            LOG(INFO) << "put versioned meta_rowset_key=" << hex(meta_rowset_key);
-
             // If this is a versioned write, we need to put the rowset with versionstamp
             RowsetMetaCloudPB copied_rowset_meta(tmp_rowset_pb);
             std::string rowset_load_key = versioned::meta_rowset_load_key(
