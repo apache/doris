@@ -33,6 +33,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.tablefunction.BackendsTableValuedFunction;
 
 import java.util.Comparator;
 import java.util.List;
@@ -51,7 +52,7 @@ public class ShowBackendsCommand extends ShowCommand {
 
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        for (String title : BackendsProcDir.TITLE_NAMES) {
+        for (String title : BackendsTableValuedFunction.getBackendsTitleNames()) {
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();

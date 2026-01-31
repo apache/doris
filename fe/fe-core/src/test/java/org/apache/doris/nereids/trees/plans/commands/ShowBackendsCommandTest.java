@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.common.AnalysisException;
@@ -25,11 +26,16 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.tablefunction.BackendsTableValuedFunction;
 
+import com.google.common.collect.ImmutableList;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 public class ShowBackendsCommandTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
@@ -80,7 +86,13 @@ public class ShowBackendsCommandTest {
     public void testNormal() throws Exception {
         runBefore();
         ShowBackendsCommand command = new ShowBackendsCommand();
-        Assertions.assertDoesNotThrow(() -> command.doRun(ctx, null));
+        ShowResultSet showResultSet = command.doRun(ctx, null);
+        List<Column> columnList = showResultSet.getMetaData().getColumns();
+        ImmutableList<String> backendsTitleNames = BackendsTableValuedFunction.getBackendsTitleNames();
+        Assertions.assertTrue(!columnList.isEmpty() && columnList.size() == backendsTitleNames.size());
+        for (int i = 0; i < backendsTitleNames.size(); i++) {
+            Assertions.assertTrue(columnList.get(i).getName().equalsIgnoreCase(backendsTitleNames.get(i)));
+        }
     }
 
     @Test
