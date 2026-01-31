@@ -60,6 +60,7 @@
 #include "vec/data_types/data_type_time.h"
 #include "vec/data_types/data_type_varbinary.h"
 #include "vec/exprs/function_context.h"
+#include "vec/functions/function_helpers.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -371,6 +372,19 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     }
 
     // 2. execute function
+    auto get_key_value_type = [&]() {
+        const DataTypeMap* map_type = nullptr;
+        if (descs[0].data_type->is_nullable()) {
+            auto* data_type_nullable =
+                    assert_cast<const DataTypeNullable*>(descs[0].data_type.get());
+            map_type = check_and_get_data_type<const DataTypeMap>(
+                    data_type_nullable->get_nested_type().get());
+        } else {
+            map_type = check_and_get_data_type<const DataTypeMap>(descs[0].data_type.get());
+        }
+        assert(map_type);
+        return std::make_pair(map_type->get_key_type(), map_type->get_value_type());
+    };
     auto return_type = [&]() {
         if constexpr (IsDataTypeDecimal<ResultType>) { // decimal
             return ResultNullable ? make_nullable(std::make_shared<ResultType>(result_precision,
@@ -384,6 +398,11 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
             }
             return ResultNullable ? make_nullable(std::make_shared<ResultType>(real_scale))
                                   : std::make_shared<ResultType>(real_scale);
+        } else if constexpr (IsDataTypeMap<ResultType>) {
+            auto [key_type, value_type] = get_key_value_type();
+            return ResultNullable
+                           ? make_nullable(std::make_shared<ResultType>(key_type, value_type))
+                           : std::make_shared<ResultType>(key_type, value_type);
         } else {
             return ResultNullable ? make_nullable(std::make_shared<ResultType>())
                                   : std::make_shared<ResultType>();
@@ -436,6 +455,11 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         }
         result_type_ptr = ResultNullable ? make_nullable(std::make_shared<ResultType>(real_scale))
                                          : std::make_shared<ResultType>(real_scale);
+    } else if constexpr (IsDataTypeMap<ResultType>) {
+        auto [key_type, value_type] = get_key_value_type();
+        result_type_ptr =
+                ResultNullable ? make_nullable(std::make_shared<ResultType>(key_type, value_type))
+                               : std::make_shared<ResultType>(key_type, value_type);
     } else {
         result_type_ptr = ResultNullable ? make_nullable(std::make_shared<ResultType>())
                                          : std::make_shared<ResultType>();
