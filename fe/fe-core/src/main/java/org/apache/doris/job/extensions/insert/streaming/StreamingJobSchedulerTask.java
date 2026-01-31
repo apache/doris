@@ -66,7 +66,6 @@ public class StreamingJobSchedulerTask extends AbstractTask {
             }
         }
         streamingInsertJob.replayOffsetProviderIfNeed();
-        
         // For Kafka jobs: fetch remote metadata to initialize partition offsets
         // before creating the first batch of tasks
         if (streamingInsertJob.isKafkaStreamingJob()) {

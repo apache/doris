@@ -329,9 +329,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     private void writeUnlock() {
-        if (lock.writeLock().isHeldByCurrentThread()) {
-            lock.writeLock().unlock();
-        }
+        // if (lock.writeLock().isHeldByCurrentThread()) {
+        lock.writeLock().unlock();
+        //}
     }
 
     private UnboundTVFRelation getCurrentTvf() {
@@ -853,6 +853,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     public void onStreamTaskFail(AbstractStreamingTask task) throws JobException {
+        writeLock();
         try {
             failedTaskCount.incrementAndGet();
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
@@ -864,6 +865,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     public void onStreamTaskSuccess(AbstractStreamingTask task) {
+        writeLock();
         try {
             resetFailureInfo(null);
             succeedTaskCount.incrementAndGet();
@@ -1206,7 +1208,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void beforeCommitted(TransactionState txnState) throws TransactionException {
-        boolean shouldReleaseLock = false;
+        // boolean shouldReleaseLock = false;
+        boolean shouldReleaseLock = true;
         writeLock();
         try {
             // For Kafka streaming jobs with multiple partition tasks,
