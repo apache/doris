@@ -916,6 +916,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HNSW_CHECK_RELATIVE_DISTANCE = "hnsw_check_relative_distance";
     public static final String HNSW_BOUNDED_QUEUE = "hnsw_bounded_queue";
     public static final String IVF_NPROBE = "ivf_nprobe";
+    public static final String ANN_TOPN_MIN_INPUT_ROWS_RATIO = "ann_topn_min_input_rows_ratio";
 
     public static final String DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT = "default_variant_max_subcolumns_count";
 
@@ -3270,6 +3271,12 @@ public class SessionVariable implements Serializable, Writable {
             description = {"IVF 索引的 nprobe 参数，控制搜索时访问的聚类数量",
                     "IVF index nprobe parameter, controls the number of clusters to search"})
     public int ivfNprobe = 1;
+    @VariableMgr.VarAttr(name = ANN_TOPN_MIN_INPUT_ROWS_RATIO, needForward = true,
+            checker = "checkAnnTopnMinInputRowsRatio",
+            description = {"ANN topn 使用 ANN 索引的最小输入行比例(0.0~1.0)。如果 segment 输入行数小于 segment 行数*该比例，则跳过 ANN 索引过滤",
+                "Minimum input-rows ratio (0.0~1.0) to enable ANN index for ANN topn predicate. "
+                    + "If input rows < segment rows * ratio, ANN index filtering will be skipped"})
+    public double annTopnMinInputRowsRatio = 0.3;
 
     @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT,
@@ -5163,6 +5170,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setHnswCheckRelativeDistance(hnswCheckRelativeDistance);
         tResult.setHnswBoundedQueue(hnswBoundedQueue);
         tResult.setIvfNprobe(ivfNprobe);
+        tResult.setAnnTopnMinInputRowsRatio(annTopnMinInputRowsRatio);
         tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
         tResult.setEnableExtendedRegex(enableExtendedRegex);
         if (fileCacheQueryLimitPercent > 0) {
@@ -6069,4 +6077,17 @@ public class SessionVariable implements Serializable, Writable {
             LOG.error("failed to set affect query result variables", e);
         }
     }
+
+    public void checkAnnTopnMinInputRowsRatio(String newValue) {
+        double value = Double.parseDouble(newValue);
+        if (value < 0.0 || value > 1.0) {
+            UnsupportedOperationException exception =
+                    new UnsupportedOperationException(
+                            "ann_topn_min_input_rows_ratio can not be set to " + newValue
+                                    + ", it must be between 0.0 and 1.0");
+            LOG.warn("Check ann_topn_min_input_rows_ratio failed", exception);
+            throw exception;
+        }
+    }
+
 }

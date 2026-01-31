@@ -424,6 +424,9 @@ struct TQueryOptions {
   183: optional bool enable_use_hybrid_sort = false;
   184: optional i32 cte_max_recursion_depth;
 
+  // Minimum ratio (0.0~1.0) of input rows to segment rows to enable ANN index for ANN topn predicate.
+  // If input rows are smaller than (segment_rows * ratio), we skip ANN index filtering.
+  185: optional double ann_topn_min_input_rows_ratio = 0.3;
 
   185: optional bool enable_parquet_file_page_cache = true;
 
