@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterUserOpType;
 import org.apache.doris.analysis.PasswordOptions;
+import org.apache.doris.analysis.TlsOptions;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
@@ -45,13 +46,20 @@ public class AlterUserInfo {
     private UserDesc userDesc;
     private PasswordOptions passwordOptions;
     private String comment;
+    private TlsOptions tlsOptions;
     private Set<AlterUserOpType> ops = Sets.newHashSet();
 
-    public AlterUserInfo(boolean ifExist, UserDesc userDesc, PasswordOptions passwordOptions, String comment) {
+    public AlterUserInfo(boolean ifExist, UserDesc userDesc, PasswordOptions passwordOptions, String comment,
+            TlsOptions tlsOptions) {
         this.ifExist = ifExist;
         this.userDesc = userDesc;
         this.passwordOptions = passwordOptions;
         this.comment = comment;
+        this.tlsOptions = tlsOptions == null ? TlsOptions.notSpecified() : tlsOptions;
+    }
+
+    public AlterUserInfo(boolean ifExist, UserDesc userDesc, PasswordOptions passwordOptions, String comment) {
+        this(ifExist, userDesc, passwordOptions, comment, TlsOptions.notSpecified());
     }
 
     public boolean isIfExist() {
@@ -74,12 +82,16 @@ public class AlterUserInfo {
     }
 
     public AlterUserOpType getOpType() {
-        Preconditions.checkState(ops.size() == 1);
+        Preconditions.checkState(ops.size() == 1, "AlterUserInfo should only carry one operation");
         return ops.iterator().next();
     }
 
     public String getComment() {
         return comment;
+    }
+
+    public TlsOptions getTlsOptions() {
+        return tlsOptions;
     }
 
     /**
@@ -94,6 +106,12 @@ public class AlterUserInfo {
         }
 
         // may be set comment to "", so not use `Strings.isNullOrEmpty`
+        if (tlsOptions.hasRequireClause()) {
+            ops.add(AlterUserOpType.SET_TLS_REQUIRE);
+            tlsOptions.analyze();
+            userDesc.getUserIdent().applyTlsOptions(tlsOptions);
+        }
+
         if (comment != null) {
             ops.add(AlterUserOpType.MODIFY_COMMENT);
         }
