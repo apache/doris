@@ -43,6 +43,10 @@ public:
                    VExprContext* context) override {
         RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, row_desc, context));
         _prepare_finished = true;
+        _origin_filter = _filter;
+        if (auto bitset = _filter->try_convert_to_bitset(state)) {
+            _filter = bitset;
+        }
         return Status::OK();
     }
 
@@ -67,7 +71,7 @@ public:
 
     const std::string& expr_name() const override { return _expr_name; }
 
-    std::shared_ptr<HybridSetBase> get_set_func() const override { return _filter; }
+    std::shared_ptr<HybridSetBase> get_set_func() const override { return origin_filter(); }
 
     bool get_slot_in_expr(VExprSPtr& new_root) const {
         if (!get_child(0)->is_slot_ref()) {
@@ -110,7 +114,7 @@ public:
     uint64_t get_digest(uint64_t seed) const override {
         seed = _children[0]->get_digest(seed);
         if (seed) {
-            return _filter->get_digest(seed);
+            return origin_filter()->get_digest(seed);
         }
         return seed;
     }
@@ -148,6 +152,11 @@ private:
         return Status::OK();
     }
 
+    std::shared_ptr<HybridSetBase> origin_filter() const {
+        return _origin_filter == nullptr ? _filter : _origin_filter;
+    }
+
+    std::shared_ptr<HybridSetBase> _origin_filter = nullptr;
     std::shared_ptr<HybridSetBase> _filter;
     std::string _expr_name;
 };
