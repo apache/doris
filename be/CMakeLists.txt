@@ -614,6 +614,12 @@ set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-core-static)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-shared-static)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-contribs-lib)
 
+# paimon-cpp internal dependencies (renamed with _paimon suffix)
+# These must come after paimon libraries to resolve symbols
+set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} roaring_bitmap_paimon)
+set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} xxhash_paimon)
+set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} fmt_paimon)
+
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
 
 # Add all external dependencies. They should come after the palo libs.
