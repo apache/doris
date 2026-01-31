@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
@@ -123,9 +124,10 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
                 getChildEqualSetAndConstants(project, rewriteContext);
         ImmutableList.Builder<NamedExpression> newProjectsBuilder
                 = ImmutableList.builderWithExpectedSize(project.getProjects().size());
+        boolean hasSetOp = !project.collect(LogicalSetOperation.class::isInstance).isEmpty();
         for (NamedExpression expr : project.getProjects()) {
             newProjectsBuilder.add(replaceNameExpressionConstants(
-                    expr, rewriteContext, childEqualTrait.first, childEqualTrait.second));
+                    expr, rewriteContext, childEqualTrait.first, childEqualTrait.second, hasSetOp));
         }
 
         List<NamedExpression> newProjects = newProjectsBuilder.build();
@@ -345,7 +347,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
 
     // process NameExpression
     private NamedExpression replaceNameExpressionConstants(NamedExpression expr, ExpressionRewriteContext context,
-            ImmutableEqualSet<Slot> equalSet, Map<Slot, Literal> constants) {
+            ImmutableEqualSet<Slot> equalSet, Map<Slot, Literal> constants, boolean hasSetOp) {
 
         // if a project item is a slot reference, and the slot equals to a constant value, don't rewrite it.
         // because rule `EliminateUnnecessaryProject ` can eliminate a project when the project's output slots equal to
@@ -362,7 +364,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
 
         // PushProjectThroughUnion require projection is a slot reference, or like (cast slot reference as xx);
         // TODO: if PushProjectThroughUnion support projection like  `literal as xx`, then delete this check.
-        if (ExpressionUtils.getExpressionCoveredByCast(expr.child(0)) instanceof SlotReference) {
+        if (hasSetOp && ExpressionUtils.getExpressionCoveredByCast(expr.child(0)) instanceof SlotReference) {
             return expr;
         }
 
