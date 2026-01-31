@@ -776,9 +776,24 @@ Status Segment::new_index_iterator(const TabletColumn& tablet_column, const Tabl
     if (index_meta) {
         // call DorisCallOnce.call without check if _index_file_reader is nullptr
         // to avoid data race during parallel method calls
-        RETURN_IF_ERROR(_index_file_reader_open.call([&] { return _open_index_file_reader(); }));
+        st = _index_file_reader_open.call([&] { return _open_index_file_reader(); });
+        // If index file is empty or not found for ANN index, return OK to fallback to brute force
+        // This can happen when skip_write_index_on_load=true skips index during data loading
+        // but compaction hasn't built the index yet
+        bool is_ann_index = index_meta->index_type() == IndexType::ANN;
+        if (is_ann_index && (st.is<ErrorCode::INVERTED_INDEX_BYPASS>() ||
+                             st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>())) {
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(st);
         // after DorisCallOnce.call, _index_file_reader is guaranteed to be not nullptr
-        RETURN_IF_ERROR(reader->new_index_iterator(_index_file_reader, index_meta, iter));
+        st = reader->new_index_iterator(_index_file_reader, index_meta, iter);
+        // If loading index fails due to empty/missing data for ANN index
+        if (is_ann_index && (st.is<ErrorCode::INVERTED_INDEX_BYPASS>() ||
+                             st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>())) {
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(st);
         return Status::OK();
     }
     return Status::OK();
