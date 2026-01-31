@@ -1964,7 +1964,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         query = withFilter(query, Optional.ofNullable(ctx.whereClause()));
         String tableAlias = null;
         if (ctx.tableAlias().strictIdentifier() != null) {
-            tableAlias = ctx.tableAlias().getText();
+            tableAlias = ctx.tableAlias().strictIdentifier().getText();
         }
         Optional<LogicalPlan> cte = Optional.empty();
         if (ctx.cte() != null) {
@@ -1989,7 +1989,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         );
         String tableAlias = null;
         if (ctx.tableAlias().strictIdentifier() != null) {
-            tableAlias = ctx.tableAlias().getText();
+            tableAlias = ctx.tableAlias().strictIdentifier().getText();
         }
 
         Command deleteCommand;
