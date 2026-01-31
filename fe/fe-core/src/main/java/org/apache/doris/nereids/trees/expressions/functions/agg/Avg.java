@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NeedSessionVarGuard;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
@@ -83,15 +82,6 @@ public class Avg extends NullableAggregateFunction
     /** constructor for withChildren and reuse signature */
     private Avg(NullableAggregateFunctionParams functionParams) {
         super(functionParams);
-    }
-
-    @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = child().getDataType();
-        if (!argType.isNumericType() && !argType.isBooleanType()
-                && !argType.isNullType() && !argType.isStringLikeType()) {
-            throw new AnalysisException("avg requires a numeric, boolean or string parameter: " + this.toSql());
-        }
     }
 
     @Override
