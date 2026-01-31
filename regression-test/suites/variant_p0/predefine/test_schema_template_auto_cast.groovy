@@ -73,9 +73,27 @@ suite("test_schema_template_auto_cast", "p0") {
         FROM ${tableName} GROUP BY data['str_name']
         HAVING SUM(data['num_a']) > 20 ORDER BY data['str_name'] """
 
+    // Test 7: ORDER BY with alias from project
+    qt_order_by_alias """ SELECT data['num_a'] AS num_a FROM ${tableName}
+        ORDER BY num_a """
+
+    // Test 8: ORDER BY with alias from subquery
+    qt_order_by_alias_subquery """ SELECT * FROM (SELECT id, data['num_a'] AS num_a FROM ${tableName}) t
+        ORDER BY num_a, id """
+
+    // Test 9: GROUP BY with alias from subquery
+    qt_group_by_alias_subquery """ SELECT num_a, COUNT(*) AS cnt
+        FROM (SELECT data['num_a'] AS num_a FROM ${tableName}) t
+        GROUP BY num_a ORDER BY num_a """
+
+    // Test 10: WINDOW partition/order by with auto-cast
+    qt_window_partition_order """ SELECT id,
+        row_number() OVER (PARTITION BY data['str_name'] ORDER BY data['num_a']) AS rn
+        FROM ${tableName} ORDER BY id """
+
     sql "DROP TABLE IF EXISTS ${tableName}"
 
-    // Test 7: JOIN ON with auto-cast
+    // Test 11: JOIN ON with auto-cast
     def leftTable = "test_variant_join_left"
     def rightTable = "test_variant_join_right"
 
@@ -109,6 +127,37 @@ suite("test_schema_template_auto_cast", "p0") {
         ON l.data['key_id'] = r.info['key_id']
         ORDER BY l.id """
 
+    // Test 12: JOIN ON with alias from subquery
+    qt_join_on_alias_subquery """ SELECT l.id, r.name_val
+        FROM (SELECT id, data['key_id'] AS key_id FROM ${leftTable}) l
+        JOIN (SELECT id, info['key_id'] AS key_id, info['name_val'] AS name_val FROM ${rightTable}) r
+        ON l.key_id = r.key_id
+        ORDER BY l.id """
+
     sql "DROP TABLE IF EXISTS ${leftTable}"
     sql "DROP TABLE IF EXISTS ${rightTable}"
+
+    // Test 13: MATCH_NAME and MATCH_NAME_GLOB
+    def exactTable = "test_variant_schema_auto_cast_exact"
+    sql "DROP TABLE IF EXISTS ${exactTable}"
+    sql """CREATE TABLE ${exactTable} (
+        `id` bigint NULL,
+        `data` variant<'exact_key': BIGINT, 'glob_*': BIGINT> NOT NULL
+    ) ENGINE=OLAP DUPLICATE KEY(`id`)
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
+
+    sql """insert into ${exactTable} values(1, '{"exact_key": 10, "glob_1": 20, "glob_2": 5}')"""
+    sql """insert into ${exactTable} values(2, '{"exact_key": 30, "glob_2": 40}')"""
+
+    qt_match_name_exact_where """ SELECT id FROM ${exactTable}
+        WHERE data['exact_key'] > 10 ORDER BY id """
+    qt_match_name_glob_where """ SELECT id FROM ${exactTable}
+        WHERE data['glob_1'] >= 20 ORDER BY id """
+    qt_match_name_exact_order """ SELECT id FROM ${exactTable}
+        ORDER BY data['exact_key'] """
+    qt_match_name_glob_order """ SELECT id FROM ${exactTable}
+        ORDER BY data['glob_2'], id """
+
+    sql "DROP TABLE IF EXISTS ${exactTable}"
 }
