@@ -1204,10 +1204,14 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
     // Then, return false.
     const auto& column = _opts.tablet_schema->column(cid);
     // Different subcolumns may share the same parent_unique_id, so we choose to abandon this optimization.
-    if (column.is_extracted_column()) {
+    if (column.is_extracted_column() &&
+        _opts.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX) {
         return true;
     }
     int32_t unique_id = column.unique_id();
+    if (unique_id < 0) {
+        unique_id = column.parent_unique_id();
+    }
     if ((_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid] &&
          !_output_columns.contains(unique_id)) ||
         (_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid] &&
