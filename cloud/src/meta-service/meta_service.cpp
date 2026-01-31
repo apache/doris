@@ -2558,6 +2558,43 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
         return;
     }
 
+    // Record the BE's cluster_id in TxnInfoPB for compaction read-write separation.
+    // prepare_rowset is called by BE directly, so cloud_unique_id is the BE's.
+    // commit_txn is called by FE, so we store the cluster_id here for later use.
+    if (rowset_meta.has_load_id()) {
+        std::vector<NodeInfo> nodes;
+        std::string node_err = resource_mgr_->get_node(request->cloud_unique_id(), &nodes);
+        if (node_err.empty() && !nodes.empty() && !nodes[0].cluster_id.empty()) {
+            // Read TxnIndexPB to get db_id
+            auto txn_id = rowset_meta.txn_id();
+            auto index_key = txn_index_key({instance_id, txn_id});
+            std::string index_val;
+            err = txn->get(index_key, &index_val);
+            if (err == TxnErrorCode::TXN_OK) {
+                TxnIndexPB index_pb;
+                if (index_pb.ParseFromString(index_val) && index_pb.has_tablet_index() &&
+                    index_pb.tablet_index().has_db_id()) {
+                    auto db_id = index_pb.tablet_index().db_id();
+                    auto actual_txn_id =
+                            index_pb.has_parent_txn_id() ? index_pb.parent_txn_id() : txn_id;
+                    auto info_key = txn_info_key({instance_id, db_id, actual_txn_id});
+                    std::string info_val;
+                    err = txn->get(info_key, &info_val);
+                    if (err == TxnErrorCode::TXN_OK) {
+                        TxnInfoPB txn_info;
+                        if (txn_info.ParseFromString(info_val) && !txn_info.has_load_cluster_id()) {
+                            txn_info.set_load_cluster_id(nodes[0].cluster_id);
+                            txn_info.SerializeToString(&info_val);
+                            txn->put(info_key, info_val);
+                            LOG(INFO) << "set load_cluster_id=" << nodes[0].cluster_id
+                                      << " for txn_id=" << actual_txn_id;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     auto prepare_rs_key = recycle_rowset_key({instance_id, tablet_id, rowset_id});
     RecycleRowsetPB prepare_rowset;
     using namespace std::chrono;
