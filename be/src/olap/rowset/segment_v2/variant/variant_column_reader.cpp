@@ -1134,6 +1134,16 @@ Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const si
     return _process_root_column(dst, root_column, most_common_type);
 }
 
+Status VariantRootColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) {
+    return _inner_iter->init_prefetcher(params);
+}
+
+void VariantRootColumnIterator::collect_prefetchers(
+        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+        PrefetcherInitMethod init_method) {
+    _inner_iter->collect_prefetchers(prefetchers, init_method);
+}
+
 static void fill_nested_with_defaults(vectorized::MutableColumnPtr& dst,
                                       vectorized::MutableColumnPtr& sibling_column, size_t nrows) {
     const auto* sibling_array = vectorized::check_and_get_column<vectorized::ColumnArray>(
