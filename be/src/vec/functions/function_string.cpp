@@ -714,7 +714,7 @@ struct TrimUtil {
         return Status::OK();
     }
 };
-template <bool is_ltrim, bool is_rtrim, bool trim_single>
+template <bool is_ltrim, bool is_rtrim>
 struct TrimInUtil {
     static Status vector(const ColumnString::Chars& str_data,
                          const ColumnString::Offsets& str_offsets, const StringRef& remove_str,
@@ -722,9 +722,9 @@ struct TrimInUtil {
         const size_t offset_size = str_offsets.size();
         res_offsets.resize(offset_size);
         res_data.reserve(str_data.size());
-        bool all_ascii = simd::VStringFunctions::is_ascii(remove_str) &&
-                         simd::VStringFunctions::is_ascii(StringRef(
-                                 reinterpret_cast<const char*>(str_data.data()), str_data.size()));
+        // Since UTF-8 encoding ensures that ASCII bytes (0x00-0x7F) never appear within multi-byte sequences,
+        // if the string to remove contains only ASCII, byte-level removal is safe and will not corrupt any UTF-8 characters.
+        bool all_ascii = simd::VStringFunctions::is_ascii(remove_str);
 
         if (all_ascii) {
             return impl_vectors_ascii(str_data, str_offsets, remove_str, res_data, res_offsets);
@@ -739,12 +739,13 @@ private:
                                      const StringRef& remove_str, ColumnString::Chars& res_data,
                                      ColumnString::Offsets& res_offsets) {
         const size_t offset_size = str_offsets.size();
-        std::bitset<128> char_lookup;
+
+        uint8_t char_lookup[256] = {0};
         const char* remove_begin = remove_str.data;
         const char* remove_end = remove_str.data + remove_str.size;
 
         while (remove_begin < remove_end) {
-            char_lookup.set(static_cast<unsigned char>(*remove_begin));
+            char_lookup[static_cast<unsigned char>(*remove_begin)] = 1;
             remove_begin += 1;
         }
 
@@ -757,7 +758,7 @@ private:
 
             if constexpr (is_ltrim) {
                 while (left_trim_pos < str_end) {
-                    if (!char_lookup.test(static_cast<unsigned char>(*left_trim_pos))) {
+                    if (!char_lookup[static_cast<unsigned char>(*left_trim_pos)]) {
                         break;
                     }
                     ++left_trim_pos;
@@ -767,7 +768,7 @@ private:
             if constexpr (is_rtrim) {
                 while (right_trim_pos > left_trim_pos) {
                     --right_trim_pos;
-                    if (!char_lookup.test(static_cast<unsigned char>(*right_trim_pos))) {
+                    if (!char_lookup[static_cast<unsigned char>(*right_trim_pos)]) {
                         ++right_trim_pos;
                         break;
                     }
@@ -794,12 +795,10 @@ private:
         const char* remove_begin = remove_str.data;
         const char* remove_end = remove_str.data + remove_str.size;
 
-        while (remove_begin < remove_end) {
-            size_t byte_len, char_len;
-            std::tie(byte_len, char_len) = simd::VStringFunctions::iterate_utf8_with_limit_length(
-                    remove_begin, remove_end, 1);
-            char_lookup.insert(std::string_view(remove_begin, byte_len));
-            remove_begin += byte_len;
+        int remove_str_char_len = 0;
+        for (const char* pos = remove_begin; pos < remove_end; pos += remove_str_char_len) {
+            remove_str_char_len = UTF8_BYTE_LENGTH[static_cast<uint8_t>(*pos)];
+            char_lookup.insert(std::string_view(pos, remove_str_char_len));
         }
 
         for (size_t i = 0; i < offset_size; ++i) {
@@ -810,13 +809,9 @@ private:
             const char* right_trim_pos = str_end;
 
             if constexpr (is_ltrim) {
-                while (left_trim_pos < str_end) {
-                    size_t byte_len, char_len;
-                    std::tie(byte_len, char_len) =
-                            simd::VStringFunctions::iterate_utf8_with_limit_length(left_trim_pos,
-                                                                                   str_end, 1);
-                    if (char_lookup.find(std::string_view(left_trim_pos, byte_len)) ==
-                        char_lookup.end()) {
+                while (left_trim_pos < right_trim_pos) {
+                    size_t byte_len = UTF8_BYTE_LENGTH[static_cast<uint8_t>(*left_trim_pos)];
+                    if (!char_lookup.contains(std::string_view(left_trim_pos, byte_len))) {
                         break;
                     }
                     left_trim_pos += byte_len;
@@ -830,8 +825,7 @@ private:
                         --prev_char_pos;
                     } while ((*prev_char_pos & 0xC0) == 0x80);
                     size_t byte_len = right_trim_pos - prev_char_pos;
-                    if (char_lookup.find(std::string_view(prev_char_pos, byte_len)) ==
-                        char_lookup.end()) {
+                    if (!char_lookup.contains(std::string_view(prev_char_pos, byte_len))) {
                         break;
                     }
                     right_trim_pos = prev_char_pos;
@@ -902,7 +896,7 @@ struct Trim2Impl {
                     if constexpr (std::is_same<Name, NameTrimIn>::value ||
                                   std::is_same<Name, NameLTrimIn>::value ||
                                   std::is_same<Name, NameRTrimIn>::value) {
-                        RETURN_IF_ERROR((TrimInUtil<is_ltrim, is_rtrim, false>::vector(
+                        RETURN_IF_ERROR((TrimInUtil<is_ltrim, is_rtrim>::vector(
                                 col->get_chars(), col->get_offsets(), remove_str,
                                 col_res->get_chars(), col_res->get_offsets())));
                     } else {
