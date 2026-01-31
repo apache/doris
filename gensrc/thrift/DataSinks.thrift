@@ -144,7 +144,7 @@ struct TResultFileSinkOptions {
     20: optional i64 orc_writer_version;
 
     //iceberg write sink use int64
-    //hive write sink use int96
+    //hive write sink use 'fe.conf: parquet_default_timestamps',see : `THiveTableSink`
     //export data to file use by user define properties
     21: optional bool enable_int96_timestamps
     // currently only for csv
@@ -365,6 +365,7 @@ struct THiveTableSink {
     10: optional bool overwrite
     11: optional THiveSerDeProperties serde_properties
     12: optional list<Types.TNetworkAddress> broker_addresses;
+    13: optional bool enable_int96_timestamps // fe.conf : parquet_default_timestamps_physical_type = int64/int96
 }
 
 enum TUpdateMode {

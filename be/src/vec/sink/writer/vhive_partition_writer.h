@@ -111,6 +111,8 @@ private:
     std::unique_ptr<VFileFormatTransformer> _file_format_transformer = nullptr;
 
     RuntimeState* _state;
+    // write int96 timestamps in parquet file. config by `fe.conf: parquet_default_timestamps_physical_type`.
+    bool _enable_int96_timestamps = true;
 };
 } // namespace vectorized
 } // namespace doris
