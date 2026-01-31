@@ -75,7 +75,7 @@ public class PhysicalEsScan extends PhysicalCatalogRelation {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalEsScan",
+        return Utils.toSqlString("PhysicalEsScan[" + id.asInt() + "]",
                 "qualified", Utils.qualifiedName(qualifier, table.getName()),
                 "alias", tableAlias,
                 "output", getOutput(),

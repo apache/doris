@@ -72,7 +72,7 @@ public class PhysicalOdbcScan extends PhysicalCatalogRelation {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalOdbcScan",
+        return Utils.toSqlString("PhysicalOdbcScan[" + id.asInt() + "]",
                 "qualified", Utils.qualifiedName(qualifier, table.getName()),
                 "alias", tableAlias,
                 "output", getOutput(),
