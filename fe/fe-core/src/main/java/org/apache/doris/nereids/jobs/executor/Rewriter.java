@@ -49,6 +49,7 @@ import org.apache.doris.nereids.rules.rewrite.CheckMultiDistinct;
 import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
 import org.apache.doris.nereids.rules.rewrite.CheckRestorePartition;
 import org.apache.doris.nereids.rules.rewrite.CheckScoreUsage;
+import org.apache.doris.nereids.rules.rewrite.CheckUniqueExprId;
 import org.apache.doris.nereids.rules.rewrite.ClearContextStatus;
 import org.apache.doris.nereids.rules.rewrite.CollectCteConsumerOutput;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
@@ -808,6 +809,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 // this rule batch must keep at the end of rewrite to do some plan check
                 topic("final rewrite and check",
                         custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),
+                        custom(RuleType.CHECK_UNIQUE_EXPR_ID, CheckUniqueExprId::new),
                         topDown(new PushDownFilterThroughProject(), new MergeProjectable()),
                         custom(RuleType.ADJUST_CONJUNCTS_RETURN_TYPE, AdjustConjunctsReturnType::new),
                         topDown(new ExpressionRewrite(MergeGuardExpr.INSTANCE)),

@@ -116,6 +116,7 @@ public enum RuleType {
     CHECK_RESTORE_PARTITION(RuleTypeClass.CHECK),
     CHECK_OBJECT_TYPE_ANALYSIS(RuleTypeClass.CHECK),
     CHECK_DATA_TYPES(RuleTypeClass.CHECK),
+    CHECK_UNIQUE_EXPR_ID(RuleTypeClass.CHECK),
 
     // rewrite rules
     COMPRESSED_MATERIALIZE_AGG(RuleTypeClass.REWRITE),
