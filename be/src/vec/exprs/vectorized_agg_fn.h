@@ -133,7 +133,9 @@ private:
               _without_key(without_key),
               _is_window_function(is_window_function) {};
 #endif
-    Status _calc_argument_columns(Block* block);
+    Status _calc_argument_columns(const Block* block);
+
+    void _reset_input_columns();
 
     DataTypes _argument_types_with_sort;
     DataTypes _real_argument_types;
@@ -155,7 +157,9 @@ private:
 
     std::string _expr_name;
 
-    std::vector<const IColumn*> _agg_columns;
+    Columns _agg_input_columns;
+
+    std::vector<const IColumn*> _agg_raw_input_columns;
 };
 } // namespace vectorized
 
