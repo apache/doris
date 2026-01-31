@@ -49,6 +49,7 @@ struct FieldReaderBinding {
     std::shared_ptr<lucene::index::IndexReader> lucene_reader;
     std::map<std::string, std::string> index_properties;
     std::string binding_key;
+    std::string analyzer_key;
 };
 
 class FieldReaderResolver {

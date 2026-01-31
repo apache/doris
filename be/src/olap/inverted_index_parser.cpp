@@ -82,37 +82,35 @@ std::string get_parser_string_from_properties(
 
 std::string get_parser_mode_string_from_properties(
         const std::map<std::string, std::string>& properties) {
-    if (properties.find(INVERTED_INDEX_PARSER_MODE_KEY) != properties.end()) {
-        return properties.at(INVERTED_INDEX_PARSER_MODE_KEY);
-    } else {
-        auto parser_it = properties.find(INVERTED_INDEX_PARSER_KEY);
-        if (parser_it == properties.end()) {
-            parser_it = properties.find(INVERTED_INDEX_PARSER_KEY_ALIAS);
-        }
-        if (parser_it != properties.end() && parser_it->second == INVERTED_INDEX_PARSER_IK) {
-            return INVERTED_INDEX_PARSER_SMART;
-        }
-        return INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
+    if (auto it = properties.find(INVERTED_INDEX_PARSER_MODE_KEY); it != properties.end()) {
+        return it->second;
     }
+    auto parser_it = properties.find(INVERTED_INDEX_PARSER_KEY);
+    if (parser_it == properties.end()) {
+        parser_it = properties.find(INVERTED_INDEX_PARSER_KEY_ALIAS);
+    }
+    if (parser_it != properties.end() && parser_it->second == INVERTED_INDEX_PARSER_IK) {
+        return INVERTED_INDEX_PARSER_SMART;
+    }
+    return INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
 }
 
 std::string get_parser_phrase_support_string_from_properties(
         const std::map<std::string, std::string>& properties) {
-    if (properties.find(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY) != properties.end()) {
-        return properties.at(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY);
-    } else {
-        return INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO;
+    if (auto it = properties.find(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY);
+        it != properties.end()) {
+        return it->second;
     }
+    return INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO;
 }
 
 CharFilterMap get_parser_char_filter_map_from_properties(
         const std::map<std::string, std::string>& properties) {
-    CharFilterMap char_filter_map;
-
-    if (properties.find(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE) == properties.end()) {
-        return CharFilterMap();
+    if (!properties.contains(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE)) {
+        return {};
     }
 
+    CharFilterMap char_filter_map;
     std::string type = properties.at(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE);
     if (type == INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE) {
         // type
@@ -120,20 +118,20 @@ CharFilterMap get_parser_char_filter_map_from_properties(
                 INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE;
 
         // pattern
-        if (properties.find(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN) == properties.end()) {
-            return CharFilterMap();
+        if (!properties.contains(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN)) {
+            return {};
         }
         std::string pattern = properties.at(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN);
         char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN] = pattern;
 
         // placement
         std::string replacement = " ";
-        if (properties.find(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT) != properties.end()) {
+        if (properties.contains(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT)) {
             replacement = properties.at(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT);
         }
         char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT] = replacement;
     } else {
-        return CharFilterMap();
+        return {};
     }
 
     return char_filter_map;
@@ -141,30 +139,28 @@ CharFilterMap get_parser_char_filter_map_from_properties(
 
 std::string get_parser_ignore_above_value_from_properties(
         const std::map<std::string, std::string>& properties) {
-    if (properties.find(INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY) != properties.end()) {
-        return properties.at(INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY);
-    } else {
-        return INVERTED_INDEX_PARSER_IGNORE_ABOVE_VALUE;
+    if (auto it = properties.find(INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY); it != properties.end()) {
+        return it->second;
     }
+    return INVERTED_INDEX_PARSER_IGNORE_ABOVE_VALUE;
 }
 
 std::string get_parser_stopwords_from_properties(
         const std::map<std::string, std::string>& properties) {
     DBUG_EXECUTE_IF("inverted_index_parser.get_parser_stopwords_from_properties", { return ""; })
-    if (properties.find(INVERTED_INDEX_PARSER_STOPWORDS_KEY) != properties.end()) {
-        return properties.at(INVERTED_INDEX_PARSER_STOPWORDS_KEY);
-    } else {
-        return "";
+    if (auto it = properties.find(INVERTED_INDEX_PARSER_STOPWORDS_KEY); it != properties.end()) {
+        return it->second;
     }
+    return "";
 }
 
 std::string get_parser_dict_compression_from_properties(
         const std::map<std::string, std::string>& properties) {
-    if (properties.find(INVERTED_INDEX_PARSER_DICT_COMPRESSION_KEY) != properties.end()) {
-        return properties.at(INVERTED_INDEX_PARSER_DICT_COMPRESSION_KEY);
-    } else {
-        return "";
+    if (auto it = properties.find(INVERTED_INDEX_PARSER_DICT_COMPRESSION_KEY);
+        it != properties.end()) {
+        return it->second;
     }
+    return "";
 }
 
 std::string get_analyzer_name_from_properties(
@@ -180,6 +176,111 @@ std::string get_analyzer_name_from_properties(
     }
 
     return "";
+}
+
+std::string normalize_analyzer_key(std::string_view analyzer) {
+    // Simple normalization: lowercase, or empty if input is empty.
+    // Empty string means "user did not specify" - BE will auto-select.
+    // Non-empty string means "user specified this analyzer" - BE will exact match.
+    if (analyzer.empty()) {
+        return "";
+    }
+    return to_lower(std::string(analyzer));
+}
+
+std::string build_analyzer_key_from_properties(
+        const std::map<std::string, std::string>& properties) {
+    // Build analyzer key from index properties for reader registration.
+    // This determines how the index is stored/identified.
+
+    // 1. Check for custom analyzer name
+    auto custom_it = properties.find(INVERTED_INDEX_ANALYZER_NAME_KEY);
+    if (custom_it != properties.end() && !custom_it->second.empty()) {
+        return to_lower(custom_it->second);
+    }
+
+    // 2. Fall back to parser type
+    std::string parser;
+    auto parser_it = properties.find(INVERTED_INDEX_PARSER_KEY);
+    if (parser_it != properties.end()) {
+        parser = parser_it->second;
+    } else {
+        parser_it = properties.find(INVERTED_INDEX_PARSER_KEY_ALIAS);
+        if (parser_it != properties.end()) {
+            parser = parser_it->second;
+        }
+    }
+
+    // 3. Return normalized parser or "" for no explicit configuration
+    if (parser.empty()) {
+        return ""; // No explicit parser - empty key means "no configuration"
+    }
+    return to_lower(parser);
+}
+
+// ============================================================================
+// AnalyzerConfigParser implementation
+// ============================================================================
+
+std::string AnalyzerConfigParser::normalize_to_lower(const std::string& value) {
+    return to_lower(value);
+}
+
+bool AnalyzerConfigParser::is_builtin_analyzer(const std::string& normalized_name) {
+    if (normalized_name.empty()) {
+        return false;
+    }
+    auto parser_type = get_inverted_index_parser_type_from_string(normalized_name);
+    return parser_type != InvertedIndexParserType::PARSER_UNKNOWN;
+}
+
+std::string AnalyzerConfigParser::compute_analyzer_key(const std::string& value) {
+    // Simple: just lowercase, empty stays empty
+    return normalize_analyzer_key(value);
+}
+
+AnalyzerConfig AnalyzerConfigParser::parse(const std::string& analyzer_name,
+                                           const std::string& parser_type_str) {
+    AnalyzerConfig config;
+
+    // Determine parser type from parser_type_str (from index properties)
+    auto parser_type = get_inverted_index_parser_type_from_string(parser_type_str);
+    const std::string normalized_analyzer = normalize_to_lower(analyzer_name);
+
+    // If parser_type_str didn't yield a valid type, try analyzer_name
+    if (parser_type == InvertedIndexParserType::PARSER_UNKNOWN && !normalized_analyzer.empty()) {
+        parser_type = get_inverted_index_parser_type_from_string(normalized_analyzer);
+    }
+
+    const bool analyzer_is_builtin = is_builtin_analyzer(normalized_analyzer);
+
+    // Case 1: analyzer_name is non-empty and NOT a builtin type => custom analyzer
+    if (!analyzer_name.empty() && !analyzer_is_builtin) {
+        config.custom_analyzer = analyzer_name;
+        config.parser_type = InvertedIndexParserType::PARSER_NONE;
+        config.analyzer_key = normalize_to_lower(analyzer_name);
+    } else {
+        // Case 2: builtin analyzer or user did not specify analyzer
+        config.custom_analyzer.clear();
+
+        // Use parser_type from index properties for slow path tokenization
+        if (parser_type == InvertedIndexParserType::PARSER_UNKNOWN) {
+            config.parser_type = InvertedIndexParserType::PARSER_NONE;
+        } else {
+            config.parser_type = parser_type;
+        }
+
+        // analyzer_key: what user specified (for index selection)
+        // Empty means "user did not specify", BE will auto-select
+        if (normalized_analyzer.empty() && parser_type != InvertedIndexParserType::PARSER_UNKNOWN) {
+            // No analyzer name but valid parser type - use parser type as key
+            config.analyzer_key = inverted_index_parser_type_to_string(parser_type);
+        } else {
+            config.analyzer_key = normalized_analyzer;
+        }
+    }
+
+    return config;
 }
 
 } // namespace doris

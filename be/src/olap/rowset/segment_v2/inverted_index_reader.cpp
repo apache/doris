@@ -314,13 +314,22 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
                                      query_info);
         } else {
             SCOPED_RAW_TIMER(&context->stats->inverted_index_analyzer_timer);
-            if (analyzer_ctx != nullptr && analyzer_ctx->analyzer != nullptr) {
+            if (analyzer_ctx != nullptr && !analyzer_ctx->should_tokenize()) {
+                // Don't add empty string as token - empty query should match nothing
+                if (!search_str.empty()) {
+                    query_info.term_infos.emplace_back(search_str);
+                }
+            } else if (analyzer_ctx != nullptr && analyzer_ctx->analyzer != nullptr) {
+                // Use analyzer from query context for consistent behavior across all segments.
+                // This ensures that the query uses the same analyzer settings (e.g., lowercase)
+                // regardless of how each segment's index was originally built.
                 auto reader = inverted_index::InvertedIndexAnalyzer::create_reader(
                         analyzer_ctx->char_filter_map);
                 reader->init(search_str.data(), static_cast<int32_t>(search_str.size()), true);
                 query_info.term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                        reader, analyzer_ctx->analyzer);
+                        reader, analyzer_ctx->analyzer.get());
             } else {
+                // No analyzer context available, use index's own analyzer as fallback
                 query_info.term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
                         search_str, _index_meta.properties());
             }

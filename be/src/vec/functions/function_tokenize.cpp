@@ -107,7 +107,7 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
         auto reader = InvertedIndexAnalyzer::create_reader(analyzer_ctx.char_filter_map);
         reader->init(tokenize_str.data, (int)tokenize_str.size, true);
         auto analyzer_tokens =
-                InvertedIndexAnalyzer::get_analyse_result(reader, analyzer_ctx.analyzer);
+                InvertedIndexAnalyzer::get_analyse_result(reader, analyzer_ctx.analyzer.get());
 
         rapidjson::Document doc;
         doc.SetArray();
@@ -194,7 +194,7 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             analyzer_ctx.analyzer_name = config.analyzer_name;
             analyzer_ctx.parser_type = config.parser_type;
             analyzer_ctx.char_filter_map = config.char_filter_map;
-            analyzer_ctx.analyzer = analyzer_holder.get();
+            analyzer_ctx.analyzer = analyzer_holder;
             _do_tokenize(*col_left, analyzer_ctx, support_phrase, dest_column_ptr);
 
             block.replace_by_position(result, std::move(dest_column_ptr));

@@ -29,10 +29,10 @@
 #include <gen_cpp/Exprs_types.h>
 #include <glog/logging.h>
 
-#include <cstddef>
 #include <memory>
-#include <ostream>
+#include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 #include "common/status.h"
@@ -44,6 +44,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vslot_ref.h"
+#include "vec/functions/match.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris {
@@ -73,7 +74,10 @@ VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
                     { config.lower_case = ""; })
     config.stop_words = node.match_predicate.parser_stopwords;
 
-    // Step 2: Use config to create analyzer (factory method)
+    // Step 2: Use config to create analyzer (factory method).
+    // Always create analyzer based on parser_type for slow path (tables without index).
+    // For index path, FullTextIndexReader will check analyzer_name to decide whether
+    // to use this analyzer or fallback to index's own analyzer.
     _analyzer = inverted_index::InvertedIndexAnalyzer::create_analyzer(&config);
 
     // Step 3: Create runtime context (only extract runtime-needed info)
@@ -81,7 +85,7 @@ VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
     _analyzer_ctx->analyzer_name = config.analyzer_name;
     _analyzer_ctx->parser_type = config.parser_type;
     _analyzer_ctx->char_filter_map = std::move(config.char_filter_map);
-    _analyzer_ctx->analyzer = _analyzer.get();
+    _analyzer_ctx->analyzer = _analyzer;
 }
 
 VMatchPredicate::~VMatchPredicate() = default;
@@ -93,7 +97,7 @@ Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(_children.size());
     std::vector<std::string_view> child_expr_name;
-    for (auto child : _children) {
+    for (const auto& child : _children) {
         argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
         child_expr_name.emplace_back(child->expr_name());
     }
@@ -102,7 +106,7 @@ Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
                                                                argument_template, _data_type, {});
     if (_function == nullptr) {
         std::string type_str;
-        for (auto arg : argument_template) {
+        for (const auto& arg : argument_template) {
             type_str = type_str + " " + arg.type->get_name();
         }
         return Status::NotSupported(
@@ -148,6 +152,10 @@ Status VMatchPredicate::evaluate_inverted_index(VExprContext* context, uint32_t 
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
+const std::string& VMatchPredicate::get_analyzer_key() const {
+    return _analyzer_ctx->analyzer_name;
+}
+
 Status VMatchPredicate::execute_column(VExprContext* context, const Block* block, size_t count,
                                        ColumnPtr& result_column) const {
     DCHECK(_open_finished || block == nullptr);
@@ -167,7 +175,7 @@ Status VMatchPredicate::execute_column(VExprContext* context, const Block* block
 
         auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
         std::string column_name = column_slot_ref->expr_name();
-        auto it = std::find(column_names.begin(), column_names.end(), column_name);
+        auto it = std::ranges::find(column_names, column_name);
         if (it == column_names.end()) {
             return Status::Error<ErrorCode::INTERNAL_ERROR>(
                     "column {} should in slow path while VMatchPredicate::execute.", column_name);
@@ -175,12 +183,12 @@ Status VMatchPredicate::execute_column(VExprContext* context, const Block* block
     })
     ColumnNumbers arguments(_children.size());
     Block temp_block;
-    for (int i = 0; i < _children.size(); ++i) {
+    for (size_t i = 0; i < _children.size(); ++i) {
         ColumnPtr arg_column;
         RETURN_IF_ERROR(_children[i]->execute_column(context, block, count, arg_column));
         auto arg_type = _children[i]->execute_type(block);
         temp_block.insert({arg_column, arg_type, _children[i]->expr_name()});
-        arguments[i] = i;
+        arguments[i] = static_cast<uint32_t>(i);
     }
     uint32_t num_columns_without_result = temp_block.columns();
     // prepare a column to save result
