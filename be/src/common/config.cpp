@@ -65,6 +65,8 @@ DEFINE_Int32(be_port, "9060");
 // port for brpc
 DEFINE_Int32(brpc_port, "8060");
 
+DEFINE_Bool(enable_arrow_flight, "true");
+
 DEFINE_Int32(arrow_flight_sql_port, "8050");
 
 DEFINE_Int32(cdc_client_port, "9096");

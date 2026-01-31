@@ -48,6 +48,7 @@
 #include <exception>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -228,14 +229,16 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                            config::brpc_light_work_pool_max_queue_size != -1
                                    ? config::brpc_light_work_pool_max_queue_size
                                    : std::max(10240, CpuInfo::num_cores() * 320),
-                           "brpc_light"),
-          _arrow_flight_work_pool(config::brpc_arrow_flight_work_pool_threads != -1
-                                          ? config::brpc_arrow_flight_work_pool_threads
-                                          : std::max(512, CpuInfo::num_cores() * 2),
-                                  config::brpc_arrow_flight_work_pool_max_queue_size != -1
-                                          ? config::brpc_arrow_flight_work_pool_max_queue_size
-                                          : std::max(20480, CpuInfo::num_cores() * 640),
-                                  "brpc_arrow_flight") {
+                           "brpc_light") {
+    if (config::enable_arrow_flight) {
+        _arrow_flight_work_pool.emplace(config::brpc_arrow_flight_work_pool_threads != -1
+                                                ? config::brpc_arrow_flight_work_pool_threads
+                                                : std::max(512, CpuInfo::num_cores() * 2),
+                                        config::brpc_arrow_flight_work_pool_max_queue_size != -1
+                                                ? config::brpc_arrow_flight_work_pool_max_queue_size
+                                                : std::max(20480, CpuInfo::num_cores() * 640),
+                                        "brpc_arrow_flight");
+    }
     REGISTER_HOOK_METRIC(heavy_work_pool_queue_size,
                          [this]() { return _heavy_work_pool.get_queue_size(); });
     REGISTER_HOOK_METRIC(light_work_pool_queue_size,
@@ -254,14 +257,16 @@ PInternalService::PInternalService(ExecEnv* exec_env)
     REGISTER_HOOK_METRIC(light_work_max_threads,
                          []() { return config::brpc_light_work_pool_threads; });
 
-    REGISTER_HOOK_METRIC(arrow_flight_work_pool_queue_size,
-                         [this]() { return _arrow_flight_work_pool.get_queue_size(); });
-    REGISTER_HOOK_METRIC(arrow_flight_work_active_threads,
-                         [this]() { return _arrow_flight_work_pool.get_active_threads(); });
-    REGISTER_HOOK_METRIC(arrow_flight_work_pool_max_queue_size,
-                         []() { return config::brpc_arrow_flight_work_pool_max_queue_size; });
-    REGISTER_HOOK_METRIC(arrow_flight_work_max_threads,
-                         []() { return config::brpc_arrow_flight_work_pool_threads; });
+    if (_arrow_flight_work_pool) {
+        REGISTER_HOOK_METRIC(arrow_flight_work_pool_queue_size,
+                             [this]() { return _arrow_flight_work_pool->get_queue_size(); });
+        REGISTER_HOOK_METRIC(arrow_flight_work_active_threads,
+                             [this]() { return _arrow_flight_work_pool->get_active_threads(); });
+        REGISTER_HOOK_METRIC(arrow_flight_work_pool_max_queue_size,
+                             []() { return config::brpc_arrow_flight_work_pool_max_queue_size; });
+        REGISTER_HOOK_METRIC(arrow_flight_work_max_threads,
+                             []() { return config::brpc_arrow_flight_work_pool_threads; });
+    }
 
     _exec_env->load_stream_mgr()->set_heavy_work_pool(&_heavy_work_pool);
 
@@ -285,10 +290,12 @@ PInternalService::~PInternalService() {
     DEREGISTER_HOOK_METRIC(heavy_work_max_threads);
     DEREGISTER_HOOK_METRIC(light_work_max_threads);
 
-    DEREGISTER_HOOK_METRIC(arrow_flight_work_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(arrow_flight_work_active_threads);
-    DEREGISTER_HOOK_METRIC(arrow_flight_work_pool_max_queue_size);
-    DEREGISTER_HOOK_METRIC(arrow_flight_work_max_threads);
+    if (_arrow_flight_work_pool) {
+        DEREGISTER_HOOK_METRIC(arrow_flight_work_pool_queue_size);
+        DEREGISTER_HOOK_METRIC(arrow_flight_work_active_threads);
+        DEREGISTER_HOOK_METRIC(arrow_flight_work_pool_max_queue_size);
+        DEREGISTER_HOOK_METRIC(arrow_flight_work_max_threads);
+    }
 
     CHECK_EQ(0, bthread_key_delete(btls_key));
     CHECK_EQ(0, bthread_key_delete(AsyncIO::btls_io_ctx_key));
@@ -670,7 +677,12 @@ void PInternalService::fetch_arrow_data(google::protobuf::RpcController* control
                                         const PFetchArrowDataRequest* request,
                                         PFetchArrowDataResult* result,
                                         google::protobuf::Closure* done) {
-    bool ret = _arrow_flight_work_pool.try_offer([request, result, done]() {
+    if (!_arrow_flight_work_pool) {
+        offer_failed(result, done, _light_work_pool);
+        return;
+    }
+
+    bool ret = _arrow_flight_work_pool->try_offer([request, result, done]() {
         auto ctx = vectorized::GetArrowResultBatchCtx::create_shared(result, done);
         TUniqueId unique_id = UniqueId(request->finst_id()).to_thrift(); // query_id or instance_id
         std::shared_ptr<vectorized::ArrowFlightResultBlockBuffer> arrow_buffer;
@@ -684,7 +696,7 @@ void PInternalService::fetch_arrow_data(google::protobuf::RpcController* control
         }
     });
     if (!ret) {
-        offer_failed(result, done, _arrow_flight_work_pool);
+        offer_failed(result, done, *_arrow_flight_work_pool);
         return;
     }
 }
@@ -917,7 +929,11 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
                                                  const PFetchArrowFlightSchemaRequest* request,
                                                  PFetchArrowFlightSchemaResult* result,
                                                  google::protobuf::Closure* done) {
-    bool ret = _arrow_flight_work_pool.try_offer([request, result, done]() {
+    if (!_arrow_flight_work_pool) {
+        offer_failed(result, done, _light_work_pool);
+        return;
+    }
+    bool ret = _arrow_flight_work_pool->try_offer([request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         std::shared_ptr<arrow::Schema> schema;
         std::shared_ptr<vectorized::ArrowFlightResultBlockBuffer> buffer;
@@ -949,7 +965,7 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
         st.to_protobuf(result->mutable_status());
     });
     if (!ret) {
-        offer_failed(result, done, _arrow_flight_work_pool);
+        offer_failed(result, done, *_arrow_flight_work_pool);
         return;
     }
 }
