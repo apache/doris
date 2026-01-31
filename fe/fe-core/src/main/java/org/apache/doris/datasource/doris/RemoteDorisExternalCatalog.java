@@ -23,6 +23,7 @@ import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.arrowflight.FlightSqlClientLoadBalancer;
 import org.apache.doris.datasource.property.constants.RemoteDorisProperties;
 import org.apache.doris.thrift.TNetworkAddress;
 
@@ -30,8 +31,10 @@ import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -40,6 +43,7 @@ public class RemoteDorisExternalCatalog extends ExternalCatalog {
 
     private RemoteDorisRestClient dorisRestClient;
     private FeServiceClient client;
+    private FlightSqlClientLoadBalancer flightSqlClientLoadBalancer;
     private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
             RemoteDorisProperties.FE_THRIFT_HOSTS,
             RemoteDorisProperties.FE_HTTP_HOSTS,
@@ -123,9 +127,9 @@ public class RemoteDorisExternalCatalog extends ExternalCatalog {
             "3"));
     }
 
-    public int getQueryTimeoutSec() {
-        return Integer.parseInt(catalogProperty.getOrDefault(RemoteDorisProperties.QUERY_TIMEOUT_SEC,
-            "15"));
+    public long getQueryTimeoutMs() {
+        return Integer.parseInt(catalogProperty.getOrDefault(RemoteDorisProperties.QUERY_TIMEOUT_MS,
+                "10000"));
     }
 
     public int getMetadataSyncRetryCount() {
@@ -187,8 +191,15 @@ public class RemoteDorisExternalCatalog extends ExternalCatalog {
             throw new RuntimeException("Failed to connect to Doris cluster,"
                 + " please check your Doris cluster or your Doris catalog configuration.");
         }
-        client = new FeServiceClient(name, getFeThriftNodes(), getUsername(), getPassword(),
+        if (useArrowFlight()) {
+            Map<String, String> sessionProperties = new HashMap<>();
+            sessionProperties.put("enable_parallel_result_sink", String.valueOf(enableParallelResultSink()));
+            flightSqlClientLoadBalancer = new FlightSqlClientLoadBalancer(
+                getFeArrowNodes(), getUsername(), getPassword(), getQueryTimeoutMs(), sessionProperties);
+        } else {
+            client = new FeServiceClient(name, getFeThriftNodes(), getUsername(), getPassword(),
                 getMetadataSyncRetryCount(), getMetadataReadTimeoutSec());
+        }
     }
 
     protected List<String> listDatabaseNames() {
@@ -216,6 +227,14 @@ public class RemoteDorisExternalCatalog extends ExternalCatalog {
         return client;
     }
 
+    public FlightSqlClientLoadBalancer getSqlClientLoadBalancer() {
+        return flightSqlClientLoadBalancer;
+    }
+
+    public boolean isPropagateSession() {
+        return true;
+    }
+
     private List<String> parseHttpHosts(String hosts) {
         String[] hostUrls = hosts.trim().split(",");
         fillUrlsWithSchema(hostUrls, enableSsl());
@@ -233,5 +252,17 @@ public class RemoteDorisExternalCatalog extends ExternalCatalog {
 
     private List<String> parseArrowHosts(String hosts) {
         return Arrays.asList(hosts.trim().split(","));
+    }
+
+    @Override
+    public void onClose() {
+        super.onClose();
+        try {
+            if (flightSqlClientLoadBalancer != null) {
+                flightSqlClientLoadBalancer.close();
+            }
+        } catch (IOException e) {
+            LOG.error("remote doris catalog arrow flight client close error.", e);
+        }
     }
 }
