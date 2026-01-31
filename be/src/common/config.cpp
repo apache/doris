@@ -312,7 +312,7 @@ DEFINE_Int32(task_executor_initial_max_concurrency_per_task, "-1");
 // Enable task executor in internal table scan.
 DEFINE_Bool(enable_task_executor_in_internal_table, "true");
 // Enable task executor in external table scan.
-DEFINE_Bool(enable_task_executor_in_external_table, "true");
+DEFINE_Bool(enable_task_executor_in_external_table, "false");
 
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool

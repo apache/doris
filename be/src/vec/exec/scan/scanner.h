@@ -142,16 +142,11 @@ public:
         _watch.start();
     }
 
-    void start_scan_cpu_timer() {
-        _cpu_watch.reset();
-        _cpu_watch.start();
-    }
-
     void update_wait_worker_timer() { _scanner_wait_worker_timer += _watch.elapsed_time(); }
 
     int64_t get_scanner_wait_worker_timer() const { return _scanner_wait_worker_timer; }
 
-    void update_scan_cpu_timer();
+    void update_scan_cpu_timer(int64_t cpu_time_delta);
 
     // Some counters need to be updated realtime, for example, workload group policy need
     // scan bytes to cancel the query exceed limit.

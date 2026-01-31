@@ -328,6 +328,7 @@ void memory_gc() {
 }
 
 void Daemon::memory_maintenance_thread() {
+    doris::enable_profile_counter_check = 0;
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(config::memory_maintenance_sleep_time_ms))) {
         // step 1. Refresh process memory metrics.
