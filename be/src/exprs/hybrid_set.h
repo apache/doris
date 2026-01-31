@@ -19,9 +19,16 @@
 
 #include <gen_cpp/internal_service.pb.h>
 #include <pdqsort.h>
+#include <sys/types.h>
 
+#include <cstdint>
+#include <type_traits>
+#include <vector>
+
+#include "common/exception.h"
 #include "common/object_pool.h"
 #include "exprs/filter_base.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime_filter/utils.h"
 #include "vec/columns/column_nullable.h"
@@ -175,6 +182,84 @@ private:
     size_t _size {};
 };
 
+// BitSet Container 用来作为一些范围比较小的整型数据的存储容器，
+// 考虑到使用范围，我们不提供迭代器接口。
+template <typename T>
+class BitSetContainer {
+    static_assert(std::is_integral_v<T>);
+
+public:
+    using Self = BitSetContainer<T>;
+    using ElementType = T;
+
+    using Iterator = std::vector<T>::iterator; // fake iterator
+
+    BitSetContainer() = default;
+
+    ~BitSetContainer() = default;
+
+    void init_bitset(T min_value, T max_value) {
+        _min_value = min_value;
+        _max_value = max_value;
+        auto bitset_size = static_cast<size_t>(max_value - min_value + 1);
+        _bitset.resize(bitset_size, false);
+    }
+
+    void insert(const T& value) {
+        DCHECK(value >= _min_value && value <= _max_value)
+                << "value out of range in BitSetContainer: " << value
+                << ", min_value: " << _min_value << ", max_value: " << _max_value;
+
+        size_t index = get_index(value);
+        if (!_bitset[index]) {
+            _bitset[index] = true;
+            _size++;
+        }
+    }
+
+    void insert(Iterator begin, Iterator end) {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "BitSetContainer does not support insert by iterator.");
+    }
+
+    // Use '|' instead of '||' has better performance by test.
+    ALWAYS_INLINE bool find(const T& value) const {
+        if (!check_range(value)) {
+            return false;
+        }
+        size_t index = get_index(value);
+        return _bitset[index];
+    }
+
+    size_t size() const { return _size; }
+
+    Iterator begin() {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "BitSetContainer does not support begin iterator.");
+    }
+    Iterator end() {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "BitSetContainer does not support end iterator.");
+    }
+
+    void clear() {
+        _bitset.clear();
+        _size = 0;
+        _min_value = 0;
+        _max_value = 0;
+    }
+
+private:
+    std::vector<bool> _bitset;
+    size_t _size {0};
+    T _min_value {0};
+    T _max_value {0};
+
+    size_t get_index(const T& value) const { return static_cast<size_t>(value - _min_value); }
+
+    bool check_range(const T& value) const { return value >= _min_value && value <= _max_value; }
+};
+
 template <typename T>
 struct IsFixedContainer : std::false_type {};
 
@@ -272,7 +357,15 @@ public:
     };
 
     virtual IteratorBase* begin() = 0;
+
+    virtual std::shared_ptr<HybridSetBase> try_convert_to_bitset() const { return nullptr; }
 };
+
+template <typename T>
+constexpr bool is_dynamic_container_v = false;
+
+template <typename T>
+constexpr bool is_dynamic_container_v<DynamicContainer<T>> = true;
 
 template <PrimitiveType T,
           typename _ContainerType = DynamicContainer<typename PrimitiveTypeTraits<T>::CppType>,
@@ -448,7 +541,69 @@ public:
         return HashUtil::crc_hash64(&_contain_null, sizeof(_contain_null), seed);
     }
 
+    std::shared_ptr<HybridSetBase> try_convert_to_bitset() const override {
+        if constexpr (is_dynamic_container_v<ContainerType>) {
+            // 因为一些接口设计上的限制，这里需要const_cast一下，实际上没有修改对象的成员变量。
+            auto non_const_this = const_cast<HybridSet<T, ContainerType, ColumnType>*>(this);
+            return non_const_this->_try_convert_to_bitset_impl();
+        } else {
+            return nullptr;
+        }
+    }
+
 private:
+    std::shared_ptr<HybridSetBase> _try_convert_to_bitset_impl() {
+        if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+                      T == TYPE_BIGINT) {
+            constexpr size_t max_bitset_size = 1024 * 1024; // 1M bits = 128KB
+
+            if (this->size() > static_cast<int>(max_bitset_size) || this->size() == 0) {
+                return nullptr;
+            }
+
+            ElementType min_value = std::numeric_limits<ElementType>::max();
+            ElementType max_value = std::numeric_limits<ElementType>::min();
+
+            // First pass: find min and max
+            for (auto it = _set.begin(); it != _set.end(); ++it) {
+                const ElementType& value = *it;
+                if (value < min_value) {
+                    min_value = value;
+                }
+                if (value > max_value) {
+                    max_value = value;
+                }
+            }
+
+            // Check if range is acceptable
+            auto range = static_cast<uint64_t>(max_value) - static_cast<uint64_t>(min_value);
+            if (range > max_bitset_size) {
+                return nullptr;
+            }
+
+            // Create bitset-based HybridSet
+            auto bitset_set =
+                    std::make_shared<HybridSet<T, BitSetContainer<ElementType>, ColumnType>>(
+                            _null_aware);
+
+            auto & set = bitset_set->_set;
+            set.init_bitset(min_value, max_value);
+
+            // Second pass: insert values
+            for (auto it = _set.begin(); it != _set.end(); ++it) {
+                set.insert(*it);
+            }
+            bitset_set->_contain_null = this->_contain_null;
+            return bitset_set;
+        } else {
+            return nullptr;
+        }
+    }
+
+
+    template <PrimitiveType U, typename ContainerU, typename ColumnU>
+    friend class HybridSet;
+
     ContainerType _set;
     ObjectPool _pool;
 };
