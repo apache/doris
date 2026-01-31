@@ -21,6 +21,8 @@ import org.apache.doris.nereids.processor.post.TopnFilterPushDownVisitor.PushDow
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
@@ -42,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
@@ -169,6 +172,26 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
         return false;
     }
 
+    private PushDownContext adjustProbeExprNullableThroughOuterJoin(Plan leftChild, PushDownContext ctx) {
+        Expression probeExpr = ctx.probeExpr;
+        Map<Expression, Expression> replaceMap = Maps.newHashMap();
+        boolean changed = false;
+        for (Slot probSlot : probeExpr.getInputSlots()) {
+            for (Slot childSlot : leftChild.getOutput()) {
+                if (probSlot.getExprId().asInt() == childSlot.getExprId().asInt()
+                        && probSlot.nullable() && !childSlot.nullable()) {
+                    replaceMap.put(probSlot, new Nullable(childSlot));
+                    changed = true;
+                    break;
+                }
+            }
+        }
+        if (changed) {
+            return ctx.withNewProbeExpression(ExpressionUtils.replace(probeExpr, replaceMap));
+        }
+        return ctx;
+    }
+
     @Override
     public Boolean visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
             PushDownContext ctx) {
@@ -180,7 +203,8 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
             return false;
         }
         if (join.left().getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
-            return join.left().accept(this, ctx);
+            PushDownContext childPushDownContext = adjustProbeExprNullableThroughOuterJoin(join.left(), ctx);
+            return join.left().accept(this, childPushDownContext);
         }
         if (join.right().getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
             // expand expr to the other side of hash join condition:
@@ -189,8 +213,10 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
             for (Expression conj : join.getHashJoinConjuncts()) {
                 if (ctx.probeExpr.equals(conj.child(1))) {
                     // push to left child. right child is blocking operator, do not need topn-filter
-                    PushDownContext newCtx = ctx.withNewProbeExpression(conj.child(0));
-                    return join.left().accept(this, newCtx);
+                    PushDownContext ctxOnLeftChild = ctx.withNewProbeExpression(conj.child(0));
+                    PushDownContext childPushDownContext = adjustProbeExprNullableThroughOuterJoin(join.left(),
+                            ctxOnLeftChild);
+                    return join.left().accept(this, childPushDownContext);
                 }
             }
         }
