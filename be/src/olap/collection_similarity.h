@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "gen_cpp/Opcodes_types.h"
 #include "rowset/segment_v2/common.h"
 #include "vec/columns/column.h"
 
@@ -31,6 +32,16 @@ enum class OrderType {
     DESC,
 };
 
+struct ScoreRangeFilter {
+    TExprOpcode::type op;
+    double threshold;
+
+    bool pass(float score) const {
+        return (op == TExprOpcode::GT) ? (score > threshold) : (score >= threshold);
+    }
+};
+using ScoreRangeFilterPtr = std::shared_ptr<ScoreRangeFilter>;
+
 class CollectionSimilarity {
 public:
     CollectionSimilarity() { _bm25_scores.reserve(1024); }
@@ -39,17 +50,18 @@ public:
     void collect(segment_v2::rowid_t row_id, float score);
 
     void get_bm25_scores(roaring::Roaring* row_bitmap, vectorized::IColumn::MutablePtr& scores,
-                         std::unique_ptr<std::vector<uint64_t>>& row_ids) const;
+                         std::unique_ptr<std::vector<uint64_t>>& row_ids,
+                         const ScoreRangeFilterPtr& filter = nullptr) const;
 
     void get_topn_bm25_scores(roaring::Roaring* row_bitmap, vectorized::IColumn::MutablePtr& scores,
                               std::unique_ptr<std::vector<uint64_t>>& row_ids, OrderType order_type,
-                              size_t top_k) const;
+                              size_t top_k, const ScoreRangeFilterPtr& filter = nullptr) const;
 
 private:
-    template <OrderType order, typename Compare>
+    template <OrderType order>
     void find_top_k_scores(const roaring::Roaring* row_bitmap, const ScoreMap& all_scores,
-                           size_t top_k, Compare comp,
-                           std::vector<std::pair<uint32_t, float>>& top_k_results) const;
+                           size_t top_k, std::vector<std::pair<uint32_t, float>>& top_k_results,
+                           const ScoreRangeFilterPtr& filter) const;
 
     ScoreMap _bm25_scores;
 };
