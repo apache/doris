@@ -161,6 +161,7 @@ public class PluginMgr implements Writable {
             }
             Env.getCurrentEnv().getEditLog().logInstallPlugin(info);
             LOG.info("install plugin {}", info.getName());
+            invokeAfterInstall(plugin, info);
             return info;
         } catch (IOException | UserException e) {
             pluginLoader.uninstall();
@@ -177,6 +178,28 @@ public class PluginMgr implements Writable {
     private void removeDialectPlugin(String name) {
         for (int i = 0; i < Dialect.MAX_DIALECT_SIZE; i++) {
             dialectPlugins[i].remove(name);
+        }
+    }
+
+    private void invokeAfterInstall(Plugin plugin, PluginInfo info) {
+        if (plugin == null) {
+            return;
+        }
+        try {
+            plugin.afterInstall();
+        } catch (Throwable t) {
+            LOG.warn("failed to run afterInstall for plugin {}", info == null ? "unknown" : info.getName(), t);
+        }
+    }
+
+    private void invokeAfterUninstall(Plugin plugin, String name) {
+        if (plugin == null) {
+            return;
+        }
+        try {
+            plugin.afterUninstall();
+        } catch (Throwable t) {
+            LOG.warn("failed to run afterUninstall for plugin {}", name == null ? "unknown" : name, t);
         }
     }
 
@@ -202,6 +225,7 @@ public class PluginMgr implements Writable {
                     throw new DdlException("Only support uninstall dynamic plugins");
                 }
 
+                Plugin plugin = loader.getPlugin();
                 loader.pluginUninstallValid();
                 loader.setStatus(PluginStatus.UNINSTALLING);
                 // uninstall plugin
@@ -212,6 +236,7 @@ public class PluginMgr implements Writable {
                 loader.setStatus(PluginStatus.UNINSTALLED);
                 removeDynamicPluginName(name);
                 removeDialectPlugin(name);
+                invokeAfterUninstall(plugin, name);
                 // do not get plugin info by calling loader.getPluginInfo(). That method will try to
                 // reload the plugin properties from source if this plugin is not installed successfully.
                 // Here we only need the plugin's name for persisting.
@@ -245,7 +270,11 @@ public class PluginMgr implements Writable {
             addDialectPlugin((DialectConverterPlugin) plugin, pluginInfo);
         }
         PluginLoader checkLoader = plugins[pluginInfo.getTypeId()].putIfAbsent(pluginInfo.getName(), loader);
-        return checkLoader == null;
+        if (checkLoader == null) {
+            invokeAfterInstall(plugin, pluginInfo);
+            return true;
+        }
+        return false;
     }
 
     /*
@@ -271,6 +300,7 @@ public class PluginMgr implements Writable {
             if (plugin instanceof DialectConverterPlugin) {
                 addDialectPlugin((DialectConverterPlugin) plugin, info);
             }
+            invokeAfterInstall(plugin, info);
         } catch (IOException | UserException e) {
             pluginLoader.setStatus(PluginStatus.ERROR, e.getMessage());
             throw e;

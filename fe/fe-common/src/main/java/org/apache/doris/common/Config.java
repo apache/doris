@@ -138,6 +138,10 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否压缩 FE 的 Audit 日志", "enable compression for FE audit log file"})
     public static boolean audit_log_enable_compress = false;
 
+    @ConfField(description = {"启用的数据血缘插件列表，需要填写 AbstractLineagePlugin.getName () 返回的名称，",
+            "Active lineage plugins, need to fill in the name returned by AbstractLineagePlugin.getName()"})
+    public static String[] activate_lineage_plugin = {};
+
     @ConfField(description = {"是否使用文件记录日志。当使用 --console 启动 FE 时，全部日志同时写入到标准输出和文件。"
             + "如果关闭这个选项，不再使用文件记录日志。",
             "Whether to use file to record log. When starting FE with --console, "
@@ -3520,6 +3524,10 @@ public class Config extends ConfigBase {
     //* audit_event_log_queue_size = qps * query_audit_log_timeout_ms
     @ConfField(mutable = true)
     public static int audit_event_log_queue_size = 250000;
+
+    @ConfField(mutable = true, description = {"血缘事件队列最大长度，超过长度事件会被舍弃",
+            "Max size of lineage event queue， events will be discarded when exceeded"})
+    public static int lineage_event_queue_size = 50000;
 
     @ConfField(mutable = true, description = {
             "streamload 导入使用的转发策略，可选值为 public-private/public/private/direct/random-be/空",

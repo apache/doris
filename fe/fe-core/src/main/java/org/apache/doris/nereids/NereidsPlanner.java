@@ -412,7 +412,9 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start analyze plan");
         }
+        statementContext.getPlannerHooks().forEach(hook -> hook.beforeAnalyze(this));
         keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newAnalyzer().analyze());
+        statementContext.getPlannerHooks().forEach(hook -> hook.afterAnalyze(this));
         NereidsTracer.logImportantTime("EndAnalyzePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End analyze plan");
@@ -1045,6 +1047,10 @@ public class NereidsPlanner extends Planner {
     @VisibleForTesting
     public void setOptimizedPlan(Plan optimizedPlan) {
         this.optimizedPlan = optimizedPlan;
+    }
+
+    public void setAnalyzedPlan(Plan analyzedPlan) {
+        this.analyzedPlan = analyzedPlan;
     }
 
     @VisibleForTesting
