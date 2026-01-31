@@ -25,6 +25,7 @@
 #include "common/status.h"
 #include "vec/columns/column_filter_helper.h"
 #include "vec/common/custom_allocator.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -33,6 +34,29 @@ inline uint32_t hash_join_table_calc_bucket_size(size_t num_elem) {
     size_t expect_bucket_size = num_elem + (num_elem - 1) / 7;
     return (uint32_t)std::min(phmap::priv::NormalizeCapacity(expect_bucket_size) + 1,
                               static_cast<size_t>(std::numeric_limits<int32_t>::max()) + 1);
+}
+
+// Estimate the memory size needed for hash table basic structures (first, next, visited).
+// When include_key_storage is true, also estimates memory for hash map key storage
+// (stored_keys and bucket_nums), which provides a rough approximation without
+// knowing the exact hash map context type.
+inline size_t estimate_hash_table_mem_size(size_t rows, TJoinOp::type join_op,
+                                           bool include_key_storage = false) {
+    const auto bucket_size = hash_join_table_calc_bucket_size(rows);
+    size_t size = bucket_size * sizeof(uint32_t); // JoinHashTable::first
+    size += rows * sizeof(uint32_t);              // JoinHashTable::next
+    if (join_op == TJoinOp::FULL_OUTER_JOIN || join_op == TJoinOp::RIGHT_OUTER_JOIN ||
+        join_op == TJoinOp::RIGHT_ANTI_JOIN || join_op == TJoinOp::RIGHT_SEMI_JOIN) {
+        size += rows * sizeof(uint8_t); // JoinHashTable::visited
+    }
+    if (include_key_storage) {
+        // Approximate estimation for hash map key storage:
+        // - stored_keys: StringRef per row for serialized keys
+        // - bucket_nums: uint32_t per row for hash bucket indices
+        size += sizeof(StringRef) * rows; // stored_keys
+        size += sizeof(uint32_t) * rows;  // bucket_nums
+    }
+    return size;
 }
 
 template <typename Key, typename Hash, bool DirectMapping>

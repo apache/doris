@@ -19,10 +19,12 @@
 
 #include <gen_cpp/Metrics_types.h>
 
+#include <cstdint>
 #include <memory>
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "util/runtime_profile.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris {
@@ -202,6 +204,26 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
         _emplace_into_hash_table_to_distinct(_distinct_row, key_columns, rows);
         DCHECK_LE(_distinct_row.size(), rows)
                 << "_distinct_row size should be less than or equal to rows";
+
+        size_t used_memory = 0;
+        std::visit(vectorized::Overload {
+                           [&](std::monostate& arg) {
+                               // Do nothing
+                           },
+                           [&](auto& agg_method) {
+                               used_memory = agg_method.hash_table->get_buffer_size_in_bytes();
+                           }},
+                   _agg_data->method_variant);
+        COUNTER_SET(_memory_used_counter,
+                    int64_t(_distinct_row.allocated_bytes() + _arena.size() + used_memory));
+    } else {
+        std::visit(vectorized::Overload {[&](std::monostate& arg) {
+                                             // Do nothing
+                                         },
+                                         [&](auto& agg_method) { agg_method.hash_table.reset(); }},
+                   _agg_data->method_variant);
+        _arena.clear(true);
+        COUNTER_SET(_memory_used_counter, 0);
     }
 
     bool mem_reuse = _parent->cast<DistinctStreamingAggOperatorX>()._make_nullable_keys.empty() &&
@@ -439,8 +461,11 @@ Status DistinctStreamingAggLocalState::close(RuntimeState* state) {
                                              // Do nothing
                                          },
                                          [&](auto& agg_method) {
-                                             COUNTER_SET(_hash_table_size_counter,
+                                             if (agg_method.hash_table) {
+                                                 COUNTER_SET(
+                                                         _hash_table_size_counter,
                                                          int64_t(agg_method.hash_table->size()));
+                                             }
                                          }},
                    _agg_data->method_variant);
     }

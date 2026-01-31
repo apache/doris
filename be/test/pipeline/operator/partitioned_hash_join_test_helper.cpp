@@ -179,11 +179,20 @@ PartitionedHashJoinProbeLocalState* PartitionedHashJoinTestHelper::create_probe_
     local_state->_copy_shared_spill_profile = false;
     local_state->_internal_runtime_profile = std::make_unique<RuntimeProfile>("inner_test");
 
-    local_state->_partitioned_blocks.resize(probe_operator->_partition_count);
-    local_state->_probe_spilling_streams.resize(probe_operator->_partition_count);
-
-    shared_state->spilled_streams.resize(probe_operator->_partition_count);
-    shared_state->partitioned_build_blocks.resize(probe_operator->_partition_count);
+    // Initialize pending partitions for tests.
+    local_state->_pending_partitions.clear();
+    local_state->_has_current_partition = false;
+    shared_state->probe_partitions.clear();
+    shared_state->build_partitions.clear();
+    for (uint32_t i = 0; i < probe_operator->_partition_count; ++i) {
+        HashJoinSpillPartitionId id {0, i};
+        HashJoinSpillPartition partition;
+        partition.id = id;
+        shared_state->probe_partitions.emplace(id.key(), std::move(partition));
+        HashJoinSpillBuildPartition build_partition;
+        build_partition.id = id;
+        shared_state->build_partitions.emplace(id.key(), std::move(build_partition));
+    }
 
     shared_state->inner_runtime_state = std::make_unique<MockRuntimeState>();
     shared_state->inner_shared_state = std::make_shared<MockHashJoinSharedState>();
@@ -211,8 +220,13 @@ PartitionedHashJoinSinkLocalState* PartitionedHashJoinTestHelper::create_sink_lo
             sink_operator->dests_id().front(), sink_operator->operator_id(),
             "PartitionedHashJoinTestDep");
 
-    shared_state->spilled_streams.resize(sink_operator->_partition_count);
-    shared_state->partitioned_build_blocks.resize(sink_operator->_partition_count);
+    shared_state->build_partitions.clear();
+    for (uint32_t i = 0; i < sink_operator->_partition_count; ++i) {
+        HashJoinSpillPartitionId id {0, i};
+        HashJoinSpillBuildPartition build_partition;
+        build_partition.id = id;
+        shared_state->build_partitions.emplace(id.key(), std::move(build_partition));
+    }
 
     shared_state->inner_runtime_state = std::make_unique<MockRuntimeState>();
     shared_state->inner_shared_state = std::make_shared<MockHashJoinSharedState>();

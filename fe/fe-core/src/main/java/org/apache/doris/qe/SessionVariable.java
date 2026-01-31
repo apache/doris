@@ -652,6 +652,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SPILL_AGGREGATION_PARTITION_COUNT = "spill_aggregation_partition_count";
     public static final String SPILL_STREAMING_AGG_MEM_LIMIT = "spill_streaming_agg_mem_limit";
     public static final String SPILL_HASH_JOIN_PARTITION_COUNT = "spill_hash_join_partition_count";
+    public static final String SPILL_RECOVER_MAX_READ_BYTES = "spill_recover_max_read_bytes";
     public static final String SPILL_REVOCABLE_MEMORY_HIGH_WATERMARK_PERCENT =
             "spill_revocable_memory_high_watermark_percent";
     public static final String DATA_QUEUE_MAX_BLOCKS = "data_queue_max_blocks";
@@ -3027,7 +3028,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SPILL_SORT_BATCH_BYTES)
     public long spillSortBatchBytes = 8388608; // 8M
 
-    @VariableMgr.VarAttr(name = SPILL_AGGREGATION_PARTITION_COUNT, fuzzy = true)
+    @VariableMgr.VarAttr(name = SPILL_AGGREGATION_PARTITION_COUNT, fuzzy = true,
+            varType = VariableAnnotation.DEPRECATED)
     public int spillAggregationPartitionCount = 32;
 
     @VariableMgr.VarAttr(name = LOW_MEMORY_MODE_BUFFER_LIMIT, fuzzy = false)
@@ -3038,8 +3040,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT, fuzzy = false)
     public long spillStreamingAggMemLimit = 268435456; //256MB
 
-    @VariableMgr.VarAttr(name = SPILL_HASH_JOIN_PARTITION_COUNT, fuzzy = true)
+    @VariableMgr.VarAttr(name = SPILL_HASH_JOIN_PARTITION_COUNT, fuzzy = true, varType = VariableAnnotation.DEPRECATED)
     public int spillHashJoinPartitionCount = 32;
+
+    @VariableMgr.VarAttr(name = SPILL_RECOVER_MAX_READ_BYTES)
+    public long spillRecoverMaxReadBytes = 4 * 1024 * 1024; // 4MB
 
     @VariableMgr.VarAttr(name = SPILL_REVOCABLE_MEMORY_HIGH_WATERMARK_PERCENT, fuzzy = true)
     public int spillRevocableMemoryHighWatermarkPercent = -1;
@@ -5114,6 +5119,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSpillAggregationPartitionCount(spillAggregationPartitionCount);
         tResult.setSpillStreamingAggMemLimit(spillStreamingAggMemLimit);
         tResult.setSpillHashJoinPartitionCount(spillHashJoinPartitionCount);
+        tResult.setSpillRecoverMaxReadBytes(spillRecoverMaxReadBytes);
         tResult.setRevocableMemoryHighWatermarkPercent(spillRevocableMemoryHighWatermarkPercent);
         tResult.setDumpHeapProfileWhenMemLimitExceeded(dumpHeapProfileWhenMemLimitExceeded);
 

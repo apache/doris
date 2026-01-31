@@ -136,17 +136,10 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
 
     if (eos) {
         const size_t rows = build_block_rows + state->batch_size();
-        const auto bucket_size = hash_join_table_calc_bucket_size(rows);
-
-        size_to_reserve += bucket_size * sizeof(uint32_t); // JoinHashTable::first
-        size_to_reserve += rows * sizeof(uint32_t);        // JoinHashTable::next
-
         auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
-        if (p._join_op == TJoinOp::FULL_OUTER_JOIN || p._join_op == TJoinOp::RIGHT_OUTER_JOIN ||
-            p._join_op == TJoinOp::RIGHT_ANTI_JOIN || p._join_op == TJoinOp::RIGHT_SEMI_JOIN) {
-            size_to_reserve += rows * sizeof(uint8_t); // JoinHashTable::visited
-        }
+        size_to_reserve += estimate_hash_table_mem_size(rows, p._join_op);
         size_to_reserve += _evaluate_mem_usage;
+        const auto bucket_size = hash_join_table_calc_bucket_size(rows);
 
         vectorized::ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
 

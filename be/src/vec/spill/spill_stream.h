@@ -35,9 +35,14 @@ class SpillDataDir;
 
 class SpillStream {
 public:
-    // to avoid too many small file writes
+// to avoid too many small file writes
+#ifndef BE_TEST
     static constexpr size_t MIN_SPILL_WRITE_BATCH_MEM = 32 * 1024;
     static constexpr size_t MAX_SPILL_WRITE_BATCH_MEM = 32 * 1024 * 1024;
+#else
+    static constexpr size_t MIN_SPILL_WRITE_BATCH_MEM = 4 * 1024;
+    static constexpr size_t MAX_SPILL_WRITE_BATCH_MEM = 32 * 1024;
+#endif
     SpillStream(RuntimeState* state, int64_t stream_id, SpillDataDir* data_dir,
                 std::string spill_dir, size_t batch_rows, size_t batch_bytes,
                 RuntimeProfile* profile);
