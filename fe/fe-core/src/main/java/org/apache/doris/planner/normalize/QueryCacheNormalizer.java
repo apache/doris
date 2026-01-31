@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Pair;
 import org.apache.doris.planner.AggregationNode;
+import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
@@ -128,6 +129,10 @@ public class QueryCacheNormalizer implements Normalizer {
                     return Optional.of(new CachePoint(planRoot, planRoot));
                 }
             }
+        } else if (planRoot instanceof ExchangeNode) {
+            return Optional.empty();
+        } else if (planRoot.getChildren().size() == 1) {
+            return doComputeCachePoint(planRoot.getChildren().get(0));
         }
         return Optional.empty();
     }
