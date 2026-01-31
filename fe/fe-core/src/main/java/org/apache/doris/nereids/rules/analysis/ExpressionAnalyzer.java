@@ -287,7 +287,20 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     @Override
     public Expression visitDereferenceExpression(DereferenceExpression dereferenceExpression,
             ExpressionRewriteContext context) {
-        Expression expression = dereferenceExpression.child(0).accept(this, context);
+        boolean suppressChildCast = isEnableVariantSchemaAutoCast(context)
+                && (dereferenceExpression.child(0) instanceof DereferenceExpression
+                || dereferenceExpression.child(0) instanceof ElementAt);
+        if (suppressChildCast) {
+            suppressVariantElementAtCastDepth++;
+        }
+        Expression expression;
+        try {
+            expression = dereferenceExpression.child(0).accept(this, context);
+        } finally {
+            if (suppressChildCast) {
+                suppressVariantElementAtCastDepth--;
+            }
+        }
         DataType dataType = expression.getDataType();
         if (dataType.isStructType()) {
             StructType structType = (StructType) dataType;
@@ -309,7 +322,20 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     @Override
     public Expression visitElementAt(ElementAt elementAt, ExpressionRewriteContext context) {
-        elementAt = (ElementAt) super.visitElementAt(elementAt, context);
+        boolean suppressLeftCast = isEnableVariantSchemaAutoCast(context) && elementAt.left() instanceof ElementAt;
+        if (suppressLeftCast) {
+            suppressVariantElementAtCastDepth++;
+        }
+        Expression left;
+        try {
+            left = elementAt.left().accept(this, context);
+        } finally {
+            if (suppressLeftCast) {
+                suppressVariantElementAtCastDepth--;
+            }
+        }
+        Expression right = elementAt.right().accept(this, context);
+        elementAt = (ElementAt) elementAt.withChildren(left, right);
         if (isEnableVariantSchemaAutoCast(context)) {
             return wrapVariantElementAtWithCast(elementAt);
         }
@@ -760,22 +786,61 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         if (suppressVariantElementAtCastDepth > 0) {
             return elementAt;
         }
-        Expression left = elementAt.left();
-        Expression right = elementAt.right();
-        if (!(left.getDataType() instanceof VariantType)) {
+        Optional<VariantElementAtPath> path = resolveVariantElementAtPath(elementAt);
+        if (!path.isPresent()) {
             return expr;
         }
-        if (!(right instanceof StringLikeLiteral)) {
-            return expr;
-        }
-        VariantType variantType = (VariantType) left.getDataType();
-        String fieldName = ((StringLikeLiteral) right).getStringValue();
-        Optional<VariantField> matchingField = variantType.findMatchingField(fieldName);
+        VariantType variantType = (VariantType) path.get().root.getDataType();
+        Optional<VariantField> matchingField = variantType.findMatchingField(path.get().path);
         if (!matchingField.isPresent()) {
             return expr;
         }
         DataType targetType = matchingField.get().getDataType();
         return new Cast(elementAt, targetType);
+    }
+
+    private Optional<VariantElementAtPath> resolveVariantElementAtPath(ElementAt elementAt) {
+        List<String> segments = new ArrayList<>();
+        Expression current = elementAt;
+        Expression root = null;
+        while (current instanceof ElementAt) {
+            ElementAt currentElementAt = (ElementAt) current;
+            Optional<String> key = getVariantPathKey(currentElementAt.right());
+            if (!key.isPresent()) {
+                return Optional.empty();
+            }
+            segments.add(0, key.get());
+            Expression left = currentElementAt.left();
+            if (left instanceof Cast && !((Cast) left).isExplicitType()) {
+                left = ((Cast) left).child();
+            }
+            current = left;
+            root = left;
+        }
+        if (root == null || !(root.getDataType() instanceof VariantType)) {
+            return Optional.empty();
+        }
+        if (segments.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(new VariantElementAtPath(root, String.join(".", segments)));
+    }
+
+    private Optional<String> getVariantPathKey(Expression expr) {
+        if (expr instanceof StringLikeLiteral) {
+            return Optional.of(((StringLikeLiteral) expr).getStringValue());
+        }
+        return Optional.empty();
+    }
+
+    private static final class VariantElementAtPath {
+        private final Expression root;
+        private final String path;
+
+        private VariantElementAtPath(Expression root, String path) {
+            this.root = root;
+            this.path = path;
+        }
     }
 
     private boolean shouldSuppressVariantElementAtCast(Cast cast) {

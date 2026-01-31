@@ -1490,17 +1490,9 @@ public class BindExpression implements AnalysisRuleFactory {
     private Map<ExprId, Expression> buildAliasMap(Plan plan) {
         Map<ExprId, Expression> aliasMap = new HashMap<>();
         Plan current = unwrapSubQueryAlias(plan);
-        while (current instanceof LogicalProject) {
-            int before = aliasMap.size();
-            collectAliasMap(aliasMap, ((LogicalProject<?>) current).getProjects());
-            if (aliasMap.size() > before) {
-                break;
-            }
-            // passthrough project (e.g. SELECT *), keep searching in child
-            if (current.arity() != 1) {
-                break;
-            }
-            current = unwrapSubQueryAlias(current.child(0));
+        collectAliasMapFromProjectChain(aliasMap, current);
+        if (aliasMap.isEmpty() && current instanceof LogicalAggregate && current.arity() == 1) {
+            collectAliasMapFromProjectChain(aliasMap, unwrapSubQueryAlias(current.child(0)));
         }
         if (aliasMap.isEmpty() && current instanceof LogicalAggregate) {
             collectAliasMap(aliasMap, ((LogicalAggregate<?>) current).getOutputExpressions());
@@ -1514,6 +1506,22 @@ public class BindExpression implements AnalysisRuleFactory {
             current = ((LogicalSubQueryAlias<?>) current).child();
         }
         return current;
+    }
+
+    private void collectAliasMapFromProjectChain(Map<ExprId, Expression> aliasMap, Plan start) {
+        Plan current = start;
+        while (current instanceof LogicalProject) {
+            int before = aliasMap.size();
+            collectAliasMap(aliasMap, ((LogicalProject<?>) current).getProjects());
+            if (aliasMap.size() > before) {
+                break;
+            }
+            // passthrough project (e.g. SELECT *), keep searching in child
+            if (current.arity() != 1) {
+                break;
+            }
+            current = unwrapSubQueryAlias(current.child(0));
+        }
     }
 
     private void collectAliasMap(Map<ExprId, Expression> aliasMap, List<? extends NamedExpression> outputs) {
