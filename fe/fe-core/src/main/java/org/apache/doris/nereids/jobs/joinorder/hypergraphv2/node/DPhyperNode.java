@@ -29,8 +29,7 @@ public class DPhyperNode extends AbstractNode {
 
     public DPhyperNode(int index, Group group) {
         super(group.getLogicalExpression().getPlan(), index);
-        Preconditions.checkArgument(group != null,
-                "DPhyper requires Group is not null");
+        Preconditions.checkArgument(group != null, "DPhyper requires Group is not null");
         this.group = group;
     }
 

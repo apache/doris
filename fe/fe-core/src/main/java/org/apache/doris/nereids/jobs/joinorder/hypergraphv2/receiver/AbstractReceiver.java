@@ -28,12 +28,6 @@ import java.util.List;
  * A interface of receiver
  */
 public abstract class AbstractReceiver {
-    public enum EmitState {
-        SUCCESS,
-        FAIL,
-        CONTINUE,
-        NONE
-    }
 
     public abstract EmitState emitCsgCmp(long csg, long cmp, List<Edge> edges);
 
@@ -45,6 +39,9 @@ public abstract class AbstractReceiver {
 
     public abstract Group getBestPlan(long bitSet);
 
+    /**
+     * checkConflictRule for CD-C
+     */
     boolean checkConflictRule(long left, long right, List<Edge> edges) {
         long joinedTables = LongBitmap.or(left, right);
         for (Edge edge : edges) {
@@ -56,5 +53,15 @@ public abstract class AbstractReceiver {
             }
         }
         return true;
+    }
+
+    /**
+     * EmitState
+     */
+    public enum EmitState {
+        SUCCESS,
+        FAIL,
+        CONTINUE,
+        NONE
     }
 }

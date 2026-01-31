@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.util.HyperGraphBuilder;
 import org.apache.doris.nereids.util.PlanChecker;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 

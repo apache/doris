@@ -79,15 +79,14 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-    return plan;
-    //    // Preparing stmt requires that the predicate cannot be changed, so no predicate inference is performed.
-    //    ConnectContext connectContext = jobContext.getCascadesContext().getConnectContext();
-    //    if (connectContext != null && connectContext.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
-    //        return plan;
-    //    }
-    //    pullUpPredicates = new PullUpPredicates(false, jobContext.getCascadesContext());
-    //    pullUpAllPredicates = new PullUpPredicates(true, jobContext.getCascadesContext());
-    //    return plan.accept(this, jobContext);
+        // Preparing stmt requires that the predicate cannot be changed, so no predicate inference is performed.
+        ConnectContext connectContext = jobContext.getCascadesContext().getConnectContext();
+        if (connectContext != null && connectContext.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
+            return plan;
+        }
+        pullUpPredicates = new PullUpPredicates(false, jobContext.getCascadesContext());
+        pullUpAllPredicates = new PullUpPredicates(true, jobContext.getCascadesContext());
+        return plan.accept(this, jobContext);
     }
 
     @Override

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.jobs.joinorder.hypergraphv2;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.datasets.tpch.TPCHTestBase;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -39,9 +40,9 @@ import java.util.Set;
 public class OtherJoinTest extends TPCHTestBase {
     @Test
     public void test() {
-        for (int t = 30; t < 50; t++) {
+        for (int t = 40; t < 64; t++) {
             for (int e = t - 1; e <= (t * (t - 1)) / 2; e++) {
-                for (int i = 0; i < 2; i++) {
+                for (int i = 0; i < 1; i++) {
                     System.out.println(String.valueOf(t) + " " + e + ": " + i);
                     randomTest(t, e);
                 }
@@ -51,13 +52,15 @@ public class OtherJoinTest extends TPCHTestBase {
     }
 
     private void randomTest(int tableNum, int edgeNum) {
+        connectContext.setStatementContext(new StatementContext());
         HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder();
         Plan plan = hyperGraphBuilder
                 .randomBuildPlanWith(tableNum, edgeNum);
         plan = new LogicalProject(plan.getOutput(), plan);
         final String originalPlanStr = plan.treeString();
         Set<List<String>> res1 = hyperGraphBuilder.evaluate(plan);
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext.getStatementContext(),
+                plan);
         hyperGraphBuilder.initStats("tpch", cascadesContext);
         try {
             Plan optimizedPlan = PlanChecker.from(cascadesContext)
@@ -65,6 +68,7 @@ public class OtherJoinTest extends TPCHTestBase {
                     .getBestPlanTree();
 
             Set<List<String>> res2 = hyperGraphBuilder.evaluate(optimizedPlan);
+
             if (!res1.equals(res2)) {
                 res1 = hyperGraphBuilder.evaluate(plan);
                 res2 = hyperGraphBuilder.evaluate(optimizedPlan);
@@ -97,7 +101,8 @@ public class OtherJoinTest extends TPCHTestBase {
                 .addEdge(JoinType.LEFT_OUTER_JOIN, 0, 2)
                 .buildPlan();
         Expression oneSideCond = new EqualTo(plan.child(0).getOutput().get(0), plan.child(0).getOutput().get(2));
-        plan = ((LogicalJoin<?, ?>) plan).withJoinConjuncts(ImmutableList.of(), ImmutableList.of(oneSideCond), ((LogicalJoin<?, ?>) plan).getJoinReorderContext());
+        plan = ((LogicalJoin<?, ?>) plan).withJoinConjuncts(ImmutableList.of(), ImmutableList.of(oneSideCond),
+                ((LogicalJoin<?, ?>) plan).getJoinReorderContext());
         Set<List<String>> res = hyperGraphBuilder.evaluate(plan);
         Assertions.assertEquals(4, res.size());
     }

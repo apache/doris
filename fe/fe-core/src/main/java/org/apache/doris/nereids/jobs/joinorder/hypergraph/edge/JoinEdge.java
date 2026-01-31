@@ -41,8 +41,8 @@ public class JoinEdge extends Edge {
     private final Set<Slot> rightInputSlots;
 
     public JoinEdge(LogicalJoin<? extends Plan, ? extends Plan> join, int index,
-                    BitSet leftChildEdges, BitSet rightChildEdges, long subTreeNodes,
-                    long leftRequireNodes, long rightRequireNodes, Set<Slot> leftInputSlots, Set<Slot> rightInputSlots) {
+            BitSet leftChildEdges, BitSet rightChildEdges, long subTreeNodes,
+            long leftRequireNodes, long rightRequireNodes, Set<Slot> leftInputSlots, Set<Slot> rightInputSlots) {
         super(index, leftChildEdges, rightChildEdges, subTreeNodes, leftRequireNodes, rightRequireNodes);
         this.join = join;
         this.leftInputSlots = leftInputSlots;
@@ -53,8 +53,7 @@ public class JoinEdge extends Edge {
      * swap the edge
      */
     public JoinEdge swap() {
-        JoinEdge swapEdge = new
-                JoinEdge(join.swap(), getIndex(), getRightChildEdges(),
+        JoinEdge swapEdge = new JoinEdge(join.swap(), getIndex(), getRightChildEdges(),
                 getLeftChildEdges(), getSubTreeNodes(), getRightRequiredNodes(), getLeftRequiredNodes(),
                 this.rightInputSlots, this.leftInputSlots);
         swapEdge.addLeftRejectEdges(getLeftRejectEdge());
@@ -79,7 +78,7 @@ public class JoinEdge extends Edge {
      * extract join type for edges and push them in hash conjuncts and other conjuncts
      */
     public static @Nullable JoinType extractJoinTypeAndConjuncts(List<JoinEdge> edges,
-                                                                 List<Expression> hashConjuncts, List<Expression> otherConjuncts) {
+            List<Expression> hashConjuncts, List<Expression> otherConjuncts) {
         JoinType joinType = null;
         for (JoinEdge edge : edges) {
             if (edge.getJoinType() != joinType && joinType != null) {

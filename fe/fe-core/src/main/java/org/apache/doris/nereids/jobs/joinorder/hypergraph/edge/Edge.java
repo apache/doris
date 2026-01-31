@@ -67,7 +67,7 @@ public abstract class Edge implements HyperElement {
      * Create simple edge.
      */
     Edge(int index, BitSet leftChildEdges, BitSet rightChildEdges,
-         long subTreeNodes, long leftRequiredNodes, Long rightRequiredNodes) {
+            long subTreeNodes, long leftRequiredNodes, Long rightRequiredNodes) {
         this.index = index;
         this.selectivity = 1.0;
         this.leftChildEdges = leftChildEdges;

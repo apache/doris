@@ -313,8 +313,23 @@ public class RuleSet {
             .add(JoinCommute.BUSHY.build())
             .build();
 
+    public static final List<Rule> AFTER_DPHYP_REORDER_RULES = ImmutableList.<Rule>builder()
+            .addAll(planRuleFactories()
+                    .add(PushDownProjectThroughInnerOuterJoin.INSTANCE)
+                    .add(PushDownProjectThroughSemiJoin.INSTANCE)
+                    .build())
+            .addAll(EXPLORATION_RULES)
+            .addAll(new PushDownTopNThroughJoin().buildRules())
+            .addAll(new PushDownLimitDistinctThroughJoin().buildRules())
+            .addAll(new PushDownTopNDistinctThroughJoin().buildRules())
+            .build();
+
     public List<Rule> getDPHypReorderRules() {
         return DPHYP_REORDER_RULES;
+    }
+
+    public List<Rule> getAfterDPHypReorderRules() {
+        return AFTER_DPHYP_REORDER_RULES;
     }
 
     public List<Rule> getZigZagTreeJoinReorder() {
