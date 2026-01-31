@@ -1739,6 +1739,8 @@ DECLARE_mBool(read_cluster_cache_opt_verbose_log);
 
 DECLARE_mString(aws_credentials_provider_version);
 
+DECLARE_mInt64(rowid_conversion_max_bytes);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

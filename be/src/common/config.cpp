@@ -1673,6 +1673,8 @@ DEFINE_Validator(aws_credentials_provider_version, [](const std::string& config)
     return config == "v1" || config == "v2";
 });
 
+DEFINE_mInt64(rowid_conversion_max_bytes, "-1");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
