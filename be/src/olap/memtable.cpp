@@ -60,14 +60,15 @@ MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schem
           _tablet_schema(tablet_schema),
           _resource_ctx(resource_ctx),
           _is_first_insertion(true),
-          _agg_functions(tablet_schema->num_columns()),
-          _offsets_of_aggregate_states(tablet_schema->num_columns()),
           _total_size_of_aggregate_states(0) {
     g_memtable_cnt << 1;
     _mem_tracker = std::make_shared<MemTracker>();
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
             _resource_ctx->memory_context()->mem_tracker()->write_tracker());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
+    // Initialize vectors here so their memory allocation is tracked by _mem_tracker
+    _agg_functions.resize(tablet_schema->num_columns());
+    _offsets_of_aggregate_states.resize(tablet_schema->num_columns());
     _vec_row_comparator = std::make_shared<RowInBlockComparator>(_tablet_schema);
     if (partial_update_info != nullptr) {
         _partial_update_mode = partial_update_info->update_mode();
