@@ -152,7 +152,7 @@ suite("test_query_stmt") {
     assertEquals(obj.msg, SUCCESS_MSG)
     assertEquals(obj.code, SUCCESS_CODE)
     // we can only check the number is correctly
-    assertEquals(obj.data.data.size, 3)
+    assertEquals(obj.data.data.size(), 3)
 
     url = "/api/query_schema/default_cluster/" + context.config.defaultDb
     def stmt5 = " select * from ${tableName}"
