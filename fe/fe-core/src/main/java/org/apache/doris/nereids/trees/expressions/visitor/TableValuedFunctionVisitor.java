@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.HudiMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.IcebergMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
+import org.apache.doris.nereids.trees.expressions.functions.table.Kafka;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
@@ -131,5 +132,9 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitQuery(Query query, C context) {
         return visitTableValuedFunction(query, context);
+    }
+
+    default R visitKafka(Kafka kafka, C context) {
+        return visitTableValuedFunction(kafka, context);
     }
 }

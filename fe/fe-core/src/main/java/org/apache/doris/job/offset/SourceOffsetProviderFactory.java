@@ -18,6 +18,7 @@
 package org.apache.doris.job.offset;
 
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.offset.kafka.KafkaSourceOffsetProvider;
 import org.apache.doris.job.offset.s3.S3SourceOffsetProvider;
 
 import lombok.extern.log4j.Log4j2;
@@ -31,6 +32,7 @@ public class SourceOffsetProviderFactory {
 
     static {
         map.put("s3", S3SourceOffsetProvider.class);
+        map.put("kafka", KafkaSourceOffsetProvider.class);
     }
 
     public static SourceOffsetProvider createSourceOffsetProvider(String sourceType) {
