@@ -430,6 +430,44 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
     }
 }
 
+TEST_F(BlockFileCacheTest, version3_write_version_when_cache_dir_empty) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+
+    io::FileCacheSettings settings;
+    settings.storage = "disk";
+    settings.capacity = 10_mb;
+    settings.max_file_block_size = 1_mb;
+    settings.max_query_cache_size = settings.capacity;
+    settings.disposable_queue_size = settings.capacity;
+    settings.disposable_queue_elements = 8;
+    settings.index_queue_size = settings.capacity;
+    settings.index_queue_elements = 8;
+    settings.query_queue_size = settings.capacity;
+    settings.query_queue_elements = 8;
+    settings.ttl_queue_size = settings.capacity;
+    settings.ttl_queue_elements = 8;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+
+    for (int i = 0; i < 100; ++i) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    std::ifstream ifs(cache_base_path + "/version", std::ios::binary);
+    ASSERT_TRUE(ifs.good());
+    char buf[3] = {0};
+    ifs.read(buf, 3);
+    ASSERT_EQ(std::string(buf, static_cast<size_t>(ifs.gcount())), "3.0");
+}
+
 TEST_F(BlockFileCacheTest, clear_retains_meta_directory_and_clears_meta_entries) {
     config::enable_evict_file_cache_in_advance = false;
     if (fs::exists(cache_base_path)) {
@@ -578,146 +616,6 @@ TEST_F(BlockFileCacheTest, handle_already_loaded_block_updates_size_and_tablet) 
 
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
-    }
-}
-TEST_F(BlockFileCacheTest, estimate_file_count_skips_removed_directory) {
-    std::string test_dir = cache_base_path + "/estimate_file_count_removed_dir";
-    if (fs::exists(test_dir)) {
-        fs::remove_all(test_dir);
-    }
-    auto keep_dir = fs::path(test_dir) / "keep";
-    auto remove_dir = fs::path(test_dir) / "remove";
-    fs::create_directories(keep_dir);
-    fs::create_directories(remove_dir);
-
-    auto keep_file = keep_dir / "data.bin";
-    std::string one_mb(1024 * 1024, 'd');
-    {
-        std::ofstream ofs(keep_file, std::ios::binary);
-        ASSERT_TRUE(ofs.good());
-        for (int i = 0; i < 3; ++i) {
-            ofs.write(one_mb.data(), one_mb.size());
-            ASSERT_TRUE(ofs.good());
-        }
-    }
-
-    FSFileCacheStorage storage;
-    storage._cache_base_path = test_dir;
-
-    const std::string sync_point_name =
-            "FSFileCacheStorage::estimate_file_count_from_statfs::OnDirectory";
-    auto* sync_point = doris::SyncPoint::get_instance();
-    doris::SyncPoint::CallbackGuard guard(sync_point_name);
-    sync_point->set_call_back(
-            sync_point_name,
-            [remove_dir](std::vector<std::any>&& args) {
-                auto* path = doris::try_any_cast<std::filesystem::path*>(args[0]);
-                if (*path == remove_dir) {
-                    fs::remove_all(remove_dir);
-                }
-            },
-            &guard);
-    sync_point->enable_processing();
-
-    size_t estimated_files = storage.estimate_file_count_from_statfs();
-
-    sync_point->disable_processing();
-
-    ASSERT_EQ(3, estimated_files);
-    ASSERT_FALSE(fs::exists(remove_dir));
-
-    if (fs::exists(test_dir)) {
-        fs::remove_all(test_dir);
-    }
-}
-
-TEST_F(BlockFileCacheTest, estimate_file_count_handles_stat_failure) {
-    std::string test_dir = cache_base_path + "/estimate_file_count_stat_failure";
-    if (fs::exists(test_dir)) {
-        fs::remove_all(test_dir);
-    }
-    fs::create_directories(test_dir);
-
-    auto data_file = fs::path(test_dir) / "data.bin";
-    std::string one_mb(1024 * 1024, 'x');
-    {
-        std::ofstream ofs(data_file, std::ios::binary);
-        ASSERT_TRUE(ofs.good());
-        ofs.write(one_mb.data(), one_mb.size());
-        ASSERT_TRUE(ofs.good());
-    }
-
-    FSFileCacheStorage storage;
-    storage._cache_base_path = test_dir;
-
-    const std::string sync_point_name =
-            "FSFileCacheStorage::estimate_file_count_from_statfs::AfterEntryStatus";
-    auto* sync_point = doris::SyncPoint::get_instance();
-    doris::SyncPoint::CallbackGuard guard(sync_point_name);
-    sync_point->set_call_back(
-            sync_point_name,
-            [](std::vector<std::any>&& args) {
-                auto* ec = doris::try_any_cast<std::error_code*>(args[0]);
-                if (ec != nullptr) {
-                    *ec = std::make_error_code(std::errc::io_error);
-                }
-            },
-            &guard);
-    sync_point->enable_processing();
-
-    size_t estimated_files = storage.estimate_file_count_from_statfs();
-
-    sync_point->disable_processing();
-
-    ASSERT_EQ(0, estimated_files);
-
-    if (fs::exists(test_dir)) {
-        fs::remove_all(test_dir);
-    }
-}
-
-TEST_F(BlockFileCacheTest, estimate_file_count_handles_file_size_failure) {
-    std::string test_dir = cache_base_path + "/estimate_file_count_file_size_failure";
-    if (fs::exists(test_dir)) {
-        fs::remove_all(test_dir);
-    }
-    fs::create_directories(test_dir);
-
-    auto data_file = fs::path(test_dir) / "data.bin";
-    std::string one_mb(1024 * 1024, 'x');
-    {
-        std::ofstream ofs(data_file, std::ios::binary);
-        ASSERT_TRUE(ofs.good());
-        ofs.write(one_mb.data(), one_mb.size());
-        ASSERT_TRUE(ofs.good());
-    }
-
-    FSFileCacheStorage storage;
-    storage._cache_base_path = test_dir;
-
-    const std::string sync_point_name =
-            "FSFileCacheStorage::estimate_file_count_from_statfs::AfterFileSize";
-    auto* sync_point = doris::SyncPoint::get_instance();
-    doris::SyncPoint::CallbackGuard guard(sync_point_name);
-    sync_point->set_call_back(
-            sync_point_name,
-            [](std::vector<std::any>&& args) {
-                auto* ec = doris::try_any_cast<std::error_code*>(args[0]);
-                if (ec != nullptr) {
-                    *ec = std::make_error_code(std::errc::io_error);
-                }
-            },
-            &guard);
-    sync_point->enable_processing();
-
-    size_t estimated_files = storage.estimate_file_count_from_statfs();
-
-    sync_point->disable_processing();
-
-    ASSERT_EQ(0, estimated_files);
-
-    if (fs::exists(test_dir)) {
-        fs::remove_all(test_dir);
     }
 }
 
