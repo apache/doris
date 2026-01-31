@@ -69,6 +69,12 @@ public:
     static float distance(const float* x, const float* y, size_t d);
 };
 
+class CosineSimilarity {
+public:
+    static constexpr auto name = "cosine_similarity";
+    static float distance(const float* x, const float* y, size_t d);
+};
+
 class L2DistanceApproximate : public L2Distance {
 public:
     static constexpr auto name = "l2_distance_approximate";
