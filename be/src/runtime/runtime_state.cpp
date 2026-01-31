@@ -468,6 +468,7 @@ RuntimeFilterMgr* RuntimeState::global_runtime_filter_mgr() {
 
 Status RuntimeState::register_producer_runtime_filter(
         const TRuntimeFilterDesc& desc, std::shared_ptr<RuntimeFilterProducer>* producer_filter) {
+    _registered_runtime_filter_ids.insert(desc.filter_id);
     // Producers are created by local runtime filter mgr and shared by global runtime filter manager.
     // When RF is published, consumers in both global and local RF mgr will be found.
     RETURN_IF_ERROR(local_runtime_filter_mgr()->register_producer_filter(_query_ctx, desc,
@@ -480,6 +481,7 @@ Status RuntimeState::register_producer_runtime_filter(
 Status RuntimeState::register_consumer_runtime_filter(
         const TRuntimeFilterDesc& desc, bool need_local_merge, int node_id,
         std::shared_ptr<RuntimeFilterConsumer>* consumer_filter) {
+    _registered_runtime_filter_ids.insert(desc.filter_id);
     bool need_merge = desc.has_remote_targets || need_local_merge;
     RuntimeFilterMgr* mgr = need_merge ? global_runtime_filter_mgr() : local_runtime_filter_mgr();
     return mgr->register_consumer_filter(this, desc, node_id, consumer_filter);
@@ -496,10 +498,9 @@ std::vector<std::shared_ptr<RuntimeProfile>> RuntimeState::pipeline_id_to_profil
 
 void RuntimeState::reset_to_rerun() {
     if (local_runtime_filter_mgr()) {
-        auto filter_ids = local_runtime_filter_mgr()->get_filter_ids();
-        filter_ids.merge(global_runtime_filter_mgr()->get_filter_ids());
-        local_runtime_filter_mgr()->remove_filters(filter_ids);
-        global_runtime_filter_mgr()->remove_filters(filter_ids);
+        local_runtime_filter_mgr()->remove_filters(_registered_runtime_filter_ids);
+        global_runtime_filter_mgr()->remove_filters(_registered_runtime_filter_ids);
+        _registered_runtime_filter_ids.clear();
     }
     std::unique_lock lc(_pipeline_profile_lock);
     _pipeline_id_to_profile.clear();

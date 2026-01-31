@@ -859,6 +859,8 @@ private:
 
     // used for encoding the global lazy materialize
     std::shared_ptr<IdFileMap> _id_file_map = nullptr;
+
+    std::set<int> _registered_runtime_filter_ids;
 };
 
 #define RETURN_IF_CANCELLED(state)               \
