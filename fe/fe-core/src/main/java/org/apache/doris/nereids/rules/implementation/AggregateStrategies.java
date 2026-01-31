@@ -23,6 +23,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.annotation.DependsRules;
 import org.apache.doris.nereids.rules.Rule;
@@ -730,7 +731,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 ));
             }
 
-        } else if (logicalScan instanceof LogicalFileScan) {
+        } else if (logicalScan instanceof LogicalFileScan && canPushDownCountForHudiScan(logicalScan)) {
             Rule rule = (logicalScan instanceof LogicalHudiScan) ? new LogicalHudiScanToPhysicalHudiScan().build()
                     : new LogicalFileScanToPhysicalFileScan().build();
             PhysicalFileScan physicalScan = (PhysicalFileScan) rule.transform(logicalScan, cascadesContext)
@@ -754,6 +755,27 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     private boolean enablePushDownStringMinMax() {
         ConnectContext connectContext = ConnectContext.get();
         return connectContext != null && connectContext.getSessionVariable().isEnablePushDownStringMinMax();
+    }
+
+    /**
+     * Check if count push down is allowed for Hudi scan.
+     * For Hudi MOR tables, count push down is disabled because
+     * MOR tables may have uncommitted data in delta logs that would not be counted correctly.
+     * For Hudi COW tables, count push down is allowed.
+     *
+     * @param logicalScan the logical scan to check
+     * @return true if count push down is allowed, false otherwise
+     */
+    protected boolean canPushDownCountForHudiScan(LogicalRelation logicalScan) {
+        if (!(logicalScan instanceof LogicalHudiScan)) {
+            return true;
+        }
+        LogicalHudiScan hudiScan = (LogicalHudiScan) logicalScan;
+        if (!(hudiScan.getTable() instanceof HMSExternalTable)) {
+            return true;
+        }
+        HMSExternalTable hmsTable = (HMSExternalTable) hudiScan.getTable();
+        return hmsTable.isHoodieCowTable();
     }
 
     private boolean enablePushDownNoGroupAgg() {
