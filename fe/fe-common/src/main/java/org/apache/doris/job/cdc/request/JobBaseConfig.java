@@ -27,7 +27,7 @@ import java.util.Map;
 @AllArgsConstructor
 @NoArgsConstructor
 public class JobBaseConfig {
-    private Long jobId;
+    private String jobId;
     private String dataSource;
     private Map<String, String> config;
 }

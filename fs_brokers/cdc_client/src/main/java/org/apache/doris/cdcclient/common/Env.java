@@ -37,8 +37,8 @@ import org.slf4j.LoggerFactory;
 public class Env {
     private static final Logger LOG = LoggerFactory.getLogger(Env.class);
     private static volatile Env INSTANCE;
-    private final Map<Long, JobContext> jobContexts;
-    private final Map<Long, Lock> jobLocks;
+    private final Map<String, JobContext> jobContexts;
+    private final Map<String, Lock> jobLocks;
     @Setter private int backendHttpPort;
 
     private Env() {
@@ -79,9 +79,9 @@ public class Env {
     }
 
     private SourceReader getOrCreateReader(
-            Long jobId, DataSource dataSource, Map<String, String> config) {
-        Objects.requireNonNull(jobId, "jobId");
-        Objects.requireNonNull(dataSource, "dataSource");
+            String jobId, DataSource dataSource, Map<String, String> config) {
+        Objects.requireNonNull(jobId, "jobId is null");
+        Objects.requireNonNull(dataSource, "dataSource is null");
         JobContext context = jobContexts.get(jobId);
         if (context != null) {
             return context.getReader(dataSource);
@@ -106,7 +106,7 @@ public class Env {
         }
     }
 
-    public void close(Long jobId) {
+    public void close(String jobId) {
         Lock lock = jobLocks.get(jobId);
         if (lock != null) {
             lock.lock();
@@ -123,12 +123,12 @@ public class Env {
     }
 
     private static final class JobContext {
-        private final long jobId;
+        private final String jobId;
         private volatile SourceReader reader;
         private volatile Map<String, String> config;
         private volatile DataSource dataSource;
 
-        private JobContext(long jobId, DataSource dataSource, Map<String, String> config) {
+        private JobContext(String jobId, DataSource dataSource, Map<String, String> config) {
             this.jobId = jobId;
             this.dataSource = dataSource;
             this.config = config;

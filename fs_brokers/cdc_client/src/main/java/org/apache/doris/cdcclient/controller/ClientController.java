@@ -39,6 +39,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 @RestController
 public class ClientController {
@@ -71,7 +72,7 @@ public class ClientController {
         }
     }
 
-    /** Fetch records from source reader */
+    /** Fetch records from source reader, for debug */
     @RequestMapping(path = "/api/fetchRecords", method = RequestMethod.POST)
     public Object fetchRecords(@RequestBody FetchRecordRequest recordReq) {
         try {
@@ -80,6 +81,12 @@ public class ClientController {
             LOG.error("Failed fetch record, jobId={}", recordReq.getJobId(), ex);
             return RestResponse.internalError(ex.getMessage());
         }
+    }
+
+    @RequestMapping(path = "/api/fetchRecordStream", method = RequestMethod.POST)
+    public StreamingResponseBody fetchRecordStream(@RequestBody FetchRecordRequest recordReq)
+            throws Exception {
+        return pipelineCoordinator.fetchRecordStream(recordReq);
     }
 
     /** Fetch records from source reader and Write records to backend */
@@ -125,5 +132,10 @@ public class ClientController {
     @RequestMapping(path = "/api/getFailReason/{taskId}", method = RequestMethod.POST)
     public Object getFailReason(@PathVariable("taskId") String taskId) {
         return RestResponse.success(pipelineCoordinator.getTaskFailReason(taskId));
+    }
+
+    @RequestMapping(path = "/api/getTaskOffset/{taskId}", method = RequestMethod.POST)
+    public Object getTaskIdOffset(@PathVariable String taskId) {
+        return RestResponse.success(pipelineCoordinator.getOffsetWithTaskId(taskId));
     }
 }
