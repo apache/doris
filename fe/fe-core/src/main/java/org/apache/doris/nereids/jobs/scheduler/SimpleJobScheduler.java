@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.jobs.scheduler;
 
+import org.apache.doris.common.Config;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.errors.QueryPlanningErrors;
 import org.apache.doris.nereids.jobs.Job;
@@ -35,9 +37,21 @@ public class SimpleJobScheduler implements JobScheduler {
         SessionVariable sessionVariable = context.getConnectContext().getSessionVariable();
         while (!pool.isEmpty()) {
             long elapsedS = context.getStatementContext().getStopwatch().elapsed(TimeUnit.MILLISECONDS) / 1000;
-            if (sessionVariable.enableNereidsTimeout && elapsedS > sessionVariable.nereidsTimeoutSecond) {
-                throw QueryPlanningErrors.planTimeoutError(elapsedS, sessionVariable.nereidsTimeoutSecond,
-                        context.getConnectContext().getExecutor().getSummaryProfile());
+            if (sessionVariable.enableNereidsTimeout) {
+                SummaryProfile summaryProfile = context.getConnectContext().getExecutor().getSummaryProfile();
+                if (summaryProfile.isWarmup()) {
+                    // Fix errCode = 2, detailMessage = Nereids cost too much time (36s > 30s).
+                    // For warmup queries, use a longer timeout (300 seconds)
+                    if (elapsedS > Config.auto_start_wait_to_resume_times) {
+                        throw QueryPlanningErrors.planTimeoutError(elapsedS,
+                            Config.auto_start_wait_to_resume_times, summaryProfile);
+                    }
+                } else {
+                    if (elapsedS > sessionVariable.nereidsTimeoutSecond) {
+                        throw QueryPlanningErrors.planTimeoutError(elapsedS, sessionVariable.nereidsTimeoutSecond,
+                            summaryProfile);
+                    }
+                }
             }
             Job job = pool.pop();
             job.execute();
