@@ -48,26 +48,21 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * The Receiver is used for cached the plan that has been emitted and build the new plan, it's the dp table in paper
  */
 public class PlanReceiver extends AbstractReceiver {
+    final Set<Slot> finalRequiredSlots;
+    final List<NamedExpression> finalProjects;
     // dp table to cache all valid sub-plans
     HashMap<Long, Group> planTable = new HashMap<>();
     HashMap<Long, BitSet> usdEdges = new HashMap<>();
-
     // limit define the max number of csg-cmp pair in this Receiver
     int limit;
     int emitCount = 0;
-
     JobContext jobContext;
-
     HyperGraph hyperGraph;
-
-    final Set<Slot> finalRequiredSlots;
-    final List<NamedExpression> finalProjects;
     long allNodeBitmap;
     long startTime = System.currentTimeMillis();
     long timeLimit = ConnectContext.get().getSessionVariable().joinReorderTimeLimit;
@@ -78,6 +73,9 @@ public class PlanReceiver extends AbstractReceiver {
 
     boolean joinTypeError = false;
 
+    /**
+     * PlanReceiver
+     */
     public PlanReceiver(JobContext jobContext, int limit, HyperGraph hyperGraph) {
         this.jobContext = jobContext;
         this.limit = limit;
@@ -94,7 +92,7 @@ public class PlanReceiver extends AbstractReceiver {
      * It requires calculating the proper join predicate and costs of the resulting joins.
      * In the end, update dpTables.
      *
-     * @param left the bitmap of left child tree
+     * @param left  the bitmap of left child tree
      * @param right the bitmap of the right child tree
      * @param edges the join conditions that can be added in this operator
      * @return the left and the right can be connected by the edge
@@ -110,7 +108,8 @@ public class PlanReceiver extends AbstractReceiver {
         if (LongBitmap.newBitmapUnion(left, right) == allNodeBitmap) {
             fullKeyEmitted = true;
         }
-        if (!processMissedEdges(left, right, edges)) {
+        List<Edge> missingEdges = new ArrayList<>();
+        if (!processMissedEdges(left, right, edges, missingEdges)) {
             if (fullKeyEmitted) {
                 missingEdgeFail = true;
             }
@@ -118,9 +117,9 @@ public class PlanReceiver extends AbstractReceiver {
         }
 
         emitCount += 1;
-        //        if (emitCount > limit || System.currentTimeMillis() - startTime > timeLimit) {
-        //            return false;
-        //        }
+        // if (emitCount > limit || System.currentTimeMillis() - startTime > timeLimit) {
+        //     return false;
+        // }
 
         if (emitCount > limit) {
             if (fullKeyEmitted) {
@@ -128,6 +127,7 @@ public class PlanReceiver extends AbstractReceiver {
             }
             return EmitState.FAIL;
         }
+        edges.addAll(missingEdges);
         if (!checkConflictRule(left, right, edges)) {
             if (fullKeyEmitted) {
                 conflictRuleFail = true;
@@ -150,7 +150,7 @@ public class PlanReceiver extends AbstractReceiver {
         List<Expression> hashConjuncts = new ArrayList<>();
         List<Expression> otherConjuncts = new ArrayList<>();
 
-        JoinType joinType = Edge.extractJoinTypeAndConjuncts(edges, hashConjuncts, otherConjuncts);
+        JoinType joinType = Edge.extractJoinTypeAndConjuncts(edges, missingEdges, hashConjuncts, otherConjuncts);
         if (joinType == null) {
             if (fullKeyEmitted) {
                 joinTypeError = true;
@@ -159,17 +159,17 @@ public class PlanReceiver extends AbstractReceiver {
         }
         long fullKey = LongBitmap.newBitmapUnion(left, right);
 
-        LogicalPlan logicalPlan = proposeJoin(joinType, leftPlan, rightPlan, hashConjuncts,
+        LogicalPlan logicalJoin = proposeJoin(joinType, leftPlan, rightPlan, hashConjuncts,
                 otherConjuncts);
 
-        logicalPlan = proposeProject(logicalPlan, edges, left, right);
+        LogicalPlan logicalPlan = proposeProject(logicalJoin, edges, left, right);
 
         // Second, we copy all physical plan to Group and generate properties and calculate cost
         if (!planTable.containsKey(fullKey)) {
             planTable.put(fullKey, memo.newGroup(logicalPlan.getLogicalProperties()));
         }
         Group group = planTable.get(fullKey);
-        CopyInResult copyInResult = memo.copyIn(logicalPlan, group, false, planTable);
+        CopyInResult copyInResult = memo.copyIn(logicalPlan, group, planTable);
         proposeAllDistributedPlans(copyInResult.correspondingExpression);
 
         return EmitState.SUCCESS;
@@ -213,7 +213,7 @@ public class PlanReceiver extends AbstractReceiver {
     // The root cause is hyper predicate should be encoded as one or more hyper edges in different scenarios.
     // But we are not able to do so in all cases (complex expression and outer joins).
     // So we use processMissedEdges to find all valid edges when join 0, 1, 2 as fallback plan.
-    private boolean processMissedEdges(long left, long right, List<Edge> edges) {
+    private boolean processMissedEdges(long left, long right, List<Edge> edges, List<Edge> missingEdges) {
         // find all used edges
         BitSet usedEdgesBitmap = new BitSet();
         usedEdgesBitmap.or(usdEdges.get(left));
@@ -225,14 +225,13 @@ public class PlanReceiver extends AbstractReceiver {
 
         // find the edge which is not in usedEdgesBitmap and its referenced nodes is subset of allReferenceNodes
         for (Edge edge : hyperGraph.getJoinEdges()) {
-            // TODO long referenceNodes = LongBitmap.newBitmapUnion(edge.getLeftRequiredNodes(), edge.getRightRequiredNodes());
             if (LongBitmap.isSubset(edge.getReferenceNodes(), allReferenceNodes)
                     && !usedEdgesBitmap.get(edge.getIndex())) {
                 if (edge.isEnforcedOrder()) {
                     return false;
                 } else {
                     // add the missed edge to edges
-                    edges.add(edge);
+                    missingEdges.add(edge);
                 }
             }
         }
@@ -250,7 +249,7 @@ public class PlanReceiver extends AbstractReceiver {
     }
 
     private LogicalPlan proposeJoin(JoinType joinType, Plan left, Plan right, List<Expression> hashConjuncts,
-            List<Expression> otherConjuncts) {
+                                    List<Expression> otherConjuncts) {
         return new LogicalJoin<>(joinType, hashConjuncts, otherConjuncts, left, right, null);
     }
 
@@ -302,32 +301,21 @@ public class PlanReceiver extends AbstractReceiver {
 
         // propose logical project
         if (allProjects.isEmpty()) {
-            allProjects.add(ExpressionUtils.selectMinimumColumn(outputs));
+            long fullKey = LongBitmap.newBitmapUnion(left, right);
+            if (planTable.containsKey(fullKey)) {
+                Group group = planTable.get(fullKey);
+                allProjects.addAll(group.getLogicalProperties().getOutput());
+            } else {
+                allProjects.add(ExpressionUtils.selectMinimumColumn(outputs));
+            }
         }
-        //        if (LongBitmap.newBitmapUnion(left, right) == allNodeBitmap && !finalProjects.equals(allProjects)) {
-        //            // add final project for the join cluster
-        //            return new LogicalProject<>(finalProjects, join);
-        //        }
+
         if (LongBitmap.newBitmapUnion(left, right) == allNodeBitmap
                 && !outputSet.equals(new HashSet<>(finalProjects))) {
             // add final project for the join cluster
             return new LogicalProject<>(finalProjects, join);
         } else {
-            if (outputSet.equals(new HashSet<>(allProjects))) {
-                return join;
-            }
-
-            Set<Slot> childOutputSet = join.getOutputSet();
-            List<NamedExpression> projects = allProjects.stream()
-                    .filter(expr -> childOutputSet.containsAll(expr.getInputSlots()))
-                    .collect(Collectors.toList());
-            LogicalPlan project = join;
-            if (!outputSet.equals(new HashSet<>(projects))) {
-                project = new LogicalProject<>(projects, join);
-            }
-            Preconditions.checkState(!projects.isEmpty() && projects.size() == allProjects.size(),
-                    " there are some projects left %s %s", projects, allProjects);
-            return project;
+            return join;
         }
     }
 }

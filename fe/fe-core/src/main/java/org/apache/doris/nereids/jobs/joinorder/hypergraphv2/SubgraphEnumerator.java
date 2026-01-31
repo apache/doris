@@ -43,18 +43,16 @@ import java.util.stream.Collectors;
  */
 public class SubgraphEnumerator {
     public static final Logger LOG = LogManager.getLogger(SubgraphEnumerator.class);
-
-    // The receiver receives the csg and cmp and record them, named DPTable in paper
-    AbstractReceiver receiver;
-    // The enumerated hyperGraph
-    HyperGraph hyperGraph;
-    EdgeCalculator edgeCalculator;
-    NeighborhoodCalculator neighborhoodCalculator;
-    // These caches are used to avoid repetitive computation
-
     // trace enumerate
     private final boolean enableTrace = ConnectContext.get().getSessionVariable().enableDpHypTrace;
     private final StringBuilder traceBuilder = new StringBuilder();
+    // The receiver receives the csg and cmp and record them, named DPTable in paper
+    private AbstractReceiver receiver;
+    // The enumerated hyperGraph
+    private HyperGraph hyperGraph;
+    // These caches are used to avoid repetitive computation
+    private EdgeCalculator edgeCalculator;
+    private NeighborhoodCalculator neighborhoodCalculator;
 
     public SubgraphEnumerator(AbstractReceiver receiver, HyperGraph hyperGraph) {
         this.receiver = receiver;
@@ -234,7 +232,7 @@ public class SubgraphEnumerator {
         public long calcNeighborhood(long subgraph, long forbiddenNodes, EdgeCalculator edgeCalculator) {
             long neighborhoods = LongBitmap.newBitmap();
             for (Edge edge : edgeCalculator.foundSimpleEdgesContain(subgraph)) {
-//                neighborhoods = LongBitmap.or(neighborhoods, edge.getReferenceNodes());
+                //                neighborhoods = LongBitmap.or(neighborhoods, edge.getReferenceNodes());
                 neighborhoods = LongBitmap.or(neighborhoods, edge.getReferenceNodes());
             }
             forbiddenNodes = LongBitmap.or(forbiddenNodes, subgraph);
@@ -418,7 +416,7 @@ public class SubgraphEnumerator {
             return (LongBitmap.isSubset(edge.getLeftExtendedNodes(), subgraph)
                     && !LongBitmap.isOverlap(edge.getRightExtendedNodes(), subgraph))
                     || (LongBitmap.isSubset(edge.getRightExtendedNodes(), subgraph)
-                            && !LongBitmap.isOverlap(edge.getLeftExtendedNodes(), subgraph));
+                    && !LongBitmap.isOverlap(edge.getLeftExtendedNodes(), subgraph));
         }
 
         private boolean isOverlapEdge(long subgraph, Edge edge) {
@@ -427,8 +425,8 @@ public class SubgraphEnumerator {
                     && !LongBitmap.isSubset(edge.getLeftExtendedNodes(), subgraph)
                     && !LongBitmap.isOverlap(edge.getRightExtendedNodes(), subgraph))
                     || (LongBitmap.isOverlap(edge.getRightExtendedNodes(), subgraph)
-                            && !LongBitmap.isSubset(edge.getRightExtendedNodes(), subgraph)
-                            && !LongBitmap.isOverlap(edge.getLeftExtendedNodes(), subgraph));
+                    && !LongBitmap.isSubset(edge.getRightExtendedNodes(), subgraph)
+                    && !LongBitmap.isOverlap(edge.getLeftExtendedNodes(), subgraph));
         }
 
         private BitSet removeInvalidEdges(long subgraph, BitSet edgeMap) {

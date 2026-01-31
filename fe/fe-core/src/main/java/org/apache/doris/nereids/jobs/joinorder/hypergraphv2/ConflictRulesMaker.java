@@ -42,33 +42,34 @@ import java.util.Set;
  */
 public class ConflictRulesMaker {
     private static ValEntry[][] assocTable = {
-        //             inner-B       semi-B        anti-B        left-B         full-B
-        /* inner-A */ {ValEntry.YES, ValEntry.YES, ValEntry.YES, ValEntry.YES, ValEntry.NO},
-        /* semi-A  */ {ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO},
-        /* anti-A  */ {ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO},
-        /* left-A  */ {ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.BRejectRA, ValEntry.NO},
-        /* full-A  */ {ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.BRejectRA, ValEntry.ABRejectRA},
+            //             inner-B       semi-B        anti-B        left-B         full-B
+            /* inner-A */ {ValEntry.YES, ValEntry.YES, ValEntry.YES, ValEntry.YES, ValEntry.NO},
+            /* semi-A  */ {ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO},
+            /* anti-A  */ {ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO},
+            /* left-A  */ {ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.BRejectRA, ValEntry.NO},
+            /* full-A  */ {ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.BRejectRA, ValEntry.ABRejectRA},
     };
 
     private static ValEntry[][] leftAsscomTable = {
-        //             inner-B       semi-B        anti-B        left-B         full-B
-        /* inner-A */ {ValEntry.YES, ValEntry.YES, ValEntry.YES, ValEntry.YES, ValEntry.NO},
-        /* semi-A  */ {ValEntry.YES, ValEntry.YES, ValEntry.YES, ValEntry.YES, ValEntry.NO},
-        /* anti-A  */ {ValEntry.YES, ValEntry.YES, ValEntry.YES, ValEntry.YES, ValEntry.NO},
-        /* left-A  */ {ValEntry.YES, ValEntry.YES, ValEntry.YES, ValEntry.YES, ValEntry.ARejectLA},
-        /* full-A  */ {ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.BRejectRB, ValEntry.ABRejectLA},
+            //             inner-B       semi-B        anti-B        left-B         full-B
+            /* inner-A */ {ValEntry.YES, ValEntry.YES, ValEntry.YES, ValEntry.YES, ValEntry.NO},
+            /* semi-A  */ {ValEntry.YES, ValEntry.YES, ValEntry.YES, ValEntry.YES, ValEntry.NO},
+            /* anti-A  */ {ValEntry.YES, ValEntry.YES, ValEntry.YES, ValEntry.YES, ValEntry.NO},
+            /* left-A  */ {ValEntry.YES, ValEntry.YES, ValEntry.YES, ValEntry.YES, ValEntry.ARejectLA},
+            /* full-A  */ {ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.BRejectRB, ValEntry.ABRejectLA},
     };
 
     private static ValEntry[][] rightAsscomTable = {
-        //             inner-B       semi-B        anti-B        left-B         full-B
-        /* inner-A */ {ValEntry.YES, ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO},
-        /* semi-A  */ {ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO},
-        /* anti-A  */ {ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO},
-        /* left-A  */ {ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO},
-        /* full-A  */ {ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.ABRejectRB},
+            //             inner-B       semi-B        anti-B        left-B         full-B
+            /* inner-A */ {ValEntry.YES, ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO},
+            /* semi-A  */ {ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO},
+            /* anti-A  */ {ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO},
+            /* left-A  */ {ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO},
+            /* full-A  */ {ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.NO, ValEntry.ABRejectRB},
     };
 
-    private ConflictRulesMaker() {}
+    private ConflictRulesMaker() {
+    }
 
     /**
      * Make edge's conflict rule by CD-C algorithm in
@@ -187,17 +188,6 @@ public class ConflictRulesMaker {
         return bitSet;
     }
 
-    private enum ValEntry {
-        YES,
-        NO,
-        BRejectRA,
-        ABRejectRA,
-        ARejectLA,
-        BRejectRB,
-        ABRejectLA,
-        ABRejectRB
-    }
-
     private static int getIndexForJoinType(JoinType joinType) {
         switch (joinType) {
             case CROSS_JOIN:
@@ -218,16 +208,16 @@ public class ConflictRulesMaker {
     }
 
     private static boolean isValidToReorder(ValEntry valEntry,
-            LogicalJoin joinA,
-            LogicalJoin joinB,
-            ExpressionRewriteContext ctx) {
+                                            LogicalJoin joinA,
+                                            LogicalJoin joinB,
+                                            ExpressionRewriteContext ctx) {
         switch (valEntry) {
             case YES:
                 return true;
             case BRejectRA: {
-                Set<Slot> outputRA = joinA.right().getOutputSet();
+                Set<Slot> outputBL = joinB.left().getOutputSet();
                 for (Object expression : joinB.getExpressions()) {
-                    if (isEvalToNullOrFalse(outputRA, (Expression) expression, ctx)) {
+                    if (isEvalToNullOrFalse(outputBL, (Expression) expression, ctx)) {
                         return true;
                     }
                 }
@@ -235,16 +225,17 @@ public class ConflictRulesMaker {
             }
             case ABRejectRA: {
                 boolean aRejectRA = false;
-                Set<Slot> outputRA = joinA.right().getOutputSet();
+                Set<Slot> outputAR = joinA.right().getOutputSet();
                 for (Object expression : joinA.getExpressions()) {
-                    if (isEvalToNullOrFalse(outputRA, (Expression) expression, ctx)) {
+                    if (isEvalToNullOrFalse(outputAR, (Expression) expression, ctx)) {
                         aRejectRA = true;
                         break;
                     }
                 }
                 if (aRejectRA) {
+                    Set<Slot> outputBL = joinB.left().getOutputSet();
                     for (Object expression : joinB.getExpressions()) {
-                        if (isEvalToNullOrFalse(outputRA, (Expression) expression, ctx)) {
+                        if (isEvalToNullOrFalse(outputBL, (Expression) expression, ctx)) {
                             return true;
                         }
                     }
@@ -252,18 +243,18 @@ public class ConflictRulesMaker {
                 return false;
             }
             case ARejectLA: {
-                Set<Slot> outputLA = joinA.left().getOutputSet();
+                Set<Slot> outputAL = joinA.left().getOutputSet();
                 for (Object expression : joinA.getExpressions()) {
-                    if (isEvalToNullOrFalse(outputLA, (Expression) expression, ctx)) {
+                    if (isEvalToNullOrFalse(outputAL, (Expression) expression, ctx)) {
                         return true;
                     }
                 }
                 return false;
             }
             case BRejectRB: {
-                Set<Slot> outputRB = joinB.right().getOutputSet();
+                Set<Slot> outputBR = joinB.right().getOutputSet();
                 for (Object expression : joinB.getExpressions()) {
-                    if (isEvalToNullOrFalse(outputRB, (Expression) expression, ctx)) {
+                    if (isEvalToNullOrFalse(outputBR, (Expression) expression, ctx)) {
                         return true;
                     }
                 }
@@ -271,16 +262,17 @@ public class ConflictRulesMaker {
             }
             case ABRejectLA: {
                 boolean aRejectLA = false;
-                Set<Slot> outputLA = joinA.left().getOutputSet();
+                Set<Slot> outputAL = joinA.left().getOutputSet();
                 for (Object expression : joinA.getExpressions()) {
-                    if (isEvalToNullOrFalse(outputLA, (Expression) expression, ctx)) {
+                    if (isEvalToNullOrFalse(outputAL, (Expression) expression, ctx)) {
                         aRejectLA = true;
                         break;
                     }
                 }
                 if (aRejectLA) {
+                    Set<Slot> outputBL = joinB.left().getOutputSet();
                     for (Object expression : joinB.getExpressions()) {
-                        if (isEvalToNullOrFalse(outputLA, (Expression) expression, ctx)) {
+                        if (isEvalToNullOrFalse(outputBL, (Expression) expression, ctx)) {
                             return true;
                         }
                     }
@@ -289,16 +281,17 @@ public class ConflictRulesMaker {
             }
             case ABRejectRB: {
                 boolean aRejectRB = false;
-                Set<Slot> outputRB = joinB.right().getOutputSet();
+                Set<Slot> outputAR = joinA.right().getOutputSet();
                 for (Object expression : joinA.getExpressions()) {
-                    if (isEvalToNullOrFalse(outputRB, (Expression) expression, ctx)) {
+                    if (isEvalToNullOrFalse(outputAR, (Expression) expression, ctx)) {
                         aRejectRB = true;
                         break;
                     }
                 }
                 if (aRejectRB) {
+                    Set<Slot> outputBR = joinB.right().getOutputSet();
                     for (Object expression : joinB.getExpressions()) {
-                        if (isEvalToNullOrFalse(outputRB, (Expression) expression, ctx)) {
+                        if (isEvalToNullOrFalse(outputBR, (Expression) expression, ctx)) {
                             return true;
                         }
                     }
@@ -367,5 +360,16 @@ public class ConflictRulesMaker {
         } else {
             conflictRules.add(Pair.of(childRightSubtreeNodes, childLeftSubtreeNodes));
         }
+    }
+
+    private enum ValEntry {
+        YES,
+        NO,
+        BRejectRA,
+        ABRejectRA,
+        ARejectLA,
+        BRejectRB,
+        ABRejectLA,
+        ABRejectRB
     }
 }

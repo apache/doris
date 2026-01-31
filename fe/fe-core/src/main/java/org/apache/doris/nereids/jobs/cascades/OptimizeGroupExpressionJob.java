@@ -89,6 +89,7 @@ public class OptimizeGroupExpressionJob extends Job {
                 || context.getCascadesContext().getMemo().getGroupExpressionsSize() > context.getCascadesContext()
                 .getConnectContext().getSessionVariable().memoMaxGroupExpressionSize;
         boolean isDpHyp = context.getCascadesContext().getStatementContext().isDpHyp();
+        boolean isAfterDpHyper = context.getCascadesContext().getStatementContext().isAfterDpHyper();
         boolean isEnableBushyTree = context.getCascadesContext().getConnectContext().getSessionVariable()
                 .isEnableBushyTree();
         boolean isLeftZigZagTree = context.getCascadesContext().getConnectContext()
@@ -100,7 +101,9 @@ public class OptimizeGroupExpressionJob extends Job {
             return Collections.emptyList();
         } else if (isDpHyp) {
             return getRuleSet().getDPHypReorderRules();
-        } else if (false) {
+        } else if (isAfterDpHyper) {
+            return getRuleSet().getAfterDPHypReorderRules();
+        } else if (isLeftZigZagTree) {
             return getRuleSet().getLeftZigZagTreeJoinReorder();
         } else if (isEnableBushyTree) {
             return getRuleSet().getBushyTreeJoinReorder();

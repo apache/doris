@@ -27,7 +27,6 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.FilterEdge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.ExpressionPosition;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughJoin;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -584,7 +583,6 @@ public class HyperGraphComparator {
                 .collect(ImmutableList.toImmutableList());
 
         List<JoinEdge> newJoinEdges = new ArrayList<>();
-//        ExpressionRewriteContext ctx = new ExpressionRewriteContext(viewHyperGraph.getCtx());
         for (JoinEdge joinEdge : getViewJoinEdges()) {
             JoinType newJoinType = inferredViewEdgeWithCond
                     .getOrDefault(joinEdge, Pair.of(joinEdge.getJoinType(), null)).first;

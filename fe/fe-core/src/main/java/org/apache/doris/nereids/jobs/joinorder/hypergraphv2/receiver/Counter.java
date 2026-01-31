@@ -17,10 +17,11 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraphv2.receiver;
 
-import com.google.common.base.Preconditions;
 import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.edge.Edge;
 import org.apache.doris.nereids.memo.Group;
+
+import com.google.common.base.Preconditions;
 
 import java.util.HashMap;
 import java.util.List;
@@ -31,8 +32,8 @@ import java.util.List;
 public class Counter extends AbstractReceiver {
     // limit define the max number of csg-cmp pair in this Receiver
     private final int limit;
-    private int emitCount = 0;
     private final HashMap<Long, Integer> counter = new HashMap<>();
+    private int emitCount = 0;
 
     public Counter() {
         this.limit = Integer.MAX_VALUE;
@@ -45,7 +46,7 @@ public class Counter extends AbstractReceiver {
     /**
      * Emit a new plan from bottom to top
      *
-     * @param left the bitmap of left child tree
+     * @param left  the bitmap of left child tree
      * @param right the bitmap of the right child tree
      * @param edges the join operator
      * @return the left and the right can be connected by the edge

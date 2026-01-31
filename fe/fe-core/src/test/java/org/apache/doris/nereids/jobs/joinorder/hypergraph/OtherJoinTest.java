@@ -64,11 +64,8 @@ public class OtherJoinTest extends TPCHTestBase {
 
             Set<List<String>> res2 = hyperGraphBuilder.evaluate(optimizedPlan);
             if (!res1.equals(res2)) {
-                Set<List<String>> res3 = hyperGraphBuilder.evaluate(optimizedPlan);
                 System.out.println(plan.treeString());
                 System.out.println(optimizedPlan.treeString());
-                cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
-                PlanChecker.from(cascadesContext).dpHypOptimize().getBestPlanTree();
                 System.out.println(res1);
                 System.out.println(res2);
             }

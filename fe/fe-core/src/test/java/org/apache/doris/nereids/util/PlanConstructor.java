@@ -104,9 +104,10 @@ public class PlanConstructor {
     }
 
     public static OlapTable newOlapTable(long tableId, String tableName, int hashColumn, KeysType keysType) {
+        // Use two INT columns to increase chance of join matches in randomized tests
         List<Column> columns = ImmutableList.of(
                 new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                new Column("name", Type.STRING, true, AggregateType.NONE, "", ""));
+                new Column("age", Type.INT, true, AggregateType.NONE, "0", ""));
 
         HashDistributionInfo hashDistributionInfo = new HashDistributionInfo(3,
                 ImmutableList.of(columns.get(hashColumn)));

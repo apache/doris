@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsCacheKey;
@@ -83,10 +84,6 @@ public class HyperGraphBuilder {
             JoinType.LEFT_ANTI_JOIN,
             JoinType.NULL_AWARE_LEFT_ANTI_JOIN);
 
-    // limit the number of CROSS_JOIN nodes to avoid data explosion during tests
-    private int crossJoinCount = 0;
-    private final int maxCrossJoins = 2;
-
     private ImmutableList<JoinType> rightFullJoinTypes = ImmutableList.of(
             JoinType.INNER_JOIN,
             JoinType.LEFT_OUTER_JOIN,
@@ -94,6 +91,10 @@ public class HyperGraphBuilder {
             JoinType.FULL_OUTER_JOIN,
             JoinType.RIGHT_SEMI_JOIN,
             JoinType.RIGHT_ANTI_JOIN);
+
+    // limit the number of CROSS_JOIN nodes to avoid data explosion during tests
+    private int crossJoinCount = 0;
+    private final int maxCrossJoins = 2;
 
     public HyperGraphBuilder() {
     }
@@ -132,7 +133,12 @@ public class HyperGraphBuilder {
         assert plans.size() == 1 : "there are cross join";
         Plan plan = plans.values().iterator().next();
         crossJoinCount = 0;
-        return buildPlanWithJoinType(plan, new BitSet(), false);
+        Plan result = buildPlanWithJoinType(plan, new BitSet(), false);
+        // limit final output columns to at most 10
+        if (result.getOutput().size() > 10) {
+            return new LogicalProject(result.getOutput().subList(0, 10), result);
+        }
+        return result;
     }
 
     public Plan randomBuildPlanWith(int tableNum, int edgeNum) {
@@ -156,7 +162,11 @@ public class HyperGraphBuilder {
         assert plans.size() == 1 : "there are cross join";
         Plan plan = plans.values().iterator().next();
         crossJoinCount = 0;
-        return buildPlanWithJoinType(plan, new BitSet(), true);
+        Plan result = buildPlanWithJoinType(plan, new BitSet(), true);
+        if (result.getOutput().size() > 10) {
+            return new LogicalProject(result.getOutput().subList(0, 10), result);
+        }
+        return result;
     }
 
     private void randomBuildInit(int tableNum, int edgeNum) {
@@ -165,9 +175,10 @@ public class HyperGraphBuilder {
         Preconditions.checkArgument(edgeNum <= tableNum * (tableNum - 1) / 2,
                 "The edges are redundant with %s tables %s edges", tableNum, edgeNum);
 
+        // Each test table has 10 rows (values in 1..10) to increase join match probability.
         int[] tableRowCounts = new int[tableNum];
-        for (int i = 1; i <= tableNum; i++) {
-            tableRowCounts[i - 1] = i;
+        for (int i = 0; i < tableNum; i++) {
+            tableRowCounts[i] = 5;
         }
         this.init(tableRowCounts);
 
@@ -377,20 +388,17 @@ public class HyperGraphBuilder {
         // - if joinType is CROSS_JOIN, remove any equality conditions
         List<Expression> finalHash = new ArrayList<>(join.getHashJoinConjuncts());
         List<Expression> finalOther = new ArrayList<>(join.getOtherJoinConjuncts());
-        if (joinType != JoinType.CROSS_JOIN) {
-            if (finalHash.isEmpty()) {
-                // create a default equality between first output slots of left and right
+        if (joinType == JoinType.CROSS_JOIN) {
+            // CROSS JOIN should not have any join conditions
+            finalHash.clear();
+            finalOther.clear();
+        } else {
+            // For non-CROSS joins, ensure there's at least one join condition (hash or other).
+            if (finalHash.isEmpty() && finalOther.isEmpty()) {
                 Slot lslot = left.getOutput().get(0);
                 Slot rslot = right.getOutput().get(0);
                 finalHash.add(new EqualTo(lslot, rslot));
-                // remove identical equalities from other if any
-                finalOther.removeIf(e -> e instanceof EqualPredicate
-                        && e.getInputSlots().containsAll(ImmutableList.of(lslot, rslot)));
             }
-        } else {
-            // CROSS JOIN should not have equality predicates
-            finalHash.clear();
-            finalOther.removeIf(e -> e instanceof EqualPredicate);
         }
 
         if (withJoinHint) {
@@ -498,8 +506,13 @@ public class HyperGraphBuilder {
 
     private void constructJoin(int node1, int node2, BitSet key) {
         LogicalJoin join = (LogicalJoin) plans.get(key);
-        Expression condition = makeCondition(node1, node2, key);
-        plans.put(key, attachCondition(condition, join));
+        // generate up to two hash and up to two other conditions (most often 1 each)
+        java.util.List<Expression> conditions = makeConditions(node1, node2, key);
+        LogicalJoin current = join;
+        for (Expression condition : conditions) {
+            current = attachCondition(condition, current);
+        }
+        plans.put(key, current);
     }
 
     private LogicalJoin attachCondition(Expression condition, LogicalJoin join) {
@@ -516,9 +529,13 @@ public class HyperGraphBuilder {
             } else {
                 // child is not a join (e.g., a scan). Can't recurse further — attach at this level.
                 if (condition instanceof EqualPredicate) {
-                    hashConjuncts.add(condition);
+                    if (hashConjuncts.size() < 2) {
+                        hashConjuncts.add(condition);
+                    }
                 } else {
-                    otherConjuncts.add(condition);
+                    if (otherConjuncts.size() < 2) {
+                        otherConjuncts.add(condition);
+                    }
                 }
             }
         } else if (rightSlots.containsAll(inputs)) {
@@ -527,22 +544,36 @@ public class HyperGraphBuilder {
             } else {
                 // child is not a join — attach at this level.
                 if (condition instanceof EqualPredicate) {
-                    hashConjuncts.add(condition);
+                    if (hashConjuncts.size() < 2) {
+                        hashConjuncts.add(condition);
+                    }
                 } else {
-                    otherConjuncts.add(condition);
+                    if (otherConjuncts.size() < 2) {
+                        otherConjuncts.add(condition);
+                    }
                 }
             }
         } else {
             if (condition instanceof EqualPredicate) {
-                hashConjuncts.add(condition);
+                if (hashConjuncts.size() < 2) {
+                    hashConjuncts.add(condition);
+                }
             } else {
-                otherConjuncts.add(condition);
+                if (otherConjuncts.size() < 2) {
+                    otherConjuncts.add(condition);
+                }
             }
         }
         return new LogicalJoin<>(join.getJoinType(), hashConjuncts, otherConjuncts, left, right, null);
     }
 
-    private Expression makeCondition(int node1, int node2, BitSet bitSet) {
+    /**
+     * Generate a small set of join conditions for the pair of tables.
+     * - At most two hash (equality) conditions
+     * - At most two other conditions
+     * - Most of the time produce only one of each
+     */
+    private java.util.List<Expression> makeConditions(int node1, int node2, BitSet bitSet) {
         Plan plan = plans.get(bitSet);
         List<Integer> schema = schemas.get(bitSet);
         int size = schema.size();
@@ -550,8 +581,6 @@ public class HyperGraphBuilder {
         int rightIndex = -1;
         for (int i = 0; i < size; i++) {
             if (schema.get(i) == node1) {
-                // Each table has two column: id and name.
-                // Therefore, offset = numberOfTables * 2
                 leftIndex = i * 2;
             }
             if (schema.get(i) == node2) {
@@ -559,24 +588,70 @@ public class HyperGraphBuilder {
             }
         }
         assert leftIndex != -1 && rightIndex != -1;
-        // build a richer variety of conditions: equality, arithmetic equality, and single-table predicates
+
         java.util.Random rand = new java.util.Random();
-        int choice = rand.nextInt(4);
-        switch (choice) {
-            case 0:
-                return new EqualTo(plan.getOutput().get(leftIndex), plan.getOutput().get(rightIndex));
-            case 1:
-                // col_left = col_right + 1
-                return new EqualTo(plan.getOutput().get(leftIndex),
-                        new Add(plan.getOutput().get(rightIndex), Literal.of(1)));
-            case 2:
-                // single-table predicate on left side (will be attached into left subtree)
-                return new GreaterThan(plan.getOutput().get(leftIndex), Literal.of(1));
-            default:
-                // more complex: (col_left + 1) > col_right
-                return new GreaterThan(new Add(plan.getOutput().get(leftIndex), Literal.of(1)),
-                        plan.getOutput().get(rightIndex));
+        java.util.List<Integer> leftCandidates = new java.util.ArrayList<>();
+        java.util.List<Integer> rightCandidates = new java.util.ArrayList<>();
+        for (int i = 0; i < size; i++) {
+            if (schema.get(i) == node1) {
+                leftCandidates.add(i * 2);
+                leftCandidates.add(i * 2 + 1);
+            }
+            if (schema.get(i) == node2) {
+                rightCandidates.add(i * 2);
+                rightCandidates.add(i * 2 + 1);
+            }
         }
+
+        // Decide counts: most of the time 1 hash, sometimes 2, occasionally 0 (no hash)
+        int hashRoll = rand.nextInt(100);
+        int hashCount;
+        if (hashRoll < 75) {
+            hashCount = 1; // majority
+        } else if (hashRoll < 95) {
+            hashCount = 2; // some
+        } else {
+            hashCount = 0; // rare: no hash condition
+        }
+        int otherCount = rand.nextInt(100) < 80 ? 1 : 2;
+        hashCount = Math.min(hashCount, 2);
+        otherCount = Math.min(otherCount, 2);
+
+        java.util.List<Expression> conditions = new java.util.ArrayList<>();
+
+        // build hash (equality) conditions
+        for (int h = 0; h < hashCount; h++) {
+            int lPos = leftCandidates.get(rand.nextInt(leftCandidates.size()));
+            int rPos = rightCandidates.get(rand.nextInt(rightCandidates.size()));
+            // with some probability use arithmetic on right side
+            if (rand.nextInt(100) < 30) {
+                conditions.add(new EqualTo(plan.getOutput().get(lPos),
+                        new Add(plan.getOutput().get(rPos), Literal.of(1))));
+            } else {
+                conditions.add(new EqualTo(plan.getOutput().get(lPos), plan.getOutput().get(rPos)));
+            }
+        }
+
+        // build other (non-equality) conditions
+        for (int o = 0; o < otherCount; o++) {
+            int choice = rand.nextInt(3);
+            if (choice == 0) {
+                // single-table predicate on left
+                int lPos = leftCandidates.get(rand.nextInt(leftCandidates.size()));
+                conditions.add(new GreaterThan(plan.getOutput().get(lPos), Literal.of(1)));
+            } else if (choice == 1) {
+                int lPos = leftCandidates.get(rand.nextInt(leftCandidates.size()));
+                int rPos = rightCandidates.get(rand.nextInt(rightCandidates.size()));
+                conditions.add(new GreaterThan(new Add(plan.getOutput().get(lPos), Literal.of(1)),
+                        plan.getOutput().get(rPos)));
+            } else {
+                // another single-table predicate on right
+                int rPos = rightCandidates.get(rand.nextInt(rightCandidates.size()));
+                conditions.add(new GreaterThan(plan.getOutput().get(rPos), Literal.of(0)));
+            }
+        }
+
+        return conditions;
     }
 
     public Set<List<String>> evaluate(Plan plan) {
@@ -652,6 +727,9 @@ public class HyperGraphBuilder {
             if (plan instanceof LogicalJoin || plan instanceof AbstractPhysicalJoin) {
                 return evaluateJoin(plan);
             }
+            if (plan instanceof PhysicalStorageLayerAggregate) {
+                return evaluate(((PhysicalStorageLayerAggregate) plan).getRelation());
+            }
             assert plan.children().size() == 1;
             return evaluate(plan.child(0));
         }
@@ -669,11 +747,12 @@ public class HyperGraphBuilder {
             for (Slot slot : plan.getOutput()) {
                 rows.put(slot, new ArrayList<>());
                 for (int i = 0; i < rowCount; i++) {
-                    // inject some NULLs deterministically to exercise NULL-handling
-                    if (rowCount > 1 && i % 5 == 0) {
+                    // produce values in range 1..rowCount, but include one NULL deterministically
+                    // (first row is NULL) to exercise NULL-handling without explosion
+                    if (i == 0) {
                         rows.get(slot).add(null);
                     } else {
-                        rows.get(slot).add(i);
+                        rows.get(slot).add(i + 0); // values 2..rowCount
                     }
                 }
             }

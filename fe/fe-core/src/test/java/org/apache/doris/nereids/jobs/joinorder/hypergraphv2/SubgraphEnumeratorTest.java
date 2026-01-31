@@ -23,6 +23,7 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.edge.Edge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.receiver.Counter;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.util.HyperGraphBuilder;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 

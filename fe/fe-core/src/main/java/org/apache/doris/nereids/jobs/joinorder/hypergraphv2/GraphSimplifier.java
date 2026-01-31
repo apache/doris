@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraphv2;
 
-import com.google.common.base.Preconditions;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.edge.Edge;
@@ -31,7 +30,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.statistics.Statistics;
 
-import javax.annotation.Nullable;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
+
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -41,6 +42,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.PriorityQueue;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * GraphSimplifier is used to simplify HyperGraph {@link HyperGraph}.
@@ -50,27 +52,23 @@ import java.util.stream.Collectors;
  * - [Rad19] Radke and Neumann: “LinDP++: Generalizing Linearized DP to Crossproducts and Non-Inner Joins”.
  */
 public class GraphSimplifier {
-    public enum SimplificationResult {
-        NO_SIMPLIFICATION_POSSIBLE,
-        APPLIED_SIMPLIFICATION,
-        APPLIED_NOOP,
-        APPLIED_REDO_STEP
-    }
 
     private static int MAX_SIMPLIFICATION_STEPS = 1000000;
-
-    private Deque<SimplificationStep> appliedSteps = new ArrayDeque<>();
-    private Deque<SimplificationStep> unAppliedSteps = new ArrayDeque<>();
     // It cached the plan stats in simplification. we don't store it in hyper graph,
     // because it's just used for simulating join. In fact, the graph simplifier
     // just generate the partial order of join operator.
     private final HashMap<Long, Statistics> cacheStats = new HashMap<>();
     private final HashMap<Long, Double> cacheCost = new HashMap<>();
+    private Deque<SimplificationStep> appliedSteps = new ArrayDeque<>();
+    private Deque<SimplificationStep> unAppliedSteps = new ArrayDeque<>();
     private HyperGraph graph;
     private CircleDetector cycles;
     private List<BestSimplification> simplifications;
     private PriorityQueue<BestSimplification> priorityQueue = new PriorityQueue<>();
 
+    /**
+     * GraphSimplifier
+     */
     public GraphSimplifier(HyperGraph graph) {
         this.graph = graph;
         int edgeCount = graph.getJoinEdges().size();
@@ -98,6 +96,119 @@ public class GraphSimplifier {
         }
     }
 
+    /**
+     * Checks if the current hypergraph is joinable, i.e., all tables can be connected via joins.
+     */
+    private static boolean graphIsJoinable(HyperGraph graph, CircleDetector cycles) {
+        int nodeCount = graph.getNodes().size();
+        long[] components = new long[nodeCount];
+        int[] inComponent = new int[nodeCount];
+
+        for (int nodeIdx = 0; nodeIdx < nodeCount; nodeIdx++) {
+            components[nodeIdx] = LongBitmap.newBitmap(nodeIdx);
+            inComponent[nodeIdx] = nodeIdx;
+        }
+        return connectComponentsThroughJoins(graph, cycles, components, inComponent) == nodeCount;
+    }
+
+    /**
+     * Connects components through join edges, calling callback on each join.
+     */
+    private static int connectComponentsThroughJoins(
+            HyperGraph graph,
+            CircleDetector cycles,
+            long[] components,
+            int[] inComponent) {
+        int nodeCount = graph.getNodes().size();
+        int numInComponent = 1;
+        boolean didAnything;
+        int usedEdges = 0;
+        int edgeCount = cycles.getOrder().length;
+        do {
+            didAnything = false;
+            for (int edgeIdx : cycles.getOrder()) {
+                Edge e = graph.getJoinEdge(edgeIdx);
+                long rightNodes = e.getRightExtendedNodes();
+                int leftComponent = getComponent(components, inComponent, e.getLeftExtendedNodes());
+                if (leftComponent == -1) {
+                    continue;
+                }
+                if (LongBitmap.isOverlap(rightNodes, components[leftComponent])) {
+                    //TODO return ???
+                    return -1;
+                    //                    continue;
+                }
+                int rightComponent = getComponent(components, inComponent, e.getRightExtendedNodes());
+                if (rightComponent == -1
+                        || combiningWouldViolateConflictRules(e.getConflictRules(), inComponent, leftComponent,
+                        rightComponent)) {
+                    continue;
+                }
+
+                if (rightComponent < leftComponent) {
+                    int tmp = leftComponent;
+                    leftComponent = rightComponent;
+                    rightComponent = tmp;
+                }
+                int numChanged = 0;
+                for (int tableIdx : LongBitmap.getIterator(components[rightComponent])) {
+                    inComponent[tableIdx] = leftComponent;
+                    ++numChanged;
+                }
+
+                long combinedNodes = components[leftComponent] | components[rightComponent];
+                components[leftComponent] = combinedNodes;
+                usedEdges++;
+                if (leftComponent == 0) {
+                    numInComponent += numChanged;
+                    if (numInComponent == nodeCount && usedEdges == edgeCount) {
+                        return numInComponent;
+                    }
+                }
+                didAnything = true;
+            }
+        } while (didAnything);
+        return numInComponent;
+    }
+
+    private static int getComponent(long[] components, int[] inComponent, long tables) {
+        if (tables == 0) {
+            return -1;
+        }
+        int idx = Long.numberOfTrailingZeros(tables);
+        int component = inComponent[idx];
+        if (component >= 0 && (tables & ~components[component]) == 0) {
+            return component;
+        }
+        return -1;
+    }
+
+    private static boolean combiningWouldViolateConflictRules(
+            List<Pair<Long, Long>> conflictRules,
+            int[] inComponent,
+            int leftComponent,
+            int rightComponent) {
+        for (Pair<Long, Long> cr : conflictRules) {
+            boolean applies = false;
+            for (int nodeIdx : LongBitmap.getIterator(cr.first)) {
+                if (inComponent[nodeIdx] == leftComponent
+                        || inComponent[nodeIdx] == rightComponent) {
+                    applies = true;
+                    break;
+                }
+            }
+            if (applies) {
+                for (int nodeIdx : LongBitmap.getIterator(cr.second)) {
+                    if (inComponent[nodeIdx] != leftComponent
+                            && inComponent[nodeIdx] != rightComponent) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     private void extractJoinDependencies(CircleDetector circleDetector) {
         int edgeCount = graph.getJoinEdges().size();
         for (int i = 0; i < edgeCount; i++) {
@@ -115,6 +226,9 @@ public class GraphSimplifier {
         }
     }
 
+    /**
+     * simplifyGraph
+     */
     public boolean simplifyGraph(int limit) {
         Preconditions.checkArgument(limit >= 1);
         int lowerBound = 0;
@@ -180,7 +294,7 @@ public class GraphSimplifier {
         return (LongBitmap.isOverlap(edge1.getLeftExtendedNodes(), edge2.getLeftExtendedNodes())
                 && LongBitmap.isOverlap(edge1.getRightExtendedNodes(), edge2.getRightExtendedNodes()))
                 || (LongBitmap.isOverlap(edge1.getLeftExtendedNodes(), edge2.getRightExtendedNodes())
-                        && LongBitmap.isOverlap(edge1.getRightExtendedNodes(), edge2.getLeftExtendedNodes()));
+                && LongBitmap.isOverlap(edge1.getRightExtendedNodes(), edge2.getLeftExtendedNodes()));
     }
 
     private boolean unApplySimplificationStep() {
@@ -219,7 +333,8 @@ public class GraphSimplifier {
         return unAppliedSteps.size();
     }
 
-    public SimplificationResult applySimplificationStep() {
+    @VisibleForTesting
+    protected SimplificationResult applySimplificationStep() {
         if (!unAppliedSteps.isEmpty()) {
             SimplificationStep step = unAppliedSteps.poll();
             graph.modifyEdge(step.afterEdgeIdx, step.newEdgeLeft, step.newEdgeRight);
@@ -437,11 +552,19 @@ public class GraphSimplifier {
     private double calCost(Edge edge, long leftBitmap, long rightBitmap) {
         long bitmap = LongBitmap.newBitmapUnion(leftBitmap, rightBitmap);
         Preconditions.checkArgument(cacheStats.containsKey(leftBitmap) && cacheStats.containsKey(rightBitmap)
-                && cacheStats.containsKey(bitmap),
+                        && cacheStats.containsKey(bitmap),
                 "graph simplifier meet an edge %s that have not been derived stats", edge);
         LogicalJoin<? extends Plan, ? extends Plan> join = edge.getJoin();
         Statistics leftStats = cacheStats.get(leftBitmap);
         Statistics rightStats = cacheStats.get(rightBitmap);
+        // Ensure base costs exist for left and right bitmaps. If missing, initialize
+        // with a default cost derived from row count to avoid null lookups.
+        if (!cacheCost.containsKey(leftBitmap) && leftStats != null) {
+            cacheCost.put(leftBitmap, Math.max(1.0, leftStats.getRowCount()));
+        }
+        if (!cacheCost.containsKey(rightBitmap) && rightStats != null) {
+            cacheCost.put(rightBitmap, Math.max(1.0, rightStats.getRowCount()));
+        }
         double cost;
         if (JoinUtils.shouldNestedLoopJoin(join)) {
             cost = cacheCost.get(leftBitmap) + cacheCost.get(rightBitmap)
@@ -456,6 +579,8 @@ public class GraphSimplifier {
         }
         return cost;
     }
+
+    // --- Supporting classes ---
 
     private @Nullable Edge threeLeftJoin(long bitmap1, Edge edge1, long bitmap2, Edge edge2, long bitmap3) {
         // (plan1 edge1 plan2) edge2 plan3
@@ -478,7 +603,7 @@ public class GraphSimplifier {
     }
 
     private @Nullable Edge threeRightJoin(long bitmap1, Edge edge1, long bitmap2,
-            Edge edge2, long bitmap3) {
+                                          Edge edge2, long bitmap3) {
         Preconditions.checkArgument(cacheStats.containsKey(bitmap1)
                 && cacheStats.containsKey(bitmap2) && cacheStats.containsKey(bitmap3));
         // plan1 edge1 (plan2 edge2 plan3)
@@ -527,7 +652,15 @@ public class GraphSimplifier {
         return fullStep;
     }
 
-    // --- Supporting classes ---
+    /**
+     * SimplificationResult
+     */
+    public enum SimplificationResult {
+        NO_SIMPLIFICATION_POSSIBLE,
+        APPLIED_SIMPLIFICATION,
+        APPLIED_NOOP,
+        APPLIED_REDO_STEP
+    }
 
     private static class SimplificationStep {
         public int beforeEdgeIdx;
@@ -553,118 +686,5 @@ public class GraphSimplifier {
         public int compareTo(BestSimplification o) {
             return Double.compare(o.bestStep.benefit, bestStep.benefit);
         }
-    }
-
-    /**
-     * Checks if the current hypergraph is joinable, i.e., all tables can be connected via joins.
-     */
-    private static boolean graphIsJoinable(HyperGraph graph, CircleDetector cycles) {
-        int nodeCount = graph.getNodes().size();
-        long[] components = new long[nodeCount];
-        int[] inComponent = new int[nodeCount];
-
-        for (int nodeIdx = 0; nodeIdx < nodeCount; nodeIdx++) {
-            components[nodeIdx] = LongBitmap.newBitmap(nodeIdx);
-            inComponent[nodeIdx] = nodeIdx;
-        }
-        return connectComponentsThroughJoins(graph, cycles, components, inComponent) == nodeCount;
-    }
-
-    /**
-     * Connects components through join edges, calling callback on each join.
-     */
-    private static int connectComponentsThroughJoins(
-            HyperGraph graph,
-            CircleDetector cycles,
-            long[] components,
-            int[] inComponent) {
-        int nodeCount = graph.getNodes().size();
-        int numInComponent = 1;
-        boolean didAnything;
-        int usedEdges = 0;
-        int edgeCount = cycles.getOrder().length;
-        do {
-            didAnything = false;
-            for (int edgeIdx : cycles.getOrder()) {
-                Edge e = graph.getJoinEdge(edgeIdx);
-                long rightNodes = e.getRightExtendedNodes();
-                int leftComponent = getComponent(components, inComponent, e.getLeftExtendedNodes());
-                if (leftComponent == -1) {
-                    continue;
-                }
-                if (LongBitmap.isOverlap(rightNodes, components[leftComponent])) {
-                    //TODO return ???
-                    return -1;
-                    //                    continue;
-                }
-                int rightComponent = getComponent(components, inComponent, e.getRightExtendedNodes());
-                if (rightComponent == -1
-                        || combiningWouldViolateConflictRules(e.getConflictRules(), inComponent, leftComponent,
-                                rightComponent)) {
-                    continue;
-                }
-
-                if (rightComponent < leftComponent) {
-                    int tmp = leftComponent;
-                    leftComponent = rightComponent;
-                    rightComponent = tmp;
-                }
-                int numChanged = 0;
-                for (int tableIdx : LongBitmap.getIterator(components[rightComponent])) {
-                    inComponent[tableIdx] = leftComponent;
-                    ++numChanged;
-                }
-
-                long combinedNodes = components[leftComponent] | components[rightComponent];
-                components[leftComponent] = combinedNodes;
-                usedEdges++;
-                if (leftComponent == 0) {
-                    numInComponent += numChanged;
-                    if (numInComponent == nodeCount && usedEdges == edgeCount) {
-                        return numInComponent;
-                    }
-                }
-                didAnything = true;
-            }
-        } while (didAnything);
-        return numInComponent;
-    }
-
-    private static int getComponent(long[] components, int[] inComponent, long tables) {
-        if (tables == 0) {
-            return -1;
-        }
-        int idx = Long.numberOfTrailingZeros(tables);
-        int component = inComponent[idx];
-        if (component >= 0 && (tables & ~components[component]) == 0) {
-            return component;
-        }
-        return -1;
-    }
-
-    private static boolean combiningWouldViolateConflictRules(
-            List<Pair<Long, Long>> conflictRules,
-            int[] inComponent,
-            int leftComponent,
-            int rightComponent) {
-        for (Pair<Long, Long> cr : conflictRules) {
-            boolean applies = false;
-            for (int nodeIdx : LongBitmap.getIterator(cr.first)) {
-                if (inComponent[nodeIdx] == leftComponent
-                        || inComponent[nodeIdx] == rightComponent) {
-                    applies = true;
-                    break;
-                }
-            }
-            if (applies) {
-                for (int nodeIdx : LongBitmap.getIterator(cr.second)) {
-                    if (inComponent[nodeIdx] != leftComponent
-                            && inComponent[nodeIdx] != rightComponent) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
     }
 }

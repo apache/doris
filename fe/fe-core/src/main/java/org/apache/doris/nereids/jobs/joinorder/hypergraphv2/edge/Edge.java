@@ -55,28 +55,25 @@ public class Edge implements HyperElement {
     // added by the graph simplifier.
     private final long leftRequiredNodes;
     private final long rightRequiredNodes;
-    // The nodes needed which to prevent wrong association or l-association
-    private long leftExtendedNodes;
-    // The nodes needed which to prevent wrong association or r-association
-    private long rightExtendedNodes;
-
     // record the left child edges and right child edges bellow the original operator, just first level child, not more
     // because we split inner join conjuncts to multiple inner join edges, we may have n : 1
     // as edges to original join node
     private final BitSet leftChildEdges;
     private final BitSet rightChildEdges;
-
     // record all sub nodes bellow the original operator. It's T function in paper
     private final long subTreeNodes;
-
+    // The nodes needed which to prevent wrong association or l-association
+    private long leftExtendedNodes;
+    // The nodes needed which to prevent wrong association or r-association
+    private long rightExtendedNodes;
     private List<Pair<Long, Long>> conflictRules;
 
     /**
      * Create simple edge.
      */
-    public Edge(LogicalJoin<? extends Plan, ? extends Plan> join, int index,
-            BitSet leftChildEdges, BitSet rightChildEdges, long leftSubtreeNodes, long rightSubtreeNodes,
-            long leftRequiredNodes, long rightRequiredNodes) {
+    public Edge(LogicalJoin<? extends Plan, ? extends Plan> join, int index, BitSet leftChildEdges,
+            BitSet rightChildEdges, long leftSubtreeNodes, long rightSubtreeNodes, long leftRequiredNodes,
+            long rightRequiredNodes) {
         this.index = index;
         this.selectivity = 1.0;
         this.leftChildEdges = leftChildEdges;
@@ -90,6 +87,30 @@ public class Edge implements HyperElement {
         this.leftSubtreeNodes = leftSubtreeNodes;
         this.rightSubtreeNodes = rightSubtreeNodes;
         this.conflictRules = new ArrayList<>();
+    }
+
+    /**
+     * extract join type for edges and push them in hash conjuncts and other conjuncts
+     */
+    public static @Nullable JoinType extractJoinTypeAndConjuncts(List<Edge> edges, List<Edge> missingEdges,
+            List<Expression> hashConjuncts,
+            List<Expression> otherConjuncts) {
+        JoinType joinType = null;
+        for (Edge edge : edges) {
+            if (edge.getJoinType() != joinType && joinType != null) {
+                return null;
+            }
+            Preconditions.checkArgument(joinType == null || joinType == edge.getJoinType());
+            joinType = edge.getJoinType();
+            if (missingEdges.contains(edge)) {
+                otherConjuncts.addAll(edge.getHashJoinConjuncts());
+                otherConjuncts.addAll(edge.getOtherJoinConjuncts());
+            } else {
+                hashConjuncts.addAll(edge.getHashJoinConjuncts());
+                otherConjuncts.addAll(edge.getOtherJoinConjuncts());
+            }
+        }
+        return joinType;
     }
 
     public boolean isSimple() {
@@ -112,24 +133,24 @@ public class Edge implements HyperElement {
         return leftExtendedNodes;
     }
 
-    public BitSet getLeftChildEdges() {
-        return leftChildEdges;
-    }
-
     public void setLeftExtendedNodes(long leftExtendedNodes) {
         this.leftExtendedNodes = leftExtendedNodes;
+    }
+
+    public BitSet getLeftChildEdges() {
+        return leftChildEdges;
     }
 
     public long getRightExtendedNodes() {
         return rightExtendedNodes;
     }
 
-    public BitSet getRightChildEdges() {
-        return rightChildEdges;
-    }
-
     public void setRightExtendedNodes(long rightExtendedNodes) {
         this.rightExtendedNodes = rightExtendedNodes;
+    }
+
+    public BitSet getRightChildEdges() {
+        return rightChildEdges;
     }
 
     public long getLeftRequiredNodes() {
@@ -181,9 +202,9 @@ public class Edge implements HyperElement {
      * swap the edge
      */
     public Edge swap() {
-        Edge swapEdge = new Edge(join.swap(), getIndex(), getRightChildEdges(),
-                getLeftChildEdges(), getRightSubtreeNodes(), getLeftSubtreeNodes(),
-                getRightRequiredNodes(), getLeftRequiredNodes());
+        Edge swapEdge = new Edge(join.swap(), getIndex(), getRightChildEdges(), getLeftChildEdges(),
+                getRightSubtreeNodes(),
+                getLeftSubtreeNodes(), getRightRequiredNodes(), getLeftRequiredNodes());
         return swapEdge;
     }
 
@@ -201,24 +222,6 @@ public class Edge implements HyperElement {
 
     public LogicalJoin<? extends Plan, ? extends Plan> getJoin() {
         return join;
-    }
-
-    /**
-     * extract join type for edges and push them in hash conjuncts and other conjuncts
-     */
-    public static @Nullable JoinType extractJoinTypeAndConjuncts(List<Edge> edges,
-            List<Expression> hashConjuncts, List<Expression> otherConjuncts) {
-        JoinType joinType = null;
-        for (Edge edge : edges) {
-            if (edge.getJoinType() != joinType && joinType != null) {
-                return null;
-            }
-            Preconditions.checkArgument(joinType == null || joinType == edge.getJoinType());
-            joinType = edge.getJoinType();
-            hashConjuncts.addAll(edge.getHashJoinConjuncts());
-            otherConjuncts.addAll(edge.getOtherJoinConjuncts());
-        }
-        return joinType;
     }
 
     public Expression getExpression() {
@@ -240,16 +243,16 @@ public class Edge implements HyperElement {
 
     @Override
     public String toString() {
-        return String.format("<%s --%s-- %s>", LongBitmap.toString(leftExtendedNodes),
-                this.getTypeName(), LongBitmap.toString(rightExtendedNodes));
-    }
-
-    public void setConflictRules(List<Pair<Long, Long>> conflictRules) {
-        this.conflictRules = conflictRules;
+        return String.format("<%s --%s-- %s>", LongBitmap.toString(leftExtendedNodes), this.getTypeName(),
+                LongBitmap.toString(rightExtendedNodes));
     }
 
     public List<Pair<Long, Long>> getConflictRules() {
         return conflictRules;
+    }
+
+    public void setConflictRules(List<Pair<Long, Long>> conflictRules) {
+        this.conflictRules = conflictRules;
     }
 
     public boolean isEnforcedOrder() {

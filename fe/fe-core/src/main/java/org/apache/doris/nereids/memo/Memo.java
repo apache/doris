@@ -264,8 +264,17 @@ public class Memo {
         if (rewrite) {
             result = doRewrite(plan, target);
         } else {
-            result = doCopyIn(plan, target, planTable);
+            result = doCopyIn(plan, target, planTable, false);
         }
+        maybeAddStateId(result);
+        return result;
+    }
+
+    /**
+     * Add plan to Memo for dphyper.
+     */
+    public CopyInResult copyIn(Plan plan, @Nullable Group target, HashMap<Long, Group> planTable) {
+        CopyInResult result = doCopyIn(plan, target, planTable, true);
         maybeAddStateId(result);
         return result;
     }
@@ -285,7 +294,7 @@ public class Memo {
         if (rewrite) {
             result = doRewrite(plan, target);
         } else {
-            result = doCopyIn(plan, target, null);
+            result = doCopyIn(plan, target, null, false);
         }
         maybeAddStateId(result);
         return result;
@@ -472,12 +481,15 @@ public class Memo {
      * @return a pair, in which the first element is true if a newly generated groupExpression added into memo,
      *         and the second element is a reference of node in Memo
      */
-    private CopyInResult doCopyIn(Plan plan, @Nullable Group targetGroup, @Nullable HashMap<Long, Group> planTable) {
+    private CopyInResult doCopyIn(Plan plan, @Nullable Group targetGroup, @Nullable HashMap<Long, Group> planTable,
+            boolean isInDpHyper) {
         Preconditions.checkArgument(!(plan instanceof GroupPlan), "plan can not be GroupPlan");
         // check logicalproperties, must same output in a Group.
-        if (targetGroup != null && !plan.getLogicalProperties().equals(targetGroup.getLogicalProperties())) {
+        if (targetGroup != null
+                && (isInDpHyper ? !plan.getLogicalProperties().equalsForDpHyper(targetGroup.getLogicalProperties())
+                        : !plan.getLogicalProperties().equals(targetGroup.getLogicalProperties()))) {
             LOG.info("Insert a plan into targetGroup but differ in logicalproperties."
-                            + "\nPlan logicalproperties: {}\n targetGroup logicalproperties: {}",
+                    + "\nPlan logicalproperties: {}\n targetGroup logicalproperties: {}",
                     plan.getLogicalProperties(), targetGroup.getLogicalProperties());
             throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
         }
@@ -504,7 +516,8 @@ public class Memo {
             } else if (child.getGroupExpression().isPresent()) {
                 childrenGroups.add(child.getGroupExpression().get().getOwnerGroup());
             } else {
-                childrenGroups.add(doCopyIn(child, null, planTable).correspondingExpression.getOwnerGroup());
+                childrenGroups.add(doCopyIn(child, null, planTable, isInDpHyper)
+                        .correspondingExpression.getOwnerGroup());
             }
         }
         plan = replaceChildrenToGroupPlan(plan, childrenGroups);
