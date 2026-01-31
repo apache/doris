@@ -652,7 +652,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             String fieldName = ((StringLikeLiteral) right).getStringValue();
             return wrapVariantElementAtWithCast(newElementAt, variantType, fieldName);
         }
-        return newElementAt;
+        // For non-variant cases (array/map), apply normal type coercion
+        return TypeCoercionUtils.processBoundFunction(newElementAt);
     }
 
     @Override
