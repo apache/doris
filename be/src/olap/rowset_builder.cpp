@@ -227,6 +227,19 @@ Status RowsetBuilder::init() {
     context.mow_context = mow_context;
     context.write_file_cache = _req.write_file_cache;
     context.partial_update_info = _partial_update_info;
+    // Set max_rows_per_segment from tablet property if configured
+    if (_tablet->tablet_meta()->rows_of_segment() > 0) {
+        context.max_rows_per_segment = static_cast<uint32_t>(std::min(
+                _tablet->tablet_meta()->rows_of_segment(), static_cast<int64_t>(UINT32_MAX)));
+        LOG(INFO) << "tablet_id=" << _req.tablet_id
+                  << " rows_of_segment property is set, max_rows_per_segment="
+                  << context.max_rows_per_segment;
+    } else {
+        LOG_INFO("RowsetBuilder",
+                 "tablet_id={} rows_of_segment property is not set, use default "
+                 "max_rows_per_segment={}",
+                 _req.tablet_id, context.max_rows_per_segment);
+    }
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
     _pending_rs_guard = _engine.pending_local_rowsets().add(context.rowset_id);
 

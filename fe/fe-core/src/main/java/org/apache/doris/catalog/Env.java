@@ -3917,6 +3917,12 @@ public class Env {
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES).append("\" = \"");
         sb.append(olapTable.getGroupCommitDataBytes()).append("\"");
 
+        // rows of segment
+        if (olapTable.getRowsOfSegment() > 0) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ROWS_OF_SEGMENT).append("\" = \"");
+            sb.append(olapTable.getRowsOfSegment()).append("\"");
+        }
+
         // enable delete on delete predicate
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)

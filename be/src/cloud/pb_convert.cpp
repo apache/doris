@@ -658,6 +658,7 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, const TabletMetaPB& in) 
     if (in.has_encryption_algorithm()) {
         out->set_encryption_algorithm(in.encryption_algorithm());
     }
+    out->set_rows_of_segment(in.rows_of_segment());
 }
 
 void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
@@ -735,6 +736,7 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
     if (in.has_encryption_algorithm()) {
         out->set_encryption_algorithm(in.encryption_algorithm());
     }
+    out->set_rows_of_segment(in.rows_of_segment());
 }
 
 TabletMetaPB cloud_tablet_meta_to_doris(const TabletMetaCloudPB& in) {
@@ -819,6 +821,7 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, const TabletMetaCloudPB& in) 
     if (in.has_encryption_algorithm()) {
         out->set_encryption_algorithm(in.encryption_algorithm());
     }
+    out->set_rows_of_segment(in.rows_of_segment());
 }
 
 void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
@@ -896,6 +899,7 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
     if (in.has_encryption_algorithm()) {
         out->set_encryption_algorithm(in.encryption_algorithm());
     }
+    out->set_rows_of_segment(in.rows_of_segment());
 }
 #include "common/compile_check_end.h"
 
