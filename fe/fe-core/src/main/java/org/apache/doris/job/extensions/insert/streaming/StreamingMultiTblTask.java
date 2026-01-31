@@ -47,11 +47,13 @@ import org.apache.doris.thrift.TStatusCode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Preconditions;
 import com.google.gson.Gson;
 import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -177,9 +179,9 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         request.setTaskId(getTaskId() + "");
         request.setToken(getToken());
         request.setTargetDb(targetDb);
-        Map<String, Object> splitMeta = objectMapper.convertValue(offset.getSplit(),
-                new TypeReference<Map<String, Object>>() {
-                });
+
+        Map<String, Object> splitMeta = offset.generateMeta();
+        Preconditions.checkArgument(!splitMeta.isEmpty(), "split meta is empty");
         request.setMeta(splitMeta);
         String feAddr = Env.getCurrentEnv().getMasterHost() + ":" + Env.getCurrentEnv().getMasterHttpPort();
         request.setFrontendAddress(feAddr);
@@ -210,28 +212,39 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             return;
         }
         // set end offset to running offset
-        Map<String, String> offsetMeta;
+        // binlogSplit : [{"splitId":"binlog-split"}]  only 1 element
+        // snapshotSplit:[{"splitId":"table-0"},...],...}]
+        List<Map<String, String>> offsetMeta;
         try {
-            offsetMeta = objectMapper.readValue(offsetRequest.getOffset(), new TypeReference<Map<String, String>>() {
-            });
+            offsetMeta = objectMapper.readValue(offsetRequest.getOffset(),
+                    new TypeReference<List<Map<String, String>>>() {});
         } catch (JsonProcessingException e) {
             log.warn("Failed to parse offset meta from request: {}", offsetRequest.getOffset(), e);
             throw new RuntimeException(e);
         }
-        String splitId = offsetMeta.remove(JdbcSourceOffsetProvider.SPLIT_ID);
-        if (runOffset.getSplit().snapshotSplit()
-                && !BinlogSplit.BINLOG_SPLIT_ID.equals(splitId)) {
-            SnapshotSplit split = (SnapshotSplit) runOffset.getSplit();
-            split.setHighWatermark(offsetMeta);
-        } else if (!runOffset.getSplit().snapshotSplit()
-                && BinlogSplit.BINLOG_SPLIT_ID.equals(splitId)) {
-            BinlogSplit split = (BinlogSplit) runOffset.getSplit();
-            split.setEndingOffset(offsetMeta);
+
+        Preconditions.checkState(offsetMeta.size() == runOffset.getSplits().size(), "offset meta size "
+                + offsetMeta.size() + " is not equal to running offset splits size "
+                + runOffset.getSplits().size());
+
+        if (runOffset.snapshotSplit()) {
+            for (int i = 0; i < runOffset.getSplits().size(); i++) {
+                SnapshotSplit split = (SnapshotSplit) runOffset.getSplits().get(i);
+                Map<String, String> splitOffsetMeta = offsetMeta.get(i);
+                String splitId = splitOffsetMeta.remove(JdbcSourceOffsetProvider.SPLIT_ID);
+                Preconditions.checkState(split.getSplitId().equals(splitId),
+                        "split id " + split.getSplitId() + " is not equal to offset meta split id " + splitId);
+                split.setHighWatermark(splitOffsetMeta);
+            }
         } else {
-            log.warn("Split id is not consistent, task running split id {},"
-                    + " offset commit request split id {}", runOffset.getSplit().getSplitId(), splitId);
-            throw new RuntimeException("Split id is not consistent");
+            Map<String, String> offsetMap = offsetMeta.get(0);
+            String splitId = offsetMap.remove(JdbcSourceOffsetProvider.SPLIT_ID);
+            Preconditions.checkState(BinlogSplit.BINLOG_SPLIT_ID.equals(splitId),
+                    "split id is not equal to binlog split id");
+            BinlogSplit split = (BinlogSplit) runOffset.getSplits().get(0);
+            split.setEndingOffset(offsetMap);
         }
+
         this.scannedRows = offsetRequest.getScannedRows();
         this.scannedBytes = offsetRequest.getScannedBytes();
         Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
@@ -306,7 +319,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
                 log.warn("Failed to get task timeout reason, response: {}", response);
             }
         } catch (ExecutionException | InterruptedException ex) {
-            log.error("Send get task fail reason request failed: ", ex);
+            log.error("Send get fail reason request failed: ", ex);
         }
         return "";
     }

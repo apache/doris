@@ -26,11 +26,11 @@ import lombok.Data;
 
 @Data
 public class RecordWithMeta {
-    private Map<String, String> meta;
+    private List<Map<String, String>> meta;
     private List<String> records;
 
     public RecordWithMeta() {
-        this.meta = new HashMap<>();
+        this.meta = new ArrayList<>();
         this.records = new ArrayList<>();
     }
 }
