@@ -41,6 +41,17 @@ StringRef StringRef::trim() const {
     return StringRef(data + begin, end - begin + 1);
 }
 
+StringRef StringRef::trim_tail_padding_zero() const {
+    // Remove trailing padding zero.
+    int64_t end = size - 1;
+
+    while (end >= 0 && data[end] == '\0') {
+        --end;
+    }
+
+    return StringRef(data, end + 1);
+}
+
 StringRef StringRef::trim_whitespace() const {
     // Remove leading and trailing whitespace.
     int64_t begin = 0;
