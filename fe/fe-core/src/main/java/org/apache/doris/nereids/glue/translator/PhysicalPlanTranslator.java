@@ -34,6 +34,7 @@ import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OdbcTable;
@@ -101,9 +102,11 @@ import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
+import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
@@ -231,6 +234,7 @@ import org.apache.doris.thrift.TRuntimeFilterType;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -251,7 +255,9 @@ import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -507,7 +513,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Expr> partitionExprs = olapTableSink.getPartitionExprList().stream()
                 .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
         Map<Long, Expr> syncMvWhereClauses = new HashMap<>();
-        for (Map.Entry<Long, Expression> entry : olapTableSink.getSyncMvWhereClauses().entrySet()) {
+        for (Entry<Long, Expression> entry : olapTableSink.getSyncMvWhereClauses().entrySet()) {
             syncMvWhereClauses.put(entry.getKey(), ExpressionTranslator.translate(entry.getValue(), context));
         }
         OlapTableSink sink;
@@ -1257,6 +1263,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             aggregationNode.setCardinality((long) aggregate.getStats().getRowCount());
         }
         updateLegacyPlanIdToPhysicalPlan(inputPlanFragment.getPlanRoot(), aggregate);
+
+        if (ConnectContext.get().getSessionVariable().getEnableQueryCache()) {
+            setQueryCacheCandidate(aggregate, aggregationNode);
+        }
+
         return inputPlanFragment;
     }
 
@@ -2457,7 +2468,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 context.getTopnFilterContext().translateSource(topN, sortNode);
                 TopnFilter filter = context.getTopnFilterContext().getTopnFilter(topN);
                 List<Pair<Integer, Integer>> targets = new ArrayList<>();
-                for (Map.Entry<ScanNode, Expr> entry : filter.legacyTargets.entrySet()) {
+                for (Entry<ScanNode, Expr> entry : filter.legacyTargets.entrySet()) {
                     Set<SlotRef> inputSlots = entry.getValue().getInputSlotRef();
                     if (inputSlots.size() != 1) {
                         LOG.warn("topn filter targets error: " + inputSlots);
@@ -2548,7 +2559,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .collect(ImmutableList.toImmutableList());
 
         // outputSlots's order must match preRepeatExprs, then grouping id, then grouping function slots
-        ImmutableList.Builder<Slot> outputSlotsBuilder
+        Builder<Slot> outputSlotsBuilder
                 = ImmutableList.builderWithExpectedSize(repeat.getOutputExpressions().size() + 1);
         outputSlotsBuilder.addAll(preRepeatExpressions);
         outputSlotsBuilder.add(repeat.getGroupingId().toSlot());
@@ -3220,5 +3231,84 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             child = child.child(0);
         }
         return child instanceof PhysicalRelation;
+    }
+
+    private boolean setQueryCacheCandidate(
+            PhysicalHashAggregate<? extends Plan> aggregate, AggregationNode aggregationNode) {
+        if (hasUndeterministicExpression(aggregate)) {
+            return false;
+        }
+
+        PlanNode child = aggregationNode.getChild(0);
+        if (child instanceof AggregationNode) {
+            if (((AggregationNode) child).isQueryCacheCandidate()) {
+                aggregationNode.setQueryCacheCandidate(true);
+                return true;
+            }
+        } else if (child instanceof OlapScanNode) {
+            aggregationNode.setQueryCacheCandidate(true);
+            return true;
+        }
+        return false;
+    }
+
+    private boolean hasUndeterministicExpression(Plan plan) {
+        String cacheKey = "hasUndeterministicExpression";
+        Optional<Boolean> hasUndeterministicExpressionCache = plan.getMutableState(cacheKey);
+        if (hasUndeterministicExpressionCache.isPresent()) {
+            return hasUndeterministicExpressionCache.get();
+        }
+        boolean result;
+        if (plan instanceof PhysicalHashAggregate) {
+            PhysicalHashAggregate<? extends Plan> aggregate = (PhysicalHashAggregate<? extends Plan>) plan;
+            if (hasUndeterministicExpression(aggregate.getGroupByExpressions())
+                    || hasUndeterministicExpression(aggregate.getOutputExpressions())) {
+                result = true;
+            } else {
+                result = hasUndeterministicExpression(aggregate.child());
+            }
+        } else if (plan instanceof PhysicalFilter) {
+            PhysicalFilter<? extends Plan> filter = (PhysicalFilter<? extends Plan>) plan;
+            if (hasUndeterministicExpression(filter.getExpressions())) {
+                result = true;
+            } else {
+                result = hasUndeterministicExpression(filter.child());
+            }
+        } else if (plan instanceof PhysicalProject) {
+            PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) plan;
+            if (hasUndeterministicExpression(project.getProjects())) {
+                result = true;
+            } else {
+                result = hasUndeterministicExpression(project.child());
+            }
+        } else if (plan instanceof PhysicalOlapScan) {
+            result = false;
+        } else {
+            // unsupported for query cache
+            result = true;
+        }
+        plan.setMutableState(cacheKey, result);
+        return result;
+    }
+
+    private boolean hasUndeterministicExpression(Collection<? extends Expression> expressions) {
+        for (Expression groupByExpression : expressions) {
+            if (groupByExpression.containsType(AliasFunction.class, Udf.class, UniqueFunction.class)) {
+                return true;
+            }
+
+            boolean nonDeterministic = groupByExpression.anyMatch(e -> {
+                if (e instanceof Expression) {
+                    if (!((Expression) e).isDeterministic()) {
+                        return true;
+                    }
+                }
+                return false;
+            });
+            if (nonDeterministic) {
+                return true;
+            }
+        }
+        return false;
     }
 }
