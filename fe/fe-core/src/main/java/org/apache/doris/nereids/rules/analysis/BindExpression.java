@@ -370,7 +370,7 @@ public class BindExpression implements AnalysisRuleFactory {
         OneRowRelation oneRowRelation = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
         SimpleExprAnalyzer analyzer =
-                buildSimpleExprAnalyzer(oneRowRelation, cascadesContext, ImmutableList.of(), true);
+                buildSimpleExprAnalyzer(oneRowRelation, cascadesContext, ImmutableList.of());
         List<NamedExpression> projects = analyzer.analyzeToList(oneRowRelation.getProjects());
         return new LogicalOneRowRelation(oneRowRelation.getRelationId(), projects);
     }
@@ -455,7 +455,7 @@ public class BindExpression implements AnalysisRuleFactory {
         FunctionRegistry functionRegistry = cascadesContext.getConnectContext().getEnv().getFunctionRegistry();
         Map<ExprId, Expression> aliasMap = buildAliasMap(having.child());
         ExpressionAnalyzer havingAnalyzer = new ExpressionAnalyzer(having, aggOutputScope, cascadesContext,
-                false, true, false, aliasMap) {
+                false, true, aliasMap) {
             private boolean currentIsInAggregateFunction;
 
             @Override
@@ -663,8 +663,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
         List<Slot> childOutput = sort.child().getOutput();
         Map<ExprId, Expression> aliasMap = buildAliasMap(sort.child());
-        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(sort, cascadesContext, sort.children(),
-                false, aliasMap);
+        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(sort, cascadesContext, sort.children(), aliasMap);
         Builder<OrderKey> boundKeys = ImmutableList.builderWithExpectedSize(sort.getOrderKeys().size());
         for (OrderKey orderKey : sort.getOrderKeys()) {
             Expression boundKey = bindWithOrdinal(orderKey.getExpr(), analyzer, childOutput);
@@ -681,8 +680,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
         Map<ExprId, Expression> aliasMap = buildAliasMap(join.left());
         aliasMap.putAll(buildAliasMap(join.right()));
-        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(join, cascadesContext, join.children(),
-                false, aliasMap);
+        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(join, cascadesContext, join.children(), aliasMap);
 
         Builder<Expression> hashJoinConjuncts = ImmutableList.builderWithExpectedSize(
                 join.getHashJoinConjuncts().size());
@@ -763,11 +761,11 @@ public class BindExpression implements AnalysisRuleFactory {
         List<Slot> rightConjunctsSlots = Lists.newArrayList();
         for (Expression usingColumn : unboundHashJoinConjunct) {
             ExpressionAnalyzer leftExprAnalyzer = new ExpressionAnalyzer(
-                    using, leftScope, cascadesContext, true, false, false, leftAliasMap);
+                    using, leftScope, cascadesContext, true, false, leftAliasMap);
             Expression usingLeftSlot = leftExprAnalyzer.analyze(usingColumn, rewriteContext);
 
             ExpressionAnalyzer rightExprAnalyzer = new ExpressionAnalyzer(
-                    using, rightScope, cascadesContext, true, false, false, rightAliasMap);
+                    using, rightScope, cascadesContext, true, false, rightAliasMap);
             Expression usingRightSlot = rightExprAnalyzer.analyze(usingColumn, rewriteContext);
             rightConjunctsSlots.add((Slot) usingRightSlot);
             hashEqExprs.add(new EqualTo(usingLeftSlot, usingRightSlot));
@@ -784,7 +782,7 @@ public class BindExpression implements AnalysisRuleFactory {
         LogicalProject<Plan> project = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
 
-        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(project, cascadesContext, project.children(), true);
+        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(project, cascadesContext, project.children());
         Builder<NamedExpression> boundProjectionsBuilder
                 = ImmutableList.builderWithExpectedSize(project.getProjects().size());
         StatementContext statementContext = ctx.statementContext;
@@ -854,7 +852,7 @@ public class BindExpression implements AnalysisRuleFactory {
         LogicalLoadProject<Plan> project = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
 
-        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(project, cascadesContext, project.children(), true);
+        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(project, cascadesContext, project.children());
         Builder<NamedExpression> boundProjections = ImmutableList.builderWithExpectedSize(project.getProjects().size());
         StatementContext statementContext = ctx.statementContext;
         for (Expression expression : project.getProjects()) {
@@ -921,8 +919,7 @@ public class BindExpression implements AnalysisRuleFactory {
         CascadesContext cascadesContext = ctx.cascadesContext;
 
         Map<ExprId, Expression> aliasMap = buildAliasMap(filter.child());
-        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(filter, cascadesContext, filter.children(),
-                false, aliasMap);
+        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(filter, cascadesContext, filter.children(), aliasMap);
         ImmutableSet.Builder<Expression> boundConjuncts = ImmutableSet.builder();
         boolean changed = false;
         for (Expression expr : filter.getConjuncts()) {
@@ -945,8 +942,7 @@ public class BindExpression implements AnalysisRuleFactory {
         CascadesContext cascadesContext = ctx.cascadesContext;
 
         Map<ExprId, Expression> aliasMap = buildAliasMap(filter.child());
-        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(filter, cascadesContext, filter.children(),
-                false, aliasMap);
+        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(filter, cascadesContext, filter.children(), aliasMap);
         ImmutableSet.Builder<Expression> boundConjuncts = ImmutableSet.builder();
         for (Expression conjunct : filter.getConjuncts()) {
             Expression boundExpr = analyzer.analyze(conjunct);
@@ -1132,7 +1128,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
         Map<ExprId, Expression> aliasMap = buildAliasMap(aggregate);
         ExpressionAnalyzer qualifyAnalyzer = new ExpressionAnalyzer(qualify, aggOutputScope, cascadesContext,
-                true, true, false, aliasMap) {
+                true, true, aliasMap) {
             @Override
             protected List<? extends Expression> bindSlotByThisScope(UnboundSlot unboundSlot) {
                 return bindByGroupByThenAggOutputThenAggChildOutput.get().bindSlot(this, unboundSlot);
@@ -1168,7 +1164,7 @@ public class BindExpression implements AnalysisRuleFactory {
         LogicalAggregate<Plan> agg = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
 
-        SimpleExprAnalyzer aggOutputAnalyzer = buildSimpleExprAnalyzer(agg, cascadesContext, agg.children(), true);
+        SimpleExprAnalyzer aggOutputAnalyzer = buildSimpleExprAnalyzer(agg, cascadesContext, agg.children());
         List<NamedExpression> boundAggOutput = aggOutputAnalyzer.analyzeToList(agg.getOutputExpressions());
         List<NamedExpression> boundProjections = new ArrayList<>(boundAggOutput.size());
         for (int i = 0; i < boundAggOutput.size(); i++) {
@@ -1337,7 +1333,7 @@ public class BindExpression implements AnalysisRuleFactory {
         CascadesContext cascadesContext = ctx.cascadesContext;
 
         SimpleExprAnalyzer repeatOutputAnalyzer = buildSimpleExprAnalyzer(repeat, cascadesContext,
-                repeat.children(), true);
+                repeat.children());
         List<NamedExpression> boundRepeatOutput = repeatOutputAnalyzer.analyzeToList(repeat.getOutputExpressions());
         Supplier<Scope> aggOutputScope = buildAggOutputScope(boundRepeatOutput, cascadesContext);
         Builder<List<Expression>> boundGroupingSetsBuilder =
@@ -1702,23 +1698,16 @@ public class BindExpression implements AnalysisRuleFactory {
 
     protected SimpleExprAnalyzer buildSimpleExprAnalyzer(
             Plan currentPlan, CascadesContext cascadesContext, List<Plan> children) {
-        return buildSimpleExprAnalyzer(currentPlan, cascadesContext, children, false, Collections.emptyMap());
+        return buildSimpleExprAnalyzer(currentPlan, cascadesContext, children, Collections.emptyMap());
     }
 
     protected SimpleExprAnalyzer buildSimpleExprAnalyzer(
-            Plan currentPlan, CascadesContext cascadesContext, List<Plan> children, boolean autoCastInSelect) {
-        return buildSimpleExprAnalyzer(currentPlan, cascadesContext, children, autoCastInSelect,
-                Collections.emptyMap());
-    }
-
-    protected SimpleExprAnalyzer buildSimpleExprAnalyzer(
-            Plan currentPlan, CascadesContext cascadesContext, List<Plan> children, boolean autoCastInSelect,
-            Map<ExprId, Expression> aliasMap) {
+            Plan currentPlan, CascadesContext cascadesContext, List<Plan> children, Map<ExprId, Expression> aliasMap) {
         Scope scope = toScope(cascadesContext, PlanUtils.fastGetChildrenOutputs(children),
                 PlanUtils.fastGetChildrenAsteriskOutputs(children));
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(currentPlan, cascadesContext);
         ExpressionAnalyzer expressionAnalyzer = new ExpressionAnalyzer(currentPlan,
-                scope, cascadesContext, true, true, autoCastInSelect, aliasMap);
+                scope, cascadesContext, true, true, aliasMap);
         return expr -> expressionAnalyzer.analyze(expr, rewriteContext);
     }
 
@@ -1735,7 +1724,7 @@ public class BindExpression implements AnalysisRuleFactory {
             CustomSlotBinderAnalyzer customSlotBinder) {
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(currentPlan, cascadesContext);
         ExpressionAnalyzer expressionAnalyzer = new ExpressionAnalyzer(currentPlan, defaultScope, cascadesContext,
-                enableExactMatch, bindSlotInOuterScope, false, aliasMap) {
+                enableExactMatch, bindSlotInOuterScope, aliasMap) {
             @Override
             protected List<? extends Expression> bindSlotByThisScope(UnboundSlot unboundSlot) {
                 return customSlotBinder.bindSlot(this, unboundSlot);

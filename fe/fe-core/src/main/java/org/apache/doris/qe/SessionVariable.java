@@ -774,8 +774,6 @@ public class SessionVariable implements Serializable, Writable {
     // which means do not flatten nested when create table
     public static final String ENABLE_VARIANT_FLATTEN_NESTED = "enable_variant_flatten_nested";
     public static final String ENABLE_VARIANT_SCHEMA_AUTO_CAST = "enable_variant_schema_auto_cast";
-    public static final String ENABLE_VARIANT_SCHEMA_AUTO_CAST_IN_SELECT =
-            "enable_variant_schema_auto_cast_in_select";
 
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
@@ -3240,26 +3238,12 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true,
             affectQueryResultInExecution = true,
             description = {
-                    "是否启用基于 schema template 的 variant 自动 cast（非 SELECT 子句），默认关闭。",
-                    "Whether to enable schema-template-based auto cast for variant expressions "
-                            + "(non-SELECT clauses). The default is false."
+                    "是否启用基于 schema template 的 variant 自动 cast，默认关闭。",
+                    "Whether to enable schema-template-based auto cast for variant expressions. "
+                            + "The default is false."
             }
     )
     public boolean enableVariantSchemaAutoCast = false;
-
-    @VariableMgr.VarAttr(
-            name = ENABLE_VARIANT_SCHEMA_AUTO_CAST_IN_SELECT,
-            needForward = true,
-            affectQueryResultInExecution = true,
-            description = {
-                    "是否在 SELECT 子句中启用基于 schema template 的 variant 自动 cast，默认关闭，"
-                            + "需先开启 enable_variant_schema_auto_cast。",
-                    "Whether to enable schema-template-based auto cast for variant expressions "
-                            + "in SELECT clause. The default is false and requires "
-                            + "enable_variant_schema_auto_cast = true."
-            }
-    )
-    public boolean enableVariantSchemaAutoCastInSelect = false;
 
     @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
@@ -5855,10 +5839,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableVariantSchemaAutoCast() {
         return enableVariantSchemaAutoCast;
-    }
-
-    public boolean isEnableVariantSchemaAutoCastInSelect() {
-        return enableVariantSchemaAutoCast && enableVariantSchemaAutoCastInSelect;
     }
 
     public void setProfileLevel(String profileLevel) {

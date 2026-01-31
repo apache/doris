@@ -60,26 +60,12 @@ suite("test_schema_template_auto_cast", "p0") {
     // Test 3: TopN (ORDER BY + LIMIT)
     qt_topn """ SELECT id, data['num_a'] FROM ${tableName}
         ORDER BY data['num_a'] DESC LIMIT 2 """
-    sql """ set enable_variant_schema_auto_cast_in_select = true """
-    qt_order_by_select_on """ SELECT id, data['num_a'] FROM ${tableName}
-        ORDER BY data['num_a'] DESC """
-    qt_topn_select_on """ SELECT id, data['num_a'] FROM ${tableName}
-        ORDER BY data['num_a'] DESC LIMIT 2 """
-    sql """ set enable_variant_schema_auto_cast_in_select = false """
 
-    // Test 4: SELECT with auto-cast (arithmetic operations) when enabled
-    sql """ set enable_variant_schema_auto_cast_in_select = true """
+    // Test 4: SELECT with auto-cast (arithmetic operations)
     qt_select_arithmetic """ SELECT id, data['num_a'] + data['num_b'] as sum_val
         FROM ${tableName} ORDER BY id """
-    sql """ set enable_variant_schema_auto_cast_in_select = false """
-    test {
-        sql """ SELECT id, data['num_a'] + data['num_b'] as sum_val
-            FROM ${tableName} ORDER BY id """
-        exception "Cannot cast from variant"
-    }
 
     // Test 5: GROUP BY with auto-cast
-    sql """ set enable_variant_schema_auto_cast_in_select = true """
     qt_group_by """ SELECT data['str_name'], SUM(data['num_a']) as total
         FROM ${tableName} GROUP BY data['str_name'] ORDER BY data['str_name'] """
 
@@ -87,57 +73,26 @@ suite("test_schema_template_auto_cast", "p0") {
     qt_having """ SELECT data['str_name'], SUM(data['num_a']) as total
         FROM ${tableName} GROUP BY data['str_name']
         HAVING SUM(data['num_a']) > 20 ORDER BY data['str_name'] """
-    sql """ set enable_variant_schema_auto_cast_in_select = false """
-    test {
-        sql """ SELECT data['str_name'], SUM(data['num_a']) as total
-            FROM ${tableName} GROUP BY data['str_name'] ORDER BY data['str_name'] """
-        exception "sum requires a numeric, boolean or string parameter"
-    }
-    test {
-        sql """ SELECT data['str_name'], SUM(data['num_a']) as total
-            FROM ${tableName} GROUP BY data['str_name']
-            HAVING SUM(data['num_a']) > 20 ORDER BY data['str_name'] """
-        exception "sum requires a numeric, boolean or string parameter"
-    }
 
     // Test 7: ORDER BY with alias from project
-    sql """ set enable_variant_schema_auto_cast_in_select = false """
     qt_order_by_alias """ SELECT data['num_a'] AS num_a FROM ${tableName}
         ORDER BY num_a """
-    sql """ set enable_variant_schema_auto_cast_in_select = true """
-    qt_order_by_alias_select_on """ SELECT data['num_a'] AS num_a FROM ${tableName}
-        ORDER BY num_a """
-    sql """ set enable_variant_schema_auto_cast_in_select = false """
 
     // Test 8: ORDER BY with alias from subquery
     qt_order_by_alias_subquery """ SELECT * FROM (SELECT id, data['num_a'] AS num_a FROM ${tableName}) t
         ORDER BY num_a, id """
-    sql """ set enable_variant_schema_auto_cast_in_select = true """
-    qt_order_by_alias_subquery_select_on """ SELECT * FROM (SELECT id, data['num_a'] AS num_a FROM ${tableName}) t
-        ORDER BY num_a, id """
-    sql """ set enable_variant_schema_auto_cast_in_select = false """
 
     // Test 9: GROUP BY with alias from subquery
-    test {
-        sql """ SELECT num_a, COUNT(*) AS cnt
-            FROM (SELECT data['num_a'] AS num_a FROM ${tableName}) t
-            GROUP BY num_a ORDER BY num_a """
-        exception "must appear in the GROUP BY clause"
-    }
-    sql """ set enable_variant_schema_auto_cast_in_select = true """
-    qt_group_by_alias_subquery_select_on """ SELECT num_a, COUNT(*) AS cnt
+    qt_group_by_alias_subquery """ SELECT num_a, COUNT(*) AS cnt
         FROM (SELECT data['num_a'] AS num_a FROM ${tableName}) t
         GROUP BY num_a ORDER BY num_a """
-    sql """ set enable_variant_schema_auto_cast_in_select = false """
 
     // Test 10: WINDOW partition/order by with auto-cast
-    sql """ set enable_variant_schema_auto_cast_in_select = true """
     qt_window_partition_order """ SELECT id,
         row_number() OVER (PARTITION BY data['str_name'] ORDER BY data['num_a']) AS rn
         FROM ${tableName} ORDER BY id """
-    sql """ set enable_variant_schema_auto_cast_in_select = false """
 
-    // Test 11: disable auto-cast should error in non-select clauses
+    // Test 11: disable auto-cast should error in ORDER BY
     sql """ set enable_variant_schema_auto_cast = false """
     test {
         sql """ SELECT id FROM ${tableName} ORDER BY data['num_a'] """
@@ -180,12 +135,6 @@ suite("test_schema_template_auto_cast", "p0") {
         FROM ${leftTable} l JOIN ${rightTable} r
         ON l.data['key_id'] = r.info['key_id']
         ORDER BY l.id """
-    sql """ set enable_variant_schema_auto_cast_in_select = true """
-    qt_join_on_select_on """ SELECT l.id, r.info['name_val']
-        FROM ${leftTable} l JOIN ${rightTable} r
-        ON l.data['key_id'] = r.info['key_id']
-        ORDER BY l.id """
-    sql """ set enable_variant_schema_auto_cast_in_select = false """
 
     // Test 13: JOIN ON with alias from subquery
     qt_join_on_alias_subquery """ SELECT l.id, r.name_val
@@ -193,13 +142,6 @@ suite("test_schema_template_auto_cast", "p0") {
         JOIN (SELECT id, info['key_id'] AS key_id, info['name_val'] AS name_val FROM ${rightTable}) r
         ON l.key_id = r.key_id
         ORDER BY l.id """
-    sql """ set enable_variant_schema_auto_cast_in_select = true """
-    qt_join_on_alias_subquery_select_on """ SELECT l.id, r.name_val
-        FROM (SELECT id, data['key_id'] AS key_id FROM ${leftTable}) l
-        JOIN (SELECT id, info['key_id'] AS key_id, info['name_val'] AS name_val FROM ${rightTable}) r
-        ON l.key_id = r.key_id
-        ORDER BY l.id """
-    sql """ set enable_variant_schema_auto_cast_in_select = false """
 
     sql "DROP TABLE IF EXISTS ${leftTable}"
     sql "DROP TABLE IF EXISTS ${rightTable}"
@@ -243,43 +185,37 @@ suite("test_schema_template_auto_cast", "p0") {
         '{"int_1": 1, "int_nested": {"level1_num_1": 1011111, "level1_num_2": 102}}'
     )"""
 
-    sql """ set enable_variant_schema_auto_cast_in_select = true """
-    qt_leaf_int1_select_on """ SELECT data['int_1'] FROM ${leafTable} ORDER BY id """
-    qt_leaf_int1_add_select_on """ SELECT data['int_1'] + 1 FROM ${leafTable} ORDER BY id """
-    test {
-        // still fails: FE can't distinguish leaf/non-leaf, may cast int_nested to int
-        sql """ SELECT data['int_nested'] FROM ${leafTable} """
-        exception "Bad cast"
-    }
-    qt_leaf_int_nested_chain_select_on """ SELECT data['int_nested']['level1_num_1']
+    qt_leaf_int1_select """ SELECT data['int_1'] FROM ${leafTable} ORDER BY id """
+    qt_leaf_int1_add """ SELECT data['int_1'] + 1 FROM ${leafTable} ORDER BY id """
+    // still fails: FE can't distinguish leaf/non-leaf, may cast int_nested to int
+    qt_leaf_int_nested_nonleaf """ SELECT data['int_nested'] FROM ${leafTable} ORDER BY id """
+    qt_leaf_int_nested_chain_select """ SELECT data['int_nested']['level1_num_1']
         FROM ${leafTable} ORDER BY id """
-    qt_leaf_int_nested_dot_select_on """ SELECT data['int_nested.level1_num_1'] FROM ${leafTable} ORDER BY id """
-    qt_leaf_int_nested_deref_select_on """ SELECT data.int_nested.level1_num_1 FROM ${leafTable} ORDER BY id """
-    qt_leaf_int_nested_chain_add_select_on """ SELECT data['int_nested']['level1_num_1'] + 1
+    qt_leaf_int_nested_dot_select """ SELECT data['int_nested.level1_num_1'] FROM ${leafTable} ORDER BY id """
+    qt_leaf_int_nested_deref_select """ SELECT data.int_nested.level1_num_1 FROM ${leafTable} ORDER BY id """
+    qt_leaf_int_nested_chain_add """ SELECT data['int_nested']['level1_num_1'] + 1
         FROM ${leafTable} ORDER BY id """
-    qt_leaf_int_nested_dot_add_select_on """ SELECT data['int_nested.level1_num_1'] + 1
+    qt_leaf_int_nested_dot_add """ SELECT data['int_nested.level1_num_1'] + 1
         FROM ${leafTable} ORDER BY id """
-    
-    sql """ set enable_variant_schema_auto_cast_in_select = false """
-    qt_leaf_int1_select_off """ SELECT data['int_1'] FROM ${leafTable} ORDER BY id """
-    test {
-        sql """ SELECT data['int_1'] + 1 FROM ${leafTable} ORDER BY id """
-        exception "Cannot cast from variant"
-    }
-    sql """ SELECT data['int_nested'] FROM ${leafTable} """
-    qt_leaf_int_nested_chain_select_off """ SELECT data['int_nested']['level1_num_1']
+    qt_leaf_int_nested_deref_add """ SELECT data.int_nested.level1_num_1 + 1
         FROM ${leafTable} ORDER BY id """
-    qt_leaf_int_nested_dot_select_off """ SELECT data['int_nested.level1_num_1']
-        FROM ${leafTable} ORDER BY id """
-    qt_leaf_int_nested_deref_select_off """ SELECT data.int_nested.level1_num_1 FROM ${leafTable} ORDER BY id """
-    test {
-        sql """ SELECT data['int_nested']['level1_num_1'] + 1 FROM ${leafTable} ORDER BY id """
-        exception "Cannot cast from variant"
-    }
-    test {
-        sql """ SELECT data['int_nested.level1_num_1'] + 1 FROM ${leafTable} ORDER BY id """
-        exception "Cannot cast from variant"
-    }
+
+    // Non-select clauses: leaf vs non-leaf
+    qt_leaf_where_ok """ SELECT id FROM ${leafTable}
+        WHERE data['int_1'] > 0 ORDER BY id """
+    qt_leaf_where_nonleaf """ SELECT id FROM ${leafTable}
+        WHERE data['int_nested'] > 0 ORDER BY id """
+    qt_leaf_order_by_ok """ SELECT id FROM ${leafTable}
+        ORDER BY data['int_1'] """
+    qt_leaf_order_by_nonleaf """ SELECT id FROM ${leafTable}
+        ORDER BY data['int_nested'] """
+    qt_leaf_group_by_ok """ SELECT data['int_1'], COUNT(*) AS cnt
+        FROM ${leafTable} GROUP BY data['int_1'] ORDER BY data['int_1'] """
+    qt_leaf_group_by_nonleaf """ SELECT data['int_nested'], COUNT(*) AS cnt
+        FROM ${leafTable} GROUP BY data['int_nested'] ORDER BY data['int_nested'] """
+    qt_leaf_having_ok """ SELECT data['int_1'], SUM(data['int_1']) AS total
+        FROM ${leafTable} GROUP BY data['int_1']
+        HAVING SUM(data['int_1']) > 0 ORDER BY data['int_1'] """
 
     sql "DROP TABLE IF EXISTS ${leafTable}"
 }

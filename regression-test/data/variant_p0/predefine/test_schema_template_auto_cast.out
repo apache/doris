@@ -22,16 +22,6 @@
 3	50
 2	30
 
--- !order_by_select_on --
-3	50
-2	30
-4	15
-1	10
-
--- !topn_select_on --
-3	50
-2	30
-
 -- !select_arithmetic --
 1	30
 2	70
@@ -54,25 +44,13 @@ charlie	50
 30
 50
 
--- !order_by_alias_select_on --
-10
-15
-30
-50
-
 -- !order_by_alias_subquery --
 1	10
 4	15
 2	30
 3	50
 
--- !order_by_alias_subquery_select_on --
-1	10
-4	15
-2	30
-3	50
-
--- !group_by_alias_subquery_select_on --
+-- !group_by_alias_subquery --
 10	1
 15	1
 30	1
@@ -88,15 +66,7 @@ charlie	50
 1	first
 2	second
 
--- !join_on_select_on --
-1	first
-2	second
-
 -- !join_on_alias_subquery --
-1	first
-2	second
-
--- !join_on_alias_subquery_select_on --
 1	first
 2	second
 
@@ -114,35 +84,49 @@ charlie	50
 1
 2
 
--- !leaf_int1_select_on --
+-- !leaf_int1_select --
 1
 
--- !leaf_int1_add_select_on --
+-- !leaf_int1_add --
 2
 
--- !leaf_int_nested_chain_select_on --
+-- !leaf_int_nested_nonleaf --
+\\N
+
+-- !leaf_int_nested_chain_select --
 1011111
 
--- !leaf_int_nested_dot_select_on --
+-- !leaf_int_nested_dot_select --
 1011111
 
--- !leaf_int_nested_deref_select_on --
+-- !leaf_int_nested_deref_select --
 1011111
 
--- !leaf_int_nested_chain_add_select_on --
+-- !leaf_int_nested_chain_add --
 1011112
 
--- !leaf_int_nested_dot_add_select_on --
+-- !leaf_int_nested_dot_add --
 1011112
 
--- !leaf_int1_select_off --
+-- !leaf_int_nested_deref_add --
+1011112
+
+-- !leaf_where_ok --
 1
 
--- !leaf_int_nested_chain_select_off --
-1011111
+-- !leaf_where_nonleaf --
 
--- !leaf_int_nested_dot_select_off --
-1011111
+-- !leaf_order_by_ok --
+1
 
--- !leaf_int_nested_deref_select_off --
-1011111
+-- !leaf_order_by_nonleaf --
+1
+
+-- !leaf_group_by_ok --
+1	1
+
+-- !leaf_group_by_nonleaf --
+\\N	1
+
+-- !leaf_having_ok --
+1	1

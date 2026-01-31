@@ -160,33 +160,23 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private final boolean enableExactMatch;
     private final boolean bindSlotInOuterScope;
     private final boolean wantToParseSqlFromSqlCache;
-    private final boolean autoCastInSelect;
     private final Map<ExprId, Expression> aliasMap;
     private int suppressVariantElementAtCastDepth = 0;
 
     /** ExpressionAnalyzer */
     public ExpressionAnalyzer(Plan currentPlan, Scope scope,
             @Nullable CascadesContext cascadesContext, boolean enableExactMatch, boolean bindSlotInOuterScope) {
-        this(currentPlan, scope, cascadesContext, enableExactMatch, bindSlotInOuterScope, false);
+        this(currentPlan, scope, cascadesContext, enableExactMatch, bindSlotInOuterScope, Collections.emptyMap());
     }
 
     /** ExpressionAnalyzer */
     public ExpressionAnalyzer(Plan currentPlan, Scope scope,
             @Nullable CascadesContext cascadesContext, boolean enableExactMatch, boolean bindSlotInOuterScope,
-            boolean autoCastInSelect) {
-        this(currentPlan, scope, cascadesContext, enableExactMatch, bindSlotInOuterScope,
-                autoCastInSelect, Collections.emptyMap());
-    }
-
-    /** ExpressionAnalyzer */
-    public ExpressionAnalyzer(Plan currentPlan, Scope scope,
-            @Nullable CascadesContext cascadesContext, boolean enableExactMatch, boolean bindSlotInOuterScope,
-            boolean autoCastInSelect, Map<ExprId, Expression> aliasMap) {
+            Map<ExprId, Expression> aliasMap) {
         super(scope, cascadesContext);
         this.currentPlan = currentPlan;
         this.enableExactMatch = enableExactMatch;
         this.bindSlotInOuterScope = bindSlotInOuterScope;
-        this.autoCastInSelect = autoCastInSelect;
         this.aliasMap = aliasMap == null ? Collections.emptyMap() : aliasMap;
         this.wantToParseSqlFromSqlCache = cascadesContext != null
                 && CacheAnalyzer.canUseSqlCache(cascadesContext.getConnectContext().getSessionVariable());
@@ -380,6 +370,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 } else if (firstBound.containsType(ElementAt.class, StructElement.class)) {
                     context.cascadesContext.getStatementContext().setHasNestedColumns(true);
                 }
+                if (firstBound instanceof Alias) {
+                    return maybeCastAliasExpression((Alias) firstBound, context);
+                }
                 return maybeCastBoundSlot(firstBound, context);
             default:
                 if (enableExactMatch) {
@@ -478,7 +471,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
         ExpressionAnalyzer lambdaAnalyzer = new ExpressionAnalyzer(currentPlan, new Scope(Optional.of(getScope()),
                 boundedSlots), context == null ? null : context.cascadesContext,
-                true, true, autoCastInSelect, aliasMap) {
+                true, true, aliasMap) {
             @Override
             protected void couldNotFoundColumn(UnboundSlot unboundSlot, String tableName) {
                 throw new AnalysisException("Unknown lambda slot '"
@@ -772,10 +765,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         if (sessionVariable == null || !sessionVariable.isEnableVariantSchemaAutoCast()) {
             return false;
         }
-        if (autoCastInSelect) {
-            return sessionVariable.isEnableVariantSchemaAutoCastInSelect();
-        }
-        return true;
+        return sessionVariable.isEnableVariantSchemaAutoCast();
     }
 
     private Expression wrapVariantElementAtWithCast(Expression expr) {
@@ -873,6 +863,21 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             return bound;
         }
         return new Cast(bound, targetType.get());
+    }
+
+    private Expression maybeCastAliasExpression(Alias alias, ExpressionRewriteContext context) {
+        if (suppressVariantElementAtCastDepth > 0 || !isEnableVariantSchemaAutoCast(context)) {
+            return alias;
+        }
+        Expression child = alias.child();
+        if (!(child instanceof ElementAt)) {
+            return alias;
+        }
+        Expression casted = wrapVariantElementAtWithCast(child);
+        if (casted == child) {
+            return alias;
+        }
+        return alias.withChildren(ImmutableList.of(casted));
     }
 
     private Optional<DataType> resolveVariantTemplateType(Expression expr) {
