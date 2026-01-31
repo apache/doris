@@ -585,6 +585,12 @@ Status VectorizedFnCall::evaluate_ann_range_search(
                 range_search_runtime.dim, index_dim);
     }
 
+    if (!ann_index_iterator->try_load_index()) {
+        VLOG_DEBUG << "ANN range search skipped: "
+                   << fmt::format("Failed to load ANN index for column cid {}", src_col_cid);
+        return Status::OK();
+    }
+
     AnnRangeSearchParams params = range_search_runtime.to_range_search_params();
 
     params.roaring = &row_bitmap;

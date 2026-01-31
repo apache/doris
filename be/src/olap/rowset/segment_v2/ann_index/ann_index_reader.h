@@ -45,6 +45,10 @@ public:
 
     Status load_index(io::IOContext* io_ctx);
 
+    // Try to load index, return true if successful, false if failed
+    // This method is used to check if index can be loaded before query
+    bool try_load_index(io::IOContext* io_ctx);
+
     Status query(io::IOContext* io_ctx, AnnTopNParam* param, AnnIndexStats* stats);
 
     Status range_search(const AnnRangeSearchParams& params,

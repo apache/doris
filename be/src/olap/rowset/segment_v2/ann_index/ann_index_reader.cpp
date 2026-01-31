@@ -22,6 +22,7 @@
 
 #include "ann_index_iterator.h"
 #include "common/config.h"
+#include "common/logging.h"
 #include "io/io_common.h"
 #include "olap/rowset/segment_v2/ann_index/ann_index.h"
 #include "olap/rowset/segment_v2/ann_index/ann_index_writer.h"
@@ -74,6 +75,7 @@ Status AnnIndexReader::load_index(io::IOContext* io_ctx) {
         DorisMetrics::instance()->ann_index_load_cnt->increment(1);
 
         try {
+            // An exception will be thrown if loading fails
             RETURN_IF_ERROR(
                     _index_file_reader->init(config::inverted_index_read_buffer_size, io_ctx));
             Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> compound_dir;
@@ -87,6 +89,7 @@ Status AnnIndexReader::load_index(io::IOContext* io_ctx) {
             _vector_index->set_type(_index_type);
             RETURN_IF_ERROR(_vector_index->load(compound_dir->get()));
         } catch (CLuceneError& err) {
+            LOG_ERROR("Failed to load ann index: {}", err.what());
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "CLuceneError occur when open ann idx file, error msg: {}", err.what());
         }
@@ -94,16 +97,22 @@ Status AnnIndexReader::load_index(io::IOContext* io_ctx) {
     });
 }
 
-Status AnnIndexReader::query(io::IOContext* io_ctx, AnnTopNParam* param, AnnIndexStats* stats) {
+bool AnnIndexReader::try_load_index(io::IOContext* io_ctx) {
 #ifndef BE_TEST
-    {
-        SCOPED_TIMER(&(stats->load_index_costs_ns));
-        RETURN_IF_ERROR(load_index(io_ctx));
-        double load_costs_ms = static_cast<double>(stats->load_index_costs_ns.value()) / 1000.0;
-        DorisMetrics::instance()->ann_index_load_costs_ms->increment(
-                static_cast<int64_t>(load_costs_ms));
+    Status st = load_index(io_ctx);
+    if (!st.ok()) {
+        LOG_WARNING("Failed to load ann index, will fallback to brute force search: {}",
+                    st.to_string());
+        return false;
     }
 #endif
+    return true;
+}
+
+Status AnnIndexReader::query(io::IOContext* io_ctx, AnnTopNParam* param, AnnIndexStats* stats) {
+    // Index should be loaded before calling query
+    DCHECK(_vector_index != nullptr);
+
     {
         DorisMetrics::instance()->ann_index_search_cnt->increment(1);
         SCOPED_TIMER(&(stats->search_costs_ns));
@@ -162,16 +171,10 @@ Status AnnIndexReader::range_search(const AnnRangeSearchParams& params,
                                     const VectorSearchUserParams& custom_params,
                                     segment_v2::AnnRangeSearchResult* result,
                                     segment_v2::AnnIndexStats* stats, io::IOContext* io_ctx) {
+    // Index should be loaded before calling range_search
+    DCHECK(_vector_index != nullptr);
+
     DCHECK(stats != nullptr);
-#ifndef BE_TEST
-    {
-        SCOPED_TIMER(&(stats->load_index_costs_ns));
-        RETURN_IF_ERROR(load_index(io_ctx));
-        double load_costs_ms = static_cast<double>(stats->load_index_costs_ns.value()) / 1000.0;
-        DorisMetrics::instance()->ann_index_load_costs_ms->increment(
-                static_cast<int64_t>(load_costs_ms));
-    }
-#endif
     {
         DorisMetrics::instance()->ann_index_search_cnt->increment(1);
         SCOPED_TIMER(&(stats->search_costs_ns));

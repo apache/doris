@@ -235,7 +235,7 @@ Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::IndexIterator* ann
             .row_ids = nullptr,
             .stats = std::make_unique<segment_v2::AnnIndexStats>()};
 
-    RETURN_IF_ERROR(ann_index_iterator->read_from_index(&ann_query_params));
+    RETURN_IF_ERROR(ann_index_iterator_casted->read_from_index(&ann_query_params));
 
     DCHECK(ann_query_params.distance != nullptr);
     DCHECK(ann_query_params.row_ids != nullptr);

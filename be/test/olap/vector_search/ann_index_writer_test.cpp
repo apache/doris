@@ -53,6 +53,7 @@ public:
                 (override));
     MOCK_METHOD(doris::Status, save, (lucene::store::Directory * dir), (override));
     MOCK_METHOD(doris::Status, load, (lucene::store::Directory * dir), (override));
+    MOCK_METHOD(vectorized::Int64, get_min_train_rows, (), (const, override));
 };
 
 class TestAnnIndexColumnWriter : public AnnIndexColumnWriter {
@@ -61,6 +62,7 @@ public:
             : AnnIndexColumnWriter(index_file_writer, index_meta) {}
 
     void set_vector_index(std::shared_ptr<VectorIndex> index) { _vector_index = index; }
+    void set_need_save_index(bool value) { _need_save_index = value; }
 };
 
 class AnnIndexWriterTest : public ::testing::Test {
@@ -650,6 +652,436 @@ TEST_F(AnnIndexWriterTest, TestAddMoreThanChunkSizeIVF) {
         EXPECT_TRUE(status.ok());
     }
 
+    Status status = writer->finish();
+    EXPECT_TRUE(status.ok());
+}
+
+TEST_F(AnnIndexWriterTest, TestSkipTrainWhenRemainderLessThanNlist) {
+    auto mock_index = std::make_shared<MockVectorIndex>();
+    auto properties = _properties;
+    properties["index_type"] = "ivf";
+    properties["nlist"] = "5"; // Set nlist to 5
+    properties["quantizer"] = "flat";
+
+    auto tablet_index = std::make_unique<TabletIndex>();
+    tablet_index->_properties = properties;
+    tablet_index->_index_id = 1;
+
+    auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
+                                                             tablet_index.get());
+
+    auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
+    fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
+    EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
+
+    ASSERT_TRUE(writer->init().ok());
+    writer->set_vector_index(mock_index);
+
+    // CHUNK_SIZE = 10, nlist = 5
+    // Add 12 rows: first 10 will be trained/added in one batch, remaining 2 < 5
+    // Since we have trained data before (_need_save_index = true), we should add the remaining 2 rows and save
+    EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(5));
+    EXPECT_CALL(*mock_index, train(10, testing::_))
+            .Times(1)
+            .WillOnce(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, add(10, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, add(2, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+
+    const size_t dim = 4;
+
+    // Add 12 rows total
+    {
+        const size_t num_rows = 10;
+        std::vector<float> vectors(10 * 4);
+        for (size_t i = 0; i < 10 * 4; ++i) {
+            vectors[i] = static_cast<float>(i);
+        }
+        std::vector<size_t> offsets;
+        for (size_t i = 0; i <= num_rows; ++i) {
+            offsets.push_back(i * 4);
+        }
+
+        Status status = writer->add_array_values(sizeof(float), vectors.data(), nullptr,
+                                                 reinterpret_cast<const uint8_t*>(offsets.data()),
+                                                 num_rows);
+        EXPECT_TRUE(status.ok());
+    }
+
+    // Add 2 more rows
+    {
+        const size_t num_rows = 2;
+        std::vector<float> vectors = {
+                40.0f, 41.0f, 42.0f, 43.0f, // Row 10
+                44.0f, 45.0f, 46.0f, 47.0f  // Row 11
+        };
+        std::vector<size_t> offsets = {0, 4, 8};
+
+        Status status = writer->add_array_values(sizeof(float), vectors.data(), nullptr,
+                                                 reinterpret_cast<const uint8_t*>(offsets.data()),
+                                                 num_rows);
+        EXPECT_TRUE(status.ok());
+    }
+
+    Status status = writer->finish();
+    EXPECT_TRUE(status.ok());
+}
+
+TEST_F(AnnIndexWriterTest, TestLargeDataVolumeWithRemainderSkip) {
+    auto mock_index = std::make_shared<MockVectorIndex>();
+    auto properties = _properties;
+    properties["index_type"] = "ivf";
+    properties["nlist"] = "3"; // Set nlist to 3
+    properties["quantizer"] = "flat";
+
+    auto tablet_index = std::make_unique<TabletIndex>();
+    tablet_index->_properties = properties;
+    tablet_index->_index_id = 1;
+
+    auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
+                                                             tablet_index.get());
+
+    auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
+    fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
+    EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
+
+    ASSERT_TRUE(writer->init().ok());
+    writer->set_vector_index(mock_index);
+
+    // CHUNK_SIZE = 10, nlist = 3
+    // Add 23 rows: 2 full chunks of 10, remaining 3 == nlist, so train remaining
+    EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(3));
+    EXPECT_CALL(*mock_index, train(10, testing::_))
+            .Times(2)
+            .WillRepeatedly(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, add(10, testing::_))
+            .Times(2)
+            .WillRepeatedly(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, train(3, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, add(3, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+
+    const size_t dim = 4;
+
+    // Add 3 batches: 10 + 10 + 3 = 23 rows
+    for (int batch = 0; batch < 2; ++batch) {
+        const size_t num_rows = 10;
+        std::vector<float> vectors(10 * 4);
+        for (size_t i = 0; i < 10 * 4; ++i) {
+            vectors[i] = static_cast<float>(batch * 40 + i);
+        }
+        std::vector<size_t> offsets;
+        for (size_t i = 0; i <= num_rows; ++i) {
+            offsets.push_back(i * 4);
+        }
+
+        Status status = writer->add_array_values(sizeof(float), vectors.data(), nullptr,
+                                                 reinterpret_cast<const uint8_t*>(offsets.data()),
+                                                 num_rows);
+        EXPECT_TRUE(status.ok());
+    }
+
+    // Add remaining 3 rows
+    {
+        const size_t num_rows = 3;
+        std::vector<float> vectors = {
+                80.0f, 81.0f, 82.0f, 83.0f, // Row 20
+                84.0f, 85.0f, 86.0f, 87.0f, // Row 21
+                88.0f, 89.0f, 90.0f, 91.0f  // Row 22
+        };
+        std::vector<size_t> offsets = {0, 4, 8, 12};
+
+        Status status = writer->add_array_values(sizeof(float), vectors.data(), nullptr,
+                                                 reinterpret_cast<const uint8_t*>(offsets.data()),
+                                                 num_rows);
+        EXPECT_TRUE(status.ok());
+    }
+
+    Status status = writer->finish();
+    EXPECT_TRUE(status.ok());
+}
+
+TEST_F(AnnIndexWriterTest, TestLargeDataVolumeSkipRemainder) {
+    auto mock_index = std::make_shared<MockVectorIndex>();
+    auto properties = _properties;
+    properties["index_type"] = "ivf";
+    properties["nlist"] = "4"; // Set nlist to 4
+    properties["quantizer"] = "flat";
+
+    auto tablet_index = std::make_unique<TabletIndex>();
+    tablet_index->_properties = properties;
+    tablet_index->_index_id = 1;
+
+    auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
+                                                             tablet_index.get());
+
+    auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
+    fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
+    EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
+
+    ASSERT_TRUE(writer->init().ok());
+    writer->set_vector_index(mock_index);
+
+    // CHUNK_SIZE = 10, nlist = 4
+    // Add 22 rows: 2 full chunks of 10, remaining 2 < 4
+    // Since we have trained data before (_need_save_index = true), we should add the remaining 2 rows and save
+    EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(4));
+    EXPECT_CALL(*mock_index, train(10, testing::_))
+            .Times(2)
+            .WillRepeatedly(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, add(10, testing::_))
+            .Times(2)
+            .WillRepeatedly(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, add(2, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+
+    const size_t dim = 4;
+
+    // Add 2 batches of 10 rows
+    for (int batch = 0; batch < 2; ++batch) {
+        const size_t num_rows = 10;
+        std::vector<float> vectors(10 * 4);
+        for (size_t i = 0; i < 10 * 4; ++i) {
+            vectors[i] = static_cast<float>(batch * 40 + i);
+        }
+        std::vector<size_t> offsets;
+        for (size_t i = 0; i <= num_rows; ++i) {
+            offsets.push_back(i * 4);
+        }
+
+        Status status = writer->add_array_values(sizeof(float), vectors.data(), nullptr,
+                                                 reinterpret_cast<const uint8_t*>(offsets.data()),
+                                                 num_rows);
+        EXPECT_TRUE(status.ok());
+    }
+
+    // Add remaining 2 rows
+    {
+        const size_t num_rows = 2;
+        std::vector<float> vectors = {
+                80.0f, 81.0f, 82.0f, 83.0f, // Row 20
+                84.0f, 85.0f, 86.0f, 87.0f  // Row 21
+        };
+        std::vector<size_t> offsets = {0, 4, 8};
+
+        Status status = writer->add_array_values(sizeof(float), vectors.data(), nullptr,
+                                                 reinterpret_cast<const uint8_t*>(offsets.data()),
+                                                 num_rows);
+        EXPECT_TRUE(status.ok());
+    }
+
+    Status status = writer->finish();
+    EXPECT_TRUE(status.ok());
+}
+
+TEST_F(AnnIndexWriterTest, TestSkipIndexWhenTotalRowsLessThanNlist) {
+    auto mock_index = std::make_shared<MockVectorIndex>();
+    auto properties = _properties;
+    properties["index_type"] = "ivf";
+    properties["nlist"] = "5"; // Set nlist to 5
+    properties["quantizer"] = "flat";
+
+    auto tablet_index = std::make_unique<TabletIndex>();
+    tablet_index->_properties = properties;
+    tablet_index->_index_id = 1;
+
+    auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
+                                                             tablet_index.get());
+
+    auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
+    fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
+    EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
+
+    ASSERT_TRUE(writer->init().ok());
+    writer->set_vector_index(mock_index);
+    writer->set_need_save_index(false); // No previous training, so should skip entirely
+
+    // Add only 3 rows, which is less than nlist (5)
+    // Since no data was trained before (_need_save_index = false), we should skip index building entirely
+    // No train, add, or save should be called
+    EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(5));
+    EXPECT_CALL(*mock_index, train(testing::_, testing::_)).Times(0);
+    EXPECT_CALL(*mock_index, add(testing::_, testing::_)).Times(0);
+    EXPECT_CALL(*mock_index, save(testing::_)).Times(0);
+
+    const size_t dim = 4;
+
+    // Add 3 rows
+    {
+        const size_t num_rows = 3;
+        std::vector<float> vectors = {
+                1.0f, 2.0f,  3.0f,  4.0f, // Row 0
+                5.0f, 6.0f,  7.0f,  8.0f, // Row 1
+                9.0f, 10.0f, 11.0f, 12.0f // Row 2
+        };
+        std::vector<size_t> offsets = {0, 4, 8, 12};
+
+        Status status = writer->add_array_values(sizeof(float), vectors.data(), nullptr,
+                                                 reinterpret_cast<const uint8_t*>(offsets.data()),
+                                                 num_rows);
+        EXPECT_TRUE(status.ok());
+    }
+
+    Status status = writer->finish();
+    EXPECT_TRUE(status.ok());
+}
+
+TEST_F(AnnIndexWriterTest, TestPQMinTrainRows) {
+    // Test that PQ quantizer requires sufficient training data
+    // PQ with pq_m=2, pq_nbits=8 requires at least 256 * 2^8 * 2 = 256 * 256 * 2 = 131072 training vectors
+    // But nlist=10, so the effective minimum should be max(10, 131072) = 131072
+
+    auto mock_index = std::make_shared<MockVectorIndex>();
+    auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
+                                                             _tablet_index.get());
+
+    auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
+    fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
+    EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
+
+    ASSERT_TRUE(writer->init().ok());
+    writer->set_vector_index(mock_index);
+
+    // Set up expectations: PQ should require 131072 training vectors minimum
+    // Since we only provide 1000 vectors, which is less than 131072, training will happen in batches
+    // but finish() will skip saving since remaining data is insufficient
+    EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(131072));
+    // 1000 vectors will be processed in 100 batches of 10 vectors each
+    EXPECT_CALL(*mock_index, train(10, testing::_))
+            .Times(100)
+            .WillRepeatedly(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, add(10, testing::_))
+            .Times(100)
+            .WillRepeatedly(testing::Return(Status::OK()));
+    // Since we have trained data in batches, the index will be saved even though total data is insufficient
+    EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+
+    const size_t dim = 4;
+
+    // Add only 1000 rows, which is less than the required 131072
+    {
+        const size_t num_rows = 1000;
+        std::vector<float> vectors(num_rows * dim);
+        for (size_t i = 0; i < num_rows * dim; ++i) {
+            vectors[i] = static_cast<float>(i % 100);
+        }
+        std::vector<size_t> offsets;
+        for (size_t i = 0; i <= num_rows; ++i) {
+            offsets.push_back(i * dim);
+        }
+
+        Status status = writer->add_array_values(sizeof(float), vectors.data(), nullptr,
+                                                 reinterpret_cast<const uint8_t*>(offsets.data()),
+                                                 num_rows);
+        EXPECT_TRUE(status.ok());
+    }
+
+    // Finish should skip index building due to insufficient training data
+    Status status = writer->finish();
+    EXPECT_TRUE(status.ok());
+}
+
+TEST_F(AnnIndexWriterTest, TestSQMinTrainRows) {
+    // Test that SQ quantizer requires sufficient training data
+    // SQ requires at least nlist * 2 = 10 * 2 = 20 training vectors
+
+    auto mock_index = std::make_shared<MockVectorIndex>();
+    auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
+                                                             _tablet_index.get());
+
+    auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
+    fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
+    EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
+
+    ASSERT_TRUE(writer->init().ok());
+    writer->set_vector_index(mock_index);
+
+    // Set up expectations: SQ should require at least 20 training vectors
+    // Since we only provide 15 vectors, training will happen in batches but finish() will skip saving
+    EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(20));
+    // 15 vectors will be processed in 1 batch of 10 vectors and remaining 5 vectors
+    EXPECT_CALL(*mock_index, train(10, testing::_))
+            .Times(1)
+            .WillOnce(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, add(10, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, add(5, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+    // Since we have trained data, the index will be saved even though total data is insufficient
+    EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+
+    const size_t dim = 4;
+
+    // Add only 15 rows, which is less than the required 20
+    {
+        const size_t num_rows = 15;
+        std::vector<float> vectors(num_rows * dim);
+        for (size_t i = 0; i < num_rows * dim; ++i) {
+            vectors[i] = static_cast<float>(i % 100);
+        }
+        std::vector<size_t> offsets;
+        for (size_t i = 0; i <= num_rows; ++i) {
+            offsets.push_back(i * dim);
+        }
+
+        Status status = writer->add_array_values(sizeof(float), vectors.data(), nullptr,
+                                                 reinterpret_cast<const uint8_t*>(offsets.data()),
+                                                 num_rows);
+        EXPECT_TRUE(status.ok());
+    }
+
+    // Finish should skip index building due to insufficient training data
+    Status status = writer->finish();
+    EXPECT_TRUE(status.ok());
+}
+
+TEST_F(AnnIndexWriterTest, TestPQWithSufficientData) {
+    // Test that PQ works when sufficient training data is provided
+
+    auto mock_index = std::make_shared<MockVectorIndex>();
+    auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
+                                                             _tablet_index.get());
+
+    auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
+    fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
+    EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
+
+    ASSERT_TRUE(writer->init().ok());
+    writer->set_vector_index(mock_index);
+
+    // PQ requires 131072 minimum, but we'll provide exactly that amount
+    EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(131072));
+    // Since we provide exactly 131072 vectors, they will be trained and added in chunks
+    // Each chunk is 10 vectors, so we expect 13107 train calls and 13107 add calls for full chunks
+    EXPECT_CALL(*mock_index, train(10, testing::_))
+            .Times(13107)
+            .WillRepeatedly(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, add(10, testing::_))
+            .Times(13107)
+            .WillRepeatedly(testing::Return(Status::OK()));
+    // The remaining 2 vectors will be added without training since min_train_rows > 2
+    EXPECT_CALL(*mock_index, add(2, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+
+    const size_t dim = 4;
+
+    // Add exactly 131072 rows
+    {
+        const size_t num_rows = 131072;
+        std::vector<float> vectors(num_rows * dim);
+        for (size_t i = 0; i < num_rows * dim; ++i) {
+            vectors[i] = static_cast<float>(i % 100);
+        }
+        std::vector<size_t> offsets;
+        for (size_t i = 0; i <= num_rows; ++i) {
+            offsets.push_back(i * dim);
+        }
+
+        Status status = writer->add_array_values(sizeof(float), vectors.data(), nullptr,
+                                                 reinterpret_cast<const uint8_t*>(offsets.data()),
+                                                 num_rows);
+        EXPECT_TRUE(status.ok());
+    }
+
+    // Finish should successfully build the index
     Status status = writer->finish();
     EXPECT_TRUE(status.ok());
 }

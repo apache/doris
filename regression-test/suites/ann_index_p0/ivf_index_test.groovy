@@ -85,13 +85,13 @@ suite ("ivf_index_test") {
     PROPERTIES ("replication_num" = "1");
     """
     test {
-        // not enough training points
+        // not enough training points - should not throw exception anymore, just skip index building
         sql """
         INSERT INTO tbl_ann_l2 VALUES
         (1, [1.0, 2.0, 3.0]),
         (2, [0.5, 2.1, 2.9]);
         """
-        exception """exception occurred during training"""
+        // No exception should be thrown, index building is skipped
     }
 
     sql "drop table if exists tbl_ann_ip"

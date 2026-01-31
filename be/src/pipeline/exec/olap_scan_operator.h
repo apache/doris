@@ -252,6 +252,8 @@ private:
     RuntimeProfile::Counter* _ann_range_engine_convert_costs = nullptr;
     RuntimeProfile::Counter* _ann_range_result_convert_costs = nullptr;
 
+    RuntimeProfile::Counter* _ann_fallback_brute_force_cnt = nullptr;
+
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 
     // number of segment filtered by column stat when creating seg iterator

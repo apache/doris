@@ -344,6 +344,8 @@ Status OlapScanLocalState::_init_profile() {
     _ann_range_result_convert_costs =
             ADD_CHILD_TIMER(_segment_profile, "AnnIndexRangeResultConvertCosts",
                             "AnnIndexRangeResultPostProcessCosts");
+    _ann_fallback_brute_force_cnt =
+            ADD_COUNTER(_segment_profile, "AnnIndexFallbackBruteForceCnt", TUnit::UNIT);
     _variant_scan_sparse_column_timer = ADD_TIMER(_segment_profile, "VariantScanSparseColumnTimer");
     _variant_scan_sparse_column_bytes =
             ADD_COUNTER(_segment_profile, "VariantScanSparseColumnBytes", TUnit::BYTES);

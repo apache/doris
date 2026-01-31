@@ -20,6 +20,7 @@
 #include <memory>
 #include <utility>
 
+#include "common/logging.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
@@ -42,6 +43,10 @@ Status IndexFileReader::init(int32_t read_buffer_size, const io::IOContext* io_c
 Status IndexFileReader::_init_from(int32_t read_buffer_size, const io::IOContext* io_ctx) {
     auto index_file_full_path = InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix);
 
+    LOG(INFO) << "[DEBUG] IndexFileReader::_init_from start, index_path_prefix: "
+              << _index_path_prefix << ", index_file_full_path: " << index_file_full_path
+              << ", read_buffer_size: " << read_buffer_size;
+
     try {
         CLuceneError err;
         CL_NS(store)::IndexInput* index_input = nullptr;
@@ -53,6 +58,9 @@ Status IndexFileReader::_init_from(int32_t read_buffer_size, const io::IOContext
         }
         file_size = file_size == 0 ? -1 : file_size;
 
+        LOG(INFO) << "[DEBUG] IndexFileReader::_init_from file_size from meta: " << file_size
+                  << ", has_index_size: " << _idx_file_info.has_index_size();
+
         DBUG_EXECUTE_IF("file_size_not_in_rowset_meta ", {
             if (file_size == -1) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
@@ -63,9 +71,11 @@ Status IndexFileReader::_init_from(int32_t read_buffer_size, const io::IOContext
         DCHECK(_fs != nullptr) << "file system is nullptr, index_file_full_path: "
                                << index_file_full_path;
         // 2. open file
+        LOG(INFO) << "[DEBUG] IndexFileReader::_init_from opening file: " << index_file_full_path;
         auto ok = DorisFSDirectory::FSIndexInput::open(
                 _fs, index_file_full_path.c_str(), index_input, err, read_buffer_size, file_size);
         if (!ok) {
+            LOG_INFO("Failed to open inverted index file: {}", index_file_full_path);
             if (err.number() == CL_ERR_FileNotFound) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
                         "inverted index file {} is not found.", index_file_full_path);
@@ -76,25 +86,42 @@ Status IndexFileReader::_init_from(int32_t read_buffer_size, const io::IOContext
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "CLuceneError occur when open idx file {}, error msg: {}", index_file_full_path,
                     err.what());
+        } else {
+            LOG_INFO("Successfully opened inverted index file: {}", index_file_full_path);
         }
         _stream = std::unique_ptr<CL_NS(store)::IndexInput>(index_input);
         _stream->setIoContext(io_ctx);
         _stream->setIndexFile(true);
 
         // 3. read file
+        LOG(INFO) << "[DEBUG] IndexFileReader::_init_from reading file content";
         int32_t version = _stream->readInt(); // Read version number
+        LOG(INFO) << "[DEBUG] IndexFileReader::_init_from read version: " << version
+                  << ", storage_format: " << _storage_format;
+
         if (version >= InvertedIndexStorageFormatPB::V2) {
             DCHECK(version == _storage_format);
             int32_t numIndices = _stream->readInt(); // Read number of indices
+            LOG(INFO) << "[DEBUG] IndexFileReader::_init_from read numIndices: " << numIndices;
 
             for (int32_t i = 0; i < numIndices; ++i) {
-                int64_t indexId = _stream->readLong();      // Read index ID
+                int64_t indexId = _stream->readLong(); // Read index ID
+                LOG(INFO) << "[DEBUG] IndexFileReader::_init_from reading index " << i
+                          << ": indexId=" << indexId;
                 int32_t suffix_length = _stream->readInt(); // Read suffix length
+                LOG(INFO) << "[DEBUG] IndexFileReader::_init_from index " << i
+                          << ": suffix_length=" << suffix_length;
                 std::vector<uint8_t> suffix_data(suffix_length);
                 _stream->readBytes(suffix_data.data(), suffix_length);
+                LOG(INFO) << "[DEBUG] IndexFileReader::_init_from index " << i
+                          << ": suffix_data read";
                 std::string suffix_str(suffix_data.begin(), suffix_data.end());
 
                 int32_t numFiles = _stream->readInt(); // Read number of files in the index
+
+                LOG(INFO) << "[DEBUG] IndexFileReader::_init_from index " << i
+                          << ": indexId=" << indexId << ", suffix='" << suffix_str
+                          << "', numFiles=" << numFiles;
 
                 auto fileEntries = std::make_unique<EntriesType>();
                 fileEntries->reserve(numFiles);
@@ -108,6 +135,11 @@ Status IndexFileReader::_init_from(int32_t read_buffer_size, const io::IOContext
                     entry->file_name = std::move(file_name);
                     entry->offset = _stream->readLong();
                     entry->length = _stream->readLong();
+
+                    LOG(INFO) << "[DEBUG] IndexFileReader::_init_from file entry " << j
+                              << ": name='" << entry->file_name << "', offset=" << entry->offset
+                              << ", length=" << entry->length;
+
                     fileEntries->emplace(entry->file_name, std::move(entry));
                 }
 
@@ -115,10 +147,17 @@ Status IndexFileReader::_init_from(int32_t read_buffer_size, const io::IOContext
                                          std::move(fileEntries));
             }
         } else {
+            LOG(ERROR) << "[DEBUG] IndexFileReader::_init_from unknown inverted index format: "
+                       << version;
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "unknown inverted index format {}", version);
         }
+
+        LOG(INFO) << "[DEBUG] IndexFileReader::_init_from completed successfully, total indices: "
+                  << _indices_entries.size();
+
     } catch (CLuceneError& err) {
+        LOG(ERROR) << "[DEBUG] IndexFileReader::_init_from caught CLuceneError: " << err.what();
         if (_stream != nullptr) {
             try {
                 _stream->close();
