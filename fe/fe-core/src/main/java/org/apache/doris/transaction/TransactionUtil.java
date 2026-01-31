@@ -45,7 +45,11 @@ public class TransactionUtil {
         info.add(TimeUtils.longToTimeString(txnState.getLastPublishVersionTime()));
         info.add(TimeUtils.longToTimeString(txnState.getFinishTime()));
         info.add(txnState.getReason());
-        info.add(String.valueOf(txnState.getErrorReplicas().size()));
+        if (txnState.getErrorReplicas() == null && txnState.getTransactionStatus() == TransactionStatus.VISIBLE) {
+            info.add("\\");
+        } else {
+            info.add(String.valueOf(txnState.getErrorReplicas().size()));
+        }
         info.add(String.valueOf(txnState.getCallbackId()));
         info.add(String.valueOf(txnState.getTimeoutMs()));
         info.add(txnState.getErrMsg());
@@ -53,6 +57,10 @@ public class TransactionUtil {
     }
 
     public static void checkAuth(long dbId, TransactionState txnState) throws AnalysisException {
+        // if visible, that's ok
+        if (txnState.getTransactionStatus() == TransactionStatus.VISIBLE) {
+            return;
+        }
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbId);
         if (ConnectContext.get() != null) {
             // check auth
