@@ -36,10 +36,21 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-Status CollectionStatistics::collect(
-        RuntimeState* state, const std::vector<RowSetSplits>& rs_splits,
-        const TabletSchemaSPtr& tablet_schema,
-        const vectorized::VExprContextSPtrs& common_expr_ctxs_push_down, io::IOContext* io_ctx) {
+Status CollectionStatistics::collect(const TabletReader::ReaderParams& reader_params,
+                                     io::FileCacheStatistics* file_cache_stats) {
+    RuntimeState* state = reader_params.runtime_state;
+    const auto& rs_splits = reader_params.rs_splits;
+    const auto& tablet_schema = reader_params.tablet_schema;
+    const auto& common_expr_ctxs_push_down = reader_params.common_expr_ctxs_push_down;
+
+    io::IOContext io_ctx {
+            .reader_type = ReaderType::READER_QUERY,
+            .expiration_time = reader_params.tablet->ttl_seconds(),
+            .query_id = &state->query_id(),
+            .file_cache_stats = file_cache_stats,
+            .is_inverted_index = true,
+    };
+
     std::unordered_map<std::wstring, CollectInfo> collect_infos;
     RETURN_IF_ERROR(
             extract_collect_info(state, common_expr_ctxs_push_down, tablet_schema, &collect_infos));
@@ -54,7 +65,7 @@ Status CollectionStatistics::collect(
         auto num_segments = rowset->num_segments();
         for (int32_t seg_id = 0; seg_id < num_segments; ++seg_id) {
             auto status =
-                    process_segment(rowset, seg_id, tablet_schema.get(), collect_infos, io_ctx);
+                    process_segment(rowset, seg_id, tablet_schema.get(), collect_infos, &io_ctx);
             if (!status.ok()) {
                 if (status.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
                     status.code() == ErrorCode::INVERTED_INDEX_BYPASS) {
