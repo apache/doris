@@ -111,6 +111,22 @@ Status DataTypeTimeV2SerDe::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
+Status DataTypeTimeV2SerDe::from_string(const std::string& str, Field& field,
+                                        const FormatOptions& options) const {
+    CastParameters params {.status = Status::OK(), .is_strict = false};
+    // set false to `is_strict`, it will not set error code cuz we dont need then speed up the process.
+    // then we rely on return value to check success.
+    // return value only represent OK or InvalidArgument for other error(like InternalError) in parser, MUST throw
+    // Exception!
+    TimeValue::TimeType res;
+    if (!CastToTimeV2::from_string_non_strict_mode(StringRef(str), res, options.timezone, _scale,
+                                                   params)) [[unlikely]] {
+        return Status::InvalidArgument("parse timev2 fail, string: '{}'", str);
+    }
+    field = Field::create_field<TYPE_TIMEV2>(std::move(res));
+    return Status::OK();
+}
+
 Status DataTypeTimeV2SerDe::from_string_strict_mode(StringRef& str, IColumn& column,
                                                     const FormatOptions& options) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(column);

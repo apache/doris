@@ -42,6 +42,20 @@ Status DataTypeTimeStampTzSerDe::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
+Status DataTypeTimeStampTzSerDe::from_string(const std::string& str, Field& field,
+                                             const FormatOptions& options) const {
+    CastParameters params {.status = Status::OK(), .is_strict = false};
+
+    TimestampTzValue res;
+
+    if (!CastToTimstampTz::from_string(StringRef(str), res, params, options.timezone, _scale))
+            [[unlikely]] {
+        return Status::InvalidArgument("parse timestamptz fail, string: '{}'", str);
+    }
+    field = Field::create_field<TYPE_TIMESTAMPTZ>(std::move(res));
+    return Status::OK();
+}
+
 Status DataTypeTimeStampTzSerDe::from_string_batch(const ColumnString& col_str,
                                                    ColumnNullable& col_res,
                                                    const FormatOptions& options) const {

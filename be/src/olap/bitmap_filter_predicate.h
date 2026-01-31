@@ -56,22 +56,22 @@ public:
 
     PredicateType type() const override { return PredicateType::BITMAP_FILTER; }
 
-    bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+    bool evaluate_and(const ZoneMapInfo& zone_map_info) const override {
         if (_specific_filter->is_not_in()) {
             return true;
         }
 
         CppType max_value;
-        if (statistic.second->is_null()) {
+        if (zone_map_info.is_all_null) {
             // no non-null values
             return false;
         } else {
-            max_value = get_zone_map_value<T, CppType>(statistic.second->cell_ptr());
+            max_value = CppType(zone_map_info.max_value.template get<T>());
         }
 
-        CppType min_value = statistic.first->is_null() /* contains null values */
-                                    ? 0
-                                    : get_zone_map_value<T, CppType>(statistic.first->cell_ptr());
+        CppType min_value = zone_map_info.has_null /* contains null values */
+                                    ? CppType(0)
+                                    : CppType(zone_map_info.min_value.template get<T>());
         return _specific_filter->contains_any(min_value, max_value);
     }
 

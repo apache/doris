@@ -224,6 +224,16 @@ Status DataTypeBitMapSerDe::from_string(StringRef& str, IColumn& column,
     return deserialize_one_cell_from_json(column, slice, options);
 }
 
+Status DataTypeBitMapSerDe::from_string(const std::string& str, Field& field,
+                                        const FormatOptions& options) const {
+    BitmapValue value;
+    if (!value.deserialize(str.data())) {
+        return Status::InternalError("deserialize BITMAP from string fail!");
+    }
+    field = Field::create_field<TYPE_BITMAP>(std::move(value));
+    return Status::OK();
+}
+
 void DataTypeBitMapSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                                     const FormatOptions& options) const {
     /// TODO: remove const_cast in the future

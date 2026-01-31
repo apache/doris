@@ -177,6 +177,20 @@ Status DataTypeIPv4SerDe::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
+Status DataTypeIPv4SerDe::from_string(const std::string& str, Field& field,
+                                      const FormatOptions& options) const {
+    CastParameters params;
+    params.is_strict = false;
+
+    IPv4 val;
+    if (!CastToIPv4::from_string(StringRef(str), val, params)) {
+        return Status::InvalidArgument("parse ipv4 fail, string: '{}'", str);
+    }
+
+    field = Field::create_field<TYPE_IPV4>(std::move(val));
+    return Status::OK();
+}
+
 Status DataTypeIPv4SerDe::from_string_strict_mode(StringRef& str, IColumn& column,
                                                   const FormatOptions& options) const {
     auto& column_to = assert_cast<ColumnType&>(column);

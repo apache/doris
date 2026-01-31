@@ -104,20 +104,20 @@ public:
         DCHECK(false) << "should not reach here";
     }
 
-    bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+    bool evaluate_and(const ZoneMapInfo& zone_map_info) const override {
         std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
-            return ColumnPredicate::evaluate_and(statistic);
+            return ColumnPredicate::evaluate_and(zone_map_info);
         }
-        return _nested->evaluate_and(statistic);
+        return _nested->evaluate_and(zone_map_info);
     }
 
-    bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+    bool evaluate_del(const ZoneMapInfo& zone_map_info) const override {
         std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
-            return ColumnPredicate::evaluate_del(statistic);
+            return ColumnPredicate::evaluate_del(zone_map_info);
         }
-        return _nested->evaluate_del(statistic);
+        return _nested->evaluate_del(zone_map_info);
     }
 
     bool evaluate_and(const BloomFilter* bf) const override {

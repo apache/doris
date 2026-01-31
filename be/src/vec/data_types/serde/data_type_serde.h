@@ -315,6 +315,10 @@ public:
                                      const FormatOptions& options) const {
         return Status::NotSupported("from_string is not supported");
     }
+    virtual Status from_string(const std::string& str, Field& field,
+                               const FormatOptions& options) const {
+        return Status::NotSupported("from_string is not supported");
+    }
 
     // For strict mode, we should not have nullable columns, as we will directly report errors when string conversion fails instead of handling them
     virtual Status from_string_strict_mode_batch(

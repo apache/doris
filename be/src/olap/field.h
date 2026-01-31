@@ -623,7 +623,6 @@ public:
             CHECK(false) << ", value column no agg type";
             return nullptr;
         }
-        return nullptr;
     }
 
     static Field* create_by_type(const FieldType& type) {
