@@ -316,16 +316,32 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
     size_t bytes_usage = 0;
     vectorized::ColumnsWithTypeAndName new_columns;
     for (const auto& projections : local_state->_intermediate_projections) {
+        if (projections.empty()) {
+            return Status::InternalError("meet empty intermediate projection, node id: {}",
+                                         node_id());
+        }
         new_columns.resize(projections.size());
         for (int i = 0; i < projections.size(); i++) {
             RETURN_IF_ERROR(projections[i]->execute(&input_block, new_columns[i]));
+            if (new_columns[i].column->size() != rows) {
+                return Status::InternalError(
+                        "intermediate projection result column size {} not equal input rows {}, "
+                        "expr: {}",
+                        new_columns[i].column->size(), rows,
+                        projections[i]->root()->debug_string());
+            }
         }
         vectorized::Block tmp_block {new_columns};
         bytes_usage += tmp_block.allocated_bytes();
         input_block.swap(tmp_block);
     }
 
-    DCHECK_EQ(rows, input_block.rows());
+    if (input_block.rows() != rows) {
+        return Status::InternalError(
+                "after intermediate projections input block rows {} not equal origin rows {}, "
+                "input_block: {}",
+                input_block.rows(), rows, input_block.dump_structure());
+    }
     auto insert_column_datas = [&](auto& to, vectorized::ColumnPtr& from, size_t rows) {
         if (to->is_nullable() && !from->is_nullable()) {
             if (_keep_origin || !from->is_exclusive()) {
@@ -358,6 +374,12 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
             auto result_column_id = -1;
             ColumnPtr column_ptr;
             RETURN_IF_ERROR(local_state->_projections[i]->execute(&input_block, column_ptr));
+            if (column_ptr->size() != rows) {
+                return Status::InternalError(
+                        "projection result column size {} not equal input rows {}, expr: {}",
+                        column_ptr->size(), rows,
+                        local_state->_projections[i]->root()->debug_string());
+            }
             column_ptr = column_ptr->convert_to_full_column_if_const();
             if (result_column_id >= origin_columns_count) {
                 bytes_usage += column_ptr->allocated_bytes();
