@@ -152,17 +152,17 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block, size_t count,
-                          ColumnPtr& result_column) const override {
-        if (fast_execute(context, result_column)) {
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override {
+        if (fast_execute(context, selector, count, result_column)) {
             return Status::OK();
         }
         if (get_num_children() == 1 || _has_const_child()) {
-            return VectorizedFnCall::execute_column(context, block, count, result_column);
+            return VectorizedFnCall::execute_column(context, block, selector, count, result_column);
         }
 
         ColumnPtr lhs_column;
-        RETURN_IF_ERROR(_children[0]->execute_column(context, block, count, lhs_column));
+        RETURN_IF_ERROR(_children[0]->execute_column(context, block, selector, count, lhs_column));
         lhs_column = lhs_column->convert_to_full_column_if_const();
         size_t size = lhs_column->size();
 
@@ -190,7 +190,8 @@ public:
 
         auto get_rhs_colum = [&]() {
             if (!rhs_column) {
-                RETURN_IF_ERROR(_children[1]->execute_column(context, block, count, rhs_column));
+                RETURN_IF_ERROR(
+                        _children[1]->execute_column(context, block, selector, count, rhs_column));
                 rhs_column = rhs_column->convert_to_full_column_if_const();
                 rhs_is_nullable = rhs_column->is_nullable();
                 auto rhs_nullable_column = _get_raw_data_and_null_map(rhs_column, rhs_is_nullable);

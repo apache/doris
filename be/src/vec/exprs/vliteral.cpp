@@ -49,8 +49,9 @@ Status VLiteral::prepare(RuntimeState* state, const RowDescriptor& desc, VExprCo
     return Status::OK();
 }
 
-Status VLiteral::execute_column(VExprContext* context, const Block* block, size_t count,
-                                ColumnPtr& result_column) const {
+Status VLiteral::execute_column(VExprContext* context, const Block* block, Selector* selector,
+                                size_t count, ColumnPtr& result_column) const {
+    DCHECK(selector == nullptr || selector->size() == count);
     result_column = _column_ptr->clone_resized(count);
     DCHECK_EQ(result_column->size(), count);
     return Status::OK();

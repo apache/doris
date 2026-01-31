@@ -55,8 +55,8 @@ VInfoFunc::VInfoFunc(const TExprNode& node) : VExpr(node) {
     this->_column_ptr = _data_type->create_column_const(1, field);
 }
 
-Status VInfoFunc::execute_column(VExprContext* context, const Block* block, size_t count,
-                                 ColumnPtr& result_column) const {
+Status VInfoFunc::execute_column(VExprContext* context, const Block* block, Selector* selector,
+                                 size_t count, ColumnPtr& result_column) const {
     result_column = _column_ptr->clone_resized(count);
     DCHECK_EQ(result_column->size(), count);
     return Status::OK();
