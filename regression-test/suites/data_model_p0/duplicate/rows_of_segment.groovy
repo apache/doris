@@ -733,6 +733,252 @@ suite("rows_of_segment") {
     sql "DROP TABLE IF EXISTS test_rows_mv_import"
 
     // ============================================================
+    // TC-020: All tests with memtable on sink node DISABLED
+    // This section re-tests all data import related cases with
+    // enable_memtable_on_sink_node = false to ensure rows_of_segment
+    // works correctly in both modes
+    // ============================================================
+    logger.info("========== Starting tests with memtable on sink node DISABLED ==========")
+    
+    // Disable memtable on sink node
+    sql "SET enable_memtable_on_sink_node = false"
+    
+    // ------------------------------------------------------------
+    // TC-020-A: Data import with rows_of_segment (like TC-003)
+    // ------------------------------------------------------------
+    sql "DROP TABLE IF EXISTS test_import_rows_no_memtbl"
+    sql """
+        CREATE TABLE test_import_rows_no_memtbl (
+            id BIGINT,
+            data VARCHAR(100)
+        )
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "rows_of_segment" = "50000",
+            "disable_auto_compaction" = "true"
+        )
+    """
+    
+    // Insert 150000 rows of data
+    sql """
+        INSERT INTO test_import_rows_no_memtbl
+        SELECT number, CONCAT('data_', CAST(number AS VARCHAR))
+        FROM numbers("number" = "150000")
+    """
+    
+    // Verify data was inserted
+    def count20a = sql "SELECT COUNT(*) FROM test_import_rows_no_memtbl"
+    assertEquals(150000, count20a[0][0])
+    
+    // Get tablet id and check rowsets
+    def tablets20a = sql "SHOW TABLETS FROM test_import_rows_no_memtbl"
+    def tabletId20a = tablets20a[0][0]
+    
+    def rowsetsResult20a = sql """
+        SELECT ROWSET_ID, ROWSET_NUM_ROWS, NUM_SEGMENTS
+        FROM information_schema.rowsets
+        WHERE TABLET_ID = ${tabletId20a}
+        ORDER BY START_VERSION
+    """
+    
+    logger.info("TC-020-A: Rowsets with memtable disabled (rows_of_segment=50000):")
+    for (row in rowsetsResult20a) {
+        def numRows = row[1] as Long
+        def numSegments = row[2] as Long
+        if (numSegments > 0 && numRows > 0) {
+            def avgRowsPerSegment = numRows / numSegments
+            assertTrue(avgRowsPerSegment <= 50000, 
+                "TC-020-A: Average rows per segment ${avgRowsPerSegment} exceeds limit 50000")
+            logger.info("  Rowset: totalRows=${numRows}, segments=${numSegments}, avgRowsPerSegment=${avgRowsPerSegment}")
+        }
+    }
+    
+    sql "DROP TABLE IF EXISTS test_import_rows_no_memtbl"
+    
+    // ------------------------------------------------------------
+    // TC-020-B: Small rows_of_segment value (like TC-013)
+    // ------------------------------------------------------------
+    sql "DROP TABLE IF EXISTS test_rows_small_no_memtbl"
+    sql """
+        CREATE TABLE test_rows_small_no_memtbl (
+            id BIGINT,
+            data VARCHAR(100)
+        )
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "rows_of_segment" = "100",
+            "disable_auto_compaction" = "true"
+        )
+    """
+    
+    // Insert 1000 rows
+    sql """
+        INSERT INTO test_rows_small_no_memtbl
+        SELECT number, CONCAT('test_', CAST(number AS VARCHAR))
+        FROM numbers("number" = "1000")
+    """
+    
+    // Verify data count
+    def count20b = sql "SELECT COUNT(*) FROM test_rows_small_no_memtbl"
+    assertEquals(1000, count20b[0][0])
+    
+    // Get tablet id and check rowsets
+    def tablets20b = sql "SHOW TABLETS FROM test_rows_small_no_memtbl"
+    def tabletId20b = tablets20b[0][0]
+    
+    def rowsetsResult20b = sql """
+        SELECT ROWSET_ID, ROWSET_NUM_ROWS, NUM_SEGMENTS
+        FROM information_schema.rowsets
+        WHERE TABLET_ID = ${tabletId20b}
+        ORDER BY START_VERSION
+    """
+    
+    logger.info("TC-020-B: Rowsets with memtable disabled (rows_of_segment=100):")
+    for (row in rowsetsResult20b) {
+        def numRows = row[1] as Long
+        def numSegments = row[2] as Long
+        if (numSegments > 0 && numRows > 0) {
+            def avgRowsPerSegment = numRows / numSegments
+            assertTrue(avgRowsPerSegment <= 100, 
+                "TC-020-B: Average rows per segment ${avgRowsPerSegment} exceeds limit 100")
+            logger.info("  Rowset: totalRows=${numRows}, segments=${numSegments}, avgRowsPerSegment=${avgRowsPerSegment}")
+        }
+    }
+    
+    sql "DROP TABLE IF EXISTS test_rows_small_no_memtbl"
+    
+    // ------------------------------------------------------------
+    // TC-020-C: Multiple inserts (like TC-016)
+    // ------------------------------------------------------------
+    sql "DROP TABLE IF EXISTS test_rows_multi_no_memtbl"
+    sql """
+        CREATE TABLE test_rows_multi_no_memtbl (
+            id BIGINT,
+            data VARCHAR(50)
+        )
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "rows_of_segment" = "30000",
+            "disable_auto_compaction" = "true"
+        )
+    """
+    
+    // Perform multiple inserts
+    sql """INSERT INTO test_rows_multi_no_memtbl SELECT number, 'a' FROM numbers("number" = "30000")"""
+    sql """INSERT INTO test_rows_multi_no_memtbl SELECT number, 'b' FROM numbers("number" = "30000")"""
+    sql """INSERT INTO test_rows_multi_no_memtbl SELECT number, 'c' FROM numbers("number" = "30000")"""
+    
+    // Get tablet id
+    def tablets20c = sql "SHOW TABLETS FROM test_rows_multi_no_memtbl"
+    def tabletId20c = tablets20c[0][0]
+    
+    // Check rowsets
+    def rowsetsResult20c = sql """
+        SELECT ROWSET_ID, ROWSET_NUM_ROWS, NUM_SEGMENTS
+        FROM information_schema.rowsets
+        WHERE TABLET_ID = ${tabletId20c}
+        ORDER BY START_VERSION
+    """
+    
+    // Should have at least 3 rowsets
+    assertTrue(rowsetsResult20c.size() >= 3, 
+        "TC-020-C: Expected at least 3 rowsets, got ${rowsetsResult20c.size()}")
+    
+    logger.info("TC-020-C: Rowsets with memtable disabled (rows_of_segment=30000, multi-insert):")
+    for (row in rowsetsResult20c) {
+        def numRows = row[1] as Long
+        def numSegments = row[2] as Long
+        if (numSegments > 0 && numRows > 0) {
+            def avgRowsPerSegment = numRows / numSegments
+            assertTrue(avgRowsPerSegment <= 30000, 
+                "TC-020-C: Average rows per segment ${avgRowsPerSegment} exceeds limit 30000")
+            logger.info("  Rowset: totalRows=${numRows}, segments=${numSegments}, avgRowsPerSegment=${avgRowsPerSegment}")
+        }
+    }
+    
+    // Verify total data
+    def count20c = sql "SELECT COUNT(*) FROM test_rows_multi_no_memtbl"
+    assertEquals(90000, count20c[0][0])
+    
+    sql "DROP TABLE IF EXISTS test_rows_multi_no_memtbl"
+    
+    // ------------------------------------------------------------
+    // TC-020-D: Segment distribution (like TC-017)
+    // ------------------------------------------------------------
+    sql "DROP TABLE IF EXISTS test_rows_dist_no_memtbl"
+    sql """
+        CREATE TABLE test_rows_dist_no_memtbl (
+            id BIGINT,
+            data VARCHAR(50)
+        )
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "rows_of_segment" = "20000",
+            "disable_auto_compaction" = "true"
+        )
+    """
+    
+    // Insert 100000 rows in one batch
+    sql """
+        INSERT INTO test_rows_dist_no_memtbl
+        SELECT number, CONCAT('val_', CAST(number AS VARCHAR))
+        FROM numbers("number" = "100000")
+    """
+    
+    // Get tablet id
+    def tablets20d = sql "SHOW TABLETS FROM test_rows_dist_no_memtbl"
+    def tabletId20d = tablets20d[0][0]
+    
+    // Check rowsets details
+    def rowsetsResult20d = sql """
+        SELECT ROWSET_ID, ROWSET_NUM_ROWS, NUM_SEGMENTS, START_VERSION, END_VERSION
+        FROM information_schema.rowsets
+        WHERE TABLET_ID = ${tabletId20d}
+          AND ROWSET_NUM_ROWS > 0
+        ORDER BY START_VERSION
+    """
+    
+    logger.info("TC-020-D: Rowsets with memtable disabled (rows_of_segment=20000):")
+    for (row in rowsetsResult20d) {
+        def numRows = row[1] as Long
+        def numSegments = row[2] as Long
+        if (numSegments > 0 && numRows > 0) {
+            def avgRowsPerSegment = numRows / numSegments
+            assertTrue(avgRowsPerSegment <= 20000, 
+                "TC-020-D: Average rows per segment ${avgRowsPerSegment} exceeds limit 20000")
+            logger.info("  Rowset: id=${row[0]}, rows=${numRows}, segments=${numSegments}, avgRowsPerSeg=${avgRowsPerSegment}")
+        }
+    }
+    
+    // Verify total count
+    def count20d = sql "SELECT COUNT(*) FROM test_rows_dist_no_memtbl"
+    assertEquals(100000, count20d[0][0])
+    
+    // With rows_of_segment=20000 and 100000 rows, expect ~5 segments
+    def totalSegments20d = 0
+    for (row in rowsetsResult20d) {
+        totalSegments20d += (row[2] as Long)
+    }
+    logger.info("TC-020-D: Total segments: ${totalSegments20d}")
+    assertTrue(totalSegments20d >= 5, 
+        "TC-020-D: Expected at least 5 segments for 100000 rows with rows_of_segment=20000, got ${totalSegments20d}")
+    
+    sql "DROP TABLE IF EXISTS test_rows_dist_no_memtbl"
+    
+    // Re-enable memtable on sink node
+    sql "SET enable_memtable_on_sink_node = true"
+    
+    logger.info("========== Completed tests with memtable on sink node DISABLED ==========")
+
+    // ============================================================
     // Cleanup
     // ============================================================
     sql "DROP DATABASE IF EXISTS test_rows_of_segment_db"
