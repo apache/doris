@@ -35,6 +35,7 @@
 
 #include <fmt/format.h>
 
+#include <cassert>
 #include <cinttypes>
 #include <iostream>
 
@@ -141,19 +142,8 @@ public:
         size_ += result.size;
     }
 
-    // write the double/float to string
-    template <typename T>
-        requires(std::is_floating_point_v<T>)
-    void write(T d) {
-        // snprintf automatically adds a NULL, so we need one more char
-        if (size_ + MAX_DOUBLE_DIGITS + 1 > capacity_) {
-            realloc(MAX_DOUBLE_DIGITS + 1);
-        }
-
-        const auto result = fmt::format_to_n(head_ + size_, MAX_DOUBLE_DIGITS + 1, "{}", d);
-        assert(result.size > 0);
-        size_ += result.size;
-    }
+    void write(double d);
+    void write(float f);
 
     pos_type tellp() const { return size_; }
 
