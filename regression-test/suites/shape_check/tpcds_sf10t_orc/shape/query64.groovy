@@ -42,7 +42,7 @@ suite("query64") {
          set enable_parallel_result_sink=true;
          set memo_max_group_expression_size = 1000000;
          """
-    qt_ds_shape_64 '''
+    sql '''
     explain shape plan
     with cs_ui as
  (select cs_item_sk
