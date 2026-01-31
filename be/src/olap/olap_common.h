@@ -322,6 +322,7 @@ struct OlapReaderStatistics {
     int64_t lazy_read_ns = 0;
     int64_t block_lazy_read_seek_num = 0;
     int64_t block_lazy_read_seek_ns = 0;
+    int64_t lazy_read_pruned_ns = 0;
 
     int64_t raw_rows_read = 0;
 
