@@ -49,11 +49,13 @@ public class CheckMatchExpression extends OneRewriteRuleFactory {
         for (Expression expr : expressions) {
             if (expr instanceof Match) {
                 Match matchExpression = (Match) expr;
-                boolean isSlotReference = matchExpression.left() instanceof SlotReference;
-                boolean isCastChildWithSlotReference = (matchExpression.left() instanceof Cast
-                            && matchExpression.left().child(0) instanceof SlotReference);
-                if (!(isSlotReference || isCastChildWithSlotReference)
-                        || !(matchExpression.right() instanceof Literal)) {
+                // Unwrap all Cast layers to find the innermost expression
+                Expression left = matchExpression.left();
+                while (left instanceof Cast) {
+                    left = left.child(0);
+                }
+                boolean isSlotReference = left instanceof SlotReference;
+                if (!isSlotReference || !(matchExpression.right() instanceof Literal)) {
                     throw new AnalysisException(String.format("Only support match left operand is SlotRef,"
                             + " right operand is Literal. But meet expression %s", matchExpression));
                 }

@@ -67,6 +67,107 @@ public class VariantField {
         return comment;
     }
 
+    public TPatternType getPatternType() {
+        return patternType;
+    }
+
+    /**
+     * Check if the given field name matches this field's pattern.
+     * This method aligns with BE's fnmatch(pattern, path, FNM_PATHNAME) behavior.
+     *
+     * Supported glob syntax:
+     * - '*' matches any sequence of characters except '/'
+     * - '?' matches any single character except '/'
+     * - '[...]' matches any character in the brackets
+     * - '[!...]' or '[^...]' matches any character not in the brackets
+     *
+     * @param fieldName the field name to check
+     * @return true if the field name matches the pattern
+     */
+    public boolean matches(String fieldName) {
+        if (patternType == TPatternType.MATCH_NAME) {
+            return pattern.equals(fieldName);
+        } else {
+            // MATCH_NAME_GLOB: convert glob pattern to regex
+            // This aligns with BE's fnmatch(pattern, path, FNM_PATHNAME)
+            String regex = globToRegex(pattern);
+            return fieldName.matches(regex);
+        }
+    }
+
+    /**
+     * Convert glob pattern to regex pattern, aligning with fnmatch(FNM_PATHNAME) behavior.
+     */
+    private static String globToRegex(String glob) {
+        StringBuilder regex = new StringBuilder();
+        int i = 0;
+        int len = glob.length();
+
+        while (i < len) {
+            char c = glob.charAt(i);
+            switch (c) {
+                case '*':
+                    // '*' matches any sequence of characters except '/' (FNM_PATHNAME)
+                    regex.append("[^/]*");
+                    break;
+                case '?':
+                    // '?' matches any single character except '/' (FNM_PATHNAME)
+                    regex.append("[^/]");
+                    break;
+                case '[':
+                    // Character class - find the closing bracket
+                    int j = i + 1;
+                    // Handle negation: [! or [^
+                    if (j < len && (glob.charAt(j) == '!' || glob.charAt(j) == '^')) {
+                        j++;
+                    }
+                    // Handle ] as first character in class
+                    if (j < len && glob.charAt(j) == ']') {
+                        j++;
+                    }
+                    // Find closing ]
+                    while (j < len && glob.charAt(j) != ']') {
+                        j++;
+                    }
+                    if (j >= len) {
+                        // No closing bracket, treat [ as literal
+                        regex.append("\\[");
+                    } else {
+                        // Extract the character class content
+                        String classContent = glob.substring(i + 1, j);
+                        regex.append('[');
+                        // Convert [! to [^
+                        if (classContent.startsWith("!")) {
+                            regex.append('^').append(classContent.substring(1));
+                        } else {
+                            regex.append(classContent);
+                        }
+                        regex.append(']');
+                        i = j; // Move past the closing ]
+                    }
+                    break;
+                // Escape regex special characters
+                case '\\':
+                case '.':
+                case '(':
+                case ')':
+                case '{':
+                case '}':
+                case '+':
+                case '^':
+                case '$':
+                case '|':
+                    regex.append('\\').append(c);
+                    break;
+                default:
+                    regex.append(c);
+                    break;
+            }
+            i++;
+        }
+        return regex.toString();
+    }
+
     public org.apache.doris.catalog.VariantField toCatalogDataType() {
         return new org.apache.doris.catalog.VariantField(
                 pattern, dataType.toCatalogDataType(), comment, patternType);

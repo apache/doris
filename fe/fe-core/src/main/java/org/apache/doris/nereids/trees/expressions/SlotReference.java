@@ -155,6 +155,15 @@ public class SlotReference extends Slot {
         return fromColumn(exprId, table, column, column.getName(), qualifier);
     }
 
+    /**
+     * Get SlotReference from a column with custom name.
+     * @param exprId the expression id
+     * @param table the table which contains the column
+     * @param column the column which contains type info
+     * @param name the name of SlotReference
+     * @param qualifier the qualifier of SlotReference
+     * @return SlotReference created from column
+     */
     public static SlotReference fromColumn(
             ExprId exprId, TableIf table, Column column, String name, List<String> qualifier) {
         DataType dataType = DataType.fromCatalogType(column.getType());
