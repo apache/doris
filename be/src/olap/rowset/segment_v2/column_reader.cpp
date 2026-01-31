@@ -60,6 +60,7 @@
 #include "olap/wrapper_field.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "util/binary_cast.hpp"
 #include "util/bitmap.h"
 #include "util/block_compression.h"
@@ -351,6 +352,10 @@ void ColumnReader::check_data_by_zone_map_for_test(const vectorized::MutableColu
 }
 #endif
 
+const char* ColumnReader::get_const_value() const {
+    return _const_value_ptr.get();
+}
+
 Status ColumnReader::init(const ColumnMetaPB* meta) {
     _type_info = get_type_info(meta);
 
@@ -394,6 +399,30 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
     if (_ordinal_index == nullptr && !is_empty()) {
         return Status::Corruption("Bad file {}: missing ordinal index for column {}",
                                   _file_reader->path().native(), meta->column_id());
+    }
+
+    bool has_valid_const_value = _zone_map_index != nullptr && !_segment_zone_map->pass_all() &&
+                                 !_segment_zone_map->has_negative_inf() &&
+                                 !_segment_zone_map->has_positive_inf() &&
+                                 !_segment_zone_map->has_null() && !_segment_zone_map->has_nan();
+    if (has_valid_const_value) {
+        FieldType type = _type_info->type();
+        std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
+        std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
+        RETURN_IF_ERROR(_parse_zone_map(*_segment_zone_map, min_value.get(), max_value.get()));
+
+        if (!min_value->is_null() && !max_value->is_null() &&
+            min_value->cmp(max_value.get()) == 0) {
+            if (min_value->is_string_type()) {
+                const auto& min_string = _segment_zone_map->min();
+                _const_value_ptr = std::make_unique<char[]>(sizeof(StringRef));
+                auto* sv = (StringRef*)_const_value_ptr.get();
+                *sv = StringRef(min_string.data(), min_string.size());
+            } else {
+                _const_value_ptr = std::make_unique<char[]>(min_value->size());
+                memcpy(_const_value_ptr.get(), min_value->cell_ptr(), min_value->size());
+            }
+        }
     }
 
     return Status::OK();
@@ -940,6 +969,15 @@ Status ColumnReader::new_struct_iterator(ColumnIteratorUPtr* iterator,
     *iterator = std::make_unique<StructFileColumnIterator>(
             shared_from_this(), std::move(null_iterator), std::move(sub_column_iterators));
     return Status::OK();
+}
+
+bool ColumnIterator::_is_dict_column(const vectorized::IColumn& column) const {
+    if (column.is_nullable()) {
+        const auto& nullable =
+                assert_cast<const vectorized::ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
+        return nullable.get_nested_column().is_column_dictionary();
+    }
+    return column.is_column_dictionary();
 }
 
 Result<TColumnAccessPaths> ColumnIterator::_get_sub_access_paths(
@@ -1866,6 +1904,27 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& d
         return Status::OK();
     }
 
+    const auto* const_value_ptr = _opts.io_ctx.reader_type == ReaderType::READER_QUERY
+                                          ? _reader->get_const_value()
+                                          : nullptr;
+    if (const_value_ptr && !_is_dict_column(*dst)) {
+        size_t size = std::min(*n, _reader->num_rows() - _current_ordinal);
+        *n = size;
+        _current_ordinal += size;
+        dst->reserve(dst->size() + size);
+        const auto& type = _reader->get_vec_data_type()->get_primitive_type();
+        const bool is_string = is_string_type(type);
+        if (is_string) {
+            auto* sv = (StringRef*)const_value_ptr;
+            dst->insert_data_repeatedly(sv->data, sv->size, size);
+        } else {
+            for (size_t i = 0; i != size; ++i) {
+                dst->insert_many_fix_len_data(static_cast<const char*>(const_value_ptr), 1);
+            }
+        }
+        return Status::OK();
+    }
+
     size_t curr_size = dst->byte_size();
     dst->reserve(*n);
     size_t remaining = *n;
@@ -1929,6 +1988,24 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "File column iterator column " << _column_name << " skip reading.";
         dst->insert_many_defaults(count);
+        return Status::OK();
+    }
+
+    const auto* const_value_ptr = _opts.io_ctx.reader_type == ReaderType::READER_QUERY
+                                          ? _reader->get_const_value()
+                                          : nullptr;
+    if (const_value_ptr && !_is_dict_column(*dst)) {
+        dst->reserve(dst->size() + count);
+        const auto& type = _reader->get_vec_data_type()->get_primitive_type();
+        const bool is_string = is_string_type(type);
+        if (is_string) {
+            auto* sv = (StringRef*)const_value_ptr;
+            dst->insert_data_repeatedly(sv->data, sv->size, count);
+        } else {
+            for (size_t i = 0; i != count; ++i) {
+                dst->insert_many_fix_len_data(static_cast<const char*>(const_value_ptr), 1);
+            }
+        }
         return Status::OK();
     }
 

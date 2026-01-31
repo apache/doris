@@ -270,6 +270,8 @@ public:
             return _value < tmp_min_value;
         } else if constexpr (PT == PredicateType::GE) {
             return _value <= tmp_min_value;
+        } else if constexpr (PT == PredicateType::EQ) {
+            return _value == tmp_min_value && _value == tmp_max_value;
         }
 
         return false;
