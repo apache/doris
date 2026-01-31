@@ -363,9 +363,11 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE)) {
             throw new AnalysisException("You can not modify estimate partition size");
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN)) {
-            // do nothing, will be analyzed when creating alter job
+            throw new AnalysisException(
+                    "Property " + PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN + " is not allowed to modify");
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ROW_STORE_COLUMNS)) {
-            // do nothing, will be analyzed when creating alter job
+            throw new AnalysisException(
+                    "Property " + PropertyAnalyzer.PROPERTIES_ROW_STORE_COLUMNS + " is not allowed to modify");
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)) {
             String analyzePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY, "");
             if (analyzePolicy != null
