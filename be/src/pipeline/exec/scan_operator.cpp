@@ -77,8 +77,14 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* stat
                                                               int& arrived_rf_num) {
     // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
     std::unique_lock lock(_conjuncts_lock);
-    return _helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
-                                                          arrived_rf_num, _conjuncts);
+    RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
+                                                                   arrived_rf_num, _conjuncts));
+    if (state->enable_adjust_conjunct_order_by_cost()) {
+        std::ranges::sort(_conjuncts, [](const auto& a, const auto& b) {
+            return a->execute_cost() < b->execute_cost();
+        });
+    };
+    return Status::OK();
 }
 
 Status ScanLocalStateBase::clone_conjunct_ctxs(vectorized::VExprContextSPtrs& scanner_conjuncts) {
@@ -314,7 +320,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
                 message += conjunct->root()->debug_string();
             }
         }
-        custom_profile()->add_info_string("RemainedDownPredicates", message);
+        custom_profile()->add_info_string("RemainedPredicates", message);
     }
 
     for (auto& it : _slot_id_to_value_range) {
