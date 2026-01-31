@@ -251,7 +251,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                                             tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                                             tbl.getTimeSeriesCompactionLevelThreshold(),
-                                            tbl.disableAutoCompaction(),
+                                            tbl.disableAutoCompaction(), tbl.skipWriteIndexOnLoad(),
                                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                                             tbl.getInvertedIndexFileStorageFormat(),
                                             tbl.rowStorePageSize(),

@@ -17,6 +17,8 @@
 
 #include "olap/task/engine_cloud_index_change_task.h"
 
+#include <set>
+
 #include "cloud/cloud_index_change_compaction.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cpp/sync_point.h"
@@ -57,6 +59,14 @@ Status EngineCloudIndexChangeTask::execute() {
     RETURN_IF_ERROR(tablet->sync_rowsets());
     RETURN_IF_ERROR(tablet->check_rowset_schema_for_build_index(_columns, _schema_version));
 
+    // Extract index IDs from index_list
+    std::set<int64_t> index_ids;
+    for (const auto& index : _index_list) {
+        if (index.__isset.index_id) {
+            index_ids.insert(index.index_id);
+        }
+    }
+
     while (true) {
         int64_t time_cost = MonotonicSeconds() - begin_time;
         if (time_cost > config::cloud_index_change_task_timeout_second) {
@@ -75,7 +85,7 @@ Status EngineCloudIndexChangeTask::execute() {
         bool is_current_iter_base_compact = false;
         RETURN_IF_ERROR(tablet->sync_rowsets());
         auto pre_input_rowset = DORIS_TRY(tablet->pick_a_rowset_for_index_change(
-                _schema_version, is_current_iter_base_compact));
+                _schema_version, is_current_iter_base_compact, index_ids));
         if (pre_input_rowset == nullptr) {
             LOG(INFO) << "[index_change]there are no rowsets need to do index change, task finish."
                       << tablet_id_str << ";"
