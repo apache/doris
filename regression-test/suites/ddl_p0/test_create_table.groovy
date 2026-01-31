@@ -61,6 +61,19 @@ suite("sql_create_time_range_table") {
         exception "Disable to create table"
     }
 
+    test {
+        sql """
+            CREATE TABLE tbl\$refs (
+                k1 int,
+                k2 int
+            )
+            DUPLICATE KEY (`k1`)
+            DISTRIBUTED BY HASH(`k2`) BUCKETS 1
+            PROPERTIES ("replication_num" = "1");
+        """
+        exception "Incorrect table name"
+    }
+
     // DDL/DML return 1 row and 1 column, the only value is update row count
     assertTrue(result1.size() == 1)
     assertTrue(result1[0].size() == 1)
