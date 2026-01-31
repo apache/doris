@@ -61,7 +61,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 using namespace ErrorCode;
-
+bvar::Adder<size_t> g_total_tablet_num("doris_total_tablet_num");
 namespace {
 
 bvar::LatencyRecorder g_tablet_commit_phase_update_delete_bitmap_latency(
@@ -71,8 +71,6 @@ bvar::Adder<uint64_t> g_tablet_pk_not_found("doris_pk", "lookup_not_found");
 bvar::PerSecond<bvar::Adder<uint64_t>> g_tablet_pk_not_found_per_second(
         "doris_pk", "lookup_not_found_per_second", &g_tablet_pk_not_found, 60);
 bvar::LatencyRecorder g_tablet_update_delete_bitmap_latency("doris_pk", "update_delete_bitmap");
-
-static bvar::Adder<size_t> g_total_tablet_num("doris_total_tablet_num");
 
 Status _get_segment_column_iterator(const BetaRowsetSharedPtr& rowset, uint32_t segid,
                                     const TabletColumn& target_column,
