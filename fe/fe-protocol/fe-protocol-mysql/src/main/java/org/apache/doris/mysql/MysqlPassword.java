@@ -17,14 +17,8 @@
 
 package org.apache.doris.mysql;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
-import org.apache.doris.qe.GlobalVariable;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -36,71 +30,95 @@ import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Random;
 import java.util.Set;
-import java.util.stream.Collectors;
 
-// this is stolen from MySQL
-//
-// The main idea is that no password are sent between client & server on
-// connection and that no password are saved in mysql in a decodable form.
-//
-// On connection a random string is generated and sent to the client.
-// The client generates a new string with a random generator inited with
-// the hash values from the password and the sent string.
-// This 'check' string is sent to the server where it is compared with
-// a string generated from the stored hash_value of the password and the
-// random string.
-//
-// The password is saved (in user.password) by using the PASSWORD() function in
-// mysql.
-//
-// This is .c file because it's used in libmysqlclient, which is entirely in C.
-// (we need it to be portable to a variety of systems).
-// Example:
-// update user set password=PASSWORD("hello") where user="test"
-// This saves a hashed number as a string in the password field.
-//
-// The new authentication is performed in following manner:
-//
-// SERVER:  public_seed=create_random_string()
-//          send(public_seed)
-//
-// CLIENT:  recv(public_seed)
-//          hash_stage1=sha1("password")
-//          hash_stage2=sha1(hash_stage1)
-//          reply=xor(hash_stage1, sha1(public_seed,hash_stage2)
-//
-//          this three steps are done in scramble()
-//
-//          send(reply)
-//
-// SERVER:  recv(reply)
-//          hash_stage1=xor(reply, sha1(public_seed,hash_stage2))
-//          candidate_hash2=sha1(hash_stage1)
-//          check(candidate_hash2==hash_stage2)
-//
-//          this three steps are done in check_scramble()
+/**
+ * MySQL password handling utilities.
+ *
+ * <p>This class implements the MySQL native password authentication algorithm.
+ * The algorithm uses SHA-1 hashing and XOR operations to create and verify
+ * scrambled passwords without sending the actual password over the network.
+ *
+ * <h3>Algorithm Overview:</h3>
+ * <pre>
+ * SERVER:  public_seed = create_random_string()
+ *          send(public_seed)
+ *
+ * CLIENT:  recv(public_seed)
+ *          hash_stage1 = sha1("password")
+ *          hash_stage2 = sha1(hash_stage1)
+ *          reply = xor(hash_stage1, sha1(public_seed, hash_stage2))
+ *          send(reply)
+ *
+ * SERVER:  recv(reply)
+ *          hash_stage1 = xor(reply, sha1(public_seed, hash_stage2))
+ *          candidate_hash2 = sha1(hash_stage1)
+ *          check(candidate_hash2 == hash_stage2)
+ * </pre>
+ */
 public class MysqlPassword {
+
     private static final Logger LOG = LogManager.getLogger(MysqlPassword.class);
-    // TODO(zhaochun): this is duplicated with handshake packet.
+
+    /**
+     * Empty password constant
+     */
     public static final byte[] EMPTY_PASSWORD = new byte[0];
+
+    /**
+     * Length of the scramble string
+     */
     public static final int SCRAMBLE_LENGTH = 20;
+
+    /**
+     * Length of the hex-encoded scramble string (with leading *)
+     */
     public static final int SCRAMBLE_LENGTH_HEX_LENGTH = 2 * SCRAMBLE_LENGTH + 1;
+
+    /**
+     * Protocol version 4.1 password prefix character
+     */
     public static final byte PVERSION41_CHAR = '*';
-    private static final byte[] DIG_VEC_UPPER = {'0', '1', '2', '3', '4', '5', '6', '7',
-            '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
-    private static final Random random = new SecureRandom();
-    private static final Set<Character> complexCharSet;
+
+    public static final long VALIDATE_PASSWORD_POLICY_DISABLED = 0;
+    public static final long VALIDATE_PASSWORD_POLICY_STRONG = 2;
     public static final int MIN_PASSWORD_LEN = 8;
+
+    private static final byte[] DIG_VEC_UPPER = {
+        '0', '1', '2', '3', '4', '5', '6', '7',
+        '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'
+    };
+
+    private static final String SPECIAL_CHARS = "~!@#$%^&*()_+|<>,.?/:;'[]{}";
+    private static final Set<Character> COMPLEX_CHAR_SET;
 
     /**
      * Built-in dictionary of common weak password words.
      * Used as fallback when no external dictionary file is configured.
      * Password containing any of these words (case-insensitive) will be rejected under STRONG policy.
      */
-    private static final Set<String> BUILTIN_DICTIONARY_WORDS = ImmutableSet.of(
+    private static final Set<String> BUILTIN_DICTIONARY_WORDS;
+
+    // Lazy-loaded dictionary from external file
+    private static volatile Set<String> loadedDictionaryWords = null;
+    // The file path that was used to load the dictionary (for detecting changes)
+    private static volatile String loadedDictionaryFilePath = null;
+    // Lock object for thread-safe lazy loading
+    private static final Object DICTIONARY_LOAD_LOCK = new Object();
+
+    private static final Random RANDOM = new SecureRandom();
+
+    static {
+        COMPLEX_CHAR_SET = new HashSet<>();
+        for (char c : SPECIAL_CHARS.toCharArray()) {
+            COMPLEX_CHAR_SET.add(c);
+        }
+
+        BUILTIN_DICTIONARY_WORDS = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
             // Common password words
             "password", "passwd", "pass", "pwd", "secret",
             // User/role related
@@ -112,17 +130,11 @@ public class MysqlPassword {
             // Common weak patterns
             "qwerty", "abc", "letmein", "welcome", "hello", "monkey", "dragon", "iloveyou",
             "trustno", "sunshine", "princess", "football", "baseball", "soccer"
-    );
+        )));
+    }
 
-    // Lazy-loaded dictionary from external file
-    private static volatile Set<String> loadedDictionaryWords = null;
-    // The file path that was used to load the dictionary (for detecting changes)
-    private static volatile String loadedDictionaryFilePath = null;
-    // Lock object for thread-safe lazy loading
-    private static final Object DICTIONARY_LOAD_LOCK = new Object();
-
-    static {
-        complexCharSet = "~!@#$%^&*()_+|<>,.?/:;'[]{}".chars().mapToObj(c -> (char) c).collect(Collectors.toSet());
+    private MysqlPassword() {
+        // Utility class
     }
 
     /**
@@ -133,17 +145,17 @@ public class MysqlPassword {
      * @return the set of dictionary words (all in lowercase)
      */
     private static Set<String> getDictionaryWords() {
-        String configuredFileName = GlobalVariable.validatePasswordDictionaryFile;
+        String configuredFileName = getConfiguredDictionaryFileName();
 
         // If no file is configured, use built-in dictionary
-        if (Strings.isNullOrEmpty(configuredFileName)) {
+        if (configuredFileName == null || configuredFileName.isEmpty()) {
             return BUILTIN_DICTIONARY_WORDS;
         }
 
-        // Construct full path: security_plugins_dir/<configured_file_name> and normalize for safe comparison
-        String configuredFilePath = Paths.get(Config.security_plugins_dir, configuredFileName)
-                .normalize().toString();
-
+        String baseDir = Config.security_plugins_dir;
+        String configuredFilePath = baseDir == null
+                    ? configuredFileName
+                    : Paths.get(baseDir, configuredFileName).normalize().toString();
         // Check if we need to (re)load the dictionary
         // Double-checked locking for thread safety
         if (loadedDictionaryWords == null || !configuredFilePath.equals(loadedDictionaryFilePath)) {
@@ -156,6 +168,21 @@ public class MysqlPassword {
         }
 
         return loadedDictionaryWords != null ? loadedDictionaryWords : BUILTIN_DICTIONARY_WORDS;
+    }
+
+    private static String getConfiguredDictionaryFileName() {
+        try {
+            Class<?> clazz = Class.forName("org.apache.doris.qe.GlobalVariable");
+            Object value = clazz.getDeclaredField("validatePasswordDictionaryFile").get(null);
+            if (value instanceof String) {
+                return (String) value;
+            }
+        } catch (ClassNotFoundException e) {
+            // GlobalVariable not available in this module.
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            LOG.warn("Failed to read GlobalVariable.validatePasswordDictionaryFile: {}", e.getMessage());
+        }
+        return null;
     }
 
     /**
@@ -186,19 +213,27 @@ public class MysqlPassword {
         }
     }
 
+    /**
+     * Creates a random string for the authentication challenge.
+     *
+     * @param len length of the random string
+     * @return random byte array
+     */
     public static byte[] createRandomString(int len) {
         byte[] bytes = new byte[len];
-        random.nextBytes(bytes);
+        RANDOM.nextBytes(bytes);
         // NOTE: MySQL challenge string can't contain 0.
         for (int i = 0; i < len; ++i) {
-            if (!((bytes[i] >= 'a' && bytes[i] <= 'z')
-                    || (bytes[i] >= 'A' && bytes[i] <= 'Z'))) {
+            if (!((bytes[i] >= 'a' && bytes[i] <= 'z') || (bytes[i] >= 'A' && bytes[i] <= 'Z'))) {
                 bytes[i] = (byte) ('a' + (bytes[i] % 26));
             }
         }
         return bytes;
     }
 
+    /**
+     * XOR two byte arrays.
+     */
     private static byte[] xorCrypt(byte[] s1, byte[] s2) {
         if (s1.length != s2.length) {
             return null;
@@ -206,37 +241,27 @@ public class MysqlPassword {
         byte[] res = new byte[s1.length];
         for (int i = 0; i < s1.length; ++i) {
             res[i] = (byte) (s1[i] ^ s2[i]);
-
         }
         return res;
     }
 
-    // Check that scrambled message corresponds to the password; the function
-    // is used by server to check that received reply is authentic.
-    // This function does not check lengths of given strings: message must be
-    // null-terminated, reply and hash_stage2 must be at least SHA1_HASH_SIZE
-    // long (if not, something fishy is going on).
-    // SYNOPSIS
-    //   check_scramble_sha1()
-    //   scramble     clients' reply, presumably produced by scramble()
-    //   message      original random string, previously sent to client
-    //                (presumably second argument of scramble()), must be
-    //                exactly SCRAMBLE_LENGTH long and NULL-terminated.
-    //   hash_stage2  hex2octet-decoded database entry
-    //   All params are IN.
-    //
-    // RETURN VALUE
-    //   0  password is correct
-    //   !0  password is invalid
+    /**
+     * Verifies that a scrambled password matches the stored hash.
+     *
+     * @param scramble   the scrambled password from client
+     * @param message    the random challenge string sent to client
+     * @param hashStage2 the stored password hash (two-stage hash)
+     * @return true if password is correct
+     */
     public static boolean checkScramble(byte[] scramble, byte[] message, byte[] hashStage2) {
-        MessageDigest md = null;
+        MessageDigest md;
         try {
             md = MessageDigest.getInstance("SHA-1");
         } catch (NoSuchAlgorithmException e) {
             LOG.warn("No SHA-1 Algorithm when compute password.");
             return false;
         }
-        // compute result1: XOR(scramble, SHA-1 (public_seed + hashStage2))
+        // compute result1: XOR(scramble, SHA-1(public_seed + hashStage2))
         md.update(message);
         md.update(hashStage2);
         byte[] hashStage1 = xorCrypt(md.digest(), scramble);
@@ -245,12 +270,19 @@ public class MysqlPassword {
         md.reset();
         md.update(hashStage1);
         byte[] candidateHash2 = md.digest();
-        // compare result2 and hashStage2 using MessageDigest.isEqual()
+
+        // compare result2 and hashStage2
         return MessageDigest.isEqual(candidateHash2, hashStage2);
     }
 
-    // MySQL client use this function to form scramble password
-    // password: plaintext password
+    /**
+     * Creates a scrambled password from the seed and plain text password.
+     * This is what the MySQL client sends to the server.
+     *
+     * @param seed     the random challenge from server
+     * @param password the plain text password
+     * @return scrambled password bytes
+     */
     public static byte[] scramble(byte[] seed, String password) {
         byte[] scramblePassword = null;
         try {
@@ -263,44 +295,41 @@ public class MysqlPassword {
             md.update(seed);
             scramblePassword = xorCrypt(hashStage1, md.digest(hashStage2));
         } catch (UnsupportedEncodingException e) {
-            // no UTF-8 character set
             LOG.warn("No UTF-8 character set when compute password.");
         } catch (NoSuchAlgorithmException e) {
-            // No SHA-1 algorithm
             LOG.warn("No SHA-1 Algorithm when compute password.");
         }
-
         return scramblePassword;
     }
 
-    // Convert plaintext password into the corresponding 2-staged hashed password
-    // Used for users to set password
+    /**
+     * Creates the two-stage hash of a password for storage.
+     *
+     * @param password plain text password
+     * @return two-stage SHA-1 hash
+     */
     private static byte[] twoStageHash(String password) {
         try {
             byte[] passBytes = password.getBytes("UTF-8");
             MessageDigest md = MessageDigest.getInstance("SHA-1");
             byte[] hashStage1 = md.digest(passBytes);
             md.reset();
-            byte[] hashStage2 = md.digest(hashStage1);
-
-            return hashStage2;
+            return md.digest(hashStage1);
         } catch (UnsupportedEncodingException e) {
-            // no UTF-8 character set
             LOG.warn("No UTF-8 character set when compute password.");
         } catch (NoSuchAlgorithmException e) {
-            // No SHA-1 algorithm
             LOG.warn("No SHA-1 Algorithm when compute password.");
         }
-
         return null;
     }
 
-    // covert octet 'from' to hex 'to'
-    // NOTE: this function assume that to buffer is enough
+    /**
+     * Converts octet bytes to hexadecimal representation.
+     */
     private static void octetToHexSafe(byte[] to, int toOff, byte[] from) {
         int j = toOff;
-        for (int i = 0; i < from.length; i++) {
-            int val = from[i] & 0xff;
+        for (byte b : from) {
+            int val = b & 0xff;
             to[j++] = DIG_VEC_UPPER[val >> 4];
             to[j++] = DIG_VEC_UPPER[val & 0x0f];
         }
@@ -308,12 +337,13 @@ public class MysqlPassword {
 
     private static int fromByte(int b) {
         return (b >= '0' && b <= '9') ? b - '0'
-                : (b >= 'A' && b <= 'F') ? b - 'A' + 10 : b - 'a' + 10;
+            : (b >= 'A' && b <= 'F') ? b - 'A' + 10
+            : b - 'a' + 10;
     }
 
-    // covert hex 'from' to octet 'to'
-    // fromOff: offset of 'from' to covert, there is no pointer in JAVA
-    // NOTE: this function assume that to buffer is enough
+    /**
+     * Converts hex string to octet bytes.
+     */
     private static void hexToOctetSafe(byte[] to, byte[] from, int fromOff) {
         int j = 0;
         for (int i = fromOff; i < from.length; i++) {
@@ -322,20 +352,32 @@ public class MysqlPassword {
         }
     }
 
-    // Make password which stored in palo meta from plain text
+    /**
+     * Creates a scrambled password string for storage from plain text.
+     *
+     * <p>The format is: *[40 hex characters representing SHA1(SHA1(password))]
+     *
+     * @param plainPasswd plain text password
+     * @return scrambled password bytes (41 bytes starting with '*')
+     */
     public static byte[] makeScrambledPassword(String plainPasswd) {
-        if (Strings.isNullOrEmpty(plainPasswd)) {
+        if (plainPasswd == null || plainPasswd.isEmpty()) {
             return EMPTY_PASSWORD;
         }
 
         byte[] hashStage2 = twoStageHash(plainPasswd);
         byte[] passwd = new byte[SCRAMBLE_LENGTH_HEX_LENGTH];
-        passwd[0] = (PVERSION41_CHAR);
+        passwd[0] = PVERSION41_CHAR;
         octetToHexSafe(passwd, 1, hashStage2);
         return passwd;
     }
 
-    // Convert scrambled password from ascii hex string to binary form.
+    /**
+     * Extracts the binary hash from a stored scrambled password.
+     *
+     * @param password stored password (hex format starting with '*')
+     * @return binary hash (20 bytes)
+     */
     public static byte[] getSaltFromPassword(byte[] password) {
         if (password == null || password.length == 0) {
             return EMPTY_PASSWORD;
@@ -345,6 +387,13 @@ public class MysqlPassword {
         return hashStage2;
     }
 
+    /**
+     * Checks if a plain password matches a scrambled password.
+     *
+     * @param scrambledPass stored scrambled password
+     * @param plainPass     plain text password to check
+     * @return true if passwords match
+     */
     public static boolean checkPlainPass(byte[] scrambledPass, String plainPass) {
         byte[] pass = makeScrambledPassword(plainPass);
         if (pass.length != scrambledPass.length) {
@@ -358,82 +407,70 @@ public class MysqlPassword {
         return true;
     }
 
-    public static byte[] checkPassword(String passwdString) throws AnalysisException {
-        if (Strings.isNullOrEmpty(passwdString)) {
-            return EMPTY_PASSWORD;
-        }
-
-        byte[] passwd = null;
-        try {
-            passwdString = passwdString.toUpperCase();
-            passwd = passwdString.getBytes("UTF-8");
-        } catch (UnsupportedEncodingException e) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_ERROR);
-        }
-        if (passwd.length != SCRAMBLE_LENGTH_HEX_LENGTH || passwd[0] != PVERSION41_CHAR) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_PASSWD_LENGTH, 41);
-        }
-
-        for (int i = 1; i < passwd.length; ++i) {
-            if (!((passwd[i] <= '9' && passwd[i] >= '0') || passwd[i] >= 'A' && passwd[i] <= 'F')) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_PASSWD_LENGTH, 41);
-            }
-        }
-
-        return passwd;
-    }
-
     /**
-     * Validate plain text password according to MySQL's validate_password policy.
-     * For STRONG policy, the password must meet all of the following requirements:
-     * 1. At least MIN_PASSWORD_LEN (8) characters long
-     * 2. Contains at least 1 digit
-     * 3. Contains at least 1 lowercase letter
-     * 4. Contains at least 1 uppercase letter
-     * 5. Contains at least 1 special character
-     * 6. Does not contain any dictionary words (case-insensitive)
+     * Validates a plain text password according to the specified policy.
+     *
+     * <p>Policy values:
+     * <ul>
+     *   <li>0: Disabled - no validation</li>
+     *   <li>2: STRONG - password must be at least 8 characters, contain all 4 types
+     *       of: numbers, uppercase letters, lowercase letters, and special characters,
+     *       and must not contain dictionary words</li>
+     * </ul>
+     *
+     * @param policy   the password validation policy (0 = disabled, 2 = STRONG)
+     * @param password the plain text password to validate
+     * @throws IllegalArgumentException if password does not meet policy requirements
      */
-    public static void validatePlainPassword(long validaPolicy, String text) throws AnalysisException {
-        if (validaPolicy == GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG) {
-            if (Strings.isNullOrEmpty(text) || text.length() < MIN_PASSWORD_LEN) {
-                throw new AnalysisException(
-                        "Violate password validation policy: STRONG. "
-                                + "The password must be at least " + MIN_PASSWORD_LEN + " characters.");
+    public static void validatePlainPassword(long policy, String password) {
+        if (policy == VALIDATE_PASSWORD_POLICY_DISABLED) {
+            // Policy disabled, no validation
+            return;
+        }
+
+        if (policy == VALIDATE_PASSWORD_POLICY_STRONG) {
+            // STRONG policy
+            if (password == null || password.length() < MIN_PASSWORD_LEN) {
+                throw new IllegalArgumentException(
+                    "Violate password validation policy: STRONG. "
+                        + "The password must be at least " + MIN_PASSWORD_LEN + " characters.");
             }
 
             StringBuilder missingTypes = new StringBuilder();
 
-            if (text.chars().noneMatch(Character::isDigit)) {
+            if (password.chars().noneMatch(Character::isDigit)) {
                 missingTypes.append("numeric, ");
             }
-            if (text.chars().noneMatch(Character::isLowerCase)) {
+            if (password.chars().noneMatch(Character::isLowerCase)) {
                 missingTypes.append("lowercase, ");
             }
-            if (text.chars().noneMatch(Character::isUpperCase)) {
+            if (password.chars().noneMatch(Character::isUpperCase)) {
                 missingTypes.append("uppercase, ");
             }
-            if (text.chars().noneMatch(c -> complexCharSet.contains((char) c))) {
+            if (password.chars().noneMatch(c -> COMPLEX_CHAR_SET.contains((char) c))) {
                 missingTypes.append("special character, ");
             }
 
             if (missingTypes.length() > 0) {
                 // Remove trailing ", "
                 missingTypes.setLength(missingTypes.length() - 2);
-                throw new AnalysisException(
-                        "Violate password validation policy: STRONG. "
-                                + "The password must contain at least one character from each of the following types: "
-                                + "numeric, lowercase, uppercase, and special characters. "
-                                + "Missing: " + missingTypes + ".");
+                throw new IllegalArgumentException(
+                    "Violate password validation policy: STRONG. "
+                        + "The password must contain at least one character from each of the following types: "
+                        + "numeric, lowercase, uppercase, and special characters. "
+                        + "Missing: " + missingTypes + ".");
             }
 
             // Check for dictionary words (case-insensitive)
-            String foundWord = containsDictionaryWord(text);
+            String foundWord = containsDictionaryWord(password);
             if (foundWord != null) {
-                throw new AnalysisException(
-                        "Violate password validation policy: STRONG. "
-                                + "The password contains a common dictionary word '" + foundWord + "', "
-                                + "which makes it easy to guess. Please choose a more secure password.");
+                throw new IllegalArgumentException(
+                    "Violate password validation policy: STRONG. "
+                        + "The password contains a common dictionary word '" + foundWord + "', "
+                        + "which makes it easy to guess. Please choose a more secure password.");
             }
+        } else {
+            throw new IllegalArgumentException("Unknown password validation policy: " + policy);
         }
     }
 
@@ -453,4 +490,46 @@ public class MysqlPassword {
         }
         return null;
     }
+
+    /**
+     * Validates and converts a scrambled password string to bytes.
+     *
+     * <p>The password string should be in the format: *[40 hex characters]
+     * representing SHA1(SHA1(password)).
+     *
+     * @param password scrambled password string (null or format: *[40 hex chars])
+     * @return password bytes (empty if input is null)
+     * @throws IllegalArgumentException if password format is invalid
+     */
+    public static byte[] checkPassword(String password) {
+        if (password == null || password.isEmpty()) {
+            return EMPTY_PASSWORD;
+        }
+
+        // Check length: should be 41 characters (* + 40 hex chars)
+        if (password.length() != SCRAMBLE_LENGTH_HEX_LENGTH) {
+            throw new IllegalArgumentException(
+                "Password length should be " + SCRAMBLE_LENGTH_HEX_LENGTH + " characters");
+        }
+
+        // Check first character should be '*'
+        if (password.charAt(0) != PVERSION41_CHAR) {
+            throw new IllegalArgumentException(
+                "Password should start with '*' character");
+        }
+
+        // Check remaining characters should be hex digits
+        byte[] passwordBytes = password.getBytes();
+        for (int i = 1; i < passwordBytes.length; i++) {
+            byte b = passwordBytes[i];
+            if (!((b >= '0' && b <= '9') || (b >= 'A' && b <= 'F') || (b >= 'a' && b <= 'f'))) {
+                throw new IllegalArgumentException(
+                    "Password contains invalid hex character at position " + i);
+            }
+        }
+
+        // Convert hex string to bytes
+        return passwordBytes;
+    }
 }
+

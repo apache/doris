@@ -24,6 +24,15 @@ import com.google.common.collect.Maps;
 import java.nio.ByteBuffer;
 import java.util.Map;
 
+/**
+ * MySQL Handshake Response (Authentication) packet.
+ *
+ * <p>This packet is sent by the client in response to the server's handshake packet.
+ * It contains the client's capability flags, authentication data, and optionally
+ * the database name and connection attributes.
+ *
+ * <p>Reference: https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_connection_phase_packets_protocol_handshake_response.html
+ */
 // MySQL protocol handshake response packet, which contain authenticate information.
 public class MysqlAuthPacket extends MysqlPacket {
     private int maxPacketSize;

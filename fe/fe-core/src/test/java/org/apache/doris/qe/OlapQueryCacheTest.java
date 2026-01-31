@@ -127,7 +127,7 @@ public class OlapQueryCacheTest {
     @Before
     public void setUp() throws Exception {
         state = new QueryState();
-        scheduler = new ConnectScheduler(10);
+        scheduler = new ConnectScheduler(10, 10);
         ctx = new ConnectContext();
 
         SessionVariable sessionVariable = new SessionVariable();

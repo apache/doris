@@ -1670,7 +1670,7 @@ public class Auth implements Writable {
         byte[] scramble;
         try {
             scramble = MysqlPassword.checkPassword(initialRootPassword);
-        } catch (AnalysisException e) {
+        } catch (IllegalArgumentException e) {
             // Skip set root password if `initial_root_password` is not valid 2-staged SHA-1 encrypted
             LOG.warn("initial_root_password [{}] is not valid 2-staged SHA-1 encrypted, ignore it",
                     initialRootPassword);

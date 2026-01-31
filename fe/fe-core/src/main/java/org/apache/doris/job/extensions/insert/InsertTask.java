@@ -210,8 +210,14 @@ public class InsertTask extends AbstractTask {
                 return;
             }
             command.runWithUpdateInfo(ctx, stmtExecutor, loadStatistic);
-            if (ctx.getState().getStateType() != QueryState.MysqlStateType.OK) {
-                throw new JobException(ctx.getState().getErrorMessage());
+            ConnectContext localCtx = ctx;
+            if (isCanceled.get()) {
+                log.info("task has been canceled during execution, task id is {}", getTaskId());
+                return;
+            }
+            QueryState state = localCtx.getState();
+            if (localCtx.getState().getStateType() != QueryState.MysqlStateType.OK) {
+                throw new JobException(state.getErrorMessage());
             }
         } catch (Exception e) {
             log.warn("execute insert task error, job id is {}, task id is {},sql is {}", getJobId(),

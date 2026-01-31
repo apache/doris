@@ -39,12 +39,20 @@ public class PassVar {
                 long validaPolicy = GlobalVariable.validatePasswordPolicy;
                 if (validaPolicy != 0) {
                     // validate password
-                    MysqlPassword.validatePlainPassword(validaPolicy, text);
+                    try {
+                        MysqlPassword.validatePlainPassword(validaPolicy, text);
+                    } catch (IllegalArgumentException e) {
+                        throw new AnalysisException(e.getMessage(), e);
+                    }
                 }
                 // convert plain password to scramble
                 scrambled = MysqlPassword.makeScrambledPassword(text);
             } else {
-                scrambled = MysqlPassword.checkPassword(text);
+                try {
+                    scrambled = MysqlPassword.checkPassword(text);
+                } catch (IllegalArgumentException e) {
+                    throw new AnalysisException("Invalid password format: " + e.getMessage(), e);
+                }
             }
         } else {
             scrambled = new byte[0];
