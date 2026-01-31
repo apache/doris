@@ -27,6 +27,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.persist.HbPackage;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.ExecuteEnv;
@@ -374,7 +375,13 @@ public class HeartbeatMgr extends MasterDaemon {
                                     ? "Unknown error" : result.getStatus().getErrorMsgs().get(0));
                 }
             } catch (Exception e) {
-                LOG.warn("backend heartbeat got exception", e);
+                Throwable rootCause = Util.getRootCause(e);
+                if (rootCause instanceof java.net.ConnectException) {
+                    LOG.warn("backend heartbeat got exception, host: {}, error: {}",
+                            backend.getHost(), Util.getRootCauseMessage(e));
+                } else {
+                    LOG.warn("backend heartbeat got exception", e);
+                }
                 return new BackendHbResponse(backendId, backend.getHost(), backend.getLastUpdateMs(),
                         Strings.isNullOrEmpty(e.getMessage()) ? "got exception" : e.getMessage());
             } finally {
