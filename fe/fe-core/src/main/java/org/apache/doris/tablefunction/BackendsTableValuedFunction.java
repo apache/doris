@@ -55,6 +55,7 @@ public class BackendsTableValuedFunction extends MetadataTableValuedFunction {
             new Column("LastStartTime", ScalarType.createStringType()),
             new Column("LastHeartbeat", ScalarType.createStringType()),
             new Column("Alive", ScalarType.createType(PrimitiveType.BOOLEAN)),
+            new Column("IP", ScalarType.createStringType()),
             new Column("SystemDecommissioned", ScalarType.createType(PrimitiveType.BOOLEAN)),
             new Column("TabletNum", ScalarType.createType(PrimitiveType.BIGINT)),
             new Column("DataUsedCapacity", ScalarType.createType(PrimitiveType.BIGINT)),
@@ -69,7 +70,8 @@ public class BackendsTableValuedFunction extends MetadataTableValuedFunction {
             new Column("Version", ScalarType.createStringType()),
             new Column("Status", ScalarType.createStringType()),
             new Column("HeartbeatFailureCounter", ScalarType.createType(PrimitiveType.INT)),
-            new Column("NodeRole", ScalarType.createStringType()));
+            new Column("NodeRole", ScalarType.createStringType())
+    );
 
     private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
