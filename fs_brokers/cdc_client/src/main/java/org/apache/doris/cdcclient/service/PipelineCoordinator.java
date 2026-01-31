@@ -99,6 +99,7 @@ public class PipelineCoordinator {
             Iterator<SourceRecord> iterator = readResult.getRecordIterator();
             while (iterator != null && iterator.hasNext()) {
                 SourceRecord element = iterator.next();
+                testLog(element);
                 List<String> serializedRecords =
                         sourceReader.deserialize(fetchRecord.getConfig(), element);
                 if (!CollectionUtils.isEmpty(serializedRecords)) {
@@ -202,6 +203,7 @@ public class PipelineCoordinator {
             Iterator<SourceRecord> iterator = readResult.getRecordIterator();
             while (iterator != null && iterator.hasNext()) {
                 SourceRecord element = iterator.next();
+                testLog(element);
                 List<String> serializedRecords =
                         sourceReader.deserialize(writeRecordRequest.getConfig(), element);
 
@@ -247,6 +249,7 @@ public class PipelineCoordinator {
                     Map<String, String> offsetRes =
                             sourceReader.extractSnapshotStateOffset(readResult.getSplitState());
                     offsetRes.put(SPLIT_ID, readResult.getSplit().splitId());
+                    LOG.info("snapshot split meta last offset to fe: {}", offsetRes);
                     metaResponse = offsetRes;
                 }
 
@@ -255,6 +258,7 @@ public class PipelineCoordinator {
                     Map<String, String> offsetRes =
                             sourceReader.extractBinlogStateOffset(readResult.getSplitState());
                     offsetRes.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+                    LOG.info("Binlog split meta last offset to fe: {}", offsetRes);
                     metaResponse = offsetRes;
                 }
             } else {
@@ -269,6 +273,22 @@ public class PipelineCoordinator {
         } finally {
             batchStreamLoad.resetTaskId();
         }
+    }
+
+    private void testLog(SourceRecord element) {
+        String tmp = "";
+        try {
+            Struct s = (Struct) element.value();
+            Struct after = s.getStruct("after");
+            if (after != null) {
+                tmp = String.valueOf(after.get("l_comment"));
+            } else {
+                tmp = "NPE";
+            }
+        } catch (Exception ex) {
+            LOG.warn("test log exception: {}", ex.getMessage());
+        }
+        LOG.info("Processing record offset: {}, comment is {}", element.sourceOffset(), tmp);
     }
 
     private DorisBatchStreamLoad getOrCreateBatchStreamLoad(Long jobId, String targetDb) {
