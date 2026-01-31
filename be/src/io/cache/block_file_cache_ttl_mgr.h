@@ -19,10 +19,12 @@
 
 #pragma once
 
+#include <bvar/bvar.h>
 #include <concurrentqueue.h>
 
 #include <atomic>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <thread>
 #include <unordered_set>
@@ -73,6 +75,8 @@ private:
     std::thread _tablet_id_flush_thread;
 
     std::mutex _ttl_info_mutex;
+
+    std::shared_ptr<bvar::Status<size_t>> _tablet_id_set_size_metrics;
 };
 
 } // namespace doris::io
