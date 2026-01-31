@@ -53,6 +53,7 @@ enum FileCacheType {
     NORMAL = 1;
     INDEX = 2;
     TTL = 3;
+    COLD_NORMAL = 4;
 }
 
 message BlockMetaPb {

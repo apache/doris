@@ -1249,6 +1249,9 @@ DECLARE_mInt64(file_cache_background_lru_dump_update_cnt_threshold);
 DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
 DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
 DECLARE_mBool(enable_evaluate_shadow_queue_diff);
+DECLARE_mBool(enable_file_cache_normal_queue_2qlru);
+DECLARE_Int32(file_cache_2qlru_cold_blocks_percent);
+DECLARE_mInt32(file_cache_2qlru_cold_blocks_promotion_ms);
 
 DECLARE_mBool(file_cache_enable_only_warm_up_idx);
 
