@@ -97,6 +97,13 @@ public class VariantField {
 
     /**
      * Convert glob pattern to regex pattern, aligning with fnmatch(FNM_PATHNAME) behavior.
+     *
+     * fnmatch with FNM_PATHNAME flag behavior:
+     * - '*' matches any sequence of characters except '/'
+     * - '?' matches any single character except '/'
+     * - '[...]' matches any character in the brackets
+     * - '[!...]' or '[^...]' matches any character not in the brackets
+     * - '\' escapes the next character (e.g., '\*' matches literal '*')
      */
     private static String globToRegex(String glob) {
         StringBuilder regex = new StringBuilder();
@@ -106,6 +113,22 @@ public class VariantField {
         while (i < len) {
             char c = glob.charAt(i);
             switch (c) {
+                case '\\':
+                    // Escape sequence: next character should be matched literally
+                    // This aligns with fnmatch behavior where \* matches literal *
+                    if (i + 1 < len) {
+                        i++;
+                        char nextChar = glob.charAt(i);
+                        // Escape the next character for regex if it's a regex special char
+                        if (isRegexSpecialChar(nextChar)) {
+                            regex.append('\\');
+                        }
+                        regex.append(nextChar);
+                    } else {
+                        // Trailing backslash, treat as literal backslash
+                        regex.append("\\\\");
+                    }
+                    break;
                 case '*':
                     // '*' matches any sequence of characters except '/' (FNM_PATHNAME)
                     regex.append("[^/]*");
@@ -146,8 +169,7 @@ public class VariantField {
                         i = j; // Move past the closing ]
                     }
                     break;
-                // Escape regex special characters
-                case '\\':
+                // Escape regex special characters (except backslash which is handled above)
                 case '.':
                 case '(':
                 case ')':
@@ -166,6 +188,15 @@ public class VariantField {
             i++;
         }
         return regex.toString();
+    }
+
+    /**
+     * Check if a character is a regex special character that needs escaping.
+     */
+    private static boolean isRegexSpecialChar(char c) {
+        return c == '\\' || c == '.' || c == '(' || c == ')' || c == '['
+                || c == ']' || c == '{' || c == '}' || c == '+' || c == '*'
+                || c == '?' || c == '^' || c == '$' || c == '|';
     }
 
     public org.apache.doris.catalog.VariantField toCatalogDataType() {

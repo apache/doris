@@ -170,4 +170,80 @@ public class VariantFieldMatchTest {
         Optional<VariantField> result = variantType.findMatchingField("any_field");
         Assertions.assertFalse(result.isPresent());
     }
+
+    // ==================== Escape sequence tests (aligning with fnmatch behavior) ====================
+
+    @Test
+    public void testGlobEscapeAsterisk() {
+        // Pattern: int_\* should match literal "int_*", not "int_" followed by anything
+        VariantField field = new VariantField("int_\\*", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+
+        Assertions.assertTrue(field.matches("int_*"));
+        Assertions.assertFalse(field.matches("int_nested"));
+        Assertions.assertFalse(field.matches("int_"));
+    }
+
+    @Test
+    public void testGlobEscapeQuestionMark() {
+        // Pattern: int_\? should match literal "int_?", not "int_" followed by any single char
+        VariantField field = new VariantField("int_\\?", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+
+        Assertions.assertTrue(field.matches("int_?"));
+        Assertions.assertFalse(field.matches("int_1"));
+        Assertions.assertFalse(field.matches("int_"));
+    }
+
+    @Test
+    public void testGlobEscapeBracket() {
+        // Pattern: int_\[ should match literal "int_["
+        VariantField field = new VariantField("int_\\[", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+
+        Assertions.assertTrue(field.matches("int_["));
+        Assertions.assertFalse(field.matches("int_a"));
+    }
+
+    @Test
+    public void testGlobEscapeBackslash() {
+        // Pattern: int_\\ should match literal "int_\"
+        VariantField field = new VariantField("int_\\\\", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+
+        Assertions.assertTrue(field.matches("int_\\"));
+        Assertions.assertFalse(field.matches("int_"));
+    }
+
+    @Test
+    public void testGlobWithSlashSeparator() {
+        // With FNM_PATHNAME, '*' should not match '/'
+        VariantField field = new VariantField("int_*", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+
+        Assertions.assertTrue(field.matches("int_nested"));
+        Assertions.assertTrue(field.matches("int_nested.level1")); // '.' is matched by '*'
+        Assertions.assertFalse(field.matches("int_nested/level1")); // '/' is NOT matched by '*'
+    }
+
+    @Test
+    public void testGlobCharacterClass() {
+        // Character class tests
+        VariantField field1 = new VariantField("int_[0-9]", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+        Assertions.assertTrue(field1.matches("int_1"));
+        Assertions.assertFalse(field1.matches("int_a"));
+
+        // Negated character class with !
+        VariantField field2 = new VariantField("int_[!0-9]", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+        Assertions.assertTrue(field2.matches("int_a"));
+        Assertions.assertFalse(field2.matches("int_1"));
+
+        // Negated character class with ^
+        VariantField field3 = new VariantField("int_[^0-9]", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+        Assertions.assertTrue(field3.matches("int_a"));
+        Assertions.assertFalse(field3.matches("int_1"));
+    }
 }
