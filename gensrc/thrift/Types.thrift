@@ -724,6 +724,7 @@ enum TLoadSourceType {
     RAW = 0,
     KAFKA = 1,
     MULTI_TABLE = 2,
+    KINESIS = 3,
 }
 
 enum TMergeType {
