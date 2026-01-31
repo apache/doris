@@ -70,6 +70,12 @@ public:
 
     virtual bool touches(const GeoShape* rhs) const { return false; }
 
+    virtual std::string GeometryType() const = 0;
+
+    virtual double Length() const { return 0.0; }
+
+    virtual double Distance(const GeoShape* rhs) const { return -1.0; }
+
     virtual std::string to_string() const { return ""; }
     static std::string as_binary(GeoShape* rhs);
 
@@ -108,8 +114,13 @@ public:
     static bool ComputeAngle(GeoPoint* p1, GeoPoint* p2, GeoPoint* p3, double* angle);
     static bool ComputeAzimuth(GeoPoint* p1, GeoPoint* p2, double* angle);
 
+    std::string GeometryType() const override { return "ST_POINT"; }
     std::string to_string() const override;
     std::string as_wkt() const override;
+
+    double Length() const override;
+
+    double Distance(const GeoShape* rhs) const override;
 
     double x() const;
     double y() const;
@@ -140,7 +151,12 @@ public:
     GeoShapeType type() const override { return GEO_SHAPE_LINE_STRING; }
     const S2Polyline* polyline() const { return _polyline.get(); }
 
+    std::string GeometryType() const override { return "ST_LINESTRING"; }
     std::string as_wkt() const override;
+
+    double Length() const override;
+
+    double Distance(const GeoShape* rhs) const override;
 
     int numPoint() const;
     const S2Point* getPoint(int i) const;
@@ -174,11 +190,13 @@ public:
 
     bool polygon_touch_point(const S2Polygon* polygon, const S2Point* point) const;
     bool polygon_touch_polygon(const S2Polygon* polygon1, const S2Polygon* polygon2) const;
-
+    std::string GeometryType() const override { return "ST_POLYGON"; }
     std::string as_wkt() const override;
 
     int numLoops() const;
     double getArea() const;
+    double Length() const override;
+    double Distance(const GeoShape* rhs) const override;
     S2Loop* getLoop(int i) const;
 
 protected:
@@ -207,9 +225,12 @@ public:
     bool disjoint(const GeoShape* rhs) const override;
     bool touches(const GeoShape* rhs) const override;
     bool contains(const GeoShape* rhs) const override;
+    std::string GeometryType() const override { return "ST_MULTIPOLYGON"; }
     std::string as_wkt() const override;
 
     double getArea() const;
+    double Length() const override;
+    double Distance(const GeoShape* rhs) const override;
 
 protected:
     void encode(std::string* buf) override;
@@ -236,9 +257,12 @@ public:
     bool disjoint(const GeoShape* rhs) const override;
     bool touches(const GeoShape* rhs) const override;
     bool contains(const GeoShape* rhs) const override;
+    std::string GeometryType() const override { return "ST_CIRCLE"; }
     std::string as_wkt() const override;
 
     double getArea() const;
+    double Length() const override;
+    double Distance(const GeoShape* rhs) const override;
 
 protected:
     void encode(std::string* buf) override;
