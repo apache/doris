@@ -32,6 +32,7 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -106,7 +107,7 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
         Column c1Column = new Column("c1", PrimitiveType.DATE);
         Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> partitionKeyDescMap
                 = MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, Maps.newHashMap(),
-                Lists.newArrayList(c1Column));
+                Lists.newArrayList(c1Column), Maps.newHashMap());
         // 3 partition
         Assertions.assertEquals(3, partitionKeyDescMap.size());
         OlapTable t1 = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test")
@@ -120,6 +121,40 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
     }
 
     @Test
+    public void testQueryUsedPartitionsRange() throws Exception {
+        MTMVPartitionInfo mtmvPartitionInfo = getMTMVPartitionInfo(Lists.newArrayList("t1"));
+        Column c1Column = new Column("c1", PrimitiveType.DATE);
+        Map<List<String>, Set<String>> queryUsed = Maps.newHashMap();
+        queryUsed.put(Lists.newArrayList("internal", "test", "t1"), Sets.newHashSet("p20210201"));
+
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> partitionKeyDescMap
+                = MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, Maps.newHashMap(),
+                Lists.newArrayList(c1Column), queryUsed);
+        Assertions.assertEquals(1, partitionKeyDescMap.size());
+
+        Set<String> collected = Sets.newHashSet();
+        partitionKeyDescMap.values().forEach(m -> m.values().forEach(collected::addAll));
+        Assertions.assertEquals(Sets.newHashSet("p20210201"), collected);
+    }
+
+    @Test
+    public void testQueryUsedPartitionsList() throws Exception {
+        MTMVPartitionInfo mtmvPartitionInfo = getMTMVPartitionInfo(Lists.newArrayList("t2"));
+        Column c1Column = new Column("c1", PrimitiveType.INT);
+        Map<List<String>, Set<String>> queryUsed = Maps.newHashMap();
+        queryUsed.put(Lists.newArrayList("internal", "test", "t2"), Sets.newHashSet("p1_bj"));
+
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> partitionKeyDescMap
+                = MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, Maps.newHashMap(),
+                Lists.newArrayList(c1Column), queryUsed);
+        Assertions.assertEquals(1, partitionKeyDescMap.size());
+
+        Set<String> collected = Sets.newHashSet();
+        partitionKeyDescMap.values().forEach(m -> m.values().forEach(collected::addAll));
+        Assertions.assertEquals(Sets.newHashSet("p1_bj"), collected);
+    }
+
+    @Test
     public void testLimit() throws Exception {
         MTMVPartitionInfo mtmvPartitionInfo = getMTMVPartitionInfo(Lists.newArrayList("t1"));
         Column c1Column = new Column("c1", PrimitiveType.DATE);
@@ -127,7 +162,7 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
         mvProperty.put(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT, "1");
         Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> partitionKeyDescMap
                 = MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, mvProperty,
-                Lists.newArrayList(c1Column));
+                Lists.newArrayList(c1Column), Maps.newHashMap());
         // 3 partition
         Assertions.assertEquals(1, partitionKeyDescMap.size());
         OlapTable t1 = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test")
@@ -146,7 +181,7 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
         Column c1Column = new Column("c1", PrimitiveType.INT);
         Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> partitionKeyDescMap
                 = MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, Maps.newHashMap(),
-                Lists.newArrayList(c1Column));
+                Lists.newArrayList(c1Column), Maps.newHashMap());
         // 3 partition
         Assertions.assertEquals(2, partitionKeyDescMap.size());
         OlapTable t2 = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test")
@@ -172,7 +207,7 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
         Column c1Column = new Column("c1", PrimitiveType.INT);
         Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> partitionKeyDescMap
                 = MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, Maps.newHashMap(),
-                Lists.newArrayList(c1Column));
+                Lists.newArrayList(c1Column), Maps.newHashMap());
         // 2 partition
         Assertions.assertEquals(2, partitionKeyDescMap.size());
         OlapTable t1 = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test")
@@ -190,7 +225,7 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
         Column c1Column = new Column("c1", PrimitiveType.DATE);
         Assertions.assertThrows(AnalysisException.class,
                 () -> MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, Maps.newHashMap(),
-                        Lists.newArrayList(c1Column)));
+                        Lists.newArrayList(c1Column), Maps.newHashMap()));
     }
 
     @Test
@@ -199,7 +234,7 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
         Column c1Column = new Column("c1", PrimitiveType.DATE);
         Assertions.assertThrows(AnalysisException.class,
                 () -> MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, Maps.newHashMap(),
-                        Lists.newArrayList(c1Column)));
+                        Lists.newArrayList(c1Column), Maps.newHashMap()));
     }
 
     @Test
@@ -208,7 +243,7 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
         Column c1Column = new Column("c1", PrimitiveType.DATE);
         Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> partitionKeyDescMap
                 = MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, Maps.newHashMap(),
-                Lists.newArrayList(c1Column));
+                Lists.newArrayList(c1Column), Maps.newHashMap());
         // 4 partition
         Assertions.assertEquals(4, partitionKeyDescMap.size());
         boolean hasOne = false;
@@ -232,7 +267,7 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
         Column c1Column = new Column("c1", PrimitiveType.INT);
         Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> partitionKeyDescMap
                 = MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, Maps.newHashMap(),
-                Lists.newArrayList(c1Column));
+                Lists.newArrayList(c1Column), Maps.newHashMap());
         // 2 partition
         Assertions.assertEquals(2, partitionKeyDescMap.size());
         OlapTable t2 = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test")
@@ -252,7 +287,7 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
         Column c1Column = new Column("c1", PrimitiveType.DATE);
         Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> partitionKeyDescMap
                 = MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, Maps.newHashMap(),
-                Lists.newArrayList(c1Column));
+                Lists.newArrayList(c1Column), Maps.newHashMap());
         // 2 partition
         Assertions.assertEquals(2, partitionKeyDescMap.size());
         OlapTable t6 = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test")
@@ -272,7 +307,7 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
         Column c1Column = new Column("c1", PrimitiveType.DATE);
         Assertions.assertThrows(AnalysisException.class,
                 () -> MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, Maps.newHashMap(),
-                        Lists.newArrayList(c1Column)));
+                        Lists.newArrayList(c1Column), Maps.newHashMap()));
     }
 
     private MTMVPartitionInfo getMTMVPartitionInfo(List<String> pctTableNames) throws AnalysisException {
