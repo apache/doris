@@ -1267,7 +1267,6 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     COUNTER_UPDATE(exec_time_counter(), rf_time);
     SCOPED_TIMER(_close_timer);
 
-    SCOPED_TIMER(exec_time_counter());
     if (auto ctx = _scanner_ctx.load()) {
         ctx->stop_scanners(state);
         // _scanner_ctx may be accessed in debug_string concurrently
