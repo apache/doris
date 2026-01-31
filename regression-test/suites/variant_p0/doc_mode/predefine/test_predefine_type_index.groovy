@@ -17,11 +17,11 @@
 
 suite("variant_predefine_index_doc_value", "p0"){ 
     sql """ set describe_extend_variant_column = true """
-    sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = true """
     sql """ set default_variant_doc_materialization_min_rows = 0 """
+    sql """ set default_variant_doc_hash_shard_count = 1 """
 
     def tableName = "test_variant_predefine_index_type"
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -30,8 +30,7 @@ suite("variant_predefine_index_doc_value", "p0"){
         `var` variant <
             MATCH_NAME 'path.int' : int,
             MATCH_NAME 'path.decimal' : double,
-            MATCH_NAME 'path.string' : string,
-            properties("variant_max_subcolumns_count" = "10")
+            MATCH_NAME 'path.string' : string
         > NULL,
         INDEX idx_a_b (var) USING INVERTED PROPERTIES("field_pattern"="path.int") COMMENT '',
         INDEX idx_a_c (var) USING INVERTED PROPERTIES("field_pattern"="path.decimal") COMMENT '',
@@ -49,7 +48,7 @@ suite("variant_predefine_index_doc_value", "p0"){
     sql """ set profile_level = 2"""
     sql """ set inverted_index_skip_threshold = 0 """
     sql """ set enable_common_expr_pushdown = true """
-    sql """ set enable_match_without_inverted_index = false """
+    
     qt_sql """ select count() from ${tableName} where cast(var['path']['int'] as int) = 789 """
     qt_sql """ select count() from ${tableName} where cast(var['path']['decimal'] as DECIMAL(15, 12)) = 789.789123456789 """
     qt_sql """ select count() from ${tableName} where var['path']['string'] match 'hello' """
@@ -58,8 +57,10 @@ suite("variant_predefine_index_doc_value", "p0"){
         sql """ insert into ${tableName} values(1, '{"path" : {"int" : 123, "decimal" : 123.123456789012, "string" : "hello"}}') """
     }
 
-    trigger_and_wait_compaction(tableName, "cumulative")
+    trigger_and_wait_compaction(tableName, "full")
 
+
+    sql """ set enable_match_without_inverted_index = false """
     qt_sql """ select variant_type(var) from ${tableName} order by id """
     qt_sql """select * from ${tableName} order by id"""
     qt_sql """ select count() from ${tableName} where cast(var['path']['int'] as int) = 789 """
@@ -73,8 +74,7 @@ suite("variant_predefine_index_doc_value", "p0"){
           `id` int NOT NULL,
           `overflow_properties` variant<
             MATCH_NAME 'color' : text,
-            MATCH_NAME 'tags' : array<string>,
-            properties("variant_max_subcolumns_count" = "10")
+            MATCH_NAME 'tags' : array<string>
           > NULL,
           INDEX idx1 (`overflow_properties`) USING INVERTED PROPERTIES( "field_pattern" = "color", "support_phrase" = "true", "parser" = "english", "lower_case" = "true"),
           INDEX idx2 (`overflow_properties`) USING INVERTED PROPERTIES( "field_pattern" = "tags")
@@ -106,7 +106,7 @@ suite("variant_predefine_index_doc_value", "p0"){
             (10, '{"color":"Yellow","description":"Shiny yellow circular badge","shape":"Wide Circle","tags":["shiny","plastic"]}');    
         """
     }
-    trigger_and_wait_compaction(tableName, "cumulative")
+    trigger_and_wait_compaction("objects", "full")
     sql "set enable_match_without_inverted_index = false"
     qt_sql "select count() from objects where (overflow_properties['color'] MATCH_PHRASE 'Blue')"    
     qt_sql "select count() from objects where (array_contains(cast(overflow_properties['tags'] as array<string>), 'plastic'))"   

@@ -57,13 +57,13 @@ suite("test_local_schema_change_storge_format", "p0") {
             }
         }
     }
-    sql """ set default_variant_doc_materialization_min_rows = 0 """
+
     def table_name = "github_events"
     sql """DROP TABLE IF EXISTS ${table_name}"""
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant,
+            v variant<PROPERTIES("variant_enable_doc_mode"="false")>,
             change_column double,
             INDEX idx_var(v) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         )

@@ -43,7 +43,7 @@ suite("test_variant_predefine_type_multi_index", "p0"){
     sql """ set profile_level = 2"""
     sql """ set inverted_index_skip_threshold = 0 """
     sql """ set enable_common_expr_pushdown = true """
-    sql """ set enable_match_without_inverted_index = false """
+    sql """ set enable_match_without_inverted_index = true """
     
     qt_sql """ select count() from ${tableName} where var['path']['string'] match 'hello' """
     qt_sql """ select count() from ${tableName} where var['path']['string'] = 'hello' """
@@ -54,7 +54,7 @@ suite("test_variant_predefine_type_multi_index", "p0"){
 
     trigger_and_wait_compaction(tableName, "cumulative", 1800)
 
-
+    sql """ set enable_match_without_inverted_index = false """
      qt_sql """ select count() from ${tableName} where var['path']['string'] match 'hello' """
     qt_sql """ select count() from ${tableName} where var['path']['string'] = 'hello' """
 

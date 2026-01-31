@@ -38,7 +38,7 @@ suite("test_variant_external_meta_integration", "nonConcurrent") {
     sql """
         CREATE TABLE test_inverted_index_extracted (
             k bigint,
-            v variant<'name':string, 'age':int, PROPERTIES ("variant_doc_materialization_min_rows" = "0")>,
+            v variant<'name':string, 'age':int, PROPERTIES ("variant_enable_doc_mode" = "false")>,
             INDEX idx_v (v) USING INVERTED PROPERTIES("parser" = "english")
         )
         DUPLICATE KEY(`k`)

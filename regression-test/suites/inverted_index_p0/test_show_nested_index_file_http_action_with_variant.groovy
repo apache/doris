@@ -67,7 +67,7 @@ suite("test_show_nested_index_file_http_action_with_variant", "nonConcurrent,p0"
             sql """
                 CREATE TABLE IF NOT EXISTS ${tableName} (
                     k bigint,
-                    v variant,
+                    v variant<PROPERTIES("variant_enable_doc_mode" = "false")>,
                     INDEX idx_var(v) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
                 )
                 DUPLICATE KEY(`k`)
