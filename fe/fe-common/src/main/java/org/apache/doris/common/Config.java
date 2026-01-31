@@ -3824,4 +3824,8 @@ public class Config extends ConfigBase {
                     + "by default"
     })
     public static boolean calc_delete_bitmap_get_versions_waiting_for_pending_txns = true;
+
+    @ConfField(mutable = true, description = {"是否允许获取hdfs的文件元数据信息时忽略隐藏目录",
+            "whether to enable list hdfs files ignore hidden directory"})
+    public static boolean enable_list_hdfs_files_ignore_hidden_directory = true;
 }
