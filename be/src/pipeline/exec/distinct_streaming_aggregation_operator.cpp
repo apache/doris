@@ -62,7 +62,7 @@ DistinctStreamingAggLocalState::DistinctStreamingAggLocalState(RuntimeState* sta
           batch_size(state->batch_size()),
           _agg_data(std::make_unique<DistinctDataVariants>()),
           _child_block(vectorized::Block::create_unique()),
-          _aggregated_block(vectorized::Block::create_unique()) {}
+          _block_acc(state->batch_size()) {}
 
 Status DistinctStreamingAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -166,12 +166,16 @@ Status DistinctStreamingAggLocalState::_init_hash_method(
 }
 
 Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
-        doris::vectorized::Block* in_block, doris::vectorized::Block* out_block) {
+        doris::vectorized::Block* in_block) {
     SCOPED_TIMER(_build_timer);
     DCHECK(!_probe_expr_ctxs.empty());
+    if (in_block->rows() == 0) {
+        return Status::OK();
+    }
 
     size_t key_size = _probe_expr_ctxs.size();
-    vectorized::ColumnRawPtrs key_columns(key_size);
+    vectorized::ColumnsWithTypeAndName key_columns(key_size);
+    vectorized::ColumnRawPtrs key_raw_columns(key_size);
     std::vector<int> result_idxs(key_size);
     {
         SCOPED_TIMER(_expr_timer);
@@ -181,8 +185,11 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
             in_block->get_by_position(result_column_id).column =
                     in_block->get_by_position(result_column_id)
                             .column->convert_to_full_column_if_const();
-            key_columns[i] = in_block->get_by_position(result_column_id).column.get();
-            key_columns[i]->assume_mutable()->replace_float_special_values();
+            key_columns[i].column = in_block->get_by_position(result_column_id).column;
+            key_columns[i].column->assume_mutable()->replace_float_special_values();
+            key_columns[i].type = _probe_expr_ctxs[i]->root()->data_type();
+            key_columns[i].name = _probe_expr_ctxs[i]->root()->expr_name();
+            key_raw_columns[i] = key_columns[i].column.get();
             result_idxs[i] = result_column_id;
         }
     }
@@ -199,73 +206,21 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
         // _emplace_into_hash_table_to_distinct will determine whether to continue inserting data into the hashmap
         // If it decides not to insert data, it will set _stop_emplace_flag = true and _distinct_row will be empty
         _distinct_row.reserve(rows);
-        _emplace_into_hash_table_to_distinct(_distinct_row, key_columns, rows);
+        _emplace_into_hash_table_to_distinct(_distinct_row, key_raw_columns, rows);
         DCHECK_LE(_distinct_row.size(), rows)
                 << "_distinct_row size should be less than or equal to rows";
     }
-
-    bool mem_reuse = _parent->cast<DistinctStreamingAggOperatorX>()._make_nullable_keys.empty() &&
-                     out_block->mem_reuse();
     SCOPED_TIMER(_insert_keys_to_column_timer);
-    if (mem_reuse) {
-        if (_stop_emplace_flag && !out_block->empty()) {
-            // when out_block row >= batch_size, push it to data_queue, so when _stop_emplace_flag = true, maybe have some data in block
-            // need output those data firstly
-            DCHECK(_distinct_row.empty());
-            _distinct_row.resize(rows);
-            std::iota(_distinct_row.begin(), _distinct_row.end(), 0);
-        }
-        DCHECK_EQ(out_block->columns(), key_size);
-        if (_stop_emplace_flag && _distinct_row.empty()) {
-            // If _stop_emplace_flag is true and _distinct_row is also empty, it means it is in streaming mode, outputting what is input
-            // swap the column directly, to solve Check failed: d.column->use_count() == 1 (2 vs. 1)
-            for (int i = 0; i < key_size; ++i) {
-                auto output_column = out_block->get_by_position(i).column;
-                out_block->replace_by_position(i, key_columns[i]->assume_mutable());
-                in_block->replace_by_position(result_idxs[i], output_column);
-            }
-        } else {
-            DCHECK_EQ(_cache_block.rows(), 0);
-            // is output row > batch_size, split some to cache_block
-            if (out_block->rows() + _distinct_row.size() > batch_size) {
-                size_t split_size = batch_size - out_block->rows();
-                for (int i = 0; i < key_size; ++i) {
-                    auto output_dst = out_block->get_by_position(i).column->assume_mutable();
-                    key_columns[i]->append_data_by_selector(output_dst, _distinct_row, 0,
-                                                            split_size);
-                    auto cache_dst = _cache_block.get_by_position(i).column->assume_mutable();
-                    key_columns[i]->append_data_by_selector(cache_dst, _distinct_row, split_size,
-                                                            _distinct_row.size());
-                }
-            } else {
-                for (int i = 0; i < key_size; ++i) {
-                    auto output_column = out_block->get_by_position(i).column;
-                    auto dst = output_column->assume_mutable();
-                    key_columns[i]->append_data_by_selector(dst, _distinct_row);
-                }
-            }
-        }
+
+    vectorized::Block key_block(key_columns);
+
+    in_block->clear();
+
+    if (_stop_emplace_flag) {
+        RETURN_IF_ERROR(_block_acc.push(std::move(key_block)));
+
     } else {
-        DCHECK(out_block->empty()) << "out_block must be empty , but rows is " << out_block->rows();
-        vectorized::ColumnsWithTypeAndName columns_with_schema;
-        for (int i = 0; i < key_size; ++i) {
-            if (_stop_emplace_flag) {
-                columns_with_schema.emplace_back(key_columns[i]->assume_mutable(),
-                                                 _probe_expr_ctxs[i]->root()->data_type(),
-                                                 _probe_expr_ctxs[i]->root()->expr_name());
-            } else {
-                auto distinct_column = key_columns[i]->clone_empty();
-                key_columns[i]->append_data_by_selector(distinct_column, _distinct_row);
-                columns_with_schema.emplace_back(std::move(distinct_column),
-                                                 _probe_expr_ctxs[i]->root()->data_type(),
-                                                 _probe_expr_ctxs[i]->root()->expr_name());
-            }
-        }
-        out_block->swap(vectorized::Block(columns_with_schema));
-        _cache_block = out_block->clone_empty();
-        if (_stop_emplace_flag) {
-            in_block->clear(); // clear the column ref with stop_emplace_flag = true
-        }
+        RETURN_IF_ERROR(_block_acc.push_with_selector(std::move(key_block), _distinct_row));
     }
     return Status::OK();
 }
@@ -377,18 +332,9 @@ Status DistinctStreamingAggOperatorX::push(RuntimeState* state, vectorized::Bloc
                                            bool eos) const {
     auto& local_state = get_local_state(state);
     local_state._input_num_rows += in_block->rows();
-    if (in_block->rows() == 0) {
-        return Status::OK();
-    }
-
-    RETURN_IF_ERROR(local_state._distinct_pre_agg_with_serialized_key(
-            in_block, local_state._aggregated_block.get()));
-    // set limit and reach limit
-    if (_limit != -1 &&
-        (local_state._num_rows_returned + local_state._aggregated_block->rows()) > _limit) {
-        auto limit_rows = _limit - local_state._num_rows_returned;
-        local_state._aggregated_block->set_num_rows(limit_rows);
-        local_state._reach_limit = true;
+    RETURN_IF_ERROR(local_state._distinct_pre_agg_with_serialized_key(in_block));
+    if (eos) {
+        local_state._block_acc.set_finish();
     }
     return Status::OK();
 }
@@ -396,12 +342,16 @@ Status DistinctStreamingAggOperatorX::push(RuntimeState* state, vectorized::Bloc
 Status DistinctStreamingAggOperatorX::pull(RuntimeState* state, vectorized::Block* block,
                                            bool* eos) const {
     auto& local_state = get_local_state(state);
-    if (!local_state._aggregated_block->empty()) {
-        block->swap(*local_state._aggregated_block);
-        local_state._aggregated_block->clear_column_data(block->columns());
-        // The cache block may have additional data due to exceeding the batch size.
-        if (!local_state._cache_block.empty()) {
-            local_state._swap_cache_block(local_state._aggregated_block.get());
+
+    if (auto block_ptr = local_state._block_acc.pull()) {
+        block->swap(*block_ptr);
+        // set limit if needed
+        ///TODO: This can be optimized by setting num_rows before push, which may reduce some unnecessary calculations, but this would make the code more complex
+        if (_limit != -1 && (local_state._num_rows_returned + block->rows()) > _limit) {
+            auto limit_rows = _limit - local_state._num_rows_returned;
+            block->set_num_rows(limit_rows);
+            local_state._reach_limit = true;
+            local_state._block_acc.set_finish();
         }
     }
 
@@ -411,20 +361,23 @@ Status DistinctStreamingAggOperatorX::pull(RuntimeState* state, vectorized::Bloc
         RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block, block->columns()));
     }
     local_state.add_num_rows_returned(block->rows());
-    // If the limit is not reached, it is important to ensure that _aggregated_block is empty
-    // because it may still contain data.
-    // However, if the limit is reached, there is no need to output data even if some exists.
-    *eos = (local_state._child_eos && local_state._aggregated_block->empty()) ||
-           (local_state._reach_limit);
+
+    // We have two stop flags
+    // One is that we got eos
+    // One is that we reached the limit
+    // Only when both flags are met, will it be a true eos (and both need to meet the _block_acc is_finished condition)
+    *eos = (local_state._child_eos && local_state._block_acc.is_finished()) ||
+           (local_state._reach_limit && local_state._block_acc.is_finished());
     return Status::OK();
 }
 
 bool DistinctStreamingAggOperatorX::need_more_input_data(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
-    const bool need_batch = local_state._stop_emplace_flag
-                                    ? local_state._aggregated_block->empty()
-                                    : local_state._aggregated_block->rows() < state->batch_size();
-    return need_batch && !(local_state._child_eos || local_state._reach_limit);
+    // Conditions for needing more input data are:
+    // 1. block_acc needs input data
+    // 2. Have not reached eos or limit
+    return local_state._block_acc.need_input() &&
+           !(local_state._child_eos || local_state._reach_limit);
 }
 
 Status DistinctStreamingAggLocalState::close(RuntimeState* state) {
@@ -447,18 +400,8 @@ Status DistinctStreamingAggLocalState::close(RuntimeState* state) {
     if (Base::_closed) {
         return Status::OK();
     }
-    _aggregated_block->clear();
-    // If the limit is reached, there may still be remaining data in the cache block.
-    // If the limit is not reached, the cache block must be empty.
-    // If the query is canceled, it might not satisfy the above conditions.
-    if (!state->is_cancelled()) {
-        if (!_reach_limit && !_cache_block.empty()) {
-            LOG_WARNING("If the limit is not reached, the cache block must be empty.");
-        }
-    }
-    _cache_block.clear();
-
     _arena.clear();
+    _block_acc.close();
     return Base::close(state);
 }
 

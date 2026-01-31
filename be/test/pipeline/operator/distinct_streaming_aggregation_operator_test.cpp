@@ -128,24 +128,18 @@ TEST_F(DistinctStreamingAggOperatorTest, test3) {
         auto block =
                 ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4});
         EXPECT_TRUE(op->push(state.get(), &block, false));
-        EXPECT_EQ(local_state->_cache_block.rows(), 0);
-        EXPECT_EQ(local_state->_aggregated_block->rows(), 4);
         EXPECT_TRUE(op->need_more_input_data(state.get()));
     }
 
     {
         auto block = ColumnHelper::create_block<DataTypeInt64>({5, 6, 7, 8});
         EXPECT_TRUE(op->push(state.get(), &block, false));
-        EXPECT_EQ(local_state->_cache_block.rows(), 0);
-        EXPECT_EQ(local_state->_aggregated_block->rows(), 8);
         EXPECT_TRUE(op->need_more_input_data(state.get()));
     }
 
     {
         auto block = ColumnHelper::create_block<DataTypeInt64>({9, 10, 11, 12});
         EXPECT_TRUE(op->push(state.get(), &block, false));
-        EXPECT_EQ(local_state->_cache_block.rows(), 2);
-        EXPECT_EQ(local_state->_aggregated_block->rows(), 10);
         EXPECT_FALSE(op->need_more_input_data(state.get()));
     }
 
@@ -154,33 +148,17 @@ TEST_F(DistinctStreamingAggOperatorTest, test3) {
         bool eos = false;
         EXPECT_TRUE(op->pull(state.get(), &block, &eos));
         EXPECT_FALSE(eos);
-        EXPECT_EQ(local_state->_cache_block.rows(), 0);
-        EXPECT_EQ(local_state->_aggregated_block->rows(), 2);
     }
     {
-        local_state->_stop_emplace_flag = true;
         auto block = ColumnHelper::create_block<DataTypeInt64>({13, 14, 15});
         EXPECT_TRUE(op->push(state.get(), &block, false));
-        EXPECT_EQ(local_state->_cache_block.rows(), 0);
-        EXPECT_EQ(local_state->_aggregated_block->rows(), 5);
-        EXPECT_FALSE(op->need_more_input_data(state.get()));
+        EXPECT_TRUE(op->need_more_input_data(state.get()));
     }
-    {
-        Block block;
-        bool eos = false;
-        EXPECT_TRUE(op->pull(state.get(), &block, &eos));
-        EXPECT_FALSE(eos);
-        EXPECT_EQ(block.rows(), 5);
-        EXPECT_EQ(local_state->_cache_block.rows(), 0);
-        EXPECT_EQ(local_state->_aggregated_block->rows(), 0);
-    }
+
     {
         EXPECT_TRUE(op->need_more_input_data(state.get()));
-        local_state->_stop_emplace_flag = true;
         auto block = ColumnHelper::create_block<DataTypeInt64>({13, 14, 15});
         EXPECT_TRUE(op->push(state.get(), &block, false));
-        EXPECT_EQ(local_state->_cache_block.rows(), 0);
-        EXPECT_EQ(local_state->_aggregated_block->rows(), 3);
         EXPECT_FALSE(op->need_more_input_data(state.get()));
     }
     {
@@ -188,11 +166,12 @@ TEST_F(DistinctStreamingAggOperatorTest, test3) {
         bool eos = false;
         EXPECT_TRUE(op->pull(state.get(), &block, &eos));
         EXPECT_FALSE(eos);
-        EXPECT_EQ(block.rows(), 3);
-        EXPECT_EQ(local_state->_cache_block.rows(), 0);
-        EXPECT_EQ(local_state->_aggregated_block->rows(), 0);
+        EXPECT_EQ(block.rows(), 7);
     }
-    { EXPECT_TRUE(op->close(state.get())); }
+    {
+        auto st = op->close(state.get());
+        EXPECT_TRUE(st);
+    }
 }
 
 } // namespace doris::pipeline
