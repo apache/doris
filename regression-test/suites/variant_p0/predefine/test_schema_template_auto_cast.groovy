@@ -21,6 +21,7 @@ suite("test_schema_template_auto_cast", "p0") {
     sql """ set enable_common_expr_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = false """
+    sql """ set enable_variant_schema_auto_cast = true """
 
     def tableName = "test_variant_schema_auto_cast"
 
@@ -60,11 +61,19 @@ suite("test_schema_template_auto_cast", "p0") {
     qt_topn """ SELECT id, data['num_a'] FROM ${tableName}
         ORDER BY data['num_a'] DESC LIMIT 2 """
 
-    // Test 4: SELECT with auto-cast (arithmetic operations)
+    // Test 4: SELECT with auto-cast (arithmetic operations) when enabled
+    sql """ set enable_variant_schema_auto_cast_in_select = true """
     qt_select_arithmetic """ SELECT id, data['num_a'] + data['num_b'] as sum_val
         FROM ${tableName} ORDER BY id """
+    sql """ set enable_variant_schema_auto_cast_in_select = false """
+    test {
+        sql """ SELECT id, data['num_a'] + data['num_b'] as sum_val
+            FROM ${tableName} ORDER BY id """
+        exception "Cannot cast from variant"
+    }
 
     // Test 5: GROUP BY with auto-cast
+    sql """ set enable_variant_schema_auto_cast_in_select = true """
     qt_group_by """ SELECT data['str_name'], SUM(data['num_a']) as total
         FROM ${tableName} GROUP BY data['str_name'] ORDER BY data['str_name'] """
 
@@ -74,6 +83,7 @@ suite("test_schema_template_auto_cast", "p0") {
         HAVING SUM(data['num_a']) > 20 ORDER BY data['str_name'] """
 
     // Test 7: ORDER BY with alias from project
+    sql """ set enable_variant_schema_auto_cast_in_select = false """
     qt_order_by_alias """ SELECT data['num_a'] AS num_a FROM ${tableName}
         ORDER BY num_a """
 
@@ -87,13 +97,23 @@ suite("test_schema_template_auto_cast", "p0") {
         GROUP BY num_a ORDER BY num_a """
 
     // Test 10: WINDOW partition/order by with auto-cast
+    sql """ set enable_variant_schema_auto_cast_in_select = true """
     qt_window_partition_order """ SELECT id,
         row_number() OVER (PARTITION BY data['str_name'] ORDER BY data['num_a']) AS rn
         FROM ${tableName} ORDER BY id """
+    sql """ set enable_variant_schema_auto_cast_in_select = false """
+
+    // Test 11: disable auto-cast should error in non-select clauses
+    sql """ set enable_variant_schema_auto_cast = false """
+    test {
+        sql """ SELECT id FROM ${tableName} ORDER BY data['num_a'] """
+        exception "Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function"
+    }
+    sql """ set enable_variant_schema_auto_cast = true """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 
-    // Test 11: JOIN ON with auto-cast
+    // Test 12: JOIN ON with auto-cast
     def leftTable = "test_variant_join_left"
     def rightTable = "test_variant_join_right"
 
@@ -127,7 +147,7 @@ suite("test_schema_template_auto_cast", "p0") {
         ON l.data['key_id'] = r.info['key_id']
         ORDER BY l.id """
 
-    // Test 12: JOIN ON with alias from subquery
+    // Test 13: JOIN ON with alias from subquery
     qt_join_on_alias_subquery """ SELECT l.id, r.name_val
         FROM (SELECT id, data['key_id'] AS key_id FROM ${leftTable}) l
         JOIN (SELECT id, info['key_id'] AS key_id, info['name_val'] AS name_val FROM ${rightTable}) r
@@ -137,7 +157,7 @@ suite("test_schema_template_auto_cast", "p0") {
     sql "DROP TABLE IF EXISTS ${leftTable}"
     sql "DROP TABLE IF EXISTS ${rightTable}"
 
-    // Test 13: MATCH_NAME and MATCH_NAME_GLOB
+    // Test 14: MATCH_NAME and MATCH_NAME_GLOB
     def exactTable = "test_variant_schema_auto_cast_exact"
     sql "DROP TABLE IF EXISTS ${exactTable}"
     sql """CREATE TABLE ${exactTable} (
