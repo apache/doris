@@ -54,6 +54,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
@@ -211,14 +212,57 @@ public class ExpressionUtils {
     }
 
     /**
-     *  AND / OR expression, also remove duplicate expression, boolean literal
+     * Rebuild expression tree and refresh BoundFunction signatures.
+     * If an expression is a BoundFunction, recreate it with rebuilt children and
+     * reset its signature.
+     * Other expressions are recreated only when children change.
+     *
+     * @return rebuilt expression (may be the same instance when unchanged and
+     *         non-BoundFunction)
+     */
+    public static Expression rebuildSignature(Expression expr) {
+        List<Expression> newChildren = expr.children().stream()
+                .map(ExpressionUtils::rebuildSignature)
+                .collect(Collectors.toList());
+        return MoreFieldsThread.keepFunctionSignature(false,
+                () -> {
+                    boolean childrenUnchanged = true;
+                    List<Expression> originChildren = expr.children();
+                    if (originChildren.size() != newChildren.size()) {
+                        childrenUnchanged = false;
+                    } else {
+                        for (int i = 0; i < originChildren.size(); i++) {
+                            if (originChildren.get(i) != newChildren.get(i)) {
+                                childrenUnchanged = false;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (expr instanceof BoundFunction) {
+                        BoundFunction fn = (BoundFunction) expr;
+                        BoundFunction rebuilt = (BoundFunction) fn.withChildren(newChildren);
+                        rebuilt = (BoundFunction) TypeCoercionUtils.processBoundFunction(rebuilt);
+                        return rebuilt;
+                    }
+
+                    if (childrenUnchanged) {
+                        return expr;
+                    }
+                    return expr.withChildren(newChildren);
+                });
+
+    }
+
+    /**
+     * AND / OR expression, also remove duplicate expression, boolean literal
      */
     public static Expression compound(boolean isAnd, Collection<Expression> expressions) {
         return isAnd ? and(expressions) : or(expressions);
     }
 
     /**
-     *  AND expression, also remove duplicate expression, boolean literal
+     * AND expression, also remove duplicate expression, boolean literal
      */
     public static Expression and(Collection<Expression> expressions) {
         if (expressions.size() == 1) {
@@ -244,7 +288,7 @@ public class ExpressionUtils {
     }
 
     /**
-     *  AND expression, also remove duplicate expression, boolean literal
+     * AND expression, also remove duplicate expression, boolean literal
      */
     public static Expression and(Expression... expressions) {
         return and(Lists.newArrayList(expressions));
@@ -259,14 +303,14 @@ public class ExpressionUtils {
     }
 
     /**
-     *  OR expression, also remove duplicate expression, boolean literal
+     * OR expression, also remove duplicate expression, boolean literal
      */
     public static Expression or(Expression... expressions) {
         return or(Lists.newArrayList(expressions));
     }
 
     /**
-     *  OR expression, also remove duplicate expression, boolean literal
+     * OR expression, also remove duplicate expression, boolean literal
      */
     public static Expression or(Collection<Expression> expressions) {
         if (expressions.size() == 1) {
@@ -676,10 +720,9 @@ public class ExpressionUtils {
          * the mark slot can be non-nullable boolean
          * and in semi join, we can safely change the mark conjunct to hash conjunct
          */
-        ImmutableList<Literal> literals =
-                ImmutableList.of(NullLiteral.BOOLEAN_INSTANCE, BooleanLiteral.FALSE);
-        List<MarkJoinSlotReference> markJoinSlotReferenceList =
-                new ArrayList<>((predicate.collect(MarkJoinSlotReference.class::isInstance)));
+        ImmutableList<Literal> literals = ImmutableList.of(NullLiteral.BOOLEAN_INSTANCE, BooleanLiteral.FALSE);
+        List<MarkJoinSlotReference> markJoinSlotReferenceList = new ArrayList<>(
+                (predicate.collect(MarkJoinSlotReference.class::isInstance)));
         int markSlotSize = markJoinSlotReferenceList.size();
         int maxMarkSlotCount = 4;
         // if the conjunct has mark slot, and maximum 4 mark slots(for performance)
@@ -688,9 +731,9 @@ public class ExpressionUtils {
             boolean meetTrue = false;
             boolean meetNullOrFalse = false;
             /*
-             * markSlotSize = 1 -> loopCount = 2  ---- 0, 1
-             * markSlotSize = 2 -> loopCount = 4  ---- 00, 01, 10, 11
-             * markSlotSize = 3 -> loopCount = 8  ---- 000, 001, 010, 011, 100, 101, 110, 111
+             * markSlotSize = 1 -> loopCount = 2 ---- 0, 1
+             * markSlotSize = 2 -> loopCount = 4 ---- 00, 01, 10, 11
+             * markSlotSize = 3 -> loopCount = 8 ---- 000, 001, 010, 011, 100, 101, 110, 111
              * markSlotSize = 4 -> loopCount = 16 ---- 0000, 0001, ... 1111
              */
             int loopCount = 1 << markSlotSize;
@@ -706,8 +749,7 @@ public class ExpressionUtils {
                 }
                 Expression evalResult = FoldConstantRule.evaluate(
                         ExpressionUtils.replace(predicate, replaceMap),
-                        ctx
-                );
+                        ctx);
 
                 if (evalResult.equals(BooleanLiteral.TRUE)) {
                     if (meetNullOrFalse) {
@@ -746,8 +788,7 @@ public class ExpressionUtils {
                 replaceMap.put(slot, nullLiteral);
                 Expression evalExpr = FoldConstantRule.evaluate(
                         ExpressionUtils.replace(predicate, replaceMap),
-                        new ExpressionRewriteContext(cascadesContext)
-                );
+                        new ExpressionRewriteContext(cascadesContext));
                 if (evalExpr.isNullLiteral() || BooleanLiteral.FALSE.equals(evalExpr)) {
                     notNullSlots.add(slot);
                 }
@@ -923,7 +964,7 @@ public class ExpressionUtils {
         return expression instanceof Slot;
     }
 
-    // if the input is unique,  the output of agg is unique, too
+    // if the input is unique, the output of agg is unique, too
     public static boolean isInjectiveAgg(Expression agg) {
         return agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min;
     }
@@ -941,7 +982,8 @@ public class ExpressionUtils {
     public static <E> List<E> collectAll(Collection<? extends Expression> expressions,
             Predicate<TreeNode<Expression>> predicate) {
         switch (expressions.size()) {
-            case 0: return ImmutableList.of();
+            case 0:
+                return ImmutableList.of();
             default: {
                 ImmutableList.Builder<E> result = ImmutableList.builder();
                 for (Expression expr : expressions) {
@@ -1050,14 +1092,13 @@ public class ExpressionUtils {
      */
     public static boolean checkSlotConstant(Slot slot, Set<Expression> predicates) {
         return predicates.stream().anyMatch(predicate -> {
-                    if (predicate instanceof EqualTo) {
-                        EqualTo equalTo = (EqualTo) predicate;
-                        return (equalTo.left() instanceof Literal && equalTo.right().equals(slot))
-                                || (equalTo.right() instanceof Literal && equalTo.left().equals(slot));
-                    }
-                    return false;
-                }
-        );
+            if (predicate instanceof EqualTo) {
+                EqualTo equalTo = (EqualTo) predicate;
+                return (equalTo.left() instanceof Literal && equalTo.right().equals(slot))
+                        || (equalTo.right() instanceof Literal && equalTo.left().equals(slot));
+            }
+            return false;
+        });
     }
 
     /**
@@ -1175,8 +1216,7 @@ public class ExpressionUtils {
         }
         ExpressionRewriteContext context = new ExpressionRewriteContext(cascadesContext);
         ExpressionRuleExecutor executor = new ExpressionRuleExecutor(ImmutableList.of(
-                ExpressionRewrite.bottomUp(ReplaceVariableByLiteral.INSTANCE)
-        ));
+                ExpressionRewrite.bottomUp(ReplaceVariableByLiteral.INSTANCE)));
         Expression rewrittenExpression = executor.rewrite(analyzedExpr, context);
         Expression foldExpression = FoldConstantRule.evaluate(rewrittenExpression, context);
         if (foldExpression instanceof Literal) {
@@ -1251,8 +1291,8 @@ public class ExpressionUtils {
     public static Optional<List<Expression>> getCaseWhenLikeBranchResults(Expression expression) {
         if (expression instanceof CaseWhen) {
             CaseWhen caseWhen = (CaseWhen) expression;
-            ImmutableList.Builder<Expression> builder
-                    = ImmutableList.builderWithExpectedSize(caseWhen.getWhenClauses().size() + 1);
+            ImmutableList.Builder<Expression> builder = ImmutableList
+                    .builderWithExpectedSize(caseWhen.getWhenClauses().size() + 1);
             for (WhenClause whenClause : caseWhen.getWhenClauses()) {
                 builder.add(whenClause.getResult());
             }
