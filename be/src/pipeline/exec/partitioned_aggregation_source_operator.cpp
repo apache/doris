@@ -25,6 +25,7 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "pipeline/exec/aggregation_source_operator.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/spill_utils.h"
 #include "pipeline/pipeline_task.h"
@@ -114,6 +115,25 @@ Status PartitionedAggSourceOperatorX::close(RuntimeState* state) {
 
 bool PartitionedAggSourceOperatorX::is_serial_operator() const {
     return _agg_source_operator->is_serial_operator();
+}
+
+void PartitionedAggSourceOperatorX::update_operator(const TPlanNode& tnode,
+                                                    bool followed_by_shuffled_operator,
+                                                    bool require_bucket_distribution) {
+    _agg_source_operator->update_operator(tnode, followed_by_shuffled_operator,
+                                          require_bucket_distribution);
+}
+
+DataDistribution PartitionedAggSourceOperatorX::required_data_distribution(
+        RuntimeState* state) const {
+    return _agg_source_operator->required_data_distribution(state);
+}
+
+bool PartitionedAggSourceOperatorX::is_colocated_operator() const {
+    return _agg_source_operator->is_colocated_operator();
+}
+bool PartitionedAggSourceOperatorX::is_shuffled_operator() const {
+    return _agg_source_operator->is_shuffled_operator();
 }
 
 Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,

@@ -93,17 +93,24 @@ class DistinctStreamingAggOperatorX final
         : public StatefulOperatorX<DistinctStreamingAggLocalState> {
 public:
     DistinctStreamingAggOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                  const DescriptorTbl& descs, bool require_bucket_distribution);
+                                  const DescriptorTbl& descs);
 #ifdef BE_TEST
     DistinctStreamingAggOperatorX()
             : _needs_finalize(false),
               _is_first_phase(true),
               _partition_exprs({}),
-              _is_colocate(false),
-              _require_bucket_distribution {false} {}
+              _is_colocate(false) {}
 #endif
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
+    void update_operator(const TPlanNode& tnode, bool followed_by_shuffled_operator,
+                         bool require_bucket_distribution) override {
+        _followed_by_shuffled_operator = followed_by_shuffled_operator;
+        _require_bucket_distribution = require_bucket_distribution;
+        _partition_exprs = tnode.__isset.distribute_expr_lists && _followed_by_shuffled_operator
+                                   ? tnode.distribute_expr_lists[0]
+                                   : tnode.agg_node.grouping_exprs;
+    }
     Status prepare(RuntimeState* state) override;
     Status pull(RuntimeState* state, vectorized::Block* block, bool* eos) const override;
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
@@ -114,14 +121,14 @@ public:
             return {ExchangeType::NOOP};
         }
         if (_needs_finalize || (!_probe_expr_ctxs.empty() && !_is_streaming_preagg)) {
-            return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
+            return _is_colocate && _require_bucket_distribution
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }
         return {ExchangeType::PASSTHROUGH};
     }
 
-    bool require_data_distribution() const override { return _is_colocate; }
+    bool is_colocated_operator() const override { return _is_colocate; }
 
 private:
     friend class DistinctStreamingAggLocalState;
@@ -130,9 +137,8 @@ private:
     TupleDescriptor* _output_tuple_desc = nullptr;
     const bool _needs_finalize;
     const bool _is_first_phase;
-    const std::vector<TExpr> _partition_exprs;
+    std::vector<TExpr> _partition_exprs;
     const bool _is_colocate;
-    const bool _require_bucket_distribution;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     std::vector<size_t> _make_nullable_keys;

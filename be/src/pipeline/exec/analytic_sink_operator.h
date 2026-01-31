@@ -180,7 +180,7 @@ private:
 class AnalyticSinkOperatorX final : public DataSinkOperatorX<AnalyticSinkLocalState> {
 public:
     AnalyticSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id, const TPlanNode& tnode,
-                          const DescriptorTbl& descs, bool require_bucket_distribution);
+                          const DescriptorTbl& descs);
 
 #ifdef BE_TEST
     AnalyticSinkOperatorX(ObjectPool* pool)
@@ -189,7 +189,6 @@ public:
               _output_tuple_id(0),
               _buffered_tuple_id(0),
               _is_colocate(false),
-              _require_bucket_distribution(false),
               _has_window(false),
               _has_range_window(false),
               _has_window_start(false),
@@ -202,6 +201,14 @@ public:
     }
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
+    void update_operator(const TPlanNode& tnode, bool followed_by_shuffled_operator,
+                         bool require_bucket_distribution) override {
+        _followed_by_shuffled_operator = followed_by_shuffled_operator;
+        _require_bucket_distribution = require_bucket_distribution;
+        _partition_exprs = tnode.__isset.distribute_expr_lists && _followed_by_shuffled_operator
+                                   ? tnode.distribute_expr_lists[0]
+                                   : tnode.analytic_node.partition_exprs;
+    }
 
     Status prepare(RuntimeState* state) override;
 
@@ -210,13 +217,14 @@ public:
         if (_partition_by_eq_expr_ctxs.empty()) {
             return {ExchangeType::PASSTHROUGH};
         } else {
-            return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
+            return _is_colocate && _require_bucket_distribution
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }
     }
 
-    bool require_data_distribution() const override { return true; }
+    bool is_colocated_operator() const override { return _is_colocate; }
+    bool is_shuffled_operator() const override { return !_partition_by_eq_expr_ctxs.empty(); }
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
@@ -243,8 +251,7 @@ private:
     const TTupleId _buffered_tuple_id;
 
     const bool _is_colocate;
-    const bool _require_bucket_distribution;
-    const std::vector<TExpr> _partition_exprs;
+    std::vector<TExpr> _partition_exprs;
 
     TAnalyticWindow _window;
     bool _has_window;
