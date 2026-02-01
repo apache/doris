@@ -303,7 +303,7 @@ jobs:
             echo "Catalog tests failed"
             exit 1
           }
-          echo "✅ Catalog tests passed"
+          echo "Catalog tests passed"
 
       - name: Run Metadata Tests
         if: matrix.test_suite == 'metadata'
@@ -335,7 +335,7 @@ jobs:
             echo "Metadata tests failed"
             exit 1
           }
-          echo "✅ Metadata tests passed"
+          echo "Metadata tests passed"
 
       - name: Collect service logs
         if: always()
@@ -392,9 +392,9 @@ jobs:
           EOF
 
           if [ "${{ needs.integration-tests.result }}" == "success" ]; then
-            echo "✅ All integration tests passed" >> test-summary.md
+            echo "All integration tests passed" >> test-summary.md
           else
-            echo "❌ Integration tests failed" >> test-summary.md
+            echo "Integration tests failed" >> test-summary.md
           fi
 
           echo "" >> test-summary.md
