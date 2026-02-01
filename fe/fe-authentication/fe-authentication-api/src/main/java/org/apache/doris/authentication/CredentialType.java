@@ -21,12 +21,12 @@ package org.apache.doris.authentication;
  * Credential type enumeration.
  */
 public enum CredentialType {
-    MYSQL_NATIVE_PASSWORD,   // MySQL 原生密码（scrambled）
-    CLEAR_TEXT_PASSWORD,     // 明文密码
-    KERBEROS_TOKEN,          // Kerberos 票据
+    MYSQL_NATIVE_PASSWORD,   // MySQL native password (scrambled)
+    CLEAR_TEXT_PASSWORD,     // Clear-text password
+    KERBEROS_TOKEN,          // Kerberos ticket
     OAUTH_TOKEN,             // OAuth/OIDC Access Token
     OIDC_ID_TOKEN,           // OIDC ID Token
-    X509_CERTIFICATE,        // X.509 客户端证书
+    X509_CERTIFICATE,        // X.509 client certificate
     JWT_TOKEN,               // JWT Token
-    SAML_ASSERTION           // SAML 断言
+    SAML_ASSERTION           // SAML assertion
 }

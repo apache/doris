@@ -21,10 +21,10 @@ package org.apache.doris.authentication;
  * Authentication plugin type enumeration.
  */
 public enum AuthenticationPluginType {
-    /** 内置密码认证（MySQL native password） */
+    /** Built-in password authentication (MySQL native password). */
     PASSWORD("password", false),
 
-    /** 明文密码认证 */
+    /** Clear-text password authentication. */
     CLEAR_PASSWORD("clear_password", true),
 
     /** LDAP / Active Directory */
@@ -36,10 +36,10 @@ public enum AuthenticationPluginType {
     /** Kerberos / GSSAPI */
     KERBEROS("kerberos", false),
 
-    /** X.509 证书认证（mTLS） */
+    /** X.509 certificate authentication (mTLS). */
     X509("x509", false),
 
-    /** JWT Token 认证 */
+    /** JWT token authentication. */
     JWT("jwt", false);
 
     private final String identifier;

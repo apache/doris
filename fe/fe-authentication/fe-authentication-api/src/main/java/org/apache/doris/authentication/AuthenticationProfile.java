@@ -36,8 +36,8 @@ import java.util.Objects;
  * <p>Design reference: Similar to Trino's authenticator configuration files,
  * where each authenticator is configured via a properties file with a unique name.
  *
- * <p>AuthenticationProfile 表示一套认证配置实例，
- * 概念上等同于 “Authenticator Configuration”。
+ * <p>AuthenticationProfile represents a single authentication configuration instance,
+ * conceptually equivalent to an "Authenticator Configuration".
  *
  * <p>Key concepts:
  * <ul>
