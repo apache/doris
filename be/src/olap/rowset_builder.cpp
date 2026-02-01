@@ -57,7 +57,6 @@
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "util/trace.h"
-#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 
 namespace doris {

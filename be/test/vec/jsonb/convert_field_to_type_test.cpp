@@ -43,10 +43,9 @@ protected:
 TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_Null) {
     JsonbWriter writer;
 
-    // Test null field using Field::dispatch pattern
+    // Test null field using dispatch pattern
     Field null_field;
-    Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
-                    null_field);
+    dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); }, null_field);
 
     auto* output = writer.getOutput();
     ASSERT_NE(output, nullptr);
@@ -66,11 +65,10 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_Null) {
 TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_Int64) {
     JsonbWriter writer;
 
-    // Test Int64 field using Field::dispatch pattern
+    // Test Int64 field using dispatch pattern
     Int64 test_value = 12345;
     Field int_field = Field::create_field<TYPE_BIGINT>(test_value);
-    Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
-                    int_field);
+    dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); }, int_field);
 
     auto* output = writer.getOutput();
     ASSERT_NE(output, nullptr);
@@ -91,11 +89,10 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_Int64) {
 TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_UInt64) {
     JsonbWriter writer;
 
-    // Test UInt64 field using Field::dispatch pattern
+    // Test UInt64 field using dispatch pattern
     UInt64 test_value = 12345;
     Field uint_field = Field::create_field<TYPE_BIGINT>(test_value);
-    Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
-                    uint_field);
+    dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); }, uint_field);
 
     auto* output = writer.getOutput();
     ASSERT_NE(output, nullptr);
@@ -116,11 +113,10 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_UInt64) {
 TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_Float64) {
     JsonbWriter writer;
 
-    // Test Float64 field using Field::dispatch pattern
+    // Test Float64 field using dispatch pattern
     Float64 test_value = 123.456;
     Field double_field = Field::create_field<TYPE_DOUBLE>(test_value);
-    Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
-                    double_field);
+    dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); }, double_field);
 
     auto* output = writer.getOutput();
     ASSERT_NE(output, nullptr);
@@ -141,11 +137,10 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_Float64) {
 TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_String) {
     JsonbWriter writer;
 
-    // Test String field using Field::dispatch pattern
+    // Test String field using dispatch pattern
     String test_value = "hello world";
     Field string_field = Field::create_field<TYPE_STRING>(test_value);
-    Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
-                    string_field);
+    dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); }, string_field);
 
     auto* output = writer.getOutput();
     ASSERT_NE(output, nullptr);
@@ -173,9 +168,9 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_JsonbField) {
     Field jsonb_field_obj =
             Field::create_field<TYPE_JSONB>(JsonbField(jsonb_value.value(), jsonb_value.size()));
 
-    // Test JsonbField using Field::dispatch pattern
-    Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
-                    jsonb_field_obj);
+    // Test JsonbField using dispatch pattern
+    dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
+             jsonb_field_obj);
 
     auto* output = writer.getOutput();
     ASSERT_NE(output, nullptr);
@@ -203,9 +198,8 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_Array) {
 
     Field array_obj = Field::create_field<TYPE_ARRAY>(array_field);
 
-    // Test Array using Field::dispatch pattern
-    Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
-                    array_obj);
+    // Test Array using dispatch pattern
+    dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); }, array_obj);
 
     auto* output = writer.getOutput();
     ASSERT_NE(output, nullptr);
@@ -237,9 +231,9 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_NestedArray) {
 
     Field nested_array_obj = Field::create_field<TYPE_ARRAY>(outer_array);
 
-    // Test nested Array using Field::dispatch pattern
-    Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
-                    nested_array_obj);
+    // Test nested Array using dispatch pattern
+    dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
+             nested_array_obj);
 
     auto* output = writer.getOutput();
     ASSERT_NE(output, nullptr);
@@ -260,11 +254,11 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_NestedArray) {
 TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_LargeInt) {
     JsonbWriter writer;
 
-    // Test Int128 field using Field::dispatch pattern
+    // Test Int128 field using dispatch pattern
     Int128 test_value = 1234567890123456789;
     Field largeint_field = Field::create_field<TYPE_LARGEINT>(test_value);
-    Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
-                    largeint_field);
+    dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
+             largeint_field);
 
     auto* output = writer.getOutput();
     ASSERT_NE(output, nullptr);
@@ -285,11 +279,11 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_LargeInt) {
 TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_UInt128) {
     JsonbWriter writer;
 
-    // Test UInt128 field using Field::dispatch pattern
+    // Test UInt128 field using dispatch pattern
     UInt128 test_value = 1234567890123456789;
     Field uint128_field = Field::create_field<TYPE_LARGEINT>(test_value);
-    Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
-                    uint128_field);
+    dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
+             uint128_field);
 
     auto* output = writer.getOutput();
     ASSERT_NE(output, nullptr);
@@ -322,7 +316,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ToJsonb) {
         ASSERT_EQ(result.get_type(), TYPE_JSONB);
         ASSERT_FALSE(result.is_null());
 
-        const JsonbField& jsonb_result = result.get<JsonbField>();
+        const JsonbField& jsonb_result = result.get<TYPE_JSONB>();
         ASSERT_NE(jsonb_result.get_value(), nullptr);
         ASSERT_GT(jsonb_result.get_size(), 0);
 
@@ -347,7 +341,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ToJsonb) {
         ASSERT_EQ(result.get_type(), TYPE_JSONB);
         ASSERT_FALSE(result.is_null());
 
-        const JsonbField& jsonb_result = result.get<JsonbField>();
+        const JsonbField& jsonb_result = result.get<TYPE_JSONB>();
         ASSERT_NE(jsonb_result.get_value(), nullptr);
         ASSERT_GT(jsonb_result.get_size(), 0);
 
@@ -378,7 +372,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ToJsonb) {
         ASSERT_EQ(result.get_type(), TYPE_JSONB);
         ASSERT_FALSE(result.is_null());
 
-        const JsonbField& jsonb_result = result.get<JsonbField>();
+        const JsonbField& jsonb_result = result.get<TYPE_JSONB>();
         ASSERT_NE(jsonb_result.get_value(), nullptr);
         ASSERT_GT(jsonb_result.get_size(), 0);
 
@@ -410,7 +404,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ToJsonb) {
         ASSERT_EQ(result.get_type(), TYPE_JSONB);
         ASSERT_FALSE(result.is_null());
 
-        const JsonbField& jsonb_result = result.get<JsonbField>();
+        const JsonbField& jsonb_result = result.get<TYPE_JSONB>();
         ASSERT_NE(jsonb_result.get_value(), nullptr);
         ASSERT_EQ(jsonb_result.get_size(), original_jsonb.get_size());
         ASSERT_EQ(memcmp(jsonb_result.get_value(), original_jsonb.get_value(),
@@ -445,7 +439,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ToNullableJsonb) {
         ASSERT_EQ(result.get_type(), TYPE_JSONB);
         ASSERT_FALSE(result.is_null());
 
-        const JsonbField& jsonb_result = result.get<JsonbField>();
+        const JsonbField& jsonb_result = result.get<TYPE_JSONB>();
         ASSERT_NE(jsonb_result.get_value(), nullptr);
         ASSERT_GT(jsonb_result.get_size(), 0);
 
@@ -480,7 +474,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ArrayToJsonb) {
     ASSERT_EQ(result.get_type(), TYPE_ARRAY);
     ASSERT_FALSE(result.is_null());
 
-    const Array& result_array = result.get<Array>();
+    const Array& result_array = result.get<TYPE_ARRAY>();
     ASSERT_EQ(result_array.size(), 3);
 
     // Verify each element is converted to JSONB
@@ -488,7 +482,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ArrayToJsonb) {
         ASSERT_EQ(result_array[i].get_type(), TYPE_JSONB);
         ASSERT_FALSE(result_array[i].is_null());
 
-        const auto& jsonb_element = result_array[i].get<JsonbField>();
+        const auto& jsonb_element = result_array[i].get<TYPE_JSONB>();
         ASSERT_NE(jsonb_element.get_value(), nullptr);
         ASSERT_GT(jsonb_element.get_size(), 0);
 

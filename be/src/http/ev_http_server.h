@@ -27,6 +27,7 @@
 #include "util/path_trie.hpp"
 
 struct event_base;
+struct evhttp;
 
 namespace doris {
 
@@ -74,8 +75,9 @@ private:
 
     int _server_fd = -1;
     std::unique_ptr<ThreadPool> _workers;
-    std::mutex _event_bases_lock; // protect _event_bases
+    std::mutex _event_bases_lock; // protect _event_bases and _evhttp_servers
     std::vector<std::shared_ptr<event_base>> _event_bases;
+    std::vector<std::shared_ptr<evhttp>> _evhttp_servers;
 
     std::mutex _handler_lock;
     PathTrie<HttpHandler*> _get_handlers;

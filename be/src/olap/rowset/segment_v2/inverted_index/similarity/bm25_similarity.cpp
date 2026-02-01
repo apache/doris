@@ -29,7 +29,7 @@ const int32_t BM25Similarity::NUM_FREE_VALUES = 255 - static_cast<int>(MAX_INT4)
 std::vector<float> BM25Similarity::LENGTH_TABLE = []() {
     std::vector<float> table(256);
     for (int32_t i = 0; i < 256; i++) {
-        table[i] = int_to_byte4(i);
+        table[i] = (float)byte4_to_int((uint8_t)i);
     }
     return table;
 }();

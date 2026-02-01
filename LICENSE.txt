@@ -202,6 +202,13 @@
 
 --------------------------------------------------------------------------------
 
+The following components are provided under the Apache License. See project link for details.
+The text of each license is the standard Apache 2.0 license.
+
+software.amazon.awssdk.core.client.builder.SdkDefaultClientBuilder from AWS SDK v2 (sdk-core 2.29.52)
+
+--------------------------------------------------------------------------------
+
 be/src/common/status.* : BSD-style license
 
   Copyright (c) 2011 The LevelDB Authors. All rights reserved.

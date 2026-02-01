@@ -43,6 +43,7 @@ BvarLatencyRecorderWithTag g_bvar_ms_begin_sub_txn("ms", "begin_sub_txn");
 BvarLatencyRecorderWithTag g_bvar_ms_abort_sub_txn("ms", "abort_sub_txn");
 BvarLatencyRecorderWithTag g_bvar_ms_check_txn_conflict("ms", "check_txn_conflict");
 BvarLatencyRecorderWithTag g_bvar_ms_abort_txn_with_coordinator("ms", "abort_txn_with_coordinator");
+BvarLatencyRecorderWithTag g_bvar_ms_get_prepare_txn_by_coordinator("ms", "get_prepare_txn_by_coordinator");
 BvarLatencyRecorderWithTag g_bvar_ms_clean_txn_label("ms", "clean_txn_label");
 BvarLatencyRecorderWithTag g_bvar_ms_get_version("ms", "get_version");
 BvarLatencyRecorderWithTag g_bvar_ms_batch_get_version("ms", "batch_get_version");
@@ -435,6 +436,8 @@ mBvarInt64Adder g_bvar_rpc_kv_abort_sub_txn_get_counter("rpc_kv_abort_sub_txn_ge
 mBvarInt64Adder g_bvar_rpc_kv_abort_sub_txn_put_counter("rpc_kv_abort_sub_txn_put_counter",{"instance_id"});
 // abort_txn_with_coordinator
 mBvarInt64Adder g_bvar_rpc_kv_abort_txn_with_coordinator_get_counter("rpc_kv_abort_txn_with_coordinator_get_counter",{"instance_id"});
+// get_prepare_txn_by_coordinator
+mBvarInt64Adder g_bvar_rpc_kv_get_prepare_txn_by_coordinator_get_counter("rpc_kv_get_prepare_txn_by_coordinator_get_counter",{"instance_id"});
 // check_txn_conflict
 mBvarInt64Adder g_bvar_rpc_kv_check_txn_conflict_get_counter("rpc_kv_check_txn_conflict_get_counter",{"instance_id"});
 // clean_txn_label
@@ -635,6 +638,8 @@ mBvarInt64Adder g_bvar_rpc_kv_abort_sub_txn_get_bytes("rpc_kv_abort_sub_txn_get_
 mBvarInt64Adder g_bvar_rpc_kv_abort_sub_txn_put_bytes("rpc_kv_abort_sub_txn_put_bytes",{"instance_id"});
 // abort_txn_with_coordinator
 mBvarInt64Adder g_bvar_rpc_kv_abort_txn_with_coordinator_get_bytes("rpc_kv_abort_txn_with_coordinator_get_bytes",{"instance_id"});
+// get_prepare_txn_by_coordinator
+mBvarInt64Adder g_bvar_rpc_kv_get_prepare_txn_by_coordinator_get_bytes("rpc_kv_get_prepare_txn_by_coordinator_get_bytes",{"instance_id"});
 // check_txn_conflict
 mBvarInt64Adder g_bvar_rpc_kv_check_txn_conflict_get_bytes("rpc_kv_check_txn_conflict_get_bytes",{"instance_id"});
 // clean_txn_label

@@ -20,7 +20,7 @@ import org.awaitility.Awaitility
 
 import static java.util.concurrent.TimeUnit.SECONDS
 
-suite("test_streaming_mysql_job_restart_fe", "docker,mysql,external_docker,external_docker_mysql") {
+suite("test_streaming_mysql_job_restart_fe", "docker,mysql,external_docker,external_docker_mysql,nondatalake") {
     def jobName = "test_streaming_mysql_job_restart_fe"
     def options = new ClusterOptions()
     options.setFeNum(1)

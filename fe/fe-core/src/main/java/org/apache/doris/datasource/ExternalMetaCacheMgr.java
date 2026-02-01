@@ -30,7 +30,6 @@ import org.apache.doris.datasource.hudi.source.HudiCachedFsViewProcessor;
 import org.apache.doris.datasource.hudi.source.HudiCachedMetaClientProcessor;
 import org.apache.doris.datasource.hudi.source.HudiMetadataCacheMgr;
 import org.apache.doris.datasource.hudi.source.HudiPartitionProcessor;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
 import org.apache.doris.datasource.maxcompute.MaxComputeMetadataCache;
 import org.apache.doris.datasource.maxcompute.MaxComputeMetadataCacheMgr;
@@ -203,7 +202,7 @@ public class ExternalMetaCacheMgr {
         return hudiMetadataCacheMgr;
     }
 
-    public IcebergMetadataCache getIcebergMetadataCache(IcebergExternalCatalog catalog) {
+    public IcebergMetadataCache getIcebergMetadataCache(ExternalCatalog catalog) {
         IcebergMetadataCache cache = icebergCacheMap.get(catalog.getId());
         if (cache == null) {
             synchronized (icebergCacheMap) {

@@ -41,11 +41,16 @@ public class FailureReason implements Writable {
 
     public FailureReason(String msg) {
         this.msg = msg;
-        if (StringUtils.isNotEmpty(msg) && msg.contains("Insert has filtered data in strict mode")) {
+        if (StringUtils.isNotEmpty(msg) && isTooManyFailureRowsErr(msg)) {
             this.code = InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR;
         } else {
             this.code = InternalErrorCode.INTERNAL_ERR;
         }
+    }
+
+    private static boolean isTooManyFailureRowsErr(String msg) {
+        return msg.contains("Insert has filtered data in strict mode")
+                || msg.contains("too many filtered rows");
     }
 
     public InternalErrorCode getCode() {

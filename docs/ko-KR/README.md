@@ -46,7 +46,7 @@ under the License.
     &nbsp;
     <a href="https://github.com/apache/doris/discussions"><img src="https://img.shields.io/badge/- Discussion -red?style=social&logo=discourse" height=25></a>
     &nbsp;
-    <a href="https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w" height=25></a>
+    <a href="https://doris.apache.org/slack" height=25></a>
     &nbsp;
     <a href="https://medium.com/@ApacheDoris"><img src="https://img.shields.io/badge/-Medium-red?style=social&logo=medium" height=25></a>
 
@@ -298,7 +298,7 @@ Doris는 Connector를 통해 Spark/Flink가 Doris에 저장된 데이터를 읽�
 
 * Apache Doris 공식 웹사이트 - [사이트](https://doris.apache.org)
 * 개발자 메일링 리스트 - <dev@doris.apache.org>. <dev-subscribe@doris.apache.org>로 메일을 보내고 답장을 따라 메일링 리스트를 구독하세요.
-* Slack 채널 - [Slack 참가](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w)
+* Slack 채널 - [Slack 참가](https://doris.apache.org/slack)
 * Twitter - [@doris_apache 팔로우](https://twitter.com/doris_apache)
 
 

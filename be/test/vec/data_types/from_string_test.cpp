@@ -186,7 +186,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
                 EXPECT_EQ(st.ok(), true);
                 // wrapper field to_string is only for debug
                 std::string wfs = wf->to_string();
-                EXPECT_EQ(wfs, std::get<2>(type_pair)[i]);
+                EXPECT_EQ(wfs, std::get<2>(type_pair)[i]) << int(type);
             }
 
             auto col = data_type_ptr->create_column();

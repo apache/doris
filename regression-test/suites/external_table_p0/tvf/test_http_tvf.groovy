@@ -158,6 +158,16 @@ suite("test_http_tvf", "p2") {
         exception """exceeds maximum allowed size (1000 bytes"""
     }
 
+    // non range and large than readBuffer(1MB)
+    qt_sql_norange """
+        SELECT count(1) FROM
+        HTTP(
+            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/tags/4.0.2-rc02/regression-test/data/datatype_p0/nested_types/query/test_nested_type_with_resize.csv",
+            "format" = "csv",
+            "http.enable.range.request"="false"
+        );
+    """
+
     qt_sql13 """
         select * from
         http(

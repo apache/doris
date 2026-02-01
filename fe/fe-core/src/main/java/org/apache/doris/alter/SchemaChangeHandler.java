@@ -726,6 +726,13 @@ public class SchemaChangeHandler extends AlterHandler {
         Column modColumn = modifyColumnOp.getColumn();
         boolean lightSchemaChange = false;
 
+        // Defensive guard: no type conversions to VARIANT are allowed today, but legacy metadata
+        // may still contain VARIANT columns with light_schema_change disabled.
+        if (modColumn.getType().isVariantType() && !olapTable.getEnableLightSchemaChange()) {
+            throw new DdlException("Variant type rely on light schema change, "
+                    + "please use light_schema_change = true.");
+        }
+
         if (KeysType.AGG_KEYS == olapTable.getKeysType()) {
             if (modColumn.isKey() && null != modColumn.getAggregationType()) {
                 throw new DdlException("Can not assign aggregation method on key column: " + modColumn.getName());
@@ -1115,6 +1122,10 @@ public class SchemaChangeHandler extends AlterHandler {
 
         if (newColumn.isAutoInc()) {
             throw new DdlException("Can not add auto-increment column " + newColumn.getName());
+        }
+        if (newColumn.getType().isVariantType() && !lightSchemaChange) {
+            throw new DdlException("Variant type rely on light schema change, "
+                    + "please use light_schema_change = true.");
         }
 
         // check the validation of aggregation method on column.

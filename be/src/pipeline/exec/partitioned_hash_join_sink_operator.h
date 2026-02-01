@@ -71,7 +71,14 @@ protected:
     Status _revoke_unpartitioned_block(RuntimeState* state,
                                        const std::shared_ptr<SpillContext>& spill_context);
 
+    Status _execute_spill_unpartitioned_block(RuntimeState* state, vectorized::Block&& build_block);
+
     Status _finish_spilling();
+
+    Status _finish_spilling_callback(RuntimeState* state, TUniqueId query_id,
+                                     const std::shared_ptr<SpillContext>& spill_context);
+
+    Status _execute_spill_partitioned_blocks(RuntimeState* state, TUniqueId query_id);
 
     Status _setup_internal_operator(RuntimeState* state);
 

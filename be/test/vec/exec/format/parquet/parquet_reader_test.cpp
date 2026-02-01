@@ -152,10 +152,8 @@ TEST_F(ParquetReaderTest, normal) {
     runtime_state.set_desc_tbl(desc_tbl);
 
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-    std::vector<std::shared_ptr<MutilColumnBlockPredicate>> or_predicates;
-    static_cast<void>(p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp,
-                                            or_predicates, nullptr, nullptr, nullptr, nullptr,
-                                            nullptr));
+    static_cast<void>(p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr,
+                                            nullptr, nullptr, nullptr, nullptr));
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
@@ -219,9 +217,8 @@ TEST_F(ParquetReaderTest, uuid_varbinary) {
     runtime_state.set_desc_tbl(desc_tbl);
 
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-    std::vector<std::shared_ptr<MutilColumnBlockPredicate>> or_predicates;
-    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, or_predicates,
-                               nullptr, nullptr, nullptr, nullptr, nullptr);
+    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
+                               nullptr, nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
@@ -294,9 +291,8 @@ TEST_F(ParquetReaderTest, varbinary_varbinary) {
     runtime_state.set_desc_tbl(desc_tbl);
 
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-    std::vector<std::shared_ptr<MutilColumnBlockPredicate>> or_predicates;
-    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, or_predicates,
-                               nullptr, nullptr, nullptr, nullptr, nullptr);
+    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
+                               nullptr, nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
@@ -371,9 +367,8 @@ TEST_F(ParquetReaderTest, varbinary_string) {
     runtime_state.set_desc_tbl(desc_tbl);
 
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-    std::vector<std::shared_ptr<MutilColumnBlockPredicate>> or_predicates;
-    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, or_predicates,
-                               nullptr, nullptr, nullptr, nullptr, nullptr);
+    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
+                               nullptr, nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
@@ -448,9 +443,8 @@ TEST_F(ParquetReaderTest, varbinary_string2) {
     runtime_state.set_desc_tbl(desc_tbl);
 
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-    std::vector<std::shared_ptr<MutilColumnBlockPredicate>> or_predicates;
-    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, or_predicates,
-                               nullptr, nullptr, nullptr, nullptr, nullptr);
+    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
+                               nullptr, nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;

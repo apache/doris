@@ -33,7 +33,7 @@ under the License.
 
 * 关注 Doris [GitHub 代码库](https://github.com/apache/doris)
 * 订阅我们的 [邮件列表](./docs/zh-CN/community/subscribe-mail-list.md)；
-* 加入 Doris 的 [Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-11jb8gesh-7IukzSrdea6mqoG0HB4gZg)
+* 加入 Doris 的 [Slack](https://doris.apache.org/slack)
 
 通过以上方式及时了解 Doris 项目的开发动态并为您关注的话题发表意见。
 

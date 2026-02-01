@@ -199,6 +199,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, "false");
         fileFormatProperties.enableMappingVarbinary = Boolean.parseBoolean(enableMappingVarbinaryStr);
 
+        // Parse enable_mapping_timestamp_tz property
+        String enableMappingTimestampTzStr = getOrDefaultAndRemove(copiedProps,
+                FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ, "false");
+        fileFormatProperties.enableMappingTimestampTz = Boolean.parseBoolean(enableMappingTimestampTzStr);
+
         fileFormatProperties.analyzeFileFormatProperties(copiedProps, true);
 
         if (fileFormatProperties instanceof CsvFileFormatProperties
@@ -394,7 +399,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             type = new VariantType(new ArrayList<>(), maxSubcolumns,
                     /*enableTypedPathsToSparse*/ false,
                     /*variantMaxSparseColumnStatisticsSize*/ 10000,
-                    /*variantSparseHashShardCount*/ 0);
+                    /*variantSparseHashShardCount*/ 0,
+                    /*variantEnableDocMode*/ false,
+                    /*variantDocMaterializationMinRows*/ 0,
+                    /*variantDocShardCount*/ 0);
             parsedNodes = 1;
         } else {
             type = ScalarType.createType(PrimitiveType.fromThrift(tPrimitiveType),
@@ -445,6 +453,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileScanRangeParams.setLoadId(ctx.queryId());
         // table function fetch schema, whether to enable mapping varbinary
         fileScanRangeParams.setEnableMappingVarbinary(fileFormatProperties.enableMappingVarbinary);
+        fileScanRangeParams.setEnableMappingTimestampTz(fileFormatProperties.enableMappingTimestampTz);
 
         if (getTFileType() == TFileType.FILE_STREAM) {
             fileStatuses.add(new TBrokerFileStatus("", false, -1, true));

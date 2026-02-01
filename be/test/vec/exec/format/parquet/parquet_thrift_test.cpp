@@ -80,7 +80,7 @@ TEST_F(ParquetThriftReaderTest, normal) {
 
     std::unique_ptr<FileMetaData> meta_data;
     size_t meta_size;
-    static_cast<void>(parse_thrift_footer(reader, &meta_data, &meta_size, nullptr, true));
+    static_cast<void>(parse_thrift_footer(reader, &meta_data, &meta_size, nullptr, true, true));
     tparquet::FileMetaData t_metadata = meta_data->to_thrift();
 
     LOG(WARNING) << "=====================================";
@@ -113,7 +113,7 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
 
     std::unique_ptr<FileMetaData> metadata;
     size_t meta_size;
-    static_cast<void>(parse_thrift_footer(reader, &metadata, &meta_size, nullptr, true));
+    static_cast<void>(parse_thrift_footer(reader, &metadata, &meta_size, nullptr, true, true));
     tparquet::FileMetaData t_metadata = metadata->to_thrift();
     FieldDescriptor schemaDescriptor;
     static_cast<void>(schemaDescriptor.parse_from_thrift(t_metadata.schema));
@@ -197,8 +197,9 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
 
     io::BufferedFileStreamReader stream_reader(file_reader, start_offset, chunk_size, 1024);
 
+    ParquetPageReadContext page_read_ctx;
     ColumnChunkReader<false, false> chunk_reader(&stream_reader, column_chunk, field_schema,
-                                                 nullptr, total_rows, nullptr);
+                                                 nullptr, total_rows, nullptr, page_read_ctx);
     // initialize chunk reader
     static_cast<void>(chunk_reader.init());
     // seek to next page header
@@ -401,7 +402,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
 
     std::unique_ptr<FileMetaData> metadata;
     size_t meta_size;
-    static_cast<void>(parse_thrift_footer(reader, &metadata, &meta_size, nullptr, true));
+    static_cast<void>(parse_thrift_footer(reader, &metadata, &meta_size, nullptr, true, true));
     tparquet::FileMetaData t_metadata = metadata->to_thrift();
     FieldDescriptor schema_descriptor;
     static_cast<void>(schema_descriptor.parse_from_thrift(t_metadata.schema));

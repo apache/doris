@@ -160,15 +160,9 @@ Status DataTypeDecimalSerDe<T>::serialize_one_cell_to_json(const IColumn& column
     row_num = result.second;
 
     auto& col = assert_cast<const ColumnDecimal<T>&>(*ptr);
-    if constexpr (T != TYPE_DECIMALV2) {
-        FieldType value = col.get_element(row_num);
-        auto decimal_str = value.to_string(scale);
-        bw.write(decimal_str.data(), decimal_str.size());
-    } else {
-        char buf[FieldType::max_string_length()];
-        auto length = col.get_element(row_num).to_string(buf, scale, scale_multiplier);
-        bw.write(buf, length);
-    }
+    FieldType value = col.get_element(row_num);
+    auto decimal_str = value.to_string(scale);
+    bw.write(decimal_str.data(), decimal_str.size());
     return Status::OK();
 }
 
@@ -396,14 +390,19 @@ Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
                                                 orc::Decimal64VectorBatch>*>(orc_col_batch);
         for (size_t row_id = start; row_id < end; row_id++) {
             if (cur_batch->notNull[row_id] == 1) {
-                const auto& int_value = col_data[row_id].value;
-                if constexpr (use_int128) {
+                const auto& int_value = col_data[row_id];
+                if constexpr (T == TYPE_DECIMALV2) {
                     // orc::Int128 only support construct from two int64_t values
                     // so we need to split the int128 value into two int64_t values
-                    orc::Int128 value(int_value >> 64, (uint64_t)int_value);
+                    orc::Int128 value(int_value.value() >> 64, (uint64_t)int_value.value());
+                    cur_batch->values[row_id] = value;
+                } else if constexpr (use_int128) {
+                    // orc::Int128 only support construct from two int64_t values
+                    // so we need to split the int128 value into two int64_t values
+                    orc::Int128 value(int_value.value >> 64, (uint64_t)int_value.value);
                     cur_batch->values[row_id] = value;
                 } else {
-                    cur_batch->values[row_id] = int_value;
+                    cur_batch->values[row_id] = int_value.value;
                 }
             }
         }
@@ -598,7 +597,7 @@ void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
                                                        const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnDecimal<T>&>(column);
     if constexpr (T == TYPE_DECIMALV2) {
-        col.insert_value(arg->unpack<JsonbInt128Val>()->val());
+        col.insert_value(DecimalV2Value(arg->unpack<JsonbInt128Val>()->val()));
     } else if constexpr (T == TYPE_DECIMAL128I) {
         col.insert_value(arg->unpack<JsonbInt128Val>()->val());
     } else if constexpr (T == TYPE_DECIMAL32) {

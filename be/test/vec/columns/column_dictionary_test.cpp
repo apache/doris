@@ -222,7 +222,7 @@ TEST_F(ColumnDictionaryTest, field) {
     for (size_t i = 0; i != count; ++i) {
         Field f;
         column_dict_char->get(i, f);
-        EXPECT_EQ(f.get<int32_t>(), codes_data[i]);
+        EXPECT_EQ(f.get<TYPE_INT>(), codes_data[i]);
     }
 }
 TEST_F(ColumnDictionaryTest, serialize_value_into_arena) {

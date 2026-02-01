@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 
 #include "common/status.h"
@@ -68,7 +69,6 @@ public:
 
     virtual int64_t limit_per_scanner() = 0;
 
-    virtual Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) = 0;
     virtual void set_scan_ranges(RuntimeState* state,
                                  const std::vector<TScanRangeParams>& scan_ranges) = 0;
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
@@ -87,6 +87,10 @@ public:
     [[nodiscard]] std::string get_name() { return _parent->get_name(); }
 
     uint64_t get_condition_cache_digest() const { return _condition_cache_digest; }
+
+    Status update_late_arrival_runtime_filter(RuntimeState* state, int& arrived_rf_num);
+
+    Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& scanner_conjuncts);
 
 protected:
     friend class vectorized::ScannerContext;
@@ -121,8 +125,8 @@ protected:
     RuntimeProfile::Counter* _scan_rows = nullptr;
     RuntimeProfile::Counter* _scan_bytes = nullptr;
 
+    std::mutex _conjuncts_lock;
     RuntimeFilterConsumerHelper _helper;
-    std::mutex _conjunct_lock;
     // magic number as seed to generate hash value for condition cache
     uint64_t _condition_cache_digest = 0;
 };
@@ -152,7 +156,6 @@ class ScanLocalState : public ScanLocalStateBase {
 
     int64_t limit_per_scanner() override;
 
-    Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) override;
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override {}
 
@@ -218,10 +221,6 @@ protected:
     virtual PushDownType _should_push_down_in_predicate() const {
         return PushDownType::UNACCEPTABLE;
     }
-    virtual PushDownType _should_push_down_or_predicate(
-            const vectorized::VExprContext* expr_ctx) const {
-        return PushDownType::UNACCEPTABLE;
-    }
     virtual PushDownType _should_push_down_binary_predicate(
             vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
             StringRef* constant_val, const std::set<std::string> fn_name) const {
@@ -250,57 +249,48 @@ protected:
     // Normalize a conjunct and try to convert it to column predicate recursively.
     Status _normalize_predicate(vectorized::VExprContext* context,
                                 const vectorized::VExprSPtr& root,
-                                vectorized::VExprSPtr& output_expr,
-                                MutilColumnBlockPredicate* parent);
+                                vectorized::VExprSPtr& output_expr);
+    bool _is_predicate_acting_on_slot(const vectorized::VExprSPtrs& children,
+                                      SlotDescriptor** slot_desc, ColumnValueRangeType** range);
     Status _eval_const_conjuncts(vectorized::VExprContext* expr_ctx, PushDownType* pdt);
 
-    Status _normalize_bloom_filter(vectorized::VExprContext* expr_ctx, vectorized::VExprSPtr& root,
-                                   SlotDescriptor* slot,
+    template <PrimitiveType T>
+    Status _normalize_in_predicate(vectorized::VExprContext* expr_ctx,
+                                   const vectorized::VExprSPtr& root, SlotDescriptor* slot,
                                    std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
-                                   PushDownType* pdt, MutilColumnBlockPredicate* parent);
-    Status _normalize_topn_filter(vectorized::VExprContext* expr_ctx, vectorized::VExprSPtr& root,
-                                  SlotDescriptor* slot,
+                                   ColumnValueRange<T>& range, PushDownType* pdt);
+    template <PrimitiveType T>
+    Status _normalize_binary_predicate(vectorized::VExprContext* expr_ctx,
+                                       const vectorized::VExprSPtr& root, SlotDescriptor* slot,
+                                       std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
+                                       ColumnValueRange<T>& range, PushDownType* pdt);
+    Status _normalize_bloom_filter(vectorized::VExprContext* expr_ctx,
+                                   const vectorized::VExprSPtr& root, SlotDescriptor* slot,
+                                   std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
+                                   PushDownType* pdt);
+    Status _normalize_topn_filter(vectorized::VExprContext* expr_ctx,
+                                  const vectorized::VExprSPtr& root, SlotDescriptor* slot,
                                   std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
-                                  PushDownType* pdt, MutilColumnBlockPredicate* parent);
+                                  PushDownType* pdt);
 
-    Status _normalize_bitmap_filter(vectorized::VExprContext* expr_ctx, vectorized::VExprSPtr& root,
-                                    SlotDescriptor* slot,
+    Status _normalize_bitmap_filter(vectorized::VExprContext* expr_ctx,
+                                    const vectorized::VExprSPtr& root, SlotDescriptor* slot,
                                     std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
-                                    PushDownType* pdt, MutilColumnBlockPredicate* parent);
+                                    PushDownType* pdt);
 
     Status _normalize_function_filters(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
                                        PushDownType* pdt);
 
-    bool _is_predicate_acting_on_slot(const vectorized::VExprSPtrs& children,
-                                      SlotDescriptor** slot_desc, ColumnValueRangeType** range);
-
-    template <PrimitiveType T>
-    Status _normalize_in_and_eq_predicate(vectorized::VExprContext* expr_ctx,
-                                          vectorized::VExprSPtr& root, SlotDescriptor* slot,
-                                          std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
-                                          ColumnValueRange<T>& range, PushDownType* pdt,
-                                          MutilColumnBlockPredicate* parent);
-    template <PrimitiveType T>
-    Status _normalize_not_in_and_not_eq_predicate(
-            vectorized::VExprContext* expr_ctx, vectorized::VExprSPtr& root, SlotDescriptor* slot,
-            std::vector<std::shared_ptr<ColumnPredicate>>& predicates, ColumnValueRange<T>& range,
-            PushDownType* pdt, MutilColumnBlockPredicate* parent);
-
-    template <PrimitiveType T>
-    Status _normalize_noneq_binary_predicate(
-            vectorized::VExprContext* expr_ctx, vectorized::VExprSPtr& root, SlotDescriptor* slot,
-            std::vector<std::shared_ptr<ColumnPredicate>>& predicates, ColumnValueRange<T>& range,
-            PushDownType* pdt, MutilColumnBlockPredicate* parent);
     template <PrimitiveType T>
     Status _normalize_is_null_predicate(vectorized::VExprContext* expr_ctx,
-                                        vectorized::VExprSPtr& root, SlotDescriptor* slot,
+                                        const vectorized::VExprSPtr& root, SlotDescriptor* slot,
                                         std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
-                                        ColumnValueRange<T>& range, PushDownType* pdt,
-                                        MutilColumnBlockPredicate* parent);
+                                        ColumnValueRange<T>& range, PushDownType* pdt);
 
-    template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
-    Status _change_value_range(ColumnValueRange<PrimitiveType>& range, const void* value,
-                               const ChangeFixedValueRangeFunc& func, const std::string& fn_name);
+    template <PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
+    Status _change_value_range(bool is_equal_op, ColumnValueRange<PrimitiveType>& range,
+                               const void* value, const ChangeFixedValueRangeFunc& func,
+                               const std::string& fn_name);
 
     Status _prepare_scanners();
 
@@ -318,12 +308,13 @@ protected:
 
     Status _get_topn_filters(RuntimeState* state);
 
-    // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
-    // so that it will be destroyed uniformly at the end of the query.
+    // Stores conjuncts that have been fully pushed down to the storage layer as predicate columns.
+    // These expr contexts are kept alive to prevent their FunctionContext and constant strings
+    // from being freed prematurely.
     vectorized::VExprContextSPtrs _stale_expr_ctxs;
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
 
-    std::shared_ptr<vectorized::ScannerContext> _scanner_ctx = nullptr;
+    atomic_shared_ptr<vectorized::ScannerContext> _scanner_ctx;
 
     // Save all function predicates which may be pushed down to data source.
     std::vector<FunctionFilter> _push_down_functions;
@@ -387,8 +378,8 @@ public:
     void set_low_memory_mode(RuntimeState* state) override {
         auto& local_state = get_local_state(state);
 
-        if (local_state._scanner_ctx) {
-            local_state._scanner_ctx->clear_free_blocks();
+        if (auto ctx = local_state._scanner_ctx.load()) {
+            ctx->clear_free_blocks();
         }
     }
 
@@ -428,9 +419,6 @@ protected:
     // single scanner to avoid too many scanners which will cause lots of useless read.
     bool _should_run_serial = false;
 
-    // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
-    // so that it will be destroyed uniformly at the end of the query.
-    vectorized::VExprContextSPtrs _stale_expr_ctxs;
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
 
     // If sort info is set, push limit to each scanner;

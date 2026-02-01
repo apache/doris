@@ -232,8 +232,9 @@ private:
     friend class PointQueryExecutor;
     LookupConnectionCache(size_t capacity)
             : LRUCachePolicy(CachePolicy::CacheType::LOOKUP_CONNECTION_CACHE, capacity,
-                             LRUCacheType::NUMBER,
-                             config::tablet_lookup_cache_stale_sweep_time_sec) {}
+                             LRUCacheType::NUMBER, config::tablet_lookup_cache_stale_sweep_time_sec,
+                             /*num shards*/ 32, /*element count capacity */ 0,
+                             /*enable prune*/ true, /*is lru-k*/ true) {}
 
     static std::string encode_key(__int128_t cache_id) {
         fmt::memory_buffer buffer;

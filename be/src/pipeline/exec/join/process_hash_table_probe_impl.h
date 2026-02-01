@@ -114,8 +114,8 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(vectorized::Mut
             _build_column_has_null[i] = false;
             if (_right_output_slot_flags[i] && column.is_nullable()) {
                 const auto& nullable = assert_cast<const vectorized::ColumnNullable&>(column);
-                _build_column_has_null[i] = !simd::contain_byte(
-                        nullable.get_null_map_data().data() + 1, nullable.size() - 1, 1);
+                _build_column_has_null[i] = !simd::contain_one(
+                        nullable.get_null_map_data().data() + 1, nullable.size() - 1);
             }
         }
     }
@@ -192,7 +192,9 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
         hash_table_ctx.arena.clear();
         // In order to make the null keys equal when using single null eq, all null keys need to be set to default value.
         if (_parent->_probe_columns.size() == 1 && null_map) {
-            _parent->_probe_columns[0]->assume_mutable()->replace_column_null_data(null_map);
+            if (simd::contain_one(null_map, probe_rows)) {
+                _parent->_probe_columns[0]->assume_mutable()->replace_column_null_data(null_map);
+            }
         }
 
         hash_table_ctx.init_serialized_keys(_parent->_probe_columns, probe_rows, null_map, true,
@@ -366,8 +368,7 @@ Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(
         }
         const auto& column_filter =
                 assert_cast<const vectorized::ColumnUInt8*>(filter_ptr.get())->get_data();
-        bool need_filter =
-                simd::count_zero_num((int8_t*)column_filter.data(), column_filter.size()) != 0;
+        bool need_filter = simd::contain_zero(column_filter.data(), column_filter.size());
         if (need_filter) {
             row_indexs.filter(column_filter);
         }

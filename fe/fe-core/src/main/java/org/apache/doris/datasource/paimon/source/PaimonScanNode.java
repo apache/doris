@@ -205,7 +205,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             TableSchema tableSchema = Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache()
                     .getPaimonSchemaCacheValue(table.getOrBuildNameMapping(), schemaId).getTableSchema();
             params.addToHistorySchemaInfo(
-                    PaimonUtil.getSchemaInfo(tableSchema, source.getCatalog().getEnableMappingVarbinary()));
+                    PaimonUtil.getSchemaInfo(tableSchema, source.getCatalog().getEnableMappingVarbinary(),
+                            source.getCatalog().getEnableMappingTimestampTz()));
         }
     }
 
@@ -412,6 +413,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
         long result = sessionVariable.getMaxInitialSplitSize();
         long totalFileSize = 0;
+        boolean exceedInitialThreshold = false;
         for (DataSplit dataSplit : dataSplits) {
             Optional<List<RawFile>> rawFiles = dataSplit.convertToRawFiles();
             if (!supportNativeReader(rawFiles)) {
@@ -419,13 +421,14 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
             for (RawFile rawFile : rawFiles.get()) {
                 totalFileSize += rawFile.fileSize();
-                if (totalFileSize
+                if (!exceedInitialThreshold && totalFileSize
                         >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
-                    result = sessionVariable.getMaxSplitSize();
-                    break;
+                    exceedInitialThreshold = true;
                 }
             }
         }
+        result = exceedInitialThreshold ? sessionVariable.getMaxSplitSize() : result;
+        result = applyMaxFileSplitNumLimit(result, totalFileSize);
         return result;
     }
 

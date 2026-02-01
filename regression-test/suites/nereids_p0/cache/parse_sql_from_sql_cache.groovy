@@ -98,6 +98,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_nereids_planner=true"
                         sql "set enable_fallback_to_original_planner=false"
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache"
 
@@ -118,6 +119,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_nereids_planner=true"
                         sql "set enable_fallback_to_original_planner=false"
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache2"
                         sql "select * from test_use_plan_cache2"
@@ -144,6 +146,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_nereids_planner=true"
                         sql "set enable_fallback_to_original_planner=false"
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from ${tb_name}"
                         sql "select * from ${tb_name}"
@@ -174,6 +177,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_nereids_planner=true"
                         sql "set enable_fallback_to_original_planner=false"
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache3"
                         sql "select * from test_use_plan_cache3"
@@ -203,6 +207,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_nereids_planner=true"
                         sql "set enable_fallback_to_original_planner=false"
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache4"
                         sql "select * from test_use_plan_cache4"
@@ -223,6 +228,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_nereids_planner=true"
                         sql "set enable_fallback_to_original_planner=false"
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache5"
                         sql "select * from test_use_plan_cache5"
@@ -249,6 +255,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_nereids_planner=true"
                         sql "set enable_fallback_to_original_planner=false"
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache6"
                         sql "select * from test_use_plan_cache6"
@@ -270,6 +277,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_nereids_planner=true"
                         sql "set enable_fallback_to_original_planner=false"
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache7"
                         sql "select * from test_use_plan_cache7"
@@ -291,6 +299,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_nereids_planner=true"
                         sql "set enable_fallback_to_original_planner=false"
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache8"
                         sql "select * from test_use_plan_cache8"
@@ -318,6 +327,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_nereids_planner=true"
                         sql "set enable_fallback_to_original_planner=false"
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache9_view"
                         sql "select * from test_use_plan_cache9_view"
@@ -341,6 +351,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_nereids_planner=true"
                         sql "set enable_fallback_to_original_planner=false"
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache10_view"
                         sql "select * from test_use_plan_cache10_view"
@@ -367,6 +378,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_nereids_planner=true"
                         sql "set enable_fallback_to_original_planner=false"
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache11_view"
                         sql "select * from test_use_plan_cache11_view"
@@ -399,6 +411,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_nereids_planner=true"
                         sql "set enable_fallback_to_original_planner=false"
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache12"
                         sql "select * from test_use_plan_cache12"
@@ -412,6 +425,7 @@ suite("parse_sql_from_sql_cache") {
                                 sql "set enable_nereids_planner=true"
                                 sql "set enable_fallback_to_original_planner=false"
                                 sql "set enable_sql_cache=true"
+                                sql "set enable_strong_consistency_read=true"
 
                                 assertNoCache "select * from test_use_plan_cache12"
                             }
@@ -450,6 +464,7 @@ suite("parse_sql_from_sql_cache") {
                                 sql "set enable_nereids_planner=true"
                                 sql "set enable_fallback_to_original_planner=false"
                                 sql "set enable_sql_cache=true"
+                                sql "set enable_strong_consistency_read=true"
 
                                 assertNoCache "select * from test_use_plan_cache13"
                                 sql "select * from test_use_plan_cache13"
@@ -472,6 +487,7 @@ suite("parse_sql_from_sql_cache") {
                                 sql "set enable_nereids_planner=true"
                                 sql "set enable_fallback_to_original_planner=false"
                                 sql "set enable_sql_cache=true"
+                                sql "set enable_strong_consistency_read=true"
 
                                 assertNoCache "select * from test_use_plan_cache13"
                             }
@@ -515,6 +531,7 @@ suite("parse_sql_from_sql_cache") {
                                 sql "set enable_nereids_planner=true"
                                 sql "set enable_fallback_to_original_planner=false"
                                 sql "set enable_sql_cache=true"
+                                sql "set enable_strong_consistency_read=true"
 
                                 assertNoCache "select * from test_use_plan_cache14"
                                 sql "select * from test_use_plan_cache14"
@@ -536,6 +553,7 @@ suite("parse_sql_from_sql_cache") {
                                 sql "set enable_nereids_planner=true"
                                 sql "set enable_fallback_to_original_planner=false"
                                 sql "set enable_sql_cache=true"
+                                sql "set enable_strong_consistency_read=true"
 
                                 assertNoCache "select * from test_use_plan_cache14"
                             }
@@ -570,6 +588,7 @@ suite("parse_sql_from_sql_cache") {
                                 sql "set enable_nereids_planner=true"
                                 sql "set enable_fallback_to_original_planner=false"
                                 sql "set enable_sql_cache=true"
+                                sql "set enable_strong_consistency_read=true"
 
                                 assertNoCache "select * from test_use_plan_cache15"
                                 sql "select * from test_use_plan_cache15"
@@ -587,6 +606,7 @@ suite("parse_sql_from_sql_cache") {
                                 sql "set enable_nereids_planner=true"
                                 sql "set enable_fallback_to_original_planner=false"
                                 sql "set enable_sql_cache=true"
+                                sql "set enable_strong_consistency_read=true"
 
                                 test {
                                     sql ("select * from ${dbName}.test_use_plan_cache15")
@@ -606,6 +626,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_nereids_planner=true"
                         sql "set enable_fallback_to_original_planner=false"
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select random() from test_use_plan_cache16"
                         // create sql cache
@@ -634,6 +655,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_nereids_planner=true"
                         sql "set enable_fallback_to_original_planner=false"
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         sql "set @custom_variable=10"
                         assertNoCache "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
@@ -756,6 +778,7 @@ suite("parse_sql_from_sql_cache") {
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
+                            sql "set enable_strong_consistency_read=true"
 
                             assertNoCache "select * from test_use_plan_cache18"
                             sql "select * from test_use_plan_cache18"
@@ -769,6 +792,7 @@ suite("parse_sql_from_sql_cache") {
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
+                            sql "set enable_strong_consistency_read=true"
 
                             assertNoCache "select * from test_use_plan_cache18"
                             sql "select * from test_use_plan_cache18"
@@ -786,6 +810,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_nereids_planner=true"
                         sql "set enable_fallback_to_original_planner=false"
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         sql "set dry_run_query=true"
                         assertNoCache "select * from test_use_plan_cache19 order by 1, 2"
@@ -818,6 +843,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_nereids_planner=true"
                         sql "set enable_fallback_to_original_planner=false"
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         int randomInt = (int) (Math.random() * 2000000000)
 
@@ -867,6 +893,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_nereids_planner=true"
                         sql "set enable_fallback_to_original_planner=false"
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache21"
                         def result1 = sql "select * from test_use_plan_cache21"
@@ -889,6 +916,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_nereids_planner=true"
                         sql "set enable_fallback_to_original_planner=false"
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select /*+SET_VAR(disable_nereids_rules='')*/ /*comment2*/ * from test_use_plan_cache22 order by 1, 2"
                         sql "select /*+SET_VAR(disable_nereids_rules='')*/ /*comment1*/ * from test_use_plan_cache22 order by 1, 2"
@@ -906,6 +934,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_nereids_planner=true"
                         sql "set enable_fallback_to_original_planner=false"
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         int randomInt = Math.random() * 2000000000
                         sql "select ${randomInt} from test_use_plan_cache23"
@@ -937,6 +966,7 @@ suite("parse_sql_from_sql_cache") {
                 extraThread("sql_cache_with_date_format", {
                     retryTestSqlCache(3, 1000) {
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
                         def result = sql "select FROM_UNIXTIME(UNIX_TIMESTAMP(), 'yyyy-MM-dd HH:mm:ss')"
                         assertNotEquals("yyyy-MM-dd HH:mm:ss", result[0][0])
                     }
@@ -999,6 +1029,7 @@ suite("parse_sql_from_sql_cache") {
                         sleep(10000)
 
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
                         sql "use ${dbName1}"
                         List<List<Object>> result1 = sql """
                             SELECT COUNT(*) FROM ${tableName}
@@ -1025,11 +1056,13 @@ suite("parse_sql_from_sql_cache") {
                         sleep(10000)
 
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
                         assertTrue((sql "select * from test_use_plan_cache24").size() > 0)
                         assertHasCache "select * from test_use_plan_cache24"
 
                         connect(context.config.jdbcUser, context.config.jdbcPassword, context.jdbcUrl) {
                             sql "set enable_sql_cache=true"
+                            sql "set enable_strong_consistency_read=true"
                             sql "create temporary table test_use_plan_cache24(a int, b boolean) properties('replication_num'='1')"
                             assertEquals(0, (sql "select * from test_use_plan_cache24").size())
                             assertNoCache "select * from test_use_plan_cache24"
@@ -1051,6 +1084,7 @@ suite("parse_sql_from_sql_cache") {
                         sleep(10000)
 
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         sql "select count(1) from test_use_plan_cache25 group by id order by id"
                         assertHasCache "select count(1) from test_use_plan_cache25 group by id order by id"
@@ -1071,6 +1105,7 @@ suite("parse_sql_from_sql_cache") {
                         sleep(10000)
 
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         sql "select count(1) from test_use_plan_cache26 group by id order by id"
                         assertHasCache "select count(1) from test_use_plan_cache26 group by id order by id"
@@ -1092,6 +1127,7 @@ suite("parse_sql_from_sql_cache") {
                         sleep(10000)
 
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         sql "select count(1) from test_use_plan_cache27 group by id order by id"
                         assertHasCache "select count(1) from test_use_plan_cache27 group by id order by id"
@@ -1108,6 +1144,7 @@ suite("parse_sql_from_sql_cache") {
                         sleep(10000)
 
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         sql "select count(1) from test_use_plan_cache28 group by id order by id"
                         assertHasCache "select count(1) from test_use_plan_cache28 group by id order by id"
@@ -1124,6 +1161,7 @@ suite("parse_sql_from_sql_cache") {
                         sleep(10000)
 
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         sql "select * from test_use_plan_cache29"
                         assertHasCache "select * from test_use_plan_cache29"
@@ -1141,6 +1179,7 @@ suite("parse_sql_from_sql_cache") {
                         sleep(10000)
 
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         sql "select * from test_use_plan_cache30"
                         assertHasCache "select * from test_use_plan_cache30"
@@ -1157,6 +1196,7 @@ suite("parse_sql_from_sql_cache") {
                         sleep(10000)
 
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         sql "select * from test_use_plan_cache31"
                         assertHasCache "select * from test_use_plan_cache31"
@@ -1175,6 +1215,7 @@ suite("parse_sql_from_sql_cache") {
                         sleep(10000)
 
                         sql "set enable_sql_cache=true"
+                        sql "set enable_strong_consistency_read=true"
 
                         sql "select * from test_use_plan_cache32_view"
                         assertHasCache "select * from test_use_plan_cache32_view"

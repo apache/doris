@@ -63,6 +63,9 @@ inline auto get_decimal_ctor() {
     if constexpr (std::is_same_v<DecimalType, Decimal128V2>) {
         return DECIMAL128V2;
     }
+    if constexpr (std::is_same_v<DecimalType, DecimalV2Value>) {
+        return DECIMALV2VALUE;
+    }
     if constexpr (std::is_same_v<DecimalType, Decimal128V3>) {
         return DECIMAL128V3;
     }

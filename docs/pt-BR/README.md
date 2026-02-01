@@ -46,7 +46,7 @@ under the License.
     &nbsp;
     <a href="https://github.com/apache/doris/discussions"><img src="https://img.shields.io/badge/- Discussion -red?style=social&logo=discourse" height=25></a>
     &nbsp;
-    <a href="https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w" height=25></a>
+    <a href="https://doris.apache.org/slack" height=25></a>
     &nbsp;
     <a href="https://medium.com/@ApacheDoris"><img src="https://img.shields.io/badge/-Medium-red?style=social&logo=medium" height=25></a>
 
@@ -295,7 +295,7 @@ Entre em contato conosco através da seguinte lista de correio.
 
 * Site oficial do Apache Doris - [Site](https://doris.apache.org)
 * Lista de correio de desenvolvedores - <dev@doris.apache.org>. Envie um e-mail para <dev-subscribe@doris.apache.org>, siga a resposta para se inscrever na lista de correio.
-* Canal Slack - [Junte-se ao Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w)
+* Canal Slack - [Junte-se ao Slack](https://doris.apache.org/slack)
 * Twitter - [Seguir @doris_apache](https://twitter.com/doris_apache)
 
 

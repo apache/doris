@@ -22,8 +22,8 @@
 #include <memory>
 #include <vector>
 
-#include "udf/udf.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exprs/function_context.h"
 
 namespace doris {
 

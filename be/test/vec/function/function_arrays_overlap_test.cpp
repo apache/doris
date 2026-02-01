@@ -76,14 +76,15 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
         InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMALV2,
                                     PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMALV2};
 
-        TestArray vec1 = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67),
-                          ut_type::DECIMALV2(0.0)};
-        TestArray vec2 = {ut_type::DECIMALV2(17014116.67)};
+        TestArray vec1 = {ut_type::DECIMALV2VALUE(17014116, 670000000, 9),
+                          ut_type::DECIMALV2VALUE(-17014116, 670000000, 9),
+                          ut_type::DECIMALV2VALUE(0, 0, 9)};
+        TestArray vec2 = {ut_type::DECIMALV2VALUE(17014116, 670000000, 9)};
 
-        TestArray vec3 = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67),
-                          Null()};
-        TestArray vec4 = {ut_type::DECIMALV2(-17014116.67)};
-        TestArray vec5 = {ut_type::DECIMALV2(-17014116.68)};
+        TestArray vec3 = {ut_type::DECIMALV2VALUE(17014116, 670000000, 9),
+                          ut_type::DECIMALV2VALUE(-17014116, 670000000, 9), Null()};
+        TestArray vec4 = {ut_type::DECIMALV2VALUE(-17014116, 670000000, 9)};
+        TestArray vec5 = {ut_type::DECIMALV2VALUE(-17014116, 680000000, 9)};
         DataSet data_set = {{{vec1, vec2}, UInt8(1)}, {{Null(), vec1}, Null()},
                             {{vec1, Null()}, Null()}, {{empty_arr, vec1}, UInt8(0)},
                             {{vec3, vec4}, UInt8(1)}, {{vec3, vec5}, UInt8(0)},
@@ -115,13 +116,15 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
         InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMALV2,
                                     PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMALV2};
 
-        TestArray vec1 = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67),
-                          ut_type::DECIMALV2(0.0)};
-        TestArray vec2 = {ut_type::DECIMALV2(17014116.67)};
+        TestArray vec1 = {ut_type::DECIMALV2VALUEFROMDOUBLE(17014116.67),
+                          ut_type::DECIMALV2VALUEFROMDOUBLE(-17014116.67),
+                          ut_type::DECIMALV2VALUEFROMDOUBLE(0.0)};
+        TestArray vec2 = {ut_type::DECIMALV2VALUEFROMDOUBLE(17014116.67)};
 
-        TestArray vec3 = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67)};
-        TestArray vec4 = {ut_type::DECIMALV2(-17014116.67)};
-        TestArray vec5 = {ut_type::DECIMALV2(-17014116.68)};
+        TestArray vec3 = {ut_type::DECIMALV2VALUEFROMDOUBLE(17014116.67),
+                          ut_type::DECIMALV2VALUEFROMDOUBLE(-17014116.67)};
+        TestArray vec4 = {ut_type::DECIMALV2VALUEFROMDOUBLE(-17014116.67)};
+        TestArray vec5 = {ut_type::DECIMALV2VALUEFROMDOUBLE(-17014116.68)};
         DataSet data_set = {{{vec1, vec2}, UInt8(1)}, {{empty_arr, vec1}, UInt8(0)},
                             {{vec3, vec4}, UInt8(1)}, {{vec3, vec5}, UInt8(0)},
                             {{vec4, vec3}, UInt8(1)}, {{vec5, vec3}, UInt8(0)}};

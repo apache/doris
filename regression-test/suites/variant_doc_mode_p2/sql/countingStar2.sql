@@ -1,0 +1,1 @@
+SELECT cast(v["payload"]["action"] as string), count() FROM github_events WHERE cast(v["type"] as string) = 'WatchEvent' GROUP BY cast(v["payload"]["action"] as string) 

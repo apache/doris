@@ -182,7 +182,7 @@ public:
         params.is_strict = (CastMode == CastModeType::StrictMode);
         size_t size = vec_from.size();
         typename FromFieldType::NativeType scale_multiplier =
-                DataTypeDecimal<FromFieldType::PType>::get_scale_multiplier(from_scale);
+                DataTypeDecimal<FromDataType::PType>::get_scale_multiplier(from_scale);
         for (size_t i = 0; i < size; i++) {
             if (!CastToInt::_from_decimal<typename FromDataType::FieldType,
                                           typename ToDataType::FieldType>(

@@ -85,7 +85,8 @@ public:
             column.get(i, value);
             ASSERT_EQ(value.get_type(), values[i].get_type())
                     << "row: " << i << " type not match at: " << loc.file_name() << ":"
-                    << loc.line();
+                    << loc.line() << " " << type_to_string(value.get_type()) << " vs "
+                    << type_to_string(values[i].get_type());
             ASSERT_TRUE(value == values[i])
                     << "row: " << i << " value not match at: " << loc.file_name() << ":"
                     << loc.line();
@@ -959,10 +960,10 @@ TEST_F(HashJoinProbeOperatorTest, RightSemiJoinMarkJoin) {
                          vectorized::Field::create_field<TYPE_STRING>("c"),
                          vectorized::Field::create_field<TYPE_STRING>("d"), vectorized::Field()});
     check_column_values(*sorted_block.get_by_position(4).column,
-                        {vectorized::Field::create_field<TYPE_INT>(0), vectorized::Field(),
-                         vectorized::Field::create_field<TYPE_INT>(1),
-                         vectorized::Field::create_field<TYPE_INT>(1),
-                         vectorized::Field::create_field<TYPE_INT>(0)});
+                        {vectorized::Field::create_field<TYPE_BOOLEAN>(0), vectorized::Field(),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(1),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(1),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(0)});
 }
 
 TEST_F(HashJoinProbeOperatorTest, NullAwareLeftAntiJoin) {
@@ -1144,8 +1145,8 @@ TEST_F(HashJoinProbeOperatorTest, NullAwareLeftAntiJoinMark) {
                          vectorized::Field::create_field<TYPE_STRING>("b"),
                          vectorized::Field::create_field<TYPE_STRING>("e")});
     check_column_values(*sorted_block.get_by_position(2).column,
-                        {vectorized::Field(), vectorized::Field::create_field<TYPE_INT>(0),
-                         vectorized::Field::create_field<TYPE_INT>(0), vectorized::Field(),
+                        {vectorized::Field(), vectorized::Field::create_field<TYPE_BOOLEAN>(0),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(0), vectorized::Field(),
                          vectorized::Field()});
 }
 
@@ -1183,8 +1184,8 @@ TEST_F(HashJoinProbeOperatorTest, NullAwareLeftSemiJoinMark) {
                          vectorized::Field::create_field<TYPE_STRING>("b"),
                          vectorized::Field::create_field<TYPE_STRING>("e")});
     check_column_values(*sorted_block.get_by_position(2).column,
-                        {vectorized::Field(), vectorized::Field::create_field<TYPE_INT>(1),
-                         vectorized::Field::create_field<TYPE_INT>(1), vectorized::Field(),
+                        {vectorized::Field(), vectorized::Field::create_field<TYPE_BOOLEAN>(1),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(1), vectorized::Field(),
                          vectorized::Field()});
 }
 
@@ -1221,10 +1222,10 @@ TEST_F(HashJoinProbeOperatorTest, LeftSemiJoinMark) {
                          vectorized::Field::create_field<TYPE_STRING>("b"),
                          vectorized::Field::create_field<TYPE_STRING>("e")});
     check_column_values(*sorted_block.get_by_position(2).column,
-                        {vectorized::Field::create_field<TYPE_INT>(0),
-                         vectorized::Field::create_field<TYPE_INT>(1),
-                         vectorized::Field::create_field<TYPE_INT>(1), vectorized::Field(),
-                         vectorized::Field::create_field<TYPE_INT>(0)});
+                        {vectorized::Field::create_field<TYPE_BOOLEAN>(0),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(1),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(1), vectorized::Field(),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(0)});
 }
 
 TEST_F(HashJoinProbeOperatorTest, LeftAntiJoinMark) {
@@ -1260,10 +1261,10 @@ TEST_F(HashJoinProbeOperatorTest, LeftAntiJoinMark) {
                          vectorized::Field::create_field<TYPE_STRING>("b"),
                          vectorized::Field::create_field<TYPE_STRING>("e")});
     check_column_values(*sorted_block.get_by_position(2).column,
-                        {vectorized::Field::create_field<TYPE_INT>(1),
-                         vectorized::Field::create_field<TYPE_INT>(0),
-                         vectorized::Field::create_field<TYPE_INT>(0), vectorized::Field(),
-                         vectorized::Field::create_field<TYPE_INT>(1)});
+                        {vectorized::Field::create_field<TYPE_BOOLEAN>(1),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(0),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(0), vectorized::Field(),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(1)});
 }
 
 TEST_F(HashJoinProbeOperatorTest, LeftAntiJoinMarkOtherConjuncts) {
@@ -1312,11 +1313,11 @@ TEST_F(HashJoinProbeOperatorTest, LeftAntiJoinMarkOtherConjuncts) {
                          vectorized::Field::create_field<TYPE_INT>(102),
                          vectorized::Field::create_field<TYPE_INT>(99), vectorized::Field()});
     check_column_values(*sorted_block.get_by_position(3).column,
-                        {vectorized::Field::create_field<TYPE_INT>(0),
-                         vectorized::Field::create_field<TYPE_INT>(1),
-                         vectorized::Field::create_field<TYPE_INT>(0),
-                         vectorized::Field::create_field<TYPE_INT>(1),
-                         vectorized::Field::create_field<TYPE_INT>(1)});
+                        {vectorized::Field::create_field<TYPE_BOOLEAN>(0),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(1),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(0),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(1),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(1)});
 }
 
 } // namespace doris::pipeline

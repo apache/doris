@@ -12,7 +12,7 @@ PhysicalResultSink
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[inv_date_sk]
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_item_sk = item.i_item_sk)) otherCondition=()
+------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((inventory.inv_item_sk = item.i_item_sk)) otherCondition=()
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[inventory] apply RFs: RF1
 --------------------------PhysicalProject

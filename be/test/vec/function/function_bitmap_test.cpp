@@ -465,4 +465,48 @@ TEST(function_bitmap_test, function_bitmap_has_all) {
     static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
 }
 
+TEST(function_bitmap_test, function_bitmap_from_string) {
+    std::string func_name = "bitmap_from_string";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+
+    BitmapValue bitmap1(1);
+    BitmapValue bitmap2({1, 2, 3});
+    BitmapValue bitmap3({1, 9999999});
+    BitmapValue empty_bitmap;
+    BitmapValue bitmap4({0, 1, 2, 3, 4, 5});
+    BitmapValue bitmap5({10, 20, 30});
+
+    DataSet data_set = {{{std::string("1")}, &bitmap1},
+                        {{std::string("1,2,3")}, &bitmap2},
+                        {{std::string("1,9999999")}, &bitmap3},
+                        {{std::string("")}, &empty_bitmap},
+                        {{std::string("0,1,2,3,4,5")}, &bitmap4},
+                        {{std::string("10,20,30")}, &bitmap5},
+                        {{std::string("1,abc,3")}, Null()},
+                        {{std::string("invalid")}, Null()},
+                        {{Null()}, Null()}};
+
+    static_cast<void>(check_function<DataTypeBitMap, true>(func_name, input_types, data_set));
+}
+
+TEST(function_bitmap_test, function_bitmap_from_string_multiple_rows) {
+    std::string func_name = "bitmap_from_string";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+
+    BitmapValue bitmap1({1, 2, 3});
+    BitmapValue bitmap2({4, 5, 6});
+    BitmapValue bitmap3({7, 8, 9});
+    BitmapValue bitmap4({10, 11, 12});
+    BitmapValue bitmap5({13, 14, 15});
+    BitmapValue bitmap6({18, 19, 20});
+
+    DataSet data_set = {
+            {{std::string("1,2,3")}, &bitmap1},    {{std::string("4,5,6")}, &bitmap2},
+            {{std::string("7,8,9")}, &bitmap3},    {{std::string("10,11,12")}, &bitmap4},
+            {{std::string("13,14,15")}, &bitmap5}, {{std::string("16,invalid,17")}, Null()},
+            {{std::string("18,19,20")}, &bitmap6}};
+
+    static_cast<void>(check_function<DataTypeBitMap, true>(func_name, input_types, data_set));
+}
+
 } // namespace doris::vectorized

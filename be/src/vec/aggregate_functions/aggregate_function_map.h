@@ -34,7 +34,7 @@ namespace doris::vectorized {
 
 template <PrimitiveType K>
 struct AggregateFunctionMapAggData {
-    using KeyType = typename PrimitiveTypeTraits<K>::ColumnItemType;
+    using KeyType = typename PrimitiveTypeTraits<K>::CppType;
     using Map = phmap::flat_hash_map<StringRef, int64_t>;
 
     AggregateFunctionMapAggData() { throw Exception(Status::FatalError("__builtin_unreachable")); }
@@ -67,8 +67,8 @@ struct AggregateFunctionMapAggData {
 
     void add(const Field& key_, const Field& value) {
         DCHECK(!key_.is_null());
-        auto key_array = vectorized::get<Array>(key_);
-        auto value_array = vectorized::get<Array>(value);
+        auto key_array = key_.get<TYPE_ARRAY>();
+        auto value_array = value.get<TYPE_ARRAY>();
 
         const auto count = key_array.size();
         DCHECK_EQ(count, value_array.size());
@@ -76,11 +76,11 @@ struct AggregateFunctionMapAggData {
         for (size_t i = 0; i != count; ++i) {
             StringRef key;
             if constexpr (is_string_type(K)) {
-                auto& string = key_array[i].get<String>();
+                auto& string = key_array[i].get<K>();
                 key.data = string.data();
                 key.size = string.size();
             } else {
-                auto& k = key_array[i].get<KeyType>();
+                auto& k = key_array[i].get<K>();
                 key.data = reinterpret_cast<const char*>(&k);
                 key.size = sizeof(k);
             }
@@ -266,7 +266,7 @@ public:
         const auto& col = assert_cast<const ColumnMap&>(column);
         auto* data = &(this->data(places));
         for (size_t i = 0; i != num_rows; ++i) {
-            auto map = doris::vectorized::get<Map>(col[i]);
+            auto map = col[i].get<TYPE_MAP>();
             data->add(map[0], map[1]);
         }
     }
@@ -284,7 +284,7 @@ public:
         auto& col = assert_cast<const ColumnMap&>(column);
         const size_t num_rows = column.size();
         for (size_t i = 0; i != num_rows; ++i) {
-            auto map = doris::vectorized::get<Map>(col[i]);
+            auto map = col[i].get<TYPE_MAP>();
             this->data(place).add(map[0], map[1]);
         }
     }
@@ -296,7 +296,7 @@ public:
                 << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
         const auto& col = assert_cast<const ColumnMap&>(column);
         for (size_t i = begin; i <= end; ++i) {
-            auto map = doris::vectorized::get<Map>(col[i]);
+            auto map = col[i].get<TYPE_MAP>();
             this->data(place).add(map[0], map[1]);
         }
     }
@@ -306,7 +306,7 @@ public:
                                    const size_t num_rows) const override {
         const auto& col = assert_cast<const ColumnMap&>(*column);
         for (size_t i = 0; i != num_rows; ++i) {
-            auto map = doris::vectorized::get<Map>(col[i]);
+            auto map = col[i].get<TYPE_MAP>();
             this->data(places[i] + offset).add(map[0], map[1]);
         }
     }
@@ -317,7 +317,7 @@ public:
         const auto& col = assert_cast<const ColumnMap&>(*column);
         for (size_t i = 0; i != num_rows; ++i) {
             if (places[i]) {
-                auto map = doris::vectorized::get<Map>(col[i]);
+                auto map = col[i].get<TYPE_MAP>();
                 this->data(places[i] + offset).add(map[0], map[1]);
             }
         }

@@ -57,7 +57,7 @@ Status convert(const vectorized::DataTypePtr& data_type, const std::string& str,
     if constexpr (PType == TYPE_TINYINT || PType == TYPE_SMALLINT || PType == TYPE_INT ||
                   PType == TYPE_BIGINT || PType == TYPE_LARGEINT) {
         vectorized::CastParameters parameters;
-        if (!vectorized::CastToInt::from_string({str.data(), str.size()}, res, parameters)) {
+        if (!vectorized::CastToInt::from_string<false>({str.data(), str.size()}, res, parameters)) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
                     str);
@@ -317,7 +317,7 @@ Status parse_to_predicate(const uint32_t index, const std::string col_name,
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING: {
-        RETURN_IF_ERROR(convert<TYPE_STRING>(type, res.value_str.front(), arena, v));
+        v = {res.value_str.front().data(), res.value_str.front().size()};
         switch (res.condition_op) {
         case PredicateType::EQ:
             predicate = create_comparison_predicate0<PredicateType::EQ>(index, col_name, type, v,

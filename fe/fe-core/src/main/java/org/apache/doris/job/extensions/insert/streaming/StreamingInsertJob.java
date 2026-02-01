@@ -111,7 +111,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @Getter
     @Setter
     @SerializedName("fr")
-    protected FailureReason failureReason;
+    protected volatile FailureReason failureReason;
     @Getter
     @Setter
     protected long latestAutoResumeTimestamp;
@@ -505,7 +505,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         return tasks;
     }
 
-    protected void fetchMeta() {
+    protected void fetchMeta() throws JobException {
         try {
             if (tvfType != null) {
                 if (originTvfProps == null) {
@@ -516,10 +516,18 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 offsetProvider.fetchRemoteMeta(new HashMap<>());
             }
         } catch (Exception ex) {
-            //todo: The job status = MANUAL_PAUSE_ERR, No need to set failureReason again
             log.warn("fetch remote meta failed, job id: {}", getJobId(), ex);
-            failureReason = new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
-                    "Failed to fetch meta, " + ex.getMessage());
+            if (this.getFailureReason() == null
+                    || !InternalErrorCode.MANUAL_PAUSE_ERR.equals(this.getFailureReason().getCode())) {
+                // When a job is manually paused, it does not need to be set again,
+                // otherwise, it may be woken up by auto resume.
+                this.setFailureReason(
+                        new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
+                                "Failed to fetch meta, " + ex.getMessage()));
+                // If fetching meta fails, the job is paused
+                // and auto resume will automatically wake it up.
+                this.updateJobStatus(JobStatus.PAUSED);
+            }
         }
     }
 
@@ -1076,7 +1084,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             StreamingMultiTblTask runningMultiTask = (StreamingMultiTblTask) this.runningStreamTask;
             if (TaskStatus.RUNNING.equals(runningMultiTask.getStatus())
                     && runningMultiTask.isTimeout()) {
-                runningMultiTask.onFail("task failed cause timeout");
+                String timeoutReason = runningMultiTask.getTimeoutReason();
+                if (StringUtils.isEmpty(timeoutReason)) {
+                    timeoutReason = "task failed cause timeout";
+                }
+                runningMultiTask.onFail(timeoutReason);
                 // renew streaming task by auto resume
             }
         } finally {
@@ -1121,7 +1133,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     public void replayOffsetProviderIfNeed() throws JobException {
-        if (this.offsetProviderPersist != null && offsetProvider != null) {
+        if (offsetProvider != null) {
             offsetProvider.replayIfNeed(this);
         }
     }

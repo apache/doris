@@ -135,10 +135,10 @@ void ColumnMap::get(size_t n, Field& res) const {
 
 void ColumnMap::insert(const Field& x) {
     DCHECK_EQ(x.get_type(), PrimitiveType::TYPE_MAP);
-    const auto& map = doris::vectorized::get<const Map&>(x);
+    const auto& map = x.get<TYPE_MAP>();
     CHECK_EQ(map.size(), 2);
-    const auto& k_f = doris::vectorized::get<const Array&>(map[0]);
-    const auto& v_f = doris::vectorized::get<const Array&>(map[1]);
+    const auto& k_f = map[0].get<TYPE_ARRAY>();
+    const auto& v_f = map[1].get<TYPE_ARRAY>();
 
     size_t element_size = k_f.size();
 

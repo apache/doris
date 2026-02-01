@@ -49,6 +49,7 @@ import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -72,6 +73,7 @@ import org.apache.doris.catalog.RecyclePartitionParam;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -989,8 +991,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             Env.getCurrentEnv().getMtmvService().dropTable(table);
         }
         if (Config.isCloudMode()) {
-            ((CloudGlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr())
-                    .clearTableLastTxnId(db.getId(), table.getId());
+            ((CloudGlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr()).afterDropTable(db.getId(),
+                    table.getId());
         }
     }
 
@@ -1112,7 +1114,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             schemaHash = olapTable.getSchemaHashByIndexId(info.getIndexId());
         }
 
-        Replica replica = new Replica(info.getReplicaId(), info.getBackendId(), info.getVersion(), schemaHash,
+        Replica replica = new LocalReplica(info.getReplicaId(), info.getBackendId(), info.getVersion(), schemaHash,
                 info.getDataSize(),
                 info.getRemoteDataSize(), info.getRowCount(), ReplicaState.NORMAL, info.getLastFailedVersion(),
                 info.getLastSuccessVersion());
@@ -2481,6 +2483,15 @@ public class InternalCatalog implements CatalogIf<Database> {
                 // keep table property: variant_enable_flatten_nested = false
                 olapTable.setVariantEnableFlattenNested(false);
             }
+            for (Column column : baseSchema) {
+                if (column.getType().isVariantType()) {
+                    ScalarType scalarType = (ScalarType) column.getType();
+                    if (scalarType.getVariantEnableDocMode() && variantEnableFlattenNested) {
+                        throw new DdlException("variant flatten nested is not enabled, "
+                                                        + "because doc snapshot mode is enabled");
+                    }
+                }
+            }
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
@@ -3350,7 +3361,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             for (List<Long> backendIds : chosenBackendIds.values()) {
                 for (long backendId : backendIds) {
                     long replicaId = idGeneratorBuffer.getNextId();
-                    Replica replica = new Replica(replicaId, backendId, replicaState, version,
+                    Replica replica = new LocalReplica(replicaId, backendId, replicaState, version,
                             tabletMeta.getOldSchemaHash());
                     tablet.addReplica(replica);
                     totalReplicaNum++;

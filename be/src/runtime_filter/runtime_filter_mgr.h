@@ -28,13 +28,11 @@
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
-#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include "common/status.h"
-#include "util/runtime_profile.h"
 #include "util/uid_util.h"
 
 namespace butil {
@@ -73,6 +71,8 @@ struct GlobalMergeContext {
     std::unordered_set<UniqueId> arrive_id;
     std::vector<PNetworkAddress> source_addrs;
     std::atomic<bool> done = false;
+
+    Status reset(QueryContext* query_ctx);
 };
 
 // owned by RuntimeState
@@ -83,7 +83,7 @@ public:
 
     // get/set consumer
     std::vector<std::shared_ptr<RuntimeFilterConsumer>> get_consume_filters(int filter_id);
-    Status register_consumer_filter(const QueryContext* query_ctx, const TRuntimeFilterDesc& desc,
+    Status register_consumer_filter(const RuntimeState* state, const TRuntimeFilterDesc& desc,
                                     int node_id,
                                     std::shared_ptr<RuntimeFilterConsumer>* consumer_filter);
 
@@ -103,6 +103,27 @@ public:
     Status sync_filter_size(const PSyncFilterSizeRequest* request);
 
     std::string debug_string();
+
+    std::set<int32_t> get_filter_ids() {
+        std::set<int32_t> ids;
+        std::lock_guard<std::mutex> l(_lock);
+        for (const auto& id : _producer_id_set) {
+            ids.insert(id);
+        }
+        for (const auto& kv : _consumer_map) {
+            ids.insert(kv.first);
+        }
+        return ids;
+    }
+
+    void remove_filters(const std::set<int32_t>& filter_ids) {
+        std::lock_guard<std::mutex> l(_lock);
+        for (const auto& id : filter_ids) {
+            _consumer_map.erase(id);
+            _local_merge_map.erase(id);
+            _producer_id_set.erase(id);
+        }
+    }
 
 private:
     /**
@@ -154,6 +175,9 @@ public:
         std::shared_lock<std::shared_mutex> read_lock(_filter_map_mutex);
         return _filter_map.empty();
     }
+
+    Status reset_global_rf(QueryContext* query_ctx,
+                           const google::protobuf::RepeatedField<int32_t>& filter_ids);
 
 private:
     Status _init_with_desc(std::shared_ptr<QueryContext> query_ctx,

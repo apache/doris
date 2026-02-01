@@ -59,6 +59,16 @@ public:
 
     void remove_unused_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id);
 
+    // Mark a rowset as empty/skipped (lightweight marker, no rowset stored)
+    // Used for empty rowsets when skip_writing_empty_rowset_metadata is enabled
+    void mark_empty_rowset(TTransactionId txn_id, int64_t tablet_id, int64_t txn_expiration);
+
+    // Check if this is a known empty/skipped rowset
+    // Returns true if was marked as empty rowset
+    // Note: Does not remove the marker, as CalcDeleteBitmapTask may retry.
+    // Cleanup is handled by expiration-based removal in remove_expired_tablet_txn_info()
+    bool is_empty_rowset(TTransactionId txn_id, int64_t tablet_id);
+
     // !!!ATTENTION!!!: the delete bitmap stored in CloudTxnDeleteBitmapCache contains sentinel marks,
     // and the version in BitmapKey is DeleteBitmap::TEMP_VERSION_COMMON.
     // when using delete bitmap from this cache, the caller should manually remove these marks if don't need it
@@ -107,6 +117,9 @@ private:
 
     std::map<TxnKey, TxnVal> _txn_map;
     std::multimap<int64_t, TxnKey> _expiration_txn;
+    // Lightweight markers for empty/skipped rowsets (only stores TxnKey, ~16 bytes per entry)
+    // Used to track empty rowsets that were not committed to meta-service
+    std::set<TxnKey> _empty_rowset_markers;
     std::shared_mutex _rwlock;
     std::shared_ptr<Thread> _clean_thread;
     CountDownLatch _stop_latch;

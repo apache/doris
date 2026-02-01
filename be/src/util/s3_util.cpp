@@ -30,9 +30,11 @@
 #include <aws/s3/S3Client.h>
 #include <aws/sts/STSClient.h>
 #include <bvar/reducer.h>
+#include <cpp/s3_rate_limiter.h>
 #include <util/string_util.h>
 
 #include <atomic>
+
 #ifdef USE_AZURE
 #include <azure/core/diagnostics/logger.hpp>
 #include <azure/storage/blobs/blob_container_client.hpp>
@@ -131,9 +133,64 @@ bvar::Adder<int64_t> get_rate_limit_exceed_req_num("get_rate_limit_exceed_req_nu
 bvar::Adder<int64_t> put_rate_limit_ns("put_rate_limit_ns");
 bvar::Adder<int64_t> put_rate_limit_exceed_req_num("put_rate_limit_exceed_req_num");
 
+static std::atomic<int64_t> last_s3_get_token_bucket_tokens {0};
+static std::atomic<int64_t> last_s3_get_token_limit {0};
+static std::atomic<int64_t> last_s3_get_token_per_second {0};
+static std::atomic<int64_t> last_s3_put_token_per_second {0};
+static std::atomic<int64_t> last_s3_put_token_bucket_tokens {0};
+static std::atomic<int64_t> last_s3_put_token_limit {0};
+
+static std::atomic<bool> updating_get_limiter {false};
+static std::atomic<bool> updating_put_limiter {false};
+
 S3RateLimiterHolder* S3ClientFactory::rate_limiter(S3RateLimitType type) {
     CHECK(type == S3RateLimitType::GET || type == S3RateLimitType::PUT) << to_string(type);
     return _rate_limiters[static_cast<size_t>(type)].get();
+}
+
+template <S3RateLimitType LimiterType>
+void update_rate_limiter_if_changed(int64_t current_tps, int64_t current_bucket,
+                                    int64_t current_limit, std::atomic<int64_t>& last_tps,
+                                    std::atomic<int64_t>& last_bucket,
+                                    std::atomic<int64_t>& last_limit,
+                                    std::atomic<bool>& updating_flag, const char* limiter_name) {
+    if (last_tps.load(std::memory_order_relaxed) != current_tps ||
+        last_bucket.load(std::memory_order_relaxed) != current_bucket ||
+        last_limit.load(std::memory_order_relaxed) != current_limit) {
+        bool expected = false;
+        if (!updating_flag.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+            return;
+        }
+        if (last_tps.load(std::memory_order_acquire) != current_tps ||
+            last_bucket.load(std::memory_order_acquire) != current_bucket ||
+            last_limit.load(std::memory_order_acquire) != current_limit) {
+            int ret =
+                    reset_s3_rate_limiter(LimiterType, current_tps, current_bucket, current_limit);
+
+            if (ret == 0) {
+                last_tps.store(current_tps, std::memory_order_release);
+                last_bucket.store(current_bucket, std::memory_order_release);
+                last_limit.store(current_limit, std::memory_order_release);
+            } else {
+                LOG(WARNING) << "Failed to reset S3 " << limiter_name
+                             << " rate limiter, error code: " << ret;
+            }
+        }
+
+        updating_flag.store(false, std::memory_order_release);
+    }
+}
+
+void check_s3_rate_limiter_config_changed() {
+    update_rate_limiter_if_changed<S3RateLimitType::GET>(
+            config::s3_get_token_per_second, config::s3_get_bucket_tokens,
+            config::s3_get_token_limit, last_s3_get_token_per_second,
+            last_s3_get_token_bucket_tokens, last_s3_get_token_limit, updating_get_limiter, "GET");
+
+    update_rate_limiter_if_changed<S3RateLimitType::PUT>(
+            config::s3_put_token_per_second, config::s3_put_bucket_tokens,
+            config::s3_put_token_limit, last_s3_put_token_per_second,
+            last_s3_put_token_bucket_tokens, last_s3_put_token_limit, updating_put_limiter, "PUT");
 }
 
 int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst, size_t limit) {
@@ -203,6 +260,8 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::create(const S3ClientConf
     if (!is_s3_conf_valid(s3_conf).ok()) {
         return nullptr;
     }
+
+    check_s3_rate_limiter_config_changed();
 
 #ifdef BE_TEST
     {

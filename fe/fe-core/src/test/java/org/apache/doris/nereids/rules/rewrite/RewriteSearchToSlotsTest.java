@@ -127,8 +127,8 @@ public class RewriteSearchToSlotsTest {
             try {
                 SearchDslParser.QsPlan plan = SearchDslParser.parseDsl(dsl);
                 Assertions.assertNotNull(plan, "Plan should not be null for DSL: " + dsl);
-                Assertions.assertNotNull(plan.root, "Plan root should not be null for DSL: " + dsl);
-                Assertions.assertTrue(plan.fieldBindings.size() > 0, "Should have field bindings for DSL: " + dsl);
+                Assertions.assertNotNull(plan.getRoot(), "Plan root should not be null for DSL: " + dsl);
+                Assertions.assertTrue(plan.getFieldBindings().size() > 0, "Should have field bindings for DSL: " + dsl);
             } catch (Exception e) {
                 // DSL parsing might fail for complex cases - that's acceptable
                 System.out.println("DSL parsing failed for: " + dsl + " - " + e.getMessage());
@@ -142,10 +142,10 @@ public class RewriteSearchToSlotsTest {
         SearchDslParser.QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         // Should extract 3 unique field names
-        Assertions.assertEquals(3, plan.fieldBindings.size());
+        Assertions.assertEquals(3, plan.getFieldBindings().size());
 
-        List<String> fieldNames = plan.fieldBindings.stream()
-                .map(binding -> binding.fieldName)
+        List<String> fieldNames = plan.getFieldBindings().stream()
+                .map(binding -> binding.getFieldName())
                 .distinct()
                 .collect(java.util.stream.Collectors.toList());
 
@@ -163,12 +163,12 @@ public class RewriteSearchToSlotsTest {
         SearchDslParser.QsPlan plan2 = SearchDslParser.parseDsl(dsl2);
 
         // Both should work and extract field names
-        Assertions.assertEquals(1, plan1.fieldBindings.size());
-        Assertions.assertEquals(1, plan2.fieldBindings.size());
+        Assertions.assertEquals(1, plan1.getFieldBindings().size());
+        Assertions.assertEquals(1, plan2.getFieldBindings().size());
 
         // Field names should be consistent (implementation dependent)
-        Assertions.assertNotNull(plan1.fieldBindings.get(0).fieldName);
-        Assertions.assertNotNull(plan2.fieldBindings.get(0).fieldName);
+        Assertions.assertNotNull(plan1.getFieldBindings().get(0).getFieldName());
+        Assertions.assertNotNull(plan2.getFieldBindings().get(0).getFieldName());
     }
 
     @Test
@@ -198,10 +198,10 @@ public class RewriteSearchToSlotsTest {
         try {
             SearchDslParser.QsPlan plan = SearchDslParser.parseDsl(complexDsl);
             Assertions.assertNotNull(plan);
-            Assertions.assertNotNull(plan.root);
+            Assertions.assertNotNull(plan.getRoot());
 
             // Should have multiple field bindings
-            Assertions.assertTrue(plan.fieldBindings.size() >= 2);
+            Assertions.assertTrue(plan.getFieldBindings().size() >= 2);
 
         } catch (Exception e) {
             // Complex DSL might not be fully supported yet
@@ -215,7 +215,7 @@ public class RewriteSearchToSlotsTest {
         SearchDslParser.QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         // Create slot reference matching the field binding
-        String fieldName = plan.fieldBindings.get(0).fieldName;
+        String fieldName = plan.getFieldBindings().get(0).getFieldName();
         SlotReference slot = new SlotReference(fieldName, StringType.INSTANCE, true, Arrays.asList());
 
         SearchExpression expr = new SearchExpression(dsl, plan, Arrays.asList(slot));
@@ -246,8 +246,8 @@ public class RewriteSearchToSlotsTest {
         Assertions.assertEquals("name", slot.getName());
 
         SearchDslParser.QsPlan normalizedPlan = searchExpression.getQsPlan();
-        Assertions.assertEquals("name", normalizedPlan.fieldBindings.get(0).fieldName);
-        Assertions.assertEquals("name", normalizedPlan.root.field);
+        Assertions.assertEquals("name", normalizedPlan.getFieldBindings().get(0).getFieldName());
+        Assertions.assertEquals("name", normalizedPlan.getRoot().getField());
     }
 
     @Test

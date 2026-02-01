@@ -17,6 +17,7 @@
 
 #include "vec/exprs/vectorized_fn_call.h"
 
+#include <fmt/compile.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h> // IWYU pragma: keep
 #include <gen_cpp/Opcodes_types.h>
@@ -37,7 +38,6 @@
 #include "olap/rowset/segment_v2/virtual_column_iterator.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/runtime_state.h"
-#include "udf/udf.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
@@ -48,6 +48,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_agg_state.h"
+#include "vec/exprs/function_context.h"
 #include "vec/exprs/varray_literal.h"
 #include "vec/exprs/vcast_expr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -57,6 +58,7 @@
 #include "vec/functions/function_agg_state.h"
 #include "vec/functions/function_fake.h"
 #include "vec/functions/function_java_udf.h"
+#include "vec/functions/function_python_udf.h"
 #include "vec/functions/function_rpc.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/util.hpp"
@@ -114,6 +116,25 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
             return Status::InternalError(
                     "Java UDF is not enabled, you can change be config enable_java_support to true "
                     "and restart be.");
+        }
+    } else if (_fn.binary_type == TFunctionBinaryType::PYTHON_UDF) {
+        if (config::enable_python_udf_support) {
+            if (_fn.is_udtf_function) {
+                // fake function. it's no use and can't execute.
+                // Python UDTF is executed via PythonUDTFFunction in table function path
+                auto builder =
+                        std::make_shared<DefaultFunctionBuilder>(FunctionFake<UDTFImpl>::create());
+                _function = builder->build(argument_template, std::make_shared<DataTypeUInt8>());
+            } else {
+                _function = PythonFunctionCall::create(_fn, argument_template, _data_type);
+                LOG(INFO) << fmt::format(
+                        "create python function call: {}, runtime version: {}, function code: {}",
+                        _fn.name.function_name, _fn.runtime_version, _fn.function_code);
+            }
+        } else {
+            return Status::InternalError(
+                    "Python UDF is not enabled, you can change be config enable_python_udf_support "
+                    "to true and restart be.");
         }
     } else if (_fn.binary_type == TFunctionBinaryType::AGG_STATE) {
         DataTypes argument_types;
@@ -267,7 +288,8 @@ size_t VectorizedFnCall::estimate_memory(const size_t rows) {
 }
 
 Status VectorizedFnCall::execute_runtime_filter(VExprContext* context, const Block* block,
-                                                size_t count, ColumnPtr& result_column,
+                                                const uint8_t* __restrict filter, size_t count,
+                                                ColumnPtr& result_column,
                                                 ColumnPtr* arg_column) const {
     return _do_execute(context, block, count, result_column, arg_column);
 }

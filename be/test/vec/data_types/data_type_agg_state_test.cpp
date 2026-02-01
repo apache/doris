@@ -29,7 +29,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_fixed_length_object.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/variant_util.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"

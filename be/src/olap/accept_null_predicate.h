@@ -23,6 +23,7 @@
 #include "common/factory_creator.h"
 #include "olap/column_predicate.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/wrapper_field.h"
 #include "vec/columns/column_dictionary.h"
@@ -68,7 +69,19 @@ public:
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                     IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override {
-        return _nested->evaluate(name_with_type, iterator, num_rows, bitmap);
+        RETURN_IF_ERROR(_nested->evaluate(name_with_type, iterator, num_rows, bitmap));
+        if (iterator != nullptr) {
+            bool has_null = DORIS_TRY(iterator->has_null());
+            if (has_null) {
+                InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+                RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
+                auto null_bitmap = null_bitmap_cache_handle.get_bitmap();
+                if (null_bitmap) {
+                    *bitmap |= *null_bitmap;
+                }
+            }
+        }
+        return Status::OK();
     }
 
     void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
@@ -99,6 +112,26 @@ public:
             return true;
         }
         return _nested->evaluate_and(statistic);
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+        return _nested->evaluate_and(statistic) || statistic->has_null;
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                      RowRanges* row_ranges) const override {
+        _nested->evaluate_and(statistic, row_ranges);
+        vectorized::ParquetPredicate::PageIndexStat* stat = nullptr;
+        if (!(statistic->get_stat_func)(&stat, column_id())) {
+            return true;
+        }
+
+        for (int page_id = 0; page_id < stat->num_of_pages; page_id++) {
+            if (stat->has_null[page_id]) {
+                row_ranges->add(stat->ranges[page_id]);
+            }
+        }
+        return row_ranges->count() > 0;
     }
 
     bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {

@@ -41,7 +41,7 @@ public:
                                          const std::map<std::string, std::string>& props,
                                          const FileReaderOptions& opts, RuntimeProfile* profile);
 
-    explicit HttpFileReader(const OpenFileInfo& fileInfo, std::string url);
+    explicit HttpFileReader(const OpenFileInfo& fileInfo, std::string url, int64_t mtime);
     ~HttpFileReader() override;
 
     Status open(const FileReaderOptions& opts);
@@ -51,6 +51,8 @@ public:
     const Path& path() const override { return _path; }
     bool closed() const override { return _closed.load(std::memory_order_acquire); }
     size_t size() const override { return _file_size; }
+
+    int64_t mtime() const override { return _mtime; }
 
 private:
     // Prepare and initialize the HTTP client for a new request
@@ -78,10 +80,15 @@ private:
     int64_t _last_modified = 0;
     std::atomic<bool> _closed = false;
     std::unique_ptr<HttpClient> _client;
+    int64_t _mtime;
 
     // Configuration for non-Range request handling
     bool _enable_range_request = true;                         // Whether Range request is required
     size_t _max_request_size_bytes = DEFAULT_MAX_REQUEST_SIZE; // Max size for non-Range downloads
+
+    // Full file cache for non-Range mode to avoid repeated downloads
+    std::string _full_file_cache;   // Cache complete file content
+    bool _full_file_cached = false; // Whether full file has been cached
 };
 
 } // namespace doris::io

@@ -22,6 +22,6 @@ TEST_F(FunctionCastToDecimalTest, test_to_decimal256_from_decimal128) {
     between_decimal_test_func<Decimal128V3, Decimal256>();
 }
 TEST_F(FunctionCastToDecimalTest, test_to_decimal256_from_decimalv2) {
-    between_decimal_test_func<Decimal128V2, Decimal256>();
+    between_decimal_test_func<DecimalV2Value, Decimal256>();
 }
 } // namespace doris::vectorized

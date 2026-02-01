@@ -83,9 +83,8 @@ private:
         ColumnPtr column_result = nullptr;
 
         auto res = Impl::ColumnType::create(1);
-        res->get_element(0) =
-                Impl::apply(column_left_ptr->template get_value<typename Impl::Arg>(),
-                            column_right_ptr->template get_value<typename Impl::Arg>());
+        res->get_element(0) = Impl::apply(column_left_ptr->template get_value<Impl::ArgPType>(),
+                                          column_right_ptr->template get_value<Impl::ArgPType>());
         column_result = std::move(res);
         return ColumnConst::create(std::move(column_result), column_left->size());
     }
@@ -100,7 +99,7 @@ private:
         auto& c = column_result->get_data();
         size_t size = a.size();
         for (size_t i = 0; i < size; ++i) {
-            c[i] = Impl::apply(a[i], column_right_ptr->template get_value<typename Impl::Arg>());
+            c[i] = Impl::apply(a[i], column_right_ptr->template get_value<Impl::ArgPType>());
         }
         return column_result;
     }
@@ -116,7 +115,7 @@ private:
         auto& c = column_result->get_data();
         size_t size = b.size();
         for (size_t i = 0; i < size; ++i) {
-            c[i] = Impl::apply(column_left_ptr->template get_value<typename Impl::Arg>(), b[i]);
+            c[i] = Impl::apply(column_left_ptr->template get_value<Impl::ArgPType>(), b[i]);
         }
         return column_result;
     }
@@ -143,33 +142,36 @@ private:
 template <PrimitiveType PType>
 struct BitAndImpl {
     static_assert(is_int(PType));
-    using Arg = typename PrimitiveTypeTraits<PType>::CppNativeType;
+    using Arg = typename PrimitiveTypeTraits<PType>::CppType;
     using DataType = typename PrimitiveTypeTraits<PType>::DataType;
     using ColumnType = typename PrimitiveTypeTraits<PType>::ColumnType;
     static constexpr auto name = "bitand";
     static constexpr bool is_nullable = false;
+    static constexpr PrimitiveType ArgPType = PType;
     static inline Arg apply(Arg a, Arg b) { return a & b; }
 };
 
 template <PrimitiveType PType>
 struct BitOrImpl {
     static_assert(is_int(PType));
-    using Arg = typename PrimitiveTypeTraits<PType>::CppNativeType;
+    using Arg = typename PrimitiveTypeTraits<PType>::CppType;
     using DataType = typename PrimitiveTypeTraits<PType>::DataType;
     using ColumnType = typename PrimitiveTypeTraits<PType>::ColumnType;
     static constexpr auto name = "bitor";
     static constexpr bool is_nullable = false;
+    static constexpr PrimitiveType ArgPType = PType;
     static inline Arg apply(Arg a, Arg b) { return a | b; }
 };
 
 template <PrimitiveType PType>
 struct BitXorImpl {
     static_assert(is_int(PType));
-    using Arg = typename PrimitiveTypeTraits<PType>::CppNativeType;
+    using Arg = typename PrimitiveTypeTraits<PType>::CppType;
     using DataType = typename PrimitiveTypeTraits<PType>::DataType;
     using ColumnType = typename PrimitiveTypeTraits<PType>::ColumnType;
     static constexpr auto name = "bitxor";
     static constexpr bool is_nullable = false;
+    static constexpr PrimitiveType ArgPType = PType;
     static inline Arg apply(Arg a, Arg b) { return a ^ b; }
 };
 
@@ -181,8 +183,8 @@ template <typename A>
 struct BitNotImpl {
     static constexpr PrimitiveType ResultType = NumberTraits::ResultOfBitNot<A>::Type;
 
-    static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
-        return ~static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a);
+    static inline typename PrimitiveTypeTraits<ResultType>::CppType apply(A a) {
+        return ~static_cast<typename PrimitiveTypeTraits<ResultType>::CppType>(a);
     }
 };
 

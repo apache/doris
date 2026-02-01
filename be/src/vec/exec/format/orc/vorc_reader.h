@@ -42,6 +42,7 @@
 #include "orc/Type.hh"
 #include "orc/Vector.hh"
 #include "orc/sargs/Literal.hh"
+#include "runtime/primitive_type.h"
 #include "util/runtime_profile.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_array.h"
@@ -147,9 +148,18 @@ public:
               io::IOContext* io_ctx, FileMetaCache* meta_cache = nullptr,
               bool enable_lazy_mat = true);
 
+    OrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
+              const TFileRangeDesc& range, size_t batch_size, const std::string& ctz,
+              std::shared_ptr<io::IOContext> io_ctx_holder, FileMetaCache* meta_cache = nullptr,
+              bool enable_lazy_mat = true);
+
     OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
               const std::string& ctz, io::IOContext* io_ctx, FileMetaCache* meta_cache = nullptr,
               bool enable_lazy_mat = true);
+
+    OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+              const std::string& ctz, std::shared_ptr<io::IOContext> io_ctx_holder,
+              FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true);
 
     ~OrcReader() override = default;
     //If you want to read the file by index instead of column name, set hive_use_column_names to false.
@@ -182,7 +192,7 @@ public:
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<DataTypePtr>* col_types) override;
 
-    void set_position_delete_rowids(std::vector<int64_t>* delete_rows) {
+    void set_position_delete_rowids(const std::vector<int64_t>* delete_rows) {
         _position_delete_ordered_rowids = delete_rows;
     }
 
@@ -408,7 +418,7 @@ private:
                                            const MutableColumnPtr& data_column,
                                            const DataTypePtr& data_type,
                                            const orc::ColumnVectorBatch* cvb, size_t num_values) {
-        using DecimalType = typename PrimitiveTypeTraits<DecimalPrimitiveType>::ColumnItemType;
+        using DecimalType = typename PrimitiveTypeTraits<DecimalPrimitiveType>::CppType;
         auto* data = dynamic_cast<const OrcColumnType*>(cvb);
         if (data == nullptr) {
             return Status::InternalError("Wrong data type for column '{}', expected {}", col_name,
@@ -553,6 +563,39 @@ private:
     }
 
     template <bool is_filter>
+    Status _decode_timestamp_tz_column(const std::string& col_name,
+                                       const MutableColumnPtr& data_column,
+                                       const orc::ColumnVectorBatch* cvb, size_t num_values) {
+        SCOPED_RAW_TIMER(&_statistics.decode_value_time);
+        const auto* data = dynamic_cast<const orc::TimestampVectorBatch*>(cvb);
+        if (data == nullptr) {
+            return Status::InternalError(
+                    "Wrong data type for timestamp_tz column '{}', expected {}", col_name,
+                    cvb->toString());
+        }
+        auto& column_data = assert_cast<ColumnTimeStampTz&>(*data_column).get_data();
+        auto origin_size = column_data.size();
+        column_data.resize(origin_size + num_values);
+        UInt8* __restrict filter_data;
+        if constexpr (is_filter) {
+            filter_data = _filter->data();
+        }
+        static const cctz::time_zone utc_time_zone = cctz::utc_time_zone();
+        for (int i = 0; i < num_values; ++i) {
+            auto& tz = column_data[origin_size + i];
+            if constexpr (is_filter) {
+                if (!filter_data[i]) {
+                    continue;
+                }
+            }
+            tz.from_unixtime(data->data[i], utc_time_zone);
+            // nanoseconds will lose precision. only keep microseconds.
+            tz.set_microsecond(data->nanoseconds[i] / 1000);
+        }
+        return Status::OK();
+    }
+
+    template <bool is_filter>
     Status _decode_string_column(const std::string& col_name, const MutableColumnPtr& data_column,
                                  const orc::TypeKind& type_kind, const orc::ColumnVectorBatch* cvb,
                                  size_t num_values);
@@ -674,6 +717,7 @@ private:
     std::shared_ptr<io::FileSystem> _file_system;
 
     io::IOContext* _io_ctx = nullptr;
+    std::shared_ptr<io::IOContext> _io_ctx_holder;
     bool _enable_lazy_mat = true;
     bool _enable_filter_by_min_max = true;
 
@@ -704,7 +748,7 @@ private:
     std::unordered_map<std::string, std::unique_ptr<converter::ColumnTypeConverter>> _converters;
 
     //support iceberg position delete .
-    std::vector<int64_t>* _position_delete_ordered_rowids = nullptr;
+    const std::vector<int64_t>* _position_delete_ordered_rowids = nullptr;
     std::unordered_map<const VSlotRef*, orc::PredicateDataType>
             _vslot_ref_to_orc_predicate_data_type;
     std::unordered_map<const VLiteral*, orc::Literal> _vliteral_to_orc_literal;

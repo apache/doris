@@ -1598,6 +1598,96 @@ class Suite implements GroovyInterceptable {
         return result
     }
 
+    /**
+     * Get the spark-iceberg container name by querying docker.
+     * Uses 'docker ps --filter name=spark-iceberg' to find the container.
+     */
+    private String getSparkIcebergContainerName() {
+        try {
+            // Use docker ps with filter to find containers with 'spark-iceberg' in the name
+            String command = "docker ps --filter name=spark-iceberg --format {{.Names}}"
+            def process = command.execute()
+            process.waitFor()
+            String output = process.in.text.trim()
+
+            if (output) {
+                // Get the first matching container
+                String containerName = output.split('\n')[0].trim()
+                if (containerName) {
+                    logger.info("Found spark-iceberg container: ${containerName}".toString())
+                    return containerName
+                }
+            }
+
+            logger.warn("No spark-iceberg container found via docker ps")
+            return null
+        } catch (Exception e) {
+            logger.warn("Failed to get spark-iceberg container via docker ps: ${e.message}".toString())
+            return null
+        }
+    }
+
+    /**
+     * Execute Spark SQL on the spark-iceberg container via docker exec.
+     *
+     * Usage in test suite:
+     *   spark_iceberg "CREATE TABLE demo.test_db.t1 (id INT) USING iceberg"
+     *   spark_iceberg "INSERT INTO demo.test_db.t1 VALUES (1)"
+     *   def result = spark_iceberg "SELECT * FROM demo.test_db.t1"
+     *
+     * The container name is found by querying 'docker ps --filter name=spark-iceberg'
+     */
+    String spark_iceberg(String sqlStr, int timeoutSeconds = 120) {
+        String containerName = getSparkIcebergContainerName()
+        if (containerName == null) {
+            throw new RuntimeException("spark-iceberg container not found. Please ensure the container is running.")
+        }
+        String masterUrl = "spark://${containerName}:7077"
+        
+        // Escape double quotes in SQL string for shell command
+        String escapedSql = sqlStr.replaceAll('"', '\\\\"')
+        
+        // Build docker exec command
+        String command = """docker exec ${containerName} spark-sql --master ${masterUrl} --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions -e "${escapedSql}" """
+        
+        logger.info("Executing Spark Iceberg SQL: ${sqlStr}".toString())
+        logger.info("Container: ${containerName}".toString())
+        
+        try {
+            String result = cmd(command, timeoutSeconds)
+            logger.info("Spark Iceberg SQL result: ${result}".toString())
+            return result
+        } catch (Exception e) {
+            logger.error("Spark Iceberg SQL failed: ${e.message}".toString())
+            throw e
+        }
+    }
+
+    /**
+     * Execute multiple Spark SQL statements on the spark-iceberg container.
+     * Statements are separated by semicolons.
+     * 
+     * Usage:
+     *   spark_iceberg_multi '''
+     *       CREATE DATABASE IF NOT EXISTS demo.test_db;
+     *       CREATE TABLE demo.test_db.t1 (id INT) USING iceberg;
+     *       INSERT INTO demo.test_db.t1 VALUES (1);
+     *   '''
+     */
+    List<String> spark_iceberg_multi(String sqlStatements, int timeoutSeconds = 300) {
+        // Split by semicolon and execute each statement
+        def statements = sqlStatements.split(';').collect { it.trim() }.findAll { it }
+        def results = []
+        
+        for (stmt in statements) {
+            if (stmt) {
+                results << spark_iceberg(stmt, timeoutSeconds)
+            }
+        }
+        
+        return results
+    }
+
     List<List<Object>> db2_docker(String sqlStr, boolean isOrder = false) {
         String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
         def (result, meta) = JdbcUtils.executeToList(context.getDB2DockerConnection(), cleanedSqlStr)

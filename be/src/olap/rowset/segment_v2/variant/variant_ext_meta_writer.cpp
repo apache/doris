@@ -23,7 +23,7 @@
 
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
 #include "olap/types.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/variant_util.h"
 #include "vec/json/path_in_data.h"
 
 namespace doris::segment_v2 {
@@ -85,6 +85,7 @@ struct ColumnClassification {
     std::vector<ColumnMetaPB> top_level_columns;
     std::unordered_map<int32_t, std::vector<std::pair<std::string, ColumnMetaPB>>> pending_subcols;
     std::unordered_map<int32_t, std::vector<ColumnMetaPB>> pending_sparse;
+    std::unordered_map<int32_t, std::vector<ColumnMetaPB>> pending_doc_value;
     size_t externalized_count = 0;
 };
 
@@ -106,6 +107,8 @@ static void classify_columns(const SegmentFooterPB& footer, ColumnClassification
 
                 if (rel_path.find("__DORIS_VARIANT_SPARSE__") != std::string::npos) {
                     classification.pending_sparse[root_uid].emplace_back(col);
+                } else if (rel_path.find("__DORIS_VARIANT_DOC_VALUE__") != std::string::npos) {
+                    classification.pending_doc_value[root_uid].emplace_back(col);
                 } else {
                     classification.pending_subcols[root_uid].emplace_back(rel_path, col);
                     classification.externalized_count++;
@@ -135,16 +138,11 @@ Status VariantExtMetaWriter::externalize_from_footer(SegmentFooterPB* footer,
     out_metas->clear();
     out_metas->reserve(footer->columns_size()); // Rough estimate
 
-    std::vector<ColumnMetaPB> kept_footer_columns;
-    kept_footer_columns.reserve(footer->columns_size());
-
     for (auto& col : classification.top_level_columns) {
         // Add Top Level Column
         out_metas->emplace_back(col);
         // Keep it in footer columns as well
-        kept_footer_columns.emplace_back(col);
         ColumnMetaPB* current_root_meta = &out_metas->back();
-        ColumnMetaPB* footer_root_meta = &kept_footer_columns.back();
 
         // Check if it is a Variant Root
         if (col.type() == int(FieldType::OLAP_FIELD_TYPE_VARIANT)) {
@@ -155,11 +153,18 @@ Status VariantExtMetaWriter::externalize_from_footer(SegmentFooterPB* footer,
                 it != classification.pending_sparse.end()) {
                 for (const auto& sparse_meta : it->second) {
                     current_root_meta->add_children_columns()->CopyFrom(sparse_meta);
-                    footer_root_meta->add_children_columns()->CopyFrom(sparse_meta);
                 }
             }
 
-            // 2. Append non-sparse subcolumns to out_metas and record path-only keys
+            // 2. Embed doc snapshot subcolumns
+            if (auto it = classification.pending_doc_value.find(root_uid);
+                it != classification.pending_doc_value.end()) {
+                for (const auto& doc_value_meta : it->second) {
+                    current_root_meta->add_children_columns()->CopyFrom(doc_value_meta);
+                }
+            }
+
+            // 3. Append non-sparse subcolumns to out_metas and record path-only keys
             if (auto it = classification.pending_subcols.find(root_uid);
                 it != classification.pending_subcols.end()) {
                 // Sort by path for consistent index order
@@ -183,15 +188,10 @@ Status VariantExtMetaWriter::externalize_from_footer(SegmentFooterPB* footer,
     // Write the index to footer
     RETURN_IF_ERROR(flush_to_footer(footer));
 
-    // Update footer.columns to only contain Top Level Columns (with embedded sparse cols)
     footer->clear_columns();
-    for (const auto& c : kept_footer_columns) {
-        footer->add_columns()->CopyFrom(c);
-    }
 
     VLOG_DEBUG << "VariantExtMetaWriter::externalize_from_footer, externalized subcolumns: "
                << classification.externalized_count
-               << ", kept columns: " << kept_footer_columns.size()
                << ", total meta entries: " << out_metas->size();
     return Status::OK();
 }

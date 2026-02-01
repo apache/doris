@@ -145,7 +145,7 @@ public:
     virtual Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                              Profile&& profile, SourceInfo&& source_info) = 0;
     virtual Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
-                        Profile&& profile, SinkInfo&& sink_info) = 0;
+                        Profile&& profile, SinkInfo& sink_info) = 0;
     virtual ExchangeType get_type() const = 0;
     // Called if a local exchanger source operator are closed. Free the unused data block in data_queue.
     virtual void close(SourceInfo&& source_info) = 0;
@@ -282,7 +282,7 @@ public:
     }
     ~ShuffleExchanger() override = default;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
-                SinkInfo&& sink_info) override;
+                SinkInfo& sink_info) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos, Profile&& profile,
                      SourceInfo&& source_info) override;
@@ -290,11 +290,11 @@ public:
     ExchangeType get_type() const override { return ExchangeType::HASH_SHUFFLE; }
 
 protected:
-    Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
+    Status _split_rows(RuntimeState* state, const std::vector<uint32_t>& channel_ids,
                        vectorized::Block* block, int channel_id,
                        LocalExchangeSinkLocalState* local_state,
                        std::map<int, int>* shuffle_idx_to_instance_idx);
-    Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
+    Status _split_rows(RuntimeState* state, const std::vector<uint32_t>& channel_ids,
                        vectorized::Block* block, int channel_id);
     std::vector<std::vector<uint32_t>> _partition_rows_histogram;
 };
@@ -317,7 +317,7 @@ public:
                                           free_block_limit) {}
     ~PassthroughExchanger() override = default;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
-                SinkInfo&& sink_info) override;
+                SinkInfo& sink_info) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos, Profile&& profile,
                      SourceInfo&& source_info) override;
@@ -333,7 +333,7 @@ public:
                                           free_block_limit) {}
     ~PassToOneExchanger() override = default;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
-                SinkInfo&& sink_info) override;
+                SinkInfo& sink_info) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos, Profile&& profile,
                      SourceInfo&& source_info) override;
@@ -347,7 +347,7 @@ public:
             : Exchanger<BroadcastBlock>(running_sink_operators, num_partitions, free_block_limit) {}
     ~BroadcastExchanger() override = default;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
-                SinkInfo&& sink_info) override;
+                SinkInfo& sink_info) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos, Profile&& profile,
                      SourceInfo&& source_info) override;
@@ -367,7 +367,7 @@ public:
         _partition_rows_histogram.resize(running_sink_operators);
     }
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
-                SinkInfo&& sink_info) override;
+                SinkInfo& sink_info) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos, Profile&& profile,
                      SourceInfo&& source_info) override;
@@ -376,11 +376,10 @@ public:
     void close(SourceInfo&& source_info) override;
 
 private:
-    Status _passthrough_sink(RuntimeState* state, vectorized::Block* in_block,
-                             SinkInfo&& sink_info);
-    Status _shuffle_sink(RuntimeState* state, vectorized::Block* in_block, SinkInfo&& sink_info);
-    Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
-                       vectorized::Block* block, SinkInfo&& sink_info);
+    Status _passthrough_sink(RuntimeState* state, vectorized::Block* in_block, SinkInfo& sink_info);
+    Status _shuffle_sink(RuntimeState* state, vectorized::Block* in_block, SinkInfo& sink_info);
+    Status _split_rows(RuntimeState* state, const std::vector<uint32_t>& channel_ids,
+                       vectorized::Block* block, SinkInfo& sink_info);
 
     std::atomic_bool _is_pass_through = false;
     std::atomic_int32_t _total_block = 0;

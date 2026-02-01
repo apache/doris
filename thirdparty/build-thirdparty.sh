@@ -1370,6 +1370,8 @@ build_cctz() {
     # -Wno-elaborated-enum-base to make C++20 on MacOS happy
     "${CMAKE_CMD}" -G "${GENERATOR}" \
     -DCMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS -Wno-elaborated-enum-base" \
+    -DBUILD_EXAMPLES=OFF \
+    -DBUILD_TOOLS=OFF \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_TESTING=OFF ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
 }

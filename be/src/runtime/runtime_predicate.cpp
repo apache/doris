@@ -63,12 +63,17 @@ Status RuntimePredicate::init_target(
     }
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
     check_target_node_id(target_node_id);
+    // order by abs(col1) limit x;
+    // cannot be used min-max filter, no need create predicate.
+    // but can used in VTopNPred.execute_column
     if (target_is_slot(target_node_id)) {
         _contexts[target_node_id].col_name =
                 slot_id_to_slot_desc[get_texpr(target_node_id).nodes[0].slot_ref.slot_id]
                         ->col_name();
-        _contexts[target_node_id].predicate =
-                SharedPredicate::create_shared(cast_set<uint32_t>(column_id), "");
+        _contexts[target_node_id].col_data_type =
+                slot_id_to_slot_desc[get_texpr(target_node_id).nodes[0].slot_ref.slot_id]->type();
+        _contexts[target_node_id].predicate = SharedPredicate::create_shared(
+                cast_set<uint32_t>(column_id), _contexts[target_node_id].col_name);
     }
     _detected_target = true;
     return Status::OK();
@@ -77,33 +82,33 @@ Status RuntimePredicate::init_target(
 StringRef RuntimePredicate::_get_string_ref(const Field& field, const PrimitiveType type) {
     switch (type) {
     case PrimitiveType::TYPE_BOOLEAN: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType>();
+        const auto& v = field.get<TYPE_BOOLEAN>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_TINYINT: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_TINYINT>::CppType>();
+        const auto& v = field.get<TYPE_TINYINT>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_SMALLINT: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_SMALLINT>::CppType>();
+        const auto& v = field.get<TYPE_SMALLINT>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_INT: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_INT>::CppType>();
+        const auto& v = field.get<TYPE_INT>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_BIGINT: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_BIGINT>::CppType>();
+        const auto& v = field.get<TYPE_BIGINT>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_LARGEINT: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_LARGEINT>::CppType>();
+        const auto& v = field.get<TYPE_LARGEINT>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_CHAR:
     case PrimitiveType::TYPE_VARCHAR:
     case PrimitiveType::TYPE_STRING: {
-        const auto& v = field.get<String>();
+        const auto& v = field.get<TYPE_STRING>();
         auto length = v.size();
         char* buffer = _predicate_arena.alloc(length);
         memset(buffer, 0, length);
@@ -112,61 +117,60 @@ StringRef RuntimePredicate::_get_string_ref(const Field& field, const PrimitiveT
         return {buffer, length};
     }
     case PrimitiveType::TYPE_DATEV2: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType>();
+        const auto& v = field.get<TYPE_DATEV2>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_DATETIMEV2: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType>();
+        const auto& v = field.get<TYPE_DATETIMEV2>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_TIMESTAMPTZ: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::CppType>();
+        const auto& v = field.get<TYPE_TIMESTAMPTZ>();
         return StringRef((char*)&v, sizeof(v));
         break;
     }
     case PrimitiveType::TYPE_DATE: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_DATE>::CppType>();
+        const auto& v = field.get<TYPE_DATE>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_DATETIME: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType>();
+        const auto& v = field.get<TYPE_DATETIME>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_TIMEV2: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType>();
+        const auto& v = field.get<TYPE_TIMEV2>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_DECIMAL32: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_DECIMAL32>::CppType>();
+        const auto& v = field.get<TYPE_DECIMAL32>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_DECIMAL64: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_DECIMAL64>::CppType>();
+        const auto& v = field.get<TYPE_DECIMAL64>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_DECIMALV2: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType>();
+        const auto& v = field.get<TYPE_DECIMALV2>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_DECIMAL128I: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::CppType>();
+        const auto& v = field.get<TYPE_DECIMAL128I>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_DECIMAL256: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_DECIMAL256>::CppType>();
+        const auto& v = field.get<TYPE_DECIMAL256>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_IPV4: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_IPV4>::CppType>();
+        const auto& v = field.get<TYPE_IPV4>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_IPV6: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_IPV6>::CppType>();
+        const auto& v = field.get<TYPE_IPV6>();
         return StringRef((char*)&v, sizeof(v));
     }
     case doris::PrimitiveType::TYPE_VARBINARY: {
-        // For VARBINARY type, use StringViewField to store binary data
-        const auto& v = field.get<StringViewField>();
+        const auto& v = field.get<TYPE_VARBINARY>();
         auto length = v.size();
         char* buffer = _predicate_arena.alloc(length);
         memset(buffer, 0, length);
@@ -212,13 +216,26 @@ Status RuntimePredicate::update(const Field& value) {
     }
     for (auto p : _contexts) {
         auto ctx = p.second;
-        if (!ctx.tablet_schema) {
+        if (ctx.predicate == nullptr) {
+            // 1. `init_target` will not create predicate. example : `order by abs(col1) limit x;`
+            // So don't need create new `ColumnPredicate`,
+            // but need update `_orderby_extrem` for  `VTopNPred.execute_column`
+            // 2. this `RuntimePredicate` will associate multiple scan nodes.
+            // When the sort node is updated, some scan nodes may not have called `init_target` yet.
+            // example:
+            //SELECT subq1.pk AS pk1 FROM (
+            //    ( SELECT t1.pk  FROM tb AS t1 )
+            //    UNION ALL
+            //    ( SELECT t1.pk  FROM tb AS t1  ORDER BY t1.pk ))
+            //    subq1
+            //WHERE subq1.pk <> (
+            //    SELECT t1.pk  FROM tb AS t1  ORDER BY t1.pk LIMIT 1
+            //) ORDER BY 1 LIMIT 1 ;
             continue;
         }
-        const auto& column = *DORIS_TRY(ctx.tablet_schema->column(ctx.col_name));
         auto str_ref = _get_string_ref(_orderby_extrem, _type);
         std::shared_ptr<ColumnPredicate> pred =
-                _pred_constructor(ctx.predicate->column_id(), column.name(), column.get_vec_type(),
+                _pred_constructor(ctx.predicate->column_id(), ctx.col_name, ctx.col_data_type,
                                   str_ref, false, _predicate_arena);
 
         // For NULLS FIRST, wrap a AcceptNullPredicate to return true for NULL

@@ -1154,17 +1154,22 @@ void scan_tmp_rowset(
         while (it->has_next()) {
             auto [k, v] = it->next();
             LOG(INFO) << "range_get rowset_tmp_key=" << hex(k) << " txn_id=" << txn_id;
-            tmp_rowsets_meta->emplace_back();
-            if (!tmp_rowsets_meta->back().second.ParseFromArray(v.data(), v.size())) {
+            RowsetMetaCloudPB rs_meta;
+            if (!rs_meta.ParseFromArray(v.data(), v.size())) {
                 code = MetaServiceCode::PROTOBUF_PARSE_ERR;
                 ss << "malformed rowset meta, unable to initialize, txn_id=" << txn_id
-                   << " key=" << hex(k);
+                   << " key=" << hex(k) << " err=" << err;
                 msg = ss.str();
                 LOG(WARNING) << msg;
                 return;
             }
-            // Save keys that will be removed later
-            tmp_rowsets_meta->back().first = std::string(k.data(), k.size());
+            if (rs_meta.has_is_recycled() && rs_meta.is_recycled()) {
+                code = MetaServiceCode::TXN_ALREADY_ABORTED;
+                msg = "rowset has already been marked as recycled";
+                LOG(WARNING) << msg;
+                continue;
+            }
+            tmp_rowsets_meta->emplace_back(std::string(k.data(), k.size()), std::move(rs_meta));
             ++num_rowsets;
             if (!it->has_next()) rs_tmp_key0 = k;
         }
@@ -1227,6 +1232,64 @@ void update_tablet_stats(const StatsTabletKeyInfo& info, const TabletStats& stat
         txn->put(key, val);
         LOG(INFO) << "put stats_tablet_key key=" << hex(key);
     }
+}
+
+// process mow table, check lock and update lock timeout
+void process_mow_when_commit_txn_deferred(
+        const CommitTxnRequest* request, const std::string& instance_id, MetaServiceCode& code,
+        std::string& msg, std::unique_ptr<Transaction>& txn,
+        std::unordered_map<int64_t, std::vector<int64_t>>& table_id_tablet_ids) {
+    int64_t txn_id = request->txn_id();
+    std::stringstream ss;
+    std::vector<std::string> lock_keys;
+    lock_keys.reserve(request->mow_table_ids().size());
+    for (auto table_id : request->mow_table_ids()) {
+        lock_keys.push_back(meta_delete_bitmap_update_lock_key({instance_id, table_id, -1}));
+    }
+    std::vector<std::optional<std::string>> lock_values;
+    TxnErrorCode err = txn->batch_get(&lock_values, lock_keys);
+    if (err != TxnErrorCode::TXN_OK) {
+        ss << "failed to get delete bitmap update lock key info, instance_id=" << instance_id
+           << " err=" << err;
+        msg = ss.str();
+        code = cast_as<ErrCategory::READ>(err);
+        LOG(WARNING) << msg << " txn_id=" << txn_id;
+        return;
+    }
+    size_t total_locks = lock_keys.size();
+    for (size_t i = 0; i < total_locks; i++) {
+        int64_t table_id = request->mow_table_ids(i);
+        // When the key does not exist, it means the lock has been acquired
+        // by another transaction and successfully committed.
+        if (!lock_values[i].has_value()) {
+            ss << "get delete bitmap update lock info, lock is expired"
+               << " table_id=" << table_id << " key=" << hex(lock_keys[i]) << " txn_id=" << txn_id;
+            code = MetaServiceCode::LOCK_EXPIRED;
+            msg = ss.str();
+            LOG(WARNING) << msg << " txn_id=" << txn_id;
+            return;
+        }
+
+        DeleteBitmapUpdateLockPB lock_info;
+        if (!lock_info.ParseFromString(lock_values[i].value())) [[unlikely]] {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = "failed to parse DeleteBitmapUpdateLockPB";
+            LOG(WARNING) << msg << " txn_id=" << txn_id;
+            return;
+        }
+        if (lock_info.lock_id() != request->txn_id()) {
+            ss << "lock is expired, locked by lock_id=" << lock_info.lock_id();
+            msg = ss.str();
+            code = MetaServiceCode::LOCK_EXPIRED;
+            return;
+        }
+        lock_info.set_expiration(std::numeric_limits<int64_t>::max());
+        txn->put(lock_keys[i], lock_info.SerializeAsString());
+        LOG(INFO) << "refresh delete bitmap lock, lock_key=" << hex(lock_keys[i])
+                  << " table_id=" << table_id << " txn_id=" << txn_id;
+    }
+    lock_keys.clear();
+    lock_values.clear();
 }
 
 // process mow table, check lock and remove pending key
@@ -1307,7 +1370,7 @@ std::pair<MetaServiceCode, std::string> get_tablet_indexes(
     }
 
     TxnErrorCode err = txn->batch_get(&tablet_idx_values, tablet_idx_keys,
-                                      Transaction::BatchGetOptions(false));
+                                      Transaction::BatchGetOptions(snapshot));
     if (err != TxnErrorCode::TXN_OK) {
         auto msg = fmt::format("failed to get tablet table index ids, err={}", err);
         LOG_WARNING(msg);
@@ -1886,6 +1949,9 @@ void MetaServiceImpl::commit_txn_immediately(
         if (err != TxnErrorCode::TXN_OK) {
             if (err == TxnErrorCode::TXN_CONFLICT) {
                 g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter << 1;
+            } else if (err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
+                LOG(WARNING) << "commit txn failed due to txn size too large, txn_id=" << txn_id
+                             << " the underlying txn size=" << txn->approximate_bytes(true);
             }
             code = cast_as<ErrCategory::COMMIT>(err);
             ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
@@ -2074,13 +2140,13 @@ void MetaServiceImpl::commit_txn_eventually(
                 std::ranges::views::transform(
                         [](const auto& pair) { return pair.second.tablet_id(); }));
         if (!is_versioned_read) {
-            std::tie(code, msg) =
-                    get_tablet_indexes(txn.get(), &tablet_ids, instance_id, acquired_tablet_ids);
+            std::tie(code, msg) = get_tablet_indexes(txn.get(), &tablet_ids, instance_id,
+                                                     acquired_tablet_ids, true);
             if (code != MetaServiceCode::OK) {
                 return;
             }
         } else {
-            err = meta_reader.get_tablet_indexes(txn.get(), acquired_tablet_ids, &tablet_ids);
+            err = meta_reader.get_tablet_indexes(txn.get(), acquired_tablet_ids, &tablet_ids, true);
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::READ>(err);
                 msg = fmt::format("failed to get tablet indexes, err={}", err);
@@ -2106,6 +2172,24 @@ void MetaServiceImpl::commit_txn_eventually(
                 return;
             }
             continue;
+        }
+
+        stats.get_bytes += txn->get_bytes();
+        stats.put_bytes += txn->put_bytes();
+        stats.del_bytes += txn->delete_bytes();
+        stats.get_counter += txn->num_get_keys();
+        stats.put_counter += txn->num_put_keys();
+        stats.del_counter += txn->num_del_keys();
+
+        // Reset txn to avoid txn is too old to perform reads or be committed
+        txn.reset();
+        err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::CREATE>(err);
+            ss << "failed to create txn, txn_id=" << txn_id << " err=" << err;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
         }
 
         CommitTxnLogPB commit_txn_log;
@@ -2333,10 +2417,24 @@ void MetaServiceImpl::commit_txn_eventually(
         for (auto& [tablet_id, tablet_idx] : tablet_ids) {
             table_id_tablet_ids[tablet_idx.table_id()].push_back(tablet_id);
         }
-        process_mow_when_commit_txn(request, instance_id, code, msg, txn, table_id_tablet_ids);
-        if (code != MetaServiceCode::OK) {
-            LOG(WARNING) << "process mow failed, txn_id=" << txn_id << " code=" << code;
-            return;
+        if (config::txn_lazy_commit_defer_deleting_pending_delete_bitmaps) {
+            txn_info.clear_table_ids();
+            for (auto& [table_id, _] : table_id_tablet_ids) {
+                txn_info.add_table_ids(table_id);
+            }
+            txn_info.set_defer_deleting_pending_delete_bitmaps(true);
+            process_mow_when_commit_txn_deferred(request, instance_id, code, msg, txn,
+                                                 table_id_tablet_ids);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << "process mow failed, txn_id=" << txn_id << " code=" << code;
+                return;
+            }
+        } else {
+            process_mow_when_commit_txn(request, instance_id, code, msg, txn, table_id_tablet_ids);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << "process mow failed, txn_id=" << txn_id << " code=" << code;
+                return;
+            }
         }
 
         // Save table versions
@@ -2379,12 +2477,17 @@ void MetaServiceImpl::commit_txn_eventually(
         if (err != TxnErrorCode::TXN_OK) {
             if (err == TxnErrorCode::TXN_CONFLICT) {
                 g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter << 1;
+            } else if (err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
+                LOG(WARNING) << "commit txn failed due to txn size too large, txn_id=" << txn_id
+                             << " the underlying txn size=" << txn->approximate_bytes(true);
             }
             code = cast_as<ErrCategory::COMMIT>(err);
             ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
             msg = ss.str();
             return;
         }
+
+        TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::abort_txn_after_mark_txn_commited");
 
         TEST_SYNC_POINT_RETURN_WITH_VOID("commit_txn_eventually::txn_lazy_committer_submit",
                                          &txn_id);
@@ -2924,6 +3027,10 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         if (err != TxnErrorCode::TXN_OK) {
             if (err == TxnErrorCode::TXN_CONFLICT) {
                 g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter << 1;
+            } else if (err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
+                LOG(WARNING) << "commit txn with sub txn failed due to txn size too large, txn_id="
+                             << txn_id
+                             << " the underlying txn size=" << txn->approximate_bytes(true);
             }
             code = cast_as<ErrCategory::COMMIT>(err);
             ss << "failed to commit kv txn with sub txn, txn_id=" << txn_id << " err=" << err;
@@ -3046,9 +3153,9 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
                           stats);
 }
 
-static void _abort_txn(const std::string& instance_id, const AbortTxnRequest* request,
-                       Transaction* txn, TxnInfoPB& return_txn_info, std::stringstream& ss,
-                       MetaServiceCode& code, std::string& msg) {
+void _abort_txn(const std::string& instance_id, const AbortTxnRequest* request, Transaction* txn,
+                TxnInfoPB& return_txn_info, std::stringstream& ss, MetaServiceCode& code,
+                std::string& msg) {
     int64_t txn_id = request->txn_id();
     std::string label = request->label();
     int64_t db_id = request->db_id();
@@ -3126,6 +3233,12 @@ static void _abort_txn(const std::string& instance_id, const AbortTxnRequest* re
         if (return_txn_info.status() == TxnStatusPB::TXN_STATUS_VISIBLE) {
             code = MetaServiceCode::TXN_ALREADY_VISIBLE;
             ss << "transaction [" << txn_id << "] is already VISIBLE, db_id=" << db_id;
+            msg = ss.str();
+            return;
+        }
+        if (return_txn_info.status() == TxnStatusPB::TXN_STATUS_COMMITTED) {
+            code = MetaServiceCode::TXN_ALREADY_COMMITED;
+            ss << "transaction [" << txn_id << "] is already COMMITED, db_id=" << db_id;
             msg = ss.str();
             return;
         }
@@ -3889,6 +4002,91 @@ void MetaServiceImpl::abort_txn_with_coordinator(::google::protobuf::RpcControll
             return;
         }
     }
+}
+
+void MetaServiceImpl::get_prepare_txn_by_coordinator(
+        ::google::protobuf::RpcController* controller,
+        const GetPrepareTxnByCoordinatorRequest* request,
+        GetPrepareTxnByCoordinatorResponse* response, ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(get_prepare_txn_by_coordinator, get);
+    if (!request->has_id() || !request->has_ip()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "invalid coordinate id or coordinate ip.";
+        return;
+    }
+    // TODO: For auth
+    std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
+    instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        ss << "cannot find instance_id with cloud_unique_id="
+           << (cloud_unique_id.empty() ? "(empty)" : cloud_unique_id);
+        msg = ss.str();
+        return;
+    }
+    RPC_RATE_LIMIT(get_prepare_txn_by_coordinator);
+    std::string begin_info_key = txn_info_key({instance_id, 0, 0});
+    std::string end_info_key = txn_info_key({instance_id, INT64_MAX, INT64_MAX});
+    LOG(INFO) << "begin_info_key:" << hex(begin_info_key) << " end_info_key:" << hex(end_info_key);
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        msg = "failed to create txn";
+        code = cast_as<ErrCategory::CREATE>(err);
+        return;
+    }
+    std::unique_ptr<RangeGetIterator> it;
+    int32_t result_count = 0;
+    int64_t total_iteration_cnt = 0;
+    bool has_start_time_filter = request->has_start_time();
+
+    do {
+        err = txn->get(begin_info_key, end_info_key, &it, true);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            ss << "failed to get txn info. err=" << err;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        while (it->has_next()) {
+            total_iteration_cnt++;
+            auto [k, v] = it->next();
+            VLOG_DEBUG << "check txn info txn_info_key=" << hex(k);
+            TxnInfoPB info_pb;
+            if (!info_pb.ParseFromArray(v.data(), v.size())) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                ss << "malformed txn running info";
+                msg = ss.str();
+                ss << " key=" << hex(k);
+                LOG(WARNING) << ss.str();
+                return;
+            }
+            const auto& coordinate = info_pb.coordinator();
+            bool matches = info_pb.status() == TxnStatusPB::TXN_STATUS_PREPARED &&
+                           coordinate.sourcetype() == TXN_SOURCE_TYPE_BE &&
+                           coordinate.ip() == request->ip() &&
+                           (coordinate.id() == 0 || coordinate.id() == request->id());
+            if (matches && has_start_time_filter) {
+                matches = coordinate.start_time() < request->start_time();
+            }
+
+            if (matches) {
+                TxnInfoPB* txn_info = response->add_txn_infos();
+                txn_info->CopyFrom(info_pb);
+                result_count++;
+            }
+
+            if (!it->has_next()) {
+                begin_info_key = k;
+            }
+        }
+        begin_info_key.push_back('\x00'); // Update to next smallest key for iteration
+    } while (it->more());
+
+    LOG(INFO) << "get_prepare_txn_by_coordinator: found " << result_count << " transactions"
+              << " total iteration count: " << total_iteration_cnt;
 }
 
 std::string get_txn_info_key_from_txn_running_key(std::string_view txn_running_key) {

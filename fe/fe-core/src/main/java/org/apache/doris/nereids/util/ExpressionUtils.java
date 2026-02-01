@@ -58,6 +58,15 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Explode;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeBitmap;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeBitmapOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeMap;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeMapOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode;
+import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplodeOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
@@ -74,6 +83,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.qe.ConnectContext;
@@ -309,13 +319,8 @@ public class ExpressionUtils {
         }
     }
 
-    public static Expression shuttleExpressionWithLineage(Expression expression, Plan plan, BitSet tableBitSet) {
+    public static Expression shuttleExpressionWithLineage(Expression expression, Plan plan) {
         return shuttleExpressionWithLineage(Lists.newArrayList(expression), plan).get(0);
-    }
-
-    public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
-            Plan plan, BitSet tableBitSet) {
-        return shuttleExpressionWithLineage(expressions, plan);
     }
 
     /**
@@ -325,7 +330,6 @@ public class ExpressionUtils {
      * select b - 5 as a, d from table
      * );
      * op expression before is: a + 10 as a1, d. after is: b - 5 + 10, d
-     * todo to get from plan struct info
      */
     public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
             Plan plan) {
@@ -1299,5 +1303,37 @@ public class ExpressionUtils {
             }
         }
         return false;
+    }
+
+    /**
+     * convert unnest to explode_* functions
+     * because we have import java.util.function.Function, so use full-qualified package name here
+     */
+    public static org.apache.doris.nereids.trees.expressions.functions.Function convertUnnest(Unnest unnest) {
+        DataType dataType = unnest.child(0).getDataType();
+        List<Expression> args = unnest.getArguments();
+        if (args.isEmpty()) {
+            throw new AnalysisException("UNNEST function's arguments can not be empty");
+        }
+        if (dataType.isArrayType()) {
+            Expression[] others = args.subList(1, args.size()).toArray(new Expression[0]);
+            return unnest.isOuter()
+                    ? unnest.needOrdinality() ? new PosExplodeOuter(args.get(0), others)
+                            : new ExplodeOuter(args.get(0), others)
+                    : unnest.needOrdinality() ? new PosExplode(args.get(0), others) : new Explode(args.get(0), others);
+        } else {
+            if (unnest.needOrdinality()) {
+                throw new AnalysisException(String.format("only ARRAY support WITH ORDINALITY,"
+                        + " but argument's type is %s", dataType));
+            }
+            if (dataType.isMapType()) {
+                return unnest.isOuter() ? new ExplodeMapOuter(args.get(0)) : new ExplodeMap(args.get(0));
+            } else if (dataType.isBitmapType()) {
+                return unnest.isOuter() ? new ExplodeBitmapOuter(args.get(0)) : new ExplodeBitmap(args.get(0));
+            } else {
+                throw new AnalysisException(String.format("UNNEST function doesn't support %s argument type, "
+                        + "please try to use lateral view and explode_* function set instead", dataType.toSql()));
+            }
+        }
     }
 }

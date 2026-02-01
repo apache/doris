@@ -27,7 +27,6 @@
 #include "runtime/primitive_type.h"
 #include "testutil/any_type.h"
 #include "testutil/column_helper.h"
-#include "udf/udf.h"
 #include "util/jsonb_writer.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/types.h"
@@ -36,6 +35,7 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/serde/data_type_serde.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {

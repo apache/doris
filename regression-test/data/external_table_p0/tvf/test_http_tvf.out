@@ -136,6 +136,9 @@ struct_arr_map	struct<aa:array<text>,mm:map<date,text>>	Yes	false	\N	NONE
 id	int	Yes	false	\N	NONE
 m	map<text,text>	Yes	false	\N	NONE
 
+-- !sql_norange --
+200
+
 -- !sql13 --
 1	1.1234	12.123456	123.123456789876	12	1234.123456789	123
 2	1234.1234	123456789123.123456	12345678912345678912345678.123456789876	123456789	123456789123456789.123456780	987654321

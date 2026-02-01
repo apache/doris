@@ -24,8 +24,8 @@
 #include "common/status.h"
 #include "olap/rowset/segment_v2/ann_index/ann_range_search_runtime.h"
 #include "runtime/runtime_state.h"
-#include "udf/udf.h"
 #include "vec/core/column_numbers.h"
+#include "vec/exprs/function_context.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
@@ -54,7 +54,8 @@ public:
     VectorizedFnCall(const TExprNode& node);
     Status execute_column(VExprContext* context, const Block* block, size_t count,
                           ColumnPtr& result_column) const override;
-    Status execute_runtime_filter(VExprContext* context, const Block* block, size_t count,
+    Status execute_runtime_filter(VExprContext* context, const Block* block,
+                                  const uint8_t* __restrict filter, size_t count,
                                   ColumnPtr& result_column, ColumnPtr* arg_column) const override;
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
