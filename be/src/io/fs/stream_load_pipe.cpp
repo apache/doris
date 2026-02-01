@@ -113,6 +113,55 @@ Status StreamLoadPipe::read_one_message(DorisUniqueBufferPtr<uint8_t>* data, siz
 
 Status StreamLoadPipe::append_and_flush(const char* data, size_t size, size_t proto_byte_size) {
     SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->stream_load_pipe_tracker());
+    if (config::enable_group_commit_mem_alloc_fail_retry) {
+        int retry_times = 0;
+        Status st;
+        while (retry_times < config::group_commit_mem_alloc_fail_max_retry_times) {
+            ByteBufferPtr buf;
+            DBUG_EXECUTE_IF("StreamLoadPipe.append_and_flush.alloc_memory_fail", {
+                auto available_memory = dp->param<int64_t>("available_memory", -1);
+                auto fail_index = dp->param<int64_t>("fail_index", -1);
+                static std::atomic<int64_t> call_count {0};
+                auto current = call_count.fetch_add(1);
+                if (available_memory > 0 && size > available_memory &&
+                    (fail_index == -1 || current == fail_index)) {
+                    int retry_attempt = (current > 0) ? (current - 1) : 0;
+                    return Status::MemoryAllocFailed(
+                            "debug point: memory allocation failed in retry, requested {} bytes "
+                            "but only {} bytes available, "
+                            "call_count={}, retry_attempt={}",
+                            size, available_memory, current, retry_attempt);
+                }
+            });
+            st = ByteBuffer::allocate(BitUtil::RoundUpToPowerOfTwo(size + 1), &buf);
+            if (st.ok()) {
+                buf->put_bytes(data, size);
+                buf->flip();
+                return _append(buf, proto_byte_size);
+            }
+            if (!st.is<ErrorCode::MEM_ALLOC_FAILED>() ||
+                retry_times >= config::group_commit_mem_alloc_fail_max_retry_times ||
+                size > config::group_commit_mem_alloc_fail_retry_max_bytes) {
+                return st;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(
+                    config::group_commit_mem_alloc_fail_retry_interval_ms));
+            retry_times++;
+            LOG(WARNING) << "Memory allocation failed for append_and_flush, retry " << retry_times
+                         << "/" << config::group_commit_mem_alloc_fail_max_retry_times
+                         << ", size=" << size << ", error=" << st.to_string();
+        }
+        return st;
+    }
+    DBUG_EXECUTE_IF("StreamLoadPipe.append_and_flush.alloc_memory_fail_no_retry", {
+        auto available_memory = dp->param<int64_t>("available_memory", -1);
+        if (available_memory > 0 && size > available_memory) {
+            return Status::MemoryAllocFailed(
+                    "debug point: memory allocation failed (no retry), requested {} bytes but "
+                    "only {} bytes available",
+                    size, available_memory);
+        }
+    });
     ByteBufferPtr buf;
     RETURN_IF_ERROR(ByteBuffer::allocate(BitUtil::RoundUpToPowerOfTwo(size + 1), &buf));
     buf->put_bytes(data, size);

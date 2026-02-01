@@ -1672,6 +1672,16 @@ DEFINE_String(aws_credentials_provider_version, "v2");
 DEFINE_Validator(aws_credentials_provider_version, [](const std::string& config) -> bool {
     return config == "v1" || config == "v2";
 });
+// switch for group commit append memory allocate failure handling
+DEFINE_mBool(enable_group_commit_mem_alloc_fail_cancel, "true");
+// enable memory allocate failure retry for group commit
+DEFINE_mBool(enable_group_commit_mem_alloc_fail_retry, "true");
+// Memory allocation failure retry times, default 3 times
+DEFINE_Int32(group_commit_mem_alloc_fail_max_retry_times, "3");
+// Memory allocation failure retry interval (milliseconds), default 10ms
+DEFINE_Int32(group_commit_mem_alloc_fail_retry_interval_ms, "10");
+// The maximum memory threshold (in bytes) for triggering retries. If this size is exceeded, no retries will be attempted. The default is 1MB
+DEFINE_Int32(group_commit_mem_alloc_fail_retry_max_bytes, "1048576");
 
 // clang-format off
 #ifdef BE_TEST

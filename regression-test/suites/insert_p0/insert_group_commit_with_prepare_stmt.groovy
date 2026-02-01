@@ -25,18 +25,17 @@ import com.mysql.cj.jdbc.result.ResultSetInternalMethods
 
 import java.lang.reflect.Field
 import java.sql.ResultSet
-import java.util.ArrayList
-import java.util.List
 import java.util.concurrent.CopyOnWriteArrayList
 
-suite("insert_group_commit_with_prepare_stmt") {
+suite("insert_group_commit_with_prepare_stmt", "nonConcurrent") {
     def user = context.config.jdbcUser
     def password = context.config.jdbcPassword
     def realDb = "regression_test_insert_p0"
-    def table = realDb + ".insert_group_commit_with_prepare_stmt"
+    def table_prefix = realDb + ".insert_group_commit_with_prepare_stmt"
 
-    sql "CREATE DATABASE IF NOT EXISTS ${realDb}"
-    def getRowCount = { expectedRowCount ->
+    sql "DROP DATABASE IF EXISTS ${realDb}"
+    sql "CREATE DATABASE ${realDb}"
+    def getRowCount = { expectedRowCount, table ->
         def retry = 0
         while (retry < 30) {
             sleep(4000)
@@ -138,6 +137,7 @@ suite("insert_group_commit_with_prepare_stmt") {
     }
 
     def result1 = connect(user, password, url + "&sessionVariables=group_commit=async_mode") {
+        def table = "${table_prefix}_1"
         try {
             // create table
             sql """ drop table if exists ${table}; """
@@ -175,7 +175,7 @@ suite("insert_group_commit_with_prepare_stmt") {
             group_commit_insert insert_stmt, 2, true
             assertEquals(stmtId, getStmtId(insert_stmt))
 
-            getRowCount(6)
+            getRowCount(6, table)
             qt_sql """ select * from ${table} order by id asc; """
 
             // 2. insert into partial columns
@@ -191,20 +191,71 @@ suite("insert_group_commit_with_prepare_stmt") {
             group_commit_insert insert_stmt, 2, true
             assertEquals(stmtId2, getStmtId(insert_stmt))
 
-            getRowCount(7)
+            getRowCount(7, table)
             qt_sql """ select * from ${table} order by id, name, score asc; """
 
         } finally {
             // try_sql("DROP TABLE ${table}")
         }
+        def backends = sql """ show backends """
+        assertTrue(backends.size() > 0, "应该有可用的BE节点")
+
+        def backendHost = backends[0][1]
+        def backendHttpPort = backends[0][4]
+        GetDebugPoint().clearDebugPointsForAllBEs()
+        table = "${table_prefix}_2"
+        try {
+            sql """ drop table if exists ${table}; """
+
+            sql """
+            CREATE TABLE ${table} (
+                `id` int(11) NOT NULL,
+                `name` varchar(50) NULL,
+                `score` int(11) NULL default "-1"
+            ) ENGINE=OLAP
+            UNIQUE KEY(`id`, `name`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+                "group_commit_interval_ms" = "40",
+                "replication_num" = "1"
+            );
+            """
+            def (code, out, err) = update_be_config(backendHost, backendHttpPort, "enable_group_commit_mem_alloc_fail_cancel", "false")
+            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+            // 设置很小的内存限制，确保触发内存分配失败
+            GetDebugPoint().enableDebugPointForAllBEs(
+                    "StreamLoadPipe.append_and_flush.alloc_memory_fail",
+                    ["available_memory": "20", "fail_index": "3"]
+            )
+
+            logger.info("Starting group commit data loss test with memory limit")
+
+            def insert_stmt_loss_test = prepareStatement """ INSERT INTO ${table} VALUES(?, ?, ?) """
+
+            // 前两条应该成功
+            insert_prepared insert_stmt_loss_test, 200, "test_data_200", 200
+            insert_prepared insert_stmt_loss_test, 201, "test_data_201", 201
+
+            // 第三条应该失败
+            insert_prepared insert_stmt_loss_test, 202, "test_data_202", 202
+
+            def result = group_commit_insert insert_stmt_loss_test, 3
+
+        } catch (Exception e) {
+            logger.info("Exception in data loss test: " + e.getMessage())
+            // 即使有异常，也要检查数据状态
+            def actualCount = sql "select count(*) from ${table} where id >= 200"
+            logger.info("Data count after exception: " + actualCount)
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("StreamLoadPipe.append_and_flush.alloc_memory_fail")
+        }
     }
 
-    table = "test_prepared_stmt_duplicate"
     result1 = connect(user, password, url + "&rewriteBatchedStatements=true&cachePrepStmts=true&sessionVariables=group_commit=async_mode") {
+        def table = "test_prepared_stmt_duplicate"
         try {
             // create table
             sql """ drop table if exists ${table}; """
-
             sql """
             CREATE TABLE ${table} (
                 `id` int(11) NOT NULL,
@@ -248,7 +299,7 @@ suite("insert_group_commit_with_prepare_stmt") {
             group_commit_insert insert_stmt, 1
             assertEquals(stmtId3, getStmtId(insert_stmt))
 
-            getRowCount(10)
+            getRowCount(10, table)
             qt_sql """ select * from ${table} order by id asc; """
 
             // 2. insert into partial columns
@@ -264,7 +315,7 @@ suite("insert_group_commit_with_prepare_stmt") {
             group_commit_insert insert_stmt, 2
             getStmtId(insert_stmt)
 
-            getRowCount(13)
+            getRowCount(13, table)
             qt_sql """ select * from ${table} order by id, name, score asc; """
 
         } finally {

@@ -1739,6 +1739,12 @@ DECLARE_mBool(read_cluster_cache_opt_verbose_log);
 
 DECLARE_mString(aws_credentials_provider_version);
 
+DECLARE_mBool(enable_group_commit_mem_alloc_fail_cancel);
+DECLARE_mBool(enable_group_commit_mem_alloc_fail_retry);
+DECLARE_Int32(group_commit_mem_alloc_fail_max_retry_times);
+DECLARE_Int32(group_commit_mem_alloc_fail_retry_interval_ms);
+DECLARE_Int32(group_commit_mem_alloc_fail_retry_max_bytes);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
