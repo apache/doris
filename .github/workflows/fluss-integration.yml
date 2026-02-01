@@ -160,10 +160,10 @@ jobs:
           retention-days: 7
 
   #############################################################################
-  # Job 2: Integration Tests
+  # Job 2: E2E Integration Tests
   #############################################################################
-  integration-tests:
-    name: Integration Tests (Fluss ${{ matrix.fluss_version }})
+  e2e-tests:
+    name: E2E Tests (Fluss ${{ matrix.fluss_version }})
     runs-on: ubuntu-latest
     needs: build-doris-fe
     timeout-minutes: 30
@@ -171,7 +171,6 @@ jobs:
       fail-fast: false
       matrix:
         fluss_version: ['latest']  # Add ['0.6.0', 'latest'] for multi-version testing
-        test_suite: ['catalog', 'metadata']
 
     steps:
       - name: Checkout Doris
@@ -192,166 +191,18 @@ jobs:
         run: |
           sed -i 's|image: doris-fe-fluss:latest|image: doris-fe-fluss:ci|g' docker-compose.yml
 
-      - name: Start Fluss cluster
+      - name: Run E2E Tests
         working-directory: docker/integration-test/fluss
         run: |
-          docker-compose up -d zookeeper minio
-          sleep 10
-          docker-compose up -d minio-init
-          sleep 5
-          docker-compose up -d fluss-coordinator fluss-tablet-server
-          echo "Waiting for Fluss cluster to be ready..."
-          sleep 30
-
-      - name: Verify Fluss cluster health
-        run: |
-          docker ps
-          docker logs fluss-coordinator | tail -20
-          docker logs fluss-tablet-server | tail -20
-
-      - name: Start Flink for test data setup
-        working-directory: docker/integration-test/fluss
-        run: |
-          docker-compose --profile flink up -d flink-jobmanager flink-taskmanager
-          sleep 15
-
-      - name: Setup test data via Flink
-        working-directory: docker/integration-test/fluss
-        run: |
-          cat > /tmp/setup-data.sql << 'EOF'
-          CREATE CATALOG fluss_catalog WITH (
-              'type' = 'fluss',
-              'bootstrap.servers' = 'fluss-coordinator:9123'
-          );
-          USE CATALOG fluss_catalog;
-          CREATE DATABASE demo_db;
-          USE demo_db;
-          CREATE TABLE users (
-              id INT PRIMARY KEY NOT ENFORCED,
-              name STRING,
-              email STRING,
-              age INT,
-              city STRING,
-              created_at TIMESTAMP(3),
-              updated_at TIMESTAMP(3)
-          ) WITH ('bucket.num' = '4');
-          CREATE TABLE orders (
-              order_id INT,
-              user_id INT,
-              product STRING,
-              amount DOUBLE,
-              status STRING,
-              order_date STRING,
-              created_at TIMESTAMP(3),
-              PRIMARY KEY (order_id, order_date) NOT ENFORCED
-          ) PARTITIONED BY (order_date) WITH ('bucket.num' = '4');
-          INSERT INTO users VALUES
-              (1, 'Alice', 'alice@test.com', 28, 'SF', TIMESTAMP '2024-01-15 10:00:00', TIMESTAMP '2024-01-15 10:00:00'),
-              (2, 'Bob', 'bob@test.com', 35, 'NY', TIMESTAMP '2024-01-15 11:00:00', TIMESTAMP '2024-01-15 11:00:00'),
-              (3, 'Carol', 'carol@test.com', 42, 'LA', TIMESTAMP '2024-01-15 11:30:00', TIMESTAMP '2024-01-15 11:30:00');
-          INSERT INTO orders VALUES
-              (101, 1, 'Laptop', 1299.99, 'completed', '2024-01-15', TIMESTAMP '2024-01-15 10:30:00'),
-              (102, 2, 'Mouse', 29.99, 'completed', '2024-01-15', TIMESTAMP '2024-01-15 11:15:00');
-          EOF
-          docker cp /tmp/setup-data.sql flink-jobmanager:/tmp/
-          docker exec flink-jobmanager ./bin/sql-client.sh -f /tmp/setup-data.sql || {
-            echo "Test data setup failed, but continuing..."
-          }
-
-      - name: Start Doris FE
-        working-directory: docker/integration-test/fluss
-        run: |
-          docker-compose --profile doris up -d doris-fe
-          echo "Waiting for Doris FE to be ready..."
-          sleep 20
-
-      - name: Wait for Doris FE to be healthy
-        run: |
-          for i in {1..30}; do
-            if docker exec doris-fe mysql -h 127.0.0.1 -P 9030 -uroot -e "SELECT 1" &>/dev/null; then
-              echo "Doris FE is ready"
-              exit 0
-            fi
-            echo "Waiting for Doris FE... ($i/30)"
-            sleep 2
-          done
-          echo "Doris FE failed to start"
-          docker logs doris-fe
-          exit 1
-
-      - name: Run Catalog Tests
-        if: matrix.test_suite == 'catalog'
-        run: |
-          cat > /tmp/catalog-tests.sql << 'EOF'
-          -- Test 1: Create Fluss catalog
-          CREATE CATALOG IF NOT EXISTS test_fluss_catalog PROPERTIES (
-              'type' = 'fluss',
-              'bootstrap.servers' = 'fluss-coordinator:9123'
-          );
-
-          -- Test 2: Verify catalog exists
-          SHOW CATALOGS;
-
-          -- Test 3: Switch to catalog
-          SWITCH test_fluss_catalog;
-
-          -- Test 4: Drop catalog
-          DROP CATALOG test_fluss_catalog;
-          EOF
-
-          docker exec doris-fe mysql -h 127.0.0.1 -P 9030 -uroot < /tmp/catalog-tests.sql || {
-            echo "Catalog tests failed"
-            exit 1
-          }
-          echo "Catalog tests passed"
-
-      - name: Run Metadata Tests
-        if: matrix.test_suite == 'metadata'
-        run: |
-          cat > /tmp/metadata-tests.sql << 'EOF'
-          -- Test 1: Create catalog
-          CREATE CATALOG IF NOT EXISTS fluss_catalog PROPERTIES (
-              'type' = 'fluss',
-              'bootstrap.servers' = 'fluss-coordinator:9123'
-          );
-
-          -- Test 2: Switch to catalog
-          SWITCH fluss_catalog;
-
-          -- Test 3: List databases
-          SHOW DATABASES;
-
-          -- Test 4: Use database
-          USE demo_db;
-
-          -- Test 5: List tables
-          SHOW TABLES;
-
-          -- Test 6: Describe table
-          DESC users;
-          EOF
-
-          docker exec doris-fe mysql -h 127.0.0.1 -P 9030 -uroot < /tmp/metadata-tests.sql || {
-            echo "Metadata tests failed"
-            exit 1
-          }
-          echo "Metadata tests passed"
-
-      - name: Collect service logs
-        if: always()
-        run: |
-          mkdir -p test-logs
-          docker logs fluss-coordinator > test-logs/fluss-coordinator.log 2>&1
-          docker logs fluss-tablet-server > test-logs/fluss-tablet-server.log 2>&1
-          docker logs doris-fe > test-logs/doris-fe.log 2>&1
-          docker logs flink-jobmanager > test-logs/flink-jobmanager.log 2>&1
+          chmod +x run-e2e-tests.sh
+          ./run-e2e-tests.sh
 
       - name: Upload test logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-logs-${{ matrix.test_suite }}-fluss${{ matrix.fluss_version }}
-          path: test-logs/
+          name: test-logs-fluss${{ matrix.fluss_version }}
+          path: docker/integration-test/fluss/test-logs/
           retention-days: 7
 
       - name: Docker compose down
@@ -365,7 +216,7 @@ jobs:
   test-report:
     name: Generate Test Report
     runs-on: ubuntu-latest
-    needs: integration-tests
+    needs: e2e-tests
     if: always()
 
     steps:
@@ -391,10 +242,10 @@ jobs:
           ## Test Results
           EOF
 
-          if [ "${{ needs.integration-tests.result }}" == "success" ]; then
-            echo "All integration tests passed" >> test-summary.md
+          if [ "${{ needs.e2e-tests.result }}" == "success" ]; then
+            echo "All E2E tests passed" >> test-summary.md
           else
-            echo "Integration tests failed" >> test-summary.md
+            echo "E2E tests failed" >> test-summary.md
           fi
 
           echo "" >> test-summary.md
