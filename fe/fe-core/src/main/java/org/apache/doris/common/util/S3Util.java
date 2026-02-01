@@ -433,4 +433,113 @@ public class S3Util {
             SecurityChecker.getInstance().stopSSRFChecking();
         }
     }
+
+    /**
+     * Check if a path pattern is deterministic, meaning all file paths can be determined
+     * without listing. A pattern is deterministic if it contains no wildcard characters
+     * (*, ?, [...]) but may contain brace patterns ({...}) which can be expanded.
+     *
+     * This allows skipping S3 ListBucket operations when only GetObject permission is available.
+     *
+     * @param pathPattern Path that may contain glob patterns
+     * @return true if the pattern is deterministic (no wildcards)
+     */
+    public static boolean isDeterministicPattern(String pathPattern) {
+        // Check for wildcard characters that require listing
+        // Note: '{' is NOT a wildcard - it's a brace expansion pattern that can be deterministically expanded
+        char[] wildcardChars = {'*', '?', '['};
+        for (char c : wildcardChars) {
+            if (pathPattern.indexOf(c) != -1) {
+                return false;
+            }
+        }
+        // Check for escaped characters which indicate complex patterns
+        if (pathPattern.indexOf('\\') != -1) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Expand brace patterns in a path to generate all concrete file paths.
+     * Handles nested and multiple brace patterns.
+     *
+     * Examples:
+     *   - "file{1,2,3}.csv" => ["file1.csv", "file2.csv", "file3.csv"]
+     *   - "data/part{1..3}/file.csv" => ["data/part1/file.csv", "data/part2/file.csv", "data/part3/file.csv"]
+     *   - "file.csv" => ["file.csv"] (no braces)
+     *
+     * @param pathPattern Path with optional brace patterns (already processed by extendGlobs)
+     * @return List of expanded concrete paths
+     */
+    public static List<String> expandBracePatterns(String pathPattern) {
+        List<String> result = new ArrayList<>();
+        expandBracePatternsRecursive(pathPattern, result);
+        return result;
+    }
+
+    private static void expandBracePatternsRecursive(String pattern, List<String> result) {
+        int braceStart = pattern.indexOf('{');
+        if (braceStart == -1) {
+            // No more braces, add the pattern as-is
+            result.add(pattern);
+            return;
+        }
+
+        // Find matching closing brace (handle nested braces)
+        int braceEnd = findMatchingBrace(pattern, braceStart);
+        if (braceEnd == -1) {
+            // Malformed pattern, treat as literal
+            result.add(pattern);
+            return;
+        }
+
+        String prefix = pattern.substring(0, braceStart);
+        String braceContent = pattern.substring(braceStart + 1, braceEnd);
+        String suffix = pattern.substring(braceEnd + 1);
+
+        // Split by comma, but respect nested braces
+        List<String> alternatives = splitBraceContent(braceContent);
+
+        for (String alt : alternatives) {
+            // Recursively expand any remaining braces in the suffix
+            expandBracePatternsRecursive(prefix + alt + suffix, result);
+        }
+    }
+
+    private static int findMatchingBrace(String pattern, int start) {
+        int depth = 0;
+        for (int i = start; i < pattern.length(); i++) {
+            char c = pattern.charAt(i);
+            if (c == '{') {
+                depth++;
+            } else if (c == '}') {
+                depth--;
+                if (depth == 0) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
+    private static List<String> splitBraceContent(String content) {
+        List<String> parts = new ArrayList<>();
+        int depth = 0;
+        int start = 0;
+
+        for (int i = 0; i < content.length(); i++) {
+            char c = content.charAt(i);
+            if (c == '{') {
+                depth++;
+            } else if (c == '}') {
+                depth--;
+            } else if (c == ',' && depth == 0) {
+                parts.add(content.substring(start, i));
+                start = i + 1;
+            }
+        }
+        parts.add(content.substring(start));
+        return parts;
+    }
 }

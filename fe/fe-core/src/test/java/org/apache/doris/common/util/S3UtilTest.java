@@ -20,6 +20,9 @@ package org.apache.doris.common.util;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.Arrays;
+import java.util.List;
+
 public class S3UtilTest {
 
     @Test
@@ -247,6 +250,111 @@ public class S3UtilTest {
         String expected = "file_{1,2,3}.csv";
         String result = S3Util.extendGlobs(input);
         Assert.assertEquals(expected, result);
+    }
+
+    // Tests for isDeterministicPattern
+
+    @Test
+    public void testIsDeterministicPattern_simpleFile() {
+        // Simple file path without any patterns
+        Assert.assertTrue(S3Util.isDeterministicPattern("path/to/file.csv"));
+    }
+
+    @Test
+    public void testIsDeterministicPattern_withBraces() {
+        // Path with brace pattern (deterministic - can be expanded)
+        Assert.assertTrue(S3Util.isDeterministicPattern("path/to/file{1,2,3}.csv"));
+        Assert.assertTrue(S3Util.isDeterministicPattern("path/to/file{1..3}.csv"));
+    }
+
+    @Test
+    public void testIsDeterministicPattern_withAsterisk() {
+        // Path with asterisk wildcard (not deterministic)
+        Assert.assertFalse(S3Util.isDeterministicPattern("path/to/*.csv"));
+        Assert.assertFalse(S3Util.isDeterministicPattern("path/*/file.csv"));
+    }
+
+    @Test
+    public void testIsDeterministicPattern_withQuestionMark() {
+        // Path with question mark wildcard (not deterministic)
+        Assert.assertFalse(S3Util.isDeterministicPattern("path/to/file?.csv"));
+    }
+
+    @Test
+    public void testIsDeterministicPattern_withBrackets() {
+        // Path with bracket pattern (not deterministic)
+        Assert.assertFalse(S3Util.isDeterministicPattern("path/to/file[0-9].csv"));
+        Assert.assertFalse(S3Util.isDeterministicPattern("path/to/file[abc].csv"));
+    }
+
+    @Test
+    public void testIsDeterministicPattern_withEscape() {
+        // Path with escape character (not deterministic - complex pattern)
+        Assert.assertFalse(S3Util.isDeterministicPattern("path/to/file\\*.csv"));
+    }
+
+    @Test
+    public void testIsDeterministicPattern_mixed() {
+        // Path with both braces and wildcards
+        Assert.assertFalse(S3Util.isDeterministicPattern("path/to/file{1,2}/*.csv"));
+    }
+
+    // Tests for expandBracePatterns
+
+    @Test
+    public void testExpandBracePatterns_noBraces() {
+        // No braces - returns single path
+        List<String> result = S3Util.expandBracePatterns("path/to/file.csv");
+        Assert.assertEquals(Arrays.asList("path/to/file.csv"), result);
+    }
+
+    @Test
+    public void testExpandBracePatterns_simpleBrace() {
+        // Simple brace expansion
+        List<String> result = S3Util.expandBracePatterns("file{1,2,3}.csv");
+        Assert.assertEquals(Arrays.asList("file1.csv", "file2.csv", "file3.csv"), result);
+    }
+
+    @Test
+    public void testExpandBracePatterns_multipleBraces() {
+        // Multiple brace expansions
+        List<String> result = S3Util.expandBracePatterns("dir{a,b}/file{1,2}.csv");
+        Assert.assertEquals(Arrays.asList(
+                "dira/file1.csv", "dira/file2.csv",
+                "dirb/file1.csv", "dirb/file2.csv"), result);
+    }
+
+    @Test
+    public void testExpandBracePatterns_emptyBrace() {
+        // Empty brace content
+        List<String> result = S3Util.expandBracePatterns("file{}.csv");
+        Assert.assertEquals(Arrays.asList("file.csv"), result);
+    }
+
+    @Test
+    public void testExpandBracePatterns_singleValue() {
+        // Single value in brace
+        List<String> result = S3Util.expandBracePatterns("file{1}.csv");
+        Assert.assertEquals(Arrays.asList("file1.csv"), result);
+    }
+
+    @Test
+    public void testExpandBracePatterns_withPath() {
+        // Full path with braces: 2 years × 2 months = 4 paths
+        List<String> result = S3Util.expandBracePatterns("data/year{2023,2024}/month{01,02}/file.csv");
+        Assert.assertEquals(4, result.size());
+        Assert.assertTrue(result.contains("data/year2023/month01/file.csv"));
+        Assert.assertTrue(result.contains("data/year2023/month02/file.csv"));
+        Assert.assertTrue(result.contains("data/year2024/month01/file.csv"));
+        Assert.assertTrue(result.contains("data/year2024/month02/file.csv"));
+    }
+
+    @Test
+    public void testExpandBracePatterns_extendedRange() {
+        // Test with extended range (after extendGlobs processing)
+        String expanded = S3Util.extendGlobs("file{1..3}.csv");
+        List<String> result = S3Util.expandBracePatterns(expanded);
+        Assert.assertEquals(Arrays.asList("file1.csv", "file2.csv", "file3.csv"), result);
     }
 }
 
