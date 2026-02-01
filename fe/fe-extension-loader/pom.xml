@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+for additional information regarding copyright ownership.
+The ASF licenses this file to you under the Apache License, Version 2.0.
+-->
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.apache.doris</groupId>
+        <version>${revision}</version>
+        <artifactId>fe</artifactId>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+    <artifactId>fe-extension-loader</artifactId>
+    <packaging>jar</packaging>
+    <name>Doris FE Extension Loader</name>
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-extension-spi</artifactId>
+            <version>${revision}</version>
+        </dependency>
+    </dependencies>
+</project>
