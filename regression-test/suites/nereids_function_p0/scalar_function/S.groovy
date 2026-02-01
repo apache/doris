@@ -212,6 +212,20 @@ suite("nereids_scalar_fn_S") {
 	qt_sql_st_geomfromwkb_Varchar "select ST_AsText(ST_GeomFromWKB(ST_AsBinary(st_polyfromtext(polygon_wkt)))) from fn_test order by 1"
     qt_sql_st_geomfromwkb_Varchar_notnull "select ST_AsText(ST_GeomFromWKB(ST_AsBinary(st_polyfromtext(polygon_wkt)))) from fn_test_not_nullable order by 1"
 
+	// ST_Equals tests
+	qt_sql_st_equals_point_point "select st_equals(st_point(x_lng, x_lat), st_point(x_lng, x_lat)) from fn_test order by 1"
+	qt_sql_st_equals_point_point_notnull "select st_equals(st_point(x_lng, x_lat), st_point(x_lng, x_lat)) from fn_test_not_nullable order by 1"
+	qt_sql_st_equals_point_different "select st_equals(st_point(x_lng, x_lat), st_point(y_lng, y_lat)) from fn_test order by 1"
+	qt_sql_st_equals_polygon_polygon "select st_equals(st_polygon(polygon_wkt), st_polygon(polygon_wkt)) from fn_test order by 1"
+	qt_sql_st_equals_polygon_polygon_notnull "select st_equals(st_polygon(polygon_wkt), st_polygon(polygon_wkt)) from fn_test_not_nullable order by 1"
+	qt_sql_st_equals_line_line "select st_equals(st_linefromtext(linestring_wkt), st_linefromtext(linestring_wkt)) from fn_test order by 1"
+
+	// ST_Relate tests
+	qt_sql_st_relate_point_point "select st_relate(st_point(x_lng, x_lat), st_point(x_lng, x_lat)) from fn_test order by 1"
+	qt_sql_st_relate_point_point_notnull "select st_relate(st_point(x_lng, x_lat), st_point(x_lng, x_lat)) from fn_test_not_nullable order by 1"
+	qt_sql_st_relate_polygon_point "select st_relate(st_polygon(polygon_wkt), st_point(x_lng, x_lat)) from fn_test order by 1"
+	qt_sql_st_relate_polygon_point_notnull "select st_relate(st_polygon(polygon_wkt), st_point(x_lng, x_lat)) from fn_test_not_nullable order by 1"
+
 	qt_sql_starts_with_Varchar_Varchar "select starts_with(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
 	qt_sql_starts_with_Varchar_Varchar_notnull "select starts_with(kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1"
 	qt_sql_starts_with_String_String "select starts_with(kstr, kstr) from fn_test order by kstr, kstr"
