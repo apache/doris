@@ -3462,6 +3462,24 @@ public class Config extends ConfigBase {
     public static String[] s3_load_endpoint_white_list = {};
 
     @ConfField(mutable = true, description = {
+            "对于确定性的 S3 路径（无通配符如 *, ?, [...]），使用 HEAD 请求代替 ListObjects 来避免需要 ListBucket 权限。"
+            + "这对于只有 GetObject 权限的场景很有用。如果遇到问题可以设置为 false 回退到原有行为。",
+            "For deterministic S3 paths (without wildcards like *, ?, [...]), use HEAD requests instead of "
+            + "ListObjects to avoid requiring ListBucket permission. This is useful when only GetObject "
+            + "permission is granted. Set to false to fall back to the original listing behavior if issues occur."
+    })
+    public static boolean s3_skip_list_for_deterministic_path = true;
+
+    @ConfField(mutable = true, description = {
+            "当使用 HEAD 请求代替 ListObjects 时，展开路径的最大数量。如果展开的路径数量超过此限制，"
+            + "将回退到使用 ListObjects。这可以防止类似 {1..100}/{1..100} 的模式触发过多的 HEAD 请求。",
+            "Maximum number of expanded paths when using HEAD requests instead of ListObjects. "
+            + "If the expanded path count exceeds this limit, falls back to ListObjects. "
+            + "This prevents patterns like {1..100}/{1..100} from triggering too many HEAD requests."
+    })
+    public static int s3_head_request_max_paths = 100;
+
+    @ConfField(mutable = true, description = {
             "此参数控制是否强制使用 Azure global endpoint。默认值为 false，系统将使用用户指定的 endpoint。"
             + "如果设置为 true，系统将强制使用 {account}.blob.core.windows.net。",
             "This parameter controls whether to force the use of the Azure global endpoint. "
