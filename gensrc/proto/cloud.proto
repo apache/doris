@@ -1824,6 +1824,7 @@ enum MetaServiceCode {
 message DeleteBitmapStoragePB {
     optional bool store_in_fdb = 1;
     optional DeleteBitmapPB delete_bitmap = 2;
+    optional PackedSliceLocationPB packed_slice_location = 3;
 }
 
 message UpdateDeleteBitmapRequest {

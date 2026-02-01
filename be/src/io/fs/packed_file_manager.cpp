@@ -371,7 +371,9 @@ Status PackedFileManager::append_small_file(const std::string& path, const Slice
     // Async write data to file cache using small file path as cache key.
     // This ensures cache key matches the cleanup key in Rowset::clear_cache(),
     // allowing proper cache cleanup when stale rowsets are removed.
-    write_small_file_to_cache_async(path, data, info.tablet_id, info.expiration_time);
+    if (info.write_file_cache) {
+        write_small_file_to_cache_async(path, data, info.tablet_id, info.expiration_time);
+    }
 
     // Update index
     PackedSliceLocation location;
