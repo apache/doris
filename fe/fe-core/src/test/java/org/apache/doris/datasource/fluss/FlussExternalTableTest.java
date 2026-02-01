@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.fluss;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;

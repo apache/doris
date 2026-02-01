@@ -55,8 +55,11 @@ public class FlussExternalTable extends ExternalTable {
     @Override
     public TTableDescriptor toThrift() {
         List<Column> schema = getFullSchema();
-        TFlussTable tFlussTable = new TFlussTable(getDbName(), getName(), new HashMap<>());
-        tFlussTable.setBootstrap_servers(getBootstrapServers());
+        TFlussTable tFlussTable = new TFlussTable();
+        tFlussTable.setDbName(getDbName());
+        tFlussTable.setTableName(getName());
+        tFlussTable.setBootstrapServers(getBootstrapServers());
+        tFlussTable.setProperties(new HashMap<>());
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.FLUSS_EXTERNAL_TABLE,
                 schema.size(), 0, getName(), getDbName());
         tTableDescriptor.setFlussTable(tFlussTable);

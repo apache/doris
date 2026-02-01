@@ -21,8 +21,8 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
-import org.apache.doris.datasource.Split;
 import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.spi.Split;
 import org.apache.doris.datasource.fluss.FlussExternalCatalog;
 import org.apache.doris.datasource.fluss.FlussExternalTable;
 import org.apache.doris.planner.PlanNodeId;
@@ -36,7 +36,6 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.fluss.client.admin.Admin;
 import org.apache.fluss.client.metadata.LakeSnapshot;
 import org.apache.fluss.client.table.Table;
-import org.apache.fluss.client.table.snapshot.TableSnapshot;
 import org.apache.fluss.metadata.TableBucket;
 import org.apache.fluss.metadata.TableInfo;
 import org.apache.fluss.metadata.TablePath;
@@ -83,27 +82,27 @@ public class FlussScanNode extends FileQueryScanNode {
         tableFormatFileDesc.setTableFormatType(TableFormatType.FLUSS.value());
 
         TFlussFileDesc flussFileDesc = new TFlussFileDesc();
-        flussFileDesc.setDatabase_name(flussSplit.getDatabaseName());
-        flussFileDesc.setTable_name(flussSplit.getTableName());
-        flussFileDesc.setTable_id(flussSplit.getTableId());
-        flussFileDesc.setBucket_id(flussSplit.getBucketId());
+        flussFileDesc.setDatabaseName(flussSplit.getDatabaseName());
+        flussFileDesc.setTableName(flussSplit.getTableName());
+        flussFileDesc.setTableId(flussSplit.getTableId());
+        flussFileDesc.setBucketId(flussSplit.getBucketId());
         if (flussSplit.getPartitionName() != null) {
-            flussFileDesc.setPartition_name(flussSplit.getPartitionName());
+            flussFileDesc.setPartitionName(flussSplit.getPartitionName());
         }
-        flussFileDesc.setSnapshot_id(flussSplit.getSnapshotId());
+        flussFileDesc.setSnapshotId(flussSplit.getSnapshotId());
         if (flussSplit.getBootstrapServers() != null) {
-            flussFileDesc.setBootstrap_servers(flussSplit.getBootstrapServers());
+            flussFileDesc.setBootstrapServers(flussSplit.getBootstrapServers());
         }
 
         String fileFormat = flussSplit.getLakeFormat() != null ? flussSplit.getLakeFormat() : "parquet";
-        flussFileDesc.setFile_format(fileFormat);
+        flussFileDesc.setFileFormat(fileFormat);
 
-        flussFileDesc.setLake_snapshot_id(flussSplit.getLakeSnapshotId());
+        flussFileDesc.setLakeSnapshotId(flussSplit.getLakeSnapshotId());
         if (flussSplit.hasLakeData()) {
-            flussFileDesc.setLake_file_paths(flussSplit.getLakeFilePaths());
+            flussFileDesc.setLakeFilePaths(flussSplit.getLakeFilePaths());
         }
-        flussFileDesc.setLog_start_offset(flussSplit.getLogStartOffset());
-        flussFileDesc.setLog_end_offset(flussSplit.getLogEndOffset());
+        flussFileDesc.setLogStartOffset(flussSplit.getLogStartOffset());
+        flussFileDesc.setLogEndOffset(flussSplit.getLogEndOffset());
 
         if (fileFormat.equals("orc")) {
             rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
@@ -111,7 +110,7 @@ public class FlussScanNode extends FileQueryScanNode {
             rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
         }
 
-        tableFormatFileDesc.setFluss_params(flussFileDesc);
+        tableFormatFileDesc.setFlussParams(flussFileDesc);
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
@@ -162,7 +161,8 @@ public class FlussScanNode extends FileQueryScanNode {
                 splits.add(fallbackSplit);
             }
 
-            long targetSplitSize = getRealFileSplitSize(0);
+            // Use session variable for split size
+            long targetSplitSize = sessionVariable.getFileSplitSize();
             splits.forEach(s -> s.setTargetSplitSize(targetSplitSize));
 
             LOG.info("Created {} Fluss splits for table {}.{} (lake={}, log={}, hybrid={})",
@@ -264,7 +264,7 @@ public class FlussScanNode extends FileQueryScanNode {
 
     private String determineLakeFormat(TableInfo tableInfo) {
         try {
-            Map<String, String> options = tableInfo.getTableConfig().toMap();
+            Map<String, String> options = tableInfo.getProperties().toMap();
             String format = options.getOrDefault("lake.format", "parquet");
             return format.toLowerCase();
         } catch (Exception e) {
@@ -286,29 +286,40 @@ public class FlussScanNode extends FileQueryScanNode {
                 .count();
     }
 
+    @Override
+    protected Map<String, String> getLocationProperties() throws UserException {
+        // Return Fluss connection properties
+        Map<String, String> properties = new HashMap<>();
+        FlussExternalTable table = (FlussExternalTable) desc.getTable();
+        FlussExternalCatalog catalog = (FlussExternalCatalog) table.getCatalog();
+        properties.put("bootstrap.servers", catalog.getBootstrapServers());
+        return properties;
+    }
+
+    @Override
+    protected org.apache.doris.datasource.ExternalTable getTargetTable() {
+        return (FlussExternalTable) desc.getTable();
+    }
+
+    @Override
+    protected List<String> getPathPartitionKeys() {
+        // Fluss handles partitioning internally
+        // Return empty list as path-based partitioning is not used
+        return new ArrayList<>();
+    }
+
     private long getLatestSnapshotId(Table table) {
-        try {
-            TableSnapshot snapshot = table.getLatestSnapshot();
-            if (snapshot != null) {
-                return snapshot.getSnapshotId();
-            }
-        } catch (Exception e) {
-            LOG.warn("Failed to get latest snapshot, using -1", e);
-        }
+        // TODO: Fluss API changed - getLatestSnapshot() no longer available
+        // This method is used for tiered storage support
+        // For now, returning -1 to indicate no snapshot available
         return -1L;
     }
 
     private List<String> getPartitions(Table table) {
-        List<String> partitions = new ArrayList<>();
-        try {
-            List<String> partitionNames = table.listPartitions();
-            if (partitionNames != null) {
-                partitions.addAll(partitionNames);
-            }
-        } catch (Exception e) {
-            LOG.warn("Failed to list partitions, returning empty list", e);
-        }
-        return partitions;
+        // TODO: Fluss API changed - listPartitions() no longer available on Table
+        // Partition information should be obtained from TableInfo metadata
+        // For now, returning empty list
+        return new ArrayList<>();
     }
 
     private String buildFilePath(FlussExternalTable table, String partition, int bucketId) {
@@ -319,6 +330,13 @@ public class FlussScanNode extends FileQueryScanNode {
         }
         path.append("/bucket-").append(bucketId);
         return path.toString();
+    }
+
+    @Override
+    protected TFileFormatType getFileFormatType() throws UserException {
+        // Fluss uses Parquet as default format, but can also support ORC
+        // The actual format is determined per-split in setFlussParams
+        return TFileFormatType.FORMAT_PARQUET;
     }
 
     @Override

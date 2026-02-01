@@ -217,7 +217,6 @@ public class FlussExternalCatalog extends ExternalCatalog {
         }
     }
 
-    @Override
     public void close() {
         if (flussConnection != null) {
             try {
@@ -228,7 +227,6 @@ public class FlussExternalCatalog extends ExternalCatalog {
             flussConnection = null;
             flussAdmin = null;
         }
-        super.close();
     }
 }
 

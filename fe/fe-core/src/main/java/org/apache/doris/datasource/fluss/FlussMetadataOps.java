@@ -20,6 +20,15 @@ package org.apache.doris.datasource.fluss;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.operations.ExternalMetadataOps;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 
 import org.apache.fluss.client.Connection;
 import org.apache.fluss.client.ConnectionFactory;
@@ -28,7 +37,6 @@ import org.apache.fluss.config.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -39,7 +47,7 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Supplier;
 
-public class FlussMetadataOps implements Closeable {
+public class FlussMetadataOps implements ExternalMetadataOps {
     private static final Logger LOG = LogManager.getLogger(FlussMetadataOps.class);
 
     private static final int MAX_RETRY_ATTEMPTS = 3;
@@ -397,6 +405,59 @@ public class FlussMetadataOps implements Closeable {
             cacheLock.writeLock().unlock();
         }
         LOG.debug("Cleared all metadata cache");
+    }
+
+    // ExternalMetadataOps interface methods
+    @Override
+    public boolean createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException {
+        throw new DdlException("Create database is not supported for Fluss catalog");
+    }
+
+    @Override
+    public void dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
+        throw new DdlException("Drop database is not supported for Fluss catalog");
+    }
+
+    @Override
+    public void afterDropDb(String dbName) {
+        invalidateDatabaseCache(dbName);
+    }
+
+    @Override
+    public boolean createTableImpl(CreateTableInfo createTableInfo) throws UserException {
+        throw new UserException("Create table is not supported for Fluss catalog");
+    }
+
+    @Override
+    public void dropTableImpl(ExternalTable dorisTable, boolean ifExists) throws DdlException {
+        throw new DdlException("Drop table is not supported for Fluss catalog");
+    }
+
+    @Override
+    public void truncateTableImpl(ExternalTable dorisTable, List<String> partitions) throws DdlException {
+        throw new DdlException("Truncate table is not supported for Fluss catalog");
+    }
+
+    @Override
+    public void createOrReplaceBranchImpl(ExternalTable dorisTable, CreateOrReplaceBranchInfo branchInfo)
+            throws UserException {
+        throw new UserException("Branch operations are not supported for Fluss catalog");
+    }
+
+    @Override
+    public void createOrReplaceTagImpl(ExternalTable dorisTable, CreateOrReplaceTagInfo tagInfo)
+            throws UserException {
+        throw new UserException("Tag operations are not supported for Fluss catalog");
+    }
+
+    @Override
+    public void dropTagImpl(ExternalTable dorisTable, DropTagInfo tagInfo) throws UserException {
+        throw new UserException("Drop tag is not supported for Fluss catalog");
+    }
+
+    @Override
+    public void dropBranchImpl(ExternalTable dorisTable, DropBranchInfo branchInfo) throws UserException {
+        throw new UserException("Drop branch is not supported for Fluss catalog");
     }
 
     @Override

@@ -31,7 +31,6 @@ import org.apache.doris.datasource.SchemaCacheValue;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.fluss.metadata.TableInfo;
-import org.apache.fluss.types.ArrayType;
 import org.apache.fluss.types.BigIntType;
 import org.apache.fluss.types.BinaryType;
 import org.apache.fluss.types.BooleanType;
@@ -45,7 +44,6 @@ import org.apache.fluss.types.DoubleType;
 import org.apache.fluss.types.FloatType;
 import org.apache.fluss.types.IntType;
 import org.apache.fluss.types.LocalZonedTimestampType;
-import org.apache.fluss.types.MapType;
 import org.apache.fluss.types.RowType;
 import org.apache.fluss.types.SmallIntType;
 import org.apache.fluss.types.StringType;
@@ -102,7 +100,7 @@ public class FlussUtils {
                 }
             }
             
-            return Optional.of(new SchemaCacheValue(columns, partitionColumns));
+            return Optional.of(new SchemaCacheValue(columns));
         } catch (Exception e) {
             LOG.warn("Failed to load schema for Fluss table: {}.{}", 
                     table.getDbName(), table.getName(), e);
@@ -124,7 +122,7 @@ public class FlussUtils {
                 return Type.TINYINT;
             case SMALLINT:
                 return Type.SMALLINT;
-            case INT:
+            case INTEGER:
                 return Type.INT;
             case BIGINT:
                 return Type.BIGINT;
@@ -150,7 +148,7 @@ public class FlussUtils {
                         decimalType.getPrecision(), decimalType.getScale());
             case DATE:
                 return ScalarType.createDateV2Type();
-            case TIMESTAMP:
+            case TIMESTAMP_WITHOUT_TIME_ZONE:
                 TimestampType timestampType = (TimestampType) flussType;
                 int precision = timestampType.getPrecision();
                 return ScalarType.createDatetimeV2Type(Math.min(precision, 6));
@@ -169,7 +167,7 @@ public class FlussUtils {
                 return new MapType(keyType, valueType);
             case ROW:
                 RowType rowType = (RowType) flussType;
-                List<StructField> structFields = new ArrayList<>();
+                ArrayList<StructField> structFields = new ArrayList<>();
                 for (DataField field : rowType.getFields()) {
                     Type fieldType = flussTypeToDorisType(field.getType(), enableMappingVarbinary);
                     structFields.add(new StructField(field.getName(), fieldType));
@@ -185,12 +183,12 @@ public class FlussUtils {
      */
     public static org.apache.fluss.client.table.Table getFlussTable(FlussExternalTable table) {
         FlussExternalCatalog catalog = (FlussExternalCatalog) table.getCatalog();
-        org.apache.fluss.metadata.TablePath tablePath = 
+        org.apache.fluss.metadata.TablePath tablePath =
                 org.apache.fluss.metadata.TablePath.of(table.getRemoteDbName(), table.getRemoteName());
         FlussMetadataOps metadataOps = (FlussMetadataOps) catalog.getMetadataOps();
         TableInfo tableInfo = metadataOps.getTableInfo(table.getRemoteDbName(), table.getRemoteName());
         return new org.apache.fluss.client.table.FlussTable(
-                catalog.getFlussConnection(), tablePath, tableInfo);
+                (org.apache.fluss.client.FlussConnection) catalog.getFlussConnection(), tablePath, tableInfo);
     }
 }
 
