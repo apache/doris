@@ -382,6 +382,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullOrEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ord;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Overlay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseDataSize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseUrl;
@@ -1916,6 +1917,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitNvl(Nvl nvl, C context) {
         return visitScalarFunction(nvl, context);
+    }
+
+    default R visitOrd(Ord ord, C context) {
+        return visitScalarFunction(ord, context);
     }
 
     default R visitOverlay(Overlay overlay, C context) {

@@ -33,6 +33,31 @@ suite("test_string_function") {
     qt_sql "select ascii('A');"
     qt_sql "select ascii('!');"
 
+    // ord function tests - returns Unicode code point of first character
+    qt_sql_ord "select ord('A');"
+    qt_sql_ord "select ord('a');"
+    qt_sql_ord "select ord('1');"
+    qt_sql_ord "select ord('!');"
+    qt_sql_ord "select ord(' ');"
+    qt_sql_ord "select ord('');"
+    qt_sql_ord "select ord('hello');"
+    qt_sql_ord "select ord(NULL);"
+    // 2-byte UTF-8: 'ñ' (U+00F1) = 241
+    qt_sql_ord "select ord('ñ');"
+    // 2-byte UTF-8: 'é' (U+00E9) = 233
+    qt_sql_ord "select ord('é');"
+    // 3-byte UTF-8: '你' (U+4F60) = 20320
+    qt_sql_ord "select ord('你');"
+    // 3-byte UTF-8: '好' (U+597D) = 22909
+    qt_sql_ord "select ord('好');"
+    // 3-byte UTF-8: '€' (U+20AC) = 8364
+    qt_sql_ord "select ord('€');"
+    // 4-byte UTF-8: '😀' (U+1F600) = 128512
+    qt_sql_ord "select ord('😀');"
+    // Multi-character string: should return first character's code point
+    qt_sql_ord "select ord('你好');"
+    qt_sql_ord "select ord('Hello世界');"
+
     qt_sql "select bit_length(\"abc\");"
 
     qt_sql "select char_length(\"abc\");"
