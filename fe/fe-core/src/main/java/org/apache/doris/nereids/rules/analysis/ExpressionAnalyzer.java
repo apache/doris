@@ -326,10 +326,15 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         }
         Expression right = elementAt.right().accept(this, context);
         elementAt = (ElementAt) elementAt.withChildren(left, right);
-        if (isEnableVariantSchemaAutoCast(context)) {
-            return wrapVariantElementAtWithCast(elementAt);
+        Expression coerced = TypeCoercionUtils.processBoundFunction(elementAt);
+        if (coerced instanceof ElementAt) {
+            ElementAt coercedElementAt = (ElementAt) coerced;
+            if (isEnableVariantSchemaAutoCast(context)) {
+                return wrapVariantElementAtWithCast(coercedElementAt);
+            }
+            return coercedElementAt;
         }
-        return elementAt;
+        return coerced;
     }
 
     @Override
