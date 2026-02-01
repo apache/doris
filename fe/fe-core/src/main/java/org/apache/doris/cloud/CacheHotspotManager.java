@@ -261,7 +261,14 @@ public class CacheHotspotManager extends MasterDaemon {
             } catch (Exception e) {
                 // sleep 60s wait for syncing storage vault info from ms and retry
                 this.intervalMs = 60000;
-                LOG.warn("Create cache hot spot table failed, sleep 60s and retry", e);
+                String errMsg = e.getMessage();
+                if (errMsg != null && (errMsg.contains("No default storage vault")
+                        || errMsg.contains("doesn't exist"))) {
+                    // Expected error during initialization, suppress stack trace
+                    LOG.warn("Create cache hot spot table failed, sleep 60s and retry: {}", errMsg);
+                } else {
+                    LOG.warn("Create cache hot spot table failed, sleep 60s and retry", e);
+                }
                 return;
             }
         }

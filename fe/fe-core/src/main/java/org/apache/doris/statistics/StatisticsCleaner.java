@@ -168,7 +168,13 @@ public class StatisticsCleaner extends MasterDaemon {
             partitionColStatsTbl = (OlapTable) StatisticsUtil.findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
                 dbName, StatisticConstants.PARTITION_STATISTIC_TBL_NAME);
         } catch (Throwable t) {
-            LOG.warn("Failed to init stats cleaner", t);
+            String errMsg = t.getMessage();
+            if (errMsg != null && errMsg.contains("not exists")) {
+                // Expected error during initialization, suppress stack trace
+                LOG.warn("Failed to init stats cleaner: {}", errMsg);
+            } else {
+                LOG.warn("Failed to init stats cleaner", t);
+            }
             return false;
         }
 

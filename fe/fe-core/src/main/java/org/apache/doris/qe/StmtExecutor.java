@@ -616,7 +616,13 @@ public class StmtExecutor {
                             context.getQueryIdentifier(), e);
                     throw new UserException(e.getMessage());
                 }
-                LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
+                String errMsg = e.getMessage();
+                if (errMsg != null && errMsg.contains("No default storage vault")) {
+                    // Expected error during cloud mode initialization, suppress stack trace
+                    LOG.warn("Analyze failed. {} : {}", context.getQueryIdentifier(), errMsg);
+                } else {
+                    LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
+                }
                 context.getState().setError(e.getMessage());
                 return;
             } catch (Exception e) {

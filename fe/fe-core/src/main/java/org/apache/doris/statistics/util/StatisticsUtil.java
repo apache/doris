@@ -240,7 +240,8 @@ public class StatisticsUtil {
             try {
                 ctx.connectContext.getCloudCluster();
             } catch (ComputeGroupException e) {
-                LOG.warn("failed to connect to cloud cluster", e);
+                // Expected error during initialization, suppress stack trace
+                LOG.warn("failed to connect to cloud cluster: {}", e.getMessage());
                 return ctx;
             }
             sessionVariable.disableFileCache = !useFileCacheForStat;
