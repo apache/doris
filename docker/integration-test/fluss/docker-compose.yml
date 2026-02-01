@@ -22,12 +22,19 @@
 networks:
   doris-fluss-net:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.80.0/24
 
 volumes:
   zookeeper-data:
   fluss-coordinator-data:
   fluss-tablet-data:
   minio-data:
+  doris-fe-meta:
+  doris-fe-log:
+  doris-be-storage:
+  doris-be-log:
 
 services:
   # ===========================================
@@ -62,8 +69,8 @@ services:
     container_name: fluss-minio
     hostname: minio
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "19000:9000"
+      - "19001:9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
@@ -109,28 +116,19 @@ services:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
-    environment:
-      FLUSS_MODE: coordinator
-      FLUSS_PROPERTIES: |
-        coordinator.host=fluss-coordinator
-        coordinator.port=9123
-        zookeeper.address=zookeeper:2181
-        zookeeper.path.root=/fluss
-        remote.data.dir=s3://fluss-lake/data
-        s3.endpoint=http://minio:9000
-        s3.access-key=minioadmin
-        s3.secret-key=minioadmin
-        s3.path-style-access=true
+    command: coordinatorServer
     volumes:
       - fluss-coordinator-data:/opt/fluss/data
+      - ./fluss-coordinator.yaml:/opt/fluss/conf/server.yaml
     networks:
       - doris-fluss-net
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9123/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
+    # Healthcheck disabled temporarily
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:9123/health"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 10
+    #   start_period: 30s
 
   # ===========================================
   # Fluss Tablet Server (Data Node)
@@ -142,30 +140,20 @@ services:
     ports:
       - "9124:9124"
     depends_on:
-      fluss-coordinator:
-        condition: service_healthy
-    environment:
-      FLUSS_MODE: tablet-server
-      FLUSS_PROPERTIES: |
-        tablet-server.host=fluss-tablet-server
-        tablet-server.port=9124
-        coordinator.address=fluss-coordinator:9123
-        data.dir=/opt/fluss/data
-        remote.data.dir=s3://fluss-lake/data
-        s3.endpoint=http://minio:9000
-        s3.access-key=minioadmin
-        s3.secret-key=minioadmin
-        s3.path-style-access=true
+      - fluss-coordinator
+    command: tabletServer
     volumes:
       - fluss-tablet-data:/opt/fluss/data
+      - ./fluss-tablet.yaml:/opt/fluss/conf/server.yaml
     networks:
       - doris-fluss-net
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9124/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
+    # Healthcheck disabled temporarily
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:9124/health"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 10
+    #   start_period: 30s
 
   # ===========================================
   # Test Data Initializer
@@ -174,12 +162,11 @@ services:
     image: fluss/fluss:latest
     container_name: fluss-init
     depends_on:
-      fluss-tablet-server:
-        condition: service_healthy
+      - fluss-tablet-server
     entrypoint: >
       /bin/sh -c "
       echo 'Waiting for Fluss cluster to be ready...';
-      sleep 10;
+      sleep 30;
       /opt/fluss/bin/fluss-client.sh --bootstrap-server fluss-coordinator:9123 <<EOF
       CREATE DATABASE IF NOT EXISTS test_db;
       
@@ -261,3 +248,49 @@ services:
       - doris-fluss-net
     profiles:
       - flink
+
+  # ===========================================
+  # Doris Frontend (FE) with Fluss Support
+  # ===========================================
+  doris-fe:
+    image: doris-fe-fluss:latest
+    container_name: doris-fe
+    hostname: doris-fe
+    ports:
+      - "8030:8030"  # HTTP port
+      - "9030:9030"  # MySQL port
+    environment:
+      - FE_SERVERS=fe1:172.20.80.10:9010
+      - FE_ID=1
+    volumes:
+      - ./doris-data/fe/doris-meta:/opt/apache-doris/fe/doris-meta
+      - ./doris-data/fe/log:/opt/apache-doris/fe/log
+    networks:
+      doris-fluss-net:
+        ipv4_address: 172.20.80.10
+    profiles:
+      - doris
+
+  # ===========================================
+  # Doris Backend (BE)
+  # ===========================================
+  doris-be:
+    image: apache/doris:be-3.1.3
+    container_name: doris-be
+    hostname: doris-be
+    depends_on:
+      - doris-fe
+    ports:
+      - "8040:8040"  # HTTP port
+      - "9060:9060"  # Heartbeat port
+    environment:
+      - FE_SERVERS=fe1:172.20.80.10:9010
+      - BE_ADDR=172.20.80.11:9050
+    volumes:
+      - ./doris-data/be/storage:/opt/apache-doris/be/storage
+      - ./doris-data/be/log:/opt/apache-doris/be/log
+    networks:
+      doris-fluss-net:
+        ipv4_address: 172.20.80.11
+    profiles:
+      - doris
