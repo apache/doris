@@ -1611,8 +1611,9 @@ bool GeoCircle::equals(const GeoShape* rhs) const {
     }
     const GeoCircle* other = assert_cast<const GeoCircle*>(rhs);
     // Two circles are equal if they have the same center and radius
+    // Use tolerance-based comparison for floating-point radius values
     return _cap->center() == other->circle()->center() &&
-           _cap->radius() == other->circle()->radius();
+           std::abs(_cap->radius().radians() - other->circle()->radius().radians()) < TOLERANCE;
 }
 
 void GeoCircle::encode(std::string* buf) {
