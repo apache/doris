@@ -458,10 +458,10 @@ SSE2NEON_SOURCE=sse2neon-1.6.0
 SSE2NEON_MD5SUM="dce28eb6a78f45bf98740d5fad73febb"
 
 # xxhash
-XXHASH_DOWNLOAD="https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.1.tar.gz"
-XXHASH_NAME=xxHash-0.8.1.tar.gz
-XXHASH_SOURCE=xxHash-0.8.1
-XXHASH_MD5SUM="b67c587f5ff4894253da0095ba7ea393"
+XXHASH_DOWNLOAD="https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.3.tar.gz"
+XXHASH_NAME=xxHash-0.8.3.tar.gz
+XXHASH_SOURCE=xxHash-0.8.3
+XXHASH_MD5SUM="599804eb9555e51c05f1b821f9212a07"
 
 # concurrentqueue
 CONCURRENTQUEUE_DOWNLOAD="https://github.com/cameron314/concurrentqueue/archive/refs/tags/v1.0.3.tar.gz"
