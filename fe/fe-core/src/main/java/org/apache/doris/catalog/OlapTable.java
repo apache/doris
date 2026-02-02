@@ -3804,31 +3804,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
     }
 
-    public void setColumnSeqMapping(Map<String, List<String>> columnSeqMapping) {
-        getOrCreatTableProperty().setColumnSeqMapping(columnSeqMapping);
-    }
-
-    public Map<String, List<String>> getColumnSeqMapping() {
-        return getOrCreatTableProperty().getColumnSeqMapping();
-    }
-
-    public boolean hasColumnSeqMapping() {
-        return getOrCreatTableProperty().hasColumnSeqMapping();
-    }
-
-    public boolean isSeqMappingKeyColumn(String column) {
-        return getOrCreatTableProperty().isSeqMappingKeyColumn(column);
-    }
-
-    public boolean isSeqMappingValueColumn(String column) {
-        return getOrCreatTableProperty().isSeqMappingValueColumn(column);
-    }
-
-    public String getSeqMappingKey(String column) {
-        return getOrCreatTableProperty().getSeqMappingKey(column);
-
-    }
-
     private List<Index> filterIndexesByAnalyzer(List<Index> original, String analyzer) {
         if (analyzer == null || analyzer.trim().isEmpty()) {
             return original;

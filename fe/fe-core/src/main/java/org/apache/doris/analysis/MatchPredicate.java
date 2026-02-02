@@ -139,7 +139,7 @@ public class MatchPredicate extends Predicate {
         }
         fn = new Function(new FunctionName(op.name), Lists.newArrayList(e1.getType(), e2.getType()), retType,
                 false, true, nullableMode);
-        this.nullable = nullable;
+        setNullableFromNereids(nullable);
     }
 
     @Override

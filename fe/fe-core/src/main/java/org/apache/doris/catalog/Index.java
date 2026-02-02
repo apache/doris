@@ -395,7 +395,7 @@ public class Index implements Writable {
     }
 
     public String getAnalyzerIdentity() {
-        if (indexType != IndexDefinition.IndexType.INVERTED) {
+        if (indexType != IndexDef.IndexType.INVERTED) {
             return "";
         }
         return InvertedIndexUtil.buildAnalyzerIdentity(properties);
