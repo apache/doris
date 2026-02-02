@@ -108,7 +108,18 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         if (StringUtils.isNotBlank(getSessionToken())) {
             s3Props.put("AWS_TOKEN", getSessionToken());
         }
+        String credentialsProviderType = getAwsCredentialsProviderTypeForBackend();
+        if (StringUtils.isNotBlank(credentialsProviderType)) {
+            s3Props.put("AWS_CREDENTIALS_PROVIDER_TYPE", credentialsProviderType);
+        }
         return s3Props;
+    }
+
+    protected String getAwsCredentialsProviderTypeForBackend() {
+        if (StringUtils.isBlank(getAccessKey()) && StringUtils.isBlank(getSecretKey())) {
+            return "ANONYMOUS";
+        }
+        return null;
     }
 
     @Override
