@@ -145,7 +145,6 @@ public:
     virtual bool is_blockable(RuntimeState* state) const = 0;
     virtual void set_low_memory_mode(RuntimeState* state) {}
 
-
     OperatorPtr child() { return _child; }
     virtual Status reset(RuntimeState* state) {
         return Status::InternalError("Reset is not implemented in operator: {}", get_name());
