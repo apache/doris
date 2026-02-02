@@ -143,31 +143,59 @@ public:
      * pipeline task into the blocking task scheduler.
      */
     virtual bool is_blockable(RuntimeState* state) const = 0;
-
     virtual void set_low_memory_mode(RuntimeState* state) {}
 
-    [[nodiscard]] virtual bool require_data_distribution() const { return false; }
     OperatorPtr child() { return _child; }
-    [[nodiscard]] bool followed_by_shuffled_operator() const {
-        return _followed_by_shuffled_operator;
-    }
-    void set_followed_by_shuffled_operator(bool followed_by_shuffled_operator) {
-        _followed_by_shuffled_operator = followed_by_shuffled_operator;
-    }
-    [[nodiscard]] virtual bool is_shuffled_operator() const { return false; }
-    [[nodiscard]] virtual DataDistribution required_data_distribution(
-            RuntimeState* /*state*/) const;
-    [[nodiscard]] virtual bool require_shuffled_data_distribution(RuntimeState* /*state*/) const;
-
     virtual Status reset(RuntimeState* state) {
         return Status::InternalError("Reset is not implemented in operator: {}", get_name());
     }
+
+    /* -------------- Interfaces to determine the input data properties -------------- */
+    /**
+     * Return True if this operator relies on the bucket distribution (e.g. COLOCATE join, 1-phase AGG).
+     * Data input to this kind of operators must have the same distribution with the table buckets.
+     * It is also means `required_data_distribution` should be `BUCKET_HASH_SHUFFLE`.
+     * @return
+     */
+    [[nodiscard]] virtual bool is_colocated_operator() const { return false; }
+    /**
+     * Return True if this operator relies on the bucket distribution or specific hash data distribution (e.g. SHUFFLED HASH join).
+     * Data input to this kind of operators must be HASH distributed according to some rules.
+     * All colocated operators are also shuffled operators.
+     * It is also means `required_data_distribution` should be `BUCKET_HASH_SHUFFLE` or `HASH_SHUFFLE`.
+     * @return
+     */
+    [[nodiscard]] virtual bool is_shuffled_operator() const { return false; }
+    /**
+     * Return True if this operator is followed by a shuffled operator.
+     * For example, in the plan fragment:
+     *   `UNION` -> `SHUFFLED HASH JOIN`
+     * The `SHUFFLED HASH JOIN` is a shuffled operator so the UNION operator is followed by a shuffled operator.
+     */
+    [[nodiscard]] bool followed_by_shuffled_operator() const {
+        return _followed_by_shuffled_operator;
+    }
+    /**
+     * Update the operator properties according to the plan node.
+     * This is called before `prepare`.
+     */
+    virtual void update_operator(const TPlanNode& tnode, bool followed_by_shuffled_operator,
+                                 bool require_bucket_distribution) {
+        _followed_by_shuffled_operator = followed_by_shuffled_operator;
+        _require_bucket_distribution = require_bucket_distribution;
+    }
+    /**
+     * Return the required data distribution of this operator.
+     */
+    [[nodiscard]] virtual DataDistribution required_data_distribution(
+            RuntimeState* /*state*/) const;
 
 protected:
     OperatorPtr _child = nullptr;
 
     bool _is_closed;
     bool _followed_by_shuffled_operator = false;
+    bool _require_bucket_distribution = false;
     bool _is_serial_operator = false;
 };
 
