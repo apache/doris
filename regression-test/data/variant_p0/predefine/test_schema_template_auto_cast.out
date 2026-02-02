@@ -86,47 +86,183 @@ charlie	50
 
 -- !leaf_int1_select --
 1
+2
+1
+3
 
 -- !leaf_int1_add --
 2
+3
+2
+4
 
 -- !leaf_int_nested_nonleaf --
+\\N
+\\N
+\\N
 \\N
 
 -- !leaf_int_nested_chain_select --
 1011111
+2022222
+3033333
+4044444
 
 -- !leaf_int_nested_dot_select --
 1011111
+2022222
+3033333
+4044444
 
 -- !leaf_int_nested_deref_select --
 1011111
+2022222
+3033333
+4044444
+
+-- !leaf_int_nested_mixed_select_1 --
+1011111
+2022222
+3033333
+4044444
+
+-- !leaf_int_nested_mixed_select_2 --
+1011111
+2022222
+3033333
+4044444
+
+-- !leaf_int_nested_mixed_select_3 --
+1011111
+2022222
+3033333
+4044444
+
+-- !leaf_int_nested_paren_root_select --
+1011111
+2022222
+3033333
+4044444
 
 -- !leaf_int_nested_chain_add --
 1011112
+2022223
+3033334
+4044445
 
 -- !leaf_int_nested_dot_add --
 1011112
+2022223
+3033334
+4044445
 
 -- !leaf_int_nested_deref_add --
 1011112
+2022223
+3033334
+4044445
+
+-- !leaf_int_nested_mixed_add_1 --
+1011112
+2022223
+3033334
+4044445
+
+-- !leaf_int_nested_mixed_add_2 --
+1011112
+2022223
+3033334
+4044445
+
+-- !leaf_int_nested_mixed_add_3 --
+1011112
+2022223
+3033334
+4044445
+
+-- !leaf_int_nested_paren_root_add --
+1011112
+2022223
+3033334
+4044445
 
 -- !leaf_where_ok --
 1
+2
+3
+4
 
 -- !leaf_where_nonleaf --
 
+-- !leaf_where_mixed_1 --
+2
+3
+4
+
+-- !leaf_where_mixed_2 --
+2
+3
+4
+
+-- !leaf_where_mixed_3 --
+2
+3
+4
+
+-- !leaf_where_paren_root --
+2
+3
+4
+
 -- !leaf_order_by_ok --
 1
+3
+2
+4
 
 -- !leaf_order_by_nonleaf --
 1
+2
+3
+4
+
+-- !leaf_order_by_mixed_1 --
+1
+2
+3
+4
+
+-- !leaf_order_by_mixed_2 --
+1
+2
+3
+4
+
+-- !leaf_order_by_paren_root --
+1
+2
+3
+4
 
 -- !leaf_group_by_ok --
-1	1
+1	2
+2	1
+3	1
 
 -- !leaf_group_by_nonleaf --
-\\N	1
+\\N	4
+
+-- !leaf_group_by_mixed --
+1011111	1
+2022222	1
+3033333	1
+4044444	1
 
 -- !leaf_having_ok --
-1	1
+1	2
+2	2
+3	3
+
+-- !leaf_having_mixed --
+3033333	3033333
+4044444	4044444

@@ -43,6 +43,15 @@ public class VariantFieldMatchTest {
     }
 
     @Test
+    public void testExactMatchDoesNotTreatGlob() {
+        VariantField field = new VariantField("num_*", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME.name());
+
+        Assertions.assertTrue(field.matches("num_*"));
+        Assertions.assertFalse(field.matches("num_a"));
+    }
+
+    @Test
     public void testGlobMatchSuffix() {
         // Pattern: number_* should match number_latency, number_count, etc.
         VariantField field = new VariantField("number_*", BigIntType.INSTANCE, "",
@@ -101,6 +110,16 @@ public class VariantFieldMatchTest {
         Assertions.assertTrue(field.matches("metrics.count"));
         Assertions.assertFalse(field.matches("metricsXscore"));
         Assertions.assertFalse(field.matches("metrics"));
+    }
+
+    @Test
+    public void testGlobMatchDotLiteral() {
+        // '.' should be treated as literal in glob and escaped in regex
+        VariantField field = new VariantField("a.b", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+
+        Assertions.assertTrue(field.matches("a.b"));
+        Assertions.assertFalse(field.matches("acb"));
     }
 
     @Test
@@ -213,6 +232,16 @@ public class VariantFieldMatchTest {
 
         Assertions.assertTrue(field.matches("int_\\"));
         Assertions.assertFalse(field.matches("int_"));
+    }
+
+    @Test
+    public void testGlobUnclosedBracket() {
+        // No closing bracket: '[' treated as literal
+        VariantField field = new VariantField("int_[0-9", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+
+        Assertions.assertTrue(field.matches("int_[0-9"));
+        Assertions.assertFalse(field.matches("int_1"));
     }
 
     @Test

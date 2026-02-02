@@ -180,10 +180,11 @@ suite("test_schema_template_auto_cast", "p0") {
     DISTRIBUTED BY HASH(`id`) BUCKETS 1
     PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
 
-    sql """insert into ${leafTable} values(
-        1,
-        '{"int_1": 1, "int_nested": {"level1_num_1": 1011111, "level1_num_2": 102}}'
-    )"""
+    sql """insert into ${leafTable} values
+        (1, '{"int_1": 1, "int_nested": {"level1_num_1": 1011111, "level1_num_2": 102}}'),
+        (2, '{"int_1": 2, "int_nested": {"level1_num_1": 2022222, "level1_num_2": 202}}'),
+        (3, '{"int_1": 1, "int_nested": {"level1_num_1": 3033333, "level1_num_2": 302}}'),
+        (4, '{"int_1": 3, "int_nested": {"level1_num_1": 4044444, "level1_num_2": 402}}')"""
 
     qt_leaf_int1_select """ SELECT data['int_1'] FROM ${leafTable} ORDER BY id """
     qt_leaf_int1_add """ SELECT data['int_1'] + 1 FROM ${leafTable} ORDER BY id """
@@ -193,29 +194,58 @@ suite("test_schema_template_auto_cast", "p0") {
         FROM ${leafTable} ORDER BY id """
     qt_leaf_int_nested_dot_select """ SELECT data['int_nested.level1_num_1'] FROM ${leafTable} ORDER BY id """
     qt_leaf_int_nested_deref_select """ SELECT data.int_nested.level1_num_1 FROM ${leafTable} ORDER BY id """
+    qt_leaf_int_nested_mixed_select_1 """ SELECT data['int_nested'].level1_num_1 FROM ${leafTable} ORDER BY id """
+    qt_leaf_int_nested_mixed_select_2 """ SELECT (data['int_nested']).level1_num_1 FROM ${leafTable} ORDER BY id """
+    qt_leaf_int_nested_mixed_select_3 """ SELECT (data.int_nested).level1_num_1 FROM ${leafTable} ORDER BY id """
+    qt_leaf_int_nested_paren_root_select """ SELECT (data).int_nested.level1_num_1 FROM ${leafTable} ORDER BY id """
     qt_leaf_int_nested_chain_add """ SELECT data['int_nested']['level1_num_1'] + 1
         FROM ${leafTable} ORDER BY id """
     qt_leaf_int_nested_dot_add """ SELECT data['int_nested.level1_num_1'] + 1
         FROM ${leafTable} ORDER BY id """
     qt_leaf_int_nested_deref_add """ SELECT data.int_nested.level1_num_1 + 1
         FROM ${leafTable} ORDER BY id """
+    qt_leaf_int_nested_mixed_add_1 """ SELECT data['int_nested'].level1_num_1 + 1 FROM ${leafTable} ORDER BY id """
+    qt_leaf_int_nested_mixed_add_2 """ SELECT (data['int_nested']).level1_num_1 + 1 FROM ${leafTable} ORDER BY id """
+    qt_leaf_int_nested_mixed_add_3 """ SELECT (data.int_nested).level1_num_1 + 1 FROM ${leafTable} ORDER BY id """
+    qt_leaf_int_nested_paren_root_add """ SELECT (data).int_nested.level1_num_1 + 1 FROM ${leafTable} ORDER BY id """
 
     // Non-select clauses: leaf vs non-leaf
     qt_leaf_where_ok """ SELECT id FROM ${leafTable}
         WHERE data['int_1'] > 0 ORDER BY id """
     qt_leaf_where_nonleaf """ SELECT id FROM ${leafTable}
         WHERE data['int_nested'] > 0 ORDER BY id """
+    qt_leaf_where_mixed_1 """ SELECT id FROM ${leafTable}
+        WHERE data['int_nested'].level1_num_1 > 2000000 ORDER BY id """
+    qt_leaf_where_mixed_2 """ SELECT id FROM ${leafTable}
+        WHERE (data['int_nested']).level1_num_1 > 2000000 ORDER BY id """
+    qt_leaf_where_mixed_3 """ SELECT id FROM ${leafTable}
+        WHERE (data.int_nested).level1_num_1 > 2000000 ORDER BY id """
+    qt_leaf_where_paren_root """ SELECT id FROM ${leafTable}
+        WHERE (data).int_nested.level1_num_1 > 2000000 ORDER BY id """
     qt_leaf_order_by_ok """ SELECT id FROM ${leafTable}
-        ORDER BY data['int_1'] """
+        ORDER BY data['int_1'], id """
     qt_leaf_order_by_nonleaf """ SELECT id FROM ${leafTable}
-        ORDER BY data['int_nested'] """
+        ORDER BY data['int_nested'], id """
+    qt_leaf_order_by_mixed_1 """ SELECT id FROM ${leafTable}
+        ORDER BY data['int_nested'].level1_num_1 """
+    qt_leaf_order_by_mixed_2 """ SELECT id FROM ${leafTable}
+        ORDER BY (data.int_nested).level1_num_1 """
+    qt_leaf_order_by_paren_root """ SELECT id FROM ${leafTable}
+        ORDER BY (data).int_nested.level1_num_1 """
     qt_leaf_group_by_ok """ SELECT data['int_1'], COUNT(*) AS cnt
         FROM ${leafTable} GROUP BY data['int_1'] ORDER BY data['int_1'] """
     qt_leaf_group_by_nonleaf """ SELECT data['int_nested'], COUNT(*) AS cnt
         FROM ${leafTable} GROUP BY data['int_nested'] ORDER BY data['int_nested'] """
+    qt_leaf_group_by_mixed """ SELECT data['int_nested'].level1_num_1, COUNT(*) AS cnt
+        FROM ${leafTable} GROUP BY data['int_nested'].level1_num_1
+        ORDER BY data['int_nested'].level1_num_1 """
     qt_leaf_having_ok """ SELECT data['int_1'], SUM(data['int_1']) AS total
         FROM ${leafTable} GROUP BY data['int_1']
         HAVING SUM(data['int_1']) > 0 ORDER BY data['int_1'] """
+    qt_leaf_having_mixed """ SELECT data['int_nested'].level1_num_1, SUM(data['int_nested'].level1_num_1) AS total
+        FROM ${leafTable} GROUP BY data['int_nested'].level1_num_1
+        HAVING SUM(data['int_nested'].level1_num_1) > 3000000
+        ORDER BY data['int_nested'].level1_num_1 """
 
     sql "DROP TABLE IF EXISTS ${leafTable}"
 }
