@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -117,7 +118,7 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
 
     protected String getAwsCredentialsProviderTypeForBackend() {
         if (StringUtils.isBlank(getAccessKey()) && StringUtils.isBlank(getSecretKey())) {
-            return "ANONYMOUS";
+            return AwsCredentialsProviderMode.ANONYMOUS.name();
         }
         return null;
     }
