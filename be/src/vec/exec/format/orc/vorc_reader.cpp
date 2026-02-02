@@ -200,6 +200,35 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
     _init_file_description();
 }
 
+OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
+                     const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                     size_t batch_size, const std::string& ctz,
+                     std::shared_ptr<io::IOContext> io_ctx_holder, FileMetaCache* meta_cache,
+                     bool enable_lazy_mat)
+        : _profile(profile),
+          _state(state),
+          _scan_params(params),
+          _scan_range(range),
+          _batch_size(std::max(batch_size, _MIN_BATCH_SIZE)),
+          _range_start_offset(range.start_offset),
+          _range_size(range.size),
+          _ctz(ctz),
+          _io_ctx(io_ctx_holder ? io_ctx_holder.get() : nullptr),
+          _io_ctx_holder(std::move(io_ctx_holder)),
+          _enable_lazy_mat(enable_lazy_mat),
+          _enable_filter_by_min_max(
+                  state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
+          _dict_cols_has_converted(false) {
+    TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
+    VecDateTimeValue t;
+    t.from_unixtime(0, ctz);
+    _offset_days = t.day() == 31 ? -1 : 0; // If 1969-12-31, then returns -1.
+    _meta_cache = meta_cache;
+    _init_profile();
+    _init_system_properties();
+    _init_file_description();
+}
+
 OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
                      const std::string& ctz, io::IOContext* io_ctx, FileMetaCache* meta_cache,
                      bool enable_lazy_mat)
@@ -209,6 +238,24 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
           _ctz(ctz),
           _file_system(nullptr),
           _io_ctx(io_ctx),
+          _enable_lazy_mat(enable_lazy_mat),
+          _enable_filter_by_min_max(true),
+          _dict_cols_has_converted(false) {
+    _meta_cache = meta_cache;
+    _init_system_properties();
+    _init_file_description();
+}
+
+OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                     const std::string& ctz, std::shared_ptr<io::IOContext> io_ctx_holder,
+                     FileMetaCache* meta_cache, bool enable_lazy_mat)
+        : _profile(nullptr),
+          _scan_params(params),
+          _scan_range(range),
+          _ctz(ctz),
+          _file_system(nullptr),
+          _io_ctx(io_ctx_holder ? io_ctx_holder.get() : nullptr),
+          _io_ctx_holder(std::move(io_ctx_holder)),
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(true),
           _dict_cols_has_converted(false) {
@@ -287,9 +334,16 @@ Status OrcReader::_create_file_reader() {
                 _scan_range.__isset.modification_time ? _scan_range.modification_time : 0;
         io::FileReaderOptions reader_options =
                 FileFactory::get_reader_options(_state, _file_description);
-        auto inner_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
-                _profile, _system_properties, _file_description, reader_options,
-                io::DelegateReader::AccessMode::RANDOM, _io_ctx));
+        io::FileReaderSPtr inner_reader;
+        if (_io_ctx_holder != nullptr) {
+            inner_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                    _profile, _system_properties, _file_description, reader_options,
+                    io::DelegateReader::AccessMode::RANDOM, _io_ctx_holder));
+        } else {
+            inner_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                    _profile, _system_properties, _file_description, reader_options,
+                    io::DelegateReader::AccessMode::RANDOM, _io_ctx));
+        }
         _file_input_stream = std::make_unique<ORCFileInputStream>(
                 _scan_range.path, std::move(inner_reader), _io_ctx, _profile,
                 _orc_once_max_read_bytes, _orc_max_merge_distance_bytes);
