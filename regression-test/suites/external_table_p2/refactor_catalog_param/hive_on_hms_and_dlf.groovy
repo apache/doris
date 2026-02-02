@@ -338,6 +338,7 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
     String oss_endpoint = context.config.otherConfigs.get("aliYunEndpoint")
     String bucket = context.config.otherConfigs.get("aliYunBucket")
     String oss_parent_path = "${bucket}/refactor-test"
+    String oss_bucket_endpoint_parent_path="${bucket}.${oss_endpoint}/refactor-test"
     String oss_region = context.config.otherConfigs.get("aliYunRegion")
     String oss_region_param = """
               'oss.region' = '${oss_region}',
@@ -519,6 +520,13 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
     //OSS - Insert overwrite tests
     db_location = "oss://${oss_parent_path}/hive/hms/overwrite/" + System.currentTimeMillis()
     testInsertOverwrite(hms_properties + oss_storage_properties, "hive_hms_oss_overwrite_test", db_location)
+    //OSS - Partition table tests (fix for partition path scheme mismatch)
+    db_location = "oss://${oss_bucket_endpoint_parent_path}/hive/hms/bucket_endpoint/partition/" + System.currentTimeMillis()
+    testPartitionTableInsert(hms_properties + oss_storage_properties, "hive_hms_oss_partition_test", db_location)
+    testPartitionTableInsert(hms_properties + oss_region_param + oss_storage_properties, "hive_hms_oss_bucket_endpoint_partition_test_region", db_location)
+    //OSS - Insert overwrite tests
+    db_location = "oss://${oss_bucket_endpoint_parent_path}/hive/hms/bucket_endpoint/overwrite/" + System.currentTimeMillis()
+    testInsertOverwrite(hms_properties + oss_storage_properties, "hive_hms_oss_bucket_endpoint_overwrite_test", db_location)
 
     //s3
     db_location = "s3a://${s3_parent_path}/hive/hms/"+System.currentTimeMillis()

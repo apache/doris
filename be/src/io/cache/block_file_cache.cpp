@@ -141,8 +141,7 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                const FileCacheSettings& cache_settings)
         : _cache_base_path(cache_base_path),
           _capacity(cache_settings.capacity),
-          _max_file_block_size(cache_settings.max_file_block_size),
-          _max_query_cache_size(cache_settings.max_query_cache_size) {
+          _max_file_block_size(cache_settings.max_file_block_size) {
     _cur_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(_cache_base_path.c_str(),
                                                                      "file_cache_cache_size", 0);
     _cache_capacity_metrics = std::make_shared<bvar::Status<size_t>>(
@@ -383,7 +382,7 @@ UInt128Wrapper BlockFileCache::hash(const std::string& path) {
 }
 
 BlockFileCache::QueryFileCacheContextHolderPtr BlockFileCache::get_query_context_holder(
-        const TUniqueId& query_id) {
+        const TUniqueId& query_id, int file_cache_query_limit_percent) {
     SCOPED_CACHE_LOCK(_mutex, this);
     if (!config::enable_file_cache_query_limit) {
         return {};
@@ -391,7 +390,7 @@ BlockFileCache::QueryFileCacheContextHolderPtr BlockFileCache::get_query_context
 
     /// if enable_filesystem_query_cache_limit is true,
     /// we create context query for current query.
-    auto context = get_or_set_query_context(query_id, cache_lock);
+    auto context = get_or_set_query_context(query_id, cache_lock, file_cache_query_limit_percent);
     return std::make_unique<QueryFileCacheContextHolder>(query_id, this, context);
 }
 
@@ -411,7 +410,8 @@ void BlockFileCache::remove_query_context(const TUniqueId& query_id) {
 }
 
 BlockFileCache::QueryFileCacheContextPtr BlockFileCache::get_or_set_query_context(
-        const TUniqueId& query_id, std::lock_guard<std::mutex>& cache_lock) {
+        const TUniqueId& query_id, std::lock_guard<std::mutex>& cache_lock,
+        int file_cache_query_limit_percent) {
     if (query_id.lo == 0 && query_id.hi == 0) {
         return nullptr;
     }
@@ -421,7 +421,14 @@ BlockFileCache::QueryFileCacheContextPtr BlockFileCache::get_or_set_query_contex
         return context;
     }
 
-    auto query_context = std::make_shared<QueryFileCacheContext>(_max_query_cache_size);
+    size_t file_cache_query_limit_size = _capacity * file_cache_query_limit_percent / 100;
+    if (file_cache_query_limit_size < 268435456) {
+        LOG(WARNING) << "The user-set file cache query limit (" << file_cache_query_limit_size
+                     << " bytes) is less than the 256MB recommended minimum. "
+                     << "Consider increasing the session variable 'file_cache_query_limit_percent'"
+                     << " from its current value " << file_cache_query_limit_percent << "%.";
+    }
+    auto query_context = std::make_shared<QueryFileCacheContext>(file_cache_query_limit_size);
     auto query_iter = _query_map.emplace(query_id, query_context).first;
     return query_iter->second;
 }

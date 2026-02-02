@@ -230,3 +230,6 @@ services:
 networks:
   ${CONTAINER_UID}iceberg-rest:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 168.4.0.0/24

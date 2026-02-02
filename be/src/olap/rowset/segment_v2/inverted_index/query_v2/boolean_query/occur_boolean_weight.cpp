@@ -96,10 +96,6 @@ template <typename CombinerT>
 std::optional<CombinationMethod> OccurBooleanWeight<ScoreCombinerPtrT>::build_should_opt(
         std::vector<ScorerPtr>& must_scorers, std::vector<ScorerPtr> should_scorers,
         CombinerT combiner, size_t num_all_scorers) {
-    if (should_scorers.empty()) {
-        return Ignored {};
-    }
-
     size_t adjusted_minimum = _minimum_number_should_match > num_all_scorers
                                       ? _minimum_number_should_match - num_all_scorers
                                       : 0;
@@ -109,12 +105,16 @@ std::optional<CombinationMethod> OccurBooleanWeight<ScoreCombinerPtrT>::build_sh
         return std::nullopt;
     }
 
-    if (adjusted_minimum == 0) {
+    if (adjusted_minimum == 0 && num_of_should_scorers == 0) {
+        return Ignored {};
+    } else if (adjusted_minimum == 0) {
         return Optional {scorer_union(std::move(should_scorers), combiner)};
     } else if (adjusted_minimum == 1) {
         return Required {scorer_union(std::move(should_scorers), combiner)};
     } else if (adjusted_minimum == num_of_should_scorers) {
-        must_scorers.swap(should_scorers);
+        for (auto& scorer : should_scorers) {
+            must_scorers.push_back(std::move(scorer));
+        }
         return Ignored {};
     } else {
         return Required {scorer_disjunction(std::move(should_scorers), combiner, adjusted_minimum)};
@@ -133,42 +133,82 @@ ScorerPtr OccurBooleanWeight<ScoreCombinerPtrT>::build_exclude_opt(
 }
 
 template <typename ScoreCombinerPtrT>
+ScorerPtr OccurBooleanWeight<ScoreCombinerPtrT>::effective_must_scorer(
+        std::vector<ScorerPtr> must_scorers, size_t must_num_all_scorers) {
+    if (must_scorers.empty()) {
+        if (must_num_all_scorers > 0) {
+            return std::make_shared<AllScorer>(_max_doc);
+        }
+        return nullptr;
+    }
+    return make_intersect_scorers(std::move(must_scorers), _max_doc);
+}
+
+template <typename ScoreCombinerPtrT>
+template <typename CombinerT>
+SpecializedScorer OccurBooleanWeight<ScoreCombinerPtrT>::effective_should_scorer_for_union(
+        SpecializedScorer should_scorer, size_t should_num_all_scorers, CombinerT combiner) {
+    if (should_num_all_scorers > 0) {
+        if (_enable_scoring) {
+            std::vector<ScorerPtr> scorers;
+            scorers.push_back(into_box_scorer(std::move(should_scorer), combiner));
+            scorers.push_back(std::make_shared<AllScorer>(_max_doc));
+            return make_buffered_union(std::move(scorers), combiner);
+        } else {
+            return std::make_shared<AllScorer>(_max_doc);
+        }
+    }
+    return should_scorer;
+}
+
+template <typename ScoreCombinerPtrT>
 template <typename CombinerT>
 SpecializedScorer OccurBooleanWeight<ScoreCombinerPtrT>::build_positive_opt(
         CombinationMethod& should_opt, std::vector<ScorerPtr> must_scorers, CombinerT combiner,
-        size_t num_all_scorers) {
-    const bool has_must = !must_scorers.empty();
+        const AllAndEmptyScorerCounts& must_special_counts,
+        const AllAndEmptyScorerCounts& should_special_counts) {
+    size_t num_all_scorers =
+            must_special_counts.num_all_scorers + should_special_counts.num_all_scorers;
     if (std::holds_alternative<Ignored>(should_opt)) {
-        if (has_must) {
-            return make_intersect_scorers(std::move(must_scorers), _max_doc);
-        }
-        if (num_all_scorers > 0) {
-            return std::make_shared<AllScorer>(_max_doc);
+        ScorerPtr must_scorer = effective_must_scorer(std::move(must_scorers), num_all_scorers);
+        if (must_scorer) {
+            return must_scorer;
         }
         return std::make_shared<EmptyScorer>();
     }
 
     if (std::holds_alternative<Optional>(should_opt)) {
         auto& opt = std::get<Optional>(should_opt);
-        if (has_must) {
-            auto must_scorer = make_intersect_scorers(std::move(must_scorers), _max_doc);
-            if (_enable_scoring) {
-                auto should_boxed = into_box_scorer(std::move(opt.scorer), combiner);
-                return make_required_optional_scorer(must_scorer, should_boxed, combiner);
-            } else {
-                return must_scorer;
-            }
+        ScorerPtr must_scorer =
+                effective_must_scorer(std::move(must_scorers), must_special_counts.num_all_scorers);
+
+        if (!must_scorer) {
+            return effective_should_scorer_for_union(
+                    std::move(opt.scorer), should_special_counts.num_all_scorers, combiner);
         }
-        return opt.scorer;
+
+        if (_enable_scoring) {
+            auto should_boxed = into_box_scorer(std::move(opt.scorer), combiner);
+            return make_required_optional_scorer(must_scorer, should_boxed, combiner);
+        } else {
+            return must_scorer;
+        }
     }
 
     if (std::holds_alternative<Required>(should_opt)) {
         auto& req = std::get<Required>(should_opt);
-        if (has_must) {
-            must_scorers.push_back(into_box_scorer(std::move(req.scorer), combiner));
-            return make_intersect_scorers(std::move(must_scorers), _max_doc);
+        ScorerPtr must_scorer =
+                effective_must_scorer(std::move(must_scorers), must_special_counts.num_all_scorers);
+
+        if (!must_scorer) {
+            return req.scorer;
         }
-        return req.scorer;
+
+        auto should_boxed = into_box_scorer(std::move(req.scorer), combiner);
+        std::vector<ScorerPtr> scorers;
+        scorers.push_back(std::move(must_scorer));
+        scorers.push_back(std::move(should_boxed));
+        return make_intersect_scorers(std::move(scorers), _max_doc);
     }
 
     return std::make_shared<EmptyScorer>();
@@ -202,10 +242,9 @@ SpecializedScorer OccurBooleanWeight<ScoreCombinerPtrT>::complex_scorer(
     }
 
     ScorerPtr exclude_opt = build_exclude_opt(std::move(must_not_scorers));
-    size_t total_all_scorers =
-            must_special_counts.num_all_scorers + should_special_counts.num_all_scorers;
     SpecializedScorer positive_opt =
-            build_positive_opt(*should_opt, std::move(must_scorers), combiner, total_all_scorers);
+            build_positive_opt(*should_opt, std::move(must_scorers), combiner, must_special_counts,
+                               should_special_counts);
     if (exclude_opt) {
         ScorerPtr positive_boxed = into_box_scorer(std::move(positive_opt), combiner);
         return make_exclude(std::move(positive_boxed), std::move(exclude_opt));

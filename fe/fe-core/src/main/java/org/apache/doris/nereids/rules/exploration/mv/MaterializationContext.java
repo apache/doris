@@ -108,6 +108,8 @@ public abstract class MaterializationContext {
     // for one materialization query may be multi when nested materialized view.
     protected final Multimap<ObjectId, Pair<String, String>> failReason = HashMultimap.create();
     protected List<String> identifier;
+    // The common table id set which is used in materialization, added for performance consideration
+    private BitSet commonTableIdSet;
 
     /**
      * MaterializationContext, this contains necessary info for query rewriting by materialization
@@ -121,7 +123,7 @@ public abstract class MaterializationContext {
                 && ExplainLevel.MEMO_PLAN == parsedStatement.getExplainOptions().getExplainLevel();
         // Construct materialization struct info, catch exception which may cause planner roll back
         this.structInfo = structInfo == null
-                ? constructStructInfo(plan, originalPlan, cascadesContext, new BitSet()).orElseGet(() -> null)
+                ? constructStructInfo(plan, originalPlan, cascadesContext).orElseGet(() -> null)
                 : structInfo;
         this.available = this.structInfo != null;
         if (available) {
@@ -135,22 +137,14 @@ public abstract class MaterializationContext {
      * @param originalPlan original plan, the output is right
      */
     public static Optional<StructInfo> constructStructInfo(Plan plan, Plan originalPlan,
-            CascadesContext cascadesContext, BitSet expectedTableBitSet) {
-        List<StructInfo> viewStructInfos;
+                                                           CascadesContext cascadesContext) {
         try {
-            viewStructInfos = MaterializedViewUtils.extractStructInfo(plan, originalPlan,
-                    cascadesContext, expectedTableBitSet);
-            if (viewStructInfos.size() > 1) {
-                // view struct info should only have one, log error and use the first struct info
-                LOG.warn(String.format("view strut info is more than one, materialization plan is %s",
-                        plan.treeString()));
-            }
+            return Optional.of(StructInfo.of(plan, originalPlan, cascadesContext));
         } catch (Exception exception) {
             LOG.warn(String.format("construct materialization struct info fail, materialization plan is %s",
                     plan.treeString()), exception);
             return Optional.empty();
         }
-        return Optional.of(viewStructInfos.get(0));
     }
 
     public boolean alreadyRewrite(GroupId groupId) {
@@ -382,16 +376,19 @@ public abstract class MaterializationContext {
     }
 
     /**
-     * get materialization context common table id by current statementContext
+     * get materialization context common table id by current currentQueryStatementContext
      */
-    public BitSet getCommonTableIdSet(StatementContext statementContext) {
-        BitSet commonTableId = new BitSet();
+    public BitSet getCommonTableIdSet(StatementContext currentQueryStatementContext) {
+        if (commonTableIdSet != null) {
+            return commonTableIdSet;
+        }
+        commonTableIdSet = new BitSet();
         for (StructInfoNode node : structInfo.getRelationIdStructInfoNodeMap().values()) {
             for (CatalogRelation catalogRelation : node.getCatalogRelation()) {
-                commonTableId.set(statementContext.getTableId(catalogRelation.getTable()).asInt());
+                commonTableIdSet.set(currentQueryStatementContext.getTableId(catalogRelation.getTable()).asInt());
             }
         }
-        return commonTableId;
+        return commonTableIdSet;
     }
 
     @Override

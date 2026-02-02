@@ -114,7 +114,9 @@ public class Diagnoser {
         StringBuilder versionErr = new StringBuilder();
         StringBuilder statusErr = new StringBuilder();
         StringBuilder compactionErr = new StringBuilder();
-        long visibleVersion = partition.getVisibleVersion();
+        // for local mode, getCachedVisibleVersion return visibleVersion.
+        // for cloud mode, the replica version is not updated.
+        long visibleVersion = partition.getCachedVisibleVersion();
         for (Replica replica : replicas) {
             // backend
             do {

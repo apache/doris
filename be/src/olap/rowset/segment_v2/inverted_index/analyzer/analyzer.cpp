@@ -133,11 +133,15 @@ AnalyzerPtr InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexParserTy
 AnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerConfig* config) {
     DCHECK(config != nullptr);
     const std::string& analyzer_name = config->analyzer_name;
+
+    // Handle empty analyzer name - use builtin analyzer based on parser_type.
+    // This is the common case when user does not specify USING ANALYZER.
     if (analyzer_name.empty()) {
         return create_builtin_analyzer(config->parser_type, config->parser_mode, config->lower_case,
                                        config->stop_words);
     }
 
+    // Check if it's a builtin analyzer name (english, chinese, standard, etc.)
     if (is_builtin_analyzer(analyzer_name)) {
         InvertedIndexParserType parser_type =
                 get_inverted_index_parser_type_from_string(analyzer_name);
@@ -145,6 +149,7 @@ AnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerCo
                                        config->stop_words);
     }
 
+    // Custom analyzer - look up in policy manager
     auto* index_policy_mgr = doris::ExecEnv::GetInstance()->index_policy_mgr();
     if (!index_policy_mgr) {
         throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
@@ -181,6 +186,13 @@ std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
 
 std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
         const std::string& search_str, const std::map<std::string, std::string>& properties) {
+    if (!should_analyzer(properties)) {
+        std::vector<TermInfo> result;
+        if (!search_str.empty()) {
+            result.emplace_back(search_str);
+        }
+        return result;
+    }
     InvertedIndexAnalyzerConfig config;
     config.analyzer_name = get_analyzer_name_from_properties(properties);
     config.parser_type = get_inverted_index_parser_type_from_string(

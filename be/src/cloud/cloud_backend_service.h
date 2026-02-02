@@ -57,6 +57,9 @@ public:
                                 int64_t last_stream_record_time) override;
 
 private:
+    void _warm_up_cache(TWarmUpCacheAsyncResponse& response,
+                        const TWarmUpCacheAsyncRequest& request);
+
     CloudStorageEngine& _engine;
 };
 

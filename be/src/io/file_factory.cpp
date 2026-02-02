@@ -203,6 +203,18 @@ Result<io::FileReaderSPtr> FileFactory::create_file_reader(
         const io::FileSystemProperties& system_properties,
         const io::FileDescription& file_description, const io::FileReaderOptions& reader_options,
         RuntimeProfile* profile) {
+    auto reader_res = _create_file_reader_internal(system_properties, file_description,
+                                                   reader_options, profile);
+    if (!reader_res.has_value()) {
+        return unexpected(std::move(reader_res).error());
+    }
+    return std::move(reader_res).value();
+}
+
+Result<io::FileReaderSPtr> FileFactory::_create_file_reader_internal(
+        const io::FileSystemProperties& system_properties,
+        const io::FileDescription& file_description, const io::FileReaderOptions& reader_options,
+        RuntimeProfile* profile) {
     TFileType::type type = system_properties.system_type;
     switch (type) {
     case TFileType::FILE_LOCAL: {

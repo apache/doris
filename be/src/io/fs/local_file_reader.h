@@ -63,6 +63,8 @@ public:
 
     const std::string& get_data_dir_path() override { return _data_dir_path; }
 
+    int64_t mtime() const override { return 0; }
+
 private:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;

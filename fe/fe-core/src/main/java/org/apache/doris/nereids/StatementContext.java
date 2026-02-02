@@ -265,9 +265,10 @@ public class StatementContext implements Closeable {
     private long materializedViewRewriteDuration = 0L;
 
     // Record used table and it's used partitions
-    private final Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = HashMultimap
-            .create();
-    private final Map<Integer, Integer> relationIdToCommonTableIdMap = new HashMap<>();
+    private final Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap =
+            HashMultimap.create();
+    // Record query common table id to relation id mapping, this is used for mv rewrite
+    private final Multimap<Integer, Integer> commonTableIdToRelationIdToMap = HashMultimap.create();
 
     // Record mtmv and valid partitions map because this is time-consuming behavior
     private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
@@ -307,6 +308,9 @@ public class StatementContext implements Closeable {
     // IcebergScanNode
     // TODO: better solution?
     private List<org.apache.iceberg.FileScanTask> icebergRewriteFileScanTasks = null;
+    // For Iceberg rewrite operations: control whether to use GATHER distribution
+    // When true, data will be collected to a single node to avoid generating too many small files
+    private boolean useGatherForIcebergRewrite = false;
     private boolean hasNestedColumns;
 
     private final Set<CTEId> mustInlineCTE = new HashSet<>();
@@ -1093,8 +1097,8 @@ public class StatementContext implements Closeable {
         return tableUsedPartitionNameMap;
     }
 
-    public Map<Integer, Integer> getRelationIdToCommonTableIdMap() {
-        return relationIdToCommonTableIdMap;
+    public Multimap<Integer, Integer> getCommonTableIdToRelationIdMap() {
+        return commonTableIdToRelationIdToMap;
     }
 
     public Map<BaseTableInfo, Collection<Partition>> getMvCanRewritePartitionsMap() {
@@ -1151,6 +1155,21 @@ public class StatementContext implements Closeable {
         List<org.apache.iceberg.FileScanTask> tasks = this.icebergRewriteFileScanTasks;
         this.icebergRewriteFileScanTasks = null;
         return tasks;
+    }
+
+    /**
+     * Set whether to use GATHER distribution for Iceberg rewrite operations.
+     * When enabled, data will be collected to a single node to minimize output files.
+     */
+    public void setUseGatherForIcebergRewrite(boolean useGather) {
+        this.useGatherForIcebergRewrite = useGather;
+    }
+
+    /**
+     * Check if GATHER distribution should be used for Iceberg rewrite operations.
+     */
+    public boolean isUseGatherForIcebergRewrite() {
+        return this.useGatherForIcebergRewrite;
     }
 
     public boolean isSkipPrunePredicate() {

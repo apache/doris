@@ -286,6 +286,14 @@ public class BindExpression implements AnalysisRuleFactory {
             Function generator = (Function) boundGenerator;
             if (boundGenerator instanceof Unnest) {
                 Unnest unnest = (Unnest) boundGenerator;
+                if (cascadesContext.getOuterScope().isPresent()) {
+                    Set<Slot> correlatedSlots = Sets.intersection(
+                            cascadesContext.getOuterScope().get().getCorrelatedSlots(), unnest.getInputSlots());
+                    if (!correlatedSlots.isEmpty()) {
+                        throw new AnalysisException(
+                                String.format("unnest can't access outer query table's column %s", correlatedSlots));
+                    }
+                }
                 DataType dataType = unnest.child(0).getDataType();
                 int columnNamesSize = generate.getExpandColumnAlias().get(0).size();
                 int argumentsSize = boundGenerator.getArguments().size() + (unnest.needOrdinality() ? 1 : 0);

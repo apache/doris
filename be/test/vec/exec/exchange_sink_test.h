@@ -90,10 +90,10 @@ void transmit_blockv2(PBackendService_Stub* stub,
 namespace doris::vectorized {
 
 using namespace pipeline;
-class ExchangeSInkTest : public testing::Test {
+class ExchangeSinkTest : public testing::Test {
 public:
-    ExchangeSInkTest() = default;
-    ~ExchangeSInkTest() override = default;
+    ExchangeSinkTest() = default;
+    ~ExchangeSinkTest() override = default;
 };
 
 class MockContext : public TaskExecutionContext {};

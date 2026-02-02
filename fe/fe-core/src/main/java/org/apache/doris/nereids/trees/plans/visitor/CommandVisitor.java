@@ -174,6 +174,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBuildIndexCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowBuiltinFunctionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
@@ -823,6 +824,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowFunctionsCommand(ShowFunctionsCommand showFunctionsCommand, C context) {
         return visitCommand(showFunctionsCommand, context);
+    }
+
+    default R visitShowBuiltinFunctionsCommand(ShowBuiltinFunctionsCommand showBuiltinFunctionsCommand, C context) {
+        return visitCommand(showBuiltinFunctionsCommand, context);
     }
 
     default R visitAdminRebalanceDiskCommand(AdminRebalanceDiskCommand adminRebalanceDiskCommand, C context) {

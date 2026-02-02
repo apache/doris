@@ -64,7 +64,11 @@ struct RegexpExtractEngine {
     // Try to compile with RE2 first, fallback to Boost.Regex if RE2 fails
     static bool compile(const StringRef& pattern, std::string* error_str,
                         RegexpExtractEngine& engine, bool enable_extended_regex) {
-        engine.re2_regex = std::make_unique<re2::RE2>(re2::StringPiece(pattern.data, pattern.size));
+        re2::RE2::Options options;
+        options.set_log_errors(false); // avoid RE2 printing to stderr; we handle errors ourselves
+        engine.re2_regex =
+                std::make_unique<re2::RE2>(re2::StringPiece(pattern.data, pattern.size), options);
+
         if (engine.re2_regex->ok()) {
             return true;
         } else if (!enable_extended_regex) {

@@ -59,7 +59,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -124,7 +123,6 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     queryTopPlan,
                     materializationContext.getShuttledExprToScanExprMapping(),
                     viewToQuerySlotMapping,
-                    queryStructInfo.getTableBitSet(),
                     ImmutableMap.of(), cascadesContext);
             boolean isRewrittenQueryExpressionValid = true;
             if (!rewrittenQueryExpressions.isEmpty()) {
@@ -314,11 +312,10 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             MaterializationContext materializationContext, String summaryIfFail, Supplier<String> detailIfFail) {
         Expression queryFunctionShuttled = ExpressionUtils.shuttleExpressionWithLineage(
                 queryExpression,
-                queryStructInfo.getTopPlan(),
-                queryStructInfo.getTableBitSet());
+                queryStructInfo.getTopPlan());
         AggregateExpressionRewriteContext expressionRewriteContext = new AggregateExpressionRewriteContext(
                 rewriteMode, mvShuttledExprToMvScanExprQueryBased, queryStructInfo.getTopPlan(),
-                queryStructInfo.getTableBitSet(), queryStructInfo.getGroupingId());
+                queryStructInfo.getGroupingId());
         Expression rewrittenExpression = queryFunctionShuttled.accept(AGGREGATE_EXPRESSION_REWRITER,
                 expressionRewriteContext);
         if (!expressionRewriteContext.isValid()) {
@@ -358,7 +355,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         boolean canUnionRewrite = false;
         // Check the query plan group by expression contains partition col or not
         List<? extends Expression> groupByShuttledExpressions =
-                ExpressionUtils.shuttleExpressionWithLineage(groupByExpressions, queryPlan, new BitSet());
+                ExpressionUtils.shuttleExpressionWithLineage(groupByExpressions, queryPlan);
         for (Expression expression : groupByShuttledExpressions) {
             canUnionRewrite = !expression.collectToSet(expr -> {
                 if (!(expr instanceof SlotReference) || !((SlotReference) expr).isColumnFromTable()) {
@@ -431,13 +428,13 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         LogicalAggregate<Plan> viewAggregate = viewTopPlanAndAggPair.value();
 
         Set<Expression> queryGroupByShuttledExpression = new HashSet<>(ExpressionUtils.shuttleExpressionWithLineage(
-                queryAggregate.getGroupByExpressions(), queryTopPlan, queryStructInfo.getTableBitSet()));
+                queryAggregate.getGroupByExpressions(), queryTopPlan));
 
         // try to eliminate group by dimension by function dependency if group by expression is not in query
         Map<Expression, Expression> viewShuttledExpressionQueryBasedToGroupByExpressionMap = new HashMap<>();
         List<Expression> viewGroupByExpressions = viewAggregate.getGroupByExpressions();
         List<? extends Expression> viewGroupByShuttledExpressions = ExpressionUtils.shuttleExpressionWithLineage(
-                viewGroupByExpressions, viewTopPlan, viewStructInfo.getTableBitSet());
+                viewGroupByExpressions, viewTopPlan);
 
         for (int index = 0; index < viewGroupByExpressions.size(); index++) {
             Expression viewExpression = viewGroupByExpressions.get(index);
@@ -712,8 +709,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             if (ExpressionRewriteMode.EXPRESSION_ROLL_UP.equals(rewriteContext.getExpressionRewriteMode())) {
                 Expression queryFunctionShuttled = ExpressionUtils.shuttleExpressionWithLineage(
                         aggregateFunction,
-                        rewriteContext.getQueryTopPlan(),
-                        rewriteContext.getQueryTableBitSet());
+                        rewriteContext.getQueryTopPlan());
                 rewrittenFunction = rollup(aggregateFunction, queryFunctionShuttled,
                         rewriteContext.getMvExprToMvScanExprQueryBasedMapping());
                 if (rewrittenFunction == null) {
@@ -788,16 +784,14 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         private final ExpressionRewriteMode expressionRewriteMode;
         private final Map<Expression, Expression> mvExprToMvScanExprQueryBasedMapping;
         private final Plan queryTopPlan;
-        private final BitSet queryTableBitSet;
         private final Optional<SlotReference> groupingId;
 
         public AggregateExpressionRewriteContext(ExpressionRewriteMode expressionRewriteMode,
                 Map<Expression, Expression> mvExprToMvScanExprQueryBasedMapping, Plan queryTopPlan,
-                BitSet queryTableBitSet, Optional<SlotReference> groupingId) {
+                                                 Optional<SlotReference> groupingId) {
             this.expressionRewriteMode = expressionRewriteMode;
             this.mvExprToMvScanExprQueryBasedMapping = mvExprToMvScanExprQueryBasedMapping;
             this.queryTopPlan = queryTopPlan;
-            this.queryTableBitSet = queryTableBitSet;
             this.groupingId = groupingId;
         }
 
@@ -819,10 +813,6 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
 
         public Plan getQueryTopPlan() {
             return queryTopPlan;
-        }
-
-        public BitSet getQueryTableBitSet() {
-            return queryTableBitSet;
         }
 
         public Optional<SlotReference> getGroupingId() {

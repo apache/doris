@@ -64,6 +64,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
     private final Long taskId;
     private final AtomicBoolean isCanceled;
     private final AtomicBoolean isFinished;
+    private final int availableBeCount;
 
     // for canceling the task
     private StmtExecutor stmtExecutor;
@@ -73,12 +74,14 @@ public class RewriteGroupTask implements TransientTaskExecutor {
             IcebergExternalTable dorisTable,
             ConnectContext connectContext,
             long targetFileSizeBytes,
+            int availableBeCount,
             RewriteResultCallback resultCallback) {
         this.group = group;
         this.transactionId = transactionId;
         this.dorisTable = dorisTable;
         this.connectContext = connectContext;
         this.targetFileSizeBytes = targetFileSizeBytes;
+        this.availableBeCount = availableBeCount;
         this.resultCallback = resultCallback;
         this.taskId = UUID.randomUUID().getMostSignificantBits();
         this.isCanceled = new AtomicBoolean(false);
@@ -234,6 +237,11 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         // Clone session variables from parent
         taskContext.setSessionVariable(VariableMgr.cloneSessionVariable(connectContext.getSessionVariable()));
 
+        // Calculate optimal parallelism and determine distribution strategy
+        RewriteStrategy strategy = calculateRewriteStrategy();
+        // Pipeline engine uses parallelPipelineTaskNum to control instance parallelism.
+        taskContext.getSessionVariable().parallelPipelineTaskNum = strategy.parallelism;
+
         // Set env and basic identities
         taskContext.setEnv(Env.getCurrentEnv());
         taskContext.setDatabase(connectContext.getDatabase());
@@ -252,7 +260,72 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         statementContext.setConnectContext(taskContext);
         taskContext.setStatementContext(statementContext);
 
+        // Set GATHER distribution flag if needed (for small data rewrite)
+        statementContext.setUseGatherForIcebergRewrite(strategy.useGather);
+
         return taskContext;
+    }
+
+    /**
+     * Calculate optimal rewrite strategy including parallelism and distribution mode.
+     *
+     * The core idea is to precisely control the number of output files:
+     * 1. Calculate expected file count based on data size and target file size
+     * 2. If expected file count is less than available BE count, use GATHER
+     * to collect data to a single node, avoiding excessive writers
+     * 3. Otherwise, limit per-BE parallelism so total writers <= expected files
+     *
+     * @return RewriteStrategy containing parallelism and distribution settings
+     */
+    private RewriteStrategy calculateRewriteStrategy() {
+        // 1. Calculate expected output file count based on data size
+        long totalSize = group.getTotalSize();
+        int expectedFileCount = (int) Math.ceil((double) totalSize / targetFileSizeBytes);
+
+        // 2. Use available BE count passed from constructor
+        int availableBeCount = this.availableBeCount;
+        Preconditions.checkState(availableBeCount > 0,
+                "availableBeCount must be greater than 0 for rewrite task");
+
+        // 3. Get default parallelism from session variable (pipeline task num)
+        int defaultParallelism = connectContext.getSessionVariable().getParallelExecInstanceNum();
+
+        // 4. Determine strategy based on expected file count
+        boolean useGather = false;
+        int optimalParallelism;
+
+        // When expected files < available BEs, collect all data to single node
+        if (expectedFileCount < availableBeCount) {
+            // Small data volume: use GATHER to write to single node
+            // Keep parallelism <= expected files to avoid extra output files
+            useGather = true;
+            optimalParallelism = Math.max(1, Math.min(defaultParallelism, expectedFileCount));
+        } else {
+            // Larger data volume: limit per-BE parallelism so total writers <= expected files
+            int maxParallelismByFileCount = Math.max(1, expectedFileCount / availableBeCount);
+            optimalParallelism = Math.max(1, Math.min(defaultParallelism, maxParallelismByFileCount));
+        }
+
+        LOG.info("[Rewrite Task] taskId: {}, totalSize: {} bytes, targetFileSize: {} bytes, "
+                        + "expectedFileCount: {}, availableBeCount: {}, defaultParallelism: {}, "
+                        + "optimalParallelism: {}, useGather: {}",
+                taskId, totalSize, targetFileSizeBytes, expectedFileCount,
+                availableBeCount, defaultParallelism, optimalParallelism, useGather);
+
+        return new RewriteStrategy(optimalParallelism, useGather);
+    }
+
+    /**
+     * Strategy for rewrite operation containing parallelism and distribution settings.
+     */
+    private static class RewriteStrategy {
+        final int parallelism;
+        final boolean useGather;
+
+        RewriteStrategy(int parallelism, boolean useGather) {
+            this.parallelism = parallelism;
+            this.useGather = useGather;
+        }
     }
 
     /**

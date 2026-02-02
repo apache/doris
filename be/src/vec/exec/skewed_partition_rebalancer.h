@@ -47,10 +47,6 @@
 
 #include <glog/logging.h>
 
-#include <algorithm>
-#include <iostream>
-#include <list>
-#include <optional>
 #include <vector>
 
 #include "util/indexed_priority_queue.hpp"
@@ -80,7 +76,7 @@ public:
                               long min_partition_data_processed_rebalance_threshold,
                               long min_data_processed_rebalance_threshold);
 
-    int get_task_id(int partition_id, int64_t index);
+    int get_task_id(uint32_t partition_id, int64_t index);
     void add_data_processed(long data_size);
     void add_partition_row_count(int partition, long row_count);
     void rebalance();
@@ -116,7 +112,7 @@ private:
     static constexpr double TASK_BUCKET_SKEWNESS_THRESHOLD = 0.7;
 
     // One or more tasks in one partition. `_task_count` equals to the number of channels and `_task_bucket_count` is always 1.
-    const int _partition_count;
+    const uint32_t _partition_count;
     const int _task_count;
     const int _task_bucket_count;
     long _min_partition_data_processed_rebalance_threshold;
