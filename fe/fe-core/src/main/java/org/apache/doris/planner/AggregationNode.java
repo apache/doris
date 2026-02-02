@@ -160,6 +160,9 @@ public class AggregationNode extends PlanNode {
 
         normalizedPlan.setNodeType(TPlanNodeType.AGGREGATION_NODE);
         normalizedPlan.setAggregationNode(normalizedAggregateNode);
+        if (sortByGroupKey != null) {
+            normalizedAggregateNode.setSortInfo(sortByGroupKey.toThrift());
+        }
     }
 
     @Override
