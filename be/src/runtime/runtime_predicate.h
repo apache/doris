@@ -135,10 +135,9 @@ private:
     std::map<int32_t, TargetContext> _contexts;
 
     Field _orderby_extrem {PrimitiveType::TYPE_NULL};
-    Arena _predicate_arena;
-    std::function<std::shared_ptr<ColumnPredicate>(
-            const int cid, const std::string& col_name, const vectorized::DataTypePtr& data_type,
-            const vectorized::Field& value, bool opposite, vectorized::Arena& arena)>
+    std::function<std::shared_ptr<ColumnPredicate>(const int cid, const std::string& col_name,
+                                                   const vectorized::DataTypePtr& data_type,
+                                                   const vectorized::Field& value, bool opposite)>
             _pred_constructor;
     bool _detected_source = false;
     bool _detected_target = false;

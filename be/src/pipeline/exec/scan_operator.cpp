@@ -819,7 +819,7 @@ Status ScanLocalState<Derived>::_normalize_binary_predicate(
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
-                    value, false, _arena);
+                    value, false);
             break;
         case SQLFilterOp::FILTER_NE:
             pred = create_comparison_predicate<PredicateType::NE>(
@@ -827,7 +827,7 @@ Status ScanLocalState<Derived>::_normalize_binary_predicate(
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
-                    value, false, _arena);
+                    value, false);
             break;
         case SQLFilterOp::FILTER_LESS:
             pred = create_comparison_predicate<PredicateType::LT>(
@@ -835,7 +835,7 @@ Status ScanLocalState<Derived>::_normalize_binary_predicate(
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
-                    value, false, _arena);
+                    value, false);
             break;
         case SQLFilterOp::FILTER_LARGER:
             pred = create_comparison_predicate<PredicateType::GT>(
@@ -843,7 +843,7 @@ Status ScanLocalState<Derived>::_normalize_binary_predicate(
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
-                    value, false, _arena);
+                    value, false);
             break;
         case SQLFilterOp::FILTER_LESS_OR_EQUAL:
             pred = create_comparison_predicate<PredicateType::LE>(
@@ -851,7 +851,7 @@ Status ScanLocalState<Derived>::_normalize_binary_predicate(
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
-                    value, false, _arena);
+                    value, false);
             break;
         case SQLFilterOp::FILTER_LARGER_OR_EQUAL:
             pred = create_comparison_predicate<PredicateType::GE>(
@@ -859,7 +859,7 @@ Status ScanLocalState<Derived>::_normalize_binary_predicate(
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
-                    value, false, _arena);
+                    value, false);
             break;
         default:
             throw Exception(Status::InternalError("Unsupported function name: {}", function_name));

@@ -174,7 +174,7 @@ std::shared_ptr<ColumnPredicate> create_in_list_predicate(const uint32_t cid,
 template <PredicateType PT>
 std::shared_ptr<ColumnPredicate> create_comparison_predicate(
         const uint32_t cid, const std::string col_name, const vectorized::DataTypePtr& data_type,
-        const vectorized::Field& value, bool opposite, vectorized::Arena& arena) {
+        const vectorized::Field& value, bool opposite) {
     switch (data_type->get_primitive_type()) {
     case TYPE_TINYINT: {
         return ComparisonPredicateBase<TYPE_TINYINT, PT>::create_shared(cid, col_name, value,
@@ -229,13 +229,19 @@ std::shared_ptr<ColumnPredicate> create_comparison_predicate(
                                                   vectorized::remove_nullable(data_type).get())
                                                   ->len()),
                          value.template get<TYPE_CHAR>().size());
-        char* buffer = arena.alloc(target);
-        memset(buffer, 0, target);
-        memcpy(buffer, value.template get<TYPE_CHAR>().data(),
-               value.template get<TYPE_CHAR>().size());
-        return ComparisonPredicateBase<TYPE_CHAR, PT>::create_shared(
-                cid, col_name,
-                vectorized::Field::create_field<TYPE_CHAR>(std::string(buffer, target)), opposite);
+        if (target > value.template get<TYPE_CHAR>().size()) {
+            std::string tmp(target, ' ');
+            memcpy(tmp.data(), value.template get<TYPE_CHAR>().data(),
+                   value.template get<TYPE_CHAR>().size());
+            return ComparisonPredicateBase<TYPE_CHAR, PT>::create_shared(
+                    cid, col_name, vectorized::Field::create_field<TYPE_CHAR>(std::move(tmp)),
+                    opposite);
+        } else {
+            return ComparisonPredicateBase<TYPE_CHAR, PT>::create_shared(
+                    cid, col_name,
+                    vectorized::Field::create_field<TYPE_CHAR>(value.template get<TYPE_CHAR>()),
+                    opposite);
+        }
     }
     case TYPE_VARCHAR:
     case TYPE_STRING: {

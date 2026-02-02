@@ -129,7 +129,7 @@ Status RuntimePredicate::update(const Field& value) {
         }
         std::shared_ptr<ColumnPredicate> pred =
                 _pred_constructor(ctx.predicate->column_id(), ctx.col_name, ctx.col_data_type,
-                                  _orderby_extrem, false, _predicate_arena);
+                                  _orderby_extrem, false);
 
         // For NULLS FIRST, wrap a AcceptNullPredicate to return true for NULL
         // since ORDER BY ASC/DESC should get NULL first but pred returns NULL
