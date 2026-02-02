@@ -51,6 +51,9 @@ public:
 
     bool is_blockable() const override;
 
+private:
+    Status _recover_spill_data_from_disk(RuntimeState* state, const UniqueId& query_id);
+
 protected:
     friend class PartitionedAggSourceOperatorX;
     std::unique_ptr<RuntimeState> _runtime_state;

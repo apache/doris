@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -29,17 +28,20 @@ import java.util.List;
  */
 public class MatchPhrasePrefix extends Match {
     public MatchPhrasePrefix(Expression left, Expression right) {
-        super(ImmutableList.of(left, right), "MATCH_PHRASE_PREFIX");
+        this(left, right, null);
     }
 
-    private MatchPhrasePrefix(List<Expression> children) {
-        super(children, "MATCH_PHRASE_PREFIX");
+    public MatchPhrasePrefix(Expression left, Expression right, String analyzer) {
+        super(ImmutableList.of(left, right), "MATCH_PHRASE_PREFIX", analyzer);
+    }
+
+    private MatchPhrasePrefix(List<Expression> children, String analyzer) {
+        super(children, "MATCH_PHRASE_PREFIX", analyzer);
     }
 
     @Override
-    public MatchPhrasePrefix withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
-        return new MatchPhrasePrefix(children);
+    protected MatchPhrasePrefix createInstance(List<Expression> children, String analyzer) {
+        return new MatchPhrasePrefix(children, analyzer);
     }
 
     @Override

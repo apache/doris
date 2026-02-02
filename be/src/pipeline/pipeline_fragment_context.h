@@ -181,6 +181,9 @@ private:
                                     const std::map<int, int>& shuffle_idx_to_instance_idx);
 
     Status _build_pipeline_tasks(ThreadPool* thread_pool);
+    Status _build_pipeline_tasks_for_instance(
+            int instance_idx,
+            const std::vector<std::shared_ptr<RuntimeProfile>>& pipeline_id_to_profile);
     void _close_fragment_instance();
     void _init_next_report_time();
 

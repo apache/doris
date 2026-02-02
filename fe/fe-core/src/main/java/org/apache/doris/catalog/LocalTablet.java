@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.common.Config;
@@ -33,6 +34,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
+import java.util.stream.LongStream;
 
 public class LocalTablet extends Tablet {
     private static final Logger LOG = LogManager.getLogger(LocalTablet.class);
@@ -114,6 +116,51 @@ public class LocalTablet extends Tablet {
         }
         // return replica with max remoteDataSize
         return replicas.stream().max(Comparator.comparing(Replica::getRemoteDataSize)).get().getRemoteDataSize();
+    }
+
+    @Override
+    public Replica getReplicaById(long replicaId) {
+        for (Replica replica : getReplicas()) {
+            if (replica.getId() == replicaId) {
+                return replica;
+            }
+        }
+        return null;
+    }
+
+    // ATTN: Replica::getDataSize may zero in cloud and non-cloud
+    // due to dataSize not write to image
+    @Override
+    public long getDataSize(boolean singleReplica, boolean filterSizeZero) {
+        LongStream s = getReplicas().stream().filter(r -> r.getState() == ReplicaState.NORMAL)
+                .filter(r -> !filterSizeZero || r.getDataSize() > 0)
+                .mapToLong(Replica::getDataSize);
+        return singleReplica ? Double.valueOf(s.average().orElse(0)).longValue() : s.sum();
+    }
+
+    @Override
+    public long getRowCount(boolean singleReplica) {
+        LongStream s = getReplicas().stream().filter(r -> r.getState() == ReplicaState.NORMAL)
+                .mapToLong(Replica::getRowCount);
+        return singleReplica ? Double.valueOf(s.average().orElse(0)).longValue() : s.sum();
+    }
+
+    // Get the least row count among all valid replicas.
+    // The replica with the least row count is the most accurate one. Because it performs most compaction.
+    @Override
+    public long getMinReplicaRowCount(long version) {
+        long minRowCount = Long.MAX_VALUE;
+        long maxReplicaVersion = 0;
+        for (Replica r : getReplicas()) {
+            if (r.isAlive()
+                    && r.checkVersionCatchUp(version, false)
+                    && (r.getVersion() > maxReplicaVersion
+                    || r.getVersion() == maxReplicaVersion && r.getRowCount() < minRowCount)) {
+                minRowCount = r.getRowCount();
+                maxReplicaVersion = r.getVersion();
+            }
+        }
+        return minRowCount == Long.MAX_VALUE ? 0 : minRowCount;
     }
 
     @Override

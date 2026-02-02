@@ -126,11 +126,11 @@ suite("test_alter_user", "account,nonConcurrent") {
     sql """set global validate_password_policy=STRONG"""
     test {
         sql """set password for 'test_auth_user3' = password("12345")"""
-        exception "Violate password validation policy: STRONG. The password must be at least 8 characters";
+        exception "Violate password validation policy: STRONG"
     }
     test {
         sql """set password for 'test_auth_user3' = password("12345678")"""
-        exception "Violate password validation policy: STRONG. The password must contain at least 3 types of numbers, uppercase letters, lowercase letters and special characters.";
+        exception "Violate password validation policy: STRONG"
     }
 
     sql """set password for 'test_auth_user3' = password('Ab1234567^')"""

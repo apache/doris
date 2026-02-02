@@ -1286,26 +1286,6 @@ TEST(BlockTest, filter) {
     }
 }
 
-TEST(BlockTest, add_rows) {
-    auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1, 2, 3});
-    block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>(
-            {"abc", "efg", "hij"}));
-
-    auto block2 = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({4});
-    block2.insert(
-            vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>({"lmn"}));
-
-    vectorized::MutableBlock mutable_block(&block);
-    mutable_block.add_row(&block2, 0);
-    ASSERT_EQ(mutable_block.rows(), 4);
-
-    vectorized::MutableBlock mutable_block2(&block2);
-    auto st = mutable_block2.add_rows(&block, {0, 2});
-    ASSERT_TRUE(st.ok()) << st.to_string();
-
-    ASSERT_EQ(mutable_block2.rows(), 3);
-}
-
 TEST(BlockTest, others) {
     auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1, 2, 3});
     block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>(

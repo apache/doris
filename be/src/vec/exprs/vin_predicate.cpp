@@ -130,7 +130,8 @@ Status VInPredicate::execute_column(VExprContext* context, const Block* block, s
     //  Here, _children[0] is colA
     const size_t args_size = _is_args_all_constant ? 1 : _children.size();
 
-    ColumnNumbers arguments(args_size);
+    ColumnNumbers arguments;
+    arguments.reserve(args_size);
     Block temp_block;
     for (int i = 0; i < args_size; ++i) {
         ColumnPtr column;

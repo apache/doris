@@ -1243,7 +1243,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                                    ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Tablet>>> beToTabletsInTable,
                                    ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long,
                                        Set<Tablet>>>> partToTablets) {
-        CloudReplica replica = (CloudReplica) pickedTablet.getReplicas().get(0);
+        CloudReplica replica = ((CloudTablet) pickedTablet).getCloudReplica();
         long tableId = replica.getTableId();
         long partId = replica.getPartitionId();
         long indexId = replica.getIndexId();
@@ -1258,7 +1258,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
     private void updateClusterToBeMap(Tablet pickedTablet, long destBe, String clusterId,
                                       List<UpdateCloudReplicaInfo> infos) {
-        CloudReplica cloudReplica = (CloudReplica) pickedTablet.getReplicas().get(0);
+        CloudReplica cloudReplica = ((CloudTablet) pickedTablet).getCloudReplica();
         Database db = Env.getCurrentInternalCatalog().getDbNullable(cloudReplica.getDbId());
         if (db == null) {
             return;
@@ -1491,7 +1491,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 continue; // No tablet to pick
             }
 
-            CloudReplica cloudReplica = (CloudReplica) pickedTablet.getReplicas().get(0);
+            CloudReplica cloudReplica = ((CloudTablet) pickedTablet).getCloudReplica();
             Backend srcBackend = Env.getCurrentSystemInfo().getBackend(srcBe);
 
             if ((BalanceTypeEnum.WITHOUT_WARMUP.equals(currentBalanceType)
@@ -1616,7 +1616,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         List<UpdateCloudReplicaInfo> infos = new ArrayList<>();
         for (Tablet tablet : tablets) {
             // get replica
-            CloudReplica cloudReplica = (CloudReplica) tablet.getReplicas().get(0);
+            CloudReplica cloudReplica = ((CloudTablet) tablet).getCloudReplica();
             Backend be = cloudSystemInfoService.getBackend(srcBe);
             if (be == null) {
                 LOG.info("src backend {} not found", srcBe);

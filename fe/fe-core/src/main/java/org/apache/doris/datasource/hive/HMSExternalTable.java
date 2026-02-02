@@ -1150,7 +1150,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             return HudiUtils.getHudiMvccSnapshot(tableSnapshot, this);
         } else if (getDlaType() == DLAType.ICEBERG) {
             return new IcebergMvccSnapshot(
-                    IcebergUtils.getIcebergSnapshotCacheValue(tableSnapshot, this, scanParams));
+                    IcebergUtils.getSnapshotCacheValue(tableSnapshot, this, scanParams));
         } else {
             return new EmptyMvccSnapshot();
         }

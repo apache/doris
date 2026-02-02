@@ -105,9 +105,18 @@ public:
                   io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache = nullptr,
                   bool enable_lazy_mat = true);
 
+    ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                  const TFileRangeDesc& range, size_t batch_size, const cctz::time_zone* ctz,
+                  std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state,
+                  FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true);
+
     ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
                   io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache = nullptr,
                   bool enable_lazy_mat = true);
+
+    ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                  std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state,
+                  FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true);
 
     ~ParquetReader() override;
 #ifdef BE_TEST
@@ -330,6 +339,7 @@ private:
     ParquetProfile _parquet_profile;
     bool _closed = false;
     io::IOContext* _io_ctx = nullptr;
+    std::shared_ptr<io::IOContext> _io_ctx_holder;
     RuntimeState* _state = nullptr;
     bool _enable_lazy_mat = true;
     bool _enable_filter_by_min_max = true;

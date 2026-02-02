@@ -522,6 +522,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String MAX_INITIAL_FILE_SPLIT_NUM = "max_initial_file_split_num";
 
+    public static final String MAX_FILE_SPLIT_NUM = "max_file_split_num";
+
     // Target file size in bytes for Iceberg write operations
     public static final String ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES = "iceberg_write_target_file_size_bytes";
 
@@ -750,6 +752,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_EXTENDED_REGEX = "enable_extended_regex";
 
+    public static final String CLOUD_PARTITIONS_TABLE_USE_CACHED_VISIBLE_VERSION =
+            "cloud_partitions_table_use_cached_visible_version";
+
     // NOTE: if you want to add some debug variables, please disable sql cache in `CacheAnalyzer.commonCacheCondition`,
     //       and set affectQueryResult=true
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
@@ -833,6 +838,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SKEW_REWRITE_JOIN_SALT_EXPLODE_FACTOR = "skew_rewrite_join_salt_explode_factor";
 
     public static final String SKEW_REWRITE_AGG_BUCKET_NUM = "skew_rewrite_agg_bucket_num";
+    public static final String AGG_SHUFFLE_USE_PARENT_KEY = "agg_shuffle_use_parent_key";
 
     public static final String HOT_VALUE_COLLECT_COUNT = "hot_value_collect_count";
     @VariableMgr.VarAttr(name = HOT_VALUE_COLLECT_COUNT, needForward = true,
@@ -840,6 +846,7 @@ public class SessionVariable implements Serializable, Writable {
                         "When collecting column statistics, collect the top values ranked by their "
                                 + "proportion as hot values, up to HOT_VALUE_COLLECT_COUNT."})
     public int hotValueCollectCount = 10; // Select the values that account for at least 10% of the column
+
 
     public void setHotValueCollectCount(int count) {
         this.hotValueCollectCount = count;
@@ -2256,6 +2263,13 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true)
     public int maxInitialSplitNum = 200;
 
+    @VariableMgr.VarAttr(
+            name = MAX_FILE_SPLIT_NUM,
+            description = {"在非 batch 模式下，每个 table scan 最大允许的 split 数量，防止产生过多 split 导致 OOM。",
+                    "In non-batch mode, the maximum number of splits allowed per table scan to avoid OOM."},
+            needForward = true)
+    public int maxFileSplitNum = 100000;
+
     // Target file size for Iceberg write operations
     // Default 0 means use config::iceberg_sink_max_file_size
     @VariableMgr.VarAttr(name = ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES, needForward = true)
@@ -2737,6 +2751,12 @@ public class SessionVariable implements Serializable, Writable {
                             + "Smaller values reduce network traffic but may not fully resolve skew. "
             }, checker = "checkSkewRewriteAggBucketNum")
     public int skewRewriteAggBucketNum = 1024;
+
+    @VariableMgr.VarAttr(name = AGG_SHUFFLE_USE_PARENT_KEY, description = {
+            "在聚合算子进行 shuffle 时，是否使用父节点的分组键进行 shuffle",
+            "Whether to use the parent node's grouping key for shuffling during the aggregation operator"
+    }, needForward = false)
+    public boolean aggShuffleUseParentKey = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PREFER_CACHED_ROWSET, needForward = false,
             description = {"是否启用 prefer cached rowset 功能",
@@ -3285,6 +3305,11 @@ public class SessionVariable implements Serializable, Writable {
     )
     public int defaultVariantSparseHashShardCount = 0;
 
+    @VariableMgr.VarAttr(name = CLOUD_PARTITIONS_TABLE_USE_CACHED_VISIBLE_VERSION, needForward = false,
+            description = {"partitions系统表的visible_version列在cloud模式是否使用cached",
+                    "Whether cache is used for the visible_version column"
+                             + "in the partitions system table on cloud mode"})
+    public boolean cloudPartitionsTableUseCachedVisibleVersion = true;
 
     @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_DOC_MODE,
@@ -4383,6 +4408,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setMaxInitialSplitNum(int maxInitialSplitNum) {
         this.maxInitialSplitNum = maxInitialSplitNum;
+    }
+
+    public int getMaxFileSplitNum() {
+        return maxFileSplitNum;
+    }
+
+    public void setMaxFileSplitNum(int maxFileSplitNum) {
+        this.maxFileSplitNum = maxFileSplitNum;
     }
 
     public long getIcebergWriteTargetFileSizeBytes() {
@@ -5951,6 +5984,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getDefaultVariantSparseHashShardCount() {
         return defaultVariantSparseHashShardCount;
+    }
+
+    public boolean getCloudPartitionsTableUseCachedVisibleVersion() {
+        return cloudPartitionsTableUseCachedVisibleVersion;
     }
 
     public boolean getDefaultVariantEnableDocMode() {

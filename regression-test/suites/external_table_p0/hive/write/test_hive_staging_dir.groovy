@@ -60,13 +60,20 @@ suite("test_hive_staging_dir", "p0,external,hive,external_docker,external_docker
         }
         currentUser = currentUser.replaceAll("[^A-Za-z0-9_-]", "")
         String suffix = System.currentTimeMillis().toString()
-        String stagingRelBase = ".doris_staging_test_${suffix}"
 
         String hdfsUser = context.config.otherConfigs.get("hdfsUser")
         if (hdfsUser == null || hdfsUser.isEmpty()) {
             hdfsUser = "root"
         }
 
+        String stagingRelBase = null
+        String stagingAbsBase = null
+        String stagingDefaultBase = null
+        String stagingRelWithUser = null
+        String stagingAbsWithUser = null
+        String stagingDefaultWithUser = null
+        String stagingRelPath = null
+        def fs = null
         try {
             hive_docker """create database if not exists `${dbName}`"""
             hive_docker """drop table if exists `${dbName}`.`${tableRel}`"""
@@ -80,19 +87,19 @@ suite("test_hive_staging_dir", "p0,external,hive,external_docker,external_docker
             if (tableUri.getScheme() != null && tableUri.getAuthority() != null) {
                 hdfsUri = tableUri.getScheme() + "://" + tableUri.getAuthority()
             }
-            String stagingAbsBase = "${hdfsUri}/tmp/doris_staging_abs_${suffix}"
-            String stagingRelWithUser = new Path(stagingRelBase, currentUser).toString()
-            String stagingAbs = new Path(stagingAbsBase, currentUser).toString()
+            stagingRelBase = "doris_staging_rel_${suffix}"
+            stagingAbsBase = "${hdfsUri}/tmp/doris_staging_abs_${suffix}"
+            stagingDefaultBase = "/tmp/.doris_staging"
+            stagingRelWithUser = new Path(stagingRelBase, currentUser).toString()
+            stagingAbsWithUser = new Path(stagingAbsBase, currentUser).toString()
+            stagingDefaultWithUser = new Path(stagingDefaultBase, currentUser).toString()
+            stagingRelPath = new Path(relLocation, stagingRelWithUser).toString()
 
             Hdfs hdfs = new Hdfs(hdfsUri, hdfsUser, context.config.dataPath + "/")
-            def fs = hdfs.fs
-            String defaultStagingRel = ".doris_staging/${currentUser}"
-            String defaultBase = new Path(relLocation, defaultStagingRel).toString()
-            String relBase = new Path(relLocation, stagingRelWithUser).toString()
+            fs = hdfs.fs
 
-            fs.delete(new Path(defaultBase), true)
-            fs.delete(new Path(relBase), true)
-            fs.delete(new Path(stagingAbs), true)
+            fs.delete(new Path(stagingRelPath), true)
+            fs.delete(new Path(stagingAbsWithUser), true)
 
             sql """drop catalog if exists ${catalogName}"""
             sql """create catalog if not exists ${catalogName} properties (
@@ -106,29 +113,39 @@ suite("test_hive_staging_dir", "p0,external,hive,external_docker,external_docker
 
             sql """insert into `${tableRel}` values (1)"""
             order_qt_q01 """ select * from `${tableRel}`"""
-            assertTrue(fs.exists(new Path(defaultBase)),
-                    "default staging dir not created: ${defaultBase}")
-            fs.delete(new Path(defaultBase), true)
+            assertTrue(fs.exists(new Path(stagingDefaultWithUser)),
+                    "default staging dir not created: ${stagingDefaultWithUser}")
 
             sql """alter catalog ${catalogName} set properties ('hive.staging_dir' = '${stagingRelBase}')"""
             sql """refresh catalog ${catalogName}"""
             sql """insert into `${tableRel}` values (2)"""
             order_qt_q02 """ select * from `${tableRel}`"""
-            assertTrue(fs.exists(new Path(relBase)),
-                    "relative staging dir not created: ${relBase}")
-            fs.delete(new Path(relBase), true)
+            assertTrue(fs.exists(new Path(stagingRelPath)),
+                    "relative staging dir not created: ${stagingRelPath}")
+            fs.delete(new Path(stagingRelPath), true)
 
             sql """alter catalog ${catalogName} set properties ('hive.staging_dir' = '${stagingAbsBase}')"""
             sql """refresh catalog ${catalogName}"""
             sql """insert into `${tableAbs}` values (1)"""
             order_qt_q03 """ select * from `${tableAbs}`"""
-            assertTrue(fs.exists(new Path(stagingAbs)),
-                    "absolute staging dir not created: ${stagingAbs}")
-            fs.delete(new Path(stagingAbs), true)
+            assertTrue(fs.exists(new Path(stagingAbsWithUser)),
+                    "absolute staging dir not created: ${stagingAbsWithUser}")
+            fs.delete(new Path(stagingAbsWithUser), true)
         } finally {
             try_hive_docker """drop table if exists `${dbName}`.`${tableRel}`"""
             try_hive_docker """drop table if exists `${dbName}`.`${tableAbs}`"""
             try_sql """drop catalog if exists ${catalogName}"""
+            if (fs != null) {
+                if (stagingDefaultWithUser != null) {
+                    fs.delete(new Path(stagingDefaultWithUser), true)
+                }
+                if (stagingRelPath != null) {
+                    fs.delete(new Path(stagingRelPath), true)
+                }
+                if (stagingAbsWithUser != null) {
+                    fs.delete(new Path(stagingAbsWithUser), true)
+                }
+            }
         }
     }
 }

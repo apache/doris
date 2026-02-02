@@ -88,6 +88,50 @@ FileCacheType cache_type_to_pb(io::FileCacheType type) {
     return FileCacheType::NORMAL;
 }
 
+static void add_file_cache_block_meta_to_response(
+        PGetFileCacheMetaResponse* resp, int64_t tablet_id, const std::string& rowset_id,
+        int32_t segment_id, const std::string& file_name,
+        const std::tuple<int64_t, int64_t, io::FileCacheType, int64_t>& tuple,
+        const RowsetSharedPtr& rowset, bool is_index) {
+    FileCacheBlockMeta* meta = resp->add_file_cache_block_metas();
+    meta->set_tablet_id(tablet_id);
+    meta->set_rowset_id(rowset_id);
+    meta->set_segment_id(segment_id);
+    meta->set_file_name(file_name);
+
+    if (!is_index) {
+        // .dat
+        meta->set_file_size(rowset->rowset_meta()->segment_file_size(segment_id));
+        meta->set_file_type(doris::FileType::SEGMENT_FILE);
+    } else {
+        // .idx
+        const auto& idx_file_info = rowset->rowset_meta()->inverted_index_file_info(segment_id);
+        meta->set_file_size(idx_file_info.has_index_size() ? idx_file_info.index_size() : -1);
+        meta->set_file_type(doris::FileType::INVERTED_INDEX_FILE);
+    }
+
+    meta->set_offset(std::get<0>(tuple));
+    meta->set_size(std::get<1>(tuple));
+    meta->set_cache_type(cache_type_to_pb(std::get<2>(tuple)));
+    meta->set_expiration_time(std::get<3>(tuple));
+}
+
+static void process_segment_file_cache_meta(PGetFileCacheMetaResponse* resp,
+                                            const RowsetSharedPtr& rowset, int64_t tablet_id,
+                                            const std::string& rowset_id, int32_t segment_id,
+                                            bool is_index) {
+    const char* extension = is_index ? ".idx" : ".dat";
+    std::string file_name = fmt::format("{}_{}{}", rowset_id, segment_id, extension);
+    auto cache_key = io::BlockFileCache::hash(file_name);
+    auto* cache = io::FileCacheFactory::instance()->get_by_path(cache_key);
+    if (!cache) return;
+    auto segments_meta = cache->get_hot_blocks_meta(cache_key);
+    for (const auto& tuple : segments_meta) {
+        add_file_cache_block_meta_to_response(resp, tablet_id, rowset_id, segment_id, file_name,
+                                              tuple, rowset, is_index);
+    }
+}
+
 void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
         google::protobuf::RpcController* controller [[maybe_unused]],
         const PGetFileCacheMetaRequest* request, PGetFileCacheMetaResponse* response,
@@ -127,57 +171,13 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
         }
         auto rowsets = tablet->get_snapshot_rowset();
 
-        auto add_meta = [&](PGetFileCacheMetaResponse* resp, int64_t tablet_id,
-                            const std::string& rowset_id, int32_t segment_id,
-                            const std::string& file_name,
-                            const std::tuple<int64_t, int64_t, io::FileCacheType, int64_t>& tuple,
-                            const RowsetSharedPtr& rowset, bool is_index) {
-            FileCacheBlockMeta* meta = resp->add_file_cache_block_metas();
-            meta->set_tablet_id(tablet_id);
-            meta->set_rowset_id(rowset_id);
-            meta->set_segment_id(segment_id);
-            meta->set_file_name(file_name);
-
-            if (!is_index) {
-                // .dat
-                meta->set_file_size(rowset->rowset_meta()->segment_file_size(segment_id));
-                meta->set_file_type(doris::FileType::SEGMENT_FILE);
-            } else {
-                // .idx
-                const auto& idx_file_info =
-                        rowset->rowset_meta()->inverted_index_file_info(segment_id);
-                meta->set_file_size(idx_file_info.has_index_size() ? idx_file_info.index_size()
-                                                                   : -1);
-                meta->set_file_type(doris::FileType::INVERTED_INDEX_FILE);
-            }
-
-            meta->set_offset(std::get<0>(tuple));
-            meta->set_size(std::get<1>(tuple));
-            meta->set_cache_type(cache_type_to_pb(std::get<2>(tuple)));
-            meta->set_expiration_time(std::get<3>(tuple));
-        };
-
-        auto process_file_for_segment = [&](PGetFileCacheMetaResponse* resp,
-                                            const RowsetSharedPtr& rowset, int64_t tablet_id,
-                                            const std::string& rowset_id, int32_t segment_id,
-                                            bool is_inedex) {
-            const char* extension = is_inedex ? ".idx" : ".dat";
-            std::string file_name = fmt::format("{}_{}{}", rowset_id, segment_id, extension);
-            auto cache_key = io::BlockFileCache::hash(file_name);
-            auto* cache = io::FileCacheFactory::instance()->get_by_path(cache_key);
-            if (!cache) return;
-            auto segments_meta = cache->get_hot_blocks_meta(cache_key);
-            for (const auto& tuple : segments_meta) {
-                add_meta(resp, tablet_id, rowset_id, segment_id, file_name, tuple, rowset,
-                         is_inedex);
-            }
-        };
-
         for (const RowsetSharedPtr& rowset : rowsets) {
             std::string rowset_id = rowset->rowset_id().to_string();
             for (int32_t segment_id = 0; segment_id < rowset->num_segments(); ++segment_id) {
-                process_file_for_segment(response, rowset, tablet_id, rowset_id, segment_id, false);
-                process_file_for_segment(response, rowset, tablet_id, rowset_id, segment_id, true);
+                process_segment_file_cache_meta(response, rowset, tablet_id, rowset_id, segment_id,
+                                                false);
+                process_segment_file_cache_meta(response, rowset, tablet_id, rowset_id, segment_id,
+                                                true);
             }
         }
     }
@@ -393,6 +393,114 @@ bvar::Adder<uint64_t> g_file_cache_warm_up_rowset_wait_for_compaction_num(
 bvar::Adder<uint64_t> g_file_cache_warm_up_rowset_wait_for_compaction_timeout_num(
         "file_cache_warm_up_rowset_wait_for_compaction_timeout_num");
 
+void handle_segment_download_done(Status st, int64_t tablet_id, const RowsetId& rowset_id,
+                                  int64_t segment_id, std::shared_ptr<CloudTablet> tablet,
+                                  std::shared_ptr<bthread::CountdownEvent> wait, Version version,
+                                  int64_t segment_size, int64_t request_ts, int64_t handle_ts) {
+    DBUG_EXECUTE_IF("CloudInternalServiceImpl::warm_up_rowset.download_segment", {
+        auto sleep_time = dp->param<int>("sleep", 3);
+        LOG_INFO("[verbose] block download for rowset={}, version={}, sleep={}",
+                 rowset_id.to_string(), version.to_string(), sleep_time);
+        std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
+    });
+    DBUG_EXECUTE_IF(
+            "CloudInternalServiceImpl::warm_up_rowset.download_segment.inject_"
+            "error",
+            {
+                st = Status::InternalError("injected error");
+                LOG_INFO("[verbose] inject error, tablet={}, rowset={}, st={}", tablet_id,
+                         rowset_id.to_string(), st.to_string());
+            });
+    if (st.ok()) {
+        g_file_cache_event_driven_warm_up_finished_segment_num << 1;
+        g_file_cache_event_driven_warm_up_finished_segment_size << segment_size;
+        int64_t now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                                 std::chrono::system_clock::now().time_since_epoch())
+                                 .count();
+        g_file_cache_warm_up_rowset_last_finish_unix_ts.set_value(now_ts);
+        g_file_cache_warm_up_rowset_latency << (now_ts - request_ts);
+        g_file_cache_warm_up_rowset_handle_to_finish_latency << (now_ts - handle_ts);
+        if (request_ts > 0 && now_ts - request_ts > config::warm_up_rowset_slow_log_ms * 1000) {
+            g_file_cache_warm_up_rowset_slow_count << 1;
+            LOG(INFO) << "warm up rowset took " << now_ts - request_ts
+                      << " us, tablet_id: " << tablet_id << ", rowset_id: " << rowset_id.to_string()
+                      << ", segment_id: " << segment_id;
+        }
+        if (now_ts - handle_ts > config::warm_up_rowset_slow_log_ms * 1000) {
+            g_file_cache_warm_up_rowset_handle_to_finish_slow_count << 1;
+            LOG(INFO) << "warm up rowset (handle to finish) took " << now_ts - handle_ts
+                      << " us, tablet_id: " << tablet_id << ", rowset_id: " << rowset_id.to_string()
+                      << ", segment_id: " << segment_id;
+        }
+    } else {
+        g_file_cache_event_driven_warm_up_failed_segment_num << 1;
+        g_file_cache_event_driven_warm_up_failed_segment_size << segment_size;
+        LOG(WARNING) << "download segment failed, tablet_id: " << tablet_id
+                     << " rowset_id: " << rowset_id.to_string() << ", error: " << st;
+    }
+    if (tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN, rowset_id, st, 1,
+                                               0)
+                .trigger_source == WarmUpTriggerSource::EVENT_DRIVEN) {
+        VLOG_DEBUG << "warmup rowset " << version.to_string() << "(" << rowset_id.to_string()
+                   << ") completed";
+    }
+    if (wait) {
+        wait->signal();
+    }
+}
+
+void handle_inverted_index_download_done(Status st, int64_t tablet_id, const RowsetId& rowset_id,
+                                         int64_t segment_id, std::string index_path,
+                                         std::shared_ptr<CloudTablet> tablet,
+                                         std::shared_ptr<bthread::CountdownEvent> wait,
+                                         Version version, uint64_t idx_size, int64_t request_ts,
+                                         int64_t handle_ts) {
+    DBUG_EXECUTE_IF("CloudInternalServiceImpl::warm_up_rowset.download_inverted_idx", {
+        auto sleep_time = dp->param<int>("sleep", 3);
+        LOG_INFO(
+                "[verbose] block download for rowset={}, inverted index "
+                "file={}, sleep={}",
+                rowset_id.to_string(), index_path, sleep_time);
+        std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
+    });
+    if (st.ok()) {
+        g_file_cache_event_driven_warm_up_finished_index_num << 1;
+        g_file_cache_event_driven_warm_up_finished_index_size << idx_size;
+        int64_t now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                                 std::chrono::system_clock::now().time_since_epoch())
+                                 .count();
+        g_file_cache_warm_up_rowset_last_finish_unix_ts.set_value(now_ts);
+        g_file_cache_warm_up_rowset_latency << (now_ts - request_ts);
+        g_file_cache_warm_up_rowset_handle_to_finish_latency << (now_ts - handle_ts);
+        if (request_ts > 0 && now_ts - request_ts > config::warm_up_rowset_slow_log_ms * 1000) {
+            g_file_cache_warm_up_rowset_slow_count << 1;
+            LOG(INFO) << "warm up rowset took " << now_ts - request_ts
+                      << " us, tablet_id: " << tablet_id << ", rowset_id: " << rowset_id.to_string()
+                      << ", segment_id: " << segment_id;
+        }
+        if (now_ts - handle_ts > config::warm_up_rowset_slow_log_ms * 1000) {
+            g_file_cache_warm_up_rowset_handle_to_finish_slow_count << 1;
+            LOG(INFO) << "warm up rowset (handle to finish) took " << now_ts - handle_ts
+                      << " us, tablet_id: " << tablet_id << ", rowset_id: " << rowset_id.to_string()
+                      << ", segment_id: " << segment_id;
+        }
+    } else {
+        g_file_cache_event_driven_warm_up_failed_index_num << 1;
+        g_file_cache_event_driven_warm_up_failed_index_size << idx_size;
+        LOG(WARNING) << "download inverted index failed, tablet_id: " << tablet_id
+                     << " rowset_id: " << rowset_id << ", error: " << st;
+    }
+    if (tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN, rowset_id, st, 0,
+                                               1)
+                .trigger_source == WarmUpTriggerSource::EVENT_DRIVEN) {
+        VLOG_DEBUG << "warmup rowset " << version.to_string() << "(" << rowset_id.to_string()
+                   << ") completed";
+    }
+    if (wait) {
+        wait->signal();
+    }
+}
+
 void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* controller
                                               [[maybe_unused]],
                                               const PWarmUpRowsetRequest* request,
@@ -457,64 +565,6 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
         for (int64_t segment_id = 0; segment_id < rs_meta.num_segments(); segment_id++) {
             if (!config::file_cache_enable_only_warm_up_idx) {
                 auto segment_size = rs_meta.segment_file_size(segment_id);
-                auto download_done = [=, version = rs_meta.version()](Status st) {
-                    DBUG_EXECUTE_IF("CloudInternalServiceImpl::warm_up_rowset.download_segment", {
-                        auto sleep_time = dp->param<int>("sleep", 3);
-                        LOG_INFO("[verbose] block download for rowset={}, version={}, sleep={}",
-                                 rowset_id.to_string(), version.to_string(), sleep_time);
-                        std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
-                    });
-                    DBUG_EXECUTE_IF(
-                            "CloudInternalServiceImpl::warm_up_rowset.download_segment.inject_"
-                            "error",
-                            {
-                                st = Status::InternalError("injected error");
-                                LOG_INFO("[verbose] inject error, tablet={}, rowset={}, st={}",
-                                         tablet_id, rowset_id.to_string(), st.to_string());
-                            });
-                    if (st.ok()) {
-                        g_file_cache_event_driven_warm_up_finished_segment_num << 1;
-                        g_file_cache_event_driven_warm_up_finished_segment_size << segment_size;
-                        int64_t now_ts =
-                                std::chrono::duration_cast<std::chrono::microseconds>(
-                                        std::chrono::system_clock::now().time_since_epoch())
-                                        .count();
-                        g_file_cache_warm_up_rowset_last_finish_unix_ts.set_value(now_ts);
-                        g_file_cache_warm_up_rowset_latency << (now_ts - request_ts);
-                        g_file_cache_warm_up_rowset_handle_to_finish_latency
-                                << (now_ts - handle_ts);
-                        if (request_ts > 0 &&
-                            now_ts - request_ts > config::warm_up_rowset_slow_log_ms * 1000) {
-                            g_file_cache_warm_up_rowset_slow_count << 1;
-                            LOG(INFO) << "warm up rowset took " << now_ts - request_ts
-                                      << " us, tablet_id: " << tablet_id
-                                      << ", rowset_id: " << rowset_id.to_string()
-                                      << ", segment_id: " << segment_id;
-                        }
-                        if (now_ts - handle_ts > config::warm_up_rowset_slow_log_ms * 1000) {
-                            g_file_cache_warm_up_rowset_handle_to_finish_slow_count << 1;
-                            LOG(INFO) << "warm up rowset (handle to finish) took "
-                                      << now_ts - handle_ts << " us, tablet_id: " << tablet_id
-                                      << ", rowset_id: " << rowset_id.to_string()
-                                      << ", segment_id: " << segment_id;
-                        }
-                    } else {
-                        g_file_cache_event_driven_warm_up_failed_segment_num << 1;
-                        g_file_cache_event_driven_warm_up_failed_segment_size << segment_size;
-                        LOG(WARNING)
-                                << "download segment failed, tablet_id: " << tablet_id
-                                << " rowset_id: " << rowset_id.to_string() << ", error: " << st;
-                    }
-                    if (tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN,
-                                                               rowset_id, st, 1, 0)
-                                .trigger_source == WarmUpTriggerSource::EVENT_DRIVEN) {
-                        VLOG_DEBUG << "warmup rowset " << version.to_string() << "("
-                                   << rowset_id.to_string() << ") completed";
-                    }
-                    if (wait) {
-                        wait->signal();
-                    }
-                };
 
                 // Use rs_meta.fs() instead of storage_resource.value()->fs to support packed files.
                 // PackedFileSystem wrapper in rs_meta.fs() handles the index_map lookup and
@@ -529,8 +579,11 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                                 .expiration_time = expiration_time,
                                 .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                                 .is_warmup = true},
-                        .download_done = std::move(download_done),
-                };
+                        .download_done = [=, version = rs_meta.version()](Status st) {
+                            handle_segment_download_done(st, tablet_id, rowset_id, segment_id,
+                                                         tablet, wait, version, segment_size,
+                                                         request_ts, handle_ts);
+                        }};
 
                 g_file_cache_event_driven_warm_up_submitted_segment_num << 1;
                 g_file_cache_event_driven_warm_up_submitted_segment_size << segment_size;
@@ -543,58 +596,6 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
 
             // Use rs_meta.fs() to support packed files for inverted index download.
             auto download_inverted_index = [&, tablet](std::string index_path, uint64_t idx_size) {
-                auto download_done = [=, version = rs_meta.version()](Status st) {
-                    DBUG_EXECUTE_IF(
-                            "CloudInternalServiceImpl::warm_up_rowset.download_inverted_idx", {
-                                auto sleep_time = dp->param<int>("sleep", 3);
-                                LOG_INFO(
-                                        "[verbose] block download for rowset={}, inverted index "
-                                        "file={}, sleep={}",
-                                        rowset_id.to_string(), index_path, sleep_time);
-                                std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
-                            });
-                    if (st.ok()) {
-                        g_file_cache_event_driven_warm_up_finished_index_num << 1;
-                        g_file_cache_event_driven_warm_up_finished_index_size << idx_size;
-                        int64_t now_ts =
-                                std::chrono::duration_cast<std::chrono::microseconds>(
-                                        std::chrono::system_clock::now().time_since_epoch())
-                                        .count();
-                        g_file_cache_warm_up_rowset_last_finish_unix_ts.set_value(now_ts);
-                        g_file_cache_warm_up_rowset_latency << (now_ts - request_ts);
-                        g_file_cache_warm_up_rowset_handle_to_finish_latency
-                                << (now_ts - handle_ts);
-                        if (request_ts > 0 &&
-                            now_ts - request_ts > config::warm_up_rowset_slow_log_ms * 1000) {
-                            g_file_cache_warm_up_rowset_slow_count << 1;
-                            LOG(INFO) << "warm up rowset took " << now_ts - request_ts
-                                      << " us, tablet_id: " << tablet_id
-                                      << ", rowset_id: " << rowset_id.to_string()
-                                      << ", segment_id: " << segment_id;
-                        }
-                        if (now_ts - handle_ts > config::warm_up_rowset_slow_log_ms * 1000) {
-                            g_file_cache_warm_up_rowset_handle_to_finish_slow_count << 1;
-                            LOG(INFO) << "warm up rowset (handle to finish) took "
-                                      << now_ts - handle_ts << " us, tablet_id: " << tablet_id
-                                      << ", rowset_id: " << rowset_id.to_string()
-                                      << ", segment_id: " << segment_id;
-                        }
-                    } else {
-                        g_file_cache_event_driven_warm_up_failed_index_num << 1;
-                        g_file_cache_event_driven_warm_up_failed_index_size << idx_size;
-                        LOG(WARNING) << "download inverted index failed, tablet_id: " << tablet_id
-                                     << " rowset_id: " << rowset_id << ", error: " << st;
-                    }
-                    if (tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN,
-                                                               rowset_id, st, 0, 1)
-                                .trigger_source == WarmUpTriggerSource::EVENT_DRIVEN) {
-                        VLOG_DEBUG << "warmup rowset " << version.to_string() << "("
-                                   << rowset_id.to_string() << ") completed";
-                    }
-                    if (wait) {
-                        wait->signal();
-                    }
-                };
                 io::DownloadFileMeta download_meta {
                         .path = io::Path(index_path),
                         .file_size = static_cast<int64_t>(idx_size),
@@ -603,8 +604,11 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                                 .expiration_time = expiration_time,
                                 .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                                 .is_warmup = true},
-                        .download_done = std::move(download_done),
-                };
+                        .download_done = [=, version = rs_meta.version()](Status st) {
+                            handle_inverted_index_download_done(
+                                    st, tablet_id, rowset_id, segment_id, index_path, tablet, wait,
+                                    version, idx_size, request_ts, handle_ts);
+                        }};
                 g_file_cache_event_driven_warm_up_submitted_index_num << 1;
                 g_file_cache_event_driven_warm_up_submitted_index_size << idx_size;
                 tablet->update_rowset_warmup_state_inverted_idx_num(

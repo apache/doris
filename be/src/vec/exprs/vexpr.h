@@ -168,6 +168,12 @@ public:
         return Status::OK();
     }
 
+    // Get analyzer key for inverted index queries (overridden by VMatchPredicate)
+    [[nodiscard]] virtual const std::string& get_analyzer_key() const {
+        static const std::string empty;
+        return empty;
+    }
+
     Status _evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
                                     uint32_t segment_num_rows);
 
@@ -175,7 +181,8 @@ public:
 
     // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
     // interface
-    virtual Status execute_runtime_filter(VExprContext* context, const Block* block, size_t count,
+    virtual Status execute_runtime_filter(VExprContext* context, const Block* block,
+                                          const uint8_t* __restrict filter, size_t count,
                                           ColumnPtr& result_column, ColumnPtr* arg_column) const {
         return execute_column(context, block, count, result_column);
     };

@@ -492,6 +492,15 @@ DECLARE_mInt32(vertical_compaction_num_columns_per_group);
 DECLARE_Int32(vertical_compaction_max_row_source_memory_mb);
 // In vertical compaction, max dest segment file size
 DECLARE_mInt64(vertical_compaction_max_segment_size);
+// Threshold for sparse column compaction optimization (average bytes per row)
+// Density threshold for sparse column compaction optimization
+// density = (total_cells - null_cells) / total_cells, smaller means more sparse
+// When density <= threshold, enable sparse optimization
+// 0 = disable optimization, 1 = always enable
+// Default 1 means always enable sparse optimization
+DECLARE_mDouble(sparse_column_compaction_threshold_percent);
+// Enable RLE batch Put optimization for compaction
+DECLARE_mBool(enable_rle_batch_put_optimization);
 
 // If enabled, segments will be flushed column by column
 DECLARE_mBool(enable_vertical_segment_writer);
@@ -1149,6 +1158,19 @@ DECLARE_mInt32(segcompaction_num_threads);
 
 // enable java udf and jdbc scannode
 DECLARE_Bool(enable_java_support);
+
+// enable python udf
+DECLARE_Bool(enable_python_udf_support);
+// python env mode, options: conda, venv
+DECLARE_String(python_env_mode);
+// root path of conda runtime, python_env_mode should be conda
+DECLARE_String(python_conda_root_path);
+// root path of venv runtime, python_env_mode should be venv
+DECLARE_String(python_venv_root_path);
+// python interpreter paths used by venv, e.g. /usr/bin/python3.7:/usr/bin/python3.6
+DECLARE_String(python_venv_interpreter_paths);
+// max python processes in global shared pool, each version can have up to this many processes
+DECLARE_mInt32(max_python_process_num);
 
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);

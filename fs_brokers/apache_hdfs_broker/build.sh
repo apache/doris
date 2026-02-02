@@ -32,7 +32,7 @@ mkdir -p "${BROKER_HOME}/src/main/thrift"
 
 cp "${BROKER_HOME}/../../gensrc/thrift/PaloBrokerService.thrift" "${BROKER_HOME}/src/main/resources/thrift"/
 
-"${MVN_CMD}" package -DskipTests
+"${MVN_CMD}" clean package -DskipTests
 
 echo "Install broker..."
 BROKER_OUTPUT="${BROKER_HOME}/output/apache_hdfs_broker"

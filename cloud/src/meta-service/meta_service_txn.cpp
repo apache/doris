@@ -1234,6 +1234,64 @@ void update_tablet_stats(const StatsTabletKeyInfo& info, const TabletStats& stat
     }
 }
 
+// process mow table, check lock and update lock timeout
+void process_mow_when_commit_txn_deferred(
+        const CommitTxnRequest* request, const std::string& instance_id, MetaServiceCode& code,
+        std::string& msg, std::unique_ptr<Transaction>& txn,
+        std::unordered_map<int64_t, std::vector<int64_t>>& table_id_tablet_ids) {
+    int64_t txn_id = request->txn_id();
+    std::stringstream ss;
+    std::vector<std::string> lock_keys;
+    lock_keys.reserve(request->mow_table_ids().size());
+    for (auto table_id : request->mow_table_ids()) {
+        lock_keys.push_back(meta_delete_bitmap_update_lock_key({instance_id, table_id, -1}));
+    }
+    std::vector<std::optional<std::string>> lock_values;
+    TxnErrorCode err = txn->batch_get(&lock_values, lock_keys);
+    if (err != TxnErrorCode::TXN_OK) {
+        ss << "failed to get delete bitmap update lock key info, instance_id=" << instance_id
+           << " err=" << err;
+        msg = ss.str();
+        code = cast_as<ErrCategory::READ>(err);
+        LOG(WARNING) << msg << " txn_id=" << txn_id;
+        return;
+    }
+    size_t total_locks = lock_keys.size();
+    for (size_t i = 0; i < total_locks; i++) {
+        int64_t table_id = request->mow_table_ids(i);
+        // When the key does not exist, it means the lock has been acquired
+        // by another transaction and successfully committed.
+        if (!lock_values[i].has_value()) {
+            ss << "get delete bitmap update lock info, lock is expired"
+               << " table_id=" << table_id << " key=" << hex(lock_keys[i]) << " txn_id=" << txn_id;
+            code = MetaServiceCode::LOCK_EXPIRED;
+            msg = ss.str();
+            LOG(WARNING) << msg << " txn_id=" << txn_id;
+            return;
+        }
+
+        DeleteBitmapUpdateLockPB lock_info;
+        if (!lock_info.ParseFromString(lock_values[i].value())) [[unlikely]] {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = "failed to parse DeleteBitmapUpdateLockPB";
+            LOG(WARNING) << msg << " txn_id=" << txn_id;
+            return;
+        }
+        if (lock_info.lock_id() != request->txn_id()) {
+            ss << "lock is expired, locked by lock_id=" << lock_info.lock_id();
+            msg = ss.str();
+            code = MetaServiceCode::LOCK_EXPIRED;
+            return;
+        }
+        lock_info.set_expiration(std::numeric_limits<int64_t>::max());
+        txn->put(lock_keys[i], lock_info.SerializeAsString());
+        LOG(INFO) << "refresh delete bitmap lock, lock_key=" << hex(lock_keys[i])
+                  << " table_id=" << table_id << " txn_id=" << txn_id;
+    }
+    lock_keys.clear();
+    lock_values.clear();
+}
+
 // process mow table, check lock and remove pending key
 void process_mow_when_commit_txn(
         const CommitTxnRequest* request, const std::string& instance_id, MetaServiceCode& code,
@@ -1312,7 +1370,7 @@ std::pair<MetaServiceCode, std::string> get_tablet_indexes(
     }
 
     TxnErrorCode err = txn->batch_get(&tablet_idx_values, tablet_idx_keys,
-                                      Transaction::BatchGetOptions(false));
+                                      Transaction::BatchGetOptions(snapshot));
     if (err != TxnErrorCode::TXN_OK) {
         auto msg = fmt::format("failed to get tablet table index ids, err={}", err);
         LOG_WARNING(msg);
@@ -1667,20 +1725,6 @@ void MetaServiceImpl::commit_txn_immediately(
                       << " rowset_size=" << rowset_size;
 
             if (is_versioned_write) {
-                auto& rowset_meta = i.second;
-                std::string meta_rowset_key = versioned::meta_rowset_key(
-                        {instance_id, tablet_id, rowset_meta.rowset_id_v2()});
-                if (config::enable_recycle_rowset_strip_key_bounds) {
-                    doris::RowsetMetaCloudPB rowset_meta_copy = rowset_meta;
-                    // Strip key bounds to shrink operation log for ts compaction recycle entries
-                    rowset_meta_copy.clear_segments_key_bounds();
-                    rowset_meta_copy.clear_segments_key_bounds_truncated();
-                    blob_put(txn.get(), meta_rowset_key, rowset_meta_copy.SerializeAsString(), 0);
-                } else {
-                    blob_put(txn.get(), meta_rowset_key, rowset_meta.SerializeAsString(), 0);
-                }
-                LOG(INFO) << "put versioned meta_rowset_key=" << hex(meta_rowset_key);
-
                 std::string versioned_rowset_key =
                         versioned::meta_rowset_load_key({instance_id, tablet_id, version});
                 RowsetMetaCloudPB copied_rowset_meta(i.second);
@@ -1891,6 +1935,9 @@ void MetaServiceImpl::commit_txn_immediately(
         if (err != TxnErrorCode::TXN_OK) {
             if (err == TxnErrorCode::TXN_CONFLICT) {
                 g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter << 1;
+            } else if (err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
+                LOG(WARNING) << "commit txn failed due to txn size too large, txn_id=" << txn_id
+                             << " the underlying txn size=" << txn->approximate_bytes(true);
             }
             code = cast_as<ErrCategory::COMMIT>(err);
             ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
@@ -2079,13 +2126,13 @@ void MetaServiceImpl::commit_txn_eventually(
                 std::ranges::views::transform(
                         [](const auto& pair) { return pair.second.tablet_id(); }));
         if (!is_versioned_read) {
-            std::tie(code, msg) =
-                    get_tablet_indexes(txn.get(), &tablet_ids, instance_id, acquired_tablet_ids);
+            std::tie(code, msg) = get_tablet_indexes(txn.get(), &tablet_ids, instance_id,
+                                                     acquired_tablet_ids, true);
             if (code != MetaServiceCode::OK) {
                 return;
             }
         } else {
-            err = meta_reader.get_tablet_indexes(txn.get(), acquired_tablet_ids, &tablet_ids);
+            err = meta_reader.get_tablet_indexes(txn.get(), acquired_tablet_ids, &tablet_ids, true);
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::READ>(err);
                 msg = fmt::format("failed to get tablet indexes, err={}", err);
@@ -2111,6 +2158,24 @@ void MetaServiceImpl::commit_txn_eventually(
                 return;
             }
             continue;
+        }
+
+        stats.get_bytes += txn->get_bytes();
+        stats.put_bytes += txn->put_bytes();
+        stats.del_bytes += txn->delete_bytes();
+        stats.get_counter += txn->num_get_keys();
+        stats.put_counter += txn->num_put_keys();
+        stats.del_counter += txn->num_del_keys();
+
+        // Reset txn to avoid txn is too old to perform reads or be committed
+        txn.reset();
+        err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::CREATE>(err);
+            ss << "failed to create txn, txn_id=" << txn_id << " err=" << err;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
         }
 
         CommitTxnLogPB commit_txn_log;
@@ -2338,10 +2403,24 @@ void MetaServiceImpl::commit_txn_eventually(
         for (auto& [tablet_id, tablet_idx] : tablet_ids) {
             table_id_tablet_ids[tablet_idx.table_id()].push_back(tablet_id);
         }
-        process_mow_when_commit_txn(request, instance_id, code, msg, txn, table_id_tablet_ids);
-        if (code != MetaServiceCode::OK) {
-            LOG(WARNING) << "process mow failed, txn_id=" << txn_id << " code=" << code;
-            return;
+        if (config::txn_lazy_commit_defer_deleting_pending_delete_bitmaps) {
+            txn_info.clear_table_ids();
+            for (auto& [table_id, _] : table_id_tablet_ids) {
+                txn_info.add_table_ids(table_id);
+            }
+            txn_info.set_defer_deleting_pending_delete_bitmaps(true);
+            process_mow_when_commit_txn_deferred(request, instance_id, code, msg, txn,
+                                                 table_id_tablet_ids);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << "process mow failed, txn_id=" << txn_id << " code=" << code;
+                return;
+            }
+        } else {
+            process_mow_when_commit_txn(request, instance_id, code, msg, txn, table_id_tablet_ids);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << "process mow failed, txn_id=" << txn_id << " code=" << code;
+                return;
+            }
         }
 
         // Save table versions
@@ -2384,6 +2463,9 @@ void MetaServiceImpl::commit_txn_eventually(
         if (err != TxnErrorCode::TXN_OK) {
             if (err == TxnErrorCode::TXN_CONFLICT) {
                 g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter << 1;
+            } else if (err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
+                LOG(WARNING) << "commit txn failed due to txn size too large, txn_id=" << txn_id
+                             << " the underlying txn size=" << txn->approximate_bytes(true);
             }
             code = cast_as<ErrCategory::COMMIT>(err);
             ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
@@ -2726,20 +2808,6 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                       << " rowset_size=" << rowset_size;
 
             if (is_versioned_write) {
-                auto& rowset_meta = i.second;
-                std::string meta_rowset_key = versioned::meta_rowset_key(
-                        {instance_id, rowset_meta.tablet_id(), rowset_meta.rowset_id_v2()});
-                if (config::enable_recycle_rowset_strip_key_bounds) {
-                    doris::RowsetMetaCloudPB rowset_meta_copy = rowset_meta;
-                    // Strip key bounds to shrink operation log for ts compaction recycle entries
-                    rowset_meta_copy.clear_segments_key_bounds();
-                    rowset_meta_copy.clear_segments_key_bounds_truncated();
-                    blob_put(txn.get(), meta_rowset_key, rowset_meta_copy.SerializeAsString(), 0);
-                } else {
-                    blob_put(txn.get(), meta_rowset_key, rowset_meta.SerializeAsString(), 0);
-                }
-                LOG(INFO) << "put versioned meta_rowset_key=" << hex(meta_rowset_key);
-
                 std::string versioned_rowset_key =
                         versioned::meta_rowset_load_key({instance_id, tablet_id, version});
                 if (!versioned::document_put(txn.get(), versioned_rowset_key,
@@ -2931,6 +2999,10 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         if (err != TxnErrorCode::TXN_OK) {
             if (err == TxnErrorCode::TXN_CONFLICT) {
                 g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter << 1;
+            } else if (err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
+                LOG(WARNING) << "commit txn with sub txn failed due to txn size too large, txn_id="
+                             << txn_id
+                             << " the underlying txn size=" << txn->approximate_bytes(true);
             }
             code = cast_as<ErrCategory::COMMIT>(err);
             ss << "failed to commit kv txn with sub txn, txn_id=" << txn_id << " err=" << err;

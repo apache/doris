@@ -35,6 +35,7 @@
 #include <mutex>
 #include <random>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -45,6 +46,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "util/cpu_info.h"
+#include "util/string_util.h"
 
 namespace doris::config {
 #include "common/compile_check_avoid_begin.h"
@@ -440,6 +442,14 @@ DEFINE_mInt32(vertical_compaction_num_columns_per_group, "5");
 DEFINE_Int32(vertical_compaction_max_row_source_memory_mb, "1024");
 // In vertical compaction, max dest segment file size
 DEFINE_mInt64(vertical_compaction_max_segment_size, "1073741824");
+// Density threshold for sparse column compaction optimization
+// density = (total_cells - null_cells) / total_cells, smaller means more sparse
+// When density <= threshold, enable sparse optimization
+// 0 = disable optimization, 1 = always enable
+// Default 0.05 means enable sparse optimization when desity <= 5%
+DEFINE_mDouble(sparse_column_compaction_threshold_percent, "0.05");
+// Enable RLE batch Put optimization for compaction
+DEFINE_mBool(enable_rle_batch_put_optimization, "true");
 
 // If enabled, segments will be flushed column by column
 DEFINE_mBool(enable_vertical_segment_writer, "true");
@@ -1101,6 +1111,20 @@ DEFINE_mInt32(segcompaction_num_threads, "5");
 
 // enable java udf and jdbc scannode
 DEFINE_Bool(enable_java_support, "true");
+
+// enable python udf
+DEFINE_Bool(enable_python_udf_support, "false");
+// python env mode, options: conda, venv
+DEFINE_String(python_env_mode, "");
+// root path of conda runtime, python_env_mode should be conda
+DEFINE_String(python_conda_root_path, "");
+// root path of venv runtime, python_env_mode should be venv
+DEFINE_String(python_venv_root_path, "${DORIS_HOME}/lib/udf/python");
+// python interpreter paths used by venv, e.g. /usr/bin/python3.7:/usr/bin/python3.6
+DEFINE_String(python_venv_interpreter_paths, "");
+// max python processes in global shared pool, each version can have up to this many processes
+// 0 means use CPU core count as default, otherwise use the specified value
+DEFINE_mInt32(max_python_process_num, "0");
 
 // Set config randomly to check more issues in github workflow
 DEFINE_Bool(enable_fuzzy_mode, "false");
