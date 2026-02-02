@@ -728,6 +728,13 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
         _opts.stats->rows_conditions_filtered += (pre_size - _row_bitmap.cardinality());
     }
 
+    DBUG_EXECUTE_IF("bloom_filter_must_filter_data", {
+        if (_opts.stats->rows_bf_filtered == 0) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "Bloom filter did not filter the data.");
+        }
+    })
+
     // TODO(hkp): calculate filter rate to decide whether to
     // use zone map/bloom filter/secondary index or not.
     return Status::OK();
@@ -905,13 +912,6 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         pre_size = condition_row_ranges->count();
         RowRanges::ranges_intersection(*condition_row_ranges, bf_row_ranges, condition_row_ranges);
         _opts.stats->rows_bf_filtered += (pre_size - condition_row_ranges->count());
-
-        DBUG_EXECUTE_IF("bloom_filter_must_filter_data", {
-            if (pre_size - condition_row_ranges->count() == 0) {
-                return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                        "Bloom filter did not filter the data.");
-            }
-        })
     }
 
     {
@@ -2881,7 +2881,7 @@ void SegmentIterator::_calculate_expr_in_remaining_conjunct_root() {
                         }
                     }
                 }
-                // Exmple: CAST(v['a'] AS VARCHAR) MATCH 'hello', do not add CAST expr to index tracking.
+                // Example: CAST(v['a'] AS VARCHAR) MATCH 'hello', do not add CAST expr to index tracking.
                 auto expr_without_cast = vectorized::VExpr::expr_without_cast(child);
                 if (expr_without_cast->is_slot_ref() && expr->op() != TExprOpcode::CAST) {
                     auto* column_slot_ref =
