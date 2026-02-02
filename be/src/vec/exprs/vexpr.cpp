@@ -914,6 +914,7 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
     }
 
     auto result_bitmap = segment_v2::InvertedIndexResultBitmap();
+    // Pass analyzer_key to function (used by match predicates for multi-analyzer index selection)
     auto res = function->evaluate_inverted_index(arguments, data_type_with_names, iterators,
                                                  segment_num_rows, analyzer_ctx, result_bitmap);
     if (!res.ok()) {

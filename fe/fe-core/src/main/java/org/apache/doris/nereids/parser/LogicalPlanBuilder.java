@@ -4635,6 +4635,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private Expression withPredicate(Expression valueExpression, PredicateContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             Expression outExpression;
+            String analyzer = ctx.analyzer != null ? visitIdentifierOrText(ctx.analyzer) : null;
             switch (ctx.kind.getType()) {
                 case DorisParser.BETWEEN:
                     // don't compare lower and upper before bind expression,
@@ -4695,37 +4696,43 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 case DorisParser.MATCH_ANY:
                     outExpression = new MatchAny(
                             valueExpression,
-                            getExpression(ctx.pattern)
+                            getExpression(ctx.pattern),
+                            analyzer
                     );
                     break;
                 case DorisParser.MATCH_ALL:
                     outExpression = new MatchAll(
                             valueExpression,
-                            getExpression(ctx.pattern)
+                            getExpression(ctx.pattern),
+                            analyzer
                     );
                     break;
                 case DorisParser.MATCH_PHRASE:
                     outExpression = new MatchPhrase(
                             valueExpression,
-                            getExpression(ctx.pattern)
+                            getExpression(ctx.pattern),
+                            analyzer
                     );
                     break;
                 case DorisParser.MATCH_PHRASE_PREFIX:
                     outExpression = new MatchPhrasePrefix(
                             valueExpression,
-                            getExpression(ctx.pattern)
+                            getExpression(ctx.pattern),
+                            analyzer
                     );
                     break;
                 case DorisParser.MATCH_REGEXP:
                     outExpression = new MatchRegexp(
                             valueExpression,
-                            getExpression(ctx.pattern)
+                            getExpression(ctx.pattern),
+                            analyzer
                     );
                     break;
                 case DorisParser.MATCH_PHRASE_EDGE:
                     outExpression = new MatchPhraseEdge(
                             valueExpression,
-                            getExpression(ctx.pattern)
+                            getExpression(ctx.pattern),
+                            analyzer
                     );
                     break;
                 default:

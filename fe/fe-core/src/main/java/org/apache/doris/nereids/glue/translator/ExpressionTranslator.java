@@ -232,13 +232,17 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             throw new AnalysisException("SlotReference in Match failed to get OlapTable, SQL is " + match.toSql());
         }
 
-        Index invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath());
+        String analyzer = match.getAnalyzer().orElse(null);
+        Index invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath(), analyzer);
+        if (analyzer != null && invertedIndex == null) {
+            throw new AnalysisException("No inverted index found for analyzer '" + analyzer
+                    + "' on column " + column.getName());
+        }
 
         MatchPredicate.Operator op = match.op();
         MatchPredicate matchPredicate = new MatchPredicate(op, match.left().accept(this, context),
                 match.right().accept(this, context), match.getDataType().toCatalogDataType(),
-                NullableMode.DEPEND_ON_ARGUMENT, invertedIndex);
-        matchPredicate.setNullableFromNereids(match.nullable());
+                NullableMode.DEPEND_ON_ARGUMENT, invertedIndex, match.nullable(), analyzer);
         return matchPredicate;
     }
 

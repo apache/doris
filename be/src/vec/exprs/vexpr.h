@@ -165,6 +165,12 @@ public:
         return Status::OK();
     }
 
+    // Get analyzer key for inverted index queries (overridden by VMatchPredicate)
+    [[nodiscard]] virtual const std::string& get_analyzer_key() const {
+        static const std::string empty;
+        return empty;
+    }
+
     Status _evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
                                     uint32_t segment_num_rows);
 
