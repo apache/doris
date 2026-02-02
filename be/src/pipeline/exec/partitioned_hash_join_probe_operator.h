@@ -149,10 +149,6 @@ public:
                                            _distribution_partition_exprs));
     }
 
-    bool is_shuffled_operator() const override {
-        return _join_distribution == TJoinDistributionType::PARTITIONED;
-    }
-
     size_t revocable_mem_size(RuntimeState* state) const override;
 
     size_t get_reserve_mem_size(RuntimeState* state) override;
@@ -162,8 +158,17 @@ public:
         _inner_sink_operator = sink_operator;
         _inner_probe_operator = probe_operator;
     }
-    bool require_data_distribution() const override {
-        return _inner_probe_operator->require_data_distribution();
+    bool is_shuffled_operator() const override {
+        return _inner_probe_operator->is_shuffled_operator();
+    }
+    bool is_colocated_operator() const override {
+        return _inner_probe_operator->is_colocated_operator();
+    }
+
+    void update_operator(const TPlanNode& tnode, bool followed_by_shuffled_operator,
+                         bool require_bucket_distribution) override {
+        _inner_probe_operator->update_operator(tnode, followed_by_shuffled_operator,
+                                               require_bucket_distribution);
     }
 
 private:
