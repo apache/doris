@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
 import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
+import org.apache.doris.nereids.trees.expressions.functions.table.CdcStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.File;
 import org.apache.doris.nereids.trees.expressions.functions.table.Frontends;
 import org.apache.doris.nereids.trees.expressions.functions.table.FrontendsDisks;
@@ -79,6 +80,10 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitHttp(Http http, C context) {
         return visitTableValuedFunction(http, context);
+    }
+
+    default R visitCdcStream(CdcStream cdcStream, C context) {
+        return visitTableValuedFunction(cdcStream, context);
     }
 
     default R visitFrontendsDisks(FrontendsDisks frontendsDisks, C context) {

@@ -210,7 +210,7 @@ public class StreamingJobUtils {
         return ctx;
     }
 
-    private static JdbcClient getJdbcClient(DataSourceType sourceType, Map<String, String> properties) {
+    public static JdbcClient getJdbcClient(DataSourceType sourceType, Map<String, String> properties) {
         JdbcClientConfig config = new JdbcClientConfig();
         config.setCatalog(sourceType.name());
         config.setUser(properties.get(DataSourceConfigKeys.USER));
@@ -390,8 +390,8 @@ public class StreamingJobUtils {
      * The remoteDB implementation differs for each data source;
      * refer to the hierarchical mapping in the JDBC catalog.
      */
-    private static String getRemoteDbName(DataSourceType sourceType, Map<String, String> properties)
-            throws JobException {
+    public static String getRemoteDbName(DataSourceType sourceType, Map<String, String> properties)
+            throws RuntimeException {
         String remoteDb = null;
         switch (sourceType) {
             case MYSQL:
@@ -403,7 +403,7 @@ public class StreamingJobUtils {
                 Preconditions.checkArgument(StringUtils.isNotEmpty(remoteDb), "schema is required");
                 break;
             default:
-                throw new JobException("Unsupported source type " + sourceType);
+                throw new RuntimeException("Unsupported source type " + sourceType);
         }
         return remoteDb;
     }

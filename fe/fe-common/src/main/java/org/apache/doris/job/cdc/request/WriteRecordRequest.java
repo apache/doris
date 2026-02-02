@@ -28,14 +28,4 @@ public class WriteRecordRequest extends JobBaseRecordRequest {
     private String token;
     private String frontendAddress;
     private String taskId;
-
-    @Override
-    public boolean isReload() {
-        return true;
-    }
-
-    @Override
-    public int getFetchSize() {
-        return Integer.MAX_VALUE;
-    }
 }
