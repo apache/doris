@@ -493,13 +493,19 @@ build_glog() {
 
         make -j "${PARALLEL}"
         make install
-    elif [[ "${GLOG_SOURCE}" == "glog-0.6.0" ]]; then
+    elif [[ "${GLOG_SOURCE}" == "glog-0.6.0" ]] || [[ "${GLOG_SOURCE}" == "glog-0.7.1" ]]; then
+        if [[ "${GLOG_SOURCE}" == "glog-0.7.1" ]]; then
+            WITH_UNWIND_FLAG="-DWITH_UNWIND=none"
+        else
+            WITH_UNWIND_FLAG="-DWITH_UNWIND=OFF"
+        fi
+
         LDFLAGS="-L${TP_LIB_DIR}" \
-            "${CMAKE_CMD}" -S . -B build -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        "${CMAKE_CMD}" -S . -B build -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_BUILD_TYPE=Release \
+            ${WITH_UNWIND_FLAG} \
             -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-            -DWITH_UNWIND=OFF \
             -DBUILD_SHARED_LIBS=OFF \
             -DWITH_TLS=OFF
 
@@ -863,7 +869,9 @@ build_brpc() {
     # If glog is compiled before gflags, the above error will not exist, this works in glog 0.4,
     # but glog 0.6 enforces dependency on gflags.
     # glog must be enabled, otherwise error: `flag 'v' was defined more than once` (in files 'glog-0.6.0/src/vlog_is_on.cc' and 'brpc-1.6.0/src/butil/logging.cc')
-    LDFLAGS="${ldflags}" \
+    CFLAGS="-DGLOG_USE_GLOG_EXPORT" \
+        CXXFLAGS="-DGLOG_USE_GLOG_EXPORT" \
+        LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=ON -DWITH_GLOG=ON -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}/lib64" -DCMAKE_INCLUDE_PATH="${TP_INSTALL_DIR}/include" \
@@ -1076,7 +1084,9 @@ build_arrow() {
         ldflags="-L${TP_LIB_DIR}"
     fi
 
-    LDFLAGS="${ldflags}" \
+    CFLAGS="-DGLOG_USE_GLOG_EXPORT" \
+        CXXFLAGS="-DGLOG_USE_GLOG_EXPORT" \
+        LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_BUILD_SHARED=OFF \
         -DARROW_BUILD_STATIC=ON -DARROW_WITH_BROTLI=ON -DARROW_WITH_LZ4=ON -DARROW_USE_GLOG=ON \
@@ -1160,7 +1170,9 @@ build_s2() {
 
     rm -rf CMakeCache.txt CMakeFiles/
 
-    LDFLAGS="-L${TP_LIB_DIR}" \
+    CFLAGS="-DGLOG_USE_GLOG_EXPORT" \
+        CXXFLAGS="-DGLOG_USE_GLOG_EXPORT" \
+        LDFLAGS="-L${TP_LIB_DIR}" \
         ${CMAKE_CMD} -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -G "${GENERATOR}" -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \

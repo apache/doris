@@ -418,7 +418,7 @@ void FailureSignalHandler(int signal_number, siginfo_t* signal_info, void* ucont
 
     // Flush the logs before we do anything in case 'anything'
     // causes problems.
-    google::FlushLogFilesUnsafe(0);
+    google::FlushLogFilesUnsafe(google::GLOG_INFO);
 
     // Kill ourself by the default signal handler.
     InvokeDefaultSignalHandler(signal_number);

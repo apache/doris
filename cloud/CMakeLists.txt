@@ -396,6 +396,7 @@ endif()
 
 # enable glog custom prefix
 add_definitions(-DGLOG_CUSTOM_PREFIX_SUPPORT)
+add_definitions(-DGLOG_USE_GLOG_EXPORT)
 
 set(FDB_VERSIONS "7.1.57" "7.3.69")
 set(FDB_DEFAULT_VERSION "7.1.57")

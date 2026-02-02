@@ -86,10 +86,10 @@ GFLAGS_SOURCE=gflags-2.2.2
 GFLAGS_MD5SUM="1a865b93bacfa963201af3f75b7bd64c"
 
 # glog
-GLOG_DOWNLOAD="https://github.com/google/glog/archive/refs/tags/v0.6.0.tar.gz"
-GLOG_NAME="glog-v0.6.0.tar.gz"
-GLOG_SOURCE=glog-0.6.0
-GLOG_MD5SUM="c98a6068bc9b8ad9cebaca625ca73aa2"
+GLOG_DOWNLOAD="https://github.com/google/glog/archive/refs/tags/v0.7.1.tar.gz"
+GLOG_NAME="glog-v0.7.1.tar.gz"
+GLOG_SOURCE=glog-0.7.1
+GLOG_MD5SUM="128e2995cc33d794ff24f785a3060346"
 
 # gtest
 GTEST_DOWNLOAD="https://github.com/google/googletest/archive/refs/tags/release-1.12.1.tar.gz"
