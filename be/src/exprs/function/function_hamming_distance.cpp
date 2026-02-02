@@ -20,7 +20,10 @@
 
 #include "common/status.h"
 #include "util/simd/vstring_function.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
+#include "vec/common/typeid_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
@@ -45,15 +48,25 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        const ColumnPtr left_col = block.get_by_position(arguments[0]).column;
-        const ColumnPtr right_col = block.get_by_position(arguments[1]).column;
+        const auto& [left_col, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [right_col, right_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+        const auto* left_str_col =
+                check_and_get_column<ColumnString>(remove_nullable(left_col).get());
+        const auto* right_str_col =
+                check_and_get_column<ColumnString>(remove_nullable(right_col).get());
+        if (!left_str_col || !right_str_col) {
+            return Status::NotSupported("Illegal columns {}, {} of argument of function {}",
+                                        left_col->get_name(), right_col->get_name(), get_name());
+        }
 
         auto res_column = ColumnInt64::create(input_rows_count);
         auto& res_data = res_column->get_data();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            const StringRef left = left_col->get_data_at(i);
-            const StringRef right = right_col->get_data_at(i);
+            const StringRef left = left_str_col->get_data_at(left_const ? 0 : i);
+            const StringRef right = right_str_col->get_data_at(right_const ? 0 : i);
             RETURN_IF_ERROR(hamming_distance(left, right, res_data[i], i));
         }
 
@@ -70,10 +83,8 @@ private:
         size_t i = 0;
         while (i < size) {
             offsets.push_back(i);
-            uint8_t char_len = UTF8_BYTE_LENGTH[static_cast<uint8_t>(data[i])];
-            if (char_len == 0) {
-                char_len = 1;
-            }
+            uint8_t char_len =
+                    doris::get_utf8_byte_length(static_cast<uint8_t>(data[i]));
             if (i + char_len > size) {
                 char_len = static_cast<uint8_t>(size - i);
             }
@@ -94,6 +105,19 @@ private:
 
     static Status hamming_distance(const StringRef& left, const StringRef& right, Int64& result,
                                    size_t row) {
+        if (simd::VStringFunctions::is_ascii(left) && simd::VStringFunctions::is_ascii(right)) {
+            if (left.size != right.size) {
+                return Status::InvalidArgument(
+                        "hamming_distance requires strings of the same length at row {}", row);
+            }
+            Int64 distance = 0;
+            for (size_t i = 0; i < left.size; ++i) {
+                distance += static_cast<Int64>(left.data[i] != right.data[i]);
+            }
+            result = distance;
+            return Status::OK();
+        }
+
         std::vector<size_t> left_offsets;
         std::vector<size_t> right_offsets;
         utf8_char_offsets(left, left_offsets);
@@ -111,9 +135,8 @@ private:
             size_t left_next = (i + 1 < len) ? left_offsets[i + 1] : left.size;
             size_t right_off = right_offsets[i];
             size_t right_next = (i + 1 < len) ? right_offsets[i + 1] : right.size;
-            if (!utf8_char_equal(left, left_off, left_next, right, right_off, right_next)) {
-                ++distance;
-            }
+            distance += static_cast<Int64>(
+                    !utf8_char_equal(left, left_off, left_next, right, right_off, right_next));
         }
         result = distance;
         return Status::OK();

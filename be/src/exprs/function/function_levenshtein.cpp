@@ -21,7 +21,10 @@
 
 #include "common/status.h"
 #include "util/simd/vstring_function.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
+#include "vec/common/typeid_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
@@ -46,15 +49,25 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        const ColumnPtr left_col = block.get_by_position(arguments[0]).column;
-        const ColumnPtr right_col = block.get_by_position(arguments[1]).column;
+        const auto& [left_col, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [right_col, right_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+        const auto* left_str_col =
+                check_and_get_column<ColumnString>(remove_nullable(left_col).get());
+        const auto* right_str_col =
+                check_and_get_column<ColumnString>(remove_nullable(right_col).get());
+        if (!left_str_col || !right_str_col) {
+            return Status::NotSupported("Illegal columns {}, {} of argument of function {}",
+                                        left_col->get_name(), right_col->get_name(), get_name());
+        }
 
         auto res_column = ColumnInt32::create(input_rows_count);
         auto& res_data = res_column->get_data();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            const StringRef left = left_col->get_data_at(i);
-            const StringRef right = right_col->get_data_at(i);
+            const StringRef left = left_str_col->get_data_at(left_const ? 0 : i);
+            const StringRef right = right_str_col->get_data_at(right_const ? 0 : i);
             res_data[i] = levenshtein_distance(left, right);
         }
 
@@ -71,10 +84,8 @@ private:
         size_t i = 0;
         while (i < size) {
             offsets.push_back(i);
-            uint8_t char_len = UTF8_BYTE_LENGTH[static_cast<uint8_t>(data[i])];
-            if (char_len == 0) {
-                char_len = 1;
-            }
+            uint8_t char_len =
+                    doris::get_utf8_byte_length(static_cast<uint8_t>(data[i]));
             if (i + char_len > size) {
                 char_len = static_cast<uint8_t>(size - i);
             }
@@ -93,7 +104,52 @@ private:
         return std::memcmp(left.data + left_off, right.data + right_off, left_len) == 0;
     }
 
+    static int levenshtein_distance_ascii(const StringRef& left, const StringRef& right) {
+        const size_t left_len = left.size;
+        const size_t right_len = right.size;
+        if (left_len == 0) {
+            return static_cast<int>(right_len);
+        }
+        if (right_len == 0) {
+            return static_cast<int>(left_len);
+        }
+
+        const StringRef* left_ref = &left;
+        const StringRef* right_ref = &right;
+        size_t m = left_len;
+        size_t n = right_len;
+        if (n > m) {
+            std::swap(left_ref, right_ref);
+            std::swap(m, n);
+        }
+
+        std::vector<int> prev(n + 1);
+        std::vector<int> curr(n + 1);
+        for (size_t j = 0; j <= n; ++j) {
+            prev[j] = static_cast<int>(j);
+        }
+
+        for (size_t i = 1; i <= m; ++i) {
+            curr[0] = static_cast<int>(i);
+            const char left_char = left_ref->data[i - 1];
+
+            for (size_t j = 1; j <= n; ++j) {
+                const int cost = (left_char == right_ref->data[j - 1]) ? 0 : 1;
+                const int insert_cost = curr[j - 1] + 1;
+                const int delete_cost = prev[j] + 1;
+                const int replace_cost = prev[j - 1] + cost;
+                curr[j] = std::min({insert_cost, delete_cost, replace_cost});
+            }
+            std::swap(prev, curr);
+        }
+
+        return prev[n];
+    }
+
     static int levenshtein_distance(const StringRef& left, const StringRef& right) {
+        if (simd::VStringFunctions::is_ascii(left) && simd::VStringFunctions::is_ascii(right)) {
+            return levenshtein_distance_ascii(left, right);
+        }
         if (left.size == 0) {
             return static_cast<int>(
                     simd::VStringFunctions::get_char_len(right.data, right.size));
