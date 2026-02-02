@@ -235,7 +235,8 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                                     tbl.variantEnableFlattenNested(), null,
                                     tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
                                     tbl.storageDictPageSize(), true,
-                                    tbl.getColumnSeqMapping());
+                                    tbl.getColumnSeqMapping(),
+                                    tbl.getRowsOfSegment());
                 requestBuilder.addTabletMetas(builder);
             } // end for rollupTablets
             requestBuilder.setDbId(dbId);
