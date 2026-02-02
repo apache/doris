@@ -121,9 +121,7 @@ import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -160,24 +158,15 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private final boolean enableExactMatch;
     private final boolean bindSlotInOuterScope;
     private final boolean wantToParseSqlFromSqlCache;
-    private final Map<ExprId, Expression> aliasMap;
     private int suppressVariantElementAtCastDepth = 0;
 
     /** ExpressionAnalyzer */
     public ExpressionAnalyzer(Plan currentPlan, Scope scope,
             @Nullable CascadesContext cascadesContext, boolean enableExactMatch, boolean bindSlotInOuterScope) {
-        this(currentPlan, scope, cascadesContext, enableExactMatch, bindSlotInOuterScope, Collections.emptyMap());
-    }
-
-    /** ExpressionAnalyzer */
-    public ExpressionAnalyzer(Plan currentPlan, Scope scope,
-            @Nullable CascadesContext cascadesContext, boolean enableExactMatch, boolean bindSlotInOuterScope,
-            Map<ExprId, Expression> aliasMap) {
         super(scope, cascadesContext);
         this.currentPlan = currentPlan;
         this.enableExactMatch = enableExactMatch;
         this.bindSlotInOuterScope = bindSlotInOuterScope;
-        this.aliasMap = aliasMap == null ? Collections.emptyMap() : aliasMap;
         this.wantToParseSqlFromSqlCache = cascadesContext != null
                 && CacheAnalyzer.canUseSqlCache(cascadesContext.getConnectContext().getSessionVariable());
     }
@@ -378,7 +367,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 if (firstBound instanceof Alias) {
                     return maybeCastAliasExpression((Alias) firstBound, context);
                 }
-                return maybeCastBoundSlot(firstBound, context);
+                return firstBound;
             default:
                 if (enableExactMatch) {
                     // select t1.k k, t2.k
@@ -476,7 +465,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
         ExpressionAnalyzer lambdaAnalyzer = new ExpressionAnalyzer(currentPlan, new Scope(Optional.of(getScope()),
                 boundedSlots), context == null ? null : context.cascadesContext,
-                true, true, aliasMap) {
+                true, true) {
             @Override
             protected void couldNotFoundColumn(UnboundSlot unboundSlot, String tableName) {
                 throw new AnalysisException("Unknown lambda slot '"
@@ -846,30 +835,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         return child instanceof ElementAt || child instanceof DereferenceExpression || child instanceof UnboundSlot;
     }
 
-    private Expression maybeCastBoundSlot(Expression bound, ExpressionRewriteContext context) {
-        if (!(bound instanceof SlotReference)) {
-            return bound;
-        }
-        if (suppressVariantElementAtCastDepth > 0 || aliasMap.isEmpty()) {
-            return bound;
-        }
-        if (!isEnableVariantSchemaAutoCast(context)) {
-            return bound;
-        }
-        if (!bound.getDataType().isVariantType()) {
-            return bound;
-        }
-        Expression aliasExpr = aliasMap.get(((SlotReference) bound).getExprId());
-        if (aliasExpr == null) {
-            return bound;
-        }
-        Optional<DataType> targetType = resolveVariantTemplateType(aliasExpr);
-        if (!targetType.isPresent()) {
-            return bound;
-        }
-        return new Cast(bound, targetType.get());
-    }
-
     private Expression maybeCastAliasExpression(Alias alias, ExpressionRewriteContext context) {
         if (suppressVariantElementAtCastDepth > 0 || !isEnableVariantSchemaAutoCast(context)) {
             return alias;
@@ -883,17 +848,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             return alias;
         }
         return alias.withChildren(ImmutableList.of(casted));
-    }
-
-    private Optional<DataType> resolveVariantTemplateType(Expression expr) {
-        if (!(expr instanceof ElementAt)) {
-            return Optional.empty();
-        }
-        Expression rewritten = wrapVariantElementAtWithCast(expr);
-        if (rewritten instanceof Cast) {
-            return Optional.of(((Cast) rewritten).getDataType());
-        }
-        return Optional.empty();
     }
 
     @Override

@@ -480,20 +480,19 @@ public abstract class DataType {
             // In the past, variant metadata used the ScalarType type.
             // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
             if (type instanceof org.apache.doris.catalog.VariantType) {
-                org.apache.doris.catalog.VariantType catalogVariantType = (org.apache.doris.catalog.VariantType) type;
-                List<VariantField> variantFields = catalogVariantType
+                List<VariantField> variantFields = ((org.apache.doris.catalog.VariantType) type)
                         .getPredefinedFields().stream()
                         .map(cf -> new VariantField(cf.getPattern(), fromCatalogType(cf.getType()),
                                 cf.getComment() == null ? "" : cf.getComment(), cf.getPatternType().toString()))
                         .collect(ImmutableList.toImmutableList());
                 return new VariantType(variantFields,
-                        catalogVariantType.getVariantMaxSubcolumnsCount(),
-                        catalogVariantType.getEnableTypedPathsToSparse(),
-                        catalogVariantType.getVariantMaxSparseColumnStatisticsSize(),
-                        catalogVariantType.getVariantSparseHashShardCount(),
-                        catalogVariantType.getEnableVariantDocMode(),
-                        catalogVariantType.getvariantDocMaterializationMinRows(),
-                        catalogVariantType.getVariantDocShardCount());
+                        ((org.apache.doris.catalog.VariantType) type).getVariantMaxSubcolumnsCount(),
+                        ((org.apache.doris.catalog.VariantType) type).getEnableTypedPathsToSparse(),
+                        ((org.apache.doris.catalog.VariantType) type).getVariantMaxSparseColumnStatisticsSize(),
+                        ((org.apache.doris.catalog.VariantType) type).getVariantSparseHashShardCount(),
+                        ((org.apache.doris.catalog.VariantType) type).getEnableVariantDocMode(),
+                        ((org.apache.doris.catalog.VariantType) type).getvariantDocMaterializationMinRows(),
+                        ((org.apache.doris.catalog.VariantType) type).getVariantDocShardCount());
             }
             return VariantType.INSTANCE;
         } else {
