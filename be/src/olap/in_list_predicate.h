@@ -70,11 +70,11 @@ public:
     using HybridSetType = std::conditional_t<
             N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE,
             std::conditional_t<
-                    std::is_same_v<T, StringRef>, StringSet<FixedContainer<std::string, N>>,
+                    is_string_type(Type), StringSet<FixedContainer<std::string, N>>,
                     HybridSet<Type, FixedContainer<T, N>,
                               vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>>,
             std::conditional_t<
-                    std::is_same_v<T, StringRef>, StringSet<DynamicContainer<std::string>>,
+                    is_string_type(Type), StringSet<DynamicContainer<std::string>>,
                     HybridSet<Type, DynamicContainer<T>,
                               vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>>>;
     InListPredicateBase(uint32_t column_id, std::string col_name,
@@ -243,34 +243,52 @@ public:
         if (statistic.first->is_null() && statistic.second->is_null()) {
             return false;
         }
+        using CompareType = typename std::conditional<is_string_type(Type), StringRef, T>::type;
+        CompareType tmp_min_value;
+        CompareType tmp_max_value;
+        if constexpr (is_string_type(Type)) {
+            tmp_min_value = StringRef(_min_value.data(), _min_value.size());
+            tmp_max_value = StringRef(_max_value.data(), _max_value.size());
+        } else {
+            tmp_min_value = _min_value;
+            tmp_max_value = _max_value;
+        }
         if constexpr (PT == PredicateType::IN_LIST) {
-            return Compare::less_equal(get_zone_map_value<Type, T>(statistic.first->cell_ptr()),
-                                       _max_value) &&
-                   Compare::greater_equal(get_zone_map_value<Type, T>(statistic.second->cell_ptr()),
-                                          _min_value);
+            return Compare::less_equal(
+                           get_zone_map_value<Type, CompareType>(statistic.first->cell_ptr()),
+                           tmp_max_value) &&
+                   Compare::greater_equal(
+                           get_zone_map_value<Type, CompareType>(statistic.second->cell_ptr()),
+                           tmp_min_value);
         } else {
             return true;
         }
     }
 
     bool camp_field(const vectorized::Field& min_field, const vectorized::Field& max_field) const {
-        T min_value;
-        T max_value;
+        using CompareType = typename std::conditional<is_string_type(Type), StringRef, T>::type;
+        CompareType min_value;
+        CompareType max_value;
+        CompareType tmp_min_value;
+        CompareType tmp_max_value;
         if constexpr (is_string_type(Type)) {
+            tmp_min_value = StringRef(_min_value.data(), _min_value.size());
+            tmp_max_value = StringRef(_max_value.data(), _max_value.size());
             auto& tmp_min = min_field.template get<Type>();
             auto& tmp_max = max_field.template get<Type>();
             min_value = StringRef(tmp_min.data(), tmp_min.size());
             max_value = StringRef(tmp_max.data(), tmp_max.size());
         } else {
+            tmp_min_value = _min_value;
+            tmp_max_value = _max_value;
             min_value = min_field.template get<Type>();
             max_value = max_field.template get<Type>();
         }
-
         if constexpr (PT == PredicateType::IN_LIST) {
-            return (Compare::less_equal(min_value, _max_value) &&
-                    Compare::greater_equal(max_value, _min_value)) ||
-                   (Compare::greater_equal(max_value, _min_value) &&
-                    Compare::less_equal(min_value, _max_value));
+            return (Compare::less_equal(min_value, tmp_max_value) &&
+                    Compare::greater_equal(max_value, tmp_min_value)) ||
+                   (Compare::greater_equal(max_value, tmp_min_value) &&
+                    Compare::less_equal(min_value, tmp_max_value));
         } else {
             return true;
         }
@@ -353,10 +371,22 @@ public:
             return false;
         }
         if constexpr (PT == PredicateType::NOT_IN_LIST) {
-            return Compare::greater(get_zone_map_value<Type, T>(statistic.first->cell_ptr()),
-                                    _max_value) ||
-                   Compare::less(get_zone_map_value<Type, T>(statistic.second->cell_ptr()),
-                                 _min_value);
+            using CompareType = typename std::conditional<is_string_type(Type), StringRef, T>::type;
+            CompareType tmp_min_value;
+            CompareType tmp_max_value;
+            if constexpr (is_string_type(Type)) {
+                tmp_min_value = StringRef(_min_value.data(), _min_value.size());
+                tmp_max_value = StringRef(_max_value.data(), _max_value.size());
+            } else {
+                tmp_min_value = _min_value;
+                tmp_max_value = _max_value;
+            }
+            return Compare::greater(
+                           get_zone_map_value<Type, CompareType>(statistic.first->cell_ptr()),
+                           tmp_max_value) ||
+                   Compare::less(
+                           get_zone_map_value<Type, CompareType>(statistic.second->cell_ptr()),
+                           tmp_min_value);
         } else {
             return false;
         }
