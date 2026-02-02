@@ -154,7 +154,7 @@ public class RewriteGroupTaskTest {
     }
 
     /**
-     * Test medium data scenario - should use GATHER when expected files <= available BEs
+     * Test medium data scenario - should use GATHER when expected files < available BEs
      * Data: 5GB, Target file size: 512MB
      * Expected: expectedFileCount=11, useGather=true, parallelism=min(8, 11)=8
      */
@@ -178,9 +178,9 @@ public class RewriteGroupTaskTest {
         boolean useGather = (boolean) getFieldValue(strategy, "useGather");
 
         // expectedFileCount = ceil(5GB / 512MB) = ceil(10.24) = 11
-        // expectedFileCount <= availableBeCount, so use GATHER
+        // expectedFileCount < availableBeCount, so use GATHER
         Assertions.assertEquals(8, parallelism, "Parallelism should be limited by default parallelism");
-        Assertions.assertTrue(useGather, "Should use GATHER when expected files <= available BEs");
+        Assertions.assertTrue(useGather, "Should use GATHER when expected files < available BEs");
     }
 
     /**
@@ -265,9 +265,38 @@ public class RewriteGroupTaskTest {
         boolean useGather = (boolean) getFieldValue(strategy, "useGather");
 
         // expectedFileCount = ceil(513MB / 512MB) = 2
-        // expectedFileCount <= availableBeCount, so use GATHER
+        // expectedFileCount < availableBeCount, so use GATHER
         Assertions.assertEquals(2, parallelism);
-        Assertions.assertTrue(useGather, "Should use GATHER when expected files <= available BEs");
+        Assertions.assertTrue(useGather, "Should use GATHER when expected files < available BEs");
+    }
+
+    /**
+     * Test boundary case: expected files equal available BEs - should not use GATHER
+     * Data: 512MB, Target file size: 64MB
+     * Expected: expectedFileCount=8, useGather=false, parallelism=min(8, floor(8/8)=1)=1
+     */
+    @Test
+    public void testCalculateRewriteStrategy_BoundaryCase_EqualToBeCount_NoGather() throws Exception {
+        long totalSize = 512 * MB;
+        long targetFileSizeBytes = 64 * MB;
+        int availableBeCount = 8;
+
+        Mockito.when(mockGroup.getTotalSize()).thenReturn(totalSize);
+        Mockito.when(mockGroup.getTasks()).thenReturn(Collections.singletonList(mockFileScanTask));
+
+        RewriteGroupTask task = new RewriteGroupTask(
+                mockGroup, 1L, mockTable, mockConnectContext,
+                targetFileSizeBytes, availableBeCount, null);
+
+        Object strategy = invokeCalculateRewriteStrategy(task);
+
+        int parallelism = (int) getFieldValue(strategy, "parallelism");
+        boolean useGather = (boolean) getFieldValue(strategy, "useGather");
+
+        // expectedFileCount = ceil(512MB / 64MB) = 8
+        // expectedFileCount == availableBeCount, so do not use GATHER
+        Assertions.assertEquals(1, parallelism);
+        Assertions.assertFalse(useGather);
     }
 
     /**
@@ -295,7 +324,7 @@ public class RewriteGroupTaskTest {
         boolean useGather = (boolean) getFieldValue(strategy, "useGather");
 
         // expectedFileCount = ceil(513MB / 512MB) = 2
-        // expectedFileCount <= availableBeCount, so use GATHER
+        // expectedFileCount < availableBeCount, so use GATHER
         Assertions.assertEquals(2, parallelism);
         Assertions.assertTrue(useGather);
     }
@@ -331,7 +360,7 @@ public class RewriteGroupTaskTest {
     }
 
     /**
-     * Test with high default parallelism - still use GATHER if expected files <= available BEs
+     * Test with high default parallelism - still use GATHER if expected files < available BEs
      * Data: 2GB, Target file size: 512MB, Default parallelism: 100
      * Expected: expectedFileCount=4, useGather=true, parallelism=min(100, 4)=4
      */
@@ -355,7 +384,7 @@ public class RewriteGroupTaskTest {
         boolean useGather = (boolean) getFieldValue(strategy, "useGather");
 
         // expectedFileCount = ceil(2GB / 512MB) = ceil(4.0) = 4
-        // expectedFileCount <= availableBeCount, so use GATHER
+        // expectedFileCount < availableBeCount, so use GATHER
         Assertions.assertEquals(4, parallelism, "Parallelism should be limited by expected file count");
         Assertions.assertTrue(useGather);
     }
@@ -363,7 +392,7 @@ public class RewriteGroupTaskTest {
     /**
      * Test with very small target file size
      * Data: 1GB, Target file size: 100MB
-     * Expected: 10 files, useGather=false, parallelism=min(10, 100, 8)=8
+     * Expected: 11 files, useGather=true, parallelism=min(11, 100, 8)=8
      */
     @Test
     public void testCalculateRewriteStrategy_SmallTargetFileSize() throws Exception {
@@ -384,7 +413,7 @@ public class RewriteGroupTaskTest {
         boolean useGather = (boolean) getFieldValue(strategy, "useGather");
 
         // expectedFileCount = ceil(1GB / 100MB) = ceil(10.24) = 11
-        // expectedFileCount <= availableBeCount, so use GATHER
+        // expectedFileCount < availableBeCount, so use GATHER
         Assertions.assertEquals(8, parallelism);
         Assertions.assertTrue(useGather);
     }
@@ -417,9 +446,34 @@ public class RewriteGroupTaskTest {
     }
 
     /**
+     * Test invalid BE count - should throw when available BE count is zero
+     */
+    @Test
+    public void testCalculateRewriteStrategy_ZeroAvailableBe_Throws() throws Exception {
+        long totalSize = 1 * GB;
+        long targetFileSizeBytes = 512 * MB;
+        int availableBeCount = 0;
+
+        Mockito.when(mockGroup.getTotalSize()).thenReturn(totalSize);
+        Mockito.when(mockGroup.getTasks()).thenReturn(Collections.singletonList(mockFileScanTask));
+
+        RewriteGroupTask task = new RewriteGroupTask(
+                mockGroup, 1L, mockTable, mockConnectContext,
+                targetFileSizeBytes, availableBeCount, null);
+
+        java.lang.reflect.InvocationTargetException exception = Assertions.assertThrows(
+                java.lang.reflect.InvocationTargetException.class,
+                () -> invokeCalculateRewriteStrategy(task));
+
+        Assertions.assertTrue(exception.getCause() instanceof IllegalStateException);
+        Assertions.assertTrue(exception.getCause().getMessage().contains("availableBeCount"),
+                "Exception message should mention availableBeCount");
+    }
+
+    /**
      * Test realistic scenario with multiple partitions
      * Data: 3GB across multiple partitions, Target file size: 512MB
-     * Expected: ~6 files, useGather=false, parallelism=min(6, 100, 8)=6
+     * Expected: ~6 files, useGather=true, parallelism=min(6, 100, 8)=6
      */
     @Test
     public void testCalculateRewriteStrategy_MultiplePartitions() throws Exception {
@@ -442,7 +496,7 @@ public class RewriteGroupTaskTest {
         boolean useGather = (boolean) getFieldValue(strategy, "useGather");
 
         // expectedFileCount = ceil(3GB / 512MB) = ceil(6.0) = 6
-        // expectedFileCount <= availableBeCount, so use GATHER
+        // expectedFileCount < availableBeCount, so use GATHER
         Assertions.assertEquals(6, parallelism);
         Assertions.assertTrue(useGather);
     }

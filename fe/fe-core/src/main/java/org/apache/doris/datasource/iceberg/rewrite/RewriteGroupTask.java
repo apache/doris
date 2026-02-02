@@ -271,8 +271,8 @@ public class RewriteGroupTask implements TransientTaskExecutor {
      *
      * The core idea is to precisely control the number of output files:
      * 1. Calculate expected file count based on data size and target file size
-     * 2. If expected file count is not greater than available BE count, use GATHER
-     *    to collect data to a single node, avoiding excessive writers
+     * 2. If expected file count is less than available BE count, use GATHER
+     * to collect data to a single node, avoiding excessive writers
      * 3. Otherwise, limit per-BE parallelism so total writers <= expected files
      *
      * @return RewriteStrategy containing parallelism and distribution settings
@@ -284,27 +284,25 @@ public class RewriteGroupTask implements TransientTaskExecutor {
 
         // 2. Use available BE count passed from constructor
         int availableBeCount = this.availableBeCount;
-        int safeBeCount = Math.max(1, availableBeCount);
+        Preconditions.checkState(availableBeCount > 0,
+                "availableBeCount must be greater than 0 for rewrite task");
 
         // 3. Get default parallelism from session variable (pipeline task num)
-        int defaultParallelism = getDefaultPipelineParallelism();
+        int defaultParallelism = connectContext.getSessionVariable().getParallelExecInstanceNum();
 
         // 4. Determine strategy based on expected file count
         boolean useGather = false;
         int optimalParallelism;
 
-        // Threshold for using GATHER distribution
-        // When expected files <= available BEs, collect all data to single node
-        final int gatherThreshold = safeBeCount;
-
-        if (expectedFileCount <= gatherThreshold) {
+        // When expected files < available BEs, collect all data to single node
+        if (expectedFileCount < availableBeCount) {
             // Small data volume: use GATHER to write to single node
             // Keep parallelism <= expected files to avoid extra output files
             useGather = true;
             optimalParallelism = Math.max(1, Math.min(defaultParallelism, expectedFileCount));
         } else {
             // Larger data volume: limit per-BE parallelism so total writers <= expected files
-            int maxParallelismByFileCount = Math.max(1, expectedFileCount / safeBeCount);
+            int maxParallelismByFileCount = Math.max(1, expectedFileCount / availableBeCount);
             optimalParallelism = Math.max(1, Math.min(defaultParallelism, maxParallelismByFileCount));
         }
 
@@ -315,16 +313,6 @@ public class RewriteGroupTask implements TransientTaskExecutor {
                 availableBeCount, defaultParallelism, optimalParallelism, useGather);
 
         return new RewriteStrategy(optimalParallelism, useGather);
-    }
-
-    private int getDefaultPipelineParallelism() {
-        int parallelPipelineTaskNum = connectContext.getSessionVariable().parallelPipelineTaskNum;
-        if (parallelPipelineTaskNum > 0) {
-            return parallelPipelineTaskNum;
-        }
-        int minPipelineExecutorSize = Env.getCurrentSystemInfo().getMinPipelineExecutorSize();
-        int autoInstance = (minPipelineExecutorSize + 1) / 2;
-        return Math.min(autoInstance, connectContext.getSessionVariable().maxInstanceNum);
     }
 
     /**
