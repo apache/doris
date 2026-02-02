@@ -332,7 +332,9 @@ public:
             const auto* __restrict null_map_data = nullable_col.get_null_map_data().data();
 
             for (size_t i = 0; i < num_rows; ++i) {
-                *(places[i] + offset) |= (!null_map_data[i]);
+                if (places[i]) {
+                    *(places[i] + offset) |= (!null_map_data[i]);
+                }
             }
             nested_function->deserialize_and_merge_vec_selected(places, offset + prefix_size, rhs,
                                                                 &nested_col, arena, num_rows);

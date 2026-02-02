@@ -87,12 +87,6 @@ public:
         assert_cast<ColumnInt64&>(to).get_data().push_back(data(place).count);
     }
 
-    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena&,
-                                 size_t num_rows) const {
-        auto data = assert_cast<const ColumnFixedLengthObject&>(column).get_data().data();
-        memcpy(places, data, sizeof(Data) * num_rows);
-    }
-
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
                              MutableColumnPtr& dst, const size_t num_rows) const override {
         auto& col = assert_cast<ColumnFixedLengthObject&>(*dst);
@@ -134,17 +128,17 @@ public:
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const IColumn* column, Arena& arena,
                                    const size_t num_rows) const override {
-        this->deserialize_from_column(rhs, *column, arena, num_rows);
-        DEFER({ this->destroy_vec(rhs, num_rows); });
-        this->merge_vec(places, offset, rhs, arena, num_rows);
+        const auto& col = assert_cast<const ColumnFixedLengthObject&>(*column);
+        const auto* data = col.get_data().data();
+        this->merge_vec(places, offset, AggregateDataPtr(data), arena, num_rows);
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
                                             AggregateDataPtr rhs, const IColumn* column,
                                             Arena& arena, const size_t num_rows) const override {
-        this->deserialize_from_column(rhs, *column, arena, num_rows);
-        DEFER({ this->destroy_vec(rhs, num_rows); });
-        this->merge_vec_selected(places, offset, rhs, arena, num_rows);
+        const auto& col = assert_cast<const ColumnFixedLengthObject&>(*column);
+        const auto* data = col.get_data().data();
+        this->merge_vec_selected(places, offset, AggregateDataPtr(data), arena, num_rows);
     }
 
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
@@ -232,12 +226,6 @@ public:
         }
     }
 
-    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena&,
-                                 size_t num_rows) const {
-        auto data = assert_cast<const ColumnFixedLengthObject&>(column).get_data().data();
-        memcpy(places, data, sizeof(Data) * num_rows);
-    }
-
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
                              MutableColumnPtr& dst, const size_t num_rows) const override {
         auto& col = assert_cast<ColumnFixedLengthObject&>(*dst);
@@ -281,17 +269,17 @@ public:
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const IColumn* column, Arena& arena,
                                    const size_t num_rows) const override {
-        this->deserialize_from_column(rhs, *column, arena, num_rows);
-        DEFER({ this->destroy_vec(rhs, num_rows); });
-        this->merge_vec(places, offset, rhs, arena, num_rows);
+        const auto& col = assert_cast<const ColumnFixedLengthObject&>(*column);
+        const auto* data = col.get_data().data();
+        this->merge_vec(places, offset, AggregateDataPtr(data), arena, num_rows);
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
                                             AggregateDataPtr rhs, const IColumn* column,
                                             Arena& arena, const size_t num_rows) const override {
-        this->deserialize_from_column(rhs, *column, arena, num_rows);
-        DEFER({ this->destroy_vec(rhs, num_rows); });
-        this->merge_vec_selected(places, offset, rhs, arena, num_rows);
+        const auto& col = assert_cast<const ColumnFixedLengthObject&>(*column);
+        const auto* data = col.get_data().data();
+        this->merge_vec_selected(places, offset, AggregateDataPtr(data), arena, num_rows);
     }
 
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
