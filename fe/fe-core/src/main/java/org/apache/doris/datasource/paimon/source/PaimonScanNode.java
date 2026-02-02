@@ -277,6 +277,28 @@ public class PaimonScanNode extends FileQueryScanNode {
     }
 
     @Override
+    protected List<String> getDeleteFiles(TFileRangeDesc rangeDesc) {
+        List<String> deleteFiles = new ArrayList<>();
+        if (rangeDesc == null || !rangeDesc.isSetTableFormatParams()) {
+            return deleteFiles;
+        }
+        TTableFormatFileDesc tableFormatParams = rangeDesc.getTableFormatParams();
+        if (tableFormatParams == null || !tableFormatParams.isSetPaimonParams()) {
+            return deleteFiles;
+        }
+        TPaimonFileDesc paimonParams = tableFormatParams.getPaimonParams();
+        if (paimonParams == null || !paimonParams.isSetDeletionFile()) {
+            return deleteFiles;
+        }
+        TPaimonDeletionFileDesc deletionFile = paimonParams.getDeletionFile();
+        if (deletionFile != null && deletionFile.isSetPath()) {
+            // Format: path [offset: offset, length: length]
+            deleteFiles.add(deletionFile.getPath());
+        }
+        return deleteFiles;
+    }
+
+    @Override
     public List<Split> getSplits(int numBackends) throws UserException {
         boolean forceJniScanner = sessionVariable.isForceJniScanner();
         SessionVariable.IgnoreSplitType ignoreSplitType = SessionVariable.IgnoreSplitType
