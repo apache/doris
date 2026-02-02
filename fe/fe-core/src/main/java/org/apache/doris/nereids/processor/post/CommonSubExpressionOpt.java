@@ -22,7 +22,6 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -78,17 +77,10 @@ public class CommonSubExpressionOpt extends PlanPostProcessor {
                 Set<Expression> exprsInDepth = CommonSubExpressionCollector
                         .getExpressionsFromDepthMap(i, collector.commonExprByDepth);
                 exprsInDepth.forEach(expr -> {
-                    if (!(expr instanceof WhenClause)) {
-                        // case whenClause1 whenClause2 END
-                        // whenClause should not be regarded as common-sub-expression, because
-                        // cse will be replaced by a slot, after rewrite the case clause becomes:
-                        // 'case slot whenClause2 END'
-                        // This is illegal.
-                        Expression rewritten = expr.accept(ExpressionReplacer.INSTANCE, aliasMap);
-                        // if rewritten is already alias, use it directly, because in materialized view rewriting
-                        // Should keep out slot immutably after rewritten successfully
-                        aliasMap.put(expr, rewritten instanceof Alias ? (Alias) rewritten : new Alias(rewritten));
-                    }
+                    Expression rewritten = expr.accept(ExpressionReplacer.INSTANCE, aliasMap);
+                    // if rewritten is already alias, use it directly, because in materialized view rewriting
+                    // Should keep out slot immutably after rewritten successfully
+                    aliasMap.put(expr, rewritten instanceof Alias ? (Alias) rewritten : new Alias(rewritten));
                 });
                 for (Alias alias : aliasMap.values()) {
                     if (previousAlias.contains(alias)) {
