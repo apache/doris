@@ -2346,9 +2346,14 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     // If the row bitmap size is smaller than nrows_read_limit, there's no need to reserve that many column rows.
     uint32_t nrows_read_limit =
             std::min(cast_set<uint32_t>(_row_bitmap.cardinality()), _opts.block_row_max);
-    if (_can_opt_topn_reads()) {
-        nrows_read_limit = std::min(static_cast<uint32_t>(_opts.topn_limit), nrows_read_limit);
-    }
+    LOG(INFO) << "[TOPN_DEBUG] segment_id=" << segment_id()
+              << ", _can_opt_topn_reads=" << _can_opt_topn_reads()
+              << ", topn_limit=" << _opts.topn_limit << ", block_row_max=" << _opts.block_row_max
+              << ", row_bitmap_cardinality=" << _row_bitmap.cardinality()
+              << ", nrows_read_limit=" << nrows_read_limit;
+    // if (_can_opt_topn_reads()) {
+    //     nrows_read_limit = std::min(static_cast<uint32_t>(_opts.topn_limit), nrows_read_limit);
+    // }
     DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
         if (nrows_read_limit != 1) {
             return Status::Error<ErrorCode::INTERNAL_ERROR>(
