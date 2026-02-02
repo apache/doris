@@ -677,7 +677,9 @@ Status ArrayColumnReader::read_column_data(
     fill_array_offset(_field_schema, offsets_data, null_map_ptr, _element_reader->get_rep_level(),
                       _element_reader->get_def_level());
     DCHECK_EQ(element_column->size(), offsets_data.back());
-
+#ifndef NDEBUG
+    doris_column->sanity_check();
+#endif
     return Status::OK();
 }
 
@@ -753,7 +755,9 @@ Status MapColumnReader::read_column_data(
     fill_array_offset(_field_schema, map.get_offsets(), null_map_ptr, _key_reader->get_rep_level(),
                       _key_reader->get_def_level());
     DCHECK_EQ(key_column->size(), map.get_offsets().back());
-
+#ifndef NDEBUG
+    doris_column->sanity_check();
+#endif
     return Status::OK();
 }
 
@@ -977,6 +981,9 @@ Status StructColumnReader::read_column_data(
         fill_struct_null_map(_field_schema, *null_map_ptr, this->get_rep_level(),
                              this->get_def_level());
     }
+#ifndef NDEBUG
+    doris_column->sanity_check();
+#endif
     return Status::OK();
 }
 
