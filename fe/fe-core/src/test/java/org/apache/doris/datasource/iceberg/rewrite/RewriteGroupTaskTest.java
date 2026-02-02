@@ -184,12 +184,12 @@ public class RewriteGroupTaskTest {
     }
 
     /**
-     * Test large data scenario - use GATHER when expected files <= available BEs
+     * Test large data scenario - do NOT use GATHER when expected files == available BEs
      * Data: 50GB, Target file size: 512MB
-     * Expected: expectedFileCount=100, useGather=true, parallelism=min(8, 100)=8
+     * Expected: expectedFileCount=100, useGather=false, parallelism=min(8, floor(100/100)=1)=1
      */
     @Test
-    public void testCalculateRewriteStrategy_LargeData_UseGatherWhenExpectedFilesNotExceedBeCount()
+    public void testCalculateRewriteStrategy_LargeData_NoGatherWhenExpectedFilesEqualBeCount()
             throws Exception {
         long totalSize = 50 * GB;
         long targetFileSizeBytes = 512 * MB;
@@ -208,9 +208,9 @@ public class RewriteGroupTaskTest {
         boolean useGather = (boolean) getFieldValue(strategy, "useGather");
 
         // expectedFileCount = ceil(50GB / 512MB) = 100
-        // expectedFileCount <= availableBeCount, so use GATHER
-        Assertions.assertEquals(8, parallelism, "Parallelism should be limited by default parallelism");
-        Assertions.assertTrue(useGather, "Should use GATHER when expected files <= available BEs");
+        // expectedFileCount == availableBeCount, so do not use GATHER
+        Assertions.assertEquals(1, parallelism, "Parallelism should be limited by expected files / BE count");
+        Assertions.assertFalse(useGather, "Should NOT use GATHER when expected files == available BEs");
     }
 
     /**
