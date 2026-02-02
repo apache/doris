@@ -2192,12 +2192,6 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             _io_ctx->file_reader_stats->read_rows += _reader_metrics.ReadRowCount;
         }
     }
-    if (_orc_filter) {
-        RETURN_IF_ERROR(_orc_filter->get_status());
-    }
-    if (_string_dict_filter) {
-        RETURN_IF_ERROR(_string_dict_filter->get_status());
-    }
     return Status::OK();
 }
 

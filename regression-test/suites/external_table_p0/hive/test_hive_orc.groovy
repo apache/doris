@@ -167,6 +167,20 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
         return;
     }
 
+    def test_orc_nextbatch_error =  {
+        def tb_name  =  "hive_orc_next_batch_test";
+        try {
+            sql """select * from ${tb_name} where json_extract_double(data, '.age') = 25; """
+        } catch (Exception e) {
+            logger.info(e.getMessage());
+            assertTrue(e.getMessage().contains("nextBatch failed"))
+        }
+
+        def result = sql """ select * from ${tb_name} where json_extract_double(data, "\$.age")=25 """
+        assertTrue(result.size() == 1);
+    }
+
+
     for (String hivePrefix : ["hive2", "hive3"]) {
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
@@ -191,7 +205,8 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
             predicate_pushdown()    
             test_topn()
             test_topn_abs()
-            
+            test_orc_nextbatch_error()
+
             sql """drop catalog if exists ${catalog_name}"""
 
             // test old create-catalog syntax for compatibility
