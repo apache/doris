@@ -391,10 +391,8 @@ public:
             for (size_t i = 0; i < batch_size; ++i) {
                 this->add(place, columns, i, arena);
             }
-        } else {
-            if (batch_size > 0) {
-                this->set_flag(place);
-            }
+        } else if (batch_size > 0) {
+            this->set_flag(place);
             const IColumn* nested_column = &column->get_nested_column();
             this->nested_function->add_batch_single_place(batch_size, this->nested_place(place),
                                                           &nested_column, arena);
@@ -409,10 +407,8 @@ public:
             for (size_t i = batch_begin; i <= batch_end; ++i) {
                 this->add(place, columns, i, arena);
             }
-        } else {
-            if (batch_begin <= batch_end) {
-                this->set_flag(place);
-            }
+        } else if (batch_begin <= batch_end) {
+            this->set_flag(place);
             const IColumn* nested_column = &column->get_nested_column();
             this->nested_function->add_batch_range(batch_begin, batch_end,
                                                    this->nested_place(place), &nested_column, arena,
