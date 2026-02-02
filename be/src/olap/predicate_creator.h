@@ -230,7 +230,7 @@ std::shared_ptr<ColumnPredicate> create_comparison_predicate(
                                                   ->len()),
                          value.template get<TYPE_CHAR>().size());
         if (target > value.template get<TYPE_CHAR>().size()) {
-            std::string tmp(target, ' ');
+            std::string tmp(target, '\0');
             memcpy(tmp.data(), value.template get<TYPE_CHAR>().data(),
                    value.template get<TYPE_CHAR>().size());
             return ComparisonPredicateBase<TYPE_CHAR, PT>::create_shared(
