@@ -30,8 +30,10 @@ import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TNormalizedPlanNode;
 import org.apache.doris.thrift.TQueryCacheParam;
+import org.apache.doris.thrift.TStringLiteral;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -53,9 +55,9 @@ import java.util.stream.Collectors;
 public class QueryCacheNormalizer implements Normalizer {
     private final PlanFragment fragment;
     private final DescriptorTable descriptorTable;
-    private final NormalizedIdGenerator normalizedPlanIds =  new NormalizedIdGenerator();
-    private final NormalizedIdGenerator normalizedTupleIds =  new NormalizedIdGenerator();
-    private final NormalizedIdGenerator normalizedSlotIds =  new NormalizedIdGenerator();
+    private final NormalizedIdGenerator normalizedPlanIds = new NormalizedIdGenerator();
+    private final NormalizedIdGenerator normalizedTupleIds = new NormalizedIdGenerator();
+    private final NormalizedIdGenerator normalizedSlotIds = new NormalizedIdGenerator();
 
     // result
     private final TQueryCacheParam queryCacheParam = new TQueryCacheParam();
@@ -72,7 +74,7 @@ public class QueryCacheNormalizer implements Normalizer {
                 return Optional.empty();
             }
             List<TNormalizedPlanNode> normalizedDigestPlans = normalizePlanTree(context, cachePoint.get());
-            byte[] digest = computeDigest(normalizedDigestPlans);
+            byte[] digest = computeDigest(context, normalizedDigestPlans);
             return setQueryCacheParam(cachePoint.get(), digest, context);
         } catch (Throwable t) {
             return Optional.empty();
@@ -90,11 +92,12 @@ public class QueryCacheNormalizer implements Normalizer {
 
     private Optional<TQueryCacheParam> setQueryCacheParam(
             CachePoint cachePoint, byte[] digest, ConnectContext context) {
+        SessionVariable sessionVariable = context.getSessionVariable();
         queryCacheParam.setNodeId(cachePoint.cacheRoot.getId().asInt());
         queryCacheParam.setDigest(digest);
-        queryCacheParam.setForceRefreshQueryCache(context.getSessionVariable().isQueryCacheForceRefresh());
-        queryCacheParam.setEntryMaxBytes(context.getSessionVariable().getQueryCacheEntryMaxBytes());
-        queryCacheParam.setEntryMaxRows(context.getSessionVariable().getQueryCacheEntryMaxRows());
+        queryCacheParam.setForceRefreshQueryCache(sessionVariable.isQueryCacheForceRefresh());
+        queryCacheParam.setEntryMaxBytes(sessionVariable.getQueryCacheEntryMaxBytes());
+        queryCacheParam.setEntryMaxRows(sessionVariable.getQueryCacheEntryMaxRows());
 
         queryCacheParam.setOutputSlotMapping(
                 cachePoint.cacheRoot.getOutputTupleIds()
@@ -122,11 +125,16 @@ public class QueryCacheNormalizer implements Normalizer {
         if (planRoot instanceof AggregationNode) {
             PlanNode child = planRoot.getChild(0);
             if (child instanceof OlapScanNode) {
-                return Optional.of(new CachePoint(planRoot, planRoot));
+                if (((AggregationNode) planRoot).isQueryCacheCandidate()) {
+                    return Optional.of(new CachePoint(planRoot, planRoot));
+                }
             } else if (child instanceof AggregationNode) {
                 Optional<CachePoint> childCachePoint = doComputeCachePoint(child);
                 if (childCachePoint.isPresent()) {
-                    return Optional.of(new CachePoint(planRoot, planRoot));
+                    if (((AggregationNode) planRoot).isQueryCacheCandidate()) {
+                        return Optional.of(new CachePoint(planRoot, planRoot));
+                    }
+                    return childCachePoint;
                 }
             }
         } else if (planRoot instanceof ExchangeNode) {
@@ -151,13 +159,20 @@ public class QueryCacheNormalizer implements Normalizer {
         normalizedPlans.add(plan.normalize(this));
     }
 
-    public static byte[] computeDigest(List<TNormalizedPlanNode> normalizedDigestPlans) throws Exception {
+    public static byte[] computeDigest(
+            ConnectContext context, List<TNormalizedPlanNode> normalizedDigestPlans) throws Exception {
         TSerializer serializer = new TSerializer(new TCompactProtocol.Factory());
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
 
         for (TNormalizedPlanNode node : normalizedDigestPlans) {
             digest.update(serializer.serialize(node));
         }
+
+        StringBuffer variables = new StringBuffer();
+        context.getSessionVariable().readAffectQueryResultVariables((k, v) -> {
+            variables.append(k).append("=").append(v).append("|");
+        });
+        digest.update(serializer.serialize(new TStringLiteral(variables.toString())));
         return digest.digest();
     }
 
