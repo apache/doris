@@ -144,7 +144,8 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     }
 
     /** Generate PostgreSQL source config from Map config */
-    private PostgresSourceConfig generatePostgresConfig(Map<String, String> cdcConfig, Long jobId, int subtaskId) {
+    private PostgresSourceConfig generatePostgresConfig(
+            Map<String, String> cdcConfig, Long jobId, int subtaskId) {
         PostgresSourceConfigFactory configFactory = new PostgresSourceConfigFactory();
 
         // Parse JDBC URL to extract connection info
@@ -227,7 +228,8 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     }
 
     @Override
-    protected IncrementalSourceScanFetcher getSnapshotSplitReader(JobBaseConfig config, int subtaskId) {
+    protected IncrementalSourceScanFetcher getSnapshotSplitReader(
+            JobBaseConfig config, int subtaskId) {
         PostgresSourceConfig sourceConfig = getSourceConfig(config, subtaskId);
         PostgresDialect dialect = new PostgresDialect(sourceConfig);
         PostgresSourceFetchTaskContext taskContext =

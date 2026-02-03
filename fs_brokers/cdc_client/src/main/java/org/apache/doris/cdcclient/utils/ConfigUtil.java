@@ -17,8 +17,6 @@
 
 package org.apache.doris.cdcclient.utils;
 
-import org.apache.doris.cdcclient.common.Constants;
-
 import org.apache.commons.lang3.StringUtils;
 
 import java.time.ZoneId;

@@ -171,17 +171,16 @@ public class DorisBatchStreamLoad implements Serializable {
     }
 
     public void bufferFullFlush(String bufferKey) {
-         doFlush(bufferKey, false, true);
+        doFlush(bufferKey, false, true);
     }
 
     public void forceFlush() {
-         doFlush(null, true, false);
+        doFlush(null, true, false);
     }
 
     public void cacheFullFlush() {
-         doFlush(null, true, true);
+        doFlush(null, true, true);
     }
-
 
     private synchronized void doFlush(String bufferKey, boolean waitUtilDone, boolean bufferFull) {
         checkFlushException();

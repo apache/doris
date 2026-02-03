@@ -27,7 +27,6 @@ import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.flink.api.connector.source.SourceSplit;
@@ -48,6 +47,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.apache.flink.cdc.connectors.base.utils.SourceRecordUtils.SCHEMA_HEARTBEAT_EVENT_KEY_NAME;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import io.debezium.data.Envelope;
@@ -116,8 +116,7 @@ public class PipelineCoordinator {
                     fetchRecord.getJobId(),
                     isSnapshotSplit);
             while (!shouldStop) {
-                Iterator<SourceRecord> recordIterator =
-                        sourceReader.pollRecords();
+                Iterator<SourceRecord> recordIterator = sourceReader.pollRecords();
 
                 if (!recordIterator.hasNext()) {
                     Thread.sleep(100);
@@ -437,6 +436,7 @@ public class PipelineCoordinator {
         batchStreamLoad.setCurrentTaskId(writeRecordRequest.getTaskId());
         batchStreamLoad.setFrontendAddress(writeRecordRequest.getFrontendAddress());
         batchStreamLoad.setToken(writeRecordRequest.getToken());
+        batchStreamLoad.setLoadProps(writeRecordRequest.getTargetProps());
         return batchStreamLoad;
     }
 
@@ -487,12 +487,11 @@ public class PipelineCoordinator {
     /**
      * Extract offset metadata from split state.
      *
-     * <p>This method handles both snapshot splits and binlog splits,
-     * extracting the appropriate offset information through the SourceReader interface.
-     * For snapshot splits:
+     * <p>This method handles both snapshot splits and binlog splits, extracting the appropriate
+     * offset information through the SourceReader interface. For snapshot splits:
      * [{"splitId":"tbl:1",...},...]
      *
-     * For Binlog Split:
+     * <p>For Binlog Split:
      * [{"splitId":"binlog_split","fileName":"mysql-bin.000001","pos":"12345",...}]
      *
      * @param sourceReader the source reader
@@ -514,21 +513,23 @@ public class PipelineCoordinator {
             // Unified format for both single and multiple splits
             List<SourceSplit> allSplits = readResult.getSplits();
             Map<String, Object> allStates = readResult.getSplitStates();
-            
+
             for (SourceSplit currentSplit : allSplits) {
                 String splitId = currentSplit.splitId();
                 Object currentState = allStates.get(splitId);
-                Preconditions.checkNotNull(currentState, "Split state not found for splitId: " + splitId);
+                Preconditions.checkNotNull(
+                        currentState, "Split state not found for splitId: " + splitId);
 
                 Map<String, String> highWatermark =
-                    sourceReader.extractSnapshotStateOffset(currentState);
+                        sourceReader.extractSnapshotStateOffset(currentState);
                 Map<String, String> splitInfo = new HashMap<>();
                 splitInfo.put(SourceReader.SPLIT_ID, splitId);
                 splitInfo.putAll(highWatermark);
                 commitOffsets.add(splitInfo);
             }
         } else if (sourceReader.isBinlogSplit(split)) {
-            Map<String, String> offsetRes = sourceReader.extractBinlogStateOffset(readResult.getSplitState());
+            Map<String, String> offsetRes =
+                    sourceReader.extractBinlogStateOffset(readResult.getSplitState());
             offsetRes.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
             commitOffsets.add(offsetRes);
         } else {

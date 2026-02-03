@@ -17,8 +17,9 @@
 
 package org.apache.doris.cdcclient.source.reader;
 
-import lombok.Data;
 import org.apache.flink.api.connector.source.SourceSplit;
+
+import lombok.Data;
 
 /**
  * Generic context for managing a single snapshot split reader.

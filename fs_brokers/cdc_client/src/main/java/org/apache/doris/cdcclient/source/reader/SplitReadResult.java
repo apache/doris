@@ -25,28 +25,24 @@ import java.util.Map;
 import lombok.Data;
 
 /**
- * Container for source splits and their associated states.
- * Supports both single split (binlog) and multiple splits (snapshot).
- * Iteration over records for these splits is handled separately (for example via pollRecords).
+ * Container for source splits and their associated states. Supports both single split (binlog) and
+ * multiple splits (snapshot). Iteration over records for these splits is handled separately (for
+ * example via pollRecords).
  */
 @Data
 public class SplitReadResult {
     // List of splits (size=1 for binlog, size>=1 for snapshot)
     private List<SourceSplit> splits;
-    
+
     // Map of split states (key: splitId, value: state)
     private Map<String, Object> splitStates;
-    
-    /**
-     * Get the first split ( The types in `splits` are the same.)
-     */
+
+    /** Get the first split ( The types in `splits` are the same.) */
     public SourceSplit getSplit() {
         return splits != null && !splits.isEmpty() ? splits.get(0) : null;
     }
-    
-    /**
-     * Get the state of the first split
-     */
+
+    /** Get the state of the first split */
     public Object getSplitState() {
         if (splits == null || splits.isEmpty() || splitStates == null) {
             return null;
