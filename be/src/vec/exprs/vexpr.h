@@ -80,6 +80,9 @@ namespace vectorized {
 // VExpr should be used as shared pointer because it will be passed between classes
 // like runtime filter to scan node, or from scannode to scanner. We could not make sure
 // the relatioinship between threads and classes.
+
+using Selector = IColumn::Selector;
+
 class VExpr {
 public:
     // resize inserted param column to make sure column size equal to block.rows() and return param column index
@@ -133,7 +136,7 @@ public:
 
     virtual Status execute(VExprContext* context, Block* block, int* result_column_id) const {
         ColumnPtr result_column;
-        RETURN_IF_ERROR(execute_column(context, block, block->rows(), result_column));
+        RETURN_IF_ERROR(execute_column(context, block, nullptr, block->rows(), result_column));
         *result_column_id = block->columns();
         block->insert({result_column, execute_type(block), expr_name()});
         return Status::OK();
@@ -146,8 +149,8 @@ public:
     // In the future this interface will add an additional parameter, Selector, which specifies
     // which rows in the block should be evaluated.
     // If expr is executing constant expressions, then block should be nullptr.
-    virtual Status execute_column(VExprContext* context, const Block* block, size_t count,
-                                  ColumnPtr& result_column) const = 0;
+    virtual Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                                  size_t count, ColumnPtr& result_column) const = 0;
 
     // Currently, due to fe planning issues, for slot-ref expressions the type of the returned Column may not match data_type.
     // Therefore we need a function like this to return the actual type produced by execution.
@@ -184,7 +187,7 @@ public:
     virtual Status execute_runtime_filter(VExprContext* context, const Block* block,
                                           const uint8_t* __restrict filter, size_t count,
                                           ColumnPtr& result_column, ColumnPtr* arg_column) const {
-        return execute_column(context, block, count, result_column);
+        return execute_column(context, block, nullptr, count, result_column);
     };
 
     /// Subclasses overriding this function should call VExpr::Close().
@@ -257,6 +260,19 @@ public:
     static std::string debug_string(const VExprSPtrs& exprs);
     static std::string debug_string(const VExprContextSPtrs& ctxs);
 
+    static ColumnPtr filter_column_with_selector(const ColumnPtr& origin_column,
+                                                 const Selector* selector, size_t count) {
+        if (selector == nullptr) {
+            DCHECK_EQ(origin_column->size(), count);
+            return origin_column;
+        }
+        DCHECK_EQ(count, selector->size());
+        auto mutable_column = origin_column->clone_empty();
+        origin_column->append_data_by_selector(mutable_column, *selector);
+        DCHECK_EQ(mutable_column->size(), count);
+        return mutable_column;
+    }
+
     bool is_and_expr() const { return _fn.name.function_name == "and"; }
     bool is_like_expr() const { return _fn.name.function_name == "like"; }
 
@@ -303,7 +319,8 @@ public:
     }
 
     // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
-    bool fast_execute(VExprContext* context, ColumnPtr& result_column) const;
+    bool fast_execute(VExprContext* context, Selector* selector, size_t count,
+                      ColumnPtr& result_column) const;
 
     virtual bool can_push_down_to_index() const { return false; }
     virtual bool equals(const VExpr& other);

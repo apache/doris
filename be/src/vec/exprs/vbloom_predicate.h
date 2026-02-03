@@ -43,8 +43,9 @@ class VBloomPredicate final : public VExpr {
 public:
     VBloomPredicate(const TExprNode& node);
     ~VBloomPredicate() override = default;
-    Status execute_column(VExprContext* context, const Block* block, size_t count,
-                          ColumnPtr& result_column) const override;
+
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override;
 
     Status execute_runtime_filter(VExprContext* context, const Block* block,
                                   const uint8_t* __restrict filter, size_t count,
@@ -63,7 +64,7 @@ public:
 
 private:
     Status _do_execute(VExprContext* context, const Block* block, const uint8_t* __restrict filter,
-                       size_t count, ColumnPtr& result_column) const;
+                       Selector* selector, size_t count, ColumnPtr& result_column) const;
 
     std::shared_ptr<BloomFilterFuncBase> _filter;
     inline static const std::string EXPR_NAME = "bloom_predicate";

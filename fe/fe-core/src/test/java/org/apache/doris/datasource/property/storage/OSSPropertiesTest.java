@@ -269,4 +269,12 @@ public class OSSPropertiesTest {
         Assertions.assertFalse(s3Properties.hadoopStorageConfig.getBoolean("fs.oss.impl.disable.cache", false));
     }
 
+    @Test
+    public void testOSSBucketEndpointPathProperties() throws UserException {
+        Assertions.assertEquals("oss://my-bucket/path/to/dir/", OSSProperties.rewriteOssBucketIfNecessary("oss://my-bucket/path/to/dir/"));
+        Assertions.assertEquals("oss://my-bucket/path/to/dir/file.txt", OSSProperties.rewriteOssBucketIfNecessary("oss://my-bucket.oss-cn-hangzhou.aliyuncs.com/path/to/dir/file.txt"));
+        Assertions.assertEquals("s3://my-bucket/path/to/dir/file.txt", OSSProperties.rewriteOssBucketIfNecessary("s3://my-bucket.oss-cn-hangzhou.aliyuncs.com/path/to/dir/file.txt"));
+        Assertions.assertEquals("https://bucket-name.oss-cn-hangzhou.aliyuncs.com/path/to/dir/file.txt", OSSProperties.rewriteOssBucketIfNecessary("https://bucket-name.oss-cn-hangzhou.aliyuncs.com/path/to/dir/file.txt"));
+    }
 }
+
