@@ -512,7 +512,7 @@ JSONCPP_SOURCE="jsoncpp-1.9.5"
 JSONCPP_MD5SUM="d6c8c609f2162eff373db62b90a051c7"
 
 # libuuid
-LIBUUID_DOWNLOAD="https://nchc.dl.sourceforge.net/project/libuuid/libuuid-1.0.3.tar.gz"
+LIBUUID_DOWNLOAD="https://downloads.sourceforge.net/project/libuuid/libuuid-1.0.3.tar.gz"
 LIBUUID_NAME="libuuid-1.0.3.tar.gz"
 LIBUUID_SOURCE="libuuid-1.0.3"
 LIBUUID_MD5SUM="d44d866d06286c08ba0846aba1086d68"
