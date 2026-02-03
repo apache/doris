@@ -98,6 +98,11 @@ public class ShowCreateUserCommand extends ShowCommand {
         // user password
         sb.append(" IDENTIFIED BY *** ");
 
+        // tls requirements
+        if (user.getSan() != null) {
+            sb.append(" REQUIRE SAN '").append(user.getSan()).append("'");
+        }
+
         // password policy
         if (Env.getCurrentEnv().getAuth().getPasswdPolicyManager() != null) {
             // policies are : <expirePolicy, historyPolicy, failedLoginPolicy>

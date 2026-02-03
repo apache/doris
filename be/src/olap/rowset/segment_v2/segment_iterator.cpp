@@ -19,6 +19,7 @@
 
 #include <assert.h>
 #include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
 
@@ -727,6 +728,13 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
         _opts.stats->rows_conditions_filtered += (pre_size - _row_bitmap.cardinality());
     }
 
+    DBUG_EXECUTE_IF("bloom_filter_must_filter_data", {
+        if (_opts.stats->rows_bf_filtered == 0) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "Bloom filter did not filter the data.");
+        }
+    })
+
     // TODO(hkp): calculate filter rate to decide whether to
     // use zone map/bloom filter/secondary index or not.
     return Status::OK();
@@ -904,13 +912,6 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         pre_size = condition_row_ranges->count();
         RowRanges::ranges_intersection(*condition_row_ranges, bf_row_ranges, condition_row_ranges);
         _opts.stats->rows_bf_filtered += (pre_size - condition_row_ranges->count());
-
-        DBUG_EXECUTE_IF("bloom_filter_must_filter_data", {
-            if (pre_size - condition_row_ranges->count() == 0) {
-                return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                        "Bloom filter did not filter the data.");
-            }
-        })
     }
 
     {
@@ -1204,10 +1205,14 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
     // Then, return false.
     const auto& column = _opts.tablet_schema->column(cid);
     // Different subcolumns may share the same parent_unique_id, so we choose to abandon this optimization.
-    if (column.is_extracted_column()) {
+    if (column.is_extracted_column() &&
+        _opts.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX) {
         return true;
     }
     int32_t unique_id = column.unique_id();
+    if (unique_id < 0) {
+        unique_id = column.parent_unique_id();
+    }
     if ((_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid] &&
          !_output_columns.contains(unique_id)) ||
         (_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid] &&
@@ -2876,8 +2881,11 @@ void SegmentIterator::_calculate_expr_in_remaining_conjunct_root() {
                         }
                     }
                 }
-                if (child->is_slot_ref()) {
-                    auto* column_slot_ref = assert_cast<vectorized::VSlotRef*>(child.get());
+                // Example: CAST(v['a'] AS VARCHAR) MATCH 'hello', do not add CAST expr to index tracking.
+                auto expr_without_cast = vectorized::VExpr::expr_without_cast(child);
+                if (expr_without_cast->is_slot_ref() && expr->op() != TExprOpcode::CAST) {
+                    auto* column_slot_ref =
+                            assert_cast<vectorized::VSlotRef*>(expr_without_cast.get());
                     _common_expr_index_exec_status[_schema->column_id(column_slot_ref->column_id())]
                                                   [expr.get()] = false;
                     _common_expr_to_slotref_map[root_expr_ctx.get()][column_slot_ref->column_id()] =

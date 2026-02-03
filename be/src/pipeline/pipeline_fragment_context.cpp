@@ -2075,9 +2075,9 @@ Status PipelineFragmentContext::set_to_rerun() {
     {
         std::lock_guard<std::mutex> l(_task_mutex);
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_ctx->query_mem_tracker());
-        for (size_t i = 0; i < _tasks.size(); i++) {
-            if (!_tasks[i].empty()) {
-                _tasks[i].front().first->runtime_state()->reset_to_rerun();
+        for (auto& tasks : _tasks) {
+            for (const auto& task : tasks) {
+                task.first->runtime_state()->reset_to_rerun();
             }
         }
     }

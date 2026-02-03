@@ -1546,7 +1546,7 @@ DEFINE_mInt64(fetch_remote_schema_rpc_timeout_ms, "60000");
 DEFINE_Int64(s3_file_system_local_upload_buffer_size, "5242880");
 
 //JVM monitoring enable. To prevent be from crashing due to jvm compatibility issues. The default setting is off.
-DEFINE_Bool(enable_jvm_monitor, "false");
+DEFINE_Bool(enable_jvm_monitor, "true");
 
 DEFINE_Int32(load_data_dirs_threads, "-1");
 

@@ -1338,12 +1338,17 @@ public class Auth implements Writable {
         List<String> userAuthInfo = Lists.newArrayList();
         // ================= UserIdentity =======================
         userAuthInfo.add(userIdent.toString());
+        String requireSan = Strings.isNullOrEmpty(userIdent.getSan())
+                ? FeConstants.null_string
+                : userIdent.getSan();
         if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdent.getQualifiedUser())) {
             // ============== Comment ==============
             userAuthInfo.add(FeConstants.null_string);
             LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(userIdent.getQualifiedUser());
             // ============== Password ==============
             userAuthInfo.add(ldapUserInfo.isSetPasswd() ? "Yes" : "No");
+            // ============== RequireSan ==============
+            userAuthInfo.add(requireSan);
             // ============== Roles ==============
             userAuthInfo.add(Joiner.on(",").join(getRoleNamesByUserWithLdap(userIdent,
                     ConnectContext.get().getSessionVariable().showUserDefaultRole)));
@@ -1353,11 +1358,14 @@ public class Auth implements Writable {
                 userAuthInfo.add(FeConstants.null_string);
                 userAuthInfo.add(FeConstants.null_string);
                 userAuthInfo.add(FeConstants.null_string);
+                userAuthInfo.add(FeConstants.null_string);
             } else {
                 // ============== Comment ==============
                 userAuthInfo.add(user.getComment());
                 // ============== Password ==============
                 userAuthInfo.add(user.hasPassword() ? "Yes" : "No");
+                // ============== RequireSan ==============
+                userAuthInfo.add(requireSan);
                 // ============== Roles ==============
                 userAuthInfo.add(Joiner.on(",").join(userRoleManager
                         .getRolesByUser(userIdent, ConnectContext.get().getSessionVariable().showUserDefaultRole)));
@@ -1894,6 +1902,9 @@ public class Auth implements Writable {
                 case MODIFY_COMMENT:
                     modifyComment(userIdent, comment);
                     break;
+                case SET_TLS_REQUIRE:
+                    updateUserTlsRequirements(userIdent);
+                    break;
                 default:
                     throw new DdlException("Unknown alter user operation type: " + opType.name());
             }
@@ -1919,6 +1930,14 @@ public class Auth implements Writable {
         userRoleManager.dropUser(userIdent);
         userRoleManager.addUserRole(userIdent, role);
         userRoleManager.addUserRole(userIdent, roleManager.getUserDefaultRoleName(userIdent));
+    }
+
+    private void updateUserTlsRequirements(UserIdentity userIdent) throws DdlException {
+        User user = userManager.getUserByUserIdentity(userIdent);
+        if (user == null) {
+            throw new DdlException("user: " + userIdent + " does not exist");
+        }
+        user.setUserIdentity(userIdent);
     }
 
     private void modifyComment(UserIdentity userIdent, String comment) throws DdlException {

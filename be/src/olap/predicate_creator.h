@@ -172,134 +172,113 @@ std::shared_ptr<ColumnPredicate> create_in_list_predicate(const uint32_t cid,
 }
 
 template <PredicateType PT>
-std::shared_ptr<ColumnPredicate> create_comparison_predicate0(
+std::shared_ptr<ColumnPredicate> create_comparison_predicate(
         const uint32_t cid, const std::string col_name, const vectorized::DataTypePtr& data_type,
-        StringRef& value, bool opposite, vectorized::Arena& arena) {
+        const vectorized::Field& value, bool opposite) {
     switch (data_type->get_primitive_type()) {
     case TYPE_TINYINT: {
-        return ComparisonPredicateBase<TYPE_TINYINT, PT>::create_shared(
-                cid, col_name, *(typename PrimitiveTypeTraits<TYPE_TINYINT>::CppType*)value.data,
-                opposite);
+        return ComparisonPredicateBase<TYPE_TINYINT, PT>::create_shared(cid, col_name, value,
+                                                                        opposite);
     }
     case TYPE_SMALLINT: {
-        return ComparisonPredicateBase<TYPE_SMALLINT, PT>::create_shared(
-                cid, col_name, *(typename PrimitiveTypeTraits<TYPE_SMALLINT>::CppType*)value.data,
-                opposite);
+        return ComparisonPredicateBase<TYPE_SMALLINT, PT>::create_shared(cid, col_name, value,
+                                                                         opposite);
     }
     case TYPE_INT: {
-        return ComparisonPredicateBase<TYPE_INT, PT>::create_shared(
-                cid, col_name, *(typename PrimitiveTypeTraits<TYPE_INT>::CppType*)value.data,
-                opposite);
+        return ComparisonPredicateBase<TYPE_INT, PT>::create_shared(cid, col_name, value, opposite);
     }
     case TYPE_BIGINT: {
-        return ComparisonPredicateBase<TYPE_BIGINT, PT>::create_shared(
-                cid, col_name, *(typename PrimitiveTypeTraits<TYPE_BIGINT>::CppType*)value.data,
-                opposite);
+        return ComparisonPredicateBase<TYPE_BIGINT, PT>::create_shared(cid, col_name, value,
+                                                                       opposite);
     }
     case TYPE_LARGEINT: {
-        return ComparisonPredicateBase<TYPE_LARGEINT, PT>::create_shared(
-                cid, col_name, *(typename PrimitiveTypeTraits<TYPE_LARGEINT>::CppType*)value.data,
-                opposite);
+        return ComparisonPredicateBase<TYPE_LARGEINT, PT>::create_shared(cid, col_name, value,
+                                                                         opposite);
     }
     case TYPE_FLOAT: {
-        return ComparisonPredicateBase<TYPE_FLOAT, PT>::create_shared(
-                cid, col_name, *(typename PrimitiveTypeTraits<TYPE_FLOAT>::CppType*)value.data,
-                opposite);
+        return ComparisonPredicateBase<TYPE_FLOAT, PT>::create_shared(cid, col_name, value,
+                                                                      opposite);
     }
     case TYPE_DOUBLE: {
-        return ComparisonPredicateBase<TYPE_DOUBLE, PT>::create_shared(
-                cid, col_name, *(typename PrimitiveTypeTraits<TYPE_DOUBLE>::CppType*)value.data,
-                opposite);
+        return ComparisonPredicateBase<TYPE_DOUBLE, PT>::create_shared(cid, col_name, value,
+                                                                       opposite);
     }
     case TYPE_DECIMALV2: {
-        return ComparisonPredicateBase<TYPE_DECIMALV2, PT>::create_shared(
-                cid, col_name, *(typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType*)value.data,
-                opposite);
+        return ComparisonPredicateBase<TYPE_DECIMALV2, PT>::create_shared(cid, col_name, value,
+                                                                          opposite);
     }
     case TYPE_DECIMAL32: {
-        return ComparisonPredicateBase<TYPE_DECIMAL32, PT>::create_shared(
-                cid, col_name, *(typename PrimitiveTypeTraits<TYPE_DECIMAL32>::CppType*)value.data,
-                opposite);
+        return ComparisonPredicateBase<TYPE_DECIMAL32, PT>::create_shared(cid, col_name, value,
+                                                                          opposite);
     }
     case TYPE_DECIMAL64: {
-        return ComparisonPredicateBase<TYPE_DECIMAL64, PT>::create_shared(
-                cid, col_name, *(typename PrimitiveTypeTraits<TYPE_DECIMAL64>::CppType*)value.data,
-                opposite);
+        return ComparisonPredicateBase<TYPE_DECIMAL64, PT>::create_shared(cid, col_name, value,
+                                                                          opposite);
     }
     case TYPE_DECIMAL128I: {
-        return ComparisonPredicateBase<TYPE_DECIMAL128I, PT>::create_shared(
-                cid, col_name,
-                *(typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::CppType*)value.data, opposite);
+        return ComparisonPredicateBase<TYPE_DECIMAL128I, PT>::create_shared(cid, col_name, value,
+                                                                            opposite);
     }
     case TYPE_DECIMAL256: {
-        return ComparisonPredicateBase<TYPE_DECIMAL256, PT>::create_shared(
-                cid, col_name, *(typename PrimitiveTypeTraits<TYPE_DECIMAL256>::CppType*)value.data,
-                opposite);
+        return ComparisonPredicateBase<TYPE_DECIMAL256, PT>::create_shared(cid, col_name, value,
+                                                                           opposite);
     }
     case TYPE_CHAR: {
-        // TODO(gabriel): Use std::string instead of StringRef
         auto target =
                 std::max(cast_set<size_t>(assert_cast<const vectorized::DataTypeString*>(
                                                   vectorized::remove_nullable(data_type).get())
                                                   ->len()),
-                         value.size);
-        char* buffer = arena.alloc(target);
-        memset(buffer, 0, target);
-        memcpy(buffer, value.data, value.size);
-        StringRef v = {buffer, target};
-        return ComparisonPredicateBase<TYPE_CHAR, PT>::create_shared(cid, col_name, v, opposite);
+                         value.template get<TYPE_CHAR>().size());
+        if (target > value.template get<TYPE_CHAR>().size()) {
+            std::string tmp(target, '\0');
+            memcpy(tmp.data(), value.template get<TYPE_CHAR>().data(),
+                   value.template get<TYPE_CHAR>().size());
+            return ComparisonPredicateBase<TYPE_CHAR, PT>::create_shared(
+                    cid, col_name, vectorized::Field::create_field<TYPE_CHAR>(std::move(tmp)),
+                    opposite);
+        } else {
+            return ComparisonPredicateBase<TYPE_CHAR, PT>::create_shared(
+                    cid, col_name,
+                    vectorized::Field::create_field<TYPE_CHAR>(value.template get<TYPE_CHAR>()),
+                    opposite);
+        }
     }
-    case TYPE_VARCHAR: {
-        char* buffer = arena.alloc(value.size);
-        memcpy(buffer, value.data, value.size);
-        StringRef v = {buffer, value.size};
-        return ComparisonPredicateBase<TYPE_VARCHAR, PT>::create_shared(cid, col_name, v, opposite);
-    }
+    case TYPE_VARCHAR:
     case TYPE_STRING: {
-        char* buffer = arena.alloc(value.size);
-        memcpy(buffer, value.data, value.size);
-        StringRef v = {buffer, value.size};
-        return ComparisonPredicateBase<TYPE_STRING, PT>::create_shared(cid, col_name, v, opposite);
+        return ComparisonPredicateBase<TYPE_STRING, PT>::create_shared(cid, col_name, value,
+                                                                       opposite);
     }
     case TYPE_DATE: {
-        return ComparisonPredicateBase<TYPE_DATE, PT>::create_shared(
-                cid, col_name, *(typename PrimitiveTypeTraits<TYPE_DATE>::CppType*)value.data,
-                opposite);
+        return ComparisonPredicateBase<TYPE_DATE, PT>::create_shared(cid, col_name, value,
+                                                                     opposite);
     }
     case TYPE_DATEV2: {
-        return ComparisonPredicateBase<TYPE_DATEV2, PT>::create_shared(
-                cid, col_name, *(typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType*)value.data,
-                opposite);
+        return ComparisonPredicateBase<TYPE_DATEV2, PT>::create_shared(cid, col_name, value,
+                                                                       opposite);
     }
     case TYPE_DATETIME: {
-        return ComparisonPredicateBase<TYPE_DATETIME, PT>::create_shared(
-                cid, col_name, *(typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType*)value.data,
-                opposite);
+        return ComparisonPredicateBase<TYPE_DATETIME, PT>::create_shared(cid, col_name, value,
+                                                                         opposite);
     }
     case TYPE_DATETIMEV2: {
-        return ComparisonPredicateBase<TYPE_DATETIMEV2, PT>::create_shared(
-                cid, col_name, *(typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType*)value.data,
-                opposite);
+        return ComparisonPredicateBase<TYPE_DATETIMEV2, PT>::create_shared(cid, col_name, value,
+                                                                           opposite);
     }
     case TYPE_TIMESTAMPTZ: {
-        return ComparisonPredicateBase<TYPE_TIMESTAMPTZ, PT>::create_shared(
-                cid, col_name,
-                *(typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::CppType*)value.data, opposite);
+        return ComparisonPredicateBase<TYPE_TIMESTAMPTZ, PT>::create_shared(cid, col_name, value,
+                                                                            opposite);
     }
     case TYPE_BOOLEAN: {
-        return ComparisonPredicateBase<TYPE_BOOLEAN, PT>::create_shared(
-                cid, col_name, *(typename PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType*)value.data,
-                opposite);
+        return ComparisonPredicateBase<TYPE_BOOLEAN, PT>::create_shared(cid, col_name, value,
+                                                                        opposite);
     }
     case TYPE_IPV4: {
-        return ComparisonPredicateBase<TYPE_IPV4, PT>::create_shared(
-                cid, col_name, *(typename PrimitiveTypeTraits<TYPE_IPV4>::CppType*)value.data,
-                opposite);
+        return ComparisonPredicateBase<TYPE_IPV4, PT>::create_shared(cid, col_name, value,
+                                                                     opposite);
     }
     case TYPE_IPV6: {
-        return ComparisonPredicateBase<TYPE_IPV6, PT>::create_shared(
-                cid, col_name, *(typename PrimitiveTypeTraits<TYPE_IPV6>::CppType*)value.data,
-                opposite);
+        return ComparisonPredicateBase<TYPE_IPV6, PT>::create_shared(cid, col_name, value,
+                                                                     opposite);
     }
     default:
         throw Exception(Status::InternalError("Unsupported type {} for comparison_predicate",
