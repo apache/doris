@@ -312,6 +312,7 @@ void single_column_predicate_test_func(const ZoneMapInfo& zone_map_info,
     EXPECT_EQ(matched, expect_match);
 }
 
+template <PrimitiveType T, PredicateType PT>
 void single_column_predicate_test_func(const ZoneMapInfo& zone_map_info,
                                        vectorized::Field&& check_value, bool expect_match) {
     int col_idx = 0;
@@ -492,7 +493,7 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         double zonemap_min_v = std::numeric_limits<double>::lowest();
         ZoneMapInfo zone_map_info {
                 .min_value = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v),
-                .max_value = vectorized::Field::create_field<TYPE_DOUBLE>(pos_inf),
+                .max_value = pos_inf,
                 .has_null = false,
                 .is_all_null = false};
 
@@ -567,7 +568,8 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
             // test GT
             // std::cout << "test double GT value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                    zone_map_info, v, v.template get<TYPE_DOUBLE>() != pos_inf);
+                    zone_map_info, v,
+                    v.template get<TYPE_DOUBLE>() != pos_inf.template get<TYPE_DOUBLE>());
 
             // test GE
             // std::cout << "test double GE value: " << v << std::endl;
@@ -613,7 +615,7 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         std::cout << "========test special range: [-Infinity, normal]\n";
         double zonemap_max_v = std::numeric_limits<double>::max();
         ZoneMapInfo zone_map_info {
-                .min_value = vectorized::Field::create_field<TYPE_DOUBLE>(neg_inf),
+                .min_value = neg_inf,
                 .max_value = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_max_v),
                 .has_null = false,
                 .is_all_null = false};
@@ -735,7 +737,7 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         double zonemap_min_v = std::numeric_limits<float>::lowest();
         ZoneMapInfo zone_map_info {
                 .min_value = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v),
-                .max_value = vectorized::Field::create_field<TYPE_DOUBLE>(nan),
+                .max_value = nan,
                 .has_null = false,
                 .is_all_null = false};
 
@@ -852,11 +854,10 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
     // test special range: [-Infinity, +Infinity]
     {
         std::cout << "========test special range: [-Infinity, +Infinity]\n";
-        ZoneMapInfo zone_map_info {
-                .min_value = vectorized::Field::create_field<TYPE_DOUBLE>(neg_inf),
-                .max_value = vectorized::Field::create_field<TYPE_DOUBLE>(pos_inf),
-                .has_null = false,
-                .is_all_null = false};
+        ZoneMapInfo zone_map_info {.min_value = neg_inf,
+                                   .max_value = pos_inf,
+                                   .has_null = false,
+                                   .is_all_null = false};
 
         // test NaN
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, nan,
@@ -940,10 +941,7 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
     {
         std::cout << "========test special range: [-Infinity, NaN]\n";
         ZoneMapInfo zone_map_info {
-                .min_value = vectorized::Field::create_field<TYPE_DOUBLE>(neg_inf),
-                .max_value = vectorized::Field::create_field<TYPE_DOUBLE>(nan),
-                .has_null = false,
-                .is_all_null = false};
+                .min_value = neg_inf, .max_value = nan, .has_null = false, .is_all_null = false};
 
         // test NaN
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, nan, true);
@@ -1018,11 +1016,10 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
     // test special range: [-Infinity, -Infinity]
     {
         std::cout << "========test special range: [-Infinity, -Infinity]\n";
-        ZoneMapInfo zone_map_info {
-                .min_value = vectorized::Field::create_field<TYPE_DOUBLE>(neg_inf),
-                .max_value = vectorized::Field::create_field<TYPE_DOUBLE>(neg_inf),
-                .has_null = false,
-                .is_all_null = false};
+        ZoneMapInfo zone_map_info {.min_value = neg_inf,
+                                   .max_value = neg_inf,
+                                   .has_null = false,
+                                   .is_all_null = false};
 
         // test NaN
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, nan,
@@ -1099,11 +1096,10 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
     // test special range: [+Infinity, +Infinity]
     {
         std::cout << "========test special range: [+Infinity, +Infinity]\n";
-        ZoneMapInfo zone_map_info {
-                .min_value = vectorized::Field::create_field<TYPE_DOUBLE>(pos_inf),
-                .max_value = vectorized::Field::create_field<TYPE_DOUBLE>(pos_inf),
-                .has_null = false,
-                .is_all_null = false};
+        ZoneMapInfo zone_map_info {.min_value = pos_inf,
+                                   .max_value = pos_inf,
+                                   .has_null = false,
+                                   .is_all_null = false};
 
         // test NaN
         std::cout << "========test NaN\n";
@@ -1184,10 +1180,8 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
     // test special range: [NaN, NaN]
     {
         std::cout << "========test special range: [NaN, NaN]\n";
-        ZoneMapInfo zone_map_info {.min_value = vectorized::Field::create_field<TYPE_DOUBLE>(nan),
-                                   .max_value = vectorized::Field::create_field<TYPE_DOUBLE>(nan),
-                                   .has_null = false,
-                                   .is_all_null = false};
+        ZoneMapInfo zone_map_info {
+                .min_value = nan, .max_value = nan, .has_null = false, .is_all_null = false};
 
         // test NaN
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, nan, true);
@@ -1310,7 +1304,8 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
         }
         // test values out of zonemap range
         {
-            auto v = type_limit<TimestampTzValue>::min();
+            auto v = vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(
+                    type_limit<TimestampTzValue>::min());
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(zone_map_info, v,
                                                                                    false);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::NE>(zone_map_info, v,
@@ -1380,8 +1375,8 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GT>(
                     zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz),
                     tz != zonemap_max_v);
-            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GE>(zone_map_info,
-                                                                                   tz, true);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GE>(
+                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
         }
     }
 }
