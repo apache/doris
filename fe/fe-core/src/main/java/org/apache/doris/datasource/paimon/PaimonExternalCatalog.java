@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -27,6 +28,7 @@ import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractPaimonProperties;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.catalog.Catalog;
@@ -36,6 +38,7 @@ import org.apache.paimon.partition.Partition;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 // The subclasses of this class are all deprecated, only for meta persistence compatibility.
 public class PaimonExternalCatalog extends ExternalCatalog {
@@ -45,6 +48,7 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     public static final String PAIMON_HMS = "hms";
     public static final String PAIMON_DLF = "dlf";
     public static final String PAIMON_REST = "rest";
+    public static final String PAIMON_TABLE_META_CACHE_TTL_SECOND = "paimon.table.meta.cache.ttl-second";
     protected String catalogType;
     protected Catalog catalog;
 
@@ -156,7 +160,24 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     @Override
     public void checkProperties() throws DdlException {
         super.checkProperties();
+        // check paimon.table.meta.cache.ttl-second parameter
+        String tableMetaCacheTtlSecond = catalogProperty.getOrDefault(PAIMON_TABLE_META_CACHE_TTL_SECOND, null);
+        if (Objects.nonNull(tableMetaCacheTtlSecond) && NumberUtils.toInt(tableMetaCacheTtlSecond, CACHE_NO_TTL)
+                < CACHE_TTL_DISABLE_CACHE) {
+            throw new DdlException(
+                    "The parameter " + PAIMON_TABLE_META_CACHE_TTL_SECOND + " is wrong, value is "
+                    + tableMetaCacheTtlSecond);
+        }
         catalogProperty.checkMetaStoreAndStorageProperties(AbstractPaimonProperties.class);
+    }
+
+    @Override
+    public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
+        super.notifyPropertiesUpdated(updatedProps);
+        String tableMetaCacheTtl = updatedProps.getOrDefault(PAIMON_TABLE_META_CACHE_TTL_SECOND, null);
+        if (Objects.nonNull(tableMetaCacheTtl)) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache(this).init();
+        }
     }
 
     @Override

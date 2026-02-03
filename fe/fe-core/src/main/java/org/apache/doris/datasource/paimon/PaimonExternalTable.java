@@ -96,7 +96,14 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     public Table getPaimonTable(Optional<MvccSnapshot> snapshot) {
-        return getOrFetchSnapshotCacheValue(snapshot).getSnapshot().getTable();
+        if (snapshot.isPresent()) {
+            // MTMV scenario: get from snapshot cache
+            return getOrFetchSnapshotCacheValue(snapshot).getSnapshot().getTable();
+        } else {
+            // Normal query scenario: get directly from table cache
+            return Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache(getCatalog())
+                    .getPaimonTable(this);
+        }
     }
 
     private PaimonSnapshotCacheValue getPaimonSnapshotCacheValue(Optional<TableSnapshot> tableSnapshot,
@@ -167,8 +174,8 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             }
         } else {
             // Otherwise, use the latest snapshot and the latest schema.
-            return Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache()
-                    .getPaimonSnapshot(this);
+            return Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache(getCatalog())
+                    .getSnapshotCache(this);
         }
     }
 
@@ -353,7 +360,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     private PaimonSchemaCacheValue getPaimonSchemaCacheValue(Optional<MvccSnapshot> snapshot) {
         PaimonSnapshotCacheValue snapshotCacheValue = getOrFetchSnapshotCacheValue(snapshot);
-        return Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache()
+        return Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache(getCatalog())
                 .getPaimonSchemaCacheValue(getOrBuildNameMapping(), snapshotCacheValue.getSnapshot().getSchemaId());
     }
 
@@ -361,7 +368,9 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         if (snapshot.isPresent()) {
             return ((PaimonMvccSnapshot) snapshot.get()).getSnapshotCacheValue();
         } else {
-            return getPaimonSnapshotCacheValue(Optional.empty(), Optional.empty());
+            // Use new lazy-loading snapshot cache API
+            return Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache(getCatalog())
+                    .getSnapshotCache(this);
         }
     }
 

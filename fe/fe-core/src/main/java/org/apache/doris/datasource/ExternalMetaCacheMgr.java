@@ -215,8 +215,8 @@ public class ExternalMetaCacheMgr {
         return cache;
     }
 
-    public PaimonMetadataCache getPaimonMetadataCache() {
-        return paimonMetadataCacheMgr.getPaimonMetadataCache();
+    public PaimonMetadataCache getPaimonMetadataCache(ExternalCatalog catalog) {
+        return paimonMetadataCacheMgr.getPaimonMetadataCache(catalog);
     }
 
     public MaxComputeMetadataCache getMaxComputeMetadataCache(long catalogId) {
