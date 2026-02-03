@@ -400,7 +400,7 @@ public:
             }
             HybridSetBase::IteratorBase* iter = _values->begin();
             while (iter->has_next()) {
-                if constexpr (std::is_same_v<T, StringRef>) {
+                if constexpr (is_string_type(Type)) {
                     const auto* value = (const StringRef*)iter->get_value();
                     if (bf->test_bytes(value->data, value->size)) {
                         return true;
@@ -487,7 +487,7 @@ public:
                     if (test_bytes(*value)) {
                         return true;
                     }
-                } else if constexpr (std::is_same_v<T, StringRef>) {
+                } else if constexpr (is_string_type(Type)) {
                     // VARCHAR/STRING -> hash bytes
                     if (bf->test_bytes(value->data, value->size)) {
                         return true;
@@ -548,7 +548,7 @@ private:
         uint16_t new_size = 0;
 
         if (column->is_column_dictionary()) {
-            if constexpr (std::is_same_v<T, StringRef>) {
+            if constexpr (is_string_type(Type)) {
                 const auto* nested_col_ptr =
                         vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
                 const auto& data_array = nested_col_ptr->get_data();
@@ -615,7 +615,7 @@ private:
                             const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
                             const uint16_t* sel, uint16_t size, bool* flags) const {
         if (column->is_column_dictionary()) {
-            if constexpr (std::is_same_v<T, StringRef>) {
+            if constexpr (is_string_type(Type)) {
                 const auto* nested_col_ptr =
                         vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
                 const auto& data_array = nested_col_ptr->get_data();
