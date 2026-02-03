@@ -138,6 +138,8 @@ public:
         return Status::OK();
     }
 
+    virtual bool is_hash_join_probe() const { return false; }
+
     /**
      * Pipeline task is blockable means it will be blocked in the next run. So we should put the
      * pipeline task into the blocking task scheduler.

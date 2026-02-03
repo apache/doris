@@ -150,6 +150,8 @@ public:
     }
     bool is_broadcast_join() const { return _is_broadcast_join; }
 
+    bool is_hash_join_probe() const override { return true; }
+
     bool is_shuffled_operator() const override {
         return _join_distribution == TJoinDistributionType::PARTITIONED;
     }
