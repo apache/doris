@@ -17,58 +17,47 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.datasource.CatalogScopedCacheMgr;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 
-public class PaimonMetadataCacheMgr {
-
-    private final ExecutorService executor;
-    private final Map<Long, PaimonMetadataCache> paimonCacheMap = new ConcurrentHashMap<>();
+public class PaimonMetadataCacheMgr extends CatalogScopedCacheMgr<PaimonMetadataCache> {
 
     public PaimonMetadataCacheMgr(ExecutorService executor) {
-        this.executor = executor;
+        super(catalog -> new PaimonMetadataCache(catalog, executor));
     }
 
     public PaimonMetadataCache getPaimonMetadataCache(ExternalCatalog catalog) {
-        PaimonMetadataCache cache = paimonCacheMap.get(catalog.getId());
-        if (cache == null) {
-            synchronized (paimonCacheMap) {
-                if (!paimonCacheMap.containsKey(catalog.getId())) {
-                    paimonCacheMap.put(catalog.getId(), new PaimonMetadataCache(catalog, executor));
-                }
-                cache = paimonCacheMap.get(catalog.getId());
-            }
+        return getCache(catalog);
+    }
+
+    @Override
+    public PaimonMetadataCache removeCache(long catalogId) {
+        PaimonMetadataCache cache = super.removeCache(catalogId);
+        if (cache != null) {
+            cache.invalidateCatalogCache(catalogId);
         }
         return cache;
     }
 
-    public void removeCache(long catalogId) {
-        PaimonMetadataCache cache = paimonCacheMap.remove(catalogId);
-        if (cache != null) {
-            cache.invalidateCatalogCache(catalogId);
-        }
-    }
-
     public void invalidateCatalogCache(long catalogId) {
-        PaimonMetadataCache cache = paimonCacheMap.get(catalogId);
+        PaimonMetadataCache cache = getCache(catalogId);
         if (cache != null) {
             cache.invalidateCatalogCache(catalogId);
         }
     }
 
     public void invalidateTableCache(ExternalTable dorisTable) {
-        PaimonMetadataCache cache = paimonCacheMap.get(dorisTable.getCatalog().getId());
+        PaimonMetadataCache cache = getCache(dorisTable.getCatalog().getId());
         if (cache != null) {
             cache.invalidateTableCache(dorisTable);
         }
     }
 
     public void invalidateDbCache(long catalogId, String dbName) {
-        PaimonMetadataCache cache = paimonCacheMap.get(catalogId);
+        PaimonMetadataCache cache = getCache(catalogId);
         if (cache != null) {
             cache.invalidateDbCache(catalogId, dbName);
         }
