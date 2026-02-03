@@ -65,8 +65,8 @@ MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schem
           _total_size_of_aggregate_states(0) {
     g_memtable_cnt << 1;
     _mem_tracker = std::make_shared<MemTracker>();
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
-            _resource_ctx->memory_context()->mem_tracker()->write_tracker());
+    // SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+    //         _resource_ctx->memory_context()->mem_tracker()->write_tracker());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     _vec_row_comparator = std::make_shared<RowInBlockComparator>(_tablet_schema);
     if (partial_update_info != nullptr) {
@@ -152,8 +152,8 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
 }
 
 MemTable::~MemTable() {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
-            _resource_ctx->memory_context()->mem_tracker()->write_tracker());
+    // SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+    //         _resource_ctx->memory_context()->mem_tracker()->write_tracker());
     {
         SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
         g_memtable_cnt << -1;
@@ -195,8 +195,8 @@ int RowInBlockComparator::operator()(const RowInBlock* left, const RowInBlock* r
 
 Status MemTable::insert(const vectorized::Block* input_block,
                         const DorisVector<uint32_t>& row_idxs) {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
-            _resource_ctx->memory_context()->mem_tracker()->write_tracker());
+    // SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+    //         _resource_ctx->memory_context()->mem_tracker()->write_tracker());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
     if (_is_first_insertion) {
@@ -641,8 +641,8 @@ void MemTable::_aggregate_for_flexible_partial_update_with_seq_col(
 }
 
 void MemTable::shrink_memtable_by_agg() {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
-            _resource_ctx->memory_context()->mem_tracker()->write_tracker());
+    // SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+    //         _resource_ctx->memory_context()->mem_tracker()->write_tracker());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     if (_keys_type == KeysType::DUP_KEYS) {
         return;
