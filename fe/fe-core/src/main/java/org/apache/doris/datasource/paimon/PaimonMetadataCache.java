@@ -168,9 +168,7 @@ public class PaimonMetadataCache {
     }
 
     public void invalidateCatalogCache(long catalogId) {
-        tableCache.asMap().keySet().stream()
-                .filter(key -> key.getNameMapping().getCtlId() == catalogId)
-                .forEach(tableCache::invalidate);
+        tableCache.invalidateAll();
     }
 
     public void invalidateTableCache(ExternalTable dorisTable) {
@@ -180,8 +178,7 @@ public class PaimonMetadataCache {
 
     public void invalidateDbCache(long catalogId, String dbName) {
         tableCache.asMap().keySet().stream()
-                .filter(key -> key.getNameMapping().getCtlId() == catalogId
-                        && key.getNameMapping().getLocalDbName().equals(dbName))
+                .filter(key -> key.getNameMapping().getLocalDbName().equals(dbName))
                 .forEach(tableCache::invalidate);
     }
 

@@ -168,20 +168,12 @@ public class IcebergMetadataCache {
     }
 
     public void invalidateCatalogCache(long catalogId) {
-        tableCache.asMap().entrySet().stream()
-                .filter(entry -> entry.getKey().nameMapping.getCtlId() == catalogId)
-                .forEach(entry -> {
-                    ManifestFiles.dropCache(entry.getValue().getIcebergTable().io());
-                    if (LOG.isDebugEnabled()) {
-                        LOG.info("invalidate iceberg table cache {} when invalidating catalog cache",
-                                entry.getKey().nameMapping, new Exception());
-                    }
-                    tableCache.invalidate(entry.getKey());
-                });
-
-        viewCache.asMap().entrySet().stream()
-                .filter(entry -> entry.getKey().nameMapping.getCtlId() == catalogId)
-                .forEach(entry -> viewCache.invalidate(entry.getKey()));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalidate all iceberg table cache when invalidating catalog {}", catalogId);
+        }
+        // Invalidate all entries related to the catalog
+        tableCache.invalidateAll();
+        viewCache.invalidateAll();
         manifestCache.invalidateAll();
     }
 
@@ -198,53 +190,39 @@ public class IcebergMetadataCache {
     private void invalidateTableCache(IcebergMetadataCacheKey key, IcebergTableCacheValue tableCacheValue) {
         ManifestFiles.dropCache(tableCacheValue.getIcebergTable().io());
         if (LOG.isDebugEnabled()) {
-            LOG.info("invalidate iceberg table cache {}", key.nameMapping, new Exception());
+            LOG.debug("invalidate iceberg table cache {}", key.nameMapping, new Exception());
         }
         tableCache.invalidate(key);
         viewCache.invalidate(key);
     }
 
     private void invalidateTableCacheByLocalName(ExternalTable dorisTable) {
-        long catalogId = dorisTable.getCatalog().getId();
         String dbName = dorisTable.getDbName();
         String tblName = dorisTable.getName();
         tableCache.asMap().entrySet().stream()
-                .filter(entry -> {
-                    IcebergMetadataCacheKey key = entry.getKey();
-                    return key.nameMapping.getCtlId() == catalogId
-                            && key.nameMapping.getLocalDbName().equals(dbName)
-                            && key.nameMapping.getLocalTblName().equals(tblName);
-                })
+                .filter(entry -> entry.getKey().nameMapping.getLocalDbName().equals(dbName)
+                        && entry.getKey().nameMapping.getLocalTblName().equals(tblName))
                 .forEach(entry -> invalidateTableCache(entry.getKey(), entry.getValue()));
         viewCache.asMap().keySet().stream()
-                .filter(entry -> entry.nameMapping.getCtlId() == catalogId
-                        && entry.nameMapping.getLocalDbName().equals(dbName)
-                        && entry.nameMapping.getLocalTblName().equals(tblName))
+                .filter(key -> key.nameMapping.getLocalDbName().equals(dbName)
+                        && key.nameMapping.getLocalTblName().equals(tblName))
                 .forEach(viewCache::invalidate);
     }
 
     public void invalidateDbCache(long catalogId, String dbName) {
         tableCache.asMap().entrySet().stream()
-                .filter(entry -> {
-                    IcebergMetadataCacheKey key = entry.getKey();
-                    return key.nameMapping.getCtlId() == catalogId
-                            && key.nameMapping.getLocalDbName().equals(dbName);
-                })
+                .filter(entry -> entry.getKey().nameMapping.getLocalDbName().equals(dbName))
                 .forEach(entry -> {
                     ManifestFiles.dropCache(entry.getValue().getIcebergTable().io());
                     if (LOG.isDebugEnabled()) {
-                        LOG.info("invalidate iceberg table cache {} when invalidating db cache",
+                        LOG.debug("invalidate iceberg table cache {} when invalidating db cache",
                                 entry.getKey().nameMapping, new Exception());
                     }
                     tableCache.invalidate(entry.getKey());
                 });
-        viewCache.asMap().entrySet().stream()
-                .filter(entry -> {
-                    IcebergMetadataCacheKey key = entry.getKey();
-                    return key.nameMapping.getCtlId() == catalogId
-                            && key.nameMapping.getLocalDbName().equals(dbName);
-                })
-                .forEach(entry -> viewCache.invalidate(entry.getKey()));
+        viewCache.asMap().keySet().stream()
+                .filter(key -> key.nameMapping.getLocalDbName().equals(dbName))
+                .forEach(viewCache::invalidate);
     }
 
     private static void initIcebergTableFileIO(Table table, Map<String, String> props) {
