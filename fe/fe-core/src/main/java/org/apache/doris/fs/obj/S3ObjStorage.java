@@ -182,7 +182,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             } while (continuationToken != null);
 
         } catch (NoSuchKeyException e) {
-            return new Status(Status.ErrCode.NOT_FOUND, e.getMessage());
+            return Status.OK;
         } catch (Exception e) {
             return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
         }
@@ -439,6 +439,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 String relativePath = getRelativePath(prefix, c.key());
                 remoteObjects.add(new RemoteObject(c.key(), relativePath, c.eTag(), c.size()));
             }
+            return new RemoteObjects(remoteObjects, response.isTruncated(), response.nextContinuationToken());
         } catch (NoSuchKeyException e0) {
             LOG.info("NoSuchKey error when listing objects, treat as empty response. bucket={}, prefix={}",
                     bucket, prefix);
@@ -447,7 +448,6 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             LOG.warn(String.format("Failed to list objects for S3: %s", absolutePath), e);
             throw new DdlException("Failed to list objects for S3, Error message: " + Util.getRootCauseMessage(e), e);
         }
-        return null;
     }
 
     public Status multipartUpload(String remotePath, @Nullable InputStream inputStream, long totalBytes) {
