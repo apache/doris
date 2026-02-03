@@ -15,12 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cdcclient.common;
+package org.apache.doris.cdcclient.source.reader;
 
-public class Constants {
-    public static final String DORIS_DELETE_SIGN = "__DORIS_DELETE_SIGN__";
-    public static final long POLL_SPLIT_RECORDS_TIMEOUTS = 15000L;
+import org.apache.flink.api.connector.source.SourceSplit;
 
-    // Debezium default properties
-    public static final long DEBEZIUM_HEARTBEAT_INTERVAL_MS = 3000L;
+import lombok.Data;
+
+/**
+ * Generic context for managing a single snapshot split reader.
+ *
+ * <p>This class encapsulates the split, reader, and state for a single snapshot split
+ *
+ * @param <S> Split type (extends MySqlSnapshotSplit)
+ * @param <R> Reader type (e.g., SnapshotSplitReader)
+ * @param <ST> Split state type like MySqlSnapshotSplitState
+ */
+@Data
+public class SnapshotReaderContext<S extends SourceSplit, R, ST> {
+    private final S split;
+    private final R reader;
+    private final ST splitState;
 }

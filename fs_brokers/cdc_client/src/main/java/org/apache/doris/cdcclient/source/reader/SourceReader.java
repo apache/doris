@@ -28,6 +28,7 @@ import org.apache.flink.api.connector.source.SourceSplit;
 import org.apache.kafka.connect.source.SourceRecord;
 
 import java.io.IOException;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -41,12 +42,11 @@ public interface SourceReader {
     /** Divide the data to be read. For example: split mysql to chunks */
     List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsRequest config);
 
-    /**
-     * 1. If the SplitRecords iterator has it, read the iterator directly. 2. If there is a stream
-     * reader, poll it. 3. If there is none, resubmit split. 4. If reload is true, need to reset
-     * streamSplitReader and submit split.
-     */
-    SplitReadResult readSplitRecords(JobBaseRecordRequest baseReq) throws Exception;
+    /** Construct a split and submit a split reading task. */
+    SplitReadResult prepareAndSubmitSplit(JobBaseRecordRequest baseReq) throws Exception;
+
+    /** Retrieve data from the current split(s). */
+    Iterator<SourceRecord> pollRecords() throws Exception;
 
     /** Extract offset information from snapshot split state. */
     Map<String, String> extractSnapshotStateOffset(Object splitState);

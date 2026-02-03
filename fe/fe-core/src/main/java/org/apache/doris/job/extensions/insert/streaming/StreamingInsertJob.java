@@ -785,6 +785,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             sb.append("FROM ").append(dataSourceType.name());
             sb.append("(");
             for (Map.Entry<String, String> entry : sourceProperties.entrySet()) {
+                if (entry.getKey().equalsIgnoreCase("password")) {
+                    continue;
+                }
                 sb.append("'").append(entry.getKey())
                         .append("'='").append(entry.getValue()).append("',");
             }
@@ -1116,6 +1119,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 }
 
                 persistOffsetProviderIfNeed();
+                log.info("Streaming multi table job {} task {} commit offset successfully, offset: {}",
+                        getJobId(), offsetRequest.getTaskId(), offsetRequest.getOffset());
                 ((StreamingMultiTblTask) this.runningStreamTask).successCallback(offsetRequest);
             }
 

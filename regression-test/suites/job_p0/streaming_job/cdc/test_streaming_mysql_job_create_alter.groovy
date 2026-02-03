@@ -221,7 +221,7 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
                         def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
                         log.info("jobSuccendCount: " + jobSuccendCount)
                         // check job status and succeed task count larger than 1
-                        jobSuccendCount.size() == 1 && '1' <= jobSuccendCount.get(0).get(0)
+                        jobSuccendCount.size() == 1 && '2' <= jobSuccendCount.get(0).get(0)
                     }
             )
         } catch (Exception ex){
