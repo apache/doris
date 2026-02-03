@@ -210,7 +210,7 @@ under the License.
                 <configuration>
                     <java>
                         <includes>
-                            <include>src/main/java/org/apache/doris/*.java</include>
+                            <include>src/main/java/org/apache/doris/**/*.java</include>
                         </includes>
                         <googleJavaFormat>
                             <version>1.17.0</version>
