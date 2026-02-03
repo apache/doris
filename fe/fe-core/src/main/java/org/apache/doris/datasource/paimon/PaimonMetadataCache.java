@@ -33,7 +33,6 @@ import org.apache.doris.datasource.SchemaCacheValue;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
-import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.partition.Partition;
@@ -63,15 +62,14 @@ public class PaimonMetadataCache {
     }
 
     public void init() {
-        long tableMetaCacheTtlSecond = NumberUtils.toLong(
+        ExternalCatalog.CacheTtlSpec ttlSpec = ExternalCatalog.resolveCacheTtlSpec(
                 catalog.getProperties().get(PaimonExternalCatalog.PAIMON_TABLE_META_CACHE_TTL_SECOND),
-                ExternalCatalog.CACHE_NO_TTL);
-
+                Config.external_cache_expire_time_seconds_after_access,
+                Config.max_external_table_cache_num);
         CacheFactory tableCacheFactory = new CacheFactory(
-                OptionalLong.of(tableMetaCacheTtlSecond >= ExternalCatalog.CACHE_TTL_DISABLE_CACHE
-                        ? tableMetaCacheTtlSecond : Config.external_cache_expire_time_seconds_after_access),
+                ttlSpec.getExpireAfterAccessSeconds(),
                 OptionalLong.of(Config.external_cache_refresh_time_minutes * 60),
-                Config.max_external_table_cache_num,
+                ttlSpec.getMaxSize(),
                 true,
                 null);
         this.tableCache = tableCacheFactory.buildCache(key -> loadTableCacheValue(key), executor);

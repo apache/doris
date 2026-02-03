@@ -123,6 +123,38 @@ public abstract class ExternalCatalog
     // 0 means cache is disabled; >0 means cache with ttl;
     public static final int CACHE_TTL_DISABLE_CACHE = 0;
 
+    public static CacheTtlSpec resolveCacheTtlSpec(String ttlValue, long defaultExpireSeconds, long maxSize) {
+        if (ttlValue == null) {
+            return new CacheTtlSpec(OptionalLong.of(defaultExpireSeconds), maxSize);
+        }
+        long ttlSeconds = NumberUtils.toLong(ttlValue, CACHE_NO_TTL);
+        if (ttlSeconds == CACHE_NO_TTL) {
+            return new CacheTtlSpec(OptionalLong.empty(), maxSize);
+        }
+        if (ttlSeconds == CACHE_TTL_DISABLE_CACHE) {
+            return new CacheTtlSpec(OptionalLong.of(0), 0);
+        }
+        return new CacheTtlSpec(OptionalLong.of(ttlSeconds), maxSize);
+    }
+
+    public static class CacheTtlSpec {
+        private final OptionalLong expireAfterAccessSeconds;
+        private final long maxSize;
+
+        public CacheTtlSpec(OptionalLong expireAfterAccessSeconds, long maxSize) {
+            this.expireAfterAccessSeconds = expireAfterAccessSeconds;
+            this.maxSize = maxSize;
+        }
+
+        public OptionalLong getExpireAfterAccessSeconds() {
+            return expireAfterAccessSeconds;
+        }
+
+        public long getMaxSize() {
+            return maxSize;
+        }
+    }
+
     // Properties that should not be shown in the `show create catalog` result
     public static final Set<String> HIDDEN_PROPERTIES = Sets.newHashSet(
             CREATE_TIME,
@@ -1450,4 +1482,3 @@ public abstract class ExternalCatalog
         }
     }
 }
-
