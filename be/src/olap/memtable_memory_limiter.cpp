@@ -22,6 +22,7 @@
 #include "common/config.h"
 #include "olap/memtable.h"
 #include "olap/memtable_writer.h"
+#include "runtime/memory/heap_profiler.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/metrics.h"
@@ -233,6 +234,19 @@ void MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush) {
               << " active writers, flushed size: " << PrettyPrinter::print_bytes(mem_flushed);
 }
 
+// Avoid the printed log message is truncated by the glog max log size limit
+#define LOG_LONG_STRING(severity, long_log_str)                                \
+    do {                                                                       \
+        constexpr size_t max_log_size = 30000 - 100;                           \
+        size_t pos = 0;                                                        \
+        size_t total_size = long_log_str.size();                               \
+        size_t tmp_size = std::min(max_log_size, total_size);                  \
+        while (pos < total_size) {                                             \
+            tmp_size = std::min(max_log_size, total_size - pos);               \
+            LOG(severity) << std::string(long_log_str.data() + pos, tmp_size); \
+            pos += tmp_size;                                                   \
+        }                                                                      \
+    } while (0)
 void MemTableMemoryLimiter::refresh_mem_tracker() {
     std::lock_guard<std::mutex> l(_lock);
     _refresh_mem_tracker();
@@ -253,12 +267,48 @@ void MemTableMemoryLimiter::refresh_mem_tracker() {
 
     _last_limit = limit;
     _log_timer.reset();
-    LOG(INFO) << ss.str() << ", " << GlobalMemoryArbitrator::process_memory_used_details_str()
-              << ", load mem: " << PrettyPrinter::print_bytes(_mem_tracker->consumption())
-              << ", memtable writers num: " << _writers.size()
-              << ", active: " << PrettyPrinter::print_bytes(_active_mem_usage)
-              << ", queue: " << PrettyPrinter::print_bytes(_queue_mem_usage)
-              << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage);
+    doris::ProcessProfile::instance()->memory_profile()->refresh_memory_overview_profile();
+    LOG(INFO)
+            << ss.str() << ", " << GlobalMemoryArbitrator::process_memory_used_details_str()
+            << ", load mem: " << PrettyPrinter::print_bytes(_mem_tracker->consumption())
+            << ", memtable writers num: " << _writers.size()
+            << ", active: " << PrettyPrinter::print_bytes(_active_mem_usage)
+            << ", queue: " << PrettyPrinter::print_bytes(_queue_mem_usage)
+            << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << "\n"
+            << doris::ProcessProfile::instance()->memory_profile()->print_memory_overview_profile()
+            << "\n"
+            << doris::ProcessProfile::instance()->memory_profile()->print_global_memory_profile()
+            << "\n"
+            << doris::ProcessProfile::instance()->memory_profile()->print_metadata_memory_profile()
+            << "\n"
+            << doris::ProcessProfile::instance()->memory_profile()->print_cache_memory_profile()
+            << "\n"
+            << doris::ProcessProfile::instance()
+                       ->memory_profile()
+                       ->print_top_memory_tasks_profile();
+    constexpr int64_t dbg_mem_limit = 33 * 1024 * 1024 * 1024LL;
+    if (_mem_tracker->consumption() > dbg_mem_limit) {
+        static bool dumped = false;
+        if (dumped) {
+            return;
+        }
+        dumped = true;
+        std::string dot = HeapProfiler::instance()->dump_heap_profile_to_dot();
+        if (!dot.empty()) {
+            dot += "\n-------------------------------------------------------\n";
+            dot += "Copy the text after `digraph` in the above output to "
+                   "http://www.webgraphviz.com to generate a dot graph.\n"
+                   "after start heap profiler, if there is no operation, will print `No nodes "
+                   "to "
+                   "print`."
+                   "If there are many errors: `addr2line: Dwarf Error`,"
+                   "or other FAQ, reference doc: "
+                   "https://doris.apache.org/community/developer-guide/debug-tool/#4-qa\n";
+            auto log_str =
+                    fmt::format("memtable reach hard limit, dump heap profile to dot: {}", dot);
+            LOG_LONG_STRING(INFO, log_str);
+        }
+    }
 }
 
 void MemTableMemoryLimiter::_refresh_mem_tracker() {
