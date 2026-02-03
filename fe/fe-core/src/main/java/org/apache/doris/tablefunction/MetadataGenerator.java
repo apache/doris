@@ -46,6 +46,7 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.PartitionsProcDir;
+import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
@@ -108,6 +109,7 @@ import org.apache.doris.thrift.TSchemaTableRequestParams;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTasksMetadataParams;
+import org.apache.doris.thrift.TUnit;
 import org.apache.doris.thrift.TUserIdentity;
 
 import com.codahale.metrics.Snapshot;
@@ -500,6 +502,15 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setStringVal(new Gson().toJson(backend.getBackendStatus())));
             // heartbeat failure counter
             trow.addToColumnValue(new TCell().setIntVal(backend.getHeartbeatFailureCounter()));
+            // cpu cores
+            trow.addToColumnValue(new TCell().setIntVal(backend.getCputCores()));
+            // memory
+            trow.addToColumnValue(new TCell()
+                    .setStringVal(RuntimeProfile.printCounter(backend.getBeMemory(), TUnit.BYTES)));
+            // live since
+            trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(backend.getLiveSince())));
+            // running tasks
+            trow.addToColumnValue(new TCell().setLongVal(backend.getRunningTasks()));
 
             // node role, show the value only when backend is alive.
             trow.addToColumnValue(new TCell().setStringVal(backend.isAlive() ? backend.getNodeRoleTag().value : ""));
