@@ -263,15 +263,19 @@ public class ExpressionAnalyzerVariantAutoCastTest {
         ElementAt elementAt = new ElementAt(slot, new StringLiteral("num_a"));
         Between between = new Between(elementAt, new BigIntLiteral(10), new BigIntLiteral(20));
         Expression betweenResult = analyze(between, scope, true);
-        Assertions.assertTrue(betweenResult instanceof Between);
-        assertCastElementAt(((Between) betweenResult).getCompareExpr());
+        Assertions.assertTrue(betweenResult.containsType(Cast.class));
+        Assertions.assertTrue(betweenResult.containsType(ElementAt.class));
+        Assertions.assertTrue(betweenResult.collectFirst(
+                expr -> expr instanceof Cast && ((Cast) expr).child() instanceof ElementAt).isPresent());
 
         ElementAt elementAtStr = new ElementAt(slot, new StringLiteral("str_name"));
         InPredicate inPredicate = new InPredicate(elementAtStr,
                 ImmutableList.of(new StringLiteral("alice"), new StringLiteral("bob")));
         Expression inResult = analyze(inPredicate, scope, true);
-        Assertions.assertTrue(inResult instanceof InPredicate);
-        assertCastElementAt(((InPredicate) inResult).getCompareExpr());
+        Assertions.assertTrue(inResult.containsType(Cast.class));
+        Assertions.assertTrue(inResult.containsType(ElementAt.class));
+        Assertions.assertTrue(inResult.collectFirst(
+                expr -> expr instanceof Cast && ((Cast) expr).child() instanceof ElementAt).isPresent());
     }
 
     @Test
