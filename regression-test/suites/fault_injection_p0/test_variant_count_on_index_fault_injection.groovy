@@ -28,6 +28,7 @@ suite("test_variant_count_on_index_fault_injection", "p0, nonConcurrent") {
     sql "set enable_match_without_inverted_index = false"
     sql "set experimental_enable_nereids_planner = true"
     sql "set enable_fallback_to_original_planner = false"
+    sql "set inverted_index_skip_threshold = 0"
 
     sql """
         CREATE TABLE ${tbl} (
@@ -148,9 +149,8 @@ suite("test_variant_count_on_index_fault_injection", "p0, nonConcurrent") {
         def dp2 = sql "select count(v['b']) from ${tbl} where v['a'] match 'hello' and v['b'] match 'world'"
         assertEquals(3, toInt(dp2[0][0]))
 
-        // TODO: FIXME
-        // def dpn1 = sql "select count() from ${tbl} where cast(v['c'] as bigint) = 1"
-        // assertEquals(3, toInt(dpn1[0][0]))
+        def dpn1 = sql "select count() from ${tbl} where cast(v['c'] as bigint) = 1"
+        assertEquals(3, toInt(dpn1[0][0]))
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs("segment_iterator._read_columns_by_index")
     }
