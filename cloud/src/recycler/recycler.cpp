@@ -3014,8 +3014,20 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
         }
     }
 
-    // Process delete bitmap
-    file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
+    // Process delete bitmap - check if it's stored in packed file
+    bool delete_bitmap_is_packed = false;
+    if (decrement_delete_bitmap_packed_file_ref_counts(tablet_id, rowset_id,
+                                                       &delete_bitmap_is_packed) != 0) {
+        LOG_WARNING("failed to decrement delete bitmap packed file ref count")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id);
+        return -1;
+    }
+    // Only delete standalone delete bitmap file if not stored in packed file
+    if (!delete_bitmap_is_packed) {
+        file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
+    }
     // TODO(AlexYue): seems could do do batch
     return accessor->delete_files(file_paths);
 }
@@ -3034,6 +3046,7 @@ int InstanceRecycler::decrement_packed_file_ref_counts(const doris::RowsetMetaCl
                 .tag("rowset_id", rs_meta_pb.rowset_id_v2());
         return 0;
     }
+
     struct PackedSmallFileInfo {
         std::string small_file_path;
     };
@@ -3168,6 +3181,7 @@ int InstanceRecycler::decrement_packed_file_ref_counts(const doris::RowsetMetaCl
                 break;
             }
 
+            // Calculate remaining files
             int64_t left_file_count = 0;
             int64_t left_file_bytes = 0;
             for (const auto& small_file_entry : packed_info.slices()) {
@@ -3255,6 +3269,225 @@ int InstanceRecycler::decrement_packed_file_ref_counts(const doris::RowsetMetaCl
     }
 
     return ret;
+}
+
+int InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts(int64_t tablet_id,
+                                                                     const std::string& rowset_id,
+                                                                     bool* out_is_packed) {
+    if (out_is_packed) {
+        *out_is_packed = false;
+    }
+
+    // Get delete bitmap storage info from FDB
+    std::string dbm_key = versioned::meta_delete_bitmap_key({instance_id_, tablet_id, rowset_id});
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to create txn when getting delete bitmap storage")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id)
+                .tag("err", err);
+        return -1;
+    }
+
+    std::string dbm_val;
+    err = txn->get(dbm_key, &dbm_val);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        // No delete bitmap for this rowset, nothing to do
+        LOG_INFO("delete bitmap not found, skip packed file ref count decrement")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id);
+        return 0;
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to get delete bitmap storage")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id)
+                .tag("err", err);
+        return -1;
+    }
+
+    DeleteBitmapStoragePB storage;
+    if (!storage.ParseFromString(dbm_val)) {
+        LOG_WARNING("failed to parse delete bitmap storage")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id);
+        return -1;
+    }
+
+    // Check if delete bitmap is stored in packed file
+    if (!storage.has_packed_slice_location() ||
+        storage.packed_slice_location().packed_file_path().empty()) {
+        // Not stored in packed file, nothing to do
+        return 0;
+    }
+
+    if (out_is_packed) {
+        *out_is_packed = true;
+    }
+
+    const auto& packed_loc = storage.packed_slice_location();
+    const std::string& packed_file_path = packed_loc.packed_file_path();
+
+    LOG_INFO("decrementing delete bitmap packed file ref count")
+            .tag("instance_id", instance_id_)
+            .tag("tablet_id", tablet_id)
+            .tag("rowset_id", rowset_id)
+            .tag("packed_file_path", packed_file_path);
+
+    const int max_retry_times = std::max(1, config::decrement_packed_file_ref_counts_retry_times);
+    for (int attempt = 1; attempt <= max_retry_times; ++attempt) {
+        std::unique_ptr<Transaction> update_txn;
+        err = txn_kv_->create_txn(&update_txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to create txn for delete bitmap packed file update")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("err", err);
+            return -1;
+        }
+
+        std::string packed_key = packed_file_key({instance_id_, packed_file_path});
+        std::string packed_val;
+        err = update_txn->get(packed_key, &packed_val);
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            LOG_WARNING("packed file info not found for delete bitmap")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("packed_file_path", packed_file_path);
+            return 0;
+        }
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to get packed file info for delete bitmap")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("err", err);
+            return -1;
+        }
+
+        cloud::PackedFileInfoPB packed_info;
+        if (!packed_info.ParseFromString(packed_val)) {
+            LOG_WARNING("failed to parse packed file info for delete bitmap")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("packed_file_path", packed_file_path);
+            return -1;
+        }
+
+        // Find and mark the small file entry as deleted
+        // Use tablet_id and rowset_id to match entry instead of path,
+        // because path format may vary with path_version (with or without shard prefix)
+        auto* entries = packed_info.mutable_slices();
+        bool found = false;
+        bool already_deleted = false;
+        for (auto& entry : *entries) {
+            if (entry.tablet_id() == tablet_id && entry.rowset_id() == rowset_id) {
+                if (!entry.deleted()) {
+                    entry.set_deleted(true);
+                    if (!entry.corrected()) {
+                        entry.set_corrected(true);
+                    }
+                } else {
+                    already_deleted = true;
+                }
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            LOG_WARNING("delete bitmap entry not found in packed file")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("packed_file_path", packed_file_path);
+            return 0;
+        }
+
+        if (already_deleted) {
+            LOG_INFO("delete bitmap entry already deleted in packed file")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("packed_file_path", packed_file_path);
+            return 0;
+        }
+
+        // Calculate remaining files
+        int64_t left_file_count = 0;
+        int64_t left_file_bytes = 0;
+        for (const auto& entry : packed_info.slices()) {
+            if (!entry.deleted()) {
+                ++left_file_count;
+                left_file_bytes += entry.size();
+            }
+        }
+        packed_info.set_remaining_slice_bytes(left_file_bytes);
+        packed_info.set_ref_cnt(left_file_count);
+
+        if (left_file_count == 0) {
+            packed_info.set_state(cloud::PackedFileInfoPB::RECYCLING);
+        }
+
+        std::string updated_val;
+        if (!packed_info.SerializeToString(&updated_val)) {
+            LOG_WARNING("failed to serialize packed file info for delete bitmap")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("packed_file_path", packed_file_path);
+            return -1;
+        }
+
+        update_txn->put(packed_key, updated_val);
+        err = update_txn->commit();
+        if (err == TxnErrorCode::TXN_OK) {
+            LOG_INFO("delete bitmap packed file ref count decremented")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("left_file_count", left_file_count);
+            if (left_file_count == 0) {
+                if (delete_packed_file_and_kv(packed_file_path, packed_key, packed_info) != 0) {
+                    return -1;
+                }
+            }
+            return 0;
+        }
+        if (err == TxnErrorCode::TXN_CONFLICT) {
+            if (attempt >= max_retry_times) {
+                LOG_WARNING("delete bitmap packed file update conflict after max retry")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tablet_id)
+                        .tag("rowset_id", rowset_id)
+                        .tag("packed_file_path", packed_file_path)
+                        .tag("attempt", attempt);
+                return -1;
+            }
+            sleep_for_packed_file_retry();
+            continue;
+        }
+
+        LOG_WARNING("failed to commit delete bitmap packed file update")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id)
+                .tag("packed_file_path", packed_file_path)
+                .tag("err", err);
+        return -1;
+    }
+
+    return -1;
 }
 
 int InstanceRecycler::delete_packed_file_and_kv(const std::string& packed_file_path,
@@ -3427,8 +3660,21 @@ int InstanceRecycler::delete_rowset_data(
             continue;
         }
 
-        // Process delete bitmap
-        file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
+        // Process delete bitmap - check if it's stored in packed file
+        bool delete_bitmap_is_packed = false;
+        if (decrement_delete_bitmap_packed_file_ref_counts(tablet_id, rowset_id,
+                                                           &delete_bitmap_is_packed) != 0) {
+            LOG_WARNING("failed to decrement delete bitmap packed file ref count")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id);
+            ret = -1;
+            continue;
+        }
+        // Only delete standalone delete bitmap file if not stored in packed file
+        if (!delete_bitmap_is_packed) {
+            file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
+        }
 
         // Process inverted indexes
         std::vector<std::pair<int64_t, std::string>> index_ids;

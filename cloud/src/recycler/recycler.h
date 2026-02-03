@@ -446,8 +446,17 @@ private:
     int delete_rowset_data(const std::map<std::string, doris::RowsetMetaCloudPB>& rowsets,
                            RowsetRecyclingState type, RecyclerMetricsContext& metrics_context);
 
-    // return 0 for success otherwise error
+    // Decrement packed file ref counts for rowset segments.
+    // Returns 0 for success, -1 for error.
     int decrement_packed_file_ref_counts(const doris::RowsetMetaCloudPB& rs_meta_pb);
+
+    // Decrement packed file ref count for delete bitmap if it's stored in packed file.
+    // Returns 0 for success, -1 for error.
+    // If delete bitmap is not stored in packed file, this function does nothing and returns 0.
+    // out_is_packed: if not null, will be set to true if delete bitmap is stored in packed file.
+    int decrement_delete_bitmap_packed_file_ref_counts(int64_t tablet_id,
+                                                       const std::string& rowset_id,
+                                                       bool* out_is_packed);
 
     int delete_packed_file_and_kv(const std::string& packed_file_path,
                                   const std::string& packed_key,
