@@ -15,6 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import com.amazonaws.auth.AWSStaticCredentialsProvider
+import com.amazonaws.auth.BasicAWSCredentials
+import com.amazonaws.client.builder.AwsClientBuilder
+import com.amazonaws.services.s3.AmazonS3
+import com.amazonaws.services.s3.AmazonS3ClientBuilder
+import groovy.json.JsonSlurper
+
 suite("test_iceberg_expire_snapshots", "p0,external,doris,external_docker,external_docker_doris") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -42,6 +49,50 @@ suite("test_iceberg_expire_snapshots", "p0,external,doris,external_docker,extern
     sql """switch ${catalog_name}"""
     sql """CREATE DATABASE IF NOT EXISTS ${db_name} """
     sql """use ${db_name}"""
+
+    def buildIcebergS3Client = { ->
+        def credentials = new BasicAWSCredentials("admin", "password")
+        def endpoint = "http://${externalEnvIp}:${minio_port}"
+        return AmazonS3ClientBuilder.standard()
+                .withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(endpoint, "us-east-1"))
+                .withCredentials(new AWSStaticCredentialsProvider(credentials))
+                .withPathStyleAccessEnabled(true)
+                .build()
+    }
+
+    def parseS3Path = { String path ->
+        int schemeIdx = path.indexOf("://")
+        assertTrue(schemeIdx > 0, "Unexpected file path: ${path}")
+        String withoutScheme = path.substring(schemeIdx + 3)
+        int slashIdx = withoutScheme.indexOf("/")
+        String bucket = slashIdx > 0 ? withoutScheme.substring(0, slashIdx) : withoutScheme
+        String key = slashIdx > 0 ? withoutScheme.substring(slashIdx + 1) : ""
+        return [bucket, key]
+    }
+
+    def waitUntil = { int timeoutSecond, Closure<Boolean> closure ->
+        long start = System.currentTimeMillis()
+        while (true) {
+            if (closure.call()) {
+                return
+            }
+            if (System.currentTimeMillis() - start > timeoutSecond * 1000L) {
+                throw new RuntimeException("Operation timeout waiting for condition")
+            }
+            sleep(1000)
+        }
+    }
+
+    def readMetadataJson = { AmazonS3 client, String metadataPath ->
+        def (bucket, key) = parseS3Path(metadataPath)
+        def obj = client.getObject(bucket, key)
+        try {
+            String text = obj.objectContent.getText("UTF-8")
+            return new JsonSlurper().parseText(text)
+        } finally {
+            obj.objectContent.close()
+        }
+    }
 
     // =====================================================================================
     // Test Case 1: expire_snapshots action with retain_last parameter
@@ -98,6 +149,83 @@ suite("test_iceberg_expire_snapshots", "p0,external,doris,external_docker,extern
         EXECUTE expire_snapshots("older_than" = "2024-01-01T00:00:00")
     """
     logger.info("Expire older_than result: ${expireOlderThanResult}")
+
+    // =====================================================================================
+    // Test Case 3: expire_snapshots should delete expired data files
+    // =====================================================================================
+    String delete_files_table = "test_expire_snapshots_delete_files"
+    sql """DROP TABLE IF EXISTS ${db_name}.${delete_files_table}"""
+    sql """
+        CREATE TABLE ${db_name}.${delete_files_table} (
+            id BIGINT,
+            data STRING
+        ) ENGINE=iceberg
+    """
+    sql """INSERT INTO ${db_name}.${delete_files_table} VALUES (1, 'data1')"""
+
+    List<List<Object>> fileRows = sql """SELECT file_path FROM ${delete_files_table}\$files"""
+    assertTrue(fileRows.size() > 0, "Expected data files after initial insert")
+    def oldFiles = fileRows.collect { String.valueOf(it[0]) }
+
+    AmazonS3 icebergS3Client = buildIcebergS3Client()
+    oldFiles.each { path ->
+        def (bucket, key) = parseS3Path(path)
+        assertTrue(icebergS3Client.doesObjectExist(bucket, key), "Expected file exists: ${path}")
+    }
+
+    // Overwrite table to make previous data files unreferenced
+    sql """INSERT OVERWRITE TABLE ${db_name}.${delete_files_table} VALUES (3, 'data3')"""
+    long expireMillis = System.currentTimeMillis()
+    sql """
+        ALTER TABLE ${catalog_name}.${db_name}.${delete_files_table}
+        EXECUTE expire_snapshots("older_than" = "${expireMillis}", "retain_last" = "1")
+    """
+
+    waitUntil(60, {
+        return oldFiles.every { path ->
+            def (bucket, key) = parseS3Path(path)
+            return !icebergS3Client.doesObjectExist(bucket, key)
+        }
+    })
+
+    // =====================================================================================
+    // Test Case 4: expire_snapshots should clean expired metadata when enabled
+    // =====================================================================================
+    String clean_metadata_table = "test_expire_snapshots_clean_metadata"
+    sql """DROP TABLE IF EXISTS ${db_name}.${clean_metadata_table}"""
+    sql """
+        CREATE TABLE ${db_name}.${clean_metadata_table} (
+            id BIGINT,
+            data STRING
+        ) ENGINE=iceberg
+    """
+    sql """INSERT INTO ${db_name}.${clean_metadata_table} VALUES (1, 'data1')"""
+    sql """ALTER TABLE ${db_name}.${clean_metadata_table} ADD COLUMN extra_col INT"""
+    sql """INSERT INTO ${db_name}.${clean_metadata_table} VALUES (2, 'data2', 10)"""
+
+    String metadataBeforePath = String.valueOf((sql """
+        SELECT file FROM ${clean_metadata_table}\$metadata_log_entries
+        ORDER BY timestamp DESC LIMIT 1
+    """)[0][0])
+    def metadataBefore = readMetadataJson(icebergS3Client, metadataBeforePath)
+    long schemasBefore = ((List) metadataBefore.schemas).size()
+    assertTrue(schemasBefore >= 2, "Expected multiple schemas before cleanup")
+
+    long expireMillis2 = System.currentTimeMillis()
+    sql """
+        ALTER TABLE ${catalog_name}.${db_name}.${clean_metadata_table}
+        EXECUTE expire_snapshots("older_than" = "${expireMillis2}", "retain_last" = "1",
+            "clean_expired_metadata" = "true")
+    """
+
+    String metadataAfterPath = String.valueOf((sql """
+        SELECT file FROM ${clean_metadata_table}\$metadata_log_entries
+        ORDER BY timestamp DESC LIMIT 1
+    """)[0][0])
+    def metadataAfter = readMetadataJson(icebergS3Client, metadataAfterPath)
+    long schemasAfter = ((List) metadataAfter.schemas).size()
+    assertTrue(schemasAfter < schemasBefore,
+        "Expected schemas cleaned up, before=${schemasBefore}, after=${schemasAfter}")
 
     // =====================================================================================
     // Negative Test Cases for expire_snapshots

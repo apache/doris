@@ -30,8 +30,16 @@ import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.collect.Lists;
+import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.ExpireSnapshots;
+import org.apache.iceberg.FileContent;
+import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.SupportsBulkOperations;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -40,6 +48,7 @@ import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.HashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
@@ -51,10 +60,10 @@ import java.util.concurrent.atomic.AtomicLong;
  * and improve metadata performance.
  */
 public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
+    private static final Logger LOG = LogManager.getLogger(IcebergExpireSnapshotsAction.class);
     public static final String OLDER_THAN = "older_than";
     public static final String RETAIN_LAST = "retain_last";
     public static final String MAX_CONCURRENT_DELETES = "max_concurrent_deletes";
-    public static final String STREAM_RESULTS = "stream_results";
     public static final String SNAPSHOT_IDS = "snapshot_ids";
     public static final String CLEAN_EXPIRED_METADATA = "clean_expired_metadata";
 
@@ -74,11 +83,9 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
                 "Number of ancestor snapshots to preserve regardless of older_than",
                 null, ArgumentParsers.positiveInt(RETAIN_LAST));
         namedArguments.registerOptionalArgument(MAX_CONCURRENT_DELETES,
-                "Size of the thread pool used for delete file actions",
-                null, ArgumentParsers.positiveInt(MAX_CONCURRENT_DELETES));
-        namedArguments.registerOptionalArgument(STREAM_RESULTS,
-                "When true, deletion files will be sent to Spark driver by RDD partition",
-                null, ArgumentParsers.booleanValue(STREAM_RESULTS));
+                "Size of the thread pool used for delete file actions (0 disables, "
+                        + "ignored for FileIOs that support bulk deletes)",
+                0, ArgumentParsers.intRange(MAX_CONCURRENT_DELETES, 0, Integer.MAX_VALUE));
         namedArguments.registerOptionalArgument(SNAPSHOT_IDS,
                 "Array of snapshot IDs to expire",
                 null, ArgumentParsers.nonEmptyString(SNAPSHOT_IDS));
@@ -161,6 +168,8 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
 
         ExecutorService deleteExecutor = null;
         try {
+            Map<String, FileContent> deleteFileContentByPath =
+                    buildDeleteFileContentMap(icebergTable);
             ExpireSnapshots expireSnapshots = icebergTable.expireSnapshots();
 
             // Configure older_than timestamp
@@ -189,31 +198,39 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
 
             // Configure clean expired metadata
             if (cleanExpiredMetadata != null) {
-                expireSnapshots.cleanExpiredFiles(cleanExpiredMetadata);
+                expireSnapshots.cleanExpiredMetadata(cleanExpiredMetadata);
             }
 
             // Set up ExecutorService for concurrent deletes if specified
-            if (maxConcurrentDeletes != null && maxConcurrentDeletes > 1) {
-                deleteExecutor = Executors.newFixedThreadPool(maxConcurrentDeletes);
-                expireSnapshots.executeDeleteWith(deleteExecutor);
+            if (maxConcurrentDeletes > 0) {
+                if (icebergTable.io() instanceof SupportsBulkOperations) {
+                    LOG.warn("max_concurrent_deletes only works with FileIOs that do not support "
+                            + "bulk deletes. This table is currently using {} which supports bulk deletes "
+                            + "so the parameter will be ignored.",
+                            icebergTable.io().getClass().getName());
+                } else {
+                    deleteExecutor = Executors.newFixedThreadPool(maxConcurrentDeletes);
+                    expireSnapshots.executeDeleteWith(deleteExecutor);
+                }
             }
 
             // Set up delete callback to count files by type
             expireSnapshots.deleteWith(path -> {
-                if (path.contains("-m-") && path.endsWith(".avro")) {
+                FileContent deleteContent = deleteFileContentByPath.get(path);
+                if (deleteContent == FileContent.POSITION_DELETES) {
+                    deletedPositionDeleteFilesCount.incrementAndGet();
+                } else if (deleteContent == FileContent.EQUALITY_DELETES) {
+                    deletedEqualityDeleteFilesCount.incrementAndGet();
+                } else if (path.contains("-m-") && path.endsWith(".avro")) {
                     deletedManifestFilesCount.incrementAndGet();
                 } else if (path.contains("snap-") && path.endsWith(".avro")) {
                     deletedManifestListsCount.incrementAndGet();
                 } else if (path.endsWith(".stats") || path.contains("statistics")) {
                     deletedStatisticsFilesCount.incrementAndGet();
-                } else if (path.contains("-deletes-")) {
-                    // Position and equality delete files
-                    // Note: Without reading the file, we can't distinguish position vs equality
-                    // For simplicity, count them together as position deletes
-                    deletedPositionDeleteFilesCount.incrementAndGet();
                 } else {
                     deletedDataFilesCount.incrementAndGet();
                 }
+                icebergTable.io().deleteFile(path);
             });
 
             // Execute and commit
@@ -256,6 +273,30 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
             // Try as milliseconds
             return Long.parseLong(timestamp);
         }
+    }
+
+    private Map<String, FileContent> buildDeleteFileContentMap(Table icebergTable) throws UserException {
+        Map<String, FileContent> deleteFileContentByPath = new HashMap<>();
+        try {
+            for (org.apache.iceberg.Snapshot snapshot : icebergTable.snapshots()) {
+                List<ManifestFile> deleteManifests = snapshot.deleteManifests(icebergTable.io());
+                if (deleteManifests == null || deleteManifests.isEmpty()) {
+                    continue;
+                }
+                for (ManifestFile manifest : deleteManifests) {
+                    try (CloseableIterable<DeleteFile> deleteFiles = ManifestFiles.readDeleteManifest(
+                            manifest, icebergTable.io(), icebergTable.specs())) {
+                        for (DeleteFile deleteFile : deleteFiles) {
+                            deleteFileContentByPath.putIfAbsent(
+                                    deleteFile.location(), deleteFile.content());
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            throw new UserException("Failed to build delete file content map: " + e.getMessage(), e);
+        }
+        return deleteFileContentByPath;
     }
 
     @Override
