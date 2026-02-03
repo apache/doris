@@ -283,4 +283,37 @@ TEST_F(WorkloadSchedPolicyTest, test_wg_id_set) {
     action_runtime_ctx.resource_ctx->set_workload_group(workload_group);
     EXPECT_TRUE(policy->is_match(&action_runtime_ctx));
 }
+
+TEST_F(WorkloadSchedPolicyTest, test_task_controller_running_time) {
+    std::shared_ptr<TaskController> task_controller = std::make_shared<TaskController>();
+    TUniqueId task_id;
+    task_id.hi = 1;
+    task_id.lo = 1;
+
+    // 1. Before set_task_id, start_time is 0
+    EXPECT_EQ(task_controller->start_time(), 0);
+
+    // 2. set_task_id will init start_time
+    task_controller->set_task_id(task_id);
+    EXPECT_GT(task_controller->start_time(), 0);
+
+    // 3. running_time should be positive when running
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    int64_t running_time = task_controller->running_time();
+    EXPECT_GT(running_time, 0);
+    EXPECT_GE(running_time, 10);
+
+    // 4. finish task
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    task_controller->finish();
+    EXPECT_TRUE(task_controller->is_finished());
+
+    // 5. running_time should be fixed after finish
+    int64_t finished_running_time = task_controller->running_time();
+    EXPECT_GT(finished_running_time, running_time);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    EXPECT_EQ(task_controller->running_time(), finished_running_time);
+}
+
 } // namespace doris
