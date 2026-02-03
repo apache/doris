@@ -43,6 +43,7 @@ import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TableValuedFunctionRef;
+import org.apache.doris.analysis.TlsOptions;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
@@ -1354,6 +1355,34 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public String visitCommentSpec(DorisParser.CommentSpecContext ctx) {
         String commentSpec = ctx == null ? "''" : ctx.STRING_LITERAL().getText();
         return LogicalPlanBuilderAssistant.escapeBackSlash(commentSpec.substring(1, commentSpec.length() - 1));
+    }
+
+    /**
+     * Parse REQUIRE clause into TLS options.
+     */
+    public TlsOptions visitRequireClause(DorisParser.RequireClauseContext ctx) {
+        if (ctx == null) {
+            return TlsOptions.notSpecified();
+        }
+        if (ctx.NONE() != null) {
+            return TlsOptions.requireNone();
+        }
+        if (ctx.tlsOption() == null || ctx.tlsOption().isEmpty()) {
+            return TlsOptions.requireNone();
+        }
+        List<Pair<String, String>> options = new ArrayList<>();
+        for (DorisParser.TlsOptionContext option : ctx.tlsOption()) {
+            if (option.SAN() != null) {
+                options.add(Pair.of("SAN", stripQuotes(option.STRING_LITERAL().getText())));
+            } else if (option.ISSUER() != null) {
+                options.add(Pair.of("ISSUER", stripQuotes(option.STRING_LITERAL().getText())));
+            } else if (option.CIPHER() != null) {
+                options.add(Pair.of("CIPHER", stripQuotes(option.STRING_LITERAL().getText())));
+            } else if (option.SUBJECT() != null) {
+                options.add(Pair.of("SUBJECT", stripQuotes(option.STRING_LITERAL().getText())));
+            }
+        }
+        return TlsOptions.of(options);
     }
 
     /**
@@ -8055,8 +8084,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         boolean ifExist = ctx.EXISTS() != null;
         UserDesc userDesc = visitGrantUserIdentify(ctx.grantUserIdentify());
         PasswordOptions passwordOptions = visitPasswordOption(ctx.passwordOption());
-        String comment = ctx.STRING_LITERAL() != null ? stripQuotes(ctx.STRING_LITERAL().getText()) : null;
-        AlterUserInfo alterUserInfo = new AlterUserInfo(ifExist, userDesc, passwordOptions, comment);
+        String comment = ctx.commentSpec() == null ? null : visitCommentSpec(ctx.commentSpec());
+        TlsOptions tlsOptions = visitRequireClause(ctx.requireClause());
+        AlterUserInfo alterUserInfo = new AlterUserInfo(ifExist, userDesc, passwordOptions, comment, tlsOptions);
         return new AlterUserCommand(alterUserInfo);
     }
 
@@ -8831,6 +8861,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String comment = visitCommentSpec(ctx.commentSpec());
         PasswordOptions passwordOptions = visitPasswordOption(ctx.passwordOption());
         UserDesc userDesc = (UserDesc) ctx.grantUserIdentify().accept(this);
+        TlsOptions tlsOptions = visitRequireClause(ctx.requireClause());
 
         String role = null;
         if (ctx.role != null) {
@@ -8841,7 +8872,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 userDesc,
                 role,
                 passwordOptions,
-                comment);
+                comment,
+                tlsOptions);
 
         return new CreateUserCommand(userInfo);
     }
