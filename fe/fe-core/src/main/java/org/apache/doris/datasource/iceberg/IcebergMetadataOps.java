@@ -875,7 +875,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     private void applyListChange(UpdateSchema updateSchema, String path,
             Types.ListType oldListType, ArrayType newArrayType) throws UserException {
-        String elementPath = path + "." + Types.ListType.ELEMENT_FIELD_NAME;
+        String elementPath = path + "." + oldListType.field(oldListType.elementId()).name();
         if (oldListType.isElementOptional() && !newArrayType.getContainsNull()) {
             throw new UserException("Cannot change nullable column " + elementPath + " to not null");
         }
@@ -908,7 +908,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                     + oldDorisKeyType.toSql() + " to " + newKeyType.toSql());
         }
 
-        String valuePath = path + "." + Types.MapType.VALUE_FIELD_NAME;
+        String valuePath = path + "." + oldMapType.field(oldMapType.valueId()).name();
         if (oldMapType.isValueOptional() && !newMapType.getIsValueContainsNull()) {
             throw new UserException("Cannot change nullable column " + valuePath + " to not null");
         }
