@@ -735,8 +735,20 @@ Status ScanLocalState<Derived>::_normalize_in_predicate(
             // dispose next item
             DCHECK(iter->get_value() != nullptr);
             const auto* value = iter->get_value();
-            RETURN_IF_ERROR(
-                    _change_value_range(is_in, temp_range, value, fn, is_in ? "in" : "not_in"));
+            if constexpr (is_string_type(T)) {
+                const auto* str_value = reinterpret_cast<const StringRef*>(value);
+                RETURN_IF_ERROR(_change_value_range(is_in, temp_range,
+                                                    vectorized::Field::create_field<T>(std::string(
+                                                            str_value->data, str_value->size)),
+                                                    fn, is_in ? "in" : "not_in"));
+            } else {
+                RETURN_IF_ERROR(_change_value_range(
+                        is_in, temp_range,
+                        vectorized::Field::create_field<T>(
+                                *reinterpret_cast<const typename PrimitiveTypeTraits<T>::CppType*>(
+                                        value)),
+                        fn, is_in ? "in" : "not_in"));
+            }
             iter->next();
         }
         if (is_in) {
@@ -785,9 +797,9 @@ Status ScanLocalState<Derived>::_normalize_binary_predicate(
     DCHECK(!root->is_rf_wrapper()) << root->debug_string();
     DCHECK(TExprNodeType::BINARY_PRED == root->node_type()) << root->debug_string();
     DCHECK(root->get_num_children() == 2);
-    StringRef value;
+    vectorized::Field value;
     *pdt = _should_push_down_binary_predicate(
-            assert_cast<vectorized::VectorizedFnCall*>(root.get()), expr_ctx, &value,
+            assert_cast<vectorized::VectorizedFnCall*>(root.get()), expr_ctx, value,
             {"eq", "ne", "lt", "gt", "le", "ge"});
     if (*pdt == PushDownType::UNACCEPTABLE) {
         return Status::OK();
@@ -799,60 +811,55 @@ Status ScanLocalState<Derived>::_normalize_binary_predicate(
     auto empty_range = ColumnValueRange<T>::create_empty_column_value_range(
             slot->is_nullable(), range.precision(), range.scale());
     auto& temp_range = op == SQLFilterOp::FILTER_EQ ? empty_range : range;
-    if (value.data != nullptr) {
-        if (!is_string_type(T) && sizeof(typename PrimitiveTypeTraits<T>::CppType) != value.size) {
-            return Status::InternalError(
-                    "PrimitiveType {} meet invalid input value size {}, expect size {}", T,
-                    value.size, sizeof(typename PrimitiveTypeTraits<T>::CppType));
-        }
+    if (value.get_type() != TYPE_NULL) {
         switch (op) {
         case SQLFilterOp::FILTER_EQ:
-            pred = create_comparison_predicate0<PredicateType::EQ>(
+            pred = create_comparison_predicate<PredicateType::EQ>(
                     _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
-                    value, false, _arena);
+                    value, false);
             break;
         case SQLFilterOp::FILTER_NE:
-            pred = create_comparison_predicate0<PredicateType::NE>(
+            pred = create_comparison_predicate<PredicateType::NE>(
                     _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
-                    value, false, _arena);
+                    value, false);
             break;
         case SQLFilterOp::FILTER_LESS:
-            pred = create_comparison_predicate0<PredicateType::LT>(
+            pred = create_comparison_predicate<PredicateType::LT>(
                     _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
-                    value, false, _arena);
+                    value, false);
             break;
         case SQLFilterOp::FILTER_LARGER:
-            pred = create_comparison_predicate0<PredicateType::GT>(
+            pred = create_comparison_predicate<PredicateType::GT>(
                     _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
-                    value, false, _arena);
+                    value, false);
             break;
         case SQLFilterOp::FILTER_LESS_OR_EQUAL:
-            pred = create_comparison_predicate0<PredicateType::LE>(
+            pred = create_comparison_predicate<PredicateType::LE>(
                     _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
-                    value, false, _arena);
+                    value, false);
             break;
         case SQLFilterOp::FILTER_LARGER_OR_EQUAL:
-            pred = create_comparison_predicate0<PredicateType::GE>(
+            pred = create_comparison_predicate<PredicateType::GE>(
                     _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
-                    value, false, _arena);
+                    value, false);
             break;
         default:
             throw Exception(Status::InternalError("Unsupported function name: {}", function_name));
@@ -864,20 +871,7 @@ Status ScanLocalState<Derived>::_normalize_binary_predicate(
                                      ? ColumnValueRange<T>::remove_fixed_value_range
                                      : ColumnValueRange<T>::empty_function)
                           : ColumnValueRange<T>::add_value_range;
-        if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING || T == TYPE_HLL) {
-            auto val = StringRef(value.data, value.size);
-            RETURN_IF_ERROR(_change_value_range(is_equal_op, temp_range,
-                                                reinterpret_cast<void*>(&val), fn, function_name));
-        } else {
-            if (sizeof(typename PrimitiveTypeTraits<T>::CppType) != value.size) {
-                return Status::InternalError(
-                        "PrimitiveType {} meet invalid input value size {}, expect size {}", T,
-                        value.size, sizeof(typename PrimitiveTypeTraits<T>::CppType));
-            }
-            RETURN_IF_ERROR(_change_value_range(is_equal_op, temp_range,
-                                                reinterpret_cast<const void*>(value.data), fn,
-                                                function_name));
-        }
+        RETURN_IF_ERROR(_change_value_range(is_equal_op, temp_range, value, fn, function_name));
         if (op == SQLFilterOp::FILTER_EQ) {
             range.intersection(temp_range);
         }
@@ -894,17 +888,14 @@ template <typename Derived>
 template <PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
 Status ScanLocalState<Derived>::_change_value_range(bool is_equal_op,
                                                     ColumnValueRange<PrimitiveType>& temp_range,
-                                                    const void* value,
+                                                    const vectorized::Field& value,
                                                     const ChangeFixedValueRangeFunc& func,
                                                     const std::string& fn_name) {
     if constexpr (PrimitiveType == TYPE_DATE) {
-        VecDateTimeValue tmp_value;
-        memcpy(&tmp_value, value, sizeof(VecDateTimeValue));
+        auto tmp_value = value.template get<TYPE_DATE>();
         if (is_equal_op) {
             if (!tmp_value.check_loss_accuracy_cast_to_date()) {
-                func(temp_range, to_olap_filter_type(fn_name),
-                     reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                             &tmp_value));
+                func(temp_range, to_olap_filter_type(fn_name), tmp_value);
             }
         } else {
             if (tmp_value.check_loss_accuracy_cast_to_date()) {
@@ -912,15 +903,8 @@ Status ScanLocalState<Derived>::_change_value_range(bool is_equal_op,
                     ++tmp_value;
                 }
             }
-            func(temp_range, to_olap_filter_type(fn_name),
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                         &tmp_value));
+            func(temp_range, to_olap_filter_type(fn_name), tmp_value);
         }
-    } else if constexpr (PrimitiveType == TYPE_DATETIME) {
-        func(temp_range, to_olap_filter_type(fn_name),
-             reinterpret_cast<const typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
-    } else if constexpr (PrimitiveType == TYPE_HLL) {
-        func(temp_range, to_olap_filter_type(fn_name), reinterpret_cast<const StringRef*>(value));
     } else if constexpr ((PrimitiveType == TYPE_DECIMALV2) || (PrimitiveType == TYPE_DATETIMEV2) ||
                          (PrimitiveType == TYPE_TINYINT) || (PrimitiveType == TYPE_SMALLINT) ||
                          (PrimitiveType == TYPE_INT) || (PrimitiveType == TYPE_BIGINT) ||
@@ -929,11 +913,13 @@ Status ScanLocalState<Derived>::_change_value_range(bool is_equal_op,
                          (PrimitiveType == TYPE_IPV6) || (PrimitiveType == TYPE_DECIMAL32) ||
                          (PrimitiveType == TYPE_DECIMAL64) || (PrimitiveType == TYPE_DECIMAL128I) ||
                          (PrimitiveType == TYPE_DECIMAL256) || (PrimitiveType == TYPE_BOOLEAN) ||
-                         (PrimitiveType == TYPE_DATEV2) || (PrimitiveType == TYPE_TIMESTAMPTZ)) {
+                         (PrimitiveType == TYPE_DATEV2) || (PrimitiveType == TYPE_TIMESTAMPTZ) ||
+                         (PrimitiveType == TYPE_DATETIME) || is_string_type(PrimitiveType)) {
+        func(temp_range, to_olap_filter_type(fn_name), value.template get<PrimitiveType>());
+    } else if constexpr (PrimitiveType == TYPE_HLL) {
+        auto tmp = value.template get<PrimitiveType>();
         func(temp_range, to_olap_filter_type(fn_name),
-             reinterpret_cast<const typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
-    } else if constexpr (is_string_type(PrimitiveType)) {
-        func(temp_range, to_olap_filter_type(fn_name), reinterpret_cast<const StringRef*>(value));
+             StringRef(reinterpret_cast<const char*>(&tmp), sizeof(tmp)));
     } else {
         static_assert(always_false_v<PrimitiveType>);
     }

@@ -181,30 +181,28 @@ calculate_process_numbers() {
 
     # Find maximum number of processes while maintaining the specified ratio
     while true; do
-        # Calculate process counts based on the ratio
-        storage_processes=$((storage_processes + num_storage))
-        stateless_processes=$((storage_processes * num_stateless / num_storage))
-        log_processes=$((storage_processes * num_log / num_storage))
+        # Calculate candidate process counts based on the ratio
+        local new_storage_processes=$((storage_processes + num_storage))
+        local new_stateless_processes=$((new_storage_processes * num_stateless / num_storage))
+        local new_log_processes=$((new_storage_processes * num_log / num_storage))
 
         # Calculate total CPUs used
-        local total_cpu_used=$((storage_processes + stateless_processes + log_processes))
+        local total_cpu_used=$((new_storage_processes + new_stateless_processes + new_log_processes))
 
         # Check memory constraint
-        local total_memory_used=$(((MEMORY_STORAGE_GB * storage_processes) + (MEMORY_STATELESS_GB * stateless_processes) + (MEMORY_LOG_GB * log_processes)))
+        local total_memory_used=$(((MEMORY_STORAGE_GB * new_storage_processes) + (MEMORY_STATELESS_GB * new_stateless_processes) + (MEMORY_LOG_GB * new_log_processes)))
 
         # Check datadir limits
-        if ((storage_processes > storage_process_num_limit || log_processes > log_process_num_limit)); then
+        if ((new_storage_processes > storage_process_num_limit || new_log_processes > log_process_num_limit)); then
             break
         fi
 
         # Check overall constraints
         if ((total_memory_used <= memory_limit_gb && total_cpu_used <= cpu_cores_limit)); then
-            continue
+            storage_processes=${new_storage_processes}
+            stateless_processes=${new_stateless_processes}
+            log_processes=${new_log_processes}
         else
-            # If constraints are violated, revert back
-            storage_processes=$((storage_processes - num_storage))
-            stateless_processes=$((storage_processes * num_stateless / num_storage))
-            log_processes=$((storage_processes * num_log / num_storage))
             break
         fi
     done

@@ -752,6 +752,12 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_EXTENDED_REGEX = "enable_extended_regex";
 
+    public static final String CLOUD_PARTITIONS_TABLE_USE_CACHED_VISIBLE_VERSION =
+            "cloud_partitions_table_use_cached_visible_version";
+
+    public static final String SHORT_CIRCUIT_EVALUATION = "short_circuit_evaluation";
+
+
     // NOTE: if you want to add some debug variables, please disable sql cache in `CacheAnalyzer.commonCacheCondition`,
     //       and set affectQueryResult=true
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
@@ -835,6 +841,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SKEW_REWRITE_JOIN_SALT_EXPLODE_FACTOR = "skew_rewrite_join_salt_explode_factor";
 
     public static final String SKEW_REWRITE_AGG_BUCKET_NUM = "skew_rewrite_agg_bucket_num";
+    public static final String AGG_SHUFFLE_USE_PARENT_KEY = "agg_shuffle_use_parent_key";
 
     public static final String HOT_VALUE_COLLECT_COUNT = "hot_value_collect_count";
     @VariableMgr.VarAttr(name = HOT_VALUE_COLLECT_COUNT, needForward = true,
@@ -842,6 +849,7 @@ public class SessionVariable implements Serializable, Writable {
                         "When collecting column statistics, collect the top values ranked by their "
                                 + "proportion as hot values, up to HOT_VALUE_COLLECT_COUNT."})
     public int hotValueCollectCount = 10; // Select the values that account for at least 10% of the column
+
 
     public void setHotValueCollectCount(int count) {
         this.hotValueCollectCount = count;
@@ -1090,7 +1098,7 @@ public class SessionVariable implements Serializable, Writable {
     public int autoProfileThresholdMs = -1;
 
     @VariableMgr.VarAttr(name = "runtime_filter_prune_for_external", fuzzy = true)
-    public boolean runtimeFilterPruneForExternal = true;
+    public boolean runtimeFilterPruneForExternal = false;
 
     @VariableMgr.VarAttr(name = "runtime_filter_jump_threshold")
     public int runtimeFilterJumpThreshold = 2;
@@ -1797,6 +1805,10 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_DPHYP_OPTIMIZER)
     public boolean enableDPHypOptimizer = false;
+
+    @VariableMgr.VarAttr(name = SHORT_CIRCUIT_EVALUATION, fuzzy = true, description = { "是否启用短路求值",
+            "Whether to enable short-circuit evaluation" })
+    public boolean shortCircuitEvaluation = false;
 
     /**
      * This variable is used to select n-th optimized plan in memo.
@@ -2747,6 +2759,12 @@ public class SessionVariable implements Serializable, Writable {
             }, checker = "checkSkewRewriteAggBucketNum")
     public int skewRewriteAggBucketNum = 1024;
 
+    @VariableMgr.VarAttr(name = AGG_SHUFFLE_USE_PARENT_KEY, description = {
+            "在聚合算子进行 shuffle 时，是否使用父节点的分组键进行 shuffle",
+            "Whether to use the parent node's grouping key for shuffling during the aggregation operator"
+    }, needForward = false)
+    public boolean aggShuffleUseParentKey = true;
+
     @VariableMgr.VarAttr(name = ENABLE_PREFER_CACHED_ROWSET, needForward = false,
             description = {"是否启用 prefer cached rowset 功能",
                     "Whether to enable prefer cached rowset feature"})
@@ -3294,6 +3312,11 @@ public class SessionVariable implements Serializable, Writable {
     )
     public int defaultVariantSparseHashShardCount = 0;
 
+    @VariableMgr.VarAttr(name = CLOUD_PARTITIONS_TABLE_USE_CACHED_VISIBLE_VERSION, needForward = false,
+            description = {"partitions系统表的visible_version列在cloud模式是否使用cached",
+                    "Whether cache is used for the visible_version column"
+                             + "in the partitions system table on cloud mode"})
+    public boolean cloudPartitionsTableUseCachedVisibleVersion = true;
 
     @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_DOC_MODE,
@@ -3355,6 +3378,7 @@ public class SessionVariable implements Serializable, Writable {
         this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
+        this.shortCircuitEvaluation = random.nextBoolean();
 
         // 4KB = 4 * 1024 bytes
         int minBytes = 4 * 1024;
@@ -3524,7 +3548,6 @@ public class SessionVariable implements Serializable, Writable {
 
         // common
         this.enableCountPushDownForExternalTable = random.nextBoolean();
-        this.runtimeFilterPruneForExternal = random.nextBoolean();
     }
 
     public String printFuzzyVariables() {
@@ -5733,6 +5756,9 @@ public class SessionVariable implements Serializable, Writable {
         return enableDmlMaterializedViewRewriteWhenBaseTableUnawareness;
     }
 
+    public boolean isShortCircuitEvaluation() {
+        return shortCircuitEvaluation;
+    }
 
     public boolean isAllowModifyMaterializedViewData() {
         return allowModifyMaterializedViewData;
@@ -5968,6 +5994,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getDefaultVariantSparseHashShardCount() {
         return defaultVariantSparseHashShardCount;
+    }
+
+    public boolean getCloudPartitionsTableUseCachedVisibleVersion() {
+        return cloudPartitionsTableUseCachedVisibleVersion;
     }
 
     public boolean getDefaultVariantEnableDocMode() {

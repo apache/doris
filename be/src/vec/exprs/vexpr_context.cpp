@@ -76,7 +76,7 @@ Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {
 Status VExprContext::execute(const Block* block, ColumnPtr& result_column) {
     Status st;
     RETURN_IF_CATCH_EXCEPTION(
-            { st = _root->execute_column(this, block, block->rows(), result_column); });
+            { st = _root->execute_column(this, block, nullptr, block->rows(), result_column); });
     return st;
 }
 
@@ -84,7 +84,7 @@ Status VExprContext::execute(const Block* block, ColumnWithTypeAndName& result_d
     Status st;
     ColumnPtr result_column;
     RETURN_IF_CATCH_EXCEPTION(
-            { st = _root->execute_column(this, block, block->rows(), result_column); });
+            { st = _root->execute_column(this, block, nullptr, block->rows(), result_column); });
     RETURN_IF_ERROR(st);
     result_data.column = result_column;
     result_data.type = execute_type(block);
@@ -98,7 +98,8 @@ DataTypePtr VExprContext::execute_type(const Block* block) {
 
 Status VExprContext::execute_const_expr(ColumnWithTypeAndName& result) {
     Status st;
-    RETURN_IF_CATCH_EXCEPTION({ st = _root->execute_column(this, nullptr, 1, result.column); });
+    RETURN_IF_CATCH_EXCEPTION(
+            { st = _root->execute_column(this, nullptr, nullptr, 1, result.column); });
     RETURN_IF_ERROR(st);
     result.type = _root->execute_type(nullptr);
     result.name = _root->expr_name();

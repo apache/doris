@@ -57,11 +57,11 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block, size_t count,
-                          ColumnPtr& result_column) const override {
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override {
         DCHECK(_open_finished || block == nullptr);
-        result_column = block->get_by_position(_column_id + _gap).column;
-        DCHECK_EQ(result_column->size(), count);
+        auto origin_column = block->get_by_position(_column_id + _gap).column;
+        result_column = filter_column_with_selector(origin_column, selector, count);
         return Status::OK();
     }
 

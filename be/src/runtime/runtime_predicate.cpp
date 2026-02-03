@@ -51,8 +51,8 @@ RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc)
     // since values that > min_top_value are large than any value in current topn values
     // For DESC sort, create runtime predicate col_name >= min_top_value
     // since values that < min_top_value are less than any value in current topn values
-    _pred_constructor = _is_asc ? create_comparison_predicate0<PredicateType::LE>
-                                : create_comparison_predicate0<PredicateType::GE>;
+    _pred_constructor = _is_asc ? create_comparison_predicate<PredicateType::LE>
+                                : create_comparison_predicate<PredicateType::GE>;
 }
 
 Status RuntimePredicate::init_target(
@@ -77,112 +77,6 @@ Status RuntimePredicate::init_target(
     }
     _detected_target = true;
     return Status::OK();
-}
-
-StringRef RuntimePredicate::_get_string_ref(const Field& field, const PrimitiveType type) {
-    switch (type) {
-    case PrimitiveType::TYPE_BOOLEAN: {
-        const auto& v = field.get<TYPE_BOOLEAN>();
-        return StringRef((char*)&v, sizeof(v));
-    }
-    case PrimitiveType::TYPE_TINYINT: {
-        const auto& v = field.get<TYPE_TINYINT>();
-        return StringRef((char*)&v, sizeof(v));
-    }
-    case PrimitiveType::TYPE_SMALLINT: {
-        const auto& v = field.get<TYPE_SMALLINT>();
-        return StringRef((char*)&v, sizeof(v));
-    }
-    case PrimitiveType::TYPE_INT: {
-        const auto& v = field.get<TYPE_INT>();
-        return StringRef((char*)&v, sizeof(v));
-    }
-    case PrimitiveType::TYPE_BIGINT: {
-        const auto& v = field.get<TYPE_BIGINT>();
-        return StringRef((char*)&v, sizeof(v));
-    }
-    case PrimitiveType::TYPE_LARGEINT: {
-        const auto& v = field.get<TYPE_LARGEINT>();
-        return StringRef((char*)&v, sizeof(v));
-    }
-    case PrimitiveType::TYPE_CHAR:
-    case PrimitiveType::TYPE_VARCHAR:
-    case PrimitiveType::TYPE_STRING: {
-        const auto& v = field.get<TYPE_STRING>();
-        auto length = v.size();
-        char* buffer = _predicate_arena.alloc(length);
-        memset(buffer, 0, length);
-        memcpy(buffer, v.data(), v.length());
-
-        return {buffer, length};
-    }
-    case PrimitiveType::TYPE_DATEV2: {
-        const auto& v = field.get<TYPE_DATEV2>();
-        return StringRef((char*)&v, sizeof(v));
-    }
-    case PrimitiveType::TYPE_DATETIMEV2: {
-        const auto& v = field.get<TYPE_DATETIMEV2>();
-        return StringRef((char*)&v, sizeof(v));
-    }
-    case PrimitiveType::TYPE_TIMESTAMPTZ: {
-        const auto& v = field.get<TYPE_TIMESTAMPTZ>();
-        return StringRef((char*)&v, sizeof(v));
-        break;
-    }
-    case PrimitiveType::TYPE_DATE: {
-        const auto& v = field.get<TYPE_DATE>();
-        return StringRef((char*)&v, sizeof(v));
-    }
-    case PrimitiveType::TYPE_DATETIME: {
-        const auto& v = field.get<TYPE_DATETIME>();
-        return StringRef((char*)&v, sizeof(v));
-    }
-    case PrimitiveType::TYPE_TIMEV2: {
-        const auto& v = field.get<TYPE_TIMEV2>();
-        return StringRef((char*)&v, sizeof(v));
-    }
-    case PrimitiveType::TYPE_DECIMAL32: {
-        const auto& v = field.get<TYPE_DECIMAL32>();
-        return StringRef((char*)&v, sizeof(v));
-    }
-    case PrimitiveType::TYPE_DECIMAL64: {
-        const auto& v = field.get<TYPE_DECIMAL64>();
-        return StringRef((char*)&v, sizeof(v));
-    }
-    case PrimitiveType::TYPE_DECIMALV2: {
-        const auto& v = field.get<TYPE_DECIMALV2>();
-        return StringRef((char*)&v, sizeof(v));
-    }
-    case PrimitiveType::TYPE_DECIMAL128I: {
-        const auto& v = field.get<TYPE_DECIMAL128I>();
-        return StringRef((char*)&v, sizeof(v));
-    }
-    case PrimitiveType::TYPE_DECIMAL256: {
-        const auto& v = field.get<TYPE_DECIMAL256>();
-        return StringRef((char*)&v, sizeof(v));
-    }
-    case PrimitiveType::TYPE_IPV4: {
-        const auto& v = field.get<TYPE_IPV4>();
-        return StringRef((char*)&v, sizeof(v));
-    }
-    case PrimitiveType::TYPE_IPV6: {
-        const auto& v = field.get<TYPE_IPV6>();
-        return StringRef((char*)&v, sizeof(v));
-    }
-    case doris::PrimitiveType::TYPE_VARBINARY: {
-        const auto& v = field.get<TYPE_VARBINARY>();
-        auto length = v.size();
-        char* buffer = _predicate_arena.alloc(length);
-        memset(buffer, 0, length);
-        memcpy(buffer, v.data(), length);
-        return {buffer, length};
-    }
-    default:
-        break;
-    }
-
-    throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type, type={}", type_to_string(type));
-    return {};
 }
 
 bool RuntimePredicate::_init(PrimitiveType type) {
@@ -233,10 +127,9 @@ Status RuntimePredicate::update(const Field& value) {
             //) ORDER BY 1 LIMIT 1 ;
             continue;
         }
-        auto str_ref = _get_string_ref(_orderby_extrem, _type);
         std::shared_ptr<ColumnPredicate> pred =
                 _pred_constructor(ctx.predicate->column_id(), ctx.col_name, ctx.col_data_type,
-                                  str_ref, false, _predicate_arena);
+                                  _orderby_extrem, false);
 
         // For NULLS FIRST, wrap a AcceptNullPredicate to return true for NULL
         // since ORDER BY ASC/DESC should get NULL first but pred returns NULL

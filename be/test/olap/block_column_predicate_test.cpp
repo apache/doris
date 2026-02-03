@@ -79,7 +79,7 @@ TEST_F(BlockColumnPredicateTest, SINGLE_COLUMN_VEC) {
     vectorized::MutableColumns block;
     block.push_back(vectorized::PredicateColumnType<TYPE_INT>::create());
 
-    int value = 5;
+    auto value = vectorized::Field::create_field<TYPE_INT>(5);
     int rows = 10;
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
@@ -99,15 +99,15 @@ TEST_F(BlockColumnPredicateTest, SINGLE_COLUMN_VEC) {
     EXPECT_EQ(selected_size, 1);
     auto* pred_col =
             reinterpret_cast<vectorized::PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
-    EXPECT_EQ(pred_col->get_data()[sel_idx[0]], value);
+    EXPECT_EQ(pred_col->get_data()[sel_idx[0]], value.template get<TYPE_INT>());
 }
 
 TEST_F(BlockColumnPredicateTest, AND_MUTI_COLUMN_VEC) {
     vectorized::MutableColumns block;
     block.push_back(vectorized::PredicateColumnType<TYPE_INT>::create());
 
-    int less_value = 5;
-    int great_value = 3;
+    auto less_value = vectorized::Field::create_field<TYPE_INT>(5);
+    auto great_value = vectorized::Field::create_field<TYPE_INT>(3);
     int rows = 10;
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> less_pred(
@@ -141,8 +141,8 @@ TEST_F(BlockColumnPredicateTest, OR_MUTI_COLUMN_VEC) {
     vectorized::MutableColumns block;
     block.push_back(vectorized::PredicateColumnType<TYPE_INT>::create());
 
-    int less_value = 5;
-    int great_value = 3;
+    auto less_value = vectorized::Field::create_field<TYPE_INT>(5);
+    auto great_value = vectorized::Field::create_field<TYPE_INT>(3);
     int rows = 10;
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> less_pred(
@@ -176,8 +176,8 @@ TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN_VEC) {
     vectorized::MutableColumns block;
     block.push_back(vectorized::PredicateColumnType<TYPE_INT>::create());
 
-    int less_value = 5;
-    int great_value = 3;
+    auto less_value = vectorized::Field::create_field<TYPE_INT>(5);
+    auto great_value = vectorized::Field::create_field<TYPE_INT>(3);
     int rows = 10;
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> less_pred(
@@ -243,8 +243,8 @@ TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN_VEC) {
     vectorized::MutableColumns block;
     block.push_back(vectorized::PredicateColumnType<TYPE_INT>::create());
 
-    int less_value = 5;
-    int great_value = 3;
+    auto less_value = vectorized::Field::create_field<TYPE_INT>(5);
+    auto great_value = vectorized::Field::create_field<TYPE_INT>(3);
     int rows = 10;
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> less_pred(
@@ -302,8 +302,19 @@ TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN_VEC) {
 
 template <PrimitiveType T, PredicateType PT>
 void single_column_predicate_test_func(const std::pair<WrapperField*, WrapperField*>& statistic,
-                                       typename PrimitiveTypeTraits<T>::CppType check_value,
-                                       bool expect_match) {
+                                       vectorized::Field& check_value, bool expect_match) {
+    int col_idx = 0;
+    std::shared_ptr<ColumnPredicate> pred(
+            new ComparisonPredicateBase<T, PT>(col_idx, "", check_value));
+    SingleColumnBlockPredicate single_column_block_pred(pred);
+
+    bool matched = single_column_block_pred.evaluate_and(statistic);
+    EXPECT_EQ(matched, expect_match);
+}
+
+template <PrimitiveType T, PredicateType PT>
+void single_column_predicate_test_func(const std::pair<WrapperField*, WrapperField*>& statistic,
+                                       vectorized::Field&& check_value, bool expect_match) {
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<T, PT>(col_idx, "", check_value));
@@ -318,17 +329,20 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
     FieldType type = FieldType::OLAP_FIELD_TYPE_DOUBLE;
     std::unique_ptr<WrapperField> min_field(WrapperField::create_by_type(type, 0));
     std::unique_ptr<WrapperField> max_field(WrapperField::create_by_type(type, 0));
-    static auto constexpr nan = std::numeric_limits<double>::quiet_NaN();
-    static auto constexpr neg_inf = -std::numeric_limits<double>::infinity();
-    static auto constexpr pos_inf = std::numeric_limits<double>::infinity();
-    static auto constexpr min = std::numeric_limits<double>::lowest();
-    static auto constexpr max = std::numeric_limits<double>::max();
+    auto nan =
+            vectorized::Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN());
+    auto neg_inf =
+            vectorized::Field::create_field<TYPE_DOUBLE>(-std::numeric_limits<double>::infinity());
+    auto pos_inf =
+            vectorized::Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::infinity());
+    auto min = vectorized::Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::lowest());
+    auto max = vectorized::Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::max());
 
     // test normal value min max:
     {
         std::cout << "========test normal value min max\n";
-        double zonemap_min_v = std::numeric_limits<float>::lowest();
-        double zonemap_max_v = std::numeric_limits<float>::max();
+        double zonemap_min_v = std::numeric_limits<double>::lowest();
+        double zonemap_max_v = std::numeric_limits<double>::max();
         min_field->set_raw_value(&zonemap_min_v, sizeof(zonemap_min_v));
         max_field->set_raw_value(&zonemap_max_v, sizeof(zonemap_max_v));
 
@@ -374,9 +388,13 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
                 {min_field.get(), max_field.get()}, neg_inf, false);
 
-        std::vector<double> test_values_in_range = {
-                zonemap_min_v, zonemap_max_v, -123456.789012345, -0.0, 0.0, 123456.789012345,
-        };
+        std::vector<vectorized::Field> test_values_in_range = {
+                vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v),
+                vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_max_v),
+                vectorized::Field::create_field<TYPE_DOUBLE>(-123456.789012345),
+                vectorized::Field::create_field<TYPE_DOUBLE>(-0.0),
+                vectorized::Field::create_field<TYPE_DOUBLE>(0.0),
+                vectorized::Field::create_field<TYPE_DOUBLE>(123456.789012345)};
         for (auto v : test_values_in_range) {
             // test EQ
             // std::cout << "test double EQ value: " << v << std::endl;
@@ -390,7 +408,8 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
             // test LT
             // std::cout << "test double LT value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                    {min_field.get(), max_field.get()}, v, v != zonemap_min_v);
+                    {min_field.get(), max_field.get()}, v,
+                    v.template get<TYPE_DOUBLE>() != zonemap_min_v);
 
             // test LE
             // std::cout << "test double LE value: " << v << std::endl;
@@ -400,7 +419,8 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
             // test GT
             // std::cout << "test double GT value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                    {min_field.get(), max_field.get()}, v, v != zonemap_max_v);
+                    {min_field.get(), max_field.get()}, v,
+                    v.template get<TYPE_DOUBLE>() != zonemap_max_v);
 
             // test GE
             // std::cout << "test double GE value: " << v << std::endl;
@@ -410,7 +430,7 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
 
         // test values out of zonemap range
         {
-            double v = zonemap_min_v * 2;
+            auto v = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v * 2);
             // test EQ
             // std::cout << "test double EQ value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
@@ -441,7 +461,7 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
                     {min_field.get(), max_field.get()}, v, true);
         }
         {
-            double v = zonemap_max_v * 2;
+            auto v = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_max_v * 2);
             // test EQ
             // std::cout << "test double EQ value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
@@ -475,9 +495,9 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
     // test special range: [normal, +Infinity]
     {
         std::cout << "========test special range: [normal, +Infinity]\n";
-        double zonemap_min_v = std::numeric_limits<float>::lowest();
-        min_field->set_raw_value(&zonemap_min_v, sizeof(zonemap_min_v));
-        max_field->set_raw_value(&pos_inf, sizeof(pos_inf));
+        double zonemap_min_v = std::numeric_limits<double>::lowest();
+        min_field->set_raw_value(&zonemap_min_v, sizeof(double));
+        max_field->set_raw_value(&pos_inf.template get<TYPE_DOUBLE>(), sizeof(double));
 
         // test NaN
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
@@ -521,8 +541,14 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
                 {min_field.get(), max_field.get()}, neg_inf, false);
 
-        std::vector<double> test_values_in_range = {
-                zonemap_min_v, max, pos_inf, -123456.789012345, -0.0, 0.0, 123456.789012345,
+        std::vector<vectorized::Field> test_values_in_range = {
+                vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v),
+                max,
+                pos_inf,
+                vectorized::Field::create_field<TYPE_DOUBLE>(-123456.789012345),
+                vectorized::Field::create_field<TYPE_DOUBLE>(-0.0),
+                vectorized::Field::create_field<TYPE_DOUBLE>(0.0),
+                vectorized::Field::create_field<TYPE_DOUBLE>(123456.789012345),
         };
         for (auto v : test_values_in_range) {
             // test EQ
@@ -537,7 +563,8 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
             // test LT
             // std::cout << "test double LT value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                    {min_field.get(), max_field.get()}, v, v != zonemap_min_v);
+                    {min_field.get(), max_field.get()}, v,
+                    v.template get<TYPE_DOUBLE>() != zonemap_min_v);
 
             // test LE
             // std::cout << "test double LE value: " << v << std::endl;
@@ -547,7 +574,8 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
             // test GT
             // std::cout << "test double GT value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                    {min_field.get(), max_field.get()}, v, v != pos_inf);
+                    {min_field.get(), max_field.get()}, v,
+                    v.template get<TYPE_DOUBLE>() != pos_inf.template get<TYPE_DOUBLE>());
 
             // test GE
             // std::cout << "test double GE value: " << v << std::endl;
@@ -557,7 +585,7 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
 
         // test values out of zonemap range
         {
-            double v = zonemap_min_v * 2;
+            auto v = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v * 2);
             // test EQ
             // std::cout << "test double EQ value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
@@ -591,9 +619,9 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
     // test special range: [-Infinity, normal]
     {
         std::cout << "========test special range: [-Infinity, normal]\n";
-        double zonemap_max_v = std::numeric_limits<float>::max();
-        min_field->set_raw_value(&neg_inf, sizeof(neg_inf));
-        max_field->set_raw_value(&zonemap_max_v, sizeof(zonemap_max_v));
+        double zonemap_max_v = std::numeric_limits<double>::max();
+        min_field->set_raw_value(&neg_inf.template get<TYPE_DOUBLE>(), sizeof(double));
+        max_field->set_raw_value(&zonemap_max_v, sizeof(double));
 
         // test NaN
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
@@ -637,8 +665,14 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
                 {min_field.get(), max_field.get()}, neg_inf, true);
 
-        std::vector<double> test_values_in_range = {
-                neg_inf, min, zonemap_max_v, -123456.789012345, -0.0, 0.0, 123456.789012345,
+        std::vector<vectorized::Field> test_values_in_range = {
+                neg_inf,
+                min,
+                vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_max_v),
+                vectorized::Field::create_field<TYPE_DOUBLE>(-123456.789012345),
+                vectorized::Field::create_field<TYPE_DOUBLE>(-0.0),
+                vectorized::Field::create_field<TYPE_DOUBLE>(0.0),
+                vectorized::Field::create_field<TYPE_DOUBLE>(123456.789012345),
         };
         for (auto v : test_values_in_range) {
             // test EQ
@@ -663,7 +697,8 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
             // test GT
             // std::cout << "test double GT value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                    {min_field.get(), max_field.get()}, v, v != zonemap_max_v);
+                    {min_field.get(), max_field.get()}, v,
+                    v.template get<TYPE_DOUBLE>() != zonemap_max_v);
 
             // test GE
             // std::cout << "test double GE value: " << v << std::endl;
@@ -672,7 +707,7 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         }
         // test values out of zonemap range
         {
-            double v = zonemap_max_v * 2;
+            auto v = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_max_v * 2);
             // test EQ
             // std::cout << "test double EQ value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
@@ -706,9 +741,9 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
     // test special range: [normal, NaN]
     {
         std::cout << "========test special range: [normal, NaN]\n";
-        double zonemap_min_v = std::numeric_limits<float>::lowest();
-        min_field->set_raw_value(&zonemap_min_v, sizeof(zonemap_min_v));
-        max_field->set_raw_value(&nan, sizeof(nan));
+        double zonemap_min_v = std::numeric_limits<double>::lowest();
+        min_field->set_raw_value(&zonemap_min_v, sizeof(double));
+        max_field->set_raw_value(&nan.template get<TYPE_DOUBLE>(), sizeof(double));
 
         // test NaN
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
@@ -752,8 +787,14 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
                 {min_field.get(), max_field.get()}, neg_inf, false);
 
-        std::vector<double> test_values_in_range = {
-                zonemap_min_v, max, pos_inf, -123456.789012345, -0.0, 0.0, 123456.789012345,
+        std::vector<vectorized::Field> test_values_in_range = {
+                vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v),
+                max,
+                pos_inf,
+                vectorized::Field::create_field<TYPE_DOUBLE>(-123456.789012345),
+                vectorized::Field::create_field<TYPE_DOUBLE>(-0.0),
+                vectorized::Field::create_field<TYPE_DOUBLE>(0.0),
+                vectorized::Field::create_field<TYPE_DOUBLE>(123456.789012345),
         };
         for (auto v : test_values_in_range) {
             // test EQ
@@ -768,7 +809,8 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
             // test LT
             // std::cout << "test double LT value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                    {min_field.get(), max_field.get()}, v, v != zonemap_min_v);
+                    {min_field.get(), max_field.get()}, v,
+                    v.template get<TYPE_DOUBLE>() != zonemap_min_v);
 
             // test LE
             // std::cout << "test double LE value: " << v << std::endl;
@@ -778,7 +820,8 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
             // test GT
             // std::cout << "test double GT value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                    {min_field.get(), max_field.get()}, v, !std::isnan(v));
+                    {min_field.get(), max_field.get()}, v,
+                    !std::isnan(v.template get<TYPE_DOUBLE>()));
 
             // test GE
             // std::cout << "test double GE value: " << v << std::endl;
@@ -788,7 +831,7 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
 
         // test values out of zonemap range
         {
-            double v = zonemap_min_v * 2;
+            auto v = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v * 2);
             // test EQ
             // std::cout << "test double EQ value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
@@ -822,8 +865,8 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
     // test special range: [-Infinity, +Infinity]
     {
         std::cout << "========test special range: [-Infinity, +Infinity]\n";
-        min_field->set_raw_value(&neg_inf, sizeof(neg_inf));
-        max_field->set_raw_value(&pos_inf, sizeof(pos_inf));
+        min_field->set_raw_value(&neg_inf.template get<TYPE_DOUBLE>(), sizeof(double));
+        max_field->set_raw_value(&pos_inf.template get<TYPE_DOUBLE>(), sizeof(double));
 
         // test NaN
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
@@ -867,8 +910,13 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
                 {min_field.get(), max_field.get()}, neg_inf, true);
 
-        std::vector<double> test_values_in_range = {
-                min, max, -123456.789012345, -0.0, 0.0, 123456.789012345,
+        std::vector<vectorized::Field> test_values_in_range = {
+                min,
+                max,
+                vectorized::Field::create_field<TYPE_DOUBLE>(-123456.789012345),
+                vectorized::Field::create_field<TYPE_DOUBLE>(-0.0),
+                vectorized::Field::create_field<TYPE_DOUBLE>(0.0),
+                vectorized::Field::create_field<TYPE_DOUBLE>(123456.789012345),
         };
         for (auto v : test_values_in_range) {
             // test EQ
@@ -904,8 +952,8 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
     // test special range: [-Infinity, NaN]
     {
         std::cout << "========test special range: [-Infinity, NaN]\n";
-        min_field->set_raw_value(&neg_inf, sizeof(neg_inf));
-        max_field->set_raw_value(&nan, sizeof(nan));
+        min_field->set_raw_value(&neg_inf.template get<TYPE_DOUBLE>(), sizeof(double));
+        max_field->set_raw_value(&nan.template get<TYPE_DOUBLE>(), sizeof(double));
 
         // test NaN
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
@@ -949,8 +997,13 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
                 {min_field.get(), max_field.get()}, neg_inf, true);
 
-        std::vector<double> test_values_in_range = {
-                min, max, -123456.789012345, -0.0, 0.0, 123456.789012345,
+        std::vector<vectorized::Field> test_values_in_range = {
+                min,
+                max,
+                vectorized::Field::create_field<TYPE_DOUBLE>(-123456.789012345),
+                vectorized::Field::create_field<TYPE_DOUBLE>(-0.0),
+                vectorized::Field::create_field<TYPE_DOUBLE>(0.0),
+                vectorized::Field::create_field<TYPE_DOUBLE>(123456.789012345),
         };
         for (auto v : test_values_in_range) {
             // std::cout << "test double EQ value: " << v << std::endl;
@@ -980,8 +1033,8 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
     // test special range: [-Infinity, -Infinity]
     {
         std::cout << "========test special range: [-Infinity, -Infinity]\n";
-        min_field->set_raw_value(&neg_inf, sizeof(neg_inf));
-        max_field->set_raw_value(&neg_inf, sizeof(neg_inf));
+        min_field->set_raw_value(&neg_inf.template get<TYPE_DOUBLE>(), sizeof(double));
+        max_field->set_raw_value(&neg_inf.template get<TYPE_DOUBLE>(), sizeof(double));
 
         // test NaN
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
@@ -1025,8 +1078,13 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
                 {min_field.get(), max_field.get()}, neg_inf, true);
 
-        std::vector<double> test_values_not_in_range = {
-                min, max, -123456.789012345, -0.0, 0.0, 123456.789012345,
+        std::vector<vectorized::Field> test_values_not_in_range = {
+                min,
+                max,
+                vectorized::Field::create_field<TYPE_DOUBLE>(-123456.789012345),
+                vectorized::Field::create_field<TYPE_DOUBLE>(-0.0),
+                vectorized::Field::create_field<TYPE_DOUBLE>(0.0),
+                vectorized::Field::create_field<TYPE_DOUBLE>(123456.789012345),
         };
         for (auto v : test_values_not_in_range) {
             // std::cout << "test double EQ value: " << v << std::endl;
@@ -1056,8 +1114,8 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
     // test special range: [+Infinity, +Infinity]
     {
         std::cout << "========test special range: [+Infinity, +Infinity]\n";
-        min_field->set_raw_value(&pos_inf, sizeof(pos_inf));
-        max_field->set_raw_value(&pos_inf, sizeof(pos_inf));
+        min_field->set_raw_value(&pos_inf.template get<TYPE_DOUBLE>(), sizeof(double));
+        max_field->set_raw_value(&pos_inf.template get<TYPE_DOUBLE>(), sizeof(double));
 
         // test NaN
         std::cout << "========test NaN\n";
@@ -1105,8 +1163,13 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
                 {min_field.get(), max_field.get()}, neg_inf, false);
 
         std::cout << "========test values not in range\n";
-        std::vector<double> test_values_not_in_range = {
-                min, max, -123456.789012345, -0.0, 0.0, 123456.789012345,
+        std::vector<vectorized::Field> test_values_not_in_range = {
+                min,
+                max,
+                vectorized::Field::create_field<TYPE_DOUBLE>(-123456.789012345),
+                vectorized::Field::create_field<TYPE_DOUBLE>(-0.0),
+                vectorized::Field::create_field<TYPE_DOUBLE>(0.0),
+                vectorized::Field::create_field<TYPE_DOUBLE>(123456.789012345),
         };
         for (auto v : test_values_not_in_range) {
             // std::cout << "test double EQ value: " << v << std::endl;
@@ -1136,8 +1199,8 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
     // test special range: [NaN, NaN]
     {
         std::cout << "========test special range: [NaN, NaN]\n";
-        min_field->set_raw_value(&nan, sizeof(nan));
-        max_field->set_raw_value(&nan, sizeof(nan));
+        min_field->set_raw_value(&nan.template get<TYPE_DOUBLE>(), sizeof(double));
+        max_field->set_raw_value(&nan.template get<TYPE_DOUBLE>(), sizeof(double));
 
         // test NaN
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
@@ -1181,8 +1244,13 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
                 {min_field.get(), max_field.get()}, neg_inf, false);
 
-        std::vector<double> test_values_not_in_range = {
-                min, max, -123456.789012345, -0.0, 0.0, 123456.789012345,
+        std::vector<vectorized::Field> test_values_not_in_range = {
+                min,
+                max,
+                vectorized::Field::create_field<TYPE_DOUBLE>(-123456.789012345),
+                vectorized::Field::create_field<TYPE_DOUBLE>(-0.0),
+                vectorized::Field::create_field<TYPE_DOUBLE>(0.0),
+                vectorized::Field::create_field<TYPE_DOUBLE>(123456.789012345),
         };
         for (auto v : test_values_not_in_range) {
             // std::cout << "test double EQ value: " << v << std::endl;
@@ -1243,21 +1311,28 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
             TimestampTzValue tz {};
             EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 0));
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
-                    {min_field.get(), max_field.get()}, tz, true);
+                    {min_field.get(), max_field.get()},
+                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::NE>(
-                    {min_field.get(), max_field.get()}, tz, true);
+                    {min_field.get(), max_field.get()},
+                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LT>(
-                    {min_field.get(), max_field.get()}, tz, tz != zonemap_min_v);
+                    {min_field.get(), max_field.get()},
+                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), tz != zonemap_min_v);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LE>(
-                    {min_field.get(), max_field.get()}, tz, true);
+                    {min_field.get(), max_field.get()},
+                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GT>(
-                    {min_field.get(), max_field.get()}, tz, tz != zonemap_max_v);
+                    {min_field.get(), max_field.get()},
+                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), tz != zonemap_max_v);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GE>(
-                    {min_field.get(), max_field.get()}, tz, true);
+                    {min_field.get(), max_field.get()},
+                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
         }
         // test values out of zonemap range
         {
-            auto v = type_limit<TimestampTzValue>::min();
+            auto v = vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(
+                    type_limit<TimestampTzValue>::min());
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
                     {min_field.get(), max_field.get()}, v, false);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::NE>(
@@ -1277,7 +1352,8 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
         }
         // test values out of zonemap range
         {
-            auto v = type_limit<TimestampTzValue>::max();
+            auto v = vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(
+                    type_limit<TimestampTzValue>::max());
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
                     {min_field.get(), max_field.get()}, v, false);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::NE>(
@@ -1312,25 +1388,30 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
             TimestampTzValue tz {};
             EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 6));
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
-                    {min_field.get(), max_field.get()}, tz, true);
+                    {min_field.get(), max_field.get()},
+                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::NE>(
-                    {min_field.get(), max_field.get()}, tz, true);
+                    {min_field.get(), max_field.get()},
+                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LT>(
-                    {min_field.get(), max_field.get()}, tz, tz != zonemap_min_v);
+                    {min_field.get(), max_field.get()},
+                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), tz != zonemap_min_v);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LE>(
-                    {min_field.get(), max_field.get()}, tz, true);
+                    {min_field.get(), max_field.get()},
+                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GT>(
-                    {min_field.get(), max_field.get()}, tz, tz != zonemap_max_v);
+                    {min_field.get(), max_field.get()},
+                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), tz != zonemap_max_v);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GE>(
-                    {min_field.get(), max_field.get()}, tz, true);
+                    {min_field.get(), max_field.get()},
+                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
         }
     }
 }
 
 template <PrimitiveType T, PredicateType PT>
 void single_column_predicate_test_func(const segment_v2::BloomFilter* bf,
-                                       typename PrimitiveTypeTraits<T>::CppType check_value,
-                                       bool expect_match) {
+                                       vectorized::Field&& check_value, bool expect_match) {
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<T, PT>(col_idx, "", check_value));
@@ -1368,26 +1449,29 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_bloom_filter) {
     }
 
     for (const auto& v : values) {
-        single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(bf.get(), v, true);
+        single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
+                bf.get(), vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(v), true);
     }
     {
         auto str = "0000-01-01 00:00:00";
         TimestampTzValue tz {};
         EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 0));
-        single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(bf.get(), tz, false);
+        single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
+                bf.get(), vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), false);
     }
     {
         auto str = "9999-12-31 23:59:59.999999";
         TimestampTzValue tz {};
         EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 6));
-        single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(bf.get(), tz, false);
+        single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
+                bf.get(), vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), false);
     }
 }
 
 TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     { // INT
      {// EQ
-      int value = 5;
+      auto value = vectorized::Field::create_field<TYPE_INT>(5);
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
@@ -1464,7 +1548,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
 }
 {
     // NE
-    int value = 5;
+    auto value = vectorized::Field::create_field<TYPE_INT>(5);
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
@@ -1533,7 +1617,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
 }
 {
     // GE
-    int value = 5;
+    auto value = vectorized::Field::create_field<TYPE_INT>(5);
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<TYPE_INT, PredicateType::GE>(col_idx, "", value));
@@ -1602,7 +1686,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
 }
 {
     // LE
-    int value = 5;
+    auto value = vectorized::Field::create_field<TYPE_INT>(5);
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<TYPE_INT, PredicateType::LE>(col_idx, "", value));
@@ -1674,7 +1758,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     // FLOAT
     {
         // EQ
-        float value = 5.0;
+        auto value = vectorized::Field::create_field<TYPE_FLOAT>(5.0);
         int col_idx = 0;
         std::shared_ptr<ColumnPredicate> pred(
                 new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::EQ>(col_idx, "", value));
@@ -1768,7 +1852,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     }
     {
         // NE
-        float value = 5;
+        auto value = vectorized::Field::create_field<TYPE_FLOAT>(5.0);
         int col_idx = 0;
         std::shared_ptr<ColumnPredicate> pred(
                 new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::NE>(col_idx, "", value));
@@ -1837,7 +1921,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     }
     {
         // GE
-        float value = 5.0;
+        auto value = vectorized::Field::create_field<TYPE_FLOAT>(5.0);
         int col_idx = 0;
         std::shared_ptr<ColumnPredicate> pred(
                 new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::GE>(col_idx, "", value));
@@ -1906,7 +1990,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     }
     {
         // LE
-        float value = 5.0;
+        auto value = vectorized::Field::create_field<TYPE_FLOAT>(5.0);
         int col_idx = 0;
         std::shared_ptr<ColumnPredicate> pred(
                 new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::LE>(col_idx, "", value));
@@ -2075,7 +2159,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_IN_PREDICATE) {
 }
 
 TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE_BLOOM_FILTER) {
-    const int value = 42;
+    auto value = vectorized::Field::create_field<TYPE_INT>(42);
     const int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
@@ -2103,8 +2187,8 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE_BLOOM_FILTER) {
                     current_stat->col_schema = parquet_field.get();
                     current_stat->is_all_null = false;
                     current_stat->has_null = false;
-                    current_stat->encoded_min_value = encode_value(value);
-                    current_stat->encoded_max_value = encode_value(value);
+                    current_stat->encoded_min_value = encode_value(value.template get<TYPE_INT>());
+                    current_stat->encoded_max_value = encode_value(value.template get<TYPE_INT>());
                     return true;
                 };
         stat.get_stat_func = &get_stat_func;
@@ -2121,7 +2205,9 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE_BLOOM_FILTER) {
                                 current_stat->bloom_filter.get());
                         Status st = bloom->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
                         EXPECT_TRUE(st.ok());
-                        bloom->add_bytes(reinterpret_cast<const char*>(&value), sizeof(value));
+                        bloom->add_bytes(
+                                reinterpret_cast<const char*>(&value.template get<TYPE_INT>()),
+                                sizeof(value.template get<TYPE_INT>()));
                     }
                     return true;
                 };
@@ -2142,8 +2228,8 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE_BLOOM_FILTER) {
                     current_stat->col_schema = parquet_field.get();
                     current_stat->is_all_null = false;
                     current_stat->has_null = false;
-                    current_stat->encoded_min_value = encode_value(value);
-                    current_stat->encoded_max_value = encode_value(value);
+                    current_stat->encoded_min_value = encode_value(value.template get<TYPE_INT>());
+                    current_stat->encoded_max_value = encode_value(value.template get<TYPE_INT>());
                     return true;
                 };
         stat.get_stat_func = &get_stat_func;
@@ -2160,7 +2246,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE_BLOOM_FILTER) {
                                 current_stat->bloom_filter.get());
                         Status st = bloom->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
                         EXPECT_TRUE(st.ok());
-                        int other_value = value + 10;
+                        int other_value = value.template get<TYPE_INT>() + 10;
                         bloom->add_bytes(reinterpret_cast<const char*>(&other_value),
                                          sizeof(other_value));
                     }
@@ -2183,8 +2269,8 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE_BLOOM_FILTER) {
                     current_stat->col_schema = parquet_field.get();
                     current_stat->is_all_null = false;
                     current_stat->has_null = false;
-                    current_stat->encoded_min_value = encode_value(value);
-                    current_stat->encoded_max_value = encode_value(value);
+                    current_stat->encoded_min_value = encode_value(value.template get<TYPE_INT>());
+                    current_stat->encoded_max_value = encode_value(value.template get<TYPE_INT>());
                     return true;
                 };
         stat.get_stat_func = &get_stat_func;
@@ -2213,8 +2299,8 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE_BLOOM_FILTER) {
                     current_stat->col_schema = parquet_field.get();
                     current_stat->is_all_null = false;
                     current_stat->has_null = false;
-                    int min_value = value + 5;
-                    int max_value = value + 10;
+                    int min_value = value.template get<TYPE_INT>() + 5;
+                    int max_value = value.template get<TYPE_INT>() + 10;
                     current_stat->encoded_min_value = encode_value(min_value);
                     current_stat->encoded_max_value = encode_value(max_value);
                     return true;
@@ -2464,7 +2550,7 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
 
         std::unique_ptr<SingleColumnBlockPredicate> true_predicate;
         int col_idx = 0;
-        int value = 5;
+        auto value = vectorized::Field::create_field<TYPE_INT>(5);
         std::shared_ptr<ColumnPredicate> pred(
                 new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
         true_predicate = std::make_unique<SingleColumnBlockPredicate>(pred);
@@ -2509,7 +2595,7 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
 
         std::unique_ptr<SingleColumnBlockPredicate> true_predicate;
         int col_idx = 0;
-        int value = 5;
+        auto value = vectorized::Field::create_field<TYPE_INT>(5);
         std::shared_ptr<ColumnPredicate> pred(
                 new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
         true_predicate = std::make_unique<SingleColumnBlockPredicate>(pred);
@@ -2554,7 +2640,7 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
 
         std::unique_ptr<SingleColumnBlockPredicate> true_predicate;
         int col_idx = 0;
-        int value = 5;
+        auto value = vectorized::Field::create_field<TYPE_INT>(5);
         std::shared_ptr<ColumnPredicate> pred(
                 new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
         true_predicate = std::make_unique<SingleColumnBlockPredicate>(pred);
@@ -2599,7 +2685,7 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
 
         std::unique_ptr<SingleColumnBlockPredicate> false_predicate2;
         int col_idx = 0;
-        int value = 5;
+        auto value = vectorized::Field::create_field<TYPE_INT>(5);
         std::shared_ptr<ColumnPredicate> pred(
                 new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
         false_predicate2 = std::make_unique<SingleColumnBlockPredicate>(pred);
@@ -2643,7 +2729,7 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
         OrBlockColumnPredicate or_block_column_pred;
 
         int col_idx = 0;
-        int value = 5;
+        auto value = vectorized::Field::create_field<TYPE_INT>(5);
         std::unique_ptr<SingleColumnBlockPredicate> false_predicate;
         std::shared_ptr<ColumnPredicate> pred2(
                 new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
