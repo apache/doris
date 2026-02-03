@@ -806,12 +806,12 @@ DEFINE_mInt32(storage_flood_stage_usage_percent, "90"); // 90%
 // The min bytes that should be left of a data dir
 DEFINE_mInt64(storage_flood_stage_left_capacity_bytes, "1073741824"); // 1GB
 // number of thread for flushing memtable per store
-DEFINE_Int32(flush_thread_num_per_store, "6");
+DEFINE_mInt32(flush_thread_num_per_store, "6");
 // number of thread for flushing memtable per store, for high priority load task
-DEFINE_Int32(high_priority_flush_thread_num_per_store, "6");
+DEFINE_mInt32(high_priority_flush_thread_num_per_store, "6");
 // number of threads = min(flush_thread_num_per_store * num_store,
 //                         max_flush_thread_num_per_cpu * num_cpu)
-DEFINE_Int32(max_flush_thread_num_per_cpu, "4");
+DEFINE_mInt32(max_flush_thread_num_per_cpu, "4");
 
 // minimum flush threads per cpu when adaptive flush is enabled (default 0.5)
 DEFINE_mDouble(min_flush_thread_num_per_cpu, "0.5");
@@ -2164,6 +2164,22 @@ void update_config(const std::string& field, const std::string& value) {
     if ("sys_log_level" == field) {
         // update log level
         update_logging(field, value);
+    } else if ("flush_thread_num_per_store" == field ||
+               "high_priority_flush_thread_num_per_store" == field ||
+               "max_flush_thread_num_per_cpu" == field) {
+        // update memtable flush thread pool size
+        auto* exec_env = ExecEnv::GetInstance();
+        if (exec_env != nullptr) {
+            auto* flush_executor = exec_env->storage_engine().memtable_flush_executor();
+            if (flush_executor != nullptr) {
+                flush_executor->update_memtable_flush_threads();
+            }
+            // update workload groups' memtable flush thread pools
+            auto* wg_mgr = exec_env->workload_group_mgr();
+            if (wg_mgr != nullptr) {
+                wg_mgr->update_memtable_flush_threads();
+            }
+        }
     }
 }
 

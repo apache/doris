@@ -193,6 +193,9 @@ public:
         // to avoid lock competition with the workload thread pool's update
         return _memtable_flush_pool.get();
     }
+
+    void update_memtable_flush_threads();
+
     void create_cgroup_cpu_ctl();
 
     std::weak_ptr<CgroupCpuCtl> get_cgroup_cpu_ctl_wptr();

@@ -26,6 +26,8 @@
 #include <ostream>
 #include <utility>
 
+#include "cloud/config.h"
+#include "common/config.h"
 #include "common/logging.h"
 #include "exec/pipeline/task_queue.h"
 #include "exec/pipeline/task_scheduler.h"
