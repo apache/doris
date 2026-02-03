@@ -489,7 +489,7 @@ public:
                     }
                 } else if constexpr (is_string_type(Type)) {
                     // VARCHAR/STRING -> hash bytes
-                    if (bf->test_bytes(value->data, value->size)) {
+                    if (bf->test_bytes(value->data(), value->size())) {
                         return true;
                     }
                 } else {
