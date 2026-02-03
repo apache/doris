@@ -129,6 +129,9 @@ suite("rows_of_segment") {
     def tablets3 = sql "SHOW TABLETS FROM test_import_rows"
     def tabletId3 = tablets3[0][0]
     
+    // Sync metadata to ensure Cloud mode gets latest rowset data
+    sql "sync"
+    
     // Verify using information_schema.rowsets
     // Each rowset should have segments, and each segment should not exceed 50000 rows
     def rowsetsResult3 = sql """
@@ -300,6 +303,9 @@ suite("rows_of_segment") {
     def tablets13 = sql "SHOW TABLETS FROM test_rows_small"
     def tabletId13 = tablets13[0][0]
     
+    // Sync metadata to ensure Cloud mode gets latest rowset data
+    sql "sync"
+    
     def rowsetsResult13 = sql """
         SELECT ROWSET_ID, ROWSET_NUM_ROWS, NUM_SEGMENTS
         FROM information_schema.rowsets
@@ -431,6 +437,9 @@ suite("rows_of_segment") {
     def tablets16 = sql "SHOW TABLETS FROM test_rows_multi_insert"
     def tabletId16 = tablets16[0][0]
     
+    // Sync metadata to ensure Cloud mode gets latest rowset data
+    sql "sync"
+    
     // Check rowsets - should have multiple rowsets with segment details
     def rowsetsResult16 = sql """
         SELECT ROWSET_ID, ROWSET_NUM_ROWS, NUM_SEGMENTS
@@ -490,6 +499,9 @@ suite("rows_of_segment") {
     // Get tablet id
     def tablets17 = sql "SHOW TABLETS FROM test_rows_distribution"
     def tabletId17 = tablets17[0][0]
+    
+    // Sync metadata to ensure Cloud mode gets latest rowset data
+    sql "sync"
     
     // Check rowsets details
     def rowsetsResult17 = sql """
@@ -706,6 +718,9 @@ suite("rows_of_segment") {
         def tabletsMvImport = sql "SHOW TABLETS FROM test_rows_mv_import"
         def tabletIdMvImport = tabletsMvImport[0][0]
         
+        // Sync metadata to ensure Cloud mode gets latest rowset data
+        sql "sync"
+        
         def rowsetsMvImport = sql """
             SELECT ROWSET_ID, ROWSET_NUM_ROWS, NUM_SEGMENTS
             FROM information_schema.rowsets
@@ -776,6 +791,9 @@ suite("rows_of_segment") {
     def tablets20a = sql "SHOW TABLETS FROM test_import_rows_no_memtbl"
     def tabletId20a = tablets20a[0][0]
     
+    // Sync metadata to ensure Cloud mode gets latest rowset data
+    sql "sync"
+    
     def rowsetsResult20a = sql """
         SELECT ROWSET_ID, ROWSET_NUM_ROWS, NUM_SEGMENTS
         FROM information_schema.rowsets
@@ -830,6 +848,9 @@ suite("rows_of_segment") {
     def tablets20b = sql "SHOW TABLETS FROM test_rows_small_no_memtbl"
     def tabletId20b = tablets20b[0][0]
     
+    // Sync metadata to ensure Cloud mode gets latest rowset data
+    sql "sync"
+    
     def rowsetsResult20b = sql """
         SELECT ROWSET_ID, ROWSET_NUM_ROWS, NUM_SEGMENTS
         FROM information_schema.rowsets
@@ -877,6 +898,9 @@ suite("rows_of_segment") {
     // Get tablet id
     def tablets20c = sql "SHOW TABLETS FROM test_rows_multi_no_memtbl"
     def tabletId20c = tablets20c[0][0]
+    
+    // Sync metadata to ensure Cloud mode gets latest rowset data
+    sql "sync"
     
     // Check rowsets
     def rowsetsResult20c = sql """
@@ -936,6 +960,9 @@ suite("rows_of_segment") {
     // Get tablet id
     def tablets20d = sql "SHOW TABLETS FROM test_rows_dist_no_memtbl"
     def tabletId20d = tablets20d[0][0]
+    
+    // Sync metadata to ensure Cloud mode gets latest rowset data
+    sql "sync"
     
     // Check rowsets details
     def rowsetsResult20d = sql """
