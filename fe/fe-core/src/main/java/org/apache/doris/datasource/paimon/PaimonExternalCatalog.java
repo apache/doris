@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.paimon;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -176,7 +175,7 @@ public class PaimonExternalCatalog extends ExternalCatalog {
         super.notifyPropertiesUpdated(updatedProps);
         String tableMetaCacheTtl = updatedProps.getOrDefault(PAIMON_TABLE_META_CACHE_TTL_SECOND, null);
         if (Objects.nonNull(tableMetaCacheTtl)) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache(this).init();
+            PaimonUtils.getPaimonMetadataCache(this).init();
         }
     }
 

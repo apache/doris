@@ -20,7 +20,6 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
@@ -98,8 +97,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             return getOrFetchSnapshotCacheValue(snapshot).getSnapshot().getTable();
         } else {
             // Normal query scenario: get directly from table cache
-            return Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache(getCatalog())
-                    .getPaimonTable(this);
+            return PaimonUtils.getPaimonTable(this);
         }
     }
 
@@ -173,8 +171,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             }
         } else {
             // Otherwise, use the latest snapshot and the latest schema.
-            return Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache(getCatalog())
-                    .getSnapshotCache(this);
+            return PaimonUtils.getLatestSnapshotCacheValue(this);
         }
     }
 
@@ -359,8 +356,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     private PaimonSchemaCacheValue getPaimonSchemaCacheValue(Optional<MvccSnapshot> snapshot) {
         PaimonSnapshotCacheValue snapshotCacheValue = getOrFetchSnapshotCacheValue(snapshot);
-        return Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache(getCatalog())
-                .getPaimonSchemaCacheValue(getOrBuildNameMapping(), snapshotCacheValue.getSnapshot().getSchemaId());
+        return PaimonUtils.getSchemaCacheValue(this, snapshotCacheValue);
     }
 
     private PaimonSnapshotCacheValue getOrFetchSnapshotCacheValue(Optional<MvccSnapshot> snapshot) {
@@ -368,8 +364,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             return ((PaimonMvccSnapshot) snapshot.get()).getSnapshotCacheValue();
         } else {
             // Use new lazy-loading snapshot cache API
-            return Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache(getCatalog())
-                    .getSnapshotCache(this);
+            return PaimonUtils.getSnapshotCacheValue(snapshot, this);
         }
     }
 
@@ -408,7 +403,6 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     private Table getBasePaimonTable() {
-        return Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache(getCatalog())
-                .getPaimonTable(this);
+        return PaimonUtils.getPaimonTable(this);
     }
 }
