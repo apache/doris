@@ -92,8 +92,6 @@ import java.util.stream.Stream;
 public class IcebergMetadataOps implements ExternalMetadataOps {
 
     private static final Logger LOG = LogManager.getLogger(IcebergMetadataOps.class);
-    private static final String ICEBERG_LIST_ELEMENT_FIELD_NAME = "element";
-    private static final String ICEBERG_MAP_VALUE_FIELD_NAME = "value";
     protected Catalog catalog;
     protected ExternalCatalog dorisCatalog;
     protected SupportsNamespaces nsCatalog;
@@ -877,7 +875,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     private void applyListChange(UpdateSchema updateSchema, String path,
             Types.ListType oldListType, ArrayType newArrayType) throws UserException {
-        String elementPath = path + "." + ICEBERG_LIST_ELEMENT_FIELD_NAME;
+        String elementPath = path + "." + Types.ListType.ELEMENT_FIELD_NAME;
         if (oldListType.isElementOptional() && !newArrayType.getContainsNull()) {
             throw new UserException("Cannot change nullable column " + elementPath + " to not null");
         }
@@ -910,7 +908,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                     + oldDorisKeyType.toSql() + " to " + newKeyType.toSql());
         }
 
-        String valuePath = path + "." + ICEBERG_MAP_VALUE_FIELD_NAME;
+        String valuePath = path + "." + Types.MapType.VALUE_FIELD_NAME;
         if (oldMapType.isValueOptional() && !newMapType.getIsValueContainsNull()) {
             throw new UserException("Cannot change nullable column " + valuePath + " to not null");
         }
