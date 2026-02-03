@@ -1227,6 +1227,12 @@ void BlockFileCache::reset_range(const UInt128Wrapper& hash, size_t offset, size
            _files.find(hash)->second.find(offset) != _files.find(hash)->second.end());
     FileBlockCell* cell = get_cell(hash, offset, cache_lock);
     DCHECK(cell != nullptr);
+    if (cell == nullptr) {
+        LOG(WARNING) << "reset_range skipped because cache cell is missing. hash="
+                     << hash.to_string() << " offset=" << offset << " old_size=" << old_size
+                     << " new_size=" << new_size;
+        return;
+    }
     if (cell->queue_iterator) {
         auto& queue = get_queue(cell->file_block->cache_type());
         DCHECK(queue.contains(hash, offset, cache_lock));

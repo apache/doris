@@ -91,7 +91,8 @@ PushDownType OlapScanLocalState::_should_push_down_binary_predicate(
     }
     const auto& children = fn_call->children();
     DCHECK(children.size() == 2);
-    DCHECK_EQ(children[0]->node_type(), TExprNodeType::SLOT_REF);
+    DCHECK_EQ(vectorized::VExpr::expr_without_cast(children[0])->node_type(),
+              TExprNodeType::SLOT_REF);
     if (children[1]->is_constant()) {
         std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
         THROW_IF_ERROR(children[1]->get_const_col(expr_ctx, &const_col_wrapper));
