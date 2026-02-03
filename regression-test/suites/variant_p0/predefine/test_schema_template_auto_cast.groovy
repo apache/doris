@@ -53,9 +53,23 @@ suite("test_schema_template_auto_cast", "p0") {
         WHERE data['num_a'] > 40 OR data['str_name'] = 'alice'
         ORDER BY id """
 
+    // BETWEEN condition
+    qt_where_between """ SELECT id FROM ${tableName}
+        WHERE data['num_a'] BETWEEN 15 AND 30
+        ORDER BY id """
+
+    // IN condition
+    qt_where_in """ SELECT id FROM ${tableName}
+        WHERE data['str_name'] IN ('alice', 'charlie')
+        ORDER BY id """
+
     // Test 2: ORDER BY with auto-cast
     qt_order_by """ SELECT id, data['num_a'] FROM ${tableName}
         ORDER BY data['num_a'] DESC """
+
+    // ORDER BY expression
+    qt_order_by_expr """ SELECT id, data['num_a'] + 1 AS n FROM ${tableName}
+        ORDER BY data['num_a'] + 1 DESC """
 
     // Test 3: TopN (ORDER BY + LIMIT)
     qt_topn """ SELECT id, data['num_a'] FROM ${tableName}
@@ -65,14 +79,45 @@ suite("test_schema_template_auto_cast", "p0") {
     qt_select_arithmetic """ SELECT id, data['num_a'] + data['num_b'] as sum_val
         FROM ${tableName} ORDER BY id """
 
+    // CASE WHEN with auto-cast
+    qt_case_when """ SELECT id,
+        CASE WHEN data['num_a'] > 20 THEN 'high' ELSE 'low' END AS level
+        FROM ${tableName} ORDER BY id """
+
+    // ORDER BY alias from expression
+    qt_order_by_alias_expr """ SELECT data['num_a'] + data['num_b'] AS sum_val FROM ${tableName}
+        ORDER BY sum_val """
+
+    // Explicit CAST should still trigger schema template auto cast
+    qt_explicit_cast_select """ SELECT CAST(data['num_a'] AS INT) FROM ${tableName} ORDER BY id """
+    qt_explicit_cast_where """ SELECT id FROM ${tableName}
+        WHERE CAST(data['num_a'] AS INT) > 20 ORDER BY id """
+    qt_explicit_cast_order_by """ SELECT id FROM ${tableName}
+        ORDER BY CAST(data['num_a'] AS INT) DESC """
+
     // Test 5: GROUP BY with auto-cast
     qt_group_by """ SELECT data['str_name'], SUM(data['num_a']) as total
+        FROM ${tableName} GROUP BY data['str_name'] ORDER BY data['str_name'] """
+
+    // GROUP BY with multiple aggregates
+    qt_group_by_multi_agg """ SELECT data['str_name'],
+        MIN(data['num_a']) AS min_a, MAX(data['num_a']) AS max_a, COUNT(*) AS cnt
         FROM ${tableName} GROUP BY data['str_name'] ORDER BY data['str_name'] """
 
     // Test 6: HAVING with auto-cast
     qt_having """ SELECT data['str_name'], SUM(data['num_a']) as total
         FROM ${tableName} GROUP BY data['str_name']
         HAVING SUM(data['num_a']) > 20 ORDER BY data['str_name'] """
+
+    // HAVING with MIN
+    qt_having_min """ SELECT data['str_name'], MIN(data['num_a']) AS min_a
+        FROM ${tableName} GROUP BY data['str_name']
+        HAVING MIN(data['num_a']) >= 15 ORDER BY data['str_name'] """
+
+    // HAVING with non-aggregate expression on group key
+    qt_having_non_agg """ SELECT data['str_name'], SUM(data['num_a']) AS total
+        FROM ${tableName} GROUP BY data['str_name']
+        HAVING data['str_name'] != 'alice' ORDER BY data['str_name'] """
 
     // Test 7: ORDER BY with alias from project
     qt_order_by_alias """ SELECT data['num_a'] AS num_a FROM ${tableName}
@@ -87,10 +132,34 @@ suite("test_schema_template_auto_cast", "p0") {
         FROM (SELECT data['num_a'] AS num_a FROM ${tableName}) t
         GROUP BY num_a ORDER BY num_a """
 
+    // ORDER BY with nested alias
+    qt_order_by_alias_nested """ SELECT * FROM (
+        SELECT num_a FROM (SELECT data['num_a'] AS num_a FROM ${tableName}) s1
+    ) s2 ORDER BY num_a """
+
+    // GROUP BY with nested alias
+    qt_group_by_alias_nested """ SELECT num_a, COUNT(*) AS cnt FROM (
+        SELECT num_a FROM (SELECT data['num_a'] AS num_a FROM ${tableName}) s1
+    ) s2 GROUP BY num_a ORDER BY num_a """
+
     // Test 10: WINDOW partition/order by with auto-cast
     qt_window_partition_order """ SELECT id,
         row_number() OVER (PARTITION BY data['str_name'] ORDER BY data['num_a']) AS rn
         FROM ${tableName} ORDER BY id """
+
+    // WINDOW aggregate
+    qt_window_sum """ SELECT id,
+        SUM(data['num_a']) OVER (PARTITION BY data['str_name']) AS s
+        FROM ${tableName} ORDER BY id """
+
+    // WINDOW partition + order by with both paths
+    qt_window_sum_order """ SELECT id,
+        SUM(data['num_a']) OVER (PARTITION BY data['str_name'] ORDER BY data['num_a']) AS s
+        FROM ${tableName} ORDER BY id """
+
+    // Aggregates without GROUP BY
+    qt_agg_min_max """ SELECT MIN(data['num_a']), MAX(data['num_a']) FROM ${tableName} """
+    qt_agg_count_distinct """ SELECT COUNT(DISTINCT data['str_name']) FROM ${tableName} """
 
     // Test 11: disable auto-cast should error in ORDER BY
     sql """ set enable_variant_schema_auto_cast = false """
@@ -194,20 +263,12 @@ suite("test_schema_template_auto_cast", "p0") {
         FROM ${leafTable} ORDER BY id """
     qt_leaf_int_nested_dot_select """ SELECT data['int_nested.level1_num_1'] FROM ${leafTable} ORDER BY id """
     qt_leaf_int_nested_deref_select """ SELECT data.int_nested.level1_num_1 FROM ${leafTable} ORDER BY id """
-    qt_leaf_int_nested_mixed_select_1 """ SELECT data['int_nested'].level1_num_1 FROM ${leafTable} ORDER BY id """
-    qt_leaf_int_nested_mixed_select_2 """ SELECT (data['int_nested']).level1_num_1 FROM ${leafTable} ORDER BY id """
-    qt_leaf_int_nested_mixed_select_3 """ SELECT (data.int_nested).level1_num_1 FROM ${leafTable} ORDER BY id """
-    qt_leaf_int_nested_paren_root_select """ SELECT (data).int_nested.level1_num_1 FROM ${leafTable} ORDER BY id """
     qt_leaf_int_nested_chain_add """ SELECT data['int_nested']['level1_num_1'] + 1
         FROM ${leafTable} ORDER BY id """
     qt_leaf_int_nested_dot_add """ SELECT data['int_nested.level1_num_1'] + 1
         FROM ${leafTable} ORDER BY id """
     qt_leaf_int_nested_deref_add """ SELECT data.int_nested.level1_num_1 + 1
         FROM ${leafTable} ORDER BY id """
-    qt_leaf_int_nested_mixed_add_1 """ SELECT data['int_nested'].level1_num_1 + 1 FROM ${leafTable} ORDER BY id """
-    qt_leaf_int_nested_mixed_add_2 """ SELECT (data['int_nested']).level1_num_1 + 1 FROM ${leafTable} ORDER BY id """
-    qt_leaf_int_nested_mixed_add_3 """ SELECT (data.int_nested).level1_num_1 + 1 FROM ${leafTable} ORDER BY id """
-    qt_leaf_int_nested_paren_root_add """ SELECT (data).int_nested.level1_num_1 + 1 FROM ${leafTable} ORDER BY id """
 
     // Non-select clauses: leaf vs non-leaf
     qt_leaf_where_ok """ SELECT id FROM ${leafTable}
@@ -215,37 +276,35 @@ suite("test_schema_template_auto_cast", "p0") {
     qt_leaf_where_nonleaf """ SELECT id FROM ${leafTable}
         WHERE data['int_nested'] > 0 ORDER BY id """
     qt_leaf_where_mixed_1 """ SELECT id FROM ${leafTable}
-        WHERE data['int_nested'].level1_num_1 > 2000000 ORDER BY id """
+        WHERE data['int_nested']['level1_num_1'] > 2000000 ORDER BY id """
     qt_leaf_where_mixed_2 """ SELECT id FROM ${leafTable}
-        WHERE (data['int_nested']).level1_num_1 > 2000000 ORDER BY id """
+        WHERE data['int_nested.level1_num_1'] > 2000000 ORDER BY id """
     qt_leaf_where_mixed_3 """ SELECT id FROM ${leafTable}
-        WHERE (data.int_nested).level1_num_1 > 2000000 ORDER BY id """
-    qt_leaf_where_paren_root """ SELECT id FROM ${leafTable}
-        WHERE (data).int_nested.level1_num_1 > 2000000 ORDER BY id """
+        WHERE data.int_nested.level1_num_1 > 2000000 ORDER BY id """
     qt_leaf_order_by_ok """ SELECT id FROM ${leafTable}
         ORDER BY data['int_1'], id """
     qt_leaf_order_by_nonleaf """ SELECT id FROM ${leafTable}
         ORDER BY data['int_nested'], id """
     qt_leaf_order_by_mixed_1 """ SELECT id FROM ${leafTable}
-        ORDER BY data['int_nested'].level1_num_1 """
+        ORDER BY data['int_nested']['level1_num_1'] """
     qt_leaf_order_by_mixed_2 """ SELECT id FROM ${leafTable}
-        ORDER BY (data.int_nested).level1_num_1 """
+        ORDER BY data['int_nested.level1_num_1'] """
     qt_leaf_order_by_paren_root """ SELECT id FROM ${leafTable}
-        ORDER BY (data).int_nested.level1_num_1 """
+        ORDER BY data.int_nested.level1_num_1 """
     qt_leaf_group_by_ok """ SELECT data['int_1'], COUNT(*) AS cnt
         FROM ${leafTable} GROUP BY data['int_1'] ORDER BY data['int_1'] """
     qt_leaf_group_by_nonleaf """ SELECT data['int_nested'], COUNT(*) AS cnt
         FROM ${leafTable} GROUP BY data['int_nested'] ORDER BY data['int_nested'] """
-    qt_leaf_group_by_mixed """ SELECT data['int_nested'].level1_num_1, COUNT(*) AS cnt
-        FROM ${leafTable} GROUP BY data['int_nested'].level1_num_1
-        ORDER BY data['int_nested'].level1_num_1 """
+    qt_leaf_group_by_mixed """ SELECT data['int_nested.level1_num_1'], COUNT(*) AS cnt
+        FROM ${leafTable} GROUP BY data['int_nested.level1_num_1']
+        ORDER BY data['int_nested.level1_num_1'] """
     qt_leaf_having_ok """ SELECT data['int_1'], SUM(data['int_1']) AS total
         FROM ${leafTable} GROUP BY data['int_1']
         HAVING SUM(data['int_1']) > 0 ORDER BY data['int_1'] """
-    qt_leaf_having_mixed """ SELECT data['int_nested'].level1_num_1, SUM(data['int_nested'].level1_num_1) AS total
-        FROM ${leafTable} GROUP BY data['int_nested'].level1_num_1
-        HAVING SUM(data['int_nested'].level1_num_1) > 3000000
-        ORDER BY data['int_nested'].level1_num_1 """
+    qt_leaf_having_mixed """ SELECT data['int_nested.level1_num_1'], SUM(data['int_nested.level1_num_1']) AS total
+        FROM ${leafTable} GROUP BY data['int_nested.level1_num_1']
+        HAVING SUM(data['int_nested.level1_num_1']) > 3000000
+        ORDER BY data['int_nested.level1_num_1'] """
 
     sql "DROP TABLE IF EXISTS ${leafTable}"
 }

@@ -21,15 +21,24 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.Cast;
-import org.apache.doris.nereids.trees.expressions.DereferenceExpression;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VariantField;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.qe.ConnectContext;
@@ -38,9 +47,6 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-
-import java.lang.reflect.Method;
-import java.util.Optional;
 
 public class ExpressionAnalyzerVariantAutoCastTest {
 
@@ -63,111 +69,250 @@ public class ExpressionAnalyzerVariantAutoCastTest {
     }
 
     private SlotReference buildVariantSlot(VariantType variantType) {
-        return new SlotReference(new ExprId(1), "data", variantType, true, ImmutableList.of());
+        return new SlotReference(new org.apache.doris.nereids.trees.expressions.ExprId(1),
+                "data", variantType, true, ImmutableList.of());
+    }
+
+    private VariantType buildVariantType() {
+        VariantField numField = new VariantField("num_*", BigIntType.INSTANCE, "");
+        VariantField strField = new VariantField("str_*", StringType.INSTANCE, "");
+        return new VariantType(ImmutableList.of(numField, strField));
+    }
+
+    private void assertCastElementAt(Expression expr) {
+        Assertions.assertTrue(expr instanceof Cast, "expect Cast wrapping ElementAt");
+        Cast cast = (Cast) expr;
+        Assertions.assertTrue(cast.child() instanceof ElementAt, "cast child should be ElementAt");
     }
 
     @Test
-    public void testVisitElementAtAutoCastEnabled() {
-        VariantField field = new VariantField("number_*", BigIntType.INSTANCE, "");
-        VariantType variantType = new VariantType(ImmutableList.of(field));
+    public void testSelectAutoCastElementAt() {
+        VariantType variantType = buildVariantType();
         SlotReference slot = buildVariantSlot(variantType);
         Scope scope = new Scope(ImmutableList.of(slot));
 
-        ElementAt elementAt = new ElementAt(slot, new StringLiteral("number_latency"));
+        ElementAt elementAt = new ElementAt(slot, new StringLiteral("num_a"));
         Expression result = analyze(elementAt, scope, true);
-
-        Assertions.assertTrue(result instanceof Cast);
-        Cast cast = (Cast) result;
-        Assertions.assertEquals(BigIntType.INSTANCE, cast.getDataType());
-        Assertions.assertTrue(cast.child() instanceof ElementAt);
+        assertCastElementAt(result);
     }
 
     @Test
-    public void testVisitElementAtAutoCastDisabled() {
-        VariantField field = new VariantField("number_*", BigIntType.INSTANCE, "");
-        VariantType variantType = new VariantType(ImmutableList.of(field));
+    public void testSelectDotSyntaxAutoCast() {
+        VariantType variantType = buildVariantType();
         SlotReference slot = buildVariantSlot(variantType);
         Scope scope = new Scope(ImmutableList.of(slot));
 
-        ElementAt elementAt = new ElementAt(slot, new StringLiteral("number_latency"));
-        Expression result = analyze(elementAt, scope, false);
+        UnboundSlot unbound = new UnboundSlot("data", "num_a");
+        Expression result = analyze(unbound, scope, true);
+        Assertions.assertTrue(result instanceof Alias);
+        Alias alias = (Alias) result;
+        assertCastElementAt(alias.child());
+    }
 
+    @Test
+    public void testWhereAutoCastComparison() {
+        VariantType variantType = buildVariantType();
+        SlotReference slot = buildVariantSlot(variantType);
+        Scope scope = new Scope(ImmutableList.of(slot));
+
+        ElementAt elementAt = new ElementAt(slot, new StringLiteral("num_a"));
+        GreaterThan predicate = new GreaterThan(elementAt, new BigIntLiteral(10));
+        Expression result = analyze(predicate, scope, true);
+
+        Assertions.assertTrue(result instanceof GreaterThan);
+        GreaterThan gt = (GreaterThan) result;
+        assertCastElementAt(gt.left());
+    }
+
+    @Test
+    public void testOrderByExpressionAutoCast() {
+        VariantType variantType = buildVariantType();
+        SlotReference slot = buildVariantSlot(variantType);
+        Scope scope = new Scope(ImmutableList.of(slot));
+
+        ElementAt elementAt = new ElementAt(slot, new StringLiteral("num_a"));
+        Expression result = analyze(elementAt, scope, true);
+        assertCastElementAt(result);
+    }
+
+    @Test
+    public void testGroupByExpressionAutoCast() {
+        VariantType variantType = buildVariantType();
+        SlotReference slot = buildVariantSlot(variantType);
+        Scope scope = new Scope(ImmutableList.of(slot));
+
+        ElementAt elementAt = new ElementAt(slot, new StringLiteral("str_name"));
+        Expression result = analyze(elementAt, scope, true);
+        assertCastElementAt(result);
+    }
+
+    @Test
+    public void testAggregateFunctionAutoCast() {
+        VariantType variantType = buildVariantType();
+        SlotReference slot = buildVariantSlot(variantType);
+        Scope scope = new Scope(ImmutableList.of(slot));
+
+        ElementAt elementAt = new ElementAt(slot, new StringLiteral("num_a"));
+        Sum sum = new Sum(elementAt);
+        Expression result = analyze(sum, scope, true);
+
+        Assertions.assertTrue(result instanceof Sum);
+        Sum analyzedSum = (Sum) result;
+        assertCastElementAt(analyzedSum.child());
+    }
+
+    @Test
+    public void testHavingAutoCastWithAggregate() {
+        VariantType variantType = buildVariantType();
+        SlotReference slot = buildVariantSlot(variantType);
+        Scope scope = new Scope(ImmutableList.of(slot));
+
+        ElementAt elementAt = new ElementAt(slot, new StringLiteral("num_a"));
+        Sum sum = new Sum(elementAt);
+        GreaterThan having = new GreaterThan(sum, new BigIntLiteral(100));
+        Expression result = analyze(having, scope, true);
+
+        Assertions.assertTrue(result instanceof GreaterThan);
+        GreaterThan gt = (GreaterThan) result;
+        Assertions.assertTrue(gt.left() instanceof Sum);
+        Sum analyzedSum = (Sum) gt.left();
+        assertCastElementAt(analyzedSum.child());
+    }
+
+    @Test
+    public void testNonLiteralKeyNoAutoCast() {
+        VariantType variantType = buildVariantType();
+        SlotReference slot = buildVariantSlot(variantType);
+        SlotReference keySlot = new SlotReference(new ExprId(2), "col", StringType.INSTANCE, true, ImmutableList.of());
+        Scope scope = new Scope(ImmutableList.of(slot, keySlot));
+
+        ElementAt elementAt = new ElementAt(slot, keySlot);
+        Expression result = analyze(elementAt, scope, true);
         Assertions.assertTrue(result instanceof ElementAt);
         Assertions.assertFalse(result instanceof Cast);
     }
 
     @Test
-    public void testVisitDereferenceExpressionAutoCast() {
-        VariantField field = new VariantField("number_*", BigIntType.INSTANCE, "");
-        VariantType variantType = new VariantType(ImmutableList.of(field));
+    public void testNoMatchingTemplateNoAutoCast() {
+        VariantType variantType = buildVariantType();
         SlotReference slot = buildVariantSlot(variantType);
         Scope scope = new Scope(ImmutableList.of(slot));
 
-        DereferenceExpression deref = new DereferenceExpression(slot, new StringLiteral("number_latency"));
-        Expression result = analyze(deref, scope, true);
-
-        Assertions.assertTrue(result instanceof Cast);
-        Cast cast = (Cast) result;
-        Assertions.assertEquals(BigIntType.INSTANCE, cast.getDataType());
-        Assertions.assertTrue(cast.child() instanceof ElementAt);
-    }
-
-    @Test
-    public void testResolveVariantElementAtPathChain() {
-        VariantField field = new VariantField("int_nested.level1_num_1", BigIntType.INSTANCE, "");
-        VariantType variantType = new VariantType(ImmutableList.of(field));
-        SlotReference slot = buildVariantSlot(variantType);
-        Scope scope = new Scope(ImmutableList.of(slot));
-
-        ElementAt elementAt = new ElementAt(
-                new ElementAt(slot, new StringLiteral("int_nested")),
-                new StringLiteral("level1_num_1")
-        );
+        ElementAt elementAt = new ElementAt(slot, new StringLiteral("unknown"));
         Expression result = analyze(elementAt, scope, true);
+        Assertions.assertTrue(result instanceof ElementAt);
+        Assertions.assertFalse(result instanceof Cast);
+    }
+
+    @Test
+    public void testChainedPathOnlyOuterCast() {
+        VariantField nestedField = new VariantField("int_nested.level1_num_1", BigIntType.INSTANCE, "");
+        VariantType variantType = new VariantType(ImmutableList.of(nestedField));
+        SlotReference slot = buildVariantSlot(variantType);
+        Scope scope = new Scope(ImmutableList.of(slot));
+
+        ElementAt inner = new ElementAt(slot, new StringLiteral("int_nested"));
+        ElementAt outer = new ElementAt(inner, new StringLiteral("level1_num_1"));
+        Expression result = analyze(outer, scope, true);
 
         Assertions.assertTrue(result instanceof Cast);
         Cast cast = (Cast) result;
-        Assertions.assertEquals(BigIntType.INSTANCE, cast.getDataType());
         Assertions.assertTrue(cast.child() instanceof ElementAt);
+        ElementAt castChild = (ElementAt) cast.child();
+        Assertions.assertTrue(castChild.left() instanceof ElementAt);
+        Assertions.assertFalse(castChild.left() instanceof Cast);
     }
 
     @Test
-    public void testGetVariantPathKeyNonString() throws Exception {
-        VariantField field = new VariantField("number_*", BigIntType.INSTANCE, "");
-        VariantType variantType = new VariantType(ImmutableList.of(field));
-        SlotReference slot = buildVariantSlot(variantType);
-
-        ElementAt elementAt = new ElementAt(slot, new BigIntLiteral(1));
-        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(ImmutableList.of(slot)),
-                createContext(true), true, true);
-
-        Method getVariantPathKey = ExpressionAnalyzer.class.getDeclaredMethod("getVariantPathKey", Expression.class);
-        getVariantPathKey.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        Optional<String> key = (Optional<String>) getVariantPathKey.invoke(analyzer, new BigIntLiteral(1));
-        Assertions.assertFalse(key.isPresent());
-
-        Method resolvePath = ExpressionAnalyzer.class.getDeclaredMethod("resolveVariantElementAtPath", ElementAt.class);
-        resolvePath.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        Optional<?> path = (Optional<?>) resolvePath.invoke(analyzer, elementAt);
-        Assertions.assertFalse(path.isPresent());
-    }
-
-    @Test
-    public void testMaybeCastAliasExpression() {
-        VariantField field = new VariantField("int_nested.level1_num_1", BigIntType.INSTANCE, "");
-        VariantType variantType = new VariantType(ImmutableList.of(field));
+    public void testDotPathMergedAliasCast() {
+        VariantField nestedField = new VariantField("int_nested.level1_num_1", BigIntType.INSTANCE, "");
+        VariantType variantType = new VariantType(ImmutableList.of(nestedField));
         SlotReference slot = buildVariantSlot(variantType);
         Scope scope = new Scope(ImmutableList.of(slot));
 
         UnboundSlot unbound = new UnboundSlot("data", "int_nested", "level1_num_1");
         Expression result = analyze(unbound, scope, true);
-
         Assertions.assertTrue(result instanceof Alias);
         Alias alias = (Alias) result;
-        Assertions.assertTrue(alias.child() instanceof Cast);
-        Cast cast = (Cast) alias.child();
-        Assertions.assertEquals(BigIntType.INSTANCE, cast.getDataType());
+        assertCastElementAt(alias.child());
+    }
+
+    @Test
+    public void testExplicitCastStillAutoCastsInner() {
+        VariantType variantType = buildVariantType();
+        SlotReference slot = buildVariantSlot(variantType);
+        Scope scope = new Scope(ImmutableList.of(slot));
+
+        ElementAt elementAt = new ElementAt(slot, new StringLiteral("num_a"));
+        Cast explicit = new Cast(elementAt, IntegerType.INSTANCE);
+        Expression result = analyze(explicit, scope, true);
+
+        Assertions.assertTrue(result instanceof Cast);
+        Cast outer = (Cast) result;
+        Assertions.assertTrue(outer.child() instanceof Cast);
+        Cast inner = (Cast) outer.child();
+        Assertions.assertTrue(inner.child() instanceof ElementAt);
+    }
+
+    @Test
+    public void testWhereBetweenAndIn() {
+        VariantType variantType = buildVariantType();
+        SlotReference slot = buildVariantSlot(variantType);
+        Scope scope = new Scope(ImmutableList.of(slot));
+
+        ElementAt elementAt = new ElementAt(slot, new StringLiteral("num_a"));
+        Between between = new Between(elementAt, new BigIntLiteral(10), new BigIntLiteral(20));
+        Expression betweenResult = analyze(between, scope, true);
+        Assertions.assertTrue(betweenResult instanceof Between);
+        assertCastElementAt(((Between) betweenResult).getCompareExpr());
+
+        ElementAt elementAtStr = new ElementAt(slot, new StringLiteral("str_name"));
+        InPredicate inPredicate = new InPredicate(elementAtStr,
+                ImmutableList.of(new StringLiteral("alice"), new StringLiteral("bob")));
+        Expression inResult = analyze(inPredicate, scope, true);
+        Assertions.assertTrue(inResult instanceof InPredicate);
+        assertCastElementAt(((InPredicate) inResult).getCompareExpr());
+    }
+
+    @Test
+    public void testAggregateMinMaxAvgCountDistinct() {
+        VariantType variantType = buildVariantType();
+        SlotReference slot = buildVariantSlot(variantType);
+        Scope scope = new Scope(ImmutableList.of(slot));
+
+        ElementAt elementAt = new ElementAt(slot, new StringLiteral("num_a"));
+        Min min = new Min(elementAt);
+        Max max = new Max(elementAt);
+        Avg avg = new Avg(elementAt);
+        Count countDistinct = new Count(true, elementAt);
+
+        Expression minResult = analyze(min, scope, true);
+        Assertions.assertTrue(minResult instanceof Min);
+        assertCastElementAt(((Min) minResult).child());
+
+        Expression maxResult = analyze(max, scope, true);
+        Assertions.assertTrue(maxResult instanceof Max);
+        assertCastElementAt(((Max) maxResult).child());
+
+        Expression avgResult = analyze(avg, scope, true);
+        Assertions.assertTrue(avgResult instanceof Avg);
+        assertCastElementAt(((Avg) avgResult).child());
+
+        Expression countResult = analyze(countDistinct, scope, true);
+        Assertions.assertTrue(countResult instanceof Count);
+        assertCastElementAt(((Count) countResult).child(0));
+    }
+
+    @Test
+    public void testAutoCastDisabled() {
+        VariantType variantType = buildVariantType();
+        SlotReference slot = buildVariantSlot(variantType);
+        Scope scope = new Scope(ImmutableList.of(slot));
+
+        ElementAt elementAt = new ElementAt(slot, new StringLiteral("num_a"));
+        Expression result = analyze(elementAt, scope, false);
+
+        Assertions.assertTrue(result instanceof ElementAt);
+        Assertions.assertFalse(result instanceof Cast);
     }
 }

@@ -266,20 +266,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     @Override
     public Expression visitDereferenceExpression(DereferenceExpression dereferenceExpression,
             ExpressionRewriteContext context) {
-        boolean suppressChildCast = isEnableVariantSchemaAutoCast(context)
-                && (dereferenceExpression.child(0) instanceof DereferenceExpression
-                || dereferenceExpression.child(0) instanceof ElementAt);
-        if (suppressChildCast) {
-            suppressVariantElementAtCastDepth++;
-        }
-        Expression expression;
-        try {
-            expression = dereferenceExpression.child(0).accept(this, context);
-        } finally {
-            if (suppressChildCast) {
-                suppressVariantElementAtCastDepth--;
-            }
-        }
+        Expression expression = dereferenceExpression.child(0).accept(this, context);
         DataType dataType = expression.getDataType();
         if (dataType.isStructType()) {
             StructType structType = (StructType) dataType;
@@ -290,11 +277,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         } else if (dataType.isMapType()) {
             return new ElementAt(expression, dereferenceExpression.child(1));
         } else if (dataType.isVariantType()) {
-            Expression elementAt = new ElementAt(expression, dereferenceExpression.child(1));
-            if (isEnableVariantSchemaAutoCast(context)) {
-                return wrapVariantElementAtWithCast(elementAt);
-            }
-            return elementAt;
+            return new ElementAt(expression, dereferenceExpression.child(1));
         }
         throw new AnalysisException("Can not dereference field: " + dereferenceExpression.fieldName);
     }
@@ -1012,17 +995,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     @Override
     public Expression visitCast(Cast cast, ExpressionRewriteContext context) {
-        boolean suppressVariantElementAtCast = shouldSuppressVariantElementAtCast(cast);
-        if (suppressVariantElementAtCast) {
-            suppressVariantElementAtCastDepth++;
-        }
-        try {
-            cast = (Cast) super.visitCast(cast, context);
-        } finally {
-            if (suppressVariantElementAtCast) {
-                suppressVariantElementAtCastDepth--;
-            }
-        }
+        cast = (Cast) super.visitCast(cast, context);
 
         // NOTICE: just for compatibility with legacy planner.
         if (cast.child().getDataType().isComplexType() || cast.getDataType().isComplexType()) {

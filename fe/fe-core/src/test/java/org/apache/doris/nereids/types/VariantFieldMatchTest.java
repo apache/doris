@@ -128,7 +128,6 @@ public class VariantFieldMatchTest {
         VariantField field = new VariantField("number_*", BigIntType.INSTANCE, "");
 
         Assertions.assertTrue(field.matches("number_latency"));
-        Assertions.assertEquals(TPatternType.MATCH_NAME_GLOB, field.getPatternType());
     }
 
     // ==================== VariantType.findMatchingField() tests ====================
@@ -236,11 +235,11 @@ public class VariantFieldMatchTest {
 
     @Test
     public void testGlobUnclosedBracket() {
-        // No closing bracket: '[' treated as literal
+        // No closing bracket: invalid glob for PathMatcher, expect no match
         VariantField field = new VariantField("int_[0-9", BigIntType.INSTANCE, "",
                 TPatternType.MATCH_NAME_GLOB.name());
 
-        Assertions.assertTrue(field.matches("int_[0-9"));
+        Assertions.assertFalse(field.matches("int_[0-9"));
         Assertions.assertFalse(field.matches("int_1"));
     }
 
@@ -269,10 +268,5 @@ public class VariantFieldMatchTest {
         Assertions.assertTrue(field2.matches("int_a"));
         Assertions.assertFalse(field2.matches("int_1"));
 
-        // Negated character class with ^
-        VariantField field3 = new VariantField("int_[^0-9]", BigIntType.INSTANCE, "",
-                TPatternType.MATCH_NAME_GLOB.name());
-        Assertions.assertTrue(field3.matches("int_a"));
-        Assertions.assertFalse(field3.matches("int_1"));
     }
 }

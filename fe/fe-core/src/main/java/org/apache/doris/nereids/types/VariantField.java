@@ -20,7 +20,12 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.thrift.TPatternType;
 
+import java.nio.file.FileSystems;
+import java.nio.file.InvalidPathException;
+import java.nio.file.PathMatcher;
+import java.nio.file.Paths;
 import java.util.Objects;
+import java.util.regex.PatternSyntaxException;
 
 /**
  * A field inside a VariantType.
@@ -67,10 +72,6 @@ public class VariantField {
         return comment;
     }
 
-    public TPatternType getPatternType() {
-        return patternType;
-    }
-
     /**
      * Check if the given field name matches this field's pattern.
      * This method aligns with BE's fnmatch(pattern, path, FNM_PATHNAME) behavior.
@@ -79,7 +80,7 @@ public class VariantField {
      * - '*' matches any sequence of characters except '/'
      * - '?' matches any single character except '/'
      * - '[...]' matches any character in the brackets
-     * - '[!...]' or '[^...]' matches any character not in the brackets
+     * - '[!...]' matches any character not in the brackets
      *
      * @param fieldName the field name to check
      * @return true if the field name matches the pattern
@@ -87,116 +88,16 @@ public class VariantField {
     public boolean matches(String fieldName) {
         if (patternType == TPatternType.MATCH_NAME) {
             return pattern.equals(fieldName);
-        } else {
-            // MATCH_NAME_GLOB: convert glob pattern to regex
-            // This aligns with BE's fnmatch(pattern, path, FNM_PATHNAME)
-            String regex = globToRegex(pattern);
-            return fieldName.matches(regex);
         }
-    }
-
-    /**
-     * Convert glob pattern to regex pattern, aligning with fnmatch(FNM_PATHNAME) behavior.
-     *
-     * fnmatch with FNM_PATHNAME flag behavior:
-     * - '*' matches any sequence of characters except '/'
-     * - '?' matches any single character except '/'
-     * - '[...]' matches any character in the brackets
-     * - '[!...]' or '[^...]' matches any character not in the brackets
-     * - '\' escapes the next character (e.g., '\*' matches literal '*')
-     */
-    private static String globToRegex(String glob) {
-        StringBuilder regex = new StringBuilder();
-        int i = 0;
-        int len = glob.length();
-
-        while (i < len) {
-            char c = glob.charAt(i);
-            switch (c) {
-                case '\\':
-                    // Escape sequence: next character should be matched literally
-                    // This aligns with fnmatch behavior where \* matches literal *
-                    if (i + 1 < len) {
-                        i++;
-                        char nextChar = glob.charAt(i);
-                        // Escape the next character for regex if it's a regex special char
-                        if (isRegexSpecialChar(nextChar)) {
-                            regex.append('\\');
-                        }
-                        regex.append(nextChar);
-                    } else {
-                        // Trailing backslash, treat as literal backslash
-                        regex.append("\\\\");
-                    }
-                    break;
-                case '*':
-                    // '*' matches any sequence of characters except '/' (FNM_PATHNAME)
-                    regex.append("[^/]*");
-                    break;
-                case '?':
-                    // '?' matches any single character except '/' (FNM_PATHNAME)
-                    regex.append("[^/]");
-                    break;
-                case '[':
-                    // Character class - find the closing bracket
-                    int j = i + 1;
-                    // Handle negation: [! or [^
-                    if (j < len && (glob.charAt(j) == '!' || glob.charAt(j) == '^')) {
-                        j++;
-                    }
-                    // Handle ] as first character in class
-                    if (j < len && glob.charAt(j) == ']') {
-                        j++;
-                    }
-                    // Find closing ]
-                    while (j < len && glob.charAt(j) != ']') {
-                        j++;
-                    }
-                    if (j >= len) {
-                        // No closing bracket, treat [ as literal
-                        regex.append("\\[");
-                    } else {
-                        // Extract the character class content
-                        String classContent = glob.substring(i + 1, j);
-                        regex.append('[');
-                        // Convert [! to [^
-                        if (classContent.startsWith("!")) {
-                            regex.append('^').append(classContent.substring(1));
-                        } else {
-                            regex.append(classContent);
-                        }
-                        regex.append(']');
-                        i = j; // Move past the closing ]
-                    }
-                    break;
-                // Escape regex special characters (except backslash which is handled above)
-                case '.':
-                case '(':
-                case ')':
-                case '{':
-                case '}':
-                case '+':
-                case '^':
-                case '$':
-                case '|':
-                    regex.append('\\').append(c);
-                    break;
-                default:
-                    regex.append(c);
-                    break;
-            }
-            i++;
+        if (patternType != TPatternType.MATCH_NAME_GLOB) {
+            return false;
         }
-        return regex.toString();
-    }
-
-    /**
-     * Check if a character is a regex special character that needs escaping.
-     */
-    private static boolean isRegexSpecialChar(char c) {
-        return c == '\\' || c == '.' || c == '(' || c == ')' || c == '['
-                || c == ']' || c == '{' || c == '}' || c == '+' || c == '*'
-                || c == '?' || c == '^' || c == '$' || c == '|';
+        try {
+            PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pattern);
+            return matcher.matches(Paths.get(fieldName));
+        } catch (PatternSyntaxException | InvalidPathException e) {
+            return false;
+        }
     }
 
     public org.apache.doris.catalog.VariantField toCatalogDataType() {
