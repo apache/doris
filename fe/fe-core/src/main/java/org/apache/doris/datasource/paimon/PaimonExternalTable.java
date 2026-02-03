@@ -323,7 +323,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         makeSureInitialized();
         PaimonSchemaCacheKey paimonSchemaCacheKey = (PaimonSchemaCacheKey) key;
         try {
-            Table table = ((PaimonExternalCatalog) getCatalog()).getPaimonTable(getOrBuildNameMapping());
+            Table table = getBasePaimonTable();
             TableSchema tableSchema = ((DataTable) table).schemaManager().schema(paimonSchemaCacheKey.getSchemaId());
             List<DataField> columns = tableSchema.fields();
             List<Column> dorisColumns = Lists.newArrayListWithCapacity(columns.size());
