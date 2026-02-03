@@ -20,7 +20,6 @@ package org.apache.doris.cdcclient.sink;
 import org.apache.doris.cdcclient.common.Env;
 import org.apache.doris.cdcclient.exception.StreamLoadException;
 import org.apache.doris.cdcclient.utils.HttpUtil;
-import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.CommitOffsetRequest;
 
 import org.apache.commons.lang3.StringUtils;
@@ -96,7 +95,7 @@ public class DorisBatchStreamLoad implements Serializable {
     private long jobId;
     @Setter private String token;
     // stream load headers
-    private Map<String, String> loadProps = new HashMap<>();
+    @Setter private Map<String, String> loadProps = new HashMap<>();
     @Getter private LoadStatistic loadStatistic;
 
     public DorisBatchStreamLoad(long jobId, String targetDb) {
@@ -129,17 +128,6 @@ public class DorisBatchStreamLoad implements Serializable {
             throw new RuntimeException(
                     "Thread interrupted while waiting for load thread to start", e);
         }
-    }
-
-    public void setLoadProps(Map<String, String> targetProps) {
-        targetProps.forEach(
-                (key, value) -> {
-                    if (key.startsWith(DataSourceConfigKeys.STREAM_LOAD_PROPERTIES)) {
-                        this.loadProps.put(
-                                key.substring(DataSourceConfigKeys.STREAM_LOAD_PROPERTIES.length()),
-                                value);
-                    }
-                });
     }
 
     /**

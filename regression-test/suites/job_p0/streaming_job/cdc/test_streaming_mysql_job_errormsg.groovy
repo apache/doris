@@ -108,7 +108,7 @@ suite("test_streaming_mysql_job_errormsg", "p0,external,mysql,external_docker,ex
         sql """ALTER JOB ${jobName}
         FROM MYSQL
         TO DATABASE ${currentDb} (
-            "stream_load.properties.max_filter_ratio" = "1"
+            "load.max_filter_ratio" = "1"
         )"""
 
         sql """RESUME JOB where jobname = '${jobName}'"""

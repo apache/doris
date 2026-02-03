@@ -24,6 +24,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.job.base.Job;
+import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.CommitOffsetRequest;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
 import org.apache.doris.job.cdc.split.BinlogSplit;
@@ -35,6 +36,7 @@ import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.jdbc.JdbcOffset;
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
 import org.apache.doris.job.util.StreamingJobUtils;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PRequestCdcClientResult;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -51,6 +53,7 @@ import com.google.common.base.Preconditions;
 import com.google.gson.Gson;
 import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashMap;
 import java.util.List;
@@ -181,7 +184,9 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         request.setTaskId(getTaskId() + "");
         request.setToken(getToken());
         request.setTargetDb(targetDb);
-        request.setTargetProps(targetProperties);
+
+        Map<String, String> props = generateStreamLoadProps();
+        request.setStreamLoadProps(props);
 
         Map<String, Object> splitMeta = offset.generateMeta();
         Preconditions.checkArgument(!splitMeta.isEmpty(), "split meta is empty");
@@ -190,6 +195,23 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         request.setFrontendAddress(feAddr);
         request.setMaxInterval(jobProperties.getMaxIntervalSecond());
         return request;
+    }
+
+    private Map<String, String> generateStreamLoadProps() {
+        Map<String, String> streamLoadProps = new HashMap<>();
+        String maxFilterRadio =
+                targetProperties.get(DataSourceConfigKeys.LOAD_PROPERTIES + LoadCommand.MAX_FILTER_RATIO_PROPERTY);
+        if (StringUtils.isNotEmpty(maxFilterRadio)) {
+            // If `load.max_filter_radio` is set, it is calculated on the job side based on a window;
+            // the `max_filter_radio` of the streamload must be 1.
+            streamLoadProps.put(LoadCommand.MAX_FILTER_RATIO_PROPERTY, "1");
+        }
+
+        String strictMode = targetProperties.get(DataSourceConfigKeys.LOAD_PROPERTIES + LoadCommand.STRICT_MODE);
+        if (StringUtils.isNotEmpty(strictMode)) {
+            streamLoadProps.put(LoadCommand.STRICT_MODE, strictMode);
+        }
+        return streamLoadProps;
     }
 
     @Override

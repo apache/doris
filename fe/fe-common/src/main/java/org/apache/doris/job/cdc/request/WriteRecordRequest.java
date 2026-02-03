@@ -30,5 +30,5 @@ public class WriteRecordRequest extends JobBaseRecordRequest {
     private String token;
     private String frontendAddress;
     private String taskId;
-    private Map<String, String> targetProps;
+    private Map<String, String> streamLoadProps;
 }

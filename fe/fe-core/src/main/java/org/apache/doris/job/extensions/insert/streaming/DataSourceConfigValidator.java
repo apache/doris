@@ -59,7 +59,7 @@ public class DataSourceConfigValidator {
         for (Map.Entry<String, String> entry : input.entrySet()) {
             String key = entry.getKey();
             if (!key.startsWith(DataSourceConfigKeys.TABLE_PROPS_PREFIX)
-                    && !key.startsWith(DataSourceConfigKeys.STREAM_LOAD_PROPERTIES)) {
+                    && !key.startsWith(DataSourceConfigKeys.LOAD_PROPERTIES)) {
                 throw new IllegalArgumentException("Not support target properties key " + key);
             }
         }

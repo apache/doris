@@ -38,5 +38,5 @@ public class DataSourceConfigKeys {
 
     // target properties
     public static final String TABLE_PROPS_PREFIX = "table.create.properties.";
-    public static final String STREAM_LOAD_PROPERTIES = "stream_load.properties.";
+    public static final String LOAD_PROPERTIES = "load.";
 }
