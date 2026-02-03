@@ -20,6 +20,8 @@ package org.apache.doris.cdcclient.sink;
 import org.apache.doris.cdcclient.common.Env;
 import org.apache.doris.cdcclient.exception.StreamLoadException;
 import org.apache.doris.cdcclient.utils.HttpUtil;
+import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.request.CommitOffsetRequest;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.flink.annotation.VisibleForTesting;
@@ -93,9 +95,13 @@ public class DorisBatchStreamLoad implements Serializable {
     private String targetDb;
     private long jobId;
     @Setter private String token;
+    // stream load headers
+    private Map<String, String> loadProps = new HashMap<>();
+    @Getter private LoadStatistic loadStatistic;
 
     public DorisBatchStreamLoad(long jobId, String targetDb) {
         this.hostPort = Env.getCurrentEnv().getBackendHostPort();
+        this.loadStatistic = new LoadStatistic();
         this.flushQueue = new LinkedBlockingDeque<>(1);
         // maxBlockedBytes is two times of FLUSH_MAX_BYTE_SIZE
         this.maxBlockedBytes = STREAM_LOAD_MAX_BYTES * 2;
@@ -123,6 +129,17 @@ public class DorisBatchStreamLoad implements Serializable {
             throw new RuntimeException(
                     "Thread interrupted while waiting for load thread to start", e);
         }
+    }
+
+    public void setLoadProps(Map<String, String> targetProps) {
+        targetProps.forEach(
+                (key, value) -> {
+                    if (key.startsWith(DataSourceConfigKeys.STREAM_LOAD_PROPERTIES)) {
+                        this.loadProps.put(
+                                key.substring(DataSourceConfigKeys.STREAM_LOAD_PROPERTIES.length()),
+                                value);
+                    }
+                });
     }
 
     /**
@@ -388,11 +405,11 @@ public class DorisBatchStreamLoad implements Serializable {
             String finalLabel = String.format("%s_%s_%s", jobId, currentTaskId, label);
             putBuilder
                     .setUrl(loadUrl)
+                    .addProperties(loadProps)
                     .addTokenAuth(token)
                     .setLabel(finalLabel)
                     .formatJson()
                     .addCommonHeader()
-                    .setEntity(entity)
                     .addHiddenColumns(true)
                     .setEntity(entity);
 
@@ -422,6 +439,7 @@ public class DorisBatchStreamLoad implements Serializable {
                                 } finally {
                                     lock.unlock();
                                 }
+                                loadStatistic.add(respContent);
                                 return;
                             } else {
                                 String errMsg = null;
@@ -494,16 +512,23 @@ public class DorisBatchStreamLoad implements Serializable {
 
     /** commit offfset to frontends. */
     public void commitOffset(
-            String taskId, List<Map<String, String>> meta, long scannedRows, long scannedBytes) {
+            String taskId,
+            List<Map<String, String>> meta,
+            long scannedRows,
+            LoadStatistic loadStatistic) {
         try {
             String url = String.format(COMMIT_URL_PATTERN, frontendAddress, targetDb);
-            Map<String, Object> commitParams = new HashMap<>();
-            commitParams.put("offset", OBJECT_MAPPER.writeValueAsString(meta));
-            commitParams.put("jobId", jobId);
-            commitParams.put("taskId", taskId);
-            commitParams.put("scannedRows", scannedRows);
-            commitParams.put("scannedBytes", scannedBytes);
-            String param = OBJECT_MAPPER.writeValueAsString(commitParams);
+            CommitOffsetRequest commitRequest =
+                    CommitOffsetRequest.builder()
+                            .offset(OBJECT_MAPPER.writeValueAsString(meta))
+                            .jobId(jobId)
+                            .taskId(Long.parseLong(taskId))
+                            .scannedRows(scannedRows)
+                            .filteredRows(loadStatistic.getFilteredRows())
+                            .loadedRows(loadStatistic.getLoadedRows())
+                            .loadBytes(loadStatistic.getLoadBytes())
+                            .build();
+            String param = OBJECT_MAPPER.writeValueAsString(commitRequest);
 
             HttpPutBuilder builder =
                     new HttpPutBuilder()

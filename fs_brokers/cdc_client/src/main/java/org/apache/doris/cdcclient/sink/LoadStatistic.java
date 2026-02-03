@@ -15,17 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.job.cdc.request;
+package org.apache.doris.cdcclient.sink;
 
-import lombok.EqualsAndHashCode;
-import lombok.Getter;
-import lombok.Setter;
+import lombok.Data;
 
-import java.util.Map;
+@Data
+public class LoadStatistic {
+    private long filteredRows = 0;
+    private long loadedRows = 0;
+    private long loadBytes = 0;
 
-@Getter
-@Setter
-@EqualsAndHashCode(callSuper = true)
-public abstract class JobBaseRecordRequest extends JobBaseConfig {
-    protected Map<String, Object> meta;
+    public void add(RespContent respContent) {
+        this.filteredRows += respContent.getNumberFilteredRows();
+        this.loadedRows += respContent.getNumberLoadedRows();
+        this.loadBytes += respContent.getLoadBytes();
+    }
+
+    public void clear() {
+        this.filteredRows = 0;
+        this.loadedRows = 0;
+        this.loadBytes = 0;
+    }
 }

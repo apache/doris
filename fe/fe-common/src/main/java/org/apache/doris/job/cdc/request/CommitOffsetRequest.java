@@ -17,15 +17,25 @@
 
 package org.apache.doris.job.cdc.request;
 
-import lombok.EqualsAndHashCode;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
-
-import java.util.Map;
+import lombok.ToString;
 
 @Getter
 @Setter
-@EqualsAndHashCode(callSuper = true)
-public abstract class JobBaseRecordRequest extends JobBaseConfig {
-    protected Map<String, Object> meta;
+@NoArgsConstructor
+@ToString
+@AllArgsConstructor
+@Builder
+public class CommitOffsetRequest {
+    public long jobId;
+    public long taskId;
+    public String offset;
+    public long scannedRows;
+    public long filteredRows;
+    public long loadedRows;
+    public long loadBytes;
 }

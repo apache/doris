@@ -23,8 +23,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
-import org.apache.doris.httpv2.rest.StreamingJobAction.CommitOffsetRequest;
 import org.apache.doris.job.base.Job;
+import org.apache.doris.job.cdc.request.CommitOffsetRequest;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
@@ -69,7 +69,9 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     private String targetDb;
     private StreamingJobProperties jobProperties;
     private long scannedRows = 0L;
-    private long scannedBytes = 0L;
+    private long loadBytes = 0L;
+    private long filteredRows = 0L;
+    private long loadedRows = 0L;
     private long timeoutMs;
     private long runningBackendId;
 
@@ -179,6 +181,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         request.setTaskId(getTaskId() + "");
         request.setToken(getToken());
         request.setTargetDb(targetDb);
+        request.setTargetProps(targetProperties);
 
         Map<String, Object> splitMeta = offset.generateMeta();
         Preconditions.checkArgument(!splitMeta.isEmpty(), "split meta is empty");
@@ -246,7 +249,9 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         }
 
         this.scannedRows = offsetRequest.getScannedRows();
-        this.scannedBytes = offsetRequest.getScannedBytes();
+        this.loadBytes = offsetRequest.getLoadBytes();
+        this.filteredRows = offsetRequest.getFilteredRows();
+        this.loadedRows = offsetRequest.getLoadedRows();
         Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
         if (null == job) {
             log.info("job is null, job id is {}", jobId);
@@ -330,7 +335,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         Map<String, Object> statistic = new HashMap<>();
         statistic.put("scannedRows", scannedRows);
-        statistic.put("loadBytes", scannedBytes);
+        statistic.put("loadBytes", loadBytes);
         trow.addToColumnValue(new TCell().setStringVal(new Gson().toJson(statistic)));
 
         if (this.getUserIdentity() == null) {

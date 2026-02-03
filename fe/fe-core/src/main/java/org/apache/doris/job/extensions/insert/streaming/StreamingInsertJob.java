@@ -32,11 +32,11 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.httpv2.rest.StreamingJobAction.CommitOffsetRequest;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.request.CommitOffsetRequest;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.common.FailureReason;
 import org.apache.doris.job.common.IntervalUnit;
@@ -373,7 +373,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
         // update target properties
         if (!alterJobCommand.getTargetProperties().isEmpty()) {
-            this.sourceProperties.putAll(alterJobCommand.getTargetProperties());
+            this.targetProperties.putAll(alterJobCommand.getTargetProperties());
             logParts.add("target properties: " + alterJobCommand.getTargetProperties());
         }
         log.info("Alter streaming job {}, {}", getJobId(), String.join(", ", logParts));
@@ -621,7 +621,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.jobStatistic = new StreamingJobStatistic();
         }
         this.jobStatistic.setScannedRows(this.jobStatistic.getScannedRows() + offsetRequest.getScannedRows());
-        this.jobStatistic.setLoadBytes(this.jobStatistic.getLoadBytes() + offsetRequest.getScannedBytes());
+        this.jobStatistic.setLoadBytes(this.jobStatistic.getLoadBytes() + offsetRequest.getLoadBytes());
         offsetProvider.updateOffset(offsetProvider.deserializeOffset(offsetRequest.getOffset()));
     }
 
@@ -631,7 +631,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
         this.nonTxnJobStatistic
                 .setScannedRows(this.nonTxnJobStatistic.getScannedRows() + offsetRequest.getScannedRows());
-        this.nonTxnJobStatistic.setLoadBytes(this.nonTxnJobStatistic.getLoadBytes() + offsetRequest.getScannedBytes());
+        this.nonTxnJobStatistic
+                .setFilteredRows(this.nonTxnJobStatistic.getFilteredRows() + offsetRequest.getFilteredRows());
+        this.nonTxnJobStatistic.setLoadBytes(this.nonTxnJobStatistic.getLoadBytes() + offsetRequest.getLoadBytes());
         offsetProvider.updateOffset(offsetProvider.deserializeOffset(offsetRequest.getOffset()));
     }
 
@@ -1113,7 +1115,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                             + this.runningStreamTask.getTaskId() + ", actual: " + offsetRequest.getTaskId());
                 }
                 updateNoTxnJobStatisticAndOffset(offsetRequest);
-                if (offsetRequest.getScannedRows() == 0 && offsetRequest.getScannedBytes() == 0) {
+                if (offsetRequest.getScannedRows() == 0 && offsetRequest.getLoadBytes() == 0) {
                     JdbcSourceOffsetProvider op = (JdbcSourceOffsetProvider) offsetProvider;
                     op.setHasMoreData(false);
                 }
