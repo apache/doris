@@ -22,6 +22,7 @@ import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.PipelineDistributedPlan;
@@ -66,6 +67,7 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TRecCTENode;
 import org.apache.doris.thrift.TRecCTEResetInfo;
 import org.apache.doris.thrift.TRecCTETarget;
+import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TRuntimeFilterInfo;
 import org.apache.doris.thrift.TRuntimeFilterParams;
 import org.apache.doris.thrift.TScanRangeParams;
@@ -401,6 +403,13 @@ public class ThriftPlansBuilder {
             params.setFragment(planThrift);
             params.setLocalParams(Lists.newArrayList());
             params.setWorkloadGroups(coordinatorContext.getWorkloadGroups());
+
+           if (connectContext != null && connectContext.getCurrentUserIdentity() != null) {
+                TResourceInfo resourceInfo = new TResourceInfo();
+                resourceInfo.setUser(connectContext.getCurrentUserIdentity().getQualifiedUser());
+                resourceInfo.setGroup("");
+                params.setResourceInfo(resourceInfo);
+            }
 
             params.setFileScanParams(fileScanRangeParamsMap);
 

@@ -18,6 +18,7 @@
 #include "runtime/workload_management/workload_sched_policy.h"
 
 #include "runtime/workload_management/resource_context.h"
+#include "runtime/workload_management/task_controller.h"
 #include "util/time.h"
 
 namespace doris {
@@ -86,6 +87,10 @@ bool WorkloadSchedPolicy::is_match(WorkloadAction::RuntimeContext* action_runtim
         case WorkloadMetricType::QUERY_MEMORY_BYTES: {
             val = std::to_string(
                     action_runtime_ctx->resource_ctx->memory_context()->current_memory_bytes());
+            break;
+        }
+        case WorkloadMetricType::USERNAME: {
+            val = action_runtime_ctx->resource_ctx->task_controller()->get_user();
             break;
         }
         default:

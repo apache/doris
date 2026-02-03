@@ -23,7 +23,7 @@
 
 namespace doris {
 
-enum WorkloadMetricType { QUERY_TIME, SCAN_ROWS, SCAN_BYTES, QUERY_MEMORY_BYTES };
+enum WorkloadMetricType { QUERY_TIME, SCAN_ROWS, SCAN_BYTES, QUERY_MEMORY_BYTES, USERNAME };
 
 class WorkloadCondition {
 public:
@@ -107,6 +107,21 @@ private:
     WorkloadCompareOperator _op;
 };
 
+class WorkloadConditionUsername : public WorkloadCondition {
+public:
+    WorkloadConditionUsername(WorkloadCompareOperator op, std::string str_val);
+    bool eval(std::string str_val) override;
+    WorkloadMetricType get_workload_metric_type() override { return WorkloadMetricType::USERNAME; }
+
+    std::string get_metric_string() override { return "username"; }
+
+    std::string get_metric_value_string() override { return _username; }
+
+private:
+    std::string _username;
+    WorkloadCompareOperator _op;
+};
+
 class WorkloadConditionFactory {
 public:
     static std::unique_ptr<WorkloadCondition> create_workload_condition(
@@ -123,6 +138,8 @@ public:
             return std::make_unique<WorkloadConditionScanBytes>(op, str_val);
         } else if (TWorkloadMetricType::type::QUERY_BE_MEMORY_BYTES == metric_name) {
             return std::make_unique<WorkloadConditionQueryMemory>(op, str_val);
+        } else if (TWorkloadMetricType::type::USERNAME == metric_name) {
+            return std::make_unique<WorkloadConditionUsername>(op, str_val);
         }
         LOG(ERROR) << "not find a metric name " << metric_name;
         return nullptr;
