@@ -454,9 +454,25 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
         assert_cast<vectorized::ColumnNullable&>(*dst).insert_many_defaults(*n);
         return Status::OK();
     }
-    dst->insert(zone_map_info.max_value);
-    for (int i = 1; i < *n; ++i) {
-        dst->insert(zone_map_info.min_value);
+    FieldType type = _type_info->type();
+    if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
+        auto s = zone_map_info.max_value.template get<TYPE_CHAR>();
+        while (!s.empty() && s.back() == '\0') {
+            s.pop_back();
+        }
+        dst->insert(vectorized::Field::create_field<TYPE_CHAR>(s));
+        for (int i = 1; i < *n; ++i) {
+            s = zone_map_info.min_value.template get<TYPE_CHAR>();
+            while (!s.empty() && s.back() == '\0') {
+                s.pop_back();
+            }
+            dst->insert(vectorized::Field::create_field<TYPE_CHAR>(s));
+        }
+    } else {
+        dst->insert(zone_map_info.max_value);
+        for (int i = 1; i < *n; ++i) {
+            dst->insert(zone_map_info.min_value);
+        }
     }
     return Status::OK();
 }
