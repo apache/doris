@@ -275,13 +275,13 @@ void MemTableMemoryLimiter::refresh_mem_tracker() {
 
     _last_limit = limit;
     _log_timer.reset();
+    doris::ProcessProfile::instance()->memory_profile()->refresh_memory_overview_profile();
     LOG(INFO) << ss.str()
               << ", load mem: " << PrettyPrinter::print_bytes(_mem_tracker->consumption())
               << ", memtable writers num: " << _writers.size()
               << ", active: " << PrettyPrinter::print_bytes(_active_mem_usage)
               << ", queue: " << PrettyPrinter::print_bytes(_queue_mem_usage)
               << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << ", "
-              << GlobalMemoryArbitrator::process_memory_used_details_str() << ", "
               << doris::ProcessProfile::instance()->memory_profile()->process_memory_detail_str();
     constexpr int64_t dbg_mem_limit = 33 * 1024 * 1024 * 1024LL;
     if (_mem_tracker->consumption() > dbg_mem_limit) {
