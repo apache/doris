@@ -101,6 +101,10 @@ TEST_F(WorkloadSchedPolicyTest, one_policy_one_condition) {
                      std::move(action_ptr_list));
 
         WorkloadAction::RuntimeContext action_runtime_ctx = create_runtime_context();
+        TUniqueId task_id;
+        task_id.hi = 1;
+        task_id.lo = 1;
+        action_runtime_ctx.resource_ctx->task_controller()->set_task_id(task_id);
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
         action_runtime_ctx.resource_ctx->task_controller()->finish();
         EXPECT_TRUE(policy->is_match(&action_runtime_ctx))
@@ -208,6 +212,10 @@ TEST_F(WorkloadSchedPolicyTest, one_policy_mutl_condition) {
 
     // 2. is match
     WorkloadAction::RuntimeContext action_runtime_ctx = create_runtime_context();
+    TUniqueId task_id;
+    task_id.hi = 1;
+    task_id.lo = 1;
+    action_runtime_ctx.resource_ctx->task_controller()->set_task_id(task_id);
     std::shared_ptr<MemTrackerLimiter> mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY, "Test");
     action_runtime_ctx.resource_ctx->memory_context()->set_mem_tracker(mem_tracker);
