@@ -132,6 +132,8 @@ public final class GlobRegexUtil {
             case '^':
             case '$':
             case '+':
+            case '*':
+            case '?':
             case '(':
             case ')':
             case '|':

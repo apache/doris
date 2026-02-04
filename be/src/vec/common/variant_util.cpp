@@ -109,6 +109,8 @@ inline void append_escaped_regex_char(std::string* regex_output, char ch) {
     case '^':
     case '$':
     case '+':
+    case '*':
+    case '?':
     case '(': 
     case ')':
     case '|':
