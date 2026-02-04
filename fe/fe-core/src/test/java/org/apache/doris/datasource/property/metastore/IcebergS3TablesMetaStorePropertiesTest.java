@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.collect.ImmutableMap;
@@ -26,9 +27,22 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import software.amazon.s3tables.iceberg.S3TablesCatalog;
 
+import java.lang.reflect.Method;
+import java.util.HashMap;
 import java.util.Map;
 
 public class IcebergS3TablesMetaStorePropertiesTest {
+
+    /**
+     * Call private buildS3CatalogProperties to fill catalogProps without initializing S3TablesCatalog
+     * (which requires warehouse/table bucket ARN and would throw ValidationException).
+     */
+    private static void buildS3CatalogProperties(IcebergS3TablesMetaStoreProperties metaProps,
+            Map<String, String> catalogProps) throws Exception {
+        Method m = IcebergS3TablesMetaStoreProperties.class.getDeclaredMethod("buildS3CatalogProperties", Map.class);
+        m.setAccessible(true);
+        m.invoke(metaProps, catalogProps);
+    }
 
     @Test
     public void s3TablesTest() throws UserException {
@@ -52,4 +66,71 @@ public class IcebergS3TablesMetaStorePropertiesTest {
         Assertions.assertEquals(S3TablesCatalog.class, catalog.getClass());
     }
 
+    @Test
+    public void s3TablesWithIamRole() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "iceberg");
+        props.put("iceberg.catalog.type", "s3tables");
+        props.put("warehouse", "s3://my-bucket/warehouse");
+        props.put("s3.region", "us-east-1");
+        props.put("s3.role_arn", "arn:aws:iam::123456789012:role/S3TablesRole");
+        props.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
+
+        IcebergS3TablesMetaStoreProperties metaProps = new IcebergS3TablesMetaStoreProperties(props);
+        metaProps.initNormalizeAndCheckProps();
+
+        Assertions.assertEquals(IcebergExternalCatalog.ICEBERG_S3_TABLES, metaProps.getIcebergCatalogType());
+
+        Map<String, String> catalogProps = new HashMap<>();
+        buildS3CatalogProperties(metaProps, catalogProps);
+
+        Assertions.assertTrue(catalogProps.containsKey("client.factory"));
+        Assertions.assertEquals("arn:aws:iam::123456789012:role/S3TablesRole", catalogProps.get("client.assume-role.arn"));
+        Assertions.assertEquals("us-east-1", catalogProps.get("client.assume-role.region"));
+    }
+
+    @Test
+    public void s3TablesWithIamRoleAndExternalId() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "iceberg");
+        props.put("iceberg.catalog.type", "s3tables");
+        props.put("warehouse", "s3://my-bucket/warehouse");
+        props.put("s3.region", "us-west-2");
+        props.put("s3.role_arn", "arn:aws:iam::999999999999:role/MyRole");
+        props.put("s3.external_id", "external-id-123");
+        props.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");
+
+        IcebergS3TablesMetaStoreProperties metaProps = new IcebergS3TablesMetaStoreProperties(props);
+        metaProps.initNormalizeAndCheckProps();
+
+        Map<String, String> catalogProps = new HashMap<>();
+        buildS3CatalogProperties(metaProps, catalogProps);
+
+        Assertions.assertEquals("arn:aws:iam::999999999999:role/MyRole", catalogProps.get("client.assume-role.arn"));
+        Assertions.assertEquals("external-id-123", catalogProps.get("client.assume-role.external-id"));
+    }
+
+    @Test
+    public void s3TablesWithAccessKeyPreferOverIamRole() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "iceberg");
+        props.put("iceberg.catalog.type", "s3tables");
+        props.put("warehouse", "s3://my-bucket/warehouse");
+        props.put("s3.region", "us-east-1");
+        props.put("s3.access_key", "AKID");
+        props.put("s3.secret_key", "SECRET");
+        props.put("s3.role_arn", "arn:aws:iam::123456789012:role/Role");
+        props.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
+
+        IcebergS3TablesMetaStoreProperties metaProps = new IcebergS3TablesMetaStoreProperties(props);
+        metaProps.initNormalizeAndCheckProps();
+
+        Map<String, String> catalogProps = new HashMap<>();
+        buildS3CatalogProperties(metaProps, catalogProps);
+
+        Assertions.assertTrue(catalogProps.containsKey("client.credentials-provider"));
+        Assertions.assertEquals("AKID", catalogProps.get("client.credentials-provider.s3.access-key-id"));
+        Assertions.assertEquals("SECRET", catalogProps.get("client.credentials-provider.s3.secret-access-key"));
+        Assertions.assertNull(catalogProps.get("client.assume-role.arn"));
+    }
 }
