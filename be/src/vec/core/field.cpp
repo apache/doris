@@ -647,6 +647,32 @@ std::string Field::get_type_name() const {
     return type_to_string(type);
 }
 
+template <PrimitiveType T>
+typename PrimitiveTypeTraits<T>::CppType& Field::get() {
+    DCHECK(T == type || (is_string_type(type) && is_string_type(T)) || type == TYPE_NULL)
+            << "Type mismatch: requested " << type_to_string(T) << ", actual " << get_type_name();
+    auto* MAY_ALIAS ptr = reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(&storage);
+    return *ptr;
+}
+
+template <PrimitiveType T>
+const typename PrimitiveTypeTraits<T>::CppType& Field::get() const {
+    DCHECK(T == type || (is_string_type(type) && is_string_type(T)) || type == TYPE_NULL)
+            << "Type mismatch: requested " << type_to_string(T) << ", actual " << get_type_name();
+    const auto* MAY_ALIAS ptr =
+            reinterpret_cast<const typename PrimitiveTypeTraits<T>::CppType*>(&storage);
+    return *ptr;
+}
+
+template <PrimitiveType T>
+void Field::destroy() {
+    using TargetType = typename PrimitiveTypeTraits<T>::CppType;
+    DCHECK(T == type || ((is_string_type(type) && is_string_type(T))))
+            << "Type mismatch: requested " << type_to_string(T) << ", actual " << get_type_name();
+    auto* MAY_ALIAS ptr = reinterpret_cast<TargetType*>(&storage);
+    ptr->~TargetType();
+}
+
 std::strong_ordering Field::operator<=>(const Field& rhs) const {
     if (type == PrimitiveType::TYPE_NULL || rhs == PrimitiveType::TYPE_NULL) {
         return type <=> rhs.type;
