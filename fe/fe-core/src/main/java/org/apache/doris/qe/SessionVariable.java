@@ -722,6 +722,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PUSHDOWN_STRING_MINMAX = "enable_pushdown_string_minmax";
 
+    public static final String ENABLE_MOR_VALUE_PREDICATE_PUSHDOWN_TABLES
+            = "enable_mor_value_predicate_pushdown_tables";
+
     // When set use fix replica = true, the fixed replica maybe bad, try to use the health one if
     // this session variable is set to true.
     public static final String FALLBACK_OTHER_REPLICA_WHEN_FIXED_CORRUPT = "fallback_other_replica_when_fixed_corrupt";
@@ -2173,6 +2176,13 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_STRING_MINMAX, needForward = true, description = {
         "是否启用 string 类型 min max 下推。", "Set whether to enable push down string type minmax."})
     public boolean enablePushDownStringMinMax = false;
+
+    // Comma-separated list of MOR tables to enable value predicate pushdown.
+    @VariableMgr.VarAttr(name = ENABLE_MOR_VALUE_PREDICATE_PUSHDOWN_TABLES, needForward = true, description = {
+        "指定启用MOR表value列谓词下推的表列表，格式：db1.tbl1,db2.tbl2 或 * 表示所有MOR表。",
+        "Comma-separated list of MOR tables to enable value predicate pushdown. "
+                + "Format: db1.tbl1,db2.tbl2 or * for all MOR tables."})
+    public String enableMorValuePredicatePushdownTables = "";
 
     // Whether drop table when create table as select insert data appear error.
     @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
@@ -4650,6 +4660,35 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnablePushDownStringMinMax() {
         return enablePushDownStringMinMax;
+    }
+
+    public String getEnableMorValuePredicatePushdownTables() {
+        return enableMorValuePredicatePushdownTables;
+    }
+
+    /**
+     * Check if a table is enabled for MOR value predicate pushdown.
+     * @param dbName database name
+     * @param tableName table name
+     * @return true if the table is in the enabled list or if '*' is set
+     */
+    public boolean isMorValuePredicatePushdownEnabled(String dbName, String tableName) {
+        if (enableMorValuePredicatePushdownTables == null
+                || enableMorValuePredicatePushdownTables.isEmpty()) {
+            return false;
+        }
+        String trimmed = enableMorValuePredicatePushdownTables.trim();
+        if ("*".equals(trimmed)) {
+            return true;
+        }
+        String fullName = dbName + "." + tableName;
+        for (String table : trimmed.split(",")) {
+            if (table.trim().equalsIgnoreCase(fullName)
+                    || table.trim().equalsIgnoreCase(tableName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** canUseNereidsDistributePlanner */

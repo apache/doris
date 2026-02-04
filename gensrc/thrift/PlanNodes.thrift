@@ -887,6 +887,8 @@ struct TOlapScanNode {
   20: optional i64 score_sort_limit
   21: optional TSortInfo ann_sort_info
   22: optional i64 ann_sort_limit
+  // Enable value predicate pushdown for MOR tables
+  23: optional bool enable_mor_value_predicate_pushdown
 }
 
 struct TEqJoinCondition {
