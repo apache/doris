@@ -104,8 +104,7 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public List<String> listTableNames(SessionContext ctx, String dbName) {
-        makeSureInitialized();
+    protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
         try {
             return executionAuthenticator.execute(() -> {
                 List<String> tableNames = null;

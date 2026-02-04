@@ -60,7 +60,7 @@ public class LakeSoulExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public List<String> listTableNames(SessionContext ctx, String dbName) {
+    protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
         // makeSureInitialized();
         // List<TableInfo> tifs = lakesoulMetadataManager.getTableInfosByNamespace(dbName);
         // List<String> tableNames = Lists.newArrayList();
