@@ -47,9 +47,9 @@ VIcebergPartitionWriter::VIcebergPartitionWriter(
           _compress_type(compress_type),
           _hadoop_conf(hadoop_conf) {}
 
-Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) {
+Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profile,
+                                     const RowDescriptor* row_desc) {
     _state = state;
-
     io::FSPropertiesRef fs_properties(_write_info.file_type);
     fs_properties.properties = &_hadoop_conf;
     if (!_write_info.broker_addresses.empty()) {

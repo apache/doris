@@ -555,8 +555,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                                                       PlanTranslatorContext context) {
         PlanFragment rootFragment = icebergTableSink.child().accept(this, context);
         rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
+        List<Expr> outputExprs = Lists.newArrayList();
+        icebergTableSink.getOutput().stream().map(Slot::getExprId)
+                .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
         IcebergTableSink sink = new IcebergTableSink((IcebergExternalTable) icebergTableSink.getTargetTable());
         rootFragment.setSink(sink);
+        sink.setOutputExprs(outputExprs);
         return rootFragment;
     }
 

@@ -430,6 +430,7 @@ struct TIcebergTableSink {
     // Key: partition column name, Value: partition value as string
     // When set, BE should use these values directly instead of computing from data
     15: optional map<string, string> static_partition_values;
+    16: optional PlanNodes.TSortInfo sort_info;
 }
 
 enum TDictLayoutType {

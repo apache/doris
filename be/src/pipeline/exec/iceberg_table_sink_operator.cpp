@@ -26,7 +26,7 @@ Status IcebergTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo&
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<Parent>();
-    RETURN_IF_ERROR(_writer->init_properties(p._pool));
+    RETURN_IF_ERROR(_writer->init_properties(p._pool, p._row_desc));
     return Status::OK();
 }
 
