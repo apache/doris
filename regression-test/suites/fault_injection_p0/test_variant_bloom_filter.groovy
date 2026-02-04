@@ -59,7 +59,6 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
     } else {
         var_def = "variant<properties(\"variant_max_subcolumns_count\" = \"100\")>"
     }
-    sql "set default_variant_enable_doc_mode = false"
     sql """
         CREATE TABLE IF NOT EXISTS ${index_table} (
             k bigint,
