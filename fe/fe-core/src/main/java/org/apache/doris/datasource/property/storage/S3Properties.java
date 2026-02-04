@@ -103,7 +103,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     protected String secretKey = "";
 
     @Getter
-    @ConnectorProperty(names = {"s3.session_token", "session_token", "s3.session-token"},
+    @ConnectorProperty(names = {"s3.session_token", "session_token", "s3.session-token", "iceberg.rest.session-token"},
             required = false,
             description = "The session token of S3.")
     protected String sessionToken = "";
@@ -160,12 +160,13 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     protected String s3StsRegion = "";
 
     @Getter
-    @ConnectorProperty(names = {"s3.role_arn", "AWS_ROLE_ARN", "glue.role_arn"},
+    @ConnectorProperty(names = {"s3.role_arn", "AWS_ROLE_ARN", "glue.role_arn", "iceberg.rest.role_arn"},
             required = false,
             description = "The iam role of S3.")
     protected String s3IAMRole = "";
 
-    @ConnectorProperty(names = {"s3.external_id", "AWS_EXTERNAL_ID", "glue.external_id"},
+    @Getter
+    @ConnectorProperty(names = {"s3.external_id", "AWS_EXTERNAL_ID", "glue.external_id", "iceberg.rest.external-id"},
             required = false,
             description = "The external id of S3.")
     protected String s3ExternalId = "";

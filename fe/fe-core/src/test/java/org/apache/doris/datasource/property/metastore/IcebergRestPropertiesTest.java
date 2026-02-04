@@ -348,6 +348,8 @@ public class IcebergRestPropertiesTest {
         Assertions.assertFalse(catalogProps.containsKey("rest.secret-access-key"));
         Assertions.assertFalse(catalogProps.containsKey("rest.sigv4-enabled"));
         props.put("iceberg.rest.signing-name", "custom-service");
+        props.put("iceberg.rest.access-key-id", "AKIAIOSFODNN7EXAMPLE");
+        props.put("iceberg.rest.secret-access-key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
         restProps = new IcebergRestProperties(props);
         restProps.initNormalizeAndCheckProps(); // Should not throw
         catalogProps = restProps.getIcebergRestCatalogProperties();
@@ -426,5 +428,171 @@ public class IcebergRestPropertiesTest {
                 || errorMessage.contains("access-key-id")
                 || errorMessage.contains("secret-access-key")
                 || errorMessage.contains("sigv4-enabled"));
+    }
+
+    // --- UT for signing-name glue/s3tables: access-key+secret-key OR role_arn ---
+
+    @Test
+    public void testS3TablesSigningNameValidWithAccessKeyAndSecretKey() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "s3tables");
+        props.put("iceberg.rest.signing-region", "us-east-1");
+        props.put("iceberg.rest.access-key-id", "AKIAIOSFODNN7EXAMPLE");
+        props.put("iceberg.rest.secret-access-key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals("s3tables", catalogProps.get("rest.signing-name"));
+        Assertions.assertEquals("us-east-1", catalogProps.get("rest.signing-region"));
+        Assertions.assertEquals("AKIAIOSFODNN7EXAMPLE", catalogProps.get("rest.access-key-id"));
+        Assertions.assertEquals("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+                catalogProps.get("rest.secret-access-key"));
+    }
+
+    @Test
+    public void testS3TablesSigningNameCaseInsensitive() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "S3TABLES");
+        props.put("iceberg.rest.signing-region", "us-west-2");
+        props.put("iceberg.rest.access-key-id", "AKIAIOSFODNN7EXAMPLE");
+        props.put("iceberg.rest.secret-access-key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
+        Assertions.assertEquals("s3tables", restProps.getIcebergRestCatalogProperties().get("rest.signing-name"));
+    }
+
+    @Test
+    public void testGlueSigningNameValidWithIamRoleOnly() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "glue");
+        props.put("iceberg.rest.signing-region", "us-east-1");
+        props.put("iceberg.rest.role_arn", "arn:aws:iam::123456789012:role/MyGlueRole");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals("glue", catalogProps.get("rest.signing-name"));
+        Assertions.assertEquals("us-east-1", catalogProps.get("rest.signing-region"));
+        Assertions.assertTrue(catalogProps.containsKey("client.factory"));
+        Assertions.assertEquals("arn:aws:iam::123456789012:role/MyGlueRole", catalogProps.get("client.assume-role.arn"));
+    }
+
+    @Test
+    public void testS3TablesSigningNameValidWithIamRoleOnly() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "s3tables");
+        props.put("iceberg.rest.signing-region", "us-west-2");
+        props.put("iceberg.rest.role_arn", "arn:aws:iam::999999999999:role/S3TablesRole");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals("s3tables", catalogProps.get("rest.signing-name"));
+        Assertions.assertEquals("arn:aws:iam::999999999999:role/S3TablesRole", catalogProps.get("client.assume-role.arn"));
+    }
+
+    @Test
+    public void testGlueSigningNameFailsWhenNeitherAccessKeyNorIamRole() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "glue");
+        props.put("iceberg.rest.signing-region", "us-east-1");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+        // Neither access-key/secret-key nor role_arn
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                restProps::initNormalizeAndCheckProps);
+        Assertions.assertTrue(e.getMessage().contains("access-key-id")
+                || e.getMessage().contains("secret-access-key")
+                || e.getMessage().contains("role_arn"));
+    }
+
+    @Test
+    public void testS3TablesSigningNameFailsWhenNeitherAccessKeyNorIamRole() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "s3tables");
+        props.put("iceberg.rest.signing-region", "us-east-1");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                restProps::initNormalizeAndCheckProps);
+        Assertions.assertTrue(e.getMessage().contains("role_arn")
+                || e.getMessage().contains("access-key-id")
+                || e.getMessage().contains("secret-access-key"));
+    }
+
+    @Test
+    public void testS3TablesSigningNameMissingSigningRegionFails() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "s3tables");
+        props.put("iceberg.rest.access-key-id", "AKIAIOSFODNN7EXAMPLE");
+        props.put("iceberg.rest.secret-access-key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                restProps::initNormalizeAndCheckProps);
+        Assertions.assertTrue(e.getMessage().contains("signing-region") && e.getMessage().contains("s3tables"));
+    }
+
+    @Test
+    public void testAccessKeyAndSecretKeyMustBeSetTogether() {
+        // Only access-key-id, no secret-access-key
+        Map<String, String> props1 = new HashMap<>();
+        props1.put("iceberg.rest.uri", "http://localhost:8080");
+        props1.put("iceberg.rest.signing-name", "glue");
+        props1.put("iceberg.rest.signing-region", "us-east-1");
+        props1.put("iceberg.rest.access-key-id", "AKIAIOSFODNN7EXAMPLE");
+        props1.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps1 = new IcebergRestProperties(props1);
+        IllegalArgumentException e1 = Assertions.assertThrows(IllegalArgumentException.class,
+                restProps1::initNormalizeAndCheckProps);
+        Assertions.assertTrue(e1.getMessage().contains("access-key-id") && e1.getMessage().contains("secret-access-key"));
+
+        // Only secret-access-key, no access-key-id (glue requires one of AK/SK or role_arn; partial AK/SK triggers requireTogether)
+        Map<String, String> props2 = new HashMap<>();
+        props2.put("iceberg.rest.uri", "http://localhost:8080");
+        props2.put("iceberg.rest.signing-name", "glue");
+        props2.put("iceberg.rest.signing-region", "us-east-1");
+        props2.put("iceberg.rest.secret-access-key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        props2.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps2 = new IcebergRestProperties(props2);
+        Assertions.assertThrows(IllegalArgumentException.class, restProps2::initNormalizeAndCheckProps);
+    }
+
+    @Test
+    public void testGlueWithIamRoleAndExternalId() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "glue");
+        props.put("iceberg.rest.signing-region", "us-east-1");
+        props.put("iceberg.rest.role_arn", "arn:aws:iam::123456789012:role/MyGlueRole");
+        props.put("iceberg.rest.external-id", "external-123");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals("external-123", catalogProps.get("client.assume-role.external-id"));
     }
 }
