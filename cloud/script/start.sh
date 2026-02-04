@@ -172,8 +172,10 @@ if [[ "${RUN_DAEMON}" -eq 1 ]]; then
     tail -n12 "${out_file}"
     exit 0
 elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
+    # stdout outputs console
+    # stderr outputs doris_cloud.out
     export DORIS_LOG_TO_STDERR=1
-    "${bin}" "$@" 2>&1
+    "${bin}" "$@" 2>>"${out_file}"
 else
     "${bin}" "$@"
 fi

@@ -381,5 +381,6 @@ int main(int argc, char** argv) {
         periodiccally_log_thread.join();
     }
 
+    shutdown_logging();
     return 0;
 }
