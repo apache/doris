@@ -64,23 +64,11 @@ suite("test_iceberg_expire_snapshots", "p0,external,doris,external_docker,extern
         int schemeIdx = path.indexOf("://")
         assertTrue(schemeIdx > 0, "Unexpected file path: ${path}")
         String withoutScheme = path.substring(schemeIdx + 3)
+        withoutScheme = withoutScheme.split("\\?")[0].split("#")[0]
         int slashIdx = withoutScheme.indexOf("/")
         String bucket = slashIdx > 0 ? withoutScheme.substring(0, slashIdx) : withoutScheme
         String key = slashIdx > 0 ? withoutScheme.substring(slashIdx + 1) : ""
         return [bucket, key]
-    }
-
-    def waitUntil = { int timeoutSecond, Closure<Boolean> closure ->
-        long start = System.currentTimeMillis()
-        while (true) {
-            if (closure.call()) {
-                return
-            }
-            if (System.currentTimeMillis() - start > timeoutSecond * 1000L) {
-                throw new RuntimeException("Operation timeout waiting for condition")
-            }
-            sleep(1000)
-        }
     }
 
     def readMetadataJson = { AmazonS3 client, String metadataPath ->
@@ -151,7 +139,7 @@ suite("test_iceberg_expire_snapshots", "p0,external,doris,external_docker,extern
     logger.info("Expire older_than result: ${expireOlderThanResult}")
 
     // =====================================================================================
-    // Test Case 3: expire_snapshots should delete expired data files
+    // Test Case 3: expire_snapshots should remove expired snapshots and clear old files from metadata
     // =====================================================================================
     String delete_files_table = "test_expire_snapshots_delete_files"
     sql """DROP TABLE IF EXISTS ${db_name}.${delete_files_table}"""
@@ -163,30 +151,35 @@ suite("test_iceberg_expire_snapshots", "p0,external,doris,external_docker,extern
     """
     sql """INSERT INTO ${db_name}.${delete_files_table} VALUES (1, 'data1')"""
 
-    List<List<Object>> fileRows = sql """SELECT file_path FROM ${delete_files_table}\$files"""
-    assertTrue(fileRows.size() > 0, "Expected data files after initial insert")
-    def oldFiles = fileRows.collect { String.valueOf(it[0]) }
+    List<List<Object>> allDataFilesBefore = sql """SELECT file_path FROM ${delete_files_table}\$all_data_files"""
+    assertTrue(allDataFilesBefore.size() > 0, "Expected data files after initial insert")
+    def oldFiles = allDataFilesBefore.collect { String.valueOf(it[0]) } as Set
 
-    AmazonS3 icebergS3Client = buildIcebergS3Client()
-    oldFiles.each { path ->
-        def (bucket, key) = parseS3Path(path)
-        assertTrue(icebergS3Client.doesObjectExist(bucket, key), "Expected file exists: ${path}")
-    }
-
-    // Overwrite table to make previous data files unreferenced
+    // Overwrite table via Doris
     sql """INSERT OVERWRITE TABLE ${db_name}.${delete_files_table} VALUES (3, 'data3')"""
+
+    List<List<Object>> snapshotsBeforeExpire = sql """
+        SELECT snapshot_id FROM ${delete_files_table}\$snapshots ORDER BY committed_at
+    """
+    assertTrue(snapshotsBeforeExpire.size() >= 2, "Expected multiple snapshots before expiration")
+    List<List<Object>> allDataFilesAfterOverwrite = sql """SELECT file_path FROM ${delete_files_table}\$all_data_files"""
+    def allFilesAfterOverwrite = allDataFilesAfterOverwrite.collect { String.valueOf(it[0]) } as Set
+    assertTrue(allFilesAfterOverwrite.containsAll(oldFiles),
+            "Expected old files still visible in all_data_files before expiration")
     long expireMillis = System.currentTimeMillis()
     sql """
         ALTER TABLE ${catalog_name}.${db_name}.${delete_files_table}
         EXECUTE expire_snapshots("older_than" = "${expireMillis}", "retain_last" = "1")
     """
-
-    waitUntil(60, {
-        return oldFiles.every { path ->
-            def (bucket, key) = parseS3Path(path)
-            return !icebergS3Client.doesObjectExist(bucket, key)
-        }
-    })
+    List<List<Object>> snapshotsAfterExpire = sql """
+        SELECT snapshot_id FROM ${delete_files_table}\$snapshots ORDER BY committed_at
+    """
+    assertTrue(snapshotsAfterExpire.size() == 1,
+            "Expected 1 snapshot after expiration, got: ${snapshotsAfterExpire.size()}")
+    List<List<Object>> allDataFilesAfterExpire = sql """SELECT file_path FROM ${delete_files_table}\$all_data_files"""
+    def allFilesAfterExpire = allDataFilesAfterExpire.collect { String.valueOf(it[0]) } as Set
+    assertTrue(oldFiles.intersect(allFilesAfterExpire).isEmpty(),
+            "Expected old files removed from all_data_files after expiration")
 
     // =====================================================================================
     // Test Case 4: expire_snapshots should clean expired metadata when enabled
@@ -203,6 +196,7 @@ suite("test_iceberg_expire_snapshots", "p0,external,doris,external_docker,extern
     sql """ALTER TABLE ${db_name}.${clean_metadata_table} ADD COLUMN extra_col INT"""
     sql """INSERT INTO ${db_name}.${clean_metadata_table} VALUES (2, 'data2', 10)"""
 
+    AmazonS3 icebergS3Client = buildIcebergS3Client()
     String metadataBeforePath = String.valueOf((sql """
         SELECT file FROM ${clean_metadata_table}\$metadata_log_entries
         ORDER BY timestamp DESC LIMIT 1
