@@ -616,6 +616,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.jobStatistic.setFileNumber(this.jobStatistic.getFileNumber() + attachment.getNumFiles());
         this.jobStatistic.setFileSize(this.jobStatistic.getFileSize() + attachment.getFileBytes());
         offsetProvider.updateOffset(offsetProvider.deserializeOffset(attachment.getOffset()));
+
+        //update metric
+        MetricRepo.COUNTER_STREAMING_JOB_TOTAL_ROWS.increase(attachment.getScannedRows());
+        MetricRepo.COUNTER_STREAMING_JOB_LOAD_BYTES.increase(attachment.getLoadBytes());
     }
 
     private void updateCloudJobStatisticAndOffset(StreamingTaskTxnCommitAttachment attachment) {
@@ -627,6 +631,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.jobStatistic.setFileNumber(attachment.getNumFiles());
         this.jobStatistic.setFileSize(attachment.getFileBytes());
         offsetProvider.updateOffset(offsetProvider.deserializeOffset(attachment.getOffset()));
+
+        //update metric
+        MetricRepo.COUNTER_STREAMING_JOB_TOTAL_ROWS.update(attachment.getScannedRows());
+        MetricRepo.COUNTER_STREAMING_JOB_LOAD_BYTES.update(attachment.getLoadBytes());
     }
 
     private void updateJobStatisticAndOffset(CommitOffsetRequest offsetRequest) {

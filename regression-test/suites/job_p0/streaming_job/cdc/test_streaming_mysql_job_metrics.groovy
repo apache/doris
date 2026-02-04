@@ -16,6 +16,7 @@
 // under the License.
 
 import org.awaitility.Awaitility
+import groovy.json.JsonSlurper
 
 import static java.util.concurrent.TimeUnit.SECONDS
 
@@ -136,10 +137,28 @@ suite("test_streaming_mysql_job_metrics",
                         log.info("contain doris_fe_streaming_job_load_bytes")
                         metricCount++
                     }
+
+                    // check doris_fe_job gauge: STREAMING_JOB in RUNNING state should be exactly 1
+                    def jsonSlurper = new JsonSlurper()
+                    def result = jsonSlurper.parseText(body)
+                    def entry = result.find {
+                        it.tags?.metric == "doris_fe_job" &&
+                        it.tags?.job == "load" &&
+                        it.tags?.type == "STREAMING_JOB" &&
+                        it.tags?.state == "RUNNING"
+                    }
+                    def value = entry ? entry.value : null
+                    log.info("streaming job RUNNING metric entry: ${entry}".toString())
+                    log.info("streaming job RUNNING value: ${value}".toString())
+                    if (value >= 1) {
+                        metricCount++
+                    }
+
                 }
             }
 
-            if (metricCount >= 9) {
+            // 9 streaming_job_* counters + 1 doris_fe_job RUNNING gauge
+            if (metricCount >= 10) {
                 break
             }
 
@@ -150,6 +169,8 @@ suite("test_streaming_mysql_job_metrics",
                 assertEquals(1, 2)
             }
         }
+
+        
 
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
         def jobCountRsp = sql """select count(1) from jobs("type"="insert")  where Name ='${jobName}'"""
