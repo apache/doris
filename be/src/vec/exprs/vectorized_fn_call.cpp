@@ -420,6 +420,10 @@ void VectorizedFnCall::prepare_ann_range_search(
     }
 
     auto right_col = right_literal->get_column_ptr()->convert_to_full_column_if_const();
+    if (right_literal->is_nullable()) {
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                               "ANN range search with nullable literal is not supported");
+    }
     auto right_type = right_literal->get_data_type();
 
     PrimitiveType right_primitive = right_type->get_primitive_type();
