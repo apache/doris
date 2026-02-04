@@ -453,10 +453,12 @@ Status DataTypeArraySerDe::from_string(StringRef& str, IColumn& column,
                                        const FormatOptions& options) const {
     return _from_string<false>(str, column, options);
 }
+
 Status DataTypeArraySerDe::from_string_strict_mode(StringRef& str, IColumn& column,
                                                    const FormatOptions& options) const {
     return _from_string<true>(str, column, options);
 }
+
 void DataTypeArraySerDe::write_one_cell_to_binary(const IColumn& src_column,
                                                   ColumnString::Chars& chars,
                                                   int64_t row_num) const {

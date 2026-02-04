@@ -126,6 +126,22 @@ Status DataTypeDecimalSerDe<T>::from_string(StringRef& str, IColumn& column,
 }
 
 template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::from_string(const std::string& str, Field& field,
+                                            const FormatOptions& options) const {
+    FieldType to;
+    CastParameters params;
+    params.is_strict = false;
+
+    auto arg_precision = static_cast<UInt32>(precision);
+
+    if (!CastToDecimal::from_string(StringRef(str), to, arg_precision, 0, params)) {
+        return Status::InvalidArgument("parse Decimal fail, string: '{}'", str);
+    }
+    field = Field::create_field<T>(std::move(to));
+    return Status::OK();
+}
+
+template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& column,
                                                         const FormatOptions& options) const {
     auto& column_to = assert_cast<ColumnType&>(column);

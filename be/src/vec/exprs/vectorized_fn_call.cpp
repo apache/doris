@@ -418,7 +418,12 @@ void VectorizedFnCall::prepare_ann_range_search(
         suitable_for_ann_index = false;
         return;
     }
-
+#ifndef NDEBUG
+    if (right_literal->is_nullable()) {
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                               "ANN range search with nullable literal is not supported");
+    }
+#endif
     auto right_col = right_literal->get_column_ptr()->convert_to_full_column_if_const();
     auto right_type = right_literal->get_data_type();
 
