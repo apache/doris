@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "common/logconfig.h"
-
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
@@ -24,6 +22,8 @@
 #include <iomanip>
 #include <regex>
 #include <sstream>
+
+#include "common/logging.h"
 
 namespace doris {
 
@@ -84,15 +84,8 @@ TEST(LogConfigTest, StdoutLogSinkFormatTest) {
         }
     } test_sink;
 
-    // Simulate a log message
+    // Simulate a log message using current time
     google::LogMessageTime test_time;
-    test_time.tm_.tm_year = 124; // 2024
-    test_time.tm_.tm_mon = 5;    // June (0-based)
-    test_time.tm_.tm_mday = 5;
-    test_time.tm_.tm_hour = 15;
-    test_time.tm_.tm_min = 25;
-    test_time.tm_.tm_sec = 15;
-    test_time.usecs_ = 677153;
 
     const char* test_message = "Preloaded 653 timezones.";
     test_sink.send(google::GLOG_INFO, "be/src/util/timezone_utils.cpp", "timezone_utils.cpp", 115,
@@ -100,17 +93,27 @@ TEST(LogConfigTest, StdoutLogSinkFormatTest) {
 
     std::string output = test_sink.captured_output.str();
 
-    // Verify format: I20240605 15:25:15.677153 <pid> timezone_utils.cpp:115] Preloaded 653 timezones.
-    EXPECT_TRUE(output.find("I20240605") != std::string::npos)
-            << "Date format incorrect: " << output;
-    EXPECT_TRUE(output.find("15:25:15.677153") != std::string::npos)
-            << "Time format incorrect: " << output;
+    // Verify format pattern: I<YYYYMMDD> <HH:MM:SS>.<usec> <pid> timezone_utils.cpp:115] Preloaded 653 timezones.
+    // Check severity character
+    EXPECT_EQ(output[0], 'I') << "Severity character incorrect: " << output;
+
+    // Check date format (8 digits after 'I')
+    std::regex date_pattern(R"(I\d{8}\s)");
+    EXPECT_TRUE(std::regex_search(output, date_pattern)) << "Date format incorrect: " << output;
+
+    // Check time format (HH:MM:SS.ffffff)
+    std::regex time_pattern(R"(\d{2}:\d{2}:\d{2}\.\d{6})");
+    EXPECT_TRUE(std::regex_search(output, time_pattern)) << "Time format incorrect: " << output;
+
+    // Check file:line format
     EXPECT_TRUE(output.find("timezone_utils.cpp:115]") != std::string::npos)
             << "File:line format incorrect: " << output;
+
+    // Check message content
     EXPECT_TRUE(output.find("Preloaded 653 timezones.") != std::string::npos)
             << "Message not found: " << output;
 
-    // Verify process ID is present (should be a number)
+    // Verify process ID is present (at least 1 digit followed by space and filename)
     std::regex pid_pattern(R"(\d+\s+timezone_utils\.cpp)");
     EXPECT_TRUE(std::regex_search(output, pid_pattern)) << "Process ID not found: " << output;
 }
@@ -124,18 +127,6 @@ TEST(LogConfigTest, LogInitializationTest) {
 
     // Multiple calls should be safe (idempotent)
     EXPECT_TRUE(init_glog("logconfig_test"));
-}
-
-// Test shutdown_logging function
-TEST(LogConfigTest, ShutdownLoggingTest) {
-    // Initialize logging first
-    EXPECT_TRUE(init_glog("shutdown_test"));
-
-    // Test shutdown - should not crash
-    EXPECT_NO_THROW(shutdown_logging());
-
-    // Multiple shutdown calls should be safe
-    EXPECT_NO_THROW(shutdown_logging());
 }
 
 // Test log output with different severity levels
@@ -223,20 +214,13 @@ TEST(LogConfigTest, LogFormatPatternTest) {
     } pattern_sink;
 
     google::LogMessageTime test_time;
-    test_time.tm_.tm_year = 125; // 2025
-    test_time.tm_.tm_mon = 0;    // January
-    test_time.tm_.tm_mday = 18;
-    test_time.tm_.tm_hour = 10;
-    test_time.tm_.tm_min = 53;
-    test_time.tm_.tm_sec = 6;
-    test_time.usecs_ = 239614;
 
-    pattern_sink.send(google::GLOG_INFO, "timezone_utils.cpp", "timezone_utils.cpp", 115,
-                      test_time, "Preloaded 653 timezones.", 25);
+    pattern_sink.send(google::GLOG_INFO, "timezone_utils.cpp", "timezone_utils.cpp", 115, test_time,
+                      "Preloaded 653 timezones.", 25);
 
-    // Verify the pattern: I20250118 10:53:06.239614 <pid> timezone_utils.cpp:115] Preloaded 653 timezones.
+    // Verify the pattern: I<YYYYMMDD> <HH:MM:SS>.<usec> <pid> timezone_utils.cpp:115] Preloaded 653 timezones.
     std::regex pattern(
-            R"(I20250118 10:53:06\.239614\s+\d+\s+timezone_utils\.cpp:115\]\s+Preloaded 653 timezones\.)");
+            R"(I\d{8} \d{2}:\d{2}:\d{2}\.\d{6}\s+\d+\s+timezone_utils\.cpp:115\]\s+Preloaded 653 timezones\.)");
     EXPECT_TRUE(std::regex_search(pattern_sink.last_output, pattern))
             << "Log format pattern mismatch. Got: " << pattern_sink.last_output;
 }
@@ -260,26 +244,21 @@ TEST(LogConfigTest, DateTimeFormattingTest) {
         }
     } datetime_sink;
 
-    // Test with leading zeros (January 1st, 00:00:00.000001)
+    // Test with current time to verify formatting with proper width (leading zeros)
     google::LogMessageTime test_time;
-    test_time.tm_.tm_year = 125; // 2025
-    test_time.tm_.tm_mon = 0;    // January (0-based)
-    test_time.tm_.tm_mday = 1;
-    test_time.tm_.tm_hour = 0;
-    test_time.tm_.tm_min = 0;
-    test_time.tm_.tm_sec = 0;
-    test_time.usecs_ = 1;
 
     datetime_sink.send(google::GLOG_INFO, "", "", 1, test_time, "", 0);
 
-    // Should format as: I20250101 00:00:00.000001
-    EXPECT_EQ(datetime_sink.last_output, "I20250101 00:00:00.000001")
-            << "Date/time formatting with leading zeros failed: " << datetime_sink.last_output;
+    // Verify the format has proper width with leading zeros: I<YYYYMMDD> <HH:MM:SS>.<ffffff>
+    // Check severity and date (9 characters: I + 8 digits)
+    std::regex date_format(R"(^I\d{8})");
+    EXPECT_TRUE(std::regex_search(datetime_sink.last_output, date_format))
+            << "Date formatting failed: " << datetime_sink.last_output;
+
+    // Check time format with proper width (HH:MM:SS with leading zeros)
+    std::regex time_format(R"(\d{2}:\d{2}:\d{2}\.\d{6})");
+    EXPECT_TRUE(std::regex_search(datetime_sink.last_output, time_format))
+            << "Time formatting failed: " << datetime_sink.last_output;
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

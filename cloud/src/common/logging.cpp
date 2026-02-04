@@ -175,10 +175,11 @@ bool init_glog(const char* basename) {
         }
     } else {
         FLAGS_alsologtostderr = false;
-        // Don't log to stderr except fatal level
-        // so fatal log can output to doris_cloud.out .
-        FLAGS_stderrthreshold = google::ERROR;
     }
+
+    // Don't log to stderr except fatal level
+    // so fatal log can output to doris_cloud.out .
+    FLAGS_stderrthreshold = google::FATAL;
 
     // Set glog log dir
     FLAGS_log_dir = config::log_dir;
@@ -229,13 +230,6 @@ bool init_glog(const char* basename) {
     }
     inited = true;
     return true;
-}
-
-void shutdown_logging() {
-    static std::mutex mtx;
-    std::lock_guard<std::mutex> logging_lock(mtx);
-    google::RemoveLogSink(&stdout_log_sink);
-    google::ShutdownGoogleLogging();
 }
 
 } // namespace doris::cloud

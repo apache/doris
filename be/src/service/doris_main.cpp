@@ -713,7 +713,6 @@ int main(int argc, char** argv) {
     LOG(INFO) << "Backend Service stopped";
     exec_env->destroy();
     LOG(INFO) << "All service stopped, doris main exited.";
-    shutdown_logging();
     return 0;
 }
 

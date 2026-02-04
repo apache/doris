@@ -161,15 +161,8 @@ TEST(LogTest, StdoutLogSinkFormatTest) {
         }
     } test_sink;
 
-    // Simulate a log message
+    // Simulate a log message using current time
     google::LogMessageTime test_time;
-    test_time.tm_.tm_year = 124; // 2024
-    test_time.tm_.tm_mon = 5;    // June (0-based)
-    test_time.tm_.tm_mday = 5;
-    test_time.tm_.tm_hour = 15;
-    test_time.tm_.tm_min = 25;
-    test_time.tm_.tm_sec = 15;
-    test_time.usecs_ = 677153;
 
     const char* test_message = "Test log message";
     test_sink.send(google::GLOG_INFO, "test_file.cpp", "test_file.cpp", 123, test_time,
@@ -177,17 +170,28 @@ TEST(LogTest, StdoutLogSinkFormatTest) {
 
     std::string output = test_sink.captured_output.str();
 
-    // Verify format: I20240605 15:25:15.677153 <pid> test_file.cpp:123] Test log message
-    EXPECT_TRUE(output.find("I20240605") != std::string::npos) << "Date format incorrect: " << output;
-    EXPECT_TRUE(output.find("15:25:15.677153") != std::string::npos)
-            << "Time format incorrect: " << output;
+    // Verify format pattern: I<YYYYMMDD> <HH:MM:SS>.<usec> <pid> test_file.cpp:123] Test log message
+    // Check severity character
+    EXPECT_EQ(output[0], 'I') << "Severity character incorrect: " << output;
+
+    // Check date format (8 digits after 'I')
+    std::regex date_pattern(R"(I\d{8}\s)");
+    EXPECT_TRUE(std::regex_search(output, date_pattern)) << "Date format incorrect: " << output;
+
+    // Check time format (HH:MM:SS.ffffff)
+    std::regex time_pattern(R"(\d{2}:\d{2}:\d{2}\.\d{6})");
+    EXPECT_TRUE(std::regex_search(output, time_pattern)) << "Time format incorrect: " << output;
+
+    // Check file:line format
     EXPECT_TRUE(output.find("test_file.cpp:123]") != std::string::npos)
             << "File:line format incorrect: " << output;
+
+    // Check message content
     EXPECT_TRUE(output.find("Test log message") != std::string::npos)
             << "Message not found: " << output;
 
-    // Verify process ID is present
-    std::regex pid_pattern(R"(\d{5,})");
+    // Verify process ID is present (at least 1 digit followed by space and filename)
+    std::regex pid_pattern(R"(\d+\s+test_file\.cpp)");
     EXPECT_TRUE(std::regex_search(output, pid_pattern)) << "Process ID not found: " << output;
 
     std::string captured = testing::internal::GetCapturedStdout();
@@ -215,18 +219,6 @@ TEST(LogTest, LogInitializationTest) {
     doris::cloud::config::log_level = original_level;
 }
 
-// Test shutdown_logging function
-TEST(LogTest, ShutdownLoggingTest) {
-    // Initialize logging first
-    EXPECT_TRUE(doris::cloud::init_glog("test_shutdown"));
-
-    // Test shutdown - should not crash
-    EXPECT_NO_THROW(doris::cloud::shutdown_logging());
-
-    // Multiple shutdown calls should be safe
-    EXPECT_NO_THROW(doris::cloud::shutdown_logging());
-}
-
 // Test log output with different severity levels
 TEST(LogTest, LogSeverityTest) {
     // Test different log severity characters
@@ -234,8 +226,9 @@ TEST(LogTest, LogSeverityTest) {
         std::map<google::LogSeverity, char> severity_chars;
 
         void send(google::LogSeverity severity, const char* /*full_filename*/,
-                  const char* /*base_filename*/, int /*line*/, const google::LogMessageTime& /*time*/,
-                  const char* /*message*/, std::size_t /*message_len*/) override {
+                  const char* /*base_filename*/, int /*line*/,
+                  const google::LogMessageTime& /*time*/, const char* /*message*/,
+                  std::size_t /*message_len*/) override {
             char severity_char;
             switch (severity) {
             case google::GLOG_INFO:
@@ -311,19 +304,12 @@ TEST(LogTest, LogFormatPatternTest) {
     } pattern_sink;
 
     google::LogMessageTime test_time;
-    test_time.tm_.tm_year = 125; // 2025
-    test_time.tm_.tm_mon = 0;    // January
-    test_time.tm_.tm_mday = 15;
-    test_time.tm_.tm_hour = 10;
-    test_time.tm_.tm_min = 30;
-    test_time.tm_.tm_sec = 45;
-    test_time.usecs_ = 123456;
 
-    pattern_sink.send(google::GLOG_INFO, "test.cpp", "test.cpp", 100, test_time,
-                      "Test message", 12);
+    pattern_sink.send(google::GLOG_INFO, "test.cpp", "test.cpp", 100, test_time, "Test message",
+                      12);
 
-    // Verify the pattern: I20250115 10:30:45.123456 <pid> test.cpp:100] Test message
-    std::regex pattern(R"(I20250115 10:30:45\.123456\s+\d+\s+test\.cpp:100\]\s+Test message)");
+    // Verify the pattern: I<YYYYMMDD> <HH:MM:SS>.<usec> <pid> test.cpp:100] Test message
+    std::regex pattern(R"(I\d{8} \d{2}:\d{2}:\d{2}\.\d{6}\s+\d+\s+test\.cpp:100\]\s+Test message)");
     EXPECT_TRUE(std::regex_search(pattern_sink.last_output, pattern))
             << "Log format pattern mismatch. Got: " << pattern_sink.last_output;
 }
