@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.hive;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
@@ -178,7 +179,14 @@ public class HMSExternalCatalog extends ExternalCatalog {
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
-        return metadataOps.listTableNames(ClusterNamespace.getNameFromFullName(dbName));
+        Map<String, List<String>> includeTableMap = getIncludeTableMap();
+        if (includeTableMap.containsKey(dbName) && !includeTableMap.get(dbName).isEmpty()) {
+            LOG.info("debug get table list from include map. catalog: {}, db: {}, tables: {}",
+                name, dbName, includeTableMap.get(dbName));
+            return includeTableMap.get(dbName);
+        } else {
+            return metadataOps.listTableNames(ClusterNamespace.getNameFromFullName(dbName));
+        }
     }
 
     @Override

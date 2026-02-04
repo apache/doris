@@ -133,6 +133,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
 
     @Override
     public List<String> getAllTables(String dbName) {
+        LOG.info("debug still call getAllTables from db: {}", dbName, new Exception());
         try (ThriftHMSClient client = getClient()) {
             try {
                 return ugiDoAs(() -> client.client.getAllTables(dbName));

@@ -1068,6 +1068,33 @@ public abstract class ExternalCatalog
         return getSpecifiedDatabaseMap(Resource.EXCLUDE_DATABASE_LIST);
     }
 
+    protected Map<String, List<String>> getIncludeTableMap() {
+        Map<String, List<String>> includeTableMap = Maps.newHashMap();
+        String tableList = catalogProperty.getOrDefault(Resource.INCLUDE_TABLE_LIST, "");
+        if (Strings.isNullOrEmpty(tableList)) {
+            return includeTableMap;
+        }
+        String[] parts = tableList.split(",");
+        for (String part : parts) {
+            String dbTbl = part.trim();
+            String[] splits = dbTbl.split("\\.");
+            if (splits.length != 2) {
+                LOG.warn("debug invalid include table list: {}, ignore", part);
+                continue;
+            }
+            String db = splits[0];
+            String tbl = splits[1];
+            List<String> tbls = includeTableMap.get(db);
+            if (tbls == null) {
+                includeTableMap.put(db, Lists.newArrayList());
+                tbls = includeTableMap.get(db);
+            }
+            tbls.add(tbl);
+        }
+        LOG.info("debug get include table map: {}", includeTableMap);
+        return includeTableMap;
+    }
+
     private Map<String, Boolean> getSpecifiedDatabaseMap(String catalogPropertyKey) {
         String specifiedDatabaseList = catalogProperty.getOrDefault(catalogPropertyKey, "");
         Map<String, Boolean> specifiedDatabaseMap = Maps.newHashMap();
