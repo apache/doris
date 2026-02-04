@@ -24,17 +24,17 @@ import org.apache.commons.lang3.math.NumberUtils;
 import java.util.Map;
 import java.util.OptionalLong;
 
+/**
+ * Common cache specification for external metadata caches.
+ *
+ * <p>Semantics:
+ * <ul>
+ *   <li>enable=false disables cache</li>
+ *   <li>ttlSecond=0 disables cache, ttlSecond=-1 means no expiration</li>
+ *   <li>capacity=0 disables cache; capacity is count-based</li>
+ * </ul>
+ */
 public final class CacheSpec {
-    /**
-     * Common cache specification for external metadata caches.
-     *
-     * <p>Semantics:
-     * <ul>
-     *   <li>enable=false disables cache</li>
-     *   <li>ttlSecond=0 disables cache, ttlSecond=-1 means no expiration</li>
-     *   <li>capacity=0 disables cache; capacity is count-based</li>
-     * </ul>
-     */
     private final boolean enable;
     private final long ttlSecond;
     private final long capacity;
