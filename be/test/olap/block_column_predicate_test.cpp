@@ -301,34 +301,31 @@ TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN_VEC) {
 }
 
 template <PrimitiveType T, PredicateType PT>
-void single_column_predicate_test_func(const std::pair<WrapperField*, WrapperField*>& statistic,
+void single_column_predicate_test_func(const ZoneMapInfo& zone_map_info,
                                        vectorized::Field& check_value, bool expect_match) {
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<T, PT>(col_idx, "", check_value));
     SingleColumnBlockPredicate single_column_block_pred(pred);
 
-    bool matched = single_column_block_pred.evaluate_and(statistic);
+    bool matched = single_column_block_pred.evaluate_and(zone_map_info);
     EXPECT_EQ(matched, expect_match);
 }
 
 template <PrimitiveType T, PredicateType PT>
-void single_column_predicate_test_func(const std::pair<WrapperField*, WrapperField*>& statistic,
+void single_column_predicate_test_func(const ZoneMapInfo& zone_map_info,
                                        vectorized::Field&& check_value, bool expect_match) {
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<T, PT>(col_idx, "", check_value));
     SingleColumnBlockPredicate single_column_block_pred(pred);
 
-    bool matched = single_column_block_pred.evaluate_and(statistic);
+    bool matched = single_column_block_pred.evaluate_and(zone_map_info);
     EXPECT_EQ(matched, expect_match);
 }
 
 // test zonemap index
 TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
-    FieldType type = FieldType::OLAP_FIELD_TYPE_DOUBLE;
-    std::unique_ptr<WrapperField> min_field(WrapperField::create_by_type(type, 0));
-    std::unique_ptr<WrapperField> max_field(WrapperField::create_by_type(type, 0));
     auto nan =
             vectorized::Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN());
     auto neg_inf =
@@ -343,50 +340,50 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         std::cout << "========test normal value min max\n";
         double zonemap_min_v = std::numeric_limits<double>::lowest();
         double zonemap_max_v = std::numeric_limits<double>::max();
-        min_field->set_raw_value(&zonemap_min_v, sizeof(zonemap_min_v));
-        max_field->set_raw_value(&zonemap_max_v, sizeof(zonemap_max_v));
+        ZoneMapInfo zone_map_info {
+                .min_value = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v),
+                .max_value = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_max_v),
+                .has_null = false,
+                .is_all_null = false};
 
         // test NaN
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, nan, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, nan, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, nan, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, nan, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, nan, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, nan,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, nan,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, nan,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, nan, true);
 
         // test +Infinity
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, pos_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, pos_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, pos_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, pos_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, pos_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, pos_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, pos_inf,
+                                                                          true);
 
         // test -Infinity
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, neg_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, neg_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, neg_inf, false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, neg_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, neg_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, neg_inf,
+                                                                          false);
 
         std::vector<vectorized::Field> test_values_in_range = {
                 vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v),
@@ -398,34 +395,32 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         for (auto v : test_values_in_range) {
             // test EQ
             // std::cout << "test double EQ value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, v,
+                                                                              true);
             // test NE
             // std::cout << "test double NE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, v,
+                                                                              true);
 
             // test LT
             // std::cout << "test double LT value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                    {min_field.get(), max_field.get()}, v,
-                    v.template get<TYPE_DOUBLE>() != zonemap_min_v);
+                    zone_map_info, v, v.template get<TYPE_DOUBLE>() != zonemap_min_v);
 
             // test LE
             // std::cout << "test double LE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, v,
+                                                                              true);
 
             // test GT
             // std::cout << "test double GT value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                    {min_field.get(), max_field.get()}, v,
-                    v.template get<TYPE_DOUBLE>() != zonemap_max_v);
+                    zone_map_info, v, v.template get<TYPE_DOUBLE>() != zonemap_max_v);
 
             // test GE
             // std::cout << "test double GE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, v,
+                                                                              true);
         }
 
         // test values out of zonemap range
@@ -433,113 +428,113 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
             auto v = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v * 2);
             // test EQ
             // std::cout << "test double EQ value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, v,
+                                                                              false);
             // test NE
             // std::cout << "test double NE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, v,
+                                                                              true);
 
             // test LT
             // std::cout << "test double LT value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, v,
+                                                                              false);
 
             // test LE
             // std::cout << "test double LE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, v,
+                                                                              false);
 
             // test GT
             // std::cout << "test double GT value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, v,
+                                                                              true);
 
             // test GE
             // std::cout << "test double GE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, v,
+                                                                              true);
         }
         {
             auto v = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_max_v * 2);
             // test EQ
             // std::cout << "test double EQ value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, v,
+                                                                              false);
             // test NE
             // std::cout << "test double NE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, v,
+                                                                              true);
 
             // test LT
             // std::cout << "test double LT value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, v,
+                                                                              true);
 
             // test LE
             // std::cout << "test double LE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, v,
+                                                                              true);
 
             // test GT
             // std::cout << "test double GT value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, v,
+                                                                              false);
 
             // test GE
             // std::cout << "test double GE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, v,
+                                                                              false);
         }
     }
     // test special range: [normal, +Infinity]
     {
         std::cout << "========test special range: [normal, +Infinity]\n";
         double zonemap_min_v = std::numeric_limits<double>::lowest();
-        min_field->set_raw_value(&zonemap_min_v, sizeof(double));
-        max_field->set_raw_value(&pos_inf.template get<TYPE_DOUBLE>(), sizeof(double));
+        ZoneMapInfo zone_map_info {
+                .min_value = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v),
+                .max_value = pos_inf,
+                .has_null = false,
+                .is_all_null = false};
 
         // test NaN
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, nan, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, nan, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, nan, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, nan, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, nan, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, nan,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, nan,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, nan,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, nan, true);
 
         // test +Infinity
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, pos_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, pos_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, pos_inf,
+                                                                          true);
 
         // test -Infinity
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, neg_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, neg_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, neg_inf, false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, neg_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, neg_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, neg_inf,
+                                                                          false);
 
         std::vector<vectorized::Field> test_values_in_range = {
                 vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v),
@@ -553,34 +548,33 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         for (auto v : test_values_in_range) {
             // test EQ
             // std::cout << "test double EQ value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, v,
+                                                                              true);
             // test NE
             // std::cout << "test double NE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, v,
+                                                                              true);
 
             // test LT
             // std::cout << "test double LT value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                    {min_field.get(), max_field.get()}, v,
-                    v.template get<TYPE_DOUBLE>() != zonemap_min_v);
+                    zone_map_info, v, v.template get<TYPE_DOUBLE>() != zonemap_min_v);
 
             // test LE
             // std::cout << "test double LE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, v,
+                                                                              true);
 
             // test GT
             // std::cout << "test double GT value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                    {min_field.get(), max_field.get()}, v,
+                    zone_map_info, v,
                     v.template get<TYPE_DOUBLE>() != pos_inf.template get<TYPE_DOUBLE>());
 
             // test GE
             // std::cout << "test double GE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, v,
+                                                                              true);
         }
 
         // test values out of zonemap range
@@ -588,82 +582,82 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
             auto v = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v * 2);
             // test EQ
             // std::cout << "test double EQ value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, v,
+                                                                              false);
             // test NE
             // std::cout << "test double NE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, v,
+                                                                              true);
 
             // test LT
             // std::cout << "test double LT value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, v,
+                                                                              false);
 
             // test LE
             // std::cout << "test double LE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, v,
+                                                                              false);
 
             // test GT
             // std::cout << "test double GT value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, v,
+                                                                              true);
 
             // test GE
             // std::cout << "test double GE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, v,
+                                                                              true);
         }
     }
     // test special range: [-Infinity, normal]
     {
         std::cout << "========test special range: [-Infinity, normal]\n";
         double zonemap_max_v = std::numeric_limits<double>::max();
-        min_field->set_raw_value(&neg_inf.template get<TYPE_DOUBLE>(), sizeof(double));
-        max_field->set_raw_value(&zonemap_max_v, sizeof(double));
+        ZoneMapInfo zone_map_info {
+                .min_value = neg_inf,
+                .max_value = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_max_v),
+                .has_null = false,
+                .is_all_null = false};
 
         // test NaN
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, nan, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, nan, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, nan, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, nan, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, nan, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, nan,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, nan,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, nan,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, nan, true);
 
         // test +Infinity
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, pos_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, pos_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, pos_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, pos_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, pos_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, pos_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, pos_inf,
+                                                                          true);
 
         // test -Infinity
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, neg_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, neg_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, neg_inf,
+                                                                          true);
 
         std::vector<vectorized::Field> test_values_in_range = {
                 neg_inf,
@@ -677,115 +671,112 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         for (auto v : test_values_in_range) {
             // test EQ
             // std::cout << "test double EQ value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, v,
+                                                                              true);
             // test NE
             // std::cout << "test double NE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, v,
+                                                                              true);
 
             // test LT
             // std::cout << "test double LT value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                    {min_field.get(), max_field.get()}, v, v != neg_inf);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, v,
+                                                                              v != neg_inf);
 
             // test LE
             // std::cout << "test double LE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, v,
+                                                                              true);
 
             // test GT
             // std::cout << "test double GT value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                    {min_field.get(), max_field.get()}, v,
-                    v.template get<TYPE_DOUBLE>() != zonemap_max_v);
+                    zone_map_info, v, v.template get<TYPE_DOUBLE>() != zonemap_max_v);
 
             // test GE
             // std::cout << "test double GE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, v,
+                                                                              true);
         }
         // test values out of zonemap range
         {
             auto v = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_max_v * 2);
             // test EQ
             // std::cout << "test double EQ value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, v,
+                                                                              false);
             // test NE
             // std::cout << "test double NE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, v,
+                                                                              true);
 
             // test LT
             // std::cout << "test double LT value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, v,
+                                                                              true);
 
             // test LE
             // std::cout << "test double LE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, v,
+                                                                              true);
 
             // test GT
             // std::cout << "test double GT value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, v,
+                                                                              false);
 
             // test GE
             // std::cout << "test double GE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, v,
+                                                                              false);
         }
     }
     // test special range: [normal, NaN]
     {
         std::cout << "========test special range: [normal, NaN]\n";
-        double zonemap_min_v = std::numeric_limits<double>::lowest();
-        min_field->set_raw_value(&zonemap_min_v, sizeof(double));
-        max_field->set_raw_value(&nan.template get<TYPE_DOUBLE>(), sizeof(double));
+        double zonemap_min_v = std::numeric_limits<float>::lowest();
+        ZoneMapInfo zone_map_info {
+                .min_value = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v),
+                .max_value = nan,
+                .has_null = false,
+                .is_all_null = false};
 
         // test NaN
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, nan, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, nan, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, nan, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, nan, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, nan, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, nan,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, nan, true);
 
         // test +Infinity
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, pos_inf,
+                                                                          true);
 
         // test -Infinity
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, neg_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, neg_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, neg_inf, false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, neg_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, neg_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, neg_inf,
+                                                                          false);
 
         std::vector<vectorized::Field> test_values_in_range = {
                 vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v),
@@ -799,34 +790,32 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         for (auto v : test_values_in_range) {
             // test EQ
             // std::cout << "test double EQ value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, v,
+                                                                              true);
             // test NE
             // std::cout << "test double NE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, v,
+                                                                              true);
 
             // test LT
             // std::cout << "test double LT value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                    {min_field.get(), max_field.get()}, v,
-                    v.template get<TYPE_DOUBLE>() != zonemap_min_v);
+                    zone_map_info, v, v.template get<TYPE_DOUBLE>() != zonemap_min_v);
 
             // test LE
             // std::cout << "test double LE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, v,
+                                                                              true);
 
             // test GT
             // std::cout << "test double GT value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                    {min_field.get(), max_field.get()}, v,
-                    !std::isnan(v.template get<TYPE_DOUBLE>()));
+                    zone_map_info, v, !std::isnan(v.template get<TYPE_DOUBLE>()));
 
             // test GE
             // std::cout << "test double GE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, v,
+                                                                              true);
         }
 
         // test values out of zonemap range
@@ -834,81 +823,80 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
             auto v = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v * 2);
             // test EQ
             // std::cout << "test double EQ value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, v,
+                                                                              false);
             // test NE
             // std::cout << "test double NE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, v,
+                                                                              true);
 
             // test LT
             // std::cout << "test double LT value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, v,
+                                                                              false);
 
             // test LE
             // std::cout << "test double LE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, v,
+                                                                              false);
 
             // test GT
             // std::cout << "test double GT value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, v,
+                                                                              true);
 
             // test GE
             // std::cout << "test double GE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, v,
+                                                                              true);
         }
     }
     // test special range: [-Infinity, +Infinity]
     {
         std::cout << "========test special range: [-Infinity, +Infinity]\n";
-        min_field->set_raw_value(&neg_inf.template get<TYPE_DOUBLE>(), sizeof(double));
-        max_field->set_raw_value(&pos_inf.template get<TYPE_DOUBLE>(), sizeof(double));
+        ZoneMapInfo zone_map_info {.min_value = neg_inf,
+                                   .max_value = pos_inf,
+                                   .has_null = false,
+                                   .is_all_null = false};
 
         // test NaN
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, nan, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, nan, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, nan, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, nan, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, nan, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, nan,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, nan,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, nan,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, nan, true);
 
         // test +Infinity
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, pos_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, pos_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, pos_inf,
+                                                                          true);
 
         // test -Infinity
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, neg_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, neg_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, neg_inf,
+                                                                          true);
 
         std::vector<vectorized::Field> test_values_in_range = {
                 min,
@@ -921,81 +909,76 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         for (auto v : test_values_in_range) {
             // test EQ
             // std::cout << "test double EQ value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, v,
+                                                                              true);
             // test NE
             // std::cout << "test double NE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, v,
+                                                                              true);
 
             // test LT
             // std::cout << "test double LT value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                    {min_field.get(), max_field.get()}, v, v != neg_inf);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, v,
+                                                                              v != neg_inf);
 
             // test LE
             // std::cout << "test double LE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, v,
+                                                                              true);
 
             // test GT
             // std::cout << "test double GT value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                    {min_field.get(), max_field.get()}, v, v != pos_inf);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, v,
+                                                                              v != pos_inf);
 
             // test GE
             // std::cout << "test double GE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, v,
+                                                                              true);
         }
     }
     // test special range: [-Infinity, NaN]
     {
         std::cout << "========test special range: [-Infinity, NaN]\n";
-        min_field->set_raw_value(&neg_inf.template get<TYPE_DOUBLE>(), sizeof(double));
-        max_field->set_raw_value(&nan.template get<TYPE_DOUBLE>(), sizeof(double));
+        ZoneMapInfo zone_map_info {
+                .min_value = neg_inf, .max_value = nan, .has_null = false, .is_all_null = false};
 
         // test NaN
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, nan, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, nan, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, nan, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, nan, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, nan, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, nan,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, nan, true);
 
         // test +Infinity
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, pos_inf,
+                                                                          true);
 
         // test -Infinity
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, neg_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, neg_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, neg_inf,
+                                                                          true);
 
         std::vector<vectorized::Field> test_values_in_range = {
                 min,
@@ -1007,76 +990,75 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         };
         for (auto v : test_values_in_range) {
             // std::cout << "test double EQ value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, v,
+                                                                              true);
             // std::cout << "test double NE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, v,
+                                                                              true);
 
             // std::cout << "test double LT value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, v,
+                                                                              true);
 
             // std::cout << "test double LE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, v,
+                                                                              true);
 
             // std::cout << "test double GT value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, v,
+                                                                              true);
 
             // std::cout << "test double GE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, v,
+                                                                              true);
         }
     }
     // test special range: [-Infinity, -Infinity]
     {
         std::cout << "========test special range: [-Infinity, -Infinity]\n";
-        min_field->set_raw_value(&neg_inf.template get<TYPE_DOUBLE>(), sizeof(double));
-        max_field->set_raw_value(&neg_inf.template get<TYPE_DOUBLE>(), sizeof(double));
+        ZoneMapInfo zone_map_info {.min_value = neg_inf,
+                                   .max_value = neg_inf,
+                                   .has_null = false,
+                                   .is_all_null = false};
 
         // test NaN
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, nan, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, nan, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, nan, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, nan, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, nan, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, nan,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, nan,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, nan,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, nan, true);
 
         // test +Infinity
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, pos_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, pos_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, pos_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, pos_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, pos_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, pos_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, pos_inf,
+                                                                          true);
 
         // test -Infinity
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, neg_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, neg_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, neg_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, neg_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, neg_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, neg_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, neg_inf,
+                                                                          true);
 
         std::vector<vectorized::Field> test_values_not_in_range = {
                 min,
@@ -1088,79 +1070,78 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         };
         for (auto v : test_values_not_in_range) {
             // std::cout << "test double EQ value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, v,
+                                                                              false);
             // std::cout << "test double NE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, v,
+                                                                              true);
 
             // std::cout << "test double LT value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, v,
+                                                                              true);
 
             // std::cout << "test double LE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, v,
+                                                                              true);
 
             // std::cout << "test double GT value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, v,
+                                                                              false);
 
             // std::cout << "test double GE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, v,
+                                                                              false);
         }
     }
     // test special range: [+Infinity, +Infinity]
     {
         std::cout << "========test special range: [+Infinity, +Infinity]\n";
-        min_field->set_raw_value(&pos_inf.template get<TYPE_DOUBLE>(), sizeof(double));
-        max_field->set_raw_value(&pos_inf.template get<TYPE_DOUBLE>(), sizeof(double));
+        ZoneMapInfo zone_map_info {.min_value = pos_inf,
+                                   .max_value = pos_inf,
+                                   .has_null = false,
+                                   .is_all_null = false};
 
         // test NaN
         std::cout << "========test NaN\n";
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, nan, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, nan, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, nan, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, nan, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, nan, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, nan,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, nan,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, nan,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, nan, true);
 
         // test +Infinity
         std::cout << "========test +Infinity\n";
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, pos_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, pos_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, pos_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, pos_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, pos_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, pos_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, pos_inf,
+                                                                          true);
 
         // test -Infinity
         std::cout << "========test -Infinity\n";
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, neg_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, neg_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, neg_inf, false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, neg_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, neg_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, neg_inf,
+                                                                          false);
 
         std::cout << "========test values not in range\n";
         std::vector<vectorized::Field> test_values_not_in_range = {
@@ -1173,76 +1154,73 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         };
         for (auto v : test_values_not_in_range) {
             // std::cout << "test double EQ value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, v,
+                                                                              false);
             // std::cout << "test double NE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, v,
+                                                                              true);
 
             // std::cout << "test double LT value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, v,
+                                                                              false);
 
             // std::cout << "test double LE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, v,
+                                                                              false);
 
             // std::cout << "test double GT value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, v,
+                                                                              true);
 
             // std::cout << "test double GE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, v,
+                                                                              true);
         }
     }
     // test special range: [NaN, NaN]
     {
         std::cout << "========test special range: [NaN, NaN]\n";
-        min_field->set_raw_value(&nan.template get<TYPE_DOUBLE>(), sizeof(double));
-        max_field->set_raw_value(&nan.template get<TYPE_DOUBLE>(), sizeof(double));
+        ZoneMapInfo zone_map_info {
+                .min_value = nan, .max_value = nan, .has_null = false, .is_all_null = false};
 
         // test NaN
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, nan, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, nan, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, nan, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, nan, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, nan, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, nan,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, nan,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, nan, true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, nan,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, nan, true);
 
         // test +Infinity
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, pos_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, pos_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, pos_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, pos_inf, false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, pos_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, pos_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, pos_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, pos_inf,
+                                                                          false);
 
         // test -Infinity
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                {min_field.get(), max_field.get()}, neg_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                {min_field.get(), max_field.get()}, neg_inf, true);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                {min_field.get(), max_field.get()}, neg_inf, false);
-        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                {min_field.get(), max_field.get()}, neg_inf, false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, neg_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, neg_inf,
+                                                                          true);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, neg_inf,
+                                                                          false);
+        single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, neg_inf,
+                                                                          false);
 
         std::vector<vectorized::Field> test_values_not_in_range = {
                 min,
@@ -1254,37 +1232,33 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         };
         for (auto v : test_values_not_in_range) {
             // std::cout << "test double EQ value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, v,
+                                                                              false);
             // std::cout << "test double NE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::NE>(zone_map_info, v,
+                                                                              true);
 
             // std::cout << "test double LT value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LT>(zone_map_info, v,
+                                                                              false);
 
             // std::cout << "test double LE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, v,
+                                                                              false);
 
             // std::cout << "test double GT value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GT>(zone_map_info, v,
+                                                                              true);
 
             // std::cout << "test double GE value: " << v << std::endl;
-            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(zone_map_info, v,
+                                                                              true);
         }
     }
 }
 
 // test timestamptz zonemap index
 TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
-    FieldType type = FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ;
-    std::unique_ptr<WrapperField> min_field(WrapperField::create_by_type(type, 0));
-    std::unique_ptr<WrapperField> max_field(WrapperField::create_by_type(type, 0));
-
     cctz::time_zone time_zone = cctz::fixed_time_zone(std::chrono::hours(0));
     TimezoneUtils::load_offsets_to_cache();
     vectorized::CastParameters params;
@@ -1301,8 +1275,11 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
                                               0));
         EXPECT_TRUE(zonemap_max_v.from_string(StringRef {"8999-12-31 23:59:59"}, &time_zone, params,
                                               0));
-        min_field->set_raw_value(&zonemap_min_v, sizeof(zonemap_min_v));
-        max_field->set_raw_value(&zonemap_max_v, sizeof(zonemap_max_v));
+        ZoneMapInfo zone_map_info {
+                .min_value = vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(zonemap_min_v),
+                .max_value = vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(zonemap_max_v),
+                .has_null = false,
+                .is_all_null = false};
 
         // test values within zonemap range
         std::vector<std::string> values = {"0001-01-01 00:00:00", "2023-01-01 15:00:00",
@@ -1311,65 +1288,61 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
             TimestampTzValue tz {};
             EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 0));
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
-                    {min_field.get(), max_field.get()},
-                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
+                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::NE>(
-                    {min_field.get(), max_field.get()},
-                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
+                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LT>(
-                    {min_field.get(), max_field.get()},
-                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), tz != zonemap_min_v);
+                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz),
+                    tz != zonemap_min_v);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LE>(
-                    {min_field.get(), max_field.get()},
-                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
+                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GT>(
-                    {min_field.get(), max_field.get()},
-                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), tz != zonemap_max_v);
+                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz),
+                    tz != zonemap_max_v);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GE>(
-                    {min_field.get(), max_field.get()},
-                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
+                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
         }
         // test values out of zonemap range
         {
             auto v = vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(
                     type_limit<TimestampTzValue>::min());
-            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
-                    {min_field.get(), max_field.get()}, v, false);
-            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::NE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(zone_map_info, v,
+                                                                                   false);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::NE>(zone_map_info, v,
+                                                                                   true);
 
-            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LT>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LT>(zone_map_info, v,
+                                                                                   false);
 
-            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LE>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LE>(zone_map_info, v,
+                                                                                   false);
 
-            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GT>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GT>(zone_map_info, v,
+                                                                                   true);
 
-            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GE>(zone_map_info, v,
+                                                                                   true);
         }
         // test values out of zonemap range
         {
             auto v = vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(
                     type_limit<TimestampTzValue>::max());
-            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
-                    {min_field.get(), max_field.get()}, v, false);
-            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::NE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(zone_map_info, v,
+                                                                                   false);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::NE>(zone_map_info, v,
+                                                                                   true);
 
-            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LT>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LT>(zone_map_info, v,
+                                                                                   true);
 
-            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LE>(
-                    {min_field.get(), max_field.get()}, v, true);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LE>(zone_map_info, v,
+                                                                                   true);
 
-            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GT>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GT>(zone_map_info, v,
+                                                                                   false);
 
-            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GE>(
-                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GE>(zone_map_info, v,
+                                                                                   false);
         }
     }
 
@@ -1378,8 +1351,11 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
         std::cout << "========test range [min, max]\n";
         auto zonemap_min_v = type_limit<TimestampTzValue>::min();
         auto zonemap_max_v = type_limit<TimestampTzValue>::max();
-        min_field->set_raw_value(&zonemap_min_v, sizeof(zonemap_min_v));
-        max_field->set_raw_value(&zonemap_max_v, sizeof(zonemap_max_v));
+        ZoneMapInfo zone_map_info {
+                .min_value = vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(zonemap_min_v),
+                .max_value = vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(zonemap_max_v),
+                .has_null = false,
+                .is_all_null = false};
 
         // test values within zonemap range
         std::vector<std::string> values = {"0000-01-01 00:00:00", "2023-01-01 15:00:00",
@@ -1388,23 +1364,19 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
             TimestampTzValue tz {};
             EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 6));
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
-                    {min_field.get(), max_field.get()},
-                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
+                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::NE>(
-                    {min_field.get(), max_field.get()},
-                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
+                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LT>(
-                    {min_field.get(), max_field.get()},
-                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), tz != zonemap_min_v);
+                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz),
+                    tz != zonemap_min_v);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LE>(
-                    {min_field.get(), max_field.get()},
-                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
+                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GT>(
-                    {min_field.get(), max_field.get()},
-                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), tz != zonemap_max_v);
+                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz),
+                    tz != zonemap_max_v);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GE>(
-                    {min_field.get(), max_field.get()},
-                    vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
+                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
         }
     }
 }
