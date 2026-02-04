@@ -23,11 +23,11 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractPaimonProperties;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
-import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.catalog.Catalog;
@@ -47,7 +47,9 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     public static final String PAIMON_HMS = "hms";
     public static final String PAIMON_DLF = "dlf";
     public static final String PAIMON_REST = "rest";
-    public static final String PAIMON_TABLE_META_CACHE_TTL_SECOND = "paimon.table.meta.cache.ttl-second";
+    public static final String PAIMON_TABLE_CACHE_ENABLE = "meta.cache.paimon.table.enable";
+    public static final String PAIMON_TABLE_CACHE_TTL_SECOND = "meta.cache.paimon.table.ttl-second";
+    public static final String PAIMON_TABLE_CACHE_CAPACITY = "meta.cache.paimon.table.capacity";
     protected String catalogType;
     protected Catalog catalog;
 
@@ -159,22 +161,23 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     @Override
     public void checkProperties() throws DdlException {
         super.checkProperties();
-        // check paimon.table.meta.cache.ttl-second parameter
-        String tableMetaCacheTtlSecond = catalogProperty.getOrDefault(PAIMON_TABLE_META_CACHE_TTL_SECOND, null);
-        if (Objects.nonNull(tableMetaCacheTtlSecond) && NumberUtils.toInt(tableMetaCacheTtlSecond, CACHE_NO_TTL)
-                < CACHE_TTL_DISABLE_CACHE) {
-            throw new DdlException(
-                    "The parameter " + PAIMON_TABLE_META_CACHE_TTL_SECOND + " is wrong, value is "
-                    + tableMetaCacheTtlSecond);
-        }
+        CacheSpec.checkBooleanProperty(catalogProperty.getOrDefault(PAIMON_TABLE_CACHE_ENABLE, null),
+                PAIMON_TABLE_CACHE_ENABLE);
+        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(PAIMON_TABLE_CACHE_TTL_SECOND, null),
+                -1L, PAIMON_TABLE_CACHE_TTL_SECOND);
+        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(PAIMON_TABLE_CACHE_CAPACITY, null),
+                0L, PAIMON_TABLE_CACHE_CAPACITY);
         catalogProperty.checkMetaStoreAndStorageProperties(AbstractPaimonProperties.class);
     }
 
     @Override
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         super.notifyPropertiesUpdated(updatedProps);
-        String tableMetaCacheTtl = updatedProps.getOrDefault(PAIMON_TABLE_META_CACHE_TTL_SECOND, null);
-        if (Objects.nonNull(tableMetaCacheTtl)) {
+        String tableCacheEnable = updatedProps.getOrDefault(PAIMON_TABLE_CACHE_ENABLE, null);
+        String tableCacheTtl = updatedProps.getOrDefault(PAIMON_TABLE_CACHE_TTL_SECOND, null);
+        String tableCacheCapacity = updatedProps.getOrDefault(PAIMON_TABLE_CACHE_CAPACITY, null);
+        if (Objects.nonNull(tableCacheEnable) || Objects.nonNull(tableCacheTtl)
+                || Objects.nonNull(tableCacheCapacity)) {
             PaimonUtils.getPaimonMetadataCache(this).init();
         }
     }

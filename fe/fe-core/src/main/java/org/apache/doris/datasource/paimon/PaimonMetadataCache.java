@@ -29,6 +29,7 @@ import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.metacache.CacheSpec;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Maps;
@@ -62,17 +63,23 @@ public class PaimonMetadataCache {
     }
 
     public void init() {
-        ExternalCatalog.CacheTtlSpec ttlSpec = ExternalCatalog.resolveCacheTtlSpec(
-                catalog.getProperties().get(PaimonExternalCatalog.PAIMON_TABLE_META_CACHE_TTL_SECOND),
-                Config.external_cache_expire_time_seconds_after_access,
-                Config.max_external_table_cache_num);
+        CacheSpec cacheSpec = resolveTableCacheSpec();
         CacheFactory tableCacheFactory = new CacheFactory(
-                ttlSpec.getExpireAfterAccessSeconds(),
-                OptionalLong.of(Config.external_cache_refresh_time_minutes * 60),
-                ttlSpec.getMaxSize(),
+                CacheSpec.toExpireAfterAccess(cacheSpec.getTtlSecond()),
+                OptionalLong.empty(),
+                cacheSpec.getCapacity(),
                 true,
                 null);
         this.tableCache = tableCacheFactory.buildCache(key -> loadTableCacheValue(key), executor);
+    }
+
+    private CacheSpec resolveTableCacheSpec() {
+        return CacheSpec.fromProperties(catalog.getProperties(),
+                PaimonExternalCatalog.PAIMON_TABLE_CACHE_ENABLE, true,
+                PaimonExternalCatalog.PAIMON_TABLE_CACHE_TTL_SECOND,
+                Config.external_cache_expire_time_seconds_after_access,
+                PaimonExternalCatalog.PAIMON_TABLE_CACHE_CAPACITY,
+                Config.max_external_table_cache_num);
     }
 
     @NotNull

@@ -28,6 +28,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.cache.IcebergManifestCache;
+import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -35,7 +36,6 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.exception.ExceptionUtils;
-import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
@@ -65,27 +65,38 @@ public class IcebergMetadataCache {
     }
 
     public void init() {
-        ExternalCatalog.CacheTtlSpec ttlSpec = ExternalCatalog.resolveCacheTtlSpec(
-                catalog.getProperties().get(IcebergExternalCatalog.ICEBERG_TABLE_META_CACHE_TTL_SECOND),
-                Config.external_cache_expire_time_seconds_after_access,
-                Config.max_external_table_cache_num);
+        CacheSpec tableCacheSpec = resolveTableCacheSpec();
         CacheFactory tableCacheFactory = new CacheFactory(
-                ttlSpec.getExpireAfterAccessSeconds(),
-                OptionalLong.of(Config.external_cache_refresh_time_minutes * 60),
-                ttlSpec.getMaxSize(),
+                CacheSpec.toExpireAfterAccess(tableCacheSpec.getTtlSecond()),
+                OptionalLong.empty(),
+                tableCacheSpec.getCapacity(),
                 true,
                 null);
         this.tableCache = tableCacheFactory.buildCache(this::loadTableCacheValue, executor);
         this.viewCache = tableCacheFactory.buildCache(this::loadView, executor);
 
-        long manifestCacheCapacityMb = NumberUtils.toLong(
-                catalog.getProperties().get(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_CAPACITY_MB),
-                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY_MB);
-        manifestCacheCapacityMb = Math.max(manifestCacheCapacityMb, 0L);
-        long manifestCacheTtlSec = NumberUtils.toLong(
-                catalog.getProperties().get(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_TTL_SECOND),
-                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND);
-        this.manifestCache = new IcebergManifestCache(manifestCacheCapacityMb, manifestCacheTtlSec);
+        CacheSpec manifestCacheSpec = resolveManifestCacheSpec();
+        this.manifestCache = new IcebergManifestCache(manifestCacheSpec.getCapacity(),
+                manifestCacheSpec.getTtlSecond());
+    }
+
+    private CacheSpec resolveTableCacheSpec() {
+        return CacheSpec.fromProperties(catalog.getProperties(),
+                IcebergExternalCatalog.ICEBERG_TABLE_CACHE_ENABLE, true,
+                IcebergExternalCatalog.ICEBERG_TABLE_CACHE_TTL_SECOND,
+                Config.external_cache_expire_time_seconds_after_access,
+                IcebergExternalCatalog.ICEBERG_TABLE_CACHE_CAPACITY,
+                Config.max_external_table_cache_num);
+    }
+
+    private CacheSpec resolveManifestCacheSpec() {
+        return CacheSpec.fromProperties(catalog.getProperties(),
+                IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_ENABLE,
+                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE,
+                IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_TTL_SECOND,
+                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND,
+                IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_CAPACITY,
+                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY);
     }
 
     public Table getIcebergTable(ExternalTable dorisTable) {

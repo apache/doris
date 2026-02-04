@@ -51,7 +51,7 @@ suite("test_paimon_table_meta_cache", "p0,external,doris,external_docker,externa
             's3.access_key' = 'admin',
             's3.secret_key' = 'password',
             's3.path.style.access' = 'true',
-            'paimon.table.meta.cache.ttl-second' = '0'
+            'meta.cache.paimon.table.ttl-second' = '0'
         );
     """
 
