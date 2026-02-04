@@ -182,7 +182,20 @@ SyntaxError:
 -- !sum_if_push_exe --
 1	\N	\N	\N	\N	\N	\N
 
--- !check_nullable --
+-- !check_case_when_outer_join_not_push --
+PhysicalResultSink
+--PhysicalProject
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalProject
+------------hashJoin[RIGHT_OUTER_JOIN shuffle] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=()
+--------------PhysicalProject
+----------------PhysicalOlapScan[store_sales]
+--------------PhysicalProject
+----------------PhysicalOlapScan[date_dim]
+
+-- !check_no_case_when_outer_join_push --
 PhysicalResultSink
 --PhysicalProject
 ----hashAgg[GLOBAL]
@@ -197,9 +210,6 @@ PhysicalResultSink
 ----------------------PhysicalOlapScan[store_sales]
 --------------PhysicalProject
 ----------------PhysicalOlapScan[date_dim]
-
--- !check_nullable_exe --
-11.00
 
 -- !check_no_push_value_slots_contains_if_slots --
 PhysicalResultSink

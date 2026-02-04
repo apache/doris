@@ -207,7 +207,7 @@ suite("eager_agg") {
         group by d_week_seq, ws_item_sk;
         """
 
-    qt_check_nullable """
+    qt_check_case_when_outer_join_not_push """
     explain shape plan
     select /*+SET_VAR(eager_aggregation_mode=1, disable_join_reorder = true)*/ a + ss_sales_price 
     from (
@@ -218,10 +218,11 @@ suite("eager_agg") {
     )t;
     """
 
-    qt_check_nullable_exe """
+    qt_check_no_case_when_outer_join_push """
+    explain shape plan
     select /*+SET_VAR(eager_aggregation_mode=1, disable_join_reorder = true)*/ a + ss_sales_price 
     from (
-    select sum(case when ss_item_sk =1 then 1 else 0 end) a, ss_sales_price
+    select sum(ss_item_sk =1) a, ss_sales_price
     from store_sales 
       right join date_dim on d_date_sk = ss_sold_date_sk
     group by ss_sales_price

@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
@@ -95,6 +96,37 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 } else {
                     pushHere = true;
                 }
+            }
+        }
+
+        // Do not push aggregation to the nullable side of outer joins when agg function contains case-when.
+        //    plan1:
+        //    agg(max(case when t1.a is null then 1 else null end))
+        //       --> right join on false
+        //          --> t1
+        //          --> t2
+        //    =>
+        //    plan2:
+        //    agg(max(x))
+        //    --> right join on false
+        //            --> agg((case when t1.a is null when 1 else null end) as x)
+        //            --> t2
+        // this transform is incorrect, because right join condition is false, then x is null,
+        // and the output is max(null)=null.
+        // but the output of plan1 should be 1
+        if (context.aggregateOnCaseWhen) {
+            JoinType joinType = join.getJoinType();
+            if (joinType.isFullOuterJoin()) {
+                return join;
+            }
+            if (joinType.isRightOuterJoin()) {
+                toLeft = false;
+            }
+            if (joinType.isLeftOuterJoin()) {
+                toRight = false;
+            }
+            if (!toLeft && !toRight && !pushHere) {
+                return join;
             }
         }
 
@@ -202,7 +234,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             aggFunctions.add(newAggFunc);
         }
         return new PushDownAggContext(aggFunctions, groupKeys, aliasMap,
-                context.getCascadesContext(), context.isPassThroughBigJoin());
+                context.getCascadesContext(), context.isPassThroughBigJoin(), context.aggregateOnCaseWhen);
     }
 
     private boolean canPushThroughProject(LogicalProject<? extends Plan> project, PushDownAggContext context) {
@@ -304,7 +336,8 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                     .map(slot -> (SlotReference) union.pushDownExpressionPastSetOperator(slot, childIdx))
                     .collect(Collectors.toList());
             PushDownAggContext contextForChild = new PushDownAggContext(aggFunctionsForChild, groupKeysForChild,
-                    aliasMapForChild, context.getCascadesContext(), context.isPassThroughBigJoin());
+                    aliasMapForChild, context.getCascadesContext(),
+                    context.isPassThroughBigJoin(), context.aggregateOnCaseWhen);
             childrenContext.add(contextForChild);
             if (contextForChild.isValid()) {
                 Plan newChild = child.accept(this, contextForChild);
@@ -463,7 +496,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             return context.isPassThroughBigJoin();
         }
 
-        if (!context.isPassThroughBigJoin()) {
+        if (!context.isPassThroughBigJoin() && !context.aggregateOnCaseWhen) {
             return false;
         }
 

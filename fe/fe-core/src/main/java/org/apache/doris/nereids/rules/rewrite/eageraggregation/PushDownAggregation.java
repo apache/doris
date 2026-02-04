@@ -185,7 +185,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
         }
 
         PushDownAggContext pushDownContext = new PushDownAggContext(new ArrayList<>(aggFunctions),
-                groupKeys, null, context.getCascadesContext(), hasSumIf);
+                groupKeys, null, context.getCascadesContext(), false, hasSumIf);
         if (!pushDownContext.isValid()) {
             return agg;
         }
