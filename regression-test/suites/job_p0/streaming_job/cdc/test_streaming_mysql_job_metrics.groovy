@@ -24,7 +24,7 @@ suite("test_streaming_mysql_job_metrics",
 
     def jobName = "test_streaming_mysql_job_metrics"
     def currentDb = (sql "select database()")[0][0]
-    def mysqlDb = "test_cdc_metrics_db"
+    def mysqlDb = "test_cdc_db"
     def mysqlTable = "user_info_metrics"
 
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
