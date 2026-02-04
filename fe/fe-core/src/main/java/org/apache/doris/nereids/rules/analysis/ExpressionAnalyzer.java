@@ -742,9 +742,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     }
 
     private Expression wrapVariantElementAtWithCast(Expression expr) {
-        if (!(expr instanceof ElementAt)) {
-            return expr;
-        }
         ElementAt elementAt = (ElementAt) expr;
         if (suppressVariantElementAtCastDepth > 0) {
             return elementAt;
@@ -804,14 +801,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             this.root = root;
             this.path = path;
         }
-    }
-
-    private boolean shouldSuppressVariantElementAtCast(Cast cast) {
-        if (!cast.isExplicitType()) {
-            return false;
-        }
-        Expression child = cast.child();
-        return child instanceof ElementAt || child instanceof DereferenceExpression || child instanceof UnboundSlot;
     }
 
     private Expression maybeCastAliasExpression(Alias alias, ExpressionRewriteContext context) {
