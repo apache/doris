@@ -18,6 +18,7 @@
 package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 
 import com.google.common.collect.Sets;
 
@@ -61,6 +62,14 @@ public class DataSourceConfigValidator {
             if (!key.startsWith(DataSourceConfigKeys.TABLE_PROPS_PREFIX)
                     && !key.startsWith(DataSourceConfigKeys.LOAD_PROPERTIES)) {
                 throw new IllegalArgumentException("Not support target properties key " + key);
+            }
+
+            if (key.equals(DataSourceConfigKeys.LOAD_PROPERTIES + LoadCommand.MAX_FILTER_RATIO_PROPERTY)) {
+                try {
+                    Double.parseDouble(entry.getValue());
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("Invalid value for key '" + key + "': " + entry.getValue());
+                }
             }
         }
     }

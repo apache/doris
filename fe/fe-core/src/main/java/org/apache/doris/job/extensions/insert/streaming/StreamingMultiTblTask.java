@@ -81,6 +81,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     public StreamingMultiTblTask(Long jobId,
             long taskId,
             DataSourceType dataSourceType,
+
             SourceOffsetProvider offsetProvider,
             Map<String, String> sourceProperties,
             String targetDb,
@@ -199,12 +200,12 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
 
     private Map<String, String> generateStreamLoadProps() {
         Map<String, String> streamLoadProps = new HashMap<>();
-        String maxFilterRadio =
+        String maxFilterRatio =
                 targetProperties.get(DataSourceConfigKeys.LOAD_PROPERTIES + LoadCommand.MAX_FILTER_RATIO_PROPERTY);
 
-        if (StringUtils.isNotEmpty(maxFilterRadio) && Double.parseDouble(maxFilterRadio) > 0) {
-            // If `load.max_filter_radio` is set, it is calculated on the job side based on a window;
-            // the `max_filter_radio` of the streamload must be 1.
+        if (StringUtils.isNotEmpty(maxFilterRatio) && Double.parseDouble(maxFilterRatio) > 0) {
+            // If `load.max_filter_ratio` is set, it is calculated on the job side based on a window;
+            // the `max_filter_ratio` of the streamload must be 1.
             streamLoadProps.put(LoadCommand.MAX_FILTER_RATIO_PROPERTY, "1");
         }
 
