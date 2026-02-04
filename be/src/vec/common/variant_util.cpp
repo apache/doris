@@ -19,6 +19,7 @@
 
 #include <assert.h>
 #include <fmt/format.h>
+#include <fnmatch.h>
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
@@ -33,7 +34,6 @@
 #include <unicode/uchar.h>
 
 #include <algorithm>
-#include <atomic>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -69,7 +69,6 @@
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "util/defer_op.h"
-#include "util/jni-util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
@@ -102,56 +101,6 @@
 
 namespace doris::vectorized::variant_util {
 #include "common/compile_check_begin.h"
-
-namespace {
-
-std::once_flag g_path_matcher_once;
-std::atomic<bool> g_path_matcher_ready {false};
-jclass g_path_matcher_cl = nullptr;
-jmethodID g_path_matcher_matches = nullptr;
-
-void init_java_path_matcher(JNIEnv* env) {
-    jclass local_cl = env->FindClass("org/apache/doris/common/jni/utils/PathMatcherUtil");
-    if (local_cl == nullptr) {
-        env->ExceptionClear();
-        return;
-    }
-    g_path_matcher_cl = reinterpret_cast<jclass>(env->NewGlobalRef(local_cl));
-    env->DeleteLocalRef(local_cl);
-    if (g_path_matcher_cl == nullptr) {
-        env->ExceptionClear();
-        return;
-    }
-    g_path_matcher_matches = env->GetStaticMethodID(g_path_matcher_cl, "matches",
-                                                    "(Ljava/lang/String;Ljava/lang/String;)Z");
-    if (g_path_matcher_matches == nullptr) {
-        env->ExceptionClear();
-        return;
-    }
-    g_path_matcher_ready.store(true, std::memory_order_release);
-}
-
-bool java_glob_match(const char* pattern, const std::string& path) {
-    JNIEnv* env = nullptr;
-    Status st = Jni::Env::Get(&env);
-    CHECK(st.ok()) << st;
-    std::call_once(g_path_matcher_once, [&]() { init_java_path_matcher(env); });
-    CHECK(g_path_matcher_ready.load(std::memory_order_acquire))
-            << "PathMatcherUtil is not available in JVM";
-    jstring jpattern = env->NewStringUTF(pattern);
-    jstring jpath = env->NewStringUTF(path.c_str());
-    jboolean result = env->CallStaticBooleanMethod(g_path_matcher_cl, g_path_matcher_matches,
-                                                   jpattern, jpath);
-    env->DeleteLocalRef(jpattern);
-    env->DeleteLocalRef(jpath);
-    if (env->ExceptionCheck()) {
-        Status err = Jni::Env::GetJniExceptionMsg(env);
-        CHECK(false) << err;
-    }
-    return result == JNI_TRUE;
-}
-
-} // namespace
 
 size_t get_number_of_dimensions(const IDataType& type) {
     if (const auto* type_array = typeid_cast<const DataTypeArray*>(&type)) {
@@ -1358,8 +1307,8 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
             break;
         }
         case PatternTypePB::MATCH_NAME_GLOB: {
-            bool matched = java_glob_match(pattern, path);
-            if (matched) {
+            int result = fnmatch(pattern, path.c_str(), FNM_PATHNAME);
+            if (result == 0) {
                 generate_result_column(*sub_column, &sub_column_info->column);
                 generate_index(sub_column->name());
                 return true;
