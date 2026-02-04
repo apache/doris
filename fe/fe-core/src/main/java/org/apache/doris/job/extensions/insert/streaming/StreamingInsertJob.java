@@ -54,6 +54,7 @@ import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
 import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
@@ -506,6 +507,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     protected void fetchMeta() throws JobException {
+        long start = System.currentTimeMillis();
         try {
             if (tvfType != null) {
                 if (originTvfProps == null) {
@@ -527,7 +529,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 // If fetching meta fails, the job is paused
                 // and auto resume will automatically wake it up.
                 this.updateJobStatus(JobStatus.PAUSED);
+
+                MetricRepo.COUNTER_STREAMING_JOB_GET_META_FAIL_COUNT.increase(1L);
             }
+        } finally {
+            long end = System.currentTimeMillis();
+            MetricRepo.COUNTER_STREAMING_JOB_GET_META_LANTENCY.increase(end - start);
+            MetricRepo.COUNTER_STREAMING_JOB_GET_META_COUNT.increase(1L);
         }
     }
 
@@ -574,6 +582,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             failedTaskCount.incrementAndGet();
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
             this.failureReason = new FailureReason(task.getErrMsg());
+            MetricRepo.COUNTER_STREAMING_JOB_TASK_FAILED_COUNT.increase(1L);
         } finally {
             writeUnlock();
         }
@@ -584,6 +593,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         try {
             resetFailureInfo(null);
             succeedTaskCount.incrementAndGet();
+            //update metric
+            MetricRepo.COUNTER_STREAMING_JOB_TASK_EXECUTE_COUNT.increase(1L);
+            MetricRepo.COUNTER_STREAMING_JOB_TASK_EXECUTE_TIME.increase(task.getFinishTimeMs() - task.getStartTimeMs());
+
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
             AbstractStreamingTask nextTask = createStreamingTask();
             this.runningStreamTask = nextTask;
@@ -633,6 +646,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 .setScannedRows(this.nonTxnJobStatistic.getScannedRows() + offsetRequest.getScannedRows());
         this.nonTxnJobStatistic.setLoadBytes(this.nonTxnJobStatistic.getLoadBytes() + offsetRequest.getScannedBytes());
         offsetProvider.updateOffset(offsetProvider.deserializeOffset(offsetRequest.getOffset()));
+
+        //update metric
+        MetricRepo.COUNTER_STREAMING_JOB_TOTAL_ROWS.increase(offsetRequest.getScannedRows());
+        MetricRepo.COUNTER_STREAMING_JOB_FILTER_ROWS.increase(offsetRequest.getFilteredRows());
+        MetricRepo.COUNTER_STREAMING_JOB_LOAD_BYTES.increase(offsetRequest.getLoadBytes());
     }
 
     @Override
@@ -645,7 +663,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         onRegister();
         super.onReplayCreate();
     }
-
 
     /**
      * Because the offset statistics of the streamingInsertJob are all stored in txn,
