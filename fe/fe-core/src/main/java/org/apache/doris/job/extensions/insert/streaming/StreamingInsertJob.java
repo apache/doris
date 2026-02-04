@@ -1146,7 +1146,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      * Check data quality before commit offset
      */
     private void checkDataQuality(CommitOffsetRequest offsetRequest) throws JobException {
-        String maxFilterRatioStr = targetProperties.get(LoadCommand.MAX_FILTER_RATIO_PROPERTY);
+        String maxFilterRatioStr =
+                targetProperties.get(DataSourceConfigKeys.LOAD_PROPERTIES + LoadCommand.MAX_FILTER_RATIO_PROPERTY);
         if (maxFilterRatioStr == null) {
             return;
         }
