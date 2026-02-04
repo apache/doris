@@ -245,13 +245,13 @@ public class VariantFieldMatchTest {
 
     @Test
     public void testGlobWithSlashSeparator() {
-        // With FNM_PATHNAME, '*' should not match '/'
+        // With glob->regex, '*' should match '/'
         VariantField field = new VariantField("int_*", BigIntType.INSTANCE, "",
                 TPatternType.MATCH_NAME_GLOB.name());
 
         Assertions.assertTrue(field.matches("int_nested"));
         Assertions.assertTrue(field.matches("int_nested.level1")); // '.' is matched by '*'
-        Assertions.assertFalse(field.matches("int_nested/level1")); // '/' is NOT matched by '*'
+        Assertions.assertTrue(field.matches("int_nested/level1")); // '/' is matched by '*'
     }
 
     @Test

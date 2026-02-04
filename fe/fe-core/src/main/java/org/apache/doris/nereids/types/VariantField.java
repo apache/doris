@@ -17,15 +17,14 @@
 
 package org.apache.doris.nereids.types;
 
+import org.apache.doris.common.GlobRegexUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.thrift.TPatternType;
 
-import java.nio.file.FileSystems;
-import java.nio.file.InvalidPathException;
-import java.nio.file.PathMatcher;
-import java.nio.file.Paths;
+import com.google.re2j.Pattern;
+import com.google.re2j.PatternSyntaxException;
+
 import java.util.Objects;
-import java.util.regex.PatternSyntaxException;
 
 /**
  * A field inside a VariantType.
@@ -74,13 +73,14 @@ public class VariantField {
 
     /**
      * Check if the given field name matches this field's pattern.
-     * This method aligns with BE's fnmatch(pattern, path, FNM_PATHNAME) behavior.
+     * This method uses a restricted glob syntax converted to regex.
      *
      * Supported glob syntax:
-     * - '*' matches any sequence of characters except '/'
-     * - '?' matches any single character except '/'
+     * - '*' matches any sequence of characters
+     * - '?' matches any single character
      * - '[...]' matches any character in the brackets
      * - '[!...]' matches any character not in the brackets
+     * - '\\' escapes the next character
      *
      * @param fieldName the field name to check
      * @return true if the field name matches the pattern
@@ -93,9 +93,9 @@ public class VariantField {
             return false;
         }
         try {
-            PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pattern);
-            return matcher.matches(Paths.get(fieldName));
-        } catch (PatternSyntaxException | InvalidPathException e) {
+            Pattern compiled = GlobRegexUtil.getOrCompilePattern(pattern);
+            return compiled.matcher(fieldName).matches();
+        } catch (PatternSyntaxException | IllegalArgumentException e) {
             return false;
         }
     }
