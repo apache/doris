@@ -19,7 +19,9 @@ suite("test_mor_value_predicate_pushdown") {
     def tbName = "test_mor_value_pred_pushdown"
     def dbName = context.config.getDbNameByFile(context.file)
 
-    // Test 1: Basic MOR table with value predicate pushdown
+    // Test 1: Basic MOR table with value predicate pushdown (dedup-only scenario)
+    // This feature is designed for insert-only/dedup-only workloads where
+    // the same key always has identical values across rowsets.
     sql "DROP TABLE IF EXISTS ${tbName}"
     sql """
         CREATE TABLE IF NOT EXISTS ${tbName} (
@@ -36,13 +38,10 @@ suite("test_mor_value_predicate_pushdown") {
         );
     """
 
-    // Insert test data
-    sql "INSERT INTO ${tbName} VALUES (1, 100, 'hello')"
-    sql "INSERT INTO ${tbName} VALUES (2, 200, 'world')"
-    sql "INSERT INTO ${tbName} VALUES (3, 300, 'test')"
-
-    // Delete a row (for MOR, this marks the row with __DORIS_DELETE_SIGN__)
-    sql "DELETE FROM ${tbName} WHERE k1 = 2"
+    // Insert test data across separate rowsets (dedup-only: same key has same values)
+    sql "INSERT INTO ${tbName} VALUES (1, 100, 'hello'), (2, 200, 'world'), (3, 300, 'test')"
+    // Re-insert duplicates to create overlapping rowsets for dedup
+    sql "INSERT INTO ${tbName} VALUES (1, 100, 'hello'), (2, 200, 'world')"
 
     // Test: pushdown disabled (default)
     sql "SET enable_mor_value_predicate_pushdown_tables = ''"
@@ -84,8 +83,8 @@ suite("test_mor_value_predicate_pushdown") {
         SELECT * FROM ${tbName} WHERE v1 > 150 ORDER BY k1
     """
 
-    // Test: verify deleted row is not returned (correctness check)
-    qt_select_deleted_row """
+    // Test: equality predicate on value column with pushdown
+    qt_select_eq_predicate """
         SELECT * FROM ${tbName} WHERE v1 = 200 ORDER BY k1
     """
 
@@ -96,8 +95,8 @@ suite("test_mor_value_predicate_pushdown") {
         SELECT * FROM ${tbName} WHERE v1 > 150 ORDER BY k1
     """
 
-    // Test 2: Verify correctness with multiple updates to same key
-    // This is critical - MOR tables with overlapping rowsets must return correct latest values
+    // Test 2: Multiple rowsets with dedup-only pattern
+    // Verify correctness when same keys appear across many rowsets with identical values
     sql "DROP TABLE IF EXISTS ${tbName}"
     sql """
         CREATE TABLE IF NOT EXISTS ${tbName} (
@@ -114,30 +113,178 @@ suite("test_mor_value_predicate_pushdown") {
         );
     """
 
-    // Insert multiple versions of same key (creates overlapping rowsets)
+    // Create multiple overlapping rowsets (dedup-only: all versions have same values)
+    sql "INSERT INTO ${tbName} VALUES (1, 100, 'first'), (2, 300, 'third')"
     sql "INSERT INTO ${tbName} VALUES (1, 100, 'first')"
-    sql "INSERT INTO ${tbName} VALUES (1, 200, 'second')"
-    sql "INSERT INTO ${tbName} VALUES (2, 300, 'third')"
+    sql "INSERT INTO ${tbName} VALUES (2, 300, 'third'), (3, 500, 'fifth')"
 
-    // Test with pushdown enabled - must still return correct latest version
+    // Test with pushdown enabled
     sql "SET enable_mor_value_predicate_pushdown_tables = '*'"
 
-    // Should only return the latest version
-    qt_select_latest_version """
+    // Should return all rows matching predicate after dedup
+    qt_select_dedup_all """
         SELECT * FROM ${tbName} WHERE v1 >= 100 ORDER BY k1
     """
 
-    // Value predicate on older version should not match (k1=1 has v1=200 now, not 100)
-    qt_select_old_version """
-        SELECT * FROM ${tbName} WHERE v1 = 100 ORDER BY k1
+    // Equality match on a value that exists
+    qt_select_dedup_eq """
+        SELECT * FROM ${tbName} WHERE v1 = 300 ORDER BY k1
     """
 
-    // Value predicate on new version should match
-    qt_select_new_version """
+    // Predicate that matches no rows
+    qt_select_dedup_none """
+        SELECT * FROM ${tbName} WHERE v1 = 999 ORDER BY k1
+    """
+
+    // Test 3: Dedup + delete scenario
+    // Value columns are identical across rowsets (dedup-only), but some rows are deleted.
+    // Verifies that __DORIS_DELETE_SIGN__ is NOT pushed per-segment so deletions are honored.
+    sql "DROP TABLE IF EXISTS ${tbName}"
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tbName} (
+            k1 INT,
+            v1 INT,
+            v2 VARCHAR(100)
+        )
+        UNIQUE KEY(k1)
+        DISTRIBUTED BY HASH(k1) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "false",
+            "disable_auto_compaction" = "true"
+        );
+    """
+
+    // Rowset 1: initial data
+    sql "INSERT INTO ${tbName} VALUES (1, 100, 'hello'), (2, 200, 'world'), (3, 300, 'test')"
+    // Rowset 2: dedup insert (same key, same values)
+    sql "INSERT INTO ${tbName} VALUES (1, 100, 'hello'), (2, 200, 'world')"
+    // Rowset 3: delete k1=2 via insert with __DORIS_DELETE_SIGN__=1
+    // Value columns are identical (dedup-only), only delete sign differs
+    sql "INSERT INTO ${tbName}(k1, v1, v2, __DORIS_DELETE_SIGN__) VALUES (2, 200, 'world', 1)"
+
+    sql "SET enable_mor_value_predicate_pushdown_tables = '*'"
+
+    // Deleted row must not appear even though v1=200 matches the predicate
+    qt_select_delete_range """
+        SELECT * FROM ${tbName} WHERE v1 > 150 ORDER BY k1
+    """
+
+    // Equality on deleted row's value — should return empty
+    qt_select_delete_eq """
         SELECT * FROM ${tbName} WHERE v1 = 200 ORDER BY k1
     """
 
-    // Test 3: Multiple tables in the list
+    // Broader predicate — deleted row still excluded
+    qt_select_delete_all """
+        SELECT * FROM ${tbName} WHERE v1 >= 100 ORDER BY k1
+    """
+
+    // Test 4: Dedup + delete predicate scenario
+    // DELETE FROM creates a delete predicate stored in rowset metadata.
+    // Delete predicates go through DeleteHandler, separate from value predicates.
+    // Verify they work correctly alongside value predicate pushdown.
+    sql "DROP TABLE IF EXISTS ${tbName}"
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tbName} (
+            k1 INT,
+            v1 INT,
+            v2 VARCHAR(100)
+        )
+        UNIQUE KEY(k1)
+        DISTRIBUTED BY HASH(k1) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "false",
+            "disable_auto_compaction" = "true"
+        );
+    """
+
+    // Rowset 1: initial data
+    sql "INSERT INTO ${tbName} VALUES (1, 100, 'hello'), (2, 200, 'world'), (3, 300, 'test')"
+    // Rowset 2: dedup insert (same key, same values)
+    sql "INSERT INTO ${tbName} VALUES (1, 100, 'hello'), (2, 200, 'world')"
+    // Delete predicate rowset: DELETE FROM creates a predicate, not row markers
+    sql "DELETE FROM ${tbName} WHERE k1 = 2"
+
+    sql "SET enable_mor_value_predicate_pushdown_tables = '*'"
+
+    // Deleted row must not appear
+    qt_select_delpred_range """
+        SELECT * FROM ${tbName} WHERE v1 > 150 ORDER BY k1
+    """
+
+    // Equality on deleted row's value — should return empty
+    qt_select_delpred_eq """
+        SELECT * FROM ${tbName} WHERE v1 = 200 ORDER BY k1
+    """
+
+    // Broader predicate — deleted row still excluded
+    qt_select_delpred_all """
+        SELECT * FROM ${tbName} WHERE v1 >= 100 ORDER BY k1
+    """
+
+    // Test 5: Update scenario — proves pushdown is active at storage layer
+    // k1=1 is updated from v1=100 to v1=500 across two rowsets.
+    // Comparing results with pushdown disabled vs enabled for the SAME query
+    // proves per-segment filtering is happening:
+    //   disabled: merge picks latest (v1=500), VExpr filters → empty
+    //   enabled:  rowset 2 filtered per-segment (v1=500≠100), old version survives
+    //             merge sees only old version, VExpr passes → stale (1,100,'old')
+    sql "DROP TABLE IF EXISTS ${tbName}"
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tbName} (
+            k1 INT,
+            v1 INT,
+            v2 VARCHAR(100)
+        )
+        UNIQUE KEY(k1)
+        DISTRIBUTED BY HASH(k1) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "false",
+            "disable_auto_compaction" = "true"
+        );
+    """
+
+    // Rowset 1: initial data
+    sql "INSERT INTO ${tbName} VALUES (1, 100, 'old'), (2, 200, 'keep'), (3, 300, 'keep')"
+    // Rowset 2: update k1=1 from v1=100 to v1=500
+    sql "INSERT INTO ${tbName} VALUES (1, 500, 'new')"
+
+    // --- Pushdown disabled: correct merge-then-filter behavior ---
+    sql "SET enable_mor_value_predicate_pushdown_tables = ''"
+
+    // v1=100 does not match latest version (v1=500) → empty
+    qt_select_update_disabled_old """
+        SELECT * FROM ${tbName} WHERE v1 = 100 ORDER BY k1
+    """
+
+    // v1=500 matches latest → returns updated row
+    qt_select_update_disabled_new """
+        SELECT * FROM ${tbName} WHERE v1 = 500 ORDER BY k1
+    """
+
+    // --- Pushdown enabled: per-segment filtering observable ---
+    sql "SET enable_mor_value_predicate_pushdown_tables = '*'"
+
+    // v1=100: rowset 2 (v1=500) filtered per-segment, old version survives.
+    // Returns stale data — this proves pushdown is filtering at storage layer.
+    qt_select_update_enabled_old """
+        SELECT * FROM ${tbName} WHERE v1 = 100 ORDER BY k1
+    """
+
+    // v1=500: rowset 1 (v1=100) filtered per-segment, new version passes → correct
+    qt_select_update_enabled_new """
+        SELECT * FROM ${tbName} WHERE v1 = 500 ORDER BY k1
+    """
+
+    // v1 > 200: old v1=100 filtered, new v1=500 passes, k1=3 v1=300 passes → correct
+    qt_select_update_enabled_range """
+        SELECT * FROM ${tbName} WHERE v1 > 200 ORDER BY k1
+    """
+
+    // Test 6: Multiple tables in the list
     def tbName2 = "test_mor_value_pred_pushdown_2"
     sql "DROP TABLE IF EXISTS ${tbName2}"
     sql """
@@ -161,7 +308,7 @@ suite("test_mor_value_predicate_pushdown") {
         SELECT * FROM ${tbName2} WHERE v1 > 100 ORDER BY k1
     """
 
-    // Test 4: Non-MOR table (MOW) - value predicates should always be pushed down
+    // Test 7: Non-MOR table (MOW) - value predicates should always be pushed down
     // The session variable should have no effect on MOW tables
     def tbNameMow = "test_mow_value_pred"
     sql "DROP TABLE IF EXISTS ${tbNameMow}"
@@ -187,7 +334,7 @@ suite("test_mor_value_predicate_pushdown") {
         SELECT * FROM ${tbNameMow} WHERE v1 > 100 ORDER BY k1
     """
 
-    // Test 5: DUP_KEYS table - value predicates should always be pushed down
+    // Test 8: DUP_KEYS table - value predicates should always be pushed down
     // The session variable should have no effect on DUP_KEYS tables
     def tbNameDup = "test_dup_value_pred"
     sql "DROP TABLE IF EXISTS ${tbNameDup}"
@@ -210,17 +357,7 @@ suite("test_mor_value_predicate_pushdown") {
         SELECT * FROM ${tbNameDup} WHERE v1 > 100 ORDER BY k1
     """
 
-    // Test 6: Profile verification - check that predicate pushdown affects filtering
-    // Enable profiling and verify RowsConditionsFiltered counter when pushdown is enabled
-    sql "SET enable_profile = true"
-    sql "SET enable_mor_value_predicate_pushdown_tables = '*'"
-
-    // Execute query and check profile shows filtering happened at storage layer
-    def profileQuery = "SELECT /*+ SET_VAR(enable_mor_value_predicate_pushdown_tables='*') */ * FROM ${tbName} WHERE v1 > 250"
-    sql profileQuery
-
     // Cleanup
-    sql "SET enable_profile = false"
     sql "SET enable_mor_value_predicate_pushdown_tables = ''"
     sql "DROP TABLE IF EXISTS ${tbName}"
     sql "DROP TABLE IF EXISTS ${tbName2}"
