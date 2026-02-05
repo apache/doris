@@ -4841,16 +4841,21 @@ public class SessionVariable implements Serializable, Writable {
         return dropTableIfCtasFailed;
     }
 
-    public void checkQueryTimeoutValid(String newQueryTimeout) {
-        int value = Integer.valueOf(newQueryTimeout);
-        if (value <= 0) {
-            UnsupportedOperationException exception =
-                    new UnsupportedOperationException(
-                        "query_timeout can not be set to " + newQueryTimeout + ", it must be greater than 0");
-            LOG.warn("Check query_timeout failed", exception);
-            throw exception;
-        }
+    public void checkQueryTimeoutValid(String newQueryTimeout) throws AnalysisException {
+    int value;
+    try {
+        value = Integer.parseInt(newQueryTimeout);
+    } catch (NumberFormatException e) {
+        throw new AnalysisException(
+                "query_timeout must be a positive integer, but got: " + newQueryTimeout);
     }
+
+    if (value <= 0) {
+        throw new AnalysisException(
+                "query_timeout must be greater than 0, but got: " + newQueryTimeout);
+    }
+}
+
 
     public void checkMaxExecutionTimeMSValid(String newValue) {
         int value = Integer.valueOf(newValue);
