@@ -288,8 +288,8 @@ inline Status parse_bit_shuffle_header(const Slice& data, size_t& num_elements,
                 "num of element information corrupted,"
                 " _num_element_after_padding:{}, _num_elements:{}, expected_padding:{},"
                 " compressed_size:{}, size_of_element:{}, data_size:{}",
-                num_element_after_padding, num_elements, ALIGN_UP(num_elements, 8),
-                compressed_size, size_of_element, data.size);
+                num_element_after_padding, num_elements, ALIGN_UP(num_elements, 8), compressed_size,
+                size_of_element, data.size);
     }
     switch (size_of_element) {
     case 1:

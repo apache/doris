@@ -2020,9 +2020,8 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     auto st = ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
                                  _reader->encoding_info(), iter.page(), iter.page_index(), &_page);
     if (!st.ok()) {
-        LOG(WARNING) << "failed to create ParsedPage, file="
-                     << _opts.file_reader->path().native() << ", page_offset=" << iter.page().offset
-                     << ", page_size=" << iter.page().size
+        LOG(WARNING) << "failed to create ParsedPage, file=" << _opts.file_reader->path().native()
+                     << ", page_offset=" << iter.page().offset << ", page_size=" << iter.page().size
                      << ", page_index=" << iter.page_index() << ", error=" << st;
         return st;
     }
