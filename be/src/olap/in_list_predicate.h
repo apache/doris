@@ -144,6 +144,13 @@ public:
 
     PredicateType type() const override { return PT; }
 
+    bool could_be_erased() const override {
+        if ((PT == PredicateType::NOT_IN_LIST && !_opposite) ||
+            (PT == PredicateType::IN_LIST && _opposite)) {
+            return false;
+        }
+        return true;
+    }
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                     IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* result) const override {

@@ -61,6 +61,7 @@ public:
                        ColumnPredicate::debug_string(), _is_null);
         return fmt::to_string(debug_string_buffer);
     }
+    bool could_be_erased() const override { return true; }
 
     PredicateType type() const override;
 

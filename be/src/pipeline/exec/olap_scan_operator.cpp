@@ -21,6 +21,7 @@
 
 #include <memory>
 #include <numeric>
+#include <optional>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
@@ -883,6 +884,8 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
             DCHECK(_slot_id_to_predicates.count(iter->first) > 0);
             const auto& value_range = iter->second;
 
+            std::optional<int> key_to_erase;
+
             RETURN_IF_ERROR(std::visit(
                     [&](auto&& range) {
                         // make a copy or range and pass to extend_scan_key, keep the range unchanged
@@ -894,7 +897,7 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                                     _scan_keys.extend_scan_key(temp_range, p._max_scan_key_num,
                                                                &exact_range, &eos, &should_break));
                             if (exact_range) {
-                                _slot_id_to_value_range.erase(iter->first);
+                                key_to_erase = iter->first;
                             }
                         } else {
                             // if exceed max_pushdown_conditions_per_column, use whole_value_rang instead
@@ -907,6 +910,24 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                         return Status::OK();
                     },
                     value_range));
+
+            // Perform the erase operation after the visit is complete, still under lock
+            if (key_to_erase.has_value()) {
+                _slot_id_to_value_range.erase(*key_to_erase);
+
+                std::vector<std::shared_ptr<ColumnPredicate>> new_predicates;
+                for (const auto& it : _slot_id_to_predicates[*key_to_erase]) {
+                    if (!it->could_be_erased()) {
+                        new_predicates.push_back(it);
+                    }
+                }
+                if (new_predicates.empty()) {
+                    _slot_id_to_predicates.erase(*key_to_erase);
+                } else {
+                    _slot_id_to_predicates[*key_to_erase] = new_predicates;
+                }
+            }
+            // lock is released here when it goes out of scope
         }
         if (eos) {
             _eos = true;
