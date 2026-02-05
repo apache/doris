@@ -156,7 +156,6 @@ public class VariantFieldMatchTest {
         Assertions.assertTrue(starQuestion.matches("a"));
     }
 
-
     @Test
     public void testGlobMatchWithDot() {
         // Pattern: metrics.* should match metrics.score, metrics.count, etc.

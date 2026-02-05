@@ -311,7 +311,7 @@ TEST(VariantUtilTest, GlobMatchRe2) {
             {"[]", "a", false},
             {"[!]", "]", false},
             {"\\", "\\", true},
-            {"\\*", "\\abc", true},
+            {"\\*", "\\abc", false},
             {"a[!\\]]b", "aXb", true},
             {"a[!\\]]b", "a]b", false},
             {"a[]b", "aXb", false},
