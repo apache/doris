@@ -118,9 +118,6 @@ public class DorisFE {
 
     // entrance for doris frontend
     public static void start(String dorisHomeDir, String pidDir, String[] args, StartupOptions options) {
-        if (System.getenv("DORIS_LOG_TO_STDERR") != null) {
-            Log4jConfig.foreground = true;
-        }
         if (Strings.isNullOrEmpty(dorisHomeDir)) {
             System.err.println("env DORIS_HOME is not set.");
             return;
@@ -153,6 +150,11 @@ public class DorisFE {
                 throw new IllegalArgumentException("Java version doesn't match");
             }
 
+            // Set foreground flag after Config.init() but before Log4jConfig class loading,
+            // so that Log4jConfig's static block can read the correct config values (e.g. log_rollover_strategy).
+            if (System.getenv("DORIS_LOG_TO_STDERR") != null) {
+                Log4jConfig.foreground = true;
+            }
             Log4jConfig.initLogging(dorisHomeDir + "/conf/");
             // Add shutdown hook for graceful exit
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
@@ -260,6 +262,7 @@ public class DorisFE {
             startMonitor();
 
             serverReady.set(true);
+
             // JVM will exit when shutdown hook is completed
             while (true) {
                 Thread.sleep(2000);
