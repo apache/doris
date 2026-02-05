@@ -548,6 +548,9 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorChar::convert_to_olap() {
             DCHECK(_slice[i].size == _length)
                     << "char type data length not equal to schema, schema=" << _length
                     << ", real=" << _slice[i].size;
+        } else {
+            _slice[i].data = nullptr;
+            _slice[i].size = 0;
         }
     }
 
