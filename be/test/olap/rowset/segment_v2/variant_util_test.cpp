@@ -219,18 +219,38 @@ TEST(VariantUtilTest, GlobToRegex) {
             {"?", "^.$"},
             {"a?b", "^a.b$"},
             {"a*b", "^a.*b$"},
+            {"a**b", "^a.*.*b$"},
+            {"a??b", "^a..b$"},
+            {"?*", "^..*$"},
+            {"*?", "^.*.$"},
             {"a.b", "^a\\.b$"},
             {"a+b", "^a\\+b$"},
             {"a{b}", "^a\\{b\\}$"},
-            {"a\\*b", "^a\\*b$"},
+            {R"(a\*b)", R"(^a\*b$)"},
             {"a\\?b", "^a\\?b$"},
             {"a\\[b", "^a\\[b$"},
             {"abc\\", "^abc\\\\$"},
+            {"a|b", "^a\\|b$"},
+            {"a(b)c", "^a\\(b\\)c$"},
+            {"a^b", "^a\\^b$"},
+            {"a$b", "^a\\$b$"},
             {"int_[0-9]", "^int_[0-9]$"},
             {"int_[!0-9]", "^int_[^0-9]$"},
             {"int_[^0-9]", "^int_[^0-9]$"},
             {"a[\\-]b", "^a[-]b$"},
+            {"a[b-d]e", "^a[b-d]e$"},
+            {"a[\\]]b", "^a[]]b$"},
+            {"a[\\!]b", "^a[!]b$"},
             {"", "^$"},
+            {"a[[]b", "^a[[]b$"},
+            {"a[]b", "^a[]b$"},
+            {"[]", "^[]$"},
+            {"[!]", "^[^]$"},
+            {"[^]", "^[^]$"},
+            {"\\", "^\\\\$"},
+            {"\\*", "^\\*$"},
+            {"a\\*b", "^a\\*b$"},
+            {"a[!\\]]b", "^a[^]]b$"},
     };
 
     for (const auto& test_case : cases) {
@@ -242,6 +262,9 @@ TEST(VariantUtilTest, GlobToRegex) {
 
     std::string regex;
     Status st = glob_to_regex("int_[0-9", &regex);
+    EXPECT_FALSE(st.ok());
+
+    st = glob_to_regex("a[\\]b", &regex);
     EXPECT_FALSE(st.ok());
 }
 
@@ -260,11 +283,39 @@ TEST(VariantUtilTest, GlobMatchRe2) {
             {"a?b", "ab", false},
             {"a*b", "ab", true},
             {"a*b", "axxxb", true},
+            {"a**b", "ab", true},
+            {"a**b", "axxxb", true},
+            {"?*", "", false},
+            {"?*", "a", true},
+            {"*?", "", false},
+            {"*?", "a", true},
             {"a*b", "a/b", true},
             {"a.b", "a.b", true},
             {"a.b", "acb", false},
             {"a+b", "a+b", true},
             {"a{b}", "a{b}", true},
+            {"a|b", "a|b", true},
+            {"a|b", "ab", false},
+            {"a(b)c", "a(b)c", true},
+            {"a(b)c", "abc", false},
+            {"a^b", "a^b", true},
+            {"a^b", "ab", false},
+            {"a$b", "a$b", true},
+            {"a$b", "ab", false},
+            {"a[b-d]e", "ace", true},
+            {"a[b-d]e", "aee", false},
+            {"a[\\]]b", "a]b", true},
+            {"a[\\]]b", "a[b", false},
+            {"a[\\!]b", "a!b", true},
+            {"a[\\!]b", "a]b", false},
+            {"[]", "a", false},
+            {"[!]", "]", false},
+            {"\\", "\\", true},
+            {"\\*", "\\abc", true},
+            {"a[!\\]]b", "aXb", true},
+            {"a[!\\]]b", "a]b", false},
+            {"a[]b", "aXb", false},
+            {"a[[]b", "a[b", true},
             {R"(a\*b)", "a*b", true},
             {R"(a\?b)", "a?b", true},
             {R"(a\[b)", "a[b", true},
@@ -287,6 +338,7 @@ TEST(VariantUtilTest, GlobMatchRe2) {
     }
 
     EXPECT_FALSE(glob_match_re2("int_[0-9", "int_1"));
+    EXPECT_FALSE(glob_match_re2("a[\\]b", "a]b"));
 }
 
 } // namespace doris::vectorized::variant_util

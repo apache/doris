@@ -43,6 +43,44 @@ public class VariantFieldMatchTest {
     }
 
     @Test
+    public void testRegexMetaLiteralPatterns() {
+        VariantField pipe = new VariantField("a|b", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+        Assertions.assertTrue(pipe.matches("a|b"));
+        Assertions.assertFalse(pipe.matches("ab"));
+
+        VariantField paren = new VariantField("a(b)c", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+        Assertions.assertTrue(paren.matches("a(b)c"));
+        Assertions.assertFalse(paren.matches("abc"));
+
+        VariantField caret = new VariantField("a^b", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+        Assertions.assertTrue(caret.matches("a^b"));
+        Assertions.assertFalse(caret.matches("ab"));
+
+        VariantField dollar = new VariantField("a$b", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+        Assertions.assertTrue(dollar.matches("a$b"));
+        Assertions.assertFalse(dollar.matches("ab"));
+
+        VariantField range = new VariantField("a[b-d]e", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+        Assertions.assertTrue(range.matches("ace"));
+        Assertions.assertFalse(range.matches("aee"));
+
+        VariantField escapedRight = new VariantField("a[\\]]b", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+        Assertions.assertTrue(escapedRight.matches("a]b"));
+        Assertions.assertFalse(escapedRight.matches("a[b"));
+
+        VariantField escapedBang = new VariantField("a[\\!]b", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+        Assertions.assertTrue(escapedBang.matches("a!b"));
+        Assertions.assertFalse(escapedBang.matches("a]b"));
+    }
+
+    @Test
     public void testExactMatchDoesNotTreatGlob() {
         VariantField field = new VariantField("num_*", BigIntType.INSTANCE, "",
                 TPatternType.MATCH_NAME.name());
@@ -99,6 +137,25 @@ public class VariantFieldMatchTest {
         Assertions.assertTrue(field.matches(""));
         Assertions.assertTrue(field.matches("a.b.c"));
     }
+
+    @Test
+    public void testRepeatedWildcardPatterns() {
+        VariantField doubleStar = new VariantField("a**b", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+        Assertions.assertTrue(doubleStar.matches("ab"));
+        Assertions.assertTrue(doubleStar.matches("axxxb"));
+
+        VariantField questionStar = new VariantField("?*", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+        Assertions.assertFalse(questionStar.matches(""));
+        Assertions.assertTrue(questionStar.matches("a"));
+
+        VariantField starQuestion = new VariantField("*?", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+        Assertions.assertFalse(starQuestion.matches(""));
+        Assertions.assertTrue(starQuestion.matches("a"));
+    }
+
 
     @Test
     public void testGlobMatchWithDot() {
@@ -241,6 +298,43 @@ public class VariantFieldMatchTest {
 
         Assertions.assertFalse(field.matches("int_[0-9"));
         Assertions.assertFalse(field.matches("int_1"));
+    }
+
+    @Test
+    public void testWeirdGlobPatterns() {
+        VariantField emptyClass = new VariantField("a[]b", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+        Assertions.assertFalse(emptyClass.matches("aXb"));
+
+        VariantField escapedBracket = new VariantField("a[[]b", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+        Assertions.assertTrue(escapedBracket.matches("a[b"));
+    }
+
+    @Test
+    public void testMoreWeirdGlobPatterns() {
+        VariantField emptyClass = new VariantField("[]", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+        Assertions.assertFalse(emptyClass.matches("a"));
+        Assertions.assertFalse(emptyClass.matches(""));
+
+        VariantField negatedEmpty = new VariantField("[!]", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+        Assertions.assertFalse(negatedEmpty.matches("]"));
+
+        VariantField escapedBackslash = new VariantField("\\", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+        Assertions.assertTrue(escapedBackslash.matches("\\"));
+
+        VariantField escapedStar = new VariantField("\\*", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+        Assertions.assertTrue(escapedStar.matches("*"));
+        Assertions.assertFalse(escapedStar.matches("\\\\abc"));
+
+        VariantField escapedCharInClass = new VariantField("a[!\\]]b", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+        Assertions.assertTrue(escapedCharInClass.matches("aXb"));
+        Assertions.assertFalse(escapedCharInClass.matches("a]b"));
     }
 
     @Test

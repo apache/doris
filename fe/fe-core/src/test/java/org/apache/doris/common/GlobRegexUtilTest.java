@@ -38,6 +38,15 @@ public class GlobRegexUtilTest {
     }
 
     @Test
+    public void testGlobToRegexRepeatedWildcards() {
+        assertGlobToRegex("a**b", "^a.*.*b$");
+        assertGlobToRegex("a??b", "^a..b$");
+        assertGlobToRegex("?*", "^..*$");
+        assertGlobToRegex("*?", "^.*.$");
+    }
+
+
+    @Test
     public void testGlobToRegexEscaping() {
         assertGlobToRegex("a.b", "^a\\.b$");
         assertGlobToRegex("a+b", "^a\\+b$");
@@ -46,6 +55,10 @@ public class GlobRegexUtilTest {
         assertGlobToRegex("a\\?b", "^a\\?b$");
         assertGlobToRegex("a\\[b", "^a\\[b$");
         assertGlobToRegex("abc\\", "^abc\\\\$");
+        assertGlobToRegex("a|b", "^a\\|b$");
+        assertGlobToRegex("a(b)c", "^a\\(b\\)c$");
+        assertGlobToRegex("a^b", "^a\\^b$");
+        assertGlobToRegex("a$b", "^a\\$b$");
     }
 
     @Test
@@ -54,6 +67,9 @@ public class GlobRegexUtilTest {
         assertGlobToRegex("int_[!0-9]", "^int_[^0-9]$");
         assertGlobToRegex("int_[^0-9]", "^int_[^0-9]$");
         assertGlobToRegex("a[\\-]b", "^a[-]b$");
+        assertGlobToRegex("a[b-d]e", "^a[b-d]e$");
+        assertGlobToRegex("a[\\]]b", "^a[]]b$");
+        assertGlobToRegex("a[\\!]b", "^a[!]b$");
     }
 
     @Test
@@ -61,10 +77,31 @@ public class GlobRegexUtilTest {
         assertGlobToRegex("", "^$");
     }
 
+
+    @Test
+    public void testGlobToRegexWeirdClasses() {
+        assertGlobToRegex("a[[]b", "^a[[]b$");
+        assertGlobToRegex("a[]b", "^a[]b$");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> GlobRegexUtil.globToRegex("a[\\]b"));
+    }
+
     @Test
     public void testGlobToRegexUnclosedClass() {
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> GlobRegexUtil.globToRegex("int_[0-9"));
+    }
+
+
+    @Test
+    public void testGlobToRegexMoreWeirdCases() {
+        assertGlobToRegex("[]", "^[]$");
+        assertGlobToRegex("[!]", "^[^]$");
+        assertGlobToRegex("[^]", "^[^]$");
+        assertGlobToRegex("\\", "^\\\\$");
+        assertGlobToRegex("\\*", "^\\*$");
+        assertGlobToRegex("a\\*b", "^a\\*b$");
+        assertGlobToRegex("a[!\\]]b", "^a[^]]b$");
     }
 
     @Test

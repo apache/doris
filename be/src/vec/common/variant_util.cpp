@@ -37,8 +37,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <memory>
 #include <list>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <ostream>
@@ -53,7 +53,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "exprs/json_functions.h"
-#include "re2/re2.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
@@ -64,6 +63,7 @@
 #include "olap/tablet.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
+#include "re2/re2.h"
 #include "runtime/client_cache.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/exec_env.h"
@@ -111,7 +111,7 @@ inline void append_escaped_regex_char(std::string* regex_output, char ch) {
     case '+':
     case '*':
     case '?':
-    case '(': 
+    case '(':
     case ')':
     case '|':
     case '{':
@@ -145,8 +145,8 @@ std::shared_ptr<RE2> get_or_build_re2(const std::string& glob_pattern) {
         std::lock_guard<std::mutex> lock(g_glob_regex_cache_mutex);
         auto it = g_glob_regex_cache.find(glob_pattern);
         if (it != g_glob_regex_cache.end()) {
-            g_glob_regex_cache_lru.splice(g_glob_regex_cache_lru.begin(),
-                                          g_glob_regex_cache_lru, it->second.lru_it);
+            g_glob_regex_cache_lru.splice(g_glob_regex_cache_lru.begin(), g_glob_regex_cache_lru,
+                                          it->second.lru_it);
             return it->second.re2;
         }
     }
@@ -163,13 +163,13 @@ std::shared_ptr<RE2> get_or_build_re2(const std::string& glob_pattern) {
         std::lock_guard<std::mutex> lock(g_glob_regex_cache_mutex);
         auto it = g_glob_regex_cache.find(glob_pattern);
         if (it != g_glob_regex_cache.end()) {
-            g_glob_regex_cache_lru.splice(g_glob_regex_cache_lru.begin(),
-                                          g_glob_regex_cache_lru, it->second.lru_it);
+            g_glob_regex_cache_lru.splice(g_glob_regex_cache_lru.begin(), g_glob_regex_cache_lru,
+                                          it->second.lru_it);
             return it->second.re2;
         }
         g_glob_regex_cache_lru.push_front(glob_pattern);
         g_glob_regex_cache.emplace(glob_pattern,
-                                   GlobRegexCacheEntry{compiled, g_glob_regex_cache_lru.begin()});
+                                   GlobRegexCacheEntry {compiled, g_glob_regex_cache_lru.begin()});
         if (g_glob_regex_cache.size() > kGlobRegexCacheCapacity) {
             const std::string& evict_key = g_glob_regex_cache_lru.back();
             g_glob_regex_cache.erase(evict_key);
@@ -178,7 +178,6 @@ std::shared_ptr<RE2> get_or_build_re2(const std::string& glob_pattern) {
     }
     return compiled;
 }
-
 
 // Convert a restricted glob pattern into a regex.
 // Supported: '*', '?', '[...]', '\\' escape. Others are treated as literals.
@@ -234,7 +233,8 @@ Status glob_to_regex(const std::string& glob_pattern, std::string* regex_pattern
                 class_buffer.push_back(class_char);
             }
             if (!class_closed) {
-                return Status::InvalidArgument("Unclosed character class in glob pattern: {}", glob_pattern);
+                return Status::InvalidArgument("Unclosed character class in glob pattern: {}",
+                                               glob_pattern);
             }
             regex_pattern->append("[");
             regex_pattern->append(class_buffer);
