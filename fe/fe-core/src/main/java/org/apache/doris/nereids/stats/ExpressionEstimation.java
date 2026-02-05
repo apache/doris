@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfMonth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfYear;
@@ -943,5 +944,76 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     @Override
     public ColumnStatistic visitSecondsDiff(SecondsDiff secondsDiff, Statistics context) {
         return dateDiff(1, secondsDiff, context);
+    }
+
+    @Override
+    public ColumnStatistic visitCoalesce(Coalesce coalesce, Statistics context) {
+        List<Expression> children = coalesce.children();
+        if (children.isEmpty()) {
+            return ColumnStatistic.UNKNOWN;
+        }
+        // Get the statistics of the first argument as the base
+        ColumnStatistic firstChildStats = children.get(0).accept(this, context);
+        if (firstChildStats.isUnKnown) {
+            return ColumnStatistic.UNKNOWN;
+        }
+
+        // For COALESCE function, mainly consider the handling of NULL values
+        // coalesce(a, b, c) returns the first non-NULL value
+        double rowCount = context.getRowCount();
+        double numNulls = firstChildStats.numNulls;
+        double ndv = firstChildStats.ndv;
+
+        // If there are multiple arguments, consider the impact of subsequent arguments on NULL replacement
+        if (children.size() > 1) {
+            // Calculate the probability that all arguments are NULL (approximate estimation)
+            double allNullProbability = firstChildStats.numNulls / rowCount;
+            for (int i = 1; i < children.size(); i++) {
+                ColumnStatistic childStats = children.get(i).accept(this, context);
+                if (!childStats.isUnKnown) {
+                    // The probability that subsequent arguments are also NULL (simplified estimation)
+                    double childNullProbability = childStats.numNulls / rowCount;
+                    allNullProbability *= childNullProbability;
+                }
+            }
+
+            // Final NULL count = number of rows where all arguments are NULL
+            numNulls = rowCount * allNullProbability;
+
+            // NDV estimation: consider the possible values of all arguments
+            // Use the maximum NDV of all arguments as the estimation
+            double maxNdv = ndv;
+            for (int i = 1; i < children.size(); i++) {
+                ColumnStatistic childStats = children.get(i).accept(this, context);
+                if (!childStats.isUnKnown) {
+                    maxNdv = Math.max(maxNdv, childStats.ndv);
+                }
+            }
+            ndv = maxNdv;
+        }
+
+        // Build new statistics
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(firstChildStats);
+        builder.setNumNulls(numNulls)
+                .setNdv(ndv);
+
+        // For COALESCE function, min/max values should consider the range of all arguments
+        if (children.size() > 1) {
+            double minValue = firstChildStats.minValue;
+            double maxValue = firstChildStats.maxValue;
+
+            for (int i = 1; i < children.size(); i++) {
+                ColumnStatistic childStats = children.get(i).accept(this, context);
+                if (!childStats.isUnKnown) {
+                    minValue = Math.min(minValue, childStats.minValue);
+                    maxValue = Math.max(maxValue, childStats.maxValue);
+                }
+            }
+
+            builder.setMinValue(minValue)
+                    .setMaxValue(maxValue);
+        }
+
+        return builder.build();
     }
 }
