@@ -41,9 +41,12 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RollUpTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -82,6 +85,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
     public final EagerAggRewriter writer = new EagerAggRewriter();
 
     private final Set<Class> pushDownAggFunctionSet = Sets.newHashSet(
+            Count.class,
             Sum.class,
             Max.class,
             Min.class);
@@ -148,7 +152,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                 AggregateFunction aggFunction = (AggregateFunction) obj;
                 if (pushDownAggFunctionSet.contains(aggFunction.getClass())
                         && !aggFunction.isDistinct()) {
-                    if (aggFunction.child(0) instanceof If) {
+                    if (aggFunction.arity() > 0 && aggFunction.child(0) instanceof If) {
                         If body = (If) (aggFunction).child(0);
                         Set<Slot> valueSlots = Sets.newHashSet(body.getTrueValue().getInputSlots());
                         valueSlots.addAll(body.getFalseValue().getInputSlots());
@@ -226,10 +230,20 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                         //            -> T2 [...]
                         // for min(A), replaceMap: A->minA
                         // for sum(A), replaceMap: A->sumA
-                        Map<Expression, Slot> replaceMap = new HashMap<>();
+                        // for count(A), replaceMap: count(A)->sum(countA), because count needs rollup to sum
+                        Map<Expression, Expression> replaceMap = new HashMap<>();
                         List<AggregateFunction> relatedAggFunc = aggFunctionsForOutputExpressions.get(ne);
                         for (AggregateFunction func : relatedAggFunc) {
-                            replaceMap.put(func.child(0), pushDownContext.getAliasMap().get(func).toSlot());
+                            Slot pushedDownSlot = pushDownContext.getAliasMap().get(func).toSlot();
+                            if (func instanceof Count) {
+                                // For count(A), after pushdown we have count(A) as x,
+                                // and the top agg should use sum(x) instead of count(x)
+                                Function rollUpFunc = ((RollUpTrait) func).constructRollUp(pushedDownSlot);
+                                replaceMap.put(func, rollUpFunc);
+                            } else if (func.arity() > 0) {
+                                // For sum/max/min, replace the child expression with the pushed down slot
+                                replaceMap.put(func.child(0), pushedDownSlot);
+                            }
                         }
                         NamedExpression replaceAliasExpr = (NamedExpression) ExpressionUtils.replace(ne, replaceMap);
                         replaceAliasExpr = (NamedExpression) ExpressionUtils.rebuildSignature(replaceAliasExpr);

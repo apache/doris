@@ -2233,6 +2233,10 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public void setEagerAggregationMode(int mode) {
+        this.eagerAggregationMode = mode;
+    }
+
     @VariableMgr.VarAttr(name = "eager_aggregation_on_join", needForward = true)
     public boolean eagerAggregationOnJoin = false;
 
