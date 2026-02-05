@@ -859,8 +859,7 @@ public:
             const auto* data = col.get_data().data();
             this->merge_vec(places, offset, AggregateDataPtr(data), arena, num_rows);
         } else {
-            this->deserialize_vec(rhs, assert_cast<const ColumnString*>(column), arena,
-                                  num_rows);
+            this->deserialize_vec(rhs, assert_cast<const ColumnString*>(column), arena, num_rows);
             DEFER({ this->destroy_vec(rhs, num_rows); });
             this->merge_vec(places, offset, rhs, arena, num_rows);
         }
@@ -874,8 +873,7 @@ public:
             const auto* data = col.get_data().data();
             this->merge_vec_selected(places, offset, AggregateDataPtr(data), arena, num_rows);
         } else {
-            this->deserialize_vec(rhs, assert_cast<const ColumnString*>(column), arena,
-                                  num_rows);
+            this->deserialize_vec(rhs, assert_cast<const ColumnString*>(column), arena, num_rows);
             DEFER({ this->destroy_vec(rhs, num_rows); });
             this->merge_vec_selected(places, offset, rhs, arena, num_rows);
         }
