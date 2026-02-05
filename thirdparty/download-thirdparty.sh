@@ -269,6 +269,17 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " GLOG " ]]; then
     echo "Finished patching ${GLOG_SOURCE}"
 fi
 
+# snappy patch to fix sign-compare warning
+if [[ " ${TP_ARCHIVES[*]} " =~ " SNAPPY " ]]; then
+    cd "${TP_SOURCE_DIR}/${SNAPPY_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/snappy-1.1.10-sign-compare.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${SNAPPY_SOURCE}"
+fi
+
 # mysql patch
 if [[ " ${TP_ARCHIVES[*]} " =~ " MYSQL " ]]; then
     cd "${TP_SOURCE_DIR}/${MYSQL_SOURCE}"
