@@ -23,6 +23,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -38,6 +39,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 
 // Broker descriptor
@@ -164,6 +166,35 @@ public class BrokerDesc extends StorageDesc implements Writable {
 
     public static BrokerDesc read(DataInput in) throws IOException {
         return GsonUtils.GSON.fromJson(Text.readString(in), BrokerDesc.class);
+    }
+
+    /**
+     * Returns true when a 403 error should be retried with anonymous S3 credentials.
+     * This applies only when storage is S3, no explicit credentials were provided
+     * (access_key, secret_key, role_arn), and the error contains "Status Code: 403".
+     */
+    public static boolean isS3AccessDeniedWithoutExplicitCredentials(StorageProperties storageProperties,
+            Exception e) {
+        if (!(storageProperties instanceof S3Properties)) {
+            return false;
+        }
+        S3Properties s3Props = (S3Properties) storageProperties;
+        if (StringUtils.isNotBlank(s3Props.getAccessKey()) || StringUtils.isNotBlank(s3Props.getSecretKey())) {
+            return false;
+        }
+        if (StringUtils.isNotBlank(s3Props.getS3IAMRole())) {
+            return false;
+        }
+        return e.getMessage() != null && e.getMessage().contains("Status Code: 403");
+    }
+
+    /**
+     * Returns a copy of this BrokerDesc with the credentials provider set to ANONYMOUS.
+     */
+    public BrokerDesc withAnonymousCredentials() {
+        Map<String, String> newProps = new HashMap<>(this.properties);
+        newProps.put("s3.credentials_provider_type", "ANONYMOUS");
+        return new BrokerDesc(this.name, newProps);
     }
 
     public String toSql() {

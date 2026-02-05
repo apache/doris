@@ -34,6 +34,7 @@ public class S3TableValuedFunctionTest {
     private Map<String, String> baseS3Props() {
         Map<String, String> props = new HashMap<>();
         props.put("uri", "s3://test-bucket/data/file.parquet");
+        props.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
         props.put("s3.region", "us-east-1");
         props.put("format", "parquet");
         return props;

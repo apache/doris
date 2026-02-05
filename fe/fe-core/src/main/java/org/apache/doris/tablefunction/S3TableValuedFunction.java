@@ -21,11 +21,8 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.thrift.TFileType;
-
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
 
@@ -63,14 +60,13 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             try {
                 parseFile();
             } catch (AnalysisException e) {
-                if (shouldRetryWithAnonymous(e)) {
+                if (BrokerDesc.isS3AccessDeniedWithoutExplicitCredentials(storageProperties, e)) {
                     LOG.info("S3 TVF got 403 with no explicit credentials, retrying with anonymous access");
                     try {
                         retryWithAnonymousCredentials(props);
                     } catch (Exception retryException) {
                         LOG.warn("S3 TVF anonymous access retry also failed: {}",
                                 retryException.getMessage());
-                        // If anonymous retry also fails, throw the original error
                         throw e;
                     }
                 } else {
@@ -78,28 +74,6 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
                 }
             }
         }
-    }
-
-    /**
-     * Determines whether a failed parseFile() call should be retried with anonymous credentials.
-     * Retry is warranted only when:
-     * - The storage is S3
-     * - No explicit credentials (access_key, secret_key, role_arn) were provided
-     * - The error is a 403 (access denied), likely from instance profile credentials
-     *   lacking permission on a public bucket
-     */
-    private boolean shouldRetryWithAnonymous(AnalysisException e) {
-        if (!(storageProperties instanceof S3Properties)) {
-            return false;
-        }
-        S3Properties s3Props = (S3Properties) storageProperties;
-        if (StringUtils.isNotBlank(s3Props.getAccessKey()) || StringUtils.isNotBlank(s3Props.getSecretKey())) {
-            return false;
-        }
-        if (StringUtils.isNotBlank(s3Props.getS3IAMRole())) {
-            return false;
-        }
-        return e.getMessage() != null && e.getMessage().contains("Status Code: 403");
     }
 
     /**

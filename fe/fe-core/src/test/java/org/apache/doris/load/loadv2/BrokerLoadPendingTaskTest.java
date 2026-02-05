@@ -37,8 +37,10 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class BrokerLoadPendingTaskTest {
 
@@ -80,5 +82,186 @@ public class BrokerLoadPendingTaskTest {
         BrokerPendingTaskAttachment brokerPendingTaskAttachment = Deencapsulation.getField(brokerLoadPendingTask, "attachment");
         Assert.assertEquals(1, brokerPendingTaskAttachment.getFileNumByTable(aggKey));
         Assert.assertEquals(tBrokerFileStatus, brokerPendingTaskAttachment.getFileStatusByTable(aggKey).get(0).get(0));
+    }
+
+    private Map<String, String> baseS3Props() {
+        Map<String, String> props = new HashMap<>();
+        props.put("s3.region", "us-east-1");
+        props.put("s3.endpoint", "s3.us-east-1.amazonaws.com");
+        return props;
+    }
+
+    private Map<FileGroupAggKey, List<BrokerFileGroup>> makeAggKeyMap(BrokerFileGroup fileGroup) {
+        Map<FileGroupAggKey, List<BrokerFileGroup>> map = Maps.newHashMap();
+        List<BrokerFileGroup> groups = Lists.newArrayList();
+        groups.add(fileGroup);
+        map.put(new FileGroupAggKey(1L, null), groups);
+        return map;
+    }
+
+    @Test
+    public void testAnonymousFallbackOn403NoCredentials(
+            @Injectable BrokerLoadJob brokerLoadJob,
+            @Injectable BrokerFileGroup brokerFileGroup,
+            @Mocked Env env) throws UserException {
+        new Expectations() {
+            {
+                env.getNextId();
+                result = 1L;
+                brokerFileGroup.getFilePaths();
+                result = Lists.newArrayList("s3://public-bucket/data/file.parquet");
+            }
+        };
+
+        AtomicInteger parseFileCallCount = new AtomicInteger(0);
+        new MockUp<BrokerUtil>() {
+            @Mock
+            public void parseFile(String path, BrokerDesc desc, List<TBrokerFileStatus> fileStatuses)
+                    throws UserException {
+                int count = parseFileCallCount.incrementAndGet();
+                if (count == 1) {
+                    throw new UserException(
+                            "list s3 files failed, err: Status Code: 403, AWS Error Code: AccessDenied");
+                }
+                // Second call (anonymous retry) succeeds
+                fileStatuses.add(tBrokerFileStatus);
+            }
+        };
+
+        BrokerDesc brokerDesc = new BrokerDesc("S3", baseS3Props());
+        Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyMap = makeAggKeyMap(brokerFileGroup);
+        BrokerLoadPendingTask task = new BrokerLoadPendingTask(
+                brokerLoadJob, aggKeyMap, brokerDesc, LoadTask.Priority.NORMAL);
+
+        Deencapsulation.invoke(task, "getAllFileStatus");
+
+        Assert.assertEquals(2, parseFileCallCount.get());
+        // Verify task's brokerDesc was updated with ANONYMOUS
+        BrokerDesc updatedDesc = Deencapsulation.getField(task, "brokerDesc");
+        Assert.assertEquals("ANONYMOUS", updatedDesc.getProperties().get("s3.credentials_provider_type"));
+        // Verify parent job's brokerDesc was also updated
+        BrokerDesc jobDesc = Deencapsulation.getField(brokerLoadJob, "brokerDesc");
+        Assert.assertEquals("ANONYMOUS", jobDesc.getProperties().get("s3.credentials_provider_type"));
+    }
+
+    @Test
+    public void testNoFallbackWhenExplicitCredentials(
+            @Injectable BrokerLoadJob brokerLoadJob,
+            @Injectable BrokerFileGroup brokerFileGroup,
+            @Mocked Env env) {
+        new Expectations() {
+            {
+                env.getNextId();
+                result = 1L;
+                brokerFileGroup.getFilePaths();
+                result = Lists.newArrayList("s3://bucket/data/file.parquet");
+            }
+        };
+
+        new MockUp<BrokerUtil>() {
+            @Mock
+            public void parseFile(String path, BrokerDesc desc, List<TBrokerFileStatus> fileStatuses)
+                    throws UserException {
+                throw new UserException(
+                        "list s3 files failed, err: Status Code: 403, AWS Error Code: AccessDenied");
+            }
+        };
+
+        Map<String, String> props = baseS3Props();
+        props.put("s3.access_key", "AKIAIOSFODNN7EXAMPLE");
+        props.put("s3.secret_key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        BrokerDesc brokerDesc = new BrokerDesc("S3", props);
+
+        BrokerLoadPendingTask task = new BrokerLoadPendingTask(
+                brokerLoadJob, makeAggKeyMap(brokerFileGroup), brokerDesc, LoadTask.Priority.NORMAL);
+
+        try {
+            Deencapsulation.invoke(task, "getAllFileStatus");
+            Assert.fail("Should have thrown UserException");
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("Status Code: 403"));
+        }
+    }
+
+    @Test
+    public void testOriginalErrorThrownWhenBothAttemptsFail(
+            @Injectable BrokerLoadJob brokerLoadJob,
+            @Injectable BrokerFileGroup brokerFileGroup,
+            @Mocked Env env) {
+        new Expectations() {
+            {
+                env.getNextId();
+                result = 1L;
+                brokerFileGroup.getFilePaths();
+                result = Lists.newArrayList("s3://bucket/data/file.parquet");
+            }
+        };
+
+        AtomicInteger parseFileCallCount = new AtomicInteger(0);
+        new MockUp<BrokerUtil>() {
+            @Mock
+            public void parseFile(String path, BrokerDesc desc, List<TBrokerFileStatus> fileStatuses)
+                    throws UserException {
+                int count = parseFileCallCount.incrementAndGet();
+                if (count == 1) {
+                    throw new UserException(
+                            "list s3 files failed, err: Status Code: 403, Original error");
+                }
+                throw new UserException(
+                        "list s3 files failed, err: Status Code: 403, Anonymous also denied");
+            }
+        };
+
+        BrokerDesc brokerDesc = new BrokerDesc("S3", baseS3Props());
+        BrokerLoadPendingTask task = new BrokerLoadPendingTask(
+                brokerLoadJob, makeAggKeyMap(brokerFileGroup), brokerDesc, LoadTask.Priority.NORMAL);
+
+        try {
+            Deencapsulation.invoke(task, "getAllFileStatus");
+            Assert.fail("Should have thrown UserException");
+        } catch (Exception e) {
+            // Should throw the ORIGINAL error, not the retry error
+            Assert.assertTrue(e.getMessage().contains("Original error"));
+            Assert.assertFalse(e.getMessage().contains("Anonymous also denied"));
+        }
+        Assert.assertEquals(2, parseFileCallCount.get());
+    }
+
+    @Test
+    public void testNoFallbackOnNon403Error(
+            @Injectable BrokerLoadJob brokerLoadJob,
+            @Injectable BrokerFileGroup brokerFileGroup,
+            @Mocked Env env) {
+        new Expectations() {
+            {
+                env.getNextId();
+                result = 1L;
+                brokerFileGroup.getFilePaths();
+                result = Lists.newArrayList("s3://bucket/data/file.parquet");
+            }
+        };
+
+        AtomicInteger parseFileCallCount = new AtomicInteger(0);
+        new MockUp<BrokerUtil>() {
+            @Mock
+            public void parseFile(String path, BrokerDesc desc, List<TBrokerFileStatus> fileStatuses)
+                    throws UserException {
+                parseFileCallCount.incrementAndGet();
+                throw new UserException("list s3 files failed, err: Status Code: 404, Not Found");
+            }
+        };
+
+        BrokerDesc brokerDesc = new BrokerDesc("S3", baseS3Props());
+        BrokerLoadPendingTask task = new BrokerLoadPendingTask(
+                brokerLoadJob, makeAggKeyMap(brokerFileGroup), brokerDesc, LoadTask.Priority.NORMAL);
+
+        try {
+            Deencapsulation.invoke(task, "getAllFileStatus");
+            Assert.fail("Should have thrown UserException");
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("Status Code: 404"));
+        }
+        // parseFile should have been called only once (no retry for non-403)
+        Assert.assertEquals(1, parseFileCallCount.get());
     }
 }
