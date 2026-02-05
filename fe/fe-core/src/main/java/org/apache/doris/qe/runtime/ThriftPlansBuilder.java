@@ -22,7 +22,6 @@ import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.PipelineDistributedPlan;
