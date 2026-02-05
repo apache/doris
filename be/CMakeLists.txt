@@ -715,10 +715,10 @@ endif ()
 
 if (MAKE_TEST)
     add_compile_options(-DGTEST_USE_OWN_TR1_TUPLE=0)
-    # Only add GCC-style coverage when NOT using Clang coverage
+    # Only add GCC-style coverage when using GCC compiler
     # to avoid duplicate symbol errors (e.g., __gcov_fork, __gcov_reset)
     # between libgcov.a and libclang_rt.profile-x86_64.a
-    if (NOT (ENABLE_CLANG_COVERAGE STREQUAL "ON" AND COMPILER_CLANG))
+    if (COMPILER_GCC)
         add_compile_options(-fprofile-arcs -ftest-coverage)
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage")
         if (NOT OS_MACOSX)

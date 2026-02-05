@@ -17,18 +17,25 @@
 
 package org.apache.doris.job.cdc.request;
 
-import lombok.Data;
-import lombok.EqualsAndHashCode;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.ToString;
 
-import java.util.Map;
-
-@Data
-@EqualsAndHashCode(callSuper = true)
-public class WriteRecordRequest extends JobBaseRecordRequest {
-    private long maxInterval;
-    private String targetDb;
-    private String token;
-    private String frontendAddress;
-    private String taskId;
-    private Map<String, String> streamLoadProps;
+@Getter
+@Setter
+@NoArgsConstructor
+@ToString
+@AllArgsConstructor
+@Builder
+public class CommitOffsetRequest {
+    public long jobId;
+    public long taskId;
+    public String offset;
+    public long scannedRows;
+    public long filteredRows;
+    public long loadedRows;
+    public long loadBytes;
 }

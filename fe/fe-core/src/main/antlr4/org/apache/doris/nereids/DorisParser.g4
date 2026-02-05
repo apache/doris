@@ -96,7 +96,7 @@ materializedViewStatement
     ;
 
 jobFromToClause
-    : FROM sourceType=identifier LEFT_PAREN sourceProperties=propertyItemList RIGHT_PAREN
+    : FROM sourceType=identifier (LEFT_PAREN sourceProperties=propertyItemList RIGHT_PAREN)?
       TO DATABASE targetDb=identifier (LEFT_PAREN targetProperties=propertyItemList RIGHT_PAREN)?
     ;
 

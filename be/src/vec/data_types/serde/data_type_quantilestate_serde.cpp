@@ -21,6 +21,16 @@
 
 namespace doris::vectorized {
 
+Status DataTypeQuantileStateSerDe::from_string(const std::string& str, Field& field,
+                                               const FormatOptions& options) const {
+    QuantileState value;
+    if (!value.deserialize(Slice(str.data(), str.size()))) {
+        return Status::InternalError("deserialize QuantileState from string fail!");
+    }
+    field = Field::create_field<TYPE_QUANTILE_STATE>(std::move(value));
+    return Status::OK();
+}
+
 void DataTypeQuantileStateSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                          Arena& arena, int32_t col_id,
                                                          int64_t row_num,
