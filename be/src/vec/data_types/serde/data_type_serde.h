@@ -213,7 +213,7 @@ public:
          * Ignore scale when converting decimal to string, because decimal in zone map is stored in
          * unscaled value.
          */
-        bool ignore_scale = true;
+        bool ignore_scale = false;
 
         [[nodiscard]] char get_collection_delimiter(
                 int hive_text_complex_type_delimiter_level) const {
