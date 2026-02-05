@@ -551,6 +551,9 @@ build_snappy() {
     check_if_source_exist "${SNAPPY_SOURCE}"
     cd "${TP_SOURCE_DIR}/${SNAPPY_SOURCE}"
 
+    # Enable RTTI for snappy (required by Doris BE for SnappySlicesSource inheritance)
+    sed -i 's/-fno-rtti/-frtti/g' CMakeLists.txt
+
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
@@ -560,7 +563,8 @@ build_snappy() {
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -DCMAKE_INSTALL_INCLUDEDIR="${TP_INCLUDE_DIR}"/snappy \
-        -DSNAPPY_BUILD_TESTS=0 ../
+        -DSNAPPY_BUILD_TESTS=OFF \
+        -DSNAPPY_BUILD_BENCHMARKS=OFF ../
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install

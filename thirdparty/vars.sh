@@ -98,10 +98,10 @@ GTEST_SOURCE=googletest-release-1.12.1
 GTEST_MD5SUM="e82199374acdfda3f425331028eb4e2a"
 
 # snappy
-SNAPPY_DOWNLOAD="https://github.com/google/snappy/archive/1.1.8.tar.gz"
-SNAPPY_NAME=snappy-1.1.8.tar.gz
-SNAPPY_SOURCE=snappy-1.1.8
-SNAPPY_MD5SUM="70e48cba7fecf289153d009791c9977f"
+SNAPPY_DOWNLOAD="https://github.com/google/snappy/archive/1.1.10.tar.gz"
+SNAPPY_NAME=snappy-1.1.10.tar.gz
+SNAPPY_SOURCE=snappy-1.1.10
+SNAPPY_MD5SUM="70153395ebe6d72febe2cf2e40026a44"
 
 # gperftools
 GPERFTOOLS_DOWNLOAD="https://github.com/gperftools/gperftools/releases/download/gperftools-2.10/gperftools-2.10.tar.gz"
@@ -458,10 +458,10 @@ SSE2NEON_SOURCE=sse2neon-1.6.0
 SSE2NEON_MD5SUM="dce28eb6a78f45bf98740d5fad73febb"
 
 # xxhash
-XXHASH_DOWNLOAD="https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.1.tar.gz"
-XXHASH_NAME=xxHash-0.8.1.tar.gz
-XXHASH_SOURCE=xxHash-0.8.1
-XXHASH_MD5SUM="b67c587f5ff4894253da0095ba7ea393"
+XXHASH_DOWNLOAD="https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.3.tar.gz"
+XXHASH_NAME=xxHash-0.8.3.tar.gz
+XXHASH_SOURCE=xxHash-0.8.3
+XXHASH_MD5SUM="599804eb9555e51c05f1b821f9212a07"
 
 # concurrentqueue
 CONCURRENTQUEUE_DOWNLOAD="https://github.com/cameron314/concurrentqueue/archive/refs/tags/v1.0.3.tar.gz"
@@ -512,7 +512,7 @@ JSONCPP_SOURCE="jsoncpp-1.9.5"
 JSONCPP_MD5SUM="d6c8c609f2162eff373db62b90a051c7"
 
 # libuuid
-LIBUUID_DOWNLOAD="https://nchc.dl.sourceforge.net/project/libuuid/libuuid-1.0.3.tar.gz"
+LIBUUID_DOWNLOAD="https://downloads.sourceforge.net/project/libuuid/libuuid-1.0.3.tar.gz"
 LIBUUID_NAME="libuuid-1.0.3.tar.gz"
 LIBUUID_SOURCE="libuuid-1.0.3"
 LIBUUID_MD5SUM="d44d866d06286c08ba0846aba1086d68"
