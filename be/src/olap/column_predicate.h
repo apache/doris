@@ -196,6 +196,13 @@ struct PredicateTypeTraits {
         }                                                                                 \
     }
 
+struct ZoneMapInfo {
+    vectorized::Field min_value;
+    vectorized::Field max_value;
+    bool has_null = false;
+    bool is_all_null = false;
+};
+
 class ColumnPredicate : public std::enable_shared_from_this<ColumnPredicate> {
 public:
     explicit ColumnPredicate(uint32_t column_id, std::string col_name, PrimitiveType primitive_type,
@@ -260,17 +267,11 @@ public:
 
     virtual bool support_zonemap() const { return true; }
 
-    virtual bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const {
-        return true;
-    }
+    virtual bool evaluate_and(const ZoneMapInfo& zone_map_info) const { return true; }
 
-    virtual bool is_always_true(const std::pair<WrapperField*, WrapperField*>& statistic) const {
-        return false;
-    }
+    virtual bool is_always_true(const ZoneMapInfo& zone_map_info) const { return false; }
 
-    virtual bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const {
-        return false;
-    }
+    virtual bool evaluate_del(const ZoneMapInfo& zone_map_info) const { return false; }
 
     virtual bool evaluate_and(const vectorized::ParquetBlockSplitBloomFilter* bf) const {
         return true;

@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
@@ -74,6 +75,7 @@ public class CommonSubExpressionCollector extends ExpressionVisitor<Integer, Boo
         // TODO: could not extract common expression when expression contains same lambda expression
         //   because ArrayItemSlot in Lambda are not same.
         if (expressions.contains(expr)
+                && !(expr instanceof WhenClause)
                 && !(inLambda && expr.containsType(ArrayItemSlot.class, ArrayItemReference.class))) {
             Set<Expression> commonExpression = getExpressionsFromDepthMap(depth, commonExprByDepth);
             commonExpression.add(expr);
