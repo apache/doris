@@ -82,6 +82,8 @@
 #include "pipeline/exec/partitioned_aggregation_source_operator.h"
 #include "pipeline/exec/partitioned_hash_join_probe_operator.h"
 #include "pipeline/exec/partitioned_hash_join_sink_operator.h"
+#include "pipeline/exec/queue_sink_operator.h"
+#include "pipeline/exec/queue_source_operator.h"
 #include "pipeline/exec/rec_cte_anchor_sink_operator.h"
 #include "pipeline/exec/rec_cte_scan_operator.h"
 #include "pipeline/exec/rec_cte_sink_operator.h"
@@ -1314,12 +1316,53 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                 RETURN_IF_ERROR(cur_pipe->operators().front()->set_child(op));
                 cur_pipe = new_pipe;
             } else {
-                op = std::make_shared<DistinctStreamingAggOperatorX>(
-                        pool, next_operator_id(), tnode, descs, _require_bucket_distribution);
-                op->set_followed_by_shuffled_operator(followed_by_shuffled_operator);
-                _require_bucket_distribution =
-                        _require_bucket_distribution || op->require_data_distribution();
-                RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
+                // Check if parent is SetProbeSinkOperatorX by checking if the sink is a SetProbeSinkOperatorX
+                bool parent_is_set_probe = false;
+                if (cur_pipe->sink() != nullptr) {
+                    auto sink = cur_pipe->sink();
+                    // Try to dynamic_cast to both template instances of SetProbeSinkOperatorX
+                    if (dynamic_cast<SetProbeSinkOperatorX<true>*>(sink) ||
+                        dynamic_cast<SetProbeSinkOperatorX<false>*>(sink)) {
+                        parent_is_set_probe = true;
+                    }
+                }
+
+                if (parent_is_set_probe) {
+                    // Create QueueSourceOperatorX
+                    auto queue_source_id = next_operator_id();
+                    OperatorPtr queue_source_op = std::make_shared<QueueSourceOperatorX>(
+                            pool, tnode.node_id, queue_source_id);
+                    RETURN_IF_ERROR(cur_pipe->add_operator(queue_source_op, _parallel_instances));
+
+                    // Create new pipeline for QueueSinkOperatorX
+                    const auto downstream_pipeline_id = cur_pipe->id();
+                    if (!_dag.contains(downstream_pipeline_id)) {
+                        _dag.insert({downstream_pipeline_id, {}});
+                    }
+                    PipelinePtr queue_side_pipe = add_pipeline(cur_pipe);
+                    _dag[downstream_pipeline_id].push_back(queue_side_pipe->id());
+
+                    // Create QueueSinkOperatorX
+                    auto queue_sink_id = next_sink_operator_id();
+                    DataSinkOperatorPtr queue_sink_op = std::make_shared<QueueSinkOperatorX>(
+                            queue_sink_id, queue_source_id, queue_source_op->operator_id());
+                    RETURN_IF_ERROR(queue_side_pipe->set_sink(queue_sink_op));
+
+                    // Create DistinctStreamingAggOperatorX in the new pipeline
+                    // Note: we assign to op so that _create_tree_helper will set its child correctly
+                    op = std::make_shared<DistinctStreamingAggOperatorX>(pool, next_operator_id(),
+                                                                         tnode, descs, _require_bucket_distribution);
+                    RETURN_IF_ERROR(queue_side_pipe->add_operator(op, _parallel_instances));
+                    RETURN_IF_ERROR(queue_source_op->set_child(op));
+                    cur_pipe = queue_side_pipe;
+                } else {
+                    op = std::make_shared<DistinctStreamingAggOperatorX>(pool, next_operator_id(),
+                                                                         tnode, descs, _require_bucket_distribution);
+                    op->set_followed_by_shuffled_operator(followed_by_shuffled_operator);
+                    _require_bucket_distribution =
+                            _require_bucket_distribution || op->require_data_distribution();
+                    RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
+                }
             }
         } else if (is_streaming_agg) {
             if (need_create_cache_op) {
@@ -1721,6 +1764,7 @@ Status PipelineFragmentContext::_build_operators_for_set_operation_node(
         PipelinePtr probe_side_pipe = add_pipeline(cur_pipe);
         _dag[downstream_pipeline_id].push_back(probe_side_pipe->id());
 
+        // Create appropriate sink operator based on child_id
         DataSinkOperatorPtr sink;
         if (child_id == 0) {
             sink.reset(new SetSinkOperatorX<is_intersect>(child_id, next_sink_operator_id(),
@@ -1729,6 +1773,7 @@ Status PipelineFragmentContext::_build_operators_for_set_operation_node(
             sink.reset(new SetProbeSinkOperatorX<is_intersect>(
                     child_id, next_sink_operator_id(), op->operator_id(), pool, tnode, descs));
         }
+        // Common code for both cases
         sink->set_followed_by_shuffled_operator(followed_by_shuffled_operator);
         RETURN_IF_ERROR(probe_side_pipe->set_sink(sink));
         RETURN_IF_ERROR(probe_side_pipe->sink()->init(tnode, _runtime_state.get()));

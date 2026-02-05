@@ -62,6 +62,8 @@
 #include "pipeline/exec/partitioned_aggregation_source_operator.h"
 #include "pipeline/exec/partitioned_hash_join_probe_operator.h"
 #include "pipeline/exec/partitioned_hash_join_sink_operator.h"
+#include "pipeline/exec/queue_sink_operator.h"
+#include "pipeline/exec/queue_source_operator.h"
 #include "pipeline/exec/rec_cte_anchor_sink_operator.h"
 #include "pipeline/exec/rec_cte_scan_operator.h"
 #include "pipeline/exec/rec_cte_sink_operator.h"
@@ -809,6 +811,7 @@ DECLARE_OPERATOR(SetSinkLocalState<false>)
 DECLARE_OPERATOR(PartitionedHashJoinSinkLocalState)
 DECLARE_OPERATOR(GroupCommitBlockSinkLocalState)
 DECLARE_OPERATOR(CacheSinkLocalState)
+DECLARE_OPERATOR(QueueSinkLocalState)
 DECLARE_OPERATOR(DictSinkLocalState)
 DECLARE_OPERATOR(RecCTESinkLocalState)
 DECLARE_OPERATOR(RecCTEAnchorSinkLocalState)
@@ -845,6 +848,7 @@ DECLARE_OPERATOR(MetaScanLocalState)
 DECLARE_OPERATOR(LocalExchangeSourceLocalState)
 DECLARE_OPERATOR(PartitionedHashJoinProbeLocalState)
 DECLARE_OPERATOR(CacheSourceLocalState)
+DECLARE_OPERATOR(QueueSourceLocalState)
 DECLARE_OPERATOR(RecCTESourceLocalState)
 DECLARE_OPERATOR(RecCTEScanLocalState)
 
