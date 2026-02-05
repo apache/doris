@@ -33,6 +33,9 @@ class RuntimeFilterSelectivity {
 public:
     RuntimeFilterSelectivity() = default;
 
+    // If sampling_frequency is less than or equal to 0, the selectivity tracking will be disabled
+    static constexpr int DISABLE_SAMPLING = -1;
+
     void set_sampling_frequency(int frequency) { _sampling_frequency = frequency; }
 
     void update_judge_counter() {

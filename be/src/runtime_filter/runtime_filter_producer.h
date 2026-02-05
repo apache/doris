@@ -131,12 +131,15 @@ public:
         _wrapper = wrapper;
     }
 
-    bool detect_in_filter() {
+    std::shared_ptr<RuntimeFilterWrapper> detect_in_filter() {
         if (_has_remote_target) {
-            return false;
+            return nullptr;
         }
         std::unique_lock<std::recursive_mutex> l(_rmtx);
-        return _wrapper->detect_in_filter();
+        if (_wrapper->is_ready_in_filter()) {
+            return _wrapper;
+        }
+        return nullptr;
     }
 
 private:

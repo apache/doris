@@ -164,13 +164,16 @@ void RuntimeFilterProducerHelper::collect_realtime_profile(
     build_timer->set(_runtime_filter_compute_timer->value());
 }
 
-bool RuntimeFilterProducerHelper::detect_local_in_filter(RuntimeState* state) {
+std::shared_ptr<RuntimeFilterWrapper> RuntimeFilterProducerHelper::detect_local_in_filter(
+        RuntimeState* state) {
+    // If any runtime filter is local in filter, return true.
+    // Local in filter is used to LEFT_SEMI_DIRECT_RETURN_OPT
     for (const auto& filter : _producers) {
-        if (filter->detect_in_filter()) {
-            return true;
+        if (auto wrapper = filter->detect_in_filter(); wrapper != nullptr) {
+            return wrapper;
         }
     }
-    return false;
+    return nullptr;
 }
 
 } // namespace doris

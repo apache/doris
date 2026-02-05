@@ -86,7 +86,7 @@ public:
 
     bool contain_null() const;
 
-    bool is_detected_in_filter() const { return _detected_in_filter; }
+    bool disable_always_true_logic() const { return _disable_always_true_logic; }
 
     std::string debug_string() const;
 
@@ -122,16 +122,17 @@ public:
         }
     }
 
-    bool detect_in_filter() {
+    bool is_ready_in_filter() {
         if (get_real_type() != RuntimeFilterType::IN_FILTER) {
             return false;
         }
         if (_state != State::READY) {
             return false;
         }
-        _detected_in_filter = true;
         return true;
     }
+
+    void set_disable_always_true_logic() { _disable_always_true_logic = true; }
 
 private:
     // used by shuffle runtime filter
@@ -154,7 +155,7 @@ private:
 
     // disable always_true logic if detected in filter
     // to make left_semi_direct_return_opt work correctly
-    bool _detected_in_filter = false;
+    bool _disable_always_true_logic = false;
 
     // Wrapper is the core structure of runtime filter. If filter is local, wrapper may be shared
     // by producer and consumer. To avoid read-write conflict, we need a rwlock to ensure operations
