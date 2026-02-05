@@ -1389,6 +1389,12 @@ Status CloudTablet::sync_meta() {
         _tablet_meta->set_time_series_compaction_level_threshold(
                 new_time_series_compaction_level_threshold);
     }
+    // Sync disable_auto_compaction (stored in tablet_schema)
+    auto new_disable_auto_compaction = tablet_meta->tablet_schema()->disable_auto_compaction();
+    if (_tablet_meta->tablet_schema()->disable_auto_compaction() != new_disable_auto_compaction) {
+        _tablet_meta->mutable_tablet_schema()->set_disable_auto_compaction(
+                new_disable_auto_compaction);
+    }
 
     return Status::OK();
 }

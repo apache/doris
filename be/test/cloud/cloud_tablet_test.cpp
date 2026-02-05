@@ -28,6 +28,8 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_warm_up_manager.h"
+#include "common/config.h"
+#include "cpp/sync_point.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta.h"
@@ -672,5 +674,197 @@ TEST_F(CloudTabletWarmUpStateTest, TestJobCanOverrideDoneStateFromJob) {
     WarmUpState state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
     expected_state = WarmUpState {WarmUpTriggerSource::JOB, WarmUpProgress::DOING};
     EXPECT_EQ(state, expected_state);
+}
+
+// Test class for sync_meta functionality
+class CloudTabletSyncMetaTest : public testing::Test {
+public:
+    CloudTabletSyncMetaTest() : _engine(CloudStorageEngine(EngineOptions {})) {}
+
+    void SetUp() override {
+        config::enable_file_cache = true;
+
+        // Create tablet meta with a schema that has disable_auto_compaction = false
+        TTabletSchema tablet_schema;
+        tablet_schema.__set_disable_auto_compaction(false);
+
+        _tablet_meta = std::make_shared<TabletMeta>(
+                1, 2, 15673, 15674, 4, 5, tablet_schema, 6, {{7, 8}}, UniqueId(9, 10),
+                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+
+        _tablet =
+                std::make_shared<CloudTablet>(_engine, std::make_shared<TabletMeta>(*_tablet_meta));
+    }
+
+    void TearDown() override { config::enable_file_cache = false; }
+
+protected:
+    TabletMetaSharedPtr _tablet_meta;
+    std::shared_ptr<CloudTablet> _tablet;
+    CloudStorageEngine _engine;
+};
+
+// Test sync_meta syncs disable_auto_compaction from false to true
+TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionFalseToTrue) {
+    // Verify initial state: disable_auto_compaction = false
+    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+
+    auto sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+
+    // Mock get_tablet_meta to return tablet_meta with disable_auto_compaction = true
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [this](auto&& args) {
+        auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+
+        // Create a new tablet meta with disable_auto_compaction = true
+        TTabletSchema new_schema;
+        new_schema.__set_disable_auto_compaction(true);
+        *tablet_meta_ptr = std::make_shared<TabletMeta>(
+                1, 2, 15673, 15674, 4, 5, new_schema, 6, {{7, 8}}, UniqueId(9, 10),
+                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+    });
+
+    // Call sync_meta
+    Status st = _tablet->sync_meta();
+    EXPECT_TRUE(st.ok());
+
+    // Verify disable_auto_compaction has been synced to true
+    EXPECT_TRUE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+}
+
+// Test sync_meta syncs disable_auto_compaction from true to false
+TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionTrueToFalse) {
+    // Set initial state: disable_auto_compaction = true
+    _tablet->tablet_meta()->mutable_tablet_schema()->set_disable_auto_compaction(true);
+    EXPECT_TRUE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+
+    auto sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+
+    // Mock get_tablet_meta to return tablet_meta with disable_auto_compaction = false
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [this](auto&& args) {
+        auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+
+        // Create a new tablet meta with disable_auto_compaction = false
+        TTabletSchema new_schema;
+        new_schema.__set_disable_auto_compaction(false);
+        *tablet_meta_ptr = std::make_shared<TabletMeta>(
+                1, 2, 15673, 15674, 4, 5, new_schema, 6, {{7, 8}}, UniqueId(9, 10),
+                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+    });
+
+    // Call sync_meta
+    Status st = _tablet->sync_meta();
+    EXPECT_TRUE(st.ok());
+
+    // Verify disable_auto_compaction has been synced to false
+    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+}
+
+// Test sync_meta when disable_auto_compaction is unchanged
+TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionUnchanged) {
+    // Verify initial state: disable_auto_compaction = false
+    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+
+    auto sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+
+    // Mock get_tablet_meta to return tablet_meta with same disable_auto_compaction = false
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [this](auto&& args) {
+        auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+
+        TTabletSchema new_schema;
+        new_schema.__set_disable_auto_compaction(false);
+        *tablet_meta_ptr = std::make_shared<TabletMeta>(
+                1, 2, 15673, 15674, 4, 5, new_schema, 6, {{7, 8}}, UniqueId(9, 10),
+                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+    });
+
+    // Call sync_meta
+    Status st = _tablet->sync_meta();
+    EXPECT_TRUE(st.ok());
+
+    // Verify disable_auto_compaction remains false
+    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+}
+
+// Test sync_meta is skipped when enable_file_cache is false
+TEST_F(CloudTabletSyncMetaTest, TestSyncMetaSkippedWhenFileCacheDisabled) {
+    // Disable file cache
+    config::enable_file_cache = false;
+
+    // Set initial state: disable_auto_compaction = false
+    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+
+    auto sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+
+    bool callback_called = false;
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta",
+                      [&callback_called](auto&& args) { callback_called = true; });
+
+    // Call sync_meta - should return early without calling get_tablet_meta
+    Status st = _tablet->sync_meta();
+    EXPECT_TRUE(st.ok());
+    EXPECT_FALSE(callback_called);
+
+    // Verify disable_auto_compaction is not changed
+    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+}
+
+// Test sync_meta syncs compaction_policy together with disable_auto_compaction
+TEST_F(CloudTabletSyncMetaTest, TestSyncMetaMultipleProperties) {
+    // Verify initial states
+    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    // Default compaction_policy is "size_based"
+    EXPECT_EQ(_tablet->tablet_meta()->compaction_policy(), "size_based");
+
+    auto sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+
+    // Mock get_tablet_meta to return tablet_meta with updated properties
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [this](auto&& args) {
+        auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+
+        TTabletSchema new_schema;
+        new_schema.__set_disable_auto_compaction(true);
+        // TabletMeta constructor: ..., storage_policy_id, enable_unique_key_merge_on_write,
+        //                         binlog_config, compaction_policy, ...
+        *tablet_meta_ptr = std::make_shared<TabletMeta>(
+                1, 2, 15673, 15674, 4, 5, new_schema, 6, {{7, 8}}, UniqueId(9, 10),
+                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F,
+                0,              // storage_policy_id
+                false,          // enable_unique_key_merge_on_write
+                std::nullopt,   // binlog_config
+                "time_series"); // compaction_policy
+    });
+
+    // Call sync_meta
+    Status st = _tablet->sync_meta();
+    EXPECT_TRUE(st.ok());
+
+    // Verify both properties are synced
+    EXPECT_TRUE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_EQ(_tablet->tablet_meta()->compaction_policy(), "time_series");
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
 }
 } // namespace doris
