@@ -113,8 +113,6 @@ void BeExecVersionManager::check_function_compatibility(int current_be_exec_vers
  *    b. support const column in serialize/deserialize function: PR #41175
  */
 
-
-
 // /////////////////////////////////////////////////////////////////////////////
 // ATTN: !!! BE EXEC VERSION IS A VERY SENSITIVE COMPATIBILITY FIELD !!!
 // 1. We should avoid abusing be_exec_version, especially not using it to handle

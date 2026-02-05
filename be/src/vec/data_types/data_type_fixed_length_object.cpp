@@ -164,8 +164,8 @@ int64_t DataTypeFixedLengthObject::get_uncompressed_serialized_bytes(const IColu
         } else {
             // Throw exception if mem_size is large than UINT32_MAX
             return size + sizeof(size_t) +
-                   std::max(mem_size,
-                            streamvbyte_max_compressedbytes(cast_set<UInt32>(upper_int32(mem_size))));
+                   std::max(mem_size, streamvbyte_max_compressedbytes(
+                                              cast_set<UInt32>(upper_int32(mem_size))));
         }
     }
 
