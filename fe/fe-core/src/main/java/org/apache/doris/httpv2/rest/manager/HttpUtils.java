@@ -20,7 +20,7 @@ package org.apache.doris.httpv2.rest.manager;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.Util;
+import org.apache.doris.common.util.InternalHttpsUtils;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Frontend;
@@ -130,7 +130,14 @@ public class HttpUtils {
     }
 
     private static String executeRequest(HttpRequestBase request) throws IOException {
-        CloseableHttpClient client = getHttpClient();
+        CloseableHttpClient client;
+
+        if (request.getURI().getScheme().equalsIgnoreCase("https") && Config.enable_https) {
+            client = InternalHttpsUtils.createValidatedHttpClient();
+        } else {
+            client = HttpClientBuilder.create().build();
+        }
+
         return client.execute(request, httpResponse -> EntityUtils.toString(httpResponse.getEntity()));
     }
 
