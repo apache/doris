@@ -52,6 +52,12 @@ public:
                        ColumnPredicate::debug_string());
         return fmt::to_string(debug_string_buffer);
     }
+    bool could_be_erased() const override {
+        if ((PT == PredicateType::NE && !_opposite) || (PT == PredicateType::EQ && _opposite)) {
+            return false;
+        }
+        return true;
+    }
 
     PredicateType type() const override { return PT; }
 

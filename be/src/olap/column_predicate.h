@@ -225,6 +225,8 @@ public:
     }
 
     virtual double get_ignore_threshold() const { return 0; }
+    // If this predicate acts on the key column, this predicate should be erased.
+    virtual bool could_be_erased() const { return false; }
     // Return the size of value set for IN/NOT IN predicates and 0 for others.
     virtual std::string debug_string() const {
         fmt::memory_buffer debug_string_buffer;
