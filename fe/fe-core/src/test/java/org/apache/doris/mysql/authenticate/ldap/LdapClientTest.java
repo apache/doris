@@ -45,6 +45,7 @@ public class LdapClientTest {
         LdapConfig.ldap_user_basedn = "dc=baidu,dc=com";
         LdapConfig.ldap_group_basedn = "ou=group,dc=baidu,dc=com";
         LdapConfig.ldap_user_filter = "(&(uid={login}))";
+        LdapConfig.ldap_use_ssl = false;
     }
 
     @Test
