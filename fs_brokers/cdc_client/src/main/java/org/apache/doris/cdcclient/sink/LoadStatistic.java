@@ -15,20 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.job.cdc.request;
+package org.apache.doris.cdcclient.sink;
 
 import lombok.Data;
-import lombok.EqualsAndHashCode;
-
-import java.util.Map;
 
 @Data
-@EqualsAndHashCode(callSuper = true)
-public class WriteRecordRequest extends JobBaseRecordRequest {
-    private long maxInterval;
-    private String targetDb;
-    private String token;
-    private String frontendAddress;
-    private String taskId;
-    private Map<String, String> streamLoadProps;
+public class LoadStatistic {
+    private long filteredRows = 0;
+    private long loadedRows = 0;
+    private long loadBytes = 0;
+
+    public void add(RespContent respContent) {
+        this.filteredRows += respContent.getNumberFilteredRows();
+        this.loadedRows += respContent.getNumberLoadedRows();
+        this.loadBytes += respContent.getLoadBytes();
+    }
+
+    public void clear() {
+        this.filteredRows = 0;
+        this.loadedRows = 0;
+        this.loadBytes = 0;
+    }
 }

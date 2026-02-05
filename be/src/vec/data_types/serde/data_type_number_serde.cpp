@@ -746,6 +746,19 @@ Status DataTypeNumberSerDe<T>::from_string(StringRef& str, IColumn& column,
 }
 
 template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::from_string(const std::string& str, Field& field,
+                                           const FormatOptions& options) const {
+    typename PrimitiveTypeTraits<T>::CppType val;
+    CastParameters params;
+    params.is_strict = false;
+    if (!try_parse_impl<T, false>(val, StringRef(str), params)) {
+        return Status::InvalidArgument("parse number fail, string: '{}'", str);
+    }
+    field = Field::create_field<T>(std::move(val));
+    return Status::OK();
+}
+
+template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& column,
                                                        const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnType&, TypeCheckOnRelease::DISABLE>(column);

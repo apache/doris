@@ -23,8 +23,9 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
-import org.apache.doris.httpv2.rest.StreamingJobAction.CommitOffsetRequest;
 import org.apache.doris.job.base.Job;
+import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.request.CommitOffsetRequest;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
@@ -35,6 +36,7 @@ import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.jdbc.JdbcOffset;
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
 import org.apache.doris.job.util.StreamingJobUtils;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PRequestCdcClientResult;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -51,6 +53,7 @@ import com.google.common.base.Preconditions;
 import com.google.gson.Gson;
 import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashMap;
 import java.util.List;
@@ -69,13 +72,16 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     private String targetDb;
     private StreamingJobProperties jobProperties;
     private long scannedRows = 0L;
-    private long scannedBytes = 0L;
+    private long loadBytes = 0L;
+    private long filteredRows = 0L;
+    private long loadedRows = 0L;
     private long timeoutMs;
     private long runningBackendId;
 
     public StreamingMultiTblTask(Long jobId,
             long taskId,
             DataSourceType dataSourceType,
+
             SourceOffsetProvider offsetProvider,
             Map<String, String> sourceProperties,
             String targetDb,
@@ -180,6 +186,9 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         request.setToken(getToken());
         request.setTargetDb(targetDb);
 
+        Map<String, String> props = generateStreamLoadProps();
+        request.setStreamLoadProps(props);
+
         Map<String, Object> splitMeta = offset.generateMeta();
         Preconditions.checkArgument(!splitMeta.isEmpty(), "split meta is empty");
         request.setMeta(splitMeta);
@@ -187,6 +196,24 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         request.setFrontendAddress(feAddr);
         request.setMaxInterval(jobProperties.getMaxIntervalSecond());
         return request;
+    }
+
+    private Map<String, String> generateStreamLoadProps() {
+        Map<String, String> streamLoadProps = new HashMap<>();
+        String maxFilterRatio =
+                targetProperties.get(DataSourceConfigKeys.LOAD_PROPERTIES + LoadCommand.MAX_FILTER_RATIO_PROPERTY);
+
+        if (StringUtils.isNotEmpty(maxFilterRatio) && Double.parseDouble(maxFilterRatio) > 0) {
+            // If `load.max_filter_ratio` is set, it is calculated on the job side based on a window;
+            // the `max_filter_ratio` of the streamload must be 1.
+            streamLoadProps.put(LoadCommand.MAX_FILTER_RATIO_PROPERTY, "1");
+        }
+
+        String strictMode = targetProperties.get(DataSourceConfigKeys.LOAD_PROPERTIES + LoadCommand.STRICT_MODE);
+        if (StringUtils.isNotEmpty(strictMode)) {
+            streamLoadProps.put(LoadCommand.STRICT_MODE, strictMode);
+        }
+        return streamLoadProps;
     }
 
     @Override
@@ -246,7 +273,9 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         }
 
         this.scannedRows = offsetRequest.getScannedRows();
-        this.scannedBytes = offsetRequest.getScannedBytes();
+        this.loadBytes = offsetRequest.getLoadBytes();
+        this.filteredRows = offsetRequest.getFilteredRows();
+        this.loadedRows = offsetRequest.getLoadedRows();
         Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
         if (null == job) {
             log.info("job is null, job id is {}", jobId);
@@ -330,7 +359,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         Map<String, Object> statistic = new HashMap<>();
         statistic.put("scannedRows", scannedRows);
-        statistic.put("loadBytes", scannedBytes);
+        statistic.put("loadBytes", loadBytes);
         trow.addToColumnValue(new TCell().setStringVal(new Gson().toJson(statistic)));
 
         if (this.getUserIdentity() == null) {
