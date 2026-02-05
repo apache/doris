@@ -232,6 +232,7 @@ Status VIcebergTableWriter::write(RuntimeState* state, vectorized::Block& block)
         SCOPED_RAW_TIMER(&_partition_writers_write_ns);
         output_block.erase(_non_write_columns_indices);
         RETURN_IF_ERROR(writer->write(output_block));
+        _current_writer = writer;
         return Status::OK();
     }
 
@@ -274,9 +275,11 @@ Status VIcebergTableWriter::write(RuntimeState* state, vectorized::Block& block)
         SCOPED_RAW_TIMER(&_partition_writers_write_ns);
         output_block.erase(_non_write_columns_indices);
         RETURN_IF_ERROR(writer->write(output_block));
+        _current_writer = writer;
         return Status::OK();
     }
 
+    // Case 3: Partitioned table - handle multiple partitions
     {
         Block transformed_block;
         SCOPED_RAW_TIMER(&_partition_writers_dispatch_ns);
@@ -375,6 +378,7 @@ Status VIcebergTableWriter::write(RuntimeState* state, vectorized::Block& block)
         Block filtered_block;
         RETURN_IF_ERROR(_filter_block(output_block, &it->second, &filtered_block));
         RETURN_IF_ERROR(it->first->write(filtered_block));
+        _current_writer = it->first;
     }
     return Status::OK();
 }
@@ -539,7 +543,6 @@ std::shared_ptr<IPartitionWriterBase> VIcebergTableWriter::_create_partition_wri
                                            iceberg_table_sink.broker_addresses.end());
     }
 
-    _write_file_count++;
     std::vector<std::string> column_names;
     column_names.reserve(_write_output_vexpr_ctxs.size());
     for (int i = 0; i < _schema->columns().size(); i++) {
@@ -549,8 +552,7 @@ std::shared_ptr<IPartitionWriterBase> VIcebergTableWriter::_create_partition_wri
     }
 
     auto create_writer_lambda =
-            [this, partition_values = std::move(partition_values),
-             column_names = std::move(column_names), write_info = std::move(write_info)](
+            [this, partition_values, column_names, write_info](
                     const std::string* file_name,
                     int file_name_index) -> std::shared_ptr<VIcebergPartitionWriter> {
         auto& iceberg_table_sink = _t_sink.iceberg_table_sink;
@@ -562,7 +564,6 @@ std::shared_ptr<IPartitionWriterBase> VIcebergTableWriter::_create_partition_wri
                 iceberg_table_sink.file_format, iceberg_table_sink.compression_type,
                 iceberg_table_sink.hadoop_config);
     };
-
     auto partition_write = create_writer_lambda(file_name, file_name_index);
     if (iceberg_table_sink.__isset.sort_info) {
         return std::make_shared<VIcebergSortWriter>(partition_write, iceberg_table_sink.sort_info,

@@ -96,6 +96,7 @@
 #include "pipeline/exec/set_source_operator.h"
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
+#include "pipeline/exec/spill_iceberg_table_sink_operator.h"
 #include "pipeline/exec/spill_sort_sink_operator.h"
 #include "pipeline/exec/spill_sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_operator.h"
@@ -1073,10 +1074,15 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
     }
     case TDataSinkType::ICEBERG_TABLE_SINK: {
         if (!thrift_sink.__isset.iceberg_table_sink) {
-            return Status::InternalError("Missing hive table sink.");
+            return Status::InternalError("Missing iceberg table sink.");
         }
-        _sink = std::make_shared<IcebergTableSinkOperatorX>(pool, next_sink_operator_id(), row_desc,
-                                                            output_exprs);
+        if (thrift_sink.iceberg_table_sink.__isset.sort_info) {
+            _sink = std::make_shared<SpillIcebergTableSinkOperatorX>(pool, next_sink_operator_id(),
+                                                                     row_desc, output_exprs);
+        } else {
+            _sink = std::make_shared<IcebergTableSinkOperatorX>(pool, next_sink_operator_id(),
+                                                                row_desc, output_exprs);
+        }
         break;
     }
     case TDataSinkType::JDBC_TABLE_SINK: {

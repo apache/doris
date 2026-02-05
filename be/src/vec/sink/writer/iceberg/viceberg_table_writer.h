@@ -38,6 +38,7 @@ namespace vectorized {
 
 class IColumn;
 class IPartitionWriterBase;
+class VIcebergSortWriter;
 struct ColumnWithTypeAndName;
 
 class VIcebergTableWriter final : public AsyncResultWriter {
@@ -58,6 +59,8 @@ public:
     Status write(RuntimeState* state, vectorized::Block& block) override;
 
     Status close(Status) override;
+
+    std::shared_ptr<IPartitionWriterBase> _current_writer;
 
 private:
     class IcebergPartitionColumn {

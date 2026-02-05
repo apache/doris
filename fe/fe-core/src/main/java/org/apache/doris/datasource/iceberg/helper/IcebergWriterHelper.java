@@ -29,6 +29,7 @@ import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.Metrics;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.types.Types;
@@ -80,7 +81,8 @@ public class IcebergWriterHelper {
                 // Convert human-readable partition values to PartitionData
                 partitionData = Optional.of(convertToPartitionData(partitionValues, spec));
             }
-            DataFile dataFile = genDataFile(fileFormat, location, spec, partitionData, stat, metrics);
+            DataFile dataFile = genDataFile(fileFormat, location, spec, partitionData, stat, metrics,
+                    table.sortOrder());
             dataFiles.add(dataFile);
         }
         return WriteResult.builder()
@@ -94,13 +96,14 @@ public class IcebergWriterHelper {
             String location,
             PartitionSpec spec,
             Optional<PartitionData> partitionData,
-            CommonStatistics statistics, Metrics metrics) {
+            CommonStatistics statistics, Metrics metrics, SortOrder sortOrder) {
 
         DataFiles.Builder builder = DataFiles.builder(spec)
                 .withPath(location)
                 .withFileSizeInBytes(statistics.getTotalFileBytes())
                 .withRecordCount(statistics.getRowCount())
                 .withMetrics(metrics)
+                .withSortOrder(sortOrder)
                 .withFormat(format);
 
         partitionData.ifPresent(builder::withPartition);

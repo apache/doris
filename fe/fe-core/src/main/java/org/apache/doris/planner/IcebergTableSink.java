@@ -34,10 +34,7 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TIcebergTableSink;
-import org.apache.doris.thrift.TSortField;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.iceberg.NullOrder;
@@ -47,7 +44,6 @@ import org.apache.iceberg.SortDirection;
 import org.apache.iceberg.SortField;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
 
 import java.util.ArrayList;

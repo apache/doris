@@ -25,6 +25,7 @@
 #include "common/config.h"
 #include "common/object_pool.h"
 #include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
 #include "vec/common/sort/sorter.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vslot_ref.h"
@@ -65,8 +66,9 @@ public:
         _sorter = vectorized::FullSorter::create_unique(
                 _vsort_exec_exprs, -1, 0, &_pool, _sort_info.is_asc_order, _sort_info.nulls_first,
                 *row_desc, state, _profile);
+        _sorter->init_profile(_profile);
         _sorter->set_enable_spill();
-        _init_spill_counters();
+        _do_spill_count_counter = ADD_COUNTER(_profile, "IcebergDoSpillCount", TUnit::UNIT);
         RETURN_IF_ERROR(_iceberg_partition_writer->open(state, profile, row_desc));
         return Status::OK();
     }
@@ -74,9 +76,11 @@ public:
     Status write(vectorized::Block& block) override {
         RETURN_IF_ERROR(_sorter->append_block(&block));
         _update_spill_block_batch_row_count(block);
-        if (_should_spill()) {
-            RETURN_IF_ERROR(_do_spill());
+        // sort in memory and write directly to Parquet file
+        if (_sorter->data_size() >= _target_file_size_bytes) {
+            return _flush_to_file();
         }
+        // trigger_spill() will be called by memory management system
         return Status::OK();
     }
 
@@ -104,7 +108,7 @@ public:
                 // data remaining in memory
                 RETURN_IF_ERROR(_sorter->_do_sort());
                 RETURN_IF_ERROR(_sorter->prepare_for_read(false));
-                RETURN_IF_ERROR(_output_sorted_data_from_memory());
+                RETURN_IF_ERROR(_write_sorted_data());
                 return Status::OK();
             }
 
@@ -130,23 +134,11 @@ public:
 
     inline size_t written_len() const override { return _iceberg_partition_writer->written_len(); }
 
+    auto sorter() const { return _sorter.get(); }
+
+    Status trigger_spill() { return _do_spill(); }
+
 private:
-    void _init_spill_counters() {
-        _sorter->init_profile(_profile);
-        _spill_timer = ADD_TIMER_WITH_LEVEL(_profile, "SpillWriteTime", 1);
-        _spill_merge_sort_timer = ADD_TIMER_WITH_LEVEL(_profile, "SpillMergeSortTime", 1);
-        _spill_data_size = ADD_COUNTER_WITH_LEVEL(_profile, "SpillWriteDataSize", TUnit::BYTES, 1);
-        _spill_block_count =
-                ADD_COUNTER_WITH_LEVEL(_profile, "SpillWriteBlockCount", TUnit::UNIT, 1);
-        _file_commit_count_counter =
-                ADD_COUNTER_WITH_LEVEL(_profile, "SortedFileCommitCount", TUnit::UNIT, 1);
-    }
-
-    // 128 MB by default
-    bool _should_spill() const {
-        return _sorter->data_size() >= _runtime_state->spill_sort_mem_limit();
-    }
-
     // how many rows need in spill block batch
     void _update_spill_block_batch_row_count(const vectorized::Block& block) {
         auto rows = block.rows();
@@ -158,6 +150,45 @@ private:
         }
     }
 
+    // have enought data, flush in-memory sorted data to file
+    Status _flush_to_file() {
+        RETURN_IF_ERROR(_sorter->_do_sort());
+        RETURN_IF_ERROR(_sorter->prepare_for_read(false));
+        RETURN_IF_ERROR(_write_sorted_data());
+        RETURN_IF_ERROR(_close_current_writer_and_open_next());
+        _sorter->reset();
+        return Status::OK();
+    }
+
+    // write data into file
+    Status _write_sorted_data() {
+        bool eos = false;
+        Block block;
+        while (!eos && !_runtime_state->is_cancelled()) {
+            RETURN_IF_ERROR(_sorter->get_next(_runtime_state, &block, &eos));
+            RETURN_IF_ERROR(_iceberg_partition_writer->write(block));
+            block.clear_column_data();
+        }
+        return Status::OK();
+    }
+
+    // close current writer and open a new one with incremented file index
+    Status _close_current_writer_and_open_next() {
+        std::string current_file_name = _iceberg_partition_writer->file_name();
+        int current_file_index = _iceberg_partition_writer->file_name_index();
+        RETURN_IF_ERROR(_iceberg_partition_writer->close(Status::OK()));
+
+        _iceberg_partition_writer =
+                _create_writer_lambda(&current_file_name, current_file_index + 1);
+        if (!_iceberg_partition_writer) {
+            return Status::InternalError("Failed to create new partition writer");
+        }
+
+        RETURN_IF_ERROR(_iceberg_partition_writer->open(_runtime_state, _profile, _row_desc));
+        return Status::OK();
+    }
+
+    // batch size max is int32_t max
     int32_t _get_spill_batch_size() const {
         if (_spill_block_batch_row_count > std::numeric_limits<int32_t>::max()) {
             return std::numeric_limits<int32_t>::max();
@@ -166,59 +197,36 @@ private:
     }
 
     Status _do_spill() {
-        SCOPED_TIMER(_spill_timer);
+        COUNTER_UPDATE(_do_spill_count_counter, 1);
         RETURN_IF_ERROR(_sorter->prepare_for_read(true));
-        SpillStreamSPtr spilling_stream;
         int32_t batch_size = _get_spill_batch_size();
-        int64_t spill_batch_bytes = _runtime_state->spill_sort_batch_bytes();
 
+        SpillStreamSPtr spilling_stream;
         RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
                 _runtime_state, spilling_stream, print_id(_runtime_state->query_id()),
-                "iceberg-sort", 1 /* node_id */, batch_size, spill_batch_bytes, _profile));
+                "iceberg-sort", 1 /* node_id */, batch_size,
+                _runtime_state->spill_sort_batch_bytes(), _profile));
         _sorted_streams.emplace_back(spilling_stream);
 
-        // Spill sorted data to stream
+        // spill sorted data to stream
         bool eos = false;
         Block block;
         while (!eos && !_runtime_state->is_cancelled()) {
-            {
-                SCOPED_TIMER(_spill_merge_sort_timer);
-                RETURN_IF_ERROR(_sorter->merge_sort_read_for_spill(
-                        _runtime_state, &block, (int)_spill_block_batch_row_count, &eos));
-            }
-
-            COUNTER_UPDATE(_spill_data_size, block.bytes());
-            COUNTER_UPDATE(_spill_block_count, 1);
-
+            RETURN_IF_ERROR(_sorter->merge_sort_read_for_spill(
+                    _runtime_state, &block, (int)_spill_block_batch_row_count, &eos));
             RETURN_IF_ERROR(spilling_stream->spill_block(_runtime_state, block, eos));
             block.clear_column_data();
         }
-
         _sorter->reset();
-        return Status::OK();
-    }
-
-    Status _output_sorted_data_from_memory() { // no spill, write all data into one file
-        bool eos = false;
-        Block block;
-        while (!eos && !_runtime_state->is_cancelled()) {
-            RETURN_IF_ERROR(_sorter->get_next(_runtime_state, &block, &eos));
-            if (block.rows() > 0) {
-                RETURN_IF_ERROR(_iceberg_partition_writer->write(block));
-            }
-            block.clear_column_data();
-        }
         return Status::OK();
     }
 
     // merge spilled streams and output sorted data to Parquet files
     Status _combine_files_output() {
-        SCOPED_TIMER(_spill_merge_sort_timer);
         // merge until all streams can be merged in one pass
         while (_sorted_streams.size() > static_cast<size_t>(_calc_max_merge_streams())) {
             RETURN_IF_ERROR(_do_intermediate_merge());
         }
-
         RETURN_IF_ERROR(_create_final_merger());
 
         bool eos = false;
@@ -228,13 +236,13 @@ private:
             RETURN_IF_ERROR(_merger->get_next(&output_block, &eos));
             if (output_block.rows() > 0) {
                 size_t block_bytes = output_block.bytes();
-                if (current_file_bytes + block_bytes > _target_file_size_bytes) {
-                    // Close current writer and commit to file
+                RETURN_IF_ERROR(_iceberg_partition_writer->write(output_block));
+                current_file_bytes += block_bytes;
+                if (current_file_bytes > _target_file_size_bytes) {
+                    // close current writer and commit to file
                     RETURN_IF_ERROR(_close_current_writer_and_open_next());
                     current_file_bytes = 0;
                 }
-                RETURN_IF_ERROR(_iceberg_partition_writer->write(output_block));
-                current_file_bytes += block_bytes;
             }
             output_block.clear_column_data();
         }
@@ -245,17 +253,17 @@ private:
         int max_stream_count = _calc_max_merge_streams();
         RETURN_IF_ERROR(_create_merger(false, _spill_block_batch_row_count, max_stream_count));
 
-        // Register new spill stream for merged output
-        SpillStreamSPtr tmp_stream;
+        // register new spill stream for merged output
         int32_t batch_size = _get_spill_batch_size();
-        int64_t spill_batch_bytes = _runtime_state->spill_sort_batch_bytes();
+        SpillStreamSPtr tmp_stream;
         RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
                 _runtime_state, tmp_stream, print_id(_runtime_state->query_id()),
-                "iceberg-sort-merge", 1 /* node_id */, batch_size, spill_batch_bytes, _profile));
+                "iceberg-sort-merge", 1 /* node_id */, batch_size,
+                _runtime_state->spill_sort_batch_bytes(), _profile));
 
         _sorted_streams.emplace_back(tmp_stream);
 
-        // Merge current streams and write to new spill stream
+        // merge current streams and write to new spill stream
         bool eos = false;
         Block merge_sorted_block;
         while (!eos && !_runtime_state->is_cancelled()) {
@@ -264,12 +272,11 @@ private:
             RETURN_IF_ERROR(tmp_stream->spill_block(_runtime_state, merge_sorted_block, eos));
         }
 
-        // Clean up merged streams
+        // clean up merged streams
         for (auto& stream : _current_merging_streams) {
             ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
         }
         _current_merging_streams.clear();
-
         return Status::OK();
     }
 
@@ -282,7 +289,7 @@ private:
         return std::max(2, static_cast<int>(count));
     }
 
-    // Create merger for merging spill streamss
+    // create merger for merging spill streams
     Status _create_merger(bool is_final_merge, size_t batch_size, int num_streams) {
         std::vector<vectorized::BlockSupplier> child_block_suppliers;
         _merger = std::make_unique<vectorized::VSortedRunMerger>(_sorter->get_sort_description(),
@@ -306,31 +313,7 @@ private:
 
     Status _create_final_merger() { return _create_merger(true, _runtime_state->batch_size(), 1); }
 
-    // commit to a new output file when current file reaches target size
-    Status _close_current_writer_and_open_next() {
-        if (!_iceberg_partition_writer) {
-            return Status::InternalError("Current partition writer is null");
-        }
-
-        // Close current writer
-        std::string current_file_name = _iceberg_partition_writer->file_name();
-        int current_file_index = _iceberg_partition_writer->file_name_index();
-        RETURN_IF_ERROR(_iceberg_partition_writer->close(Status::OK()));
-
-        // Create new writer with incremented index
-        _iceberg_partition_writer =
-                _create_writer_lambda(&current_file_name, current_file_index + 1);
-        if (!_iceberg_partition_writer) {
-            return Status::InternalError("Failed to create new partition writer");
-        }
-
-        // Open the new writer
-        RETURN_IF_ERROR(_iceberg_partition_writer->open(_runtime_state, _profile, _row_desc));
-        COUNTER_UPDATE(_file_commit_count_counter, 1);
-        return Status::OK();
-    }
-
-    // Clean up all spill streams to ensure proper resource cleanup
+    // clean up all spill streams to ensure proper resource cleanup
     void _cleanup_spill_streams() {
         for (auto& stream : _sorted_streams) {
             ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
@@ -358,16 +341,11 @@ private:
     std::deque<vectorized::SpillStreamSPtr> _sorted_streams;
     std::vector<vectorized::SpillStreamSPtr> _current_merging_streams;
 
-    int64_t _target_file_size_bytes = 0; // default 1GB
+    int64_t _target_file_size_bytes = 0; //config::iceberg_sink_max_file_size default 1GB
     size_t _avg_row_bytes = 0;
     size_t _spill_block_batch_row_count = 4096;
 
-    // Profile counters
-    RuntimeProfile::Counter* _spill_timer = nullptr;
-    RuntimeProfile::Counter* _spill_merge_sort_timer = nullptr;
-    RuntimeProfile::Counter* _spill_data_size = nullptr;
-    RuntimeProfile::Counter* _spill_block_count = nullptr;
-    RuntimeProfile::Counter* _file_commit_count_counter = nullptr;
+    RuntimeProfile::Counter* _do_spill_count_counter = nullptr;
 };
 
 } // namespace vectorized
