@@ -132,18 +132,10 @@ constexpr bool IsCppTypeDateTime =
         std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_DATETIME>::CppType> ||
         std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType>;
 struct CastToInt {
-    template <typename ToCppT>
+    template <bool is_strict_mode, typename ToCppT>
         requires(IsCppTypeInt<ToCppT>)
     static inline bool from_string(const StringRef& from, ToCppT& to, CastParameters& params) {
-        return std::visit(
-                [&](auto is_strict_mode) {
-                    if constexpr (is_strict_mode) {
-                        return try_read_int_text<ToCppT, true>(to, from);
-                    } else {
-                        return try_read_int_text<ToCppT, false>(to, from);
-                    }
-                },
-                vectorized::make_bool_variant(params.is_strict));
+        return try_read_int_text<ToCppT, is_strict_mode>(to, from);
     }
 
     template <typename FromCppT, typename ToCppT>

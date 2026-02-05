@@ -687,6 +687,23 @@ public:
     // only used in agg value replace for column which is not variable length, eg.BlockReader::_copy_value_data
     // usage: self_column.replace_column_data(other_column, other_column's row index, self_column's row index)
     virtual void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) = 0;
+
+    // Batch version of replace_column_data for replacing continuous range of data
+    // Used in sparse column compaction optimization for better performance
+    // Default implementation calls replace_column_data in a loop
+    // Subclasses (e.g., ColumnVector, ColumnDecimal) can override with optimized memcpy
+    virtual void replace_column_data_range(const IColumn& src, size_t src_start, size_t count,
+                                           size_t self_start) {
+        for (size_t i = 0; i < count; ++i) {
+            replace_column_data(src, src_start + i, self_start + i);
+        }
+    }
+    // Whether this column type supports efficient in-place range replacement.
+    // Returns true for fixed-width types (ColumnVector, ColumnDecimal) that can use memcpy.
+    // Returns false for variable-length types (ColumnString, ColumnArray, etc.) that require
+    // more complex handling. Used by sparse column compaction to choose the right code path.
+    virtual bool support_replace_column_data_range() const { return false; }
+
     // replace data to default value if null, used to avoid null data output decimal check failure
     // usage: nested_column.replace_column_null_data(nested_null_map.data())
     // only wrok on column_vector and column column decimal, there will be no behavior when other columns type call this method

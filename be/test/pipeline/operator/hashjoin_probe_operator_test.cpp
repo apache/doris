@@ -202,8 +202,8 @@ public:
         ASSERT_EQ(sink_operator->should_dry_run(_helper.runtime_state.get()),
                   join_params.is_broadcast_join && !should_build_hash_table);
 
-        ASSERT_EQ(sink_operator->require_data_distribution(), false);
-        ASSERT_EQ(probe_operator->require_data_distribution(), false);
+        ASSERT_EQ(sink_operator->is_colocated_operator(), false);
+        ASSERT_EQ(probe_operator->is_colocated_operator(), false);
         ASSERT_FALSE(sink_operator->is_shuffled_operator());
         ASSERT_FALSE(probe_operator->is_shuffled_operator());
         std::cout << "sink distribution: "

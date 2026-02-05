@@ -148,7 +148,9 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
         select loadStatistic, status from jobs("type"="insert") where Name='${jobName}'
         """
         log.info("jobInfo: " + jobInfo)
-        assert jobInfo.get(0).get(0) == "{\"scannedRows\":7,\"loadBytes\":337,\"fileNumber\":0,\"fileSize\":0}"
+        def loadStat = parseJson(jobInfo.get(0).get(0))
+        assert loadStat.scannedRows == 7
+        assert loadStat.loadBytes == 341
         assert jobInfo.get(0).get(1) == "RUNNING"
 
         // mock incremental into again

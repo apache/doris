@@ -313,13 +313,16 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                     path().native(), offset, bytes_req, read_at_sw.elapsed_time_milliseconds(),
                     io_ctx->is_warmup);
         }
-        if (io_ctx->file_cache_stats && !is_dryrun) {
+        if (is_dryrun) {
+            return;
+        }
+        // update stats increment in this reading procedure for file cache metrics
+        FileCacheStatistics fcache_stats_increment;
+        _update_stats(stats, &fcache_stats_increment, io_ctx->is_inverted_index);
+        io::FileCacheMetrics::instance().update(&fcache_stats_increment);
+        if (io_ctx->file_cache_stats) {
             // update stats in io_ctx, for query profile
             _update_stats(stats, io_ctx->file_cache_stats, io_ctx->is_inverted_index);
-            // update stats increment in this reading procedure for file cache metrics
-            FileCacheStatistics fcache_stats_increment;
-            _update_stats(stats, &fcache_stats_increment, io_ctx->is_inverted_index);
-            io::FileCacheMetrics::instance().update(&fcache_stats_increment);
         }
     };
     std::unique_ptr<int, decltype(defer_func)> defer((int*)0x01, std::move(defer_func));

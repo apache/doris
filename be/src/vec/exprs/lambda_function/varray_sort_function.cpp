@@ -67,8 +67,8 @@ public:
 
     std::string get_name() const override { return name; }
 
-    Status execute(VExprContext* context, const vectorized::Block* block, size_t count,
-                   ColumnPtr& result_column, const DataTypePtr& result_type,
+    Status execute(VExprContext* context, const vectorized::Block* block, Selector* expr_selector,
+                   size_t count, ColumnPtr& result_column, const DataTypePtr& result_type,
                    const VExprSPtrs& children) const override {
         ///* array_sort(lambda, arg) *///
 
@@ -76,7 +76,8 @@ public:
 
         // 1. get data, we need to obtain this actual data and type.
         ColumnPtr column_ptr;
-        RETURN_IF_ERROR(children[1]->execute_column(context, block, count, column_ptr));
+        RETURN_IF_ERROR(
+                children[1]->execute_column(context, block, expr_selector, count, column_ptr));
         DataTypePtr type_ptr = children[1]->execute_type(block);
 
         auto column = column_ptr->convert_to_full_column_if_const();

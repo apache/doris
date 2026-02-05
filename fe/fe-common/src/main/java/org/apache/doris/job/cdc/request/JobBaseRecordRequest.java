@@ -28,8 +28,4 @@ import java.util.Map;
 @EqualsAndHashCode(callSuper = true)
 public abstract class JobBaseRecordRequest extends JobBaseConfig {
     protected Map<String, Object> meta;
-
-    public abstract boolean isReload();
-
-    public abstract int getFetchSize();
 }

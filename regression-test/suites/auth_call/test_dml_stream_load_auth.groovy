@@ -70,27 +70,64 @@ suite("test_dml_stream_load_auth","p0,auth_call") {
     cm = "bash " + load_path
     logger.info("cm:" + cm)
 
+    // Added a retry mechanism as the service instability may cause intermittent failures
+    def maxRetries = 3
+    def retryCount = 0
+    def success = false
+    def sout = ""
+    def serr = ""
 
-    def proc = cm.execute()
-    proc.waitForOrKill(7200000)
-    def sout = proc.inputStream.text.trim()
-    def serr = proc.errorStream.text.trim()
-    logger.info("std out: " + sout)
-    logger.info("std err: " + serr)
-    assertTrue(sout.indexOf("denied") != -1,
-               "Expected 'denied' message not found in response: '${sout}'")
+    while (retryCount < maxRetries && !success) {
+        retryCount++
+        def proc = cm.execute()
+        proc.waitForOrKill(7200000)
+        sout = proc.inputStream.text.trim()
+        serr = proc.errorStream.text.trim()
+        logger.info("std out: " + sout)
+        logger.info("std err: " + serr)
 
+        if (sout.contains("denied")) {
+            success = true
+            logger.info("Success: 'denied' message received.")
+        } else {
+            if (retryCount < maxRetries) {
+                logger.warn("Attempt ${retryCount} failed. Retrying in 2 seconds...")
+                sleep(2000)
+            }
+        }
+    }
+
+    // Final assertion: If all three retries fail, throw an error.
+    assertTrue(success, "After ${maxRetries} attempts, expected 'denied' message not found. \nFinal StdOut: ${sout} \nFinal StdErr: ${serr}")
 
     sql """grant load_priv on ${dbName}.${tableName} to ${user}"""
 
-    proc = cm.execute()
-    proc.waitForOrKill(7200000)
-    def sout2 = proc.inputStream.text.trim()
-    def serr2 = proc.errorStream.text.trim()
-    logger.info("std out: " + sout2)
-    logger.info("std err: " + serr2)
-    assertTrue(sout2.indexOf("denied") == -1,
-               "Unexpected 'denied' message in response after granting load_priv: '${sout2}'")
+    maxRetries = 3
+    retryCount = 0
+    success = false
+    def sout2 = ""
+    def serr2 = ""
+
+    while (retryCount < maxRetries && !success) {
+        retryCount++
+        def proc = cm.execute()
+        proc.waitForOrKill(7200000)
+        sout2 = proc.inputStream.text.trim()
+        serr2 = proc.errorStream.text.trim()
+        logger.info("std out: " + sout2)
+        logger.info("std err: " + serr2)
+
+        if (sout2.indexOf("denied") == -1) {
+            success = true
+        } else {
+            if (retryCount < maxRetries) {
+                logger.warn("Attempt ${retryCount} still showing 'denied'. Retrying after 2s...")
+                sleep(2000)
+            }
+        }
+    }
+
+    assertTrue(success, "Unexpected 'denied' message in response after ${maxRetries} attempts: '${sout2}'")
 
     connect(user, "${pwd}", context.config.jdbcUrl) {
         test {

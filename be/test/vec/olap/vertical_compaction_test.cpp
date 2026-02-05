@@ -1049,5 +1049,150 @@ TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
     }
 }
 
+// Test to cover _sample_info->null_count logic in vertical_block_reader.cpp
+// This test creates a UNIQUE_KEYS table with nullable columns and sparse data
+TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMergeWithNullableSparseColumn) {
+    // Save original threshold and set to 1 to always enable sparse optimization
+    double original_threshold = config::sparse_column_compaction_threshold_percent;
+    config::sparse_column_compaction_threshold_percent = 1.0;
+
+    auto num_input_rowset = 2;
+    auto num_segments = 1;
+    auto rows_per_segment = 100;
+
+    // Create schema with nullable column (c2 is nullable)
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    TabletSchemaPB tablet_schema_pb;
+    tablet_schema_pb.set_keys_type(UNIQUE_KEYS);
+    tablet_schema_pb.set_num_short_key_columns(1);
+    tablet_schema_pb.set_num_rows_per_row_block(1024);
+    tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
+    tablet_schema_pb.set_next_column_unique_id(4);
+
+    ColumnPB* column_1 = tablet_schema_pb.add_column();
+    column_1->set_unique_id(1);
+    column_1->set_name("c1");
+    column_1->set_type("INT");
+    column_1->set_is_key(true);
+    column_1->set_length(4);
+    column_1->set_index_length(4);
+    column_1->set_is_nullable(false);
+    column_1->set_is_bf_column(false);
+
+    // c2 is nullable - this is key for testing _sample_info->null_count
+    ColumnPB* column_2 = tablet_schema_pb.add_column();
+    column_2->set_unique_id(2);
+    column_2->set_name("c2");
+    column_2->set_type("INT");
+    column_2->set_length(4);
+    column_2->set_index_length(4);
+    column_2->set_is_key(false);
+    column_2->set_is_nullable(true); // nullable column
+    column_2->set_is_bf_column(false);
+
+    // DELETE_SIGN column required for unique keys
+    ColumnPB* column_3 = tablet_schema_pb.add_column();
+    column_3->set_unique_id(3);
+    column_3->set_name(DELETE_SIGN);
+    column_3->set_type("TINYINT");
+    column_3->set_length(1);
+    column_3->set_index_length(1);
+    column_3->set_is_nullable(false);
+    column_3->set_is_key(false);
+    column_3->set_is_bf_column(false);
+
+    tablet_schema->init_from_pb(tablet_schema_pb);
+
+    // Create input rowsets with NULL values in c2
+    std::vector<RowsetSharedPtr> input_rowsets;
+    for (auto i = 0; i < num_input_rowset; i++) {
+        RowsetWriterContext rowset_writer_context;
+        static int64_t inc_id = 2000;
+        RowsetId rowset_id;
+        rowset_id.init(inc_id++);
+        rowset_writer_context.rowset_id = rowset_id;
+        rowset_writer_context.tablet_id = 12345;
+        rowset_writer_context.tablet_schema_hash = 1111;
+        rowset_writer_context.partition_id = 10;
+        rowset_writer_context.rowset_type = BETA_ROWSET;
+        rowset_writer_context.tablet_path = absolute_dir + "/tablet_path";
+        rowset_writer_context.rowset_state = VISIBLE;
+        rowset_writer_context.tablet_schema = tablet_schema;
+        rowset_writer_context.version = Version(i * 10, i * 10);
+        rowset_writer_context.segments_overlap = NONOVERLAPPING;
+
+        auto res = RowsetFactory::create_rowset_writer(*engine_ref, rowset_writer_context, true);
+        ASSERT_TRUE(res.has_value()) << res.error();
+        auto rowset_writer = std::move(res).value();
+
+        // Create block with nullable c2 column
+        vectorized::Block block = tablet_schema->create_block();
+        auto columns = block.mutate_columns();
+
+        for (int rid = 0; rid < rows_per_segment; ++rid) {
+            int32_t c1 = i * rows_per_segment + rid;
+            columns[0]->insert_data((const char*)&c1, sizeof(c1));
+
+            // Insert NULL for most rows (sparse pattern: 90% NULL)
+            if (rid % 10 == 0) {
+                // non-NULL value
+                int32_t c2 = c1 * 10;
+                columns[1]->insert_data((const char*)&c2, sizeof(c2));
+            } else {
+                // NULL value
+                columns[1]->insert_default();
+            }
+
+            uint8_t delete_sign = 0;
+            columns[2]->insert_data((const char*)&delete_sign, sizeof(delete_sign));
+        }
+
+        auto s = rowset_writer->add_block(&block);
+        ASSERT_TRUE(s.ok()) << s;
+        s = rowset_writer->flush();
+        ASSERT_TRUE(s.ok()) << s;
+
+        RowsetSharedPtr rowset;
+        ASSERT_EQ(Status::OK(), rowset_writer->build(rowset));
+        input_rowsets.push_back(rowset);
+    }
+
+    // Create input rowset readers
+    std::vector<RowsetReaderSharedPtr> input_rs_readers;
+    for (auto& rowset : input_rowsets) {
+        RowsetReaderSharedPtr rs_reader;
+        ASSERT_TRUE(rowset->create_reader(&rs_reader).ok());
+        input_rs_readers.push_back(std::move(rs_reader));
+    }
+
+    // Create output rowset writer
+    auto writer_context = create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456,
+                                                       {0, input_rowsets.back()->end_version()});
+    auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto output_rs_writer = std::move(res).value();
+
+    // Create tablet and run vertical merge
+    TabletSharedPtr tablet = create_tablet(*tablet_schema, false);
+    Merger::Statistics stats;
+    RowIdConversion rowid_conversion;
+    stats.rowid_conversion = &rowid_conversion;
+
+    // This will trigger the _sample_info->null_count logic in vertical_block_reader.cpp
+    auto s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
+                                            *tablet_schema, input_rs_readers,
+                                            output_rs_writer.get(), 10000, num_segments, &stats);
+    ASSERT_TRUE(s.ok()) << s;
+
+    RowsetSharedPtr out_rowset;
+    ASSERT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
+
+    // Verify output
+    EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), num_input_rowset * rows_per_segment);
+
+    // Restore original threshold
+    config::sparse_column_compaction_threshold_percent = original_threshold;
+}
+
 } // namespace vectorized
 } // namespace doris

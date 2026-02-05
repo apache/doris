@@ -44,6 +44,7 @@ struct RowsetId;
 
 namespace vectorized {
 class RowSourcesBuffer;
+struct RowBatch;
 
 class VerticalBlockReader final : public TabletReader {
 public:
@@ -93,6 +94,16 @@ private:
     size_t _copy_agg_data();
     void _update_agg_value(MutableColumns& columns, int begin, int end, bool is_close = true);
 
+    // Helper functions for sparse column optimization
+    void _prepare_sparse_columns(MutableColumns& columns, size_t actual_rows,
+                                 std::vector<ColumnNullable*>& nullable_dst_cols,
+                                 std::vector<bool>& supports_replace);
+    void _process_sparse_column(ColumnNullable* nullable_dst, bool supports_replace,
+                                MutableColumnPtr& target_col, const ColumnPtr& src_col,
+                                const RowBatch& batch, size_t dst_offset);
+    void _copy_non_null_runs(ColumnNullable* nullable_dst, const ColumnNullable* nullable_src,
+                             const uint8_t* null_map, const RowBatch& batch, size_t dst_offset);
+
 private:
     size_t _id;
     std::shared_ptr<RowwiseIterator> _vcollect_iter;
@@ -125,6 +136,13 @@ private:
     phmap::flat_hash_map<const Block*, std::vector<std::pair<int, int>>> _temp_ref_map;
 
     std::vector<RowLocation> _block_row_locations;
+
+    // For sparse column compaction optimization
+    // Set from reader_params.enable_sparse_optimization (calculated in Merger::vertical_merge_rowsets)
+    bool _enable_sparse_optimization = false;
+
+    // For tracking NULL cell count during compaction (used for sparse optimization threshold)
+    CompactionSampleInfo* _sample_info = nullptr;
 };
 
 } // namespace vectorized

@@ -275,6 +275,28 @@ public class PaimonScanNode extends FileQueryScanNode {
     }
 
     @Override
+    protected List<String> getDeleteFiles(TFileRangeDesc rangeDesc) {
+        List<String> deleteFiles = new ArrayList<>();
+        if (rangeDesc == null || !rangeDesc.isSetTableFormatParams()) {
+            return deleteFiles;
+        }
+        TTableFormatFileDesc tableFormatParams = rangeDesc.getTableFormatParams();
+        if (tableFormatParams == null || !tableFormatParams.isSetPaimonParams()) {
+            return deleteFiles;
+        }
+        TPaimonFileDesc paimonParams = tableFormatParams.getPaimonParams();
+        if (paimonParams == null || !paimonParams.isSetDeletionFile()) {
+            return deleteFiles;
+        }
+        TPaimonDeletionFileDesc deletionFile = paimonParams.getDeletionFile();
+        if (deletionFile != null && deletionFile.isSetPath()) {
+            // Format: path [offset: offset, length: length]
+            deleteFiles.add(deletionFile.getPath());
+        }
+        return deleteFiles;
+    }
+
+    @Override
     public List<Split> getSplits(int numBackends) throws UserException {
         boolean forceJniScanner = sessionVariable.isForceJniScanner();
         SessionVariable.IgnoreSplitType ignoreSplitType = SessionVariable.IgnoreSplitType
@@ -413,6 +435,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
         long result = sessionVariable.getMaxInitialSplitSize();
         long totalFileSize = 0;
+        boolean exceedInitialThreshold = false;
         for (DataSplit dataSplit : dataSplits) {
             Optional<List<RawFile>> rawFiles = dataSplit.convertToRawFiles();
             if (!supportNativeReader(rawFiles)) {
@@ -420,13 +443,14 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
             for (RawFile rawFile : rawFiles.get()) {
                 totalFileSize += rawFile.fileSize();
-                if (totalFileSize
+                if (!exceedInitialThreshold && totalFileSize
                         >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
-                    result = sessionVariable.getMaxSplitSize();
-                    break;
+                    exceedInitialThreshold = true;
                 }
             }
         }
+        result = exceedInitialThreshold ? sessionVariable.getMaxSplitSize() : result;
+        result = applyMaxFileSplitNumLimit(result, totalFileSize);
         return result;
     }
 

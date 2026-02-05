@@ -160,9 +160,6 @@ Status MemTableWriter::_flush_memtable_async() {
         std::lock_guard<std::mutex> l(_mem_table_ptr_lock);
         memtable = _mem_table;
         _mem_table = nullptr;
-    }
-    {
-        std::lock_guard<std::mutex> l(_mem_table_ptr_lock);
         memtable->update_mem_type(MemType::WRITE_FINISHED);
         _freezed_mem_tables.push_back(memtable);
     }

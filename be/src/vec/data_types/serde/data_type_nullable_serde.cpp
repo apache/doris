@@ -491,6 +491,17 @@ Status DataTypeNullableSerDe::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
+Status DataTypeNullableSerDe::from_string(const std::string& str, Field& field,
+                                          const FormatOptions& options) const {
+    auto st = nested_serde->from_string(str, field, options);
+    if (!st.ok()) {
+        // fill null if fail
+        field = Field();
+        return Status::OK();
+    }
+    return Status::OK();
+}
+
 // In strict mode, from string will directly return an error.
 Status DataTypeNullableSerDe::from_string_strict_mode(StringRef& str, IColumn& column,
                                                       const FormatOptions& options) const {

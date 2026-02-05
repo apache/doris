@@ -212,7 +212,7 @@ suite("test_predefine_ddl", "p0") {
             INDEX idx_ab (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT ''
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-        exception("")
+        exception("invalid INVERTED index")
     }
 
     test {
@@ -226,7 +226,7 @@ suite("test_predefine_ddl", "p0") {
             INDEX idx_ab_2 (var) USING INVERTED PROPERTIES("field_pattern"="ab") COMMENT ''
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-        exception("column: var cannot have multiple inverted indexes of the same type with field pattern: ab")
+        exception("invalid INVERTED index")
     }
 
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -279,7 +279,7 @@ suite("test_predefine_ddl", "p0") {
             INDEX idx_ab_2 (var) USING INVERTED PROPERTIES("field_pattern"="ab") COMMENT ''
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-        exception("column: var cannot have multiple inverted indexes of the same type with field pattern: ab")
+        exception("invalid INVERTED index")
     }
 
     test {

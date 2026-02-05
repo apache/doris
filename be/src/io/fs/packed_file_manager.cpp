@@ -121,7 +121,7 @@ Status append_packed_info_trailer(FileWriter* writer, const std::string& packed_
 
 // write small file data to file cache
 void do_write_to_file_cache(const std::string& small_file_path, const std::string& data,
-                            int64_t tablet_id) {
+                            int64_t tablet_id, uint64_t expiration_time) {
     if (data.empty()) {
         return;
     }
@@ -132,7 +132,8 @@ void do_write_to_file_cache(const std::string& small_file_path, const std::strin
 
     VLOG_DEBUG << "packed_file_cache_write: path=" << small_file_path
                << " filename=" << path.filename().native() << " hash=" << cache_hash.to_string()
-               << " size=" << data.size() << " tablet_id=" << tablet_id;
+               << " size=" << data.size() << " tablet_id=" << tablet_id
+               << " expiration_time=" << expiration_time;
 
     BlockFileCache* file_cache = FileCacheFactory::instance()->get_by_path(cache_hash);
     if (file_cache == nullptr) {
@@ -141,7 +142,8 @@ void do_write_to_file_cache(const std::string& small_file_path, const std::strin
 
     // Allocate cache blocks
     CacheContext ctx;
-    ctx.cache_type = FileCacheType::NORMAL;
+    ctx.cache_type = expiration_time > 0 ? FileCacheType::TTL : FileCacheType::NORMAL;
+    ctx.expiration_time = expiration_time;
     ctx.tablet_id = tablet_id;
     ReadStatistics stats;
     ctx.stats = &stats;
@@ -179,7 +181,7 @@ void do_write_to_file_cache(const std::string& small_file_path, const std::strin
 // the async task execution. The original Slice may reference a buffer that gets
 // reused or freed before the async task runs.
 void write_small_file_to_cache_async(const std::string& small_file_path, const Slice& data,
-                                     int64_t tablet_id) {
+                                     int64_t tablet_id, uint64_t expiration_time) {
     if (!config::enable_file_cache || data.size == 0) {
         return;
     }
@@ -192,7 +194,7 @@ void write_small_file_to_cache_async(const std::string& small_file_path, const S
     auto* thread_pool = ExecEnv::GetInstance()->s3_file_upload_thread_pool();
     if (thread_pool == nullptr) {
         // Fallback to sync write if thread pool not available
-        do_write_to_file_cache(small_file_path, data_copy, tablet_id);
+        do_write_to_file_cache(small_file_path, data_copy, tablet_id, expiration_time);
         return;
     }
 
@@ -200,13 +202,13 @@ void write_small_file_to_cache_async(const std::string& small_file_path, const S
     g_packed_file_cache_async_write_count << 1;
     g_packed_file_cache_async_write_bytes << static_cast<int64_t>(data_size);
 
-    Status st = thread_pool->submit_func(
-            [path = small_file_path, data = std::move(data_copy), tablet_id, data_size]() {
-                do_write_to_file_cache(path, data, tablet_id);
-                // Decrement async write count after completion
-                g_packed_file_cache_async_write_count << -1;
-                g_packed_file_cache_async_write_bytes << -static_cast<int64_t>(data_size);
-            });
+    Status st = thread_pool->submit_func([path = small_file_path, data = std::move(data_copy),
+                                          tablet_id, data_size, expiration_time]() {
+        do_write_to_file_cache(path, data, tablet_id, expiration_time);
+        // Decrement async write count after completion
+        g_packed_file_cache_async_write_count << -1;
+        g_packed_file_cache_async_write_bytes << -static_cast<int64_t>(data_size);
+    });
 
     if (!st.ok()) {
         // Revert metrics since task was not submitted
@@ -369,7 +371,7 @@ Status PackedFileManager::append_small_file(const std::string& path, const Slice
     // Async write data to file cache using small file path as cache key.
     // This ensures cache key matches the cleanup key in Rowset::clear_cache(),
     // allowing proper cache cleanup when stale rowsets are removed.
-    write_small_file_to_cache_async(path, data, info.tablet_id);
+    write_small_file_to_cache_async(path, data, info.tablet_id, info.expiration_time);
 
     // Update index
     PackedSliceLocation location;

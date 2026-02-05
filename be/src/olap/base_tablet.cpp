@@ -1080,6 +1080,55 @@ Status BaseTablet::generate_new_block_for_partial_update(
     return Status::OK();
 }
 
+static void fill_cell_for_flexible_partial_update(
+        std::map<uint32_t, uint32_t>& read_index_old,
+        std::map<uint32_t, uint32_t>& read_index_update, const TabletSchemaSPtr& rowset_schema,
+        const PartialUpdateInfo* partial_update_info, const TabletColumn& tablet_column,
+        std::size_t idx, vectorized::MutableColumnPtr& new_col,
+        const vectorized::IColumn& default_value_col, const vectorized::IColumn& old_value_col,
+        const vectorized::IColumn& cur_col, bool skipped, bool row_has_sequence_col,
+        const signed char* delete_sign_column_data) {
+    if (skipped) {
+        bool use_default = false;
+        bool old_row_delete_sign =
+                (delete_sign_column_data != nullptr &&
+                 delete_sign_column_data[read_index_old[cast_set<uint32_t>(idx)]] != 0);
+        if (old_row_delete_sign) {
+            if (!rowset_schema->has_sequence_col()) {
+                use_default = true;
+            } else if (row_has_sequence_col || (!tablet_column.is_seqeunce_col() &&
+                                                (tablet_column.unique_id() !=
+                                                 partial_update_info->sequence_map_col_uid()))) {
+                // to keep the sequence column value not decreasing, we should read values of seq column(and seq map column)
+                // from old rows even if the old row is deleted when the input don't specify the sequence column, otherwise
+                // it may cause the merge-on-read based compaction to produce incorrect results
+                use_default = true;
+            }
+        }
+        if (use_default) {
+            if (tablet_column.has_default_value()) {
+                new_col->insert_from(default_value_col, 0);
+            } else if (tablet_column.is_nullable()) {
+                assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(new_col.get())
+                        ->insert_many_defaults(1);
+            } else if (tablet_column.is_auto_increment()) {
+                // For auto-increment column, its default value(generated value) is filled in current block in flush phase
+                // when the load doesn't specify the auto-increment column
+                //     - if the previous conflicting row is deleted, we should use the value in current block as its final value
+                //     - if the previous conflicting row is an insert, we should use the value in old block as its final value to
+                //       keep consistency between replicas
+                new_col->insert_from(cur_col, read_index_update[cast_set<uint32_t>(idx)]);
+            } else {
+                new_col->insert(tablet_column.get_vec_type()->get_default());
+            }
+        } else {
+            new_col->insert_from(old_value_col, read_index_old[cast_set<uint32_t>(idx)]);
+        }
+    } else {
+        new_col->insert_from(cur_col, read_index_update[cast_set<uint32_t>(idx)]);
+    }
+}
+
 Status BaseTablet::generate_new_block_for_flexible_partial_update(
         TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
         std::set<uint32_t>& rids_be_overwritten, const FixedReadPlan& read_plan_ori,
@@ -1155,57 +1204,6 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
         }
     }
 
-    auto fill_one_cell = [&read_index_old, &read_index_update, &rowset_schema, partial_update_info](
-                                 const TabletColumn& tablet_column, std::size_t idx,
-                                 vectorized::MutableColumnPtr& new_col,
-                                 const vectorized::IColumn& default_value_col,
-                                 const vectorized::IColumn& old_value_col,
-                                 const vectorized::IColumn& cur_col, bool skipped,
-                                 bool row_has_sequence_col,
-                                 const signed char* delete_sign_column_data) {
-        if (skipped) {
-            bool use_default = false;
-            bool old_row_delete_sign =
-                    (delete_sign_column_data != nullptr &&
-                     delete_sign_column_data[read_index_old[cast_set<uint32_t>(idx)]] != 0);
-            if (old_row_delete_sign) {
-                if (!rowset_schema->has_sequence_col()) {
-                    use_default = true;
-                } else if (row_has_sequence_col ||
-                           (!tablet_column.is_seqeunce_col() &&
-                            (tablet_column.unique_id() !=
-                             partial_update_info->sequence_map_col_uid()))) {
-                    // to keep the sequence column value not decreasing, we should read values of seq column(and seq map column)
-                    // from old rows even if the old row is deleted when the input don't specify the sequence column, otherwise
-                    // it may cause the merge-on-read based compaction to produce incorrect results
-                    use_default = true;
-                }
-            }
-            if (use_default) {
-                if (tablet_column.has_default_value()) {
-                    new_col->insert_from(default_value_col, 0);
-                } else if (tablet_column.is_nullable()) {
-                    assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
-                            new_col.get())
-                            ->insert_many_defaults(1);
-                } else if (tablet_column.is_auto_increment()) {
-                    // For auto-increment column, its default value(generated value) is filled in current block in flush phase
-                    // when the load doesn't specify the auto-increment column
-                    //     - if the previous conflicting row is deleted, we should use the value in current block as its final value
-                    //     - if the previous conflicting row is an insert, we should use the value in old block as its final value to
-                    //       keep consistency between replicas
-                    new_col->insert_from(cur_col, read_index_update[cast_set<uint32_t>(idx)]);
-                } else {
-                    new_col->insert(tablet_column.get_vec_type()->get_default());
-                }
-            } else {
-                new_col->insert_from(old_value_col, read_index_old[cast_set<uint32_t>(idx)]);
-            }
-        } else {
-            new_col->insert_from(cur_col, read_index_update[cast_set<uint32_t>(idx)]);
-        }
-    };
-
     for (std::size_t cid {0}; cid < rowset_schema->num_columns(); cid++) {
         vectorized::MutableColumnPtr& new_col = full_mutable_columns[cid];
         const vectorized::IColumn& cur_col = *update_block.get_by_position(cid).column;
@@ -1223,12 +1221,14 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
                 if (rids_be_overwritten.contains(idx)) {
                     new_col->insert_from(old_value_col, read_index_old[idx]);
                 } else {
-                    fill_one_cell(rs_column, idx, new_col, default_value_col, old_value_col,
-                                  cur_col, skip_bitmaps->at(idx).contains(col_uid),
-                                  rowset_schema->has_sequence_col()
-                                          ? !skip_bitmaps->at(idx).contains(seq_col_unique_id)
-                                          : false,
-                                  old_block_delete_signs);
+                    fill_cell_for_flexible_partial_update(
+                            read_index_old, read_index_update, rowset_schema, partial_update_info,
+                            rs_column, idx, new_col, default_value_col, old_value_col, cur_col,
+                            skip_bitmaps->at(idx).contains(col_uid),
+                            rowset_schema->has_sequence_col()
+                                    ? !skip_bitmaps->at(idx).contains(seq_col_unique_id)
+                                    : false,
+                            old_block_delete_signs);
                 }
             }
         }

@@ -438,7 +438,11 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<Slot> generatorOutput = generate.getGeneratorOutput().stream()
                 .map(o -> (Slot) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalGenerate<>(generators, generatorOutput, generate.getExpandColumnAlias(), child);
+        List<Expression> conjuncts = generate.getConjuncts().stream()
+                .map(p -> ExpressionDeepCopier.INSTANCE.deepCopy(p, context))
+                .collect(ImmutableList.toImmutableList());
+        return new LogicalGenerate<>(generators, generatorOutput, generate.getExpandColumnAlias(),
+                conjuncts, child);
     }
 
     @Override

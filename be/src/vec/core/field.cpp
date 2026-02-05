@@ -647,6 +647,32 @@ std::string Field::get_type_name() const {
     return type_to_string(type);
 }
 
+template <PrimitiveType T>
+typename PrimitiveTypeTraits<T>::CppType& Field::get() {
+    DCHECK(T == type || (is_string_type(type) && is_string_type(T)) || type == TYPE_NULL)
+            << "Type mismatch: requested " << type_to_string(T) << ", actual " << get_type_name();
+    auto* MAY_ALIAS ptr = reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(&storage);
+    return *ptr;
+}
+
+template <PrimitiveType T>
+const typename PrimitiveTypeTraits<T>::CppType& Field::get() const {
+    DCHECK(T == type || (is_string_type(type) && is_string_type(T)) || type == TYPE_NULL)
+            << "Type mismatch: requested " << type_to_string(T) << ", actual " << get_type_name();
+    const auto* MAY_ALIAS ptr =
+            reinterpret_cast<const typename PrimitiveTypeTraits<T>::CppType*>(&storage);
+    return *ptr;
+}
+
+template <PrimitiveType T>
+void Field::destroy() {
+    using TargetType = typename PrimitiveTypeTraits<T>::CppType;
+    DCHECK(T == type || ((is_string_type(type) && is_string_type(T))))
+            << "Type mismatch: requested " << type_to_string(T) << ", actual " << get_type_name();
+    auto* MAY_ALIAS ptr = reinterpret_cast<TargetType*>(&storage);
+    ptr->~TargetType();
+}
+
 std::strong_ordering Field::operator<=>(const Field& rhs) const {
     if (type == PrimitiveType::TYPE_NULL || rhs == PrimitiveType::TYPE_NULL) {
         return type <=> rhs.type;
@@ -947,6 +973,49 @@ std::string_view Field::as_string_view() const {
             typename PrimitiveTypeTraits<TYPE_UINT64>::CppType && rhs);
 DECLARE_FUNCTION(create_concrete)
 DECLARE_FUNCTION(assign_concrete)
+#undef DECLARE_FUNCTION
 
+#define DECLARE_FUNCTION(TYPE_NAME)                                                          \
+    template typename PrimitiveTypeTraits<TYPE_NAME>::CppType& Field::get<TYPE_NAME>();      \
+    template const typename PrimitiveTypeTraits<TYPE_NAME>::CppType& Field::get<TYPE_NAME>() \
+            const;                                                                           \
+    template void Field::destroy<TYPE_NAME>();
+DECLARE_FUNCTION(TYPE_NULL)
+DECLARE_FUNCTION(TYPE_TINYINT)
+DECLARE_FUNCTION(TYPE_SMALLINT)
+DECLARE_FUNCTION(TYPE_INT)
+DECLARE_FUNCTION(TYPE_BIGINT)
+DECLARE_FUNCTION(TYPE_LARGEINT)
+DECLARE_FUNCTION(TYPE_DATE)
+DECLARE_FUNCTION(TYPE_DATETIME)
+DECLARE_FUNCTION(TYPE_DATEV2)
+DECLARE_FUNCTION(TYPE_DATETIMEV2)
+DECLARE_FUNCTION(TYPE_TIMESTAMPTZ)
+DECLARE_FUNCTION(TYPE_DECIMAL32)
+DECLARE_FUNCTION(TYPE_DECIMAL64)
+DECLARE_FUNCTION(TYPE_DECIMALV2)
+DECLARE_FUNCTION(TYPE_DECIMAL128I)
+DECLARE_FUNCTION(TYPE_DECIMAL256)
+DECLARE_FUNCTION(TYPE_CHAR)
+DECLARE_FUNCTION(TYPE_VARCHAR)
+DECLARE_FUNCTION(TYPE_STRING)
+DECLARE_FUNCTION(TYPE_VARBINARY)
+DECLARE_FUNCTION(TYPE_HLL)
+DECLARE_FUNCTION(TYPE_VARIANT)
+DECLARE_FUNCTION(TYPE_QUANTILE_STATE)
+DECLARE_FUNCTION(TYPE_ARRAY)
+DECLARE_FUNCTION(TYPE_TIME)
+DECLARE_FUNCTION(TYPE_IPV4)
+DECLARE_FUNCTION(TYPE_IPV6)
+DECLARE_FUNCTION(TYPE_BOOLEAN)
+DECLARE_FUNCTION(TYPE_FLOAT)
+DECLARE_FUNCTION(TYPE_DOUBLE)
+DECLARE_FUNCTION(TYPE_JSONB)
+DECLARE_FUNCTION(TYPE_STRUCT)
+DECLARE_FUNCTION(TYPE_MAP)
+DECLARE_FUNCTION(TYPE_BITMAP)
+DECLARE_FUNCTION(TYPE_TIMEV2)
+DECLARE_FUNCTION(TYPE_UINT32)
+DECLARE_FUNCTION(TYPE_UINT64)
 #undef DECLARE_FUNCTION
 } // namespace doris::vectorized

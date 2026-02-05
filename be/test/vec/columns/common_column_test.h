@@ -3706,6 +3706,86 @@ auto assert_column_vector_update_crc_hashes_callback = [](const MutableColumns& 
     test_func(false);
     test_func(true);
 };
+auto assert_column_vector_update_crc32c_batch_callback = [](const MutableColumnPtr& source_column,
+                                                            const std::string& res_file_path) {
+    // Create an empty column to verify `update_hashes` functionality
+    // check update_hashes with different hashes
+    auto test_func = [&](bool with_nullmap) {
+        std::vector<std::vector<std::string>> res;
+        size_t rows = source_column->size();
+        NullMap null_map(rows, 0);
+        const uint8_t* null_data = nullptr;
+        if (with_nullmap) {
+            null_data = null_map.data();
+            std::vector<size_t> null_positions {0, rows - 1, rows / 2};
+            for (const auto& pos : null_positions) {
+                null_map[pos] = 1;
+            }
+        }
+
+        std::vector<uint32_t> crc_hash_vals(source_column->size());
+        EXPECT_NO_FATAL_FAILURE(
+                source_column->update_crc32c_batch(crc_hash_vals.data(), null_data));
+        std::vector<std::string> data;
+        for (auto val : crc_hash_vals) {
+            data.push_back(std::to_string(val));
+        }
+        res.push_back(data);
+        std::string file_name = res_file_path.empty() ? "update_crc32c_batch" : res_file_path;
+        file_name += with_nullmap ? "_with_nullmap" : "";
+        check_or_generate_res_file(file_name, res);
+    };
+    test_func(false);
+    test_func(true);
+};
+auto assert_column_vector_update_crc32c_single_callback = [](const MutableColumnPtr& source_column,
+                                                             const std::string& res_file_path) {
+    // Create an empty column to verify `update_hashes` functionality
+    // check update_hashes with different hashes
+    auto test_func = [&](bool with_nullmap) {
+        std::vector<std::vector<std::string>> res;
+        size_t rows = source_column->size();
+        NullMap null_map(rows, 0);
+        const uint8_t* null_data = nullptr;
+        if (with_nullmap) {
+            null_data = null_map.data();
+            std::vector<size_t> null_positions {0, rows - 1, rows / 2};
+            for (const auto& pos : null_positions) {
+                null_map[pos] = 1;
+            }
+        }
+
+        {
+            uint32_t crc_hash_val = 0;
+            EXPECT_NO_FATAL_FAILURE(source_column->update_crc32c_single(0, source_column->size(),
+                                                                        crc_hash_val, null_data));
+            std::vector<std::string> data;
+            data.push_back(std::to_string(crc_hash_val));
+            res.push_back(data);
+        }
+        {
+            uint32_t crc_hash_val = 0;
+            EXPECT_NO_FATAL_FAILURE(source_column->update_crc32c_single(
+                    0, source_column->size() - 1, crc_hash_val, null_data));
+            std::vector<std::string> data;
+            data.push_back(std::to_string(crc_hash_val));
+            res.push_back(data);
+        }
+        if (source_column->size() > 1) {
+            uint32_t crc_hash_val = 0;
+            EXPECT_NO_FATAL_FAILURE(source_column->update_crc32c_single(
+                    1, source_column->size() / 2, crc_hash_val, null_data));
+            std::vector<std::string> data;
+            data.push_back(std::to_string(crc_hash_val));
+            res.push_back(data);
+        }
+        std::string file_name = res_file_path.empty() ? "update_crc32c_single" : res_file_path;
+        file_name += with_nullmap ? "_with_nullmap" : "";
+        check_or_generate_res_file(file_name, res);
+    };
+    test_func(false);
+    test_func(true);
+};
 auto assert_column_vector_update_siphashes_with_value_callback =
         [](const MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
            const std::string& res_file_path) {

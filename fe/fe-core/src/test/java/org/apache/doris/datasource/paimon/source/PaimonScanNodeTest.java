@@ -31,6 +31,7 @@ import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.stats.SimpleStats;
 import org.apache.paimon.table.source.DataSplit;
+import org.apache.paimon.table.source.RawFile;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -39,6 +40,7 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -379,6 +381,29 @@ public class PaimonScanNodeTest {
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("at least one valid parameter group must be specified"));
         }
+    }
+
+    @Test
+    public void testDetermineTargetFileSplitSizeHonorsMaxFileSplitNum() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        sv.setMaxFileSplitNum(100);
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), false, sv);
+
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Mockito.when(source.getFileFormatFromTableProperties()).thenReturn("parquet");
+        node.setSource(source);
+
+        RawFile rawFile = Mockito.mock(RawFile.class);
+        Mockito.when(rawFile.path()).thenReturn("file.parquet");
+        Mockito.when(rawFile.fileSize()).thenReturn(10_000L * 1024L * 1024L);
+
+        DataSplit dataSplit = Mockito.mock(DataSplit.class);
+        Mockito.when(dataSplit.convertToRawFiles()).thenReturn(Optional.of(Collections.singletonList(rawFile)));
+
+        Method method = PaimonScanNode.class.getDeclaredMethod("determineTargetFileSplitSize", List.class, boolean.class);
+        method.setAccessible(true);
+        long target = (long) method.invoke(node, Collections.singletonList(dataSplit), false);
+        Assert.assertEquals(100L * 1024L * 1024L, target);
     }
 
     private void mockJniReader(PaimonScanNode spyNode) {

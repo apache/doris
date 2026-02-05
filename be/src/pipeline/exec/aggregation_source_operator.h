@@ -114,6 +114,8 @@ public:
 
     size_t get_estimated_memory_size_for_merging(RuntimeState* state, size_t rows) const;
 
+    Status reset_hash_table(RuntimeState* state);
+
 private:
     friend class AggLocalState;
 

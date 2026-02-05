@@ -24,11 +24,13 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <vector>
 
 #include "common/object_pool.h"
 #include "pipeline/pipeline_task.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "util/runtime_profile.h"
+#include "vec/core/block.h"
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
@@ -46,11 +48,7 @@ public:
 
     Status close(RuntimeState* state) override { return Status::OK(); }
 
-    Status do_partitioning(RuntimeState* state, vectorized::Block* block, bool eos,
-                           bool* already_sent) const override {
-        if (already_sent) {
-            *already_sent = false;
-        }
+    Status do_partitioning(RuntimeState* state, vectorized::Block* block) const override {
         return Status::OK();
     }
 
@@ -59,7 +57,10 @@ public:
         return Status::OK();
     }
 
-    vectorized::ChannelField get_channel_ids() const override { return {}; }
+    const std::vector<HashValType>& get_channel_ids() const override { return _mocked_hash_vals; }
+
+private:
+    std::vector<HashValType> _mocked_hash_vals;
 };
 
 class MockExpr : public vectorized::VExpr {
