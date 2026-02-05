@@ -100,6 +100,9 @@ struct RowsetReaderContext {
     std::shared_ptr<segment_v2::AnnTopNRuntime> ann_topn_runtime;
 
     uint64_t condition_cache_digest = 0;
+
+    // When true, push down value predicates for MOR tables
+    bool enable_mor_value_predicate_pushdown = false;
 };
 
 } // namespace doris

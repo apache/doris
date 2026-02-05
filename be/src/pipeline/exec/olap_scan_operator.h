@@ -105,8 +105,6 @@ private:
 
     bool _storage_no_merge() override;
 
-    bool _should_push_down_mor_value_predicate() override;
-
     bool _push_down_topn(const vectorized::RuntimePredicate& predicate) override {
         if (!predicate.target_is_slot(_parent->node_id())) {
             return false;
