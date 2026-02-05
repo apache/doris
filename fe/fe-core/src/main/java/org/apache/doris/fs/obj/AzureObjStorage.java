@@ -363,8 +363,10 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             // Optimization: For deterministic paths (no wildcards like *, ?),
             // use getProperties requests instead of listing to avoid requiring list permission.
             // Controlled by config: s3_skip_list_for_deterministic_path
+            // Note: Skip when using path style (see S3ObjStorage for detailed explanation)
             String keyPattern = uri.getKey();
             if (Config.s3_skip_list_for_deterministic_path
+                    && !isUsePathStyle
                     && S3Util.isDeterministicPattern(keyPattern)) {
                 Status headStatus = globListByGetProperties(bucket, keyPattern, result, fileNameOnly, startTime);
                 if (headStatus != null) {

@@ -590,8 +590,13 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             // use HEAD requests instead of listing to avoid requiring ListBucket permission.
             // This is useful when only GetObject permission is granted.
             // Controlled by config: s3_skip_list_for_deterministic_path
+            // Note: Skip when using path style because path-style parsing of virtual-host URLs
+            // can produce accidental HEAD successes where LIST would correctly fail.
+            // (e.g., http://bucket.endpoint/key with path_style=true: HEAD URL coincidentally
+            // matches the correct virtual-host URL, while LIST URL format is different and fails)
             String keyPattern = uri.getKey();
             if (Config.s3_skip_list_for_deterministic_path
+                    && !isUsePathStyle
                     && S3Util.isDeterministicPattern(keyPattern)
                     && !hasLimits && startFile == null) {
                 GlobListResult headResult = globListByHeadRequests(
