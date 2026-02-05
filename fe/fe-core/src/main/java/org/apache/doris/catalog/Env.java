@@ -1406,8 +1406,7 @@ public class Env {
                 getClusterIdFromStorage(storage);
                 token = storage.getToken();
                 try {
-                    String url = "http://" + NetUtils
-                            .getHostPortInAccessibleFormat(rightHelperNode.getHost(), Config.http_port) + "/check";
+                    String url = HttpURLUtil.buildInternalFeUrl(rightHelperNode.getHost(), "/check", null);
                     HttpURLConnection conn = HttpURLUtil.getConnectionWithNodeIdent(url);
                     conn.setConnectTimeout(2 * 1000);
                     conn.setReadTimeout(2 * 1000);
@@ -2147,8 +2146,7 @@ public class Env {
         localImageVersion = storage.getLatestImageSeq();
 
         try {
-            String hostPort = NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port);
-            String infoUrl = "http://" + hostPort + "/info";
+            String infoUrl = HttpURLUtil.buildInternalFeUrl(helperNode.getHost(), "/info", null);
             ResponseBody<StorageInfo> responseBody = MetaHelper
                     .doGet(infoUrl, HTTP_TIMEOUT_SECOND * 1000, StorageInfo.class);
             if (responseBody.getCode() != RestApiStatusCode.OK.code) {
@@ -2158,7 +2156,7 @@ public class Env {
             StorageInfo info = responseBody.getData();
             long version = info.getImageSeq();
             if (version > localImageVersion) {
-                String url = "http://" + hostPort + "/image?version=" + version;
+                String url = HttpURLUtil.buildInternalFeUrl(helperNode.getHost(), "/image", "version=" + version);
                 String filename = Storage.IMAGE + "." + version;
                 File dir = new File(this.imageDir);
                 MetaHelper.getRemoteFile(url, Config.sync_image_timeout_second * 1000,

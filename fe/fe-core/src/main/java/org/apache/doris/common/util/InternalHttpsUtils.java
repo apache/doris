@@ -19,6 +19,7 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.Config;
 
+import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
@@ -34,6 +35,17 @@ import javax.net.ssl.TrustManagerFactory;
 
 /**
  * SSL-aware HTTP clients for internal FE communication using MySQL SSL truststore.
+ *
+ * Security Model:
+ * - Validates certificates against configured CA truststore (mysql_ssl_default_ca_certificate)
+ * - Hostname verification is DISABLED to support IP-based FE communication
+ * - This is safe for internal cluster communication because:
+ *   1. All endpoints enforce checkFromValidFe() - only registered FE nodes can connect
+ *   2. FE cluster is assumed to be on trusted network
+ *   3. Traffic is encrypted and authenticated via certificate validation
+ *
+ * This approach is similar to other distributed systems (Kafka, Elasticsearch, Cassandra)
+ * where inter-node SSL communication disables hostname verification for operational flexibility.
  */
 public class InternalHttpsUtils {
     private static final Logger LOG = LogManager.getLogger(InternalHttpsUtils.class);
@@ -53,7 +65,9 @@ public class InternalHttpsUtils {
             SSLContext sslContext = SSLContext.getInstance("TLS");
             sslContext.init(null, tmf.getTrustManagers(), null);
 
-            SSLConnectionSocketFactory sslFactory = new SSLConnectionSocketFactory(sslContext);
+            SSLConnectionSocketFactory sslFactory = new SSLConnectionSocketFactory(
+                    sslContext,
+                    NoopHostnameVerifier.INSTANCE);
 
             return HttpClients.custom()
                     .setSSLSocketFactory(sslFactory)
@@ -81,6 +95,7 @@ public class InternalHttpsUtils {
             sslContext.init(null, tmf.getTrustManagers(), null);
 
             javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(sslContext.getSocketFactory());
+            javax.net.ssl.HttpsURLConnection.setDefaultHostnameVerifier((hostname, session) -> true);
         } catch (Exception e) {
             LOG.error("Failed to install trust manager for URLConnection using truststore: {}",
                     Config.mysql_ssl_default_ca_certificate, e);
