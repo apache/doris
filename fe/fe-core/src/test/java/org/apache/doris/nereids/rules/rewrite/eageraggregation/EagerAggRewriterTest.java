@@ -48,27 +48,63 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
     }
 
     @Test
-    void testNotPushAggToNullableSideOfOuterJoin() {
+    void testNotPushAggCaseWhenToNullableSideOfOuterJoin() {
         connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
         try {
-            // RIGHT JOIN: agg function references left side columns,
+            // RIGHT JOIN: agg function (case-when) references left side columns,
             // left side is nullable, should NOT be pushed below the join
-            String sql = "select max(t1.name) from t1 right join t2 on t1.id1 = t2.id2"
-                    + " group by t2.id2";
+            String sql = "select max(case when t1.name is not null then 'aaa' end) from t1 right join t2 on t1.id1 = t2.id2"
+                    + " group by t1.id1";
             PlanChecker.from(connectContext)
                     .analyze(sql)
                     .rewrite()
                     .nonMatch(logicalJoin(logicalAggregate(), any()))
                     .printlnTree();
 
-            // LEFT JOIN: agg function references right side columns,
+            // LEFT JOIN: agg function(case-when) references right side columns,
             // right side is nullable, should NOT be pushed below the join
-            sql = "select max(t2.name) from t1 left join t2"
+            sql = "select max(case when t2.name is null then 'xxx' end) from t1 left join t2"
                     + " on t1.id1 = t2.id2 group by t1.id1";
             PlanChecker.from(connectContext)
                     .analyze(sql)
                     .rewrite()
                     .nonMatch(logicalJoin(any(), logicalAggregate()))
+                    .printlnTree();
+            // RIGHT JOIN: agg function (not-case-when) references left side columns,
+            // left side is nullable, can be pushed below the join
+            sql = "select max(t2.name) from t1 left join t2"
+                    + " on t1.id1 = t2.id2 group by t1.id1";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .matches(logicalJoin(any(), logicalAggregate()))
+                    .printlnTree();
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+        }
+    }
+
+    @Test
+    void testPushDownCount() {
+        // Test count pushdown: count(a) should be pushed down and
+        // the top aggregation should use sum to aggregate the count results
+        // Before: agg(count(name), groupby(id2))
+        //            -> join(t1.id1=t2.id2)
+        //                 -> t1(id1, name)
+        //                 -> t2(id2)
+        // After:  agg(sum(x), groupby(id2))
+        //            -> join(t1.id1=t2.id2)
+        //                 -> agg(count(name) as x, groupby(id1))
+        //                      -> t1(id1, name)
+        //                 -> t2(id2)
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        try {
+            String sql = "select count(t1.name), t2.id2 from t1 join t2 on t1.id1 = t2.id2 group by t2.id2";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .matches(logicalAggregate(logicalProject(logicalJoin(logicalAggregate(), any()))))
                     .printlnTree();
         } finally {
             connectContext.getSessionVariable().setEagerAggregationMode(0);

@@ -104,12 +104,12 @@ suite("eager_agg") {
     group by dt.d_year
     """
 
-    // do not push avg/count aggFunc
-    qt_avg_count """
+    // do not push avg aggFunc
+    qt_avg """
     explain shape plan
-    select /*+leading({ss ws} dt)*/ dt.d_year 
-       ,avg(ws_list_price) 
-    from  date_dim dt 
+    select /*+leading({ss ws} dt)*/ dt.d_year
+       ,avg(ws_list_price)
+    from  date_dim dt
         ,store_sales ss
         ,web_sales ws
     where dt.d_date_sk = ss_sold_date_sk
@@ -117,10 +117,134 @@ suite("eager_agg") {
     group by dt.d_year
     """
 
-    qt_avg_count_exe """
-    select /*+leading({ss ws} dt)*/ dt.d_year 
-       ,avg(ws_list_price) 
-    from  date_dim dt 
+    qt_avg_exe """
+    select /*+leading({ss ws} dt)*/ dt.d_year
+       ,avg(ws_list_price)
+    from  date_dim dt
+        ,store_sales ss
+        ,web_sales ws
+    where dt.d_date_sk = ss_sold_date_sk
+    and ss_item_sk = ws_item_sk
+    group by dt.d_year
+    """
+
+    // push count(column) - count should be pushed down and converted to sum at top level
+    qt_count_column """
+    explain shape plan
+    select /*+leading({ss ws} dt)*/ dt.d_year
+       ,count(ws_list_price) cnt
+    from  date_dim dt
+        ,store_sales ss
+        ,web_sales ws
+    where dt.d_date_sk = ss_sold_date_sk
+    and ss_item_sk = ws_item_sk
+    group by dt.d_year
+    """
+
+    order_qt_count_column_exe """
+    select /*+leading({ss ws} dt)*/ dt.d_year
+       ,count(ws_list_price) cnt
+    from  date_dim dt
+        ,store_sales ss
+        ,web_sales ws
+    where dt.d_date_sk = ss_sold_date_sk
+    and ss_item_sk = ws_item_sk
+    group by dt.d_year
+    """
+
+    // push count(*) - count(*) should be pushed down and converted to sum at top level
+    qt_count_star """
+    explain shape plan
+    select /*+leading({ss ws} dt)*/ dt.d_year
+       ,count(*) cnt
+    from  date_dim dt
+        ,store_sales ss
+        ,web_sales ws
+    where dt.d_date_sk = ss_sold_date_sk
+    and ss_item_sk = ws_item_sk
+    group by dt.d_year
+    """
+
+    qt_count_star_exe """
+    select /*+leading({ss ws} dt)*/ dt.d_year
+       ,count(*) cnt
+    from  date_dim dt
+        ,store_sales ss
+        ,web_sales ws
+    where dt.d_date_sk = ss_sold_date_sk
+    and ss_item_sk = ws_item_sk
+    group by dt.d_year
+    """
+
+    // do not push count(distinct column) - distinct aggregation should not be pushed
+    qt_count_distinct """
+    explain shape plan
+    select /*+leading({ss ws} dt)*/ dt.d_year
+       ,count(distinct ws_list_price) cnt
+    from  date_dim dt
+        ,store_sales ss
+        ,web_sales ws
+    where dt.d_date_sk = ss_sold_date_sk
+    and ss_item_sk = ws_item_sk
+    group by dt.d_year
+    """
+
+    order_qt_count_distinct_exe """
+    select /*+leading({ss ws} dt)*/ dt.d_year
+       ,count(distinct ws_list_price) cnt
+    from  date_dim dt
+        ,store_sales ss
+        ,web_sales ws
+    where dt.d_date_sk = ss_sold_date_sk
+    and ss_item_sk = ws_item_sk
+    group by dt.d_year
+    """
+
+    // push count with sum - mixed aggregation
+    qt_count_sum_mixed """
+    explain shape plan
+    select /*+leading({ss ws} dt)*/ dt.d_year
+       ,count(ws_list_price) cnt
+       ,sum(ss_sales_price) sum_agg
+    from  date_dim dt
+        ,store_sales ss
+        ,web_sales ws
+    where dt.d_date_sk = ss_sold_date_sk
+    and ss_item_sk = ws_item_sk
+    group by dt.d_year
+    """
+
+    qt_count_sum_mixed_exe """
+    select /*+leading({ss ws} dt)*/ dt.d_year
+       ,count(ws_list_price) cnt
+       ,sum(ss_sales_price) sum_agg
+    from  date_dim dt
+        ,store_sales ss
+        ,web_sales ws
+    where dt.d_date_sk = ss_sold_date_sk
+    and ss_item_sk = ws_item_sk
+    group by dt.d_year
+    """
+
+    // push count(*) with sum - both should be pushed down
+    qt_count_star_sum_mixed """
+    explain shape plan
+    select /*+leading({ss ws} dt)*/ dt.d_year
+       ,count(*) cnt
+       ,sum(ss_sales_price) sum_agg
+    from  date_dim dt
+        ,store_sales ss
+        ,web_sales ws
+    where dt.d_date_sk = ss_sold_date_sk
+    and ss_item_sk = ws_item_sk
+    group by dt.d_year
+    """
+
+    order_qt_count_star_sum_mixed_exe """
+    select /*+leading({ss ws} dt)*/ dt.d_year
+       ,count(*) cnt
+       ,sum(ss_sales_price) sum_agg
+    from  date_dim dt
         ,store_sales ss
         ,web_sales ws
     where dt.d_date_sk = ss_sold_date_sk
@@ -142,7 +266,7 @@ suite("eager_agg") {
     group by dt.d_year, ss_hdemo_sk + ws_quantity
     """
 
-    qt_groupkey_push_SS_JOIN_D_exe """
+    order_qt_groupkey_push_SS_JOIN_D_exe """
     select /*+leading({ss dt} ws)*/  dt.d_year 
         ,sum(ss_wholesale_cost) brand
         ,sum(ss_sales_price + d_moy) sum_agg
@@ -168,7 +292,7 @@ suite("eager_agg") {
     group by dt.d_year, ss_hdemo_sk + d_moy
     """
 
-    qt_groupkey_push_exe """
+    order_qt_groupkey_push_exe """
     select /*+leading({ss dt} ws)*/  dt.d_year 
         ,sum(ss_wholesale_cost) brand
         ,sum(ss_sales_price) sum_agg
@@ -194,7 +318,7 @@ suite("eager_agg") {
         group by d_week_seq, ws_item_sk;
         """
 
-    qt_sum_if_push_exe """
+    order_qt_sum_if_push_exe """
         select /*+leading({web_sales item} date_dim)*/ d_week_seq,
                 sum(case when (d_day_name='Monday') then ws_sales_price else null end) mon_sales,
                 sum(case when (d_day_name='Tuesday') then ws_sales_price else  null end) tue_sales,
@@ -253,7 +377,7 @@ suite("eager_agg") {
     having brand is null;
     """
 
-    qt_min_sum_same_slot_exe """
+    order_qt_min_sum_same_slot_exe """
     select /*+leading({ss dt} ws)*/  dt.d_moy 
         ,min(d_year) brand
         ,sum(d_year) sum_agg 
@@ -266,7 +390,7 @@ suite("eager_agg") {
     having brand is null;
     """
 
-    qt_sum_min_same_slot_exe """
+    order_qt_sum_min_same_slot_exe """
     select /*+leading({ss dt} ws)*/  dt.d_moy 
         ,sum(d_year) sum_agg 
         ,min(d_year) brand  

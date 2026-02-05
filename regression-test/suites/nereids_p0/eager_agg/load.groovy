@@ -172,34 +172,69 @@ PROPERTIES (
 "replication_allocation" = "tag.location.default: 1"
 );
 
+-- Insert store_sales data
+-- Join conditions: dt.d_date_sk = ss_sold_date_sk AND ss_item_sk = ws_item_sk
 INSERT INTO store_sales (
   ss_sold_date_sk, ss_sold_time_sk, ss_item_sk, ss_customer_sk, ss_cdemo_sk, ss_hdemo_sk,
   ss_addr_sk, ss_store_sk, ss_promo_sk, ss_ticket_number, ss_quantity,
   ss_wholesale_cost, ss_list_price, ss_sales_price, ss_ext_discount_amt,
   ss_ext_sales_price, ss_ext_wholesale_cost, ss_ext_list_price, ss_ext_tax,
   ss_coupon_amt, ss_net_paid, ss_net_paid_inc_tax, ss_net_profit
-) VALUES (
-  20240101, 36000, 1001, 501, 601, 701,
-  801, 901, 10001, 55500001, 2,
-  10.00, 12.00, 11.00, 2.00,
-  22.00, 20.00, 24.00, 1.54,
-  0.00, 22.00, 23.54, 3.54
-);
+) VALUES
+  -- Row 1: d_year=2024, item_sk=1001
+  (1, 36000, 1001, 501, 601, 701,
+   801, 901, 10001, 55500001, 2,
+   10.00, 12.00, 11.00, 2.00,
+   22.00, 20.00, 24.00, 1.54,
+   0.00, 22.00, 23.54, 3.54),
+  -- Row 2: d_year=2024, item_sk=1001
+  (1, 36001, 1001, 502, 602, 702,
+   802, 902, 10002, 55500002, 3,
+   15.00, 18.00, 16.00, 3.00,
+   48.00, 45.00, 54.00, 3.36,
+   0.00, 48.00, 51.36, 6.36),
+  -- Row 3: d_year=2025, item_sk=1002
+  (2, 36002, 1002, 503, 603, 703,
+   803, 903, 10003, 55500003, 5,
+   20.00, 25.00, 22.00, 5.00,
+   110.00, 100.00, 125.00, 7.70,
+   0.00, 110.00, 117.70, 17.70),
+  -- Row 4: d_year=2025, item_sk=1002
+  (2, 36003, 1002, 504, 604, 704,
+   804, 904, 10004, 55500004, 4,
+   18.00, 22.00, 20.00, 4.00,
+   80.00, 72.00, 88.00, 5.60,
+   0.00, 80.00, 85.60, 13.60);
 
+-- Insert date_dim data with different d_year and d_day_name values
 INSERT INTO date_dim (
   d_date_sk, d_date_id, d_date, d_month_seq, d_week_seq, d_quarter_seq, d_year,
   d_dow, d_moy, d_dom, d_qoy, d_fy_year, d_fy_quarter_seq, d_fy_week_seq,
   d_day_name, d_quarter_name, d_holiday, d_weekend, d_following_holiday,
   d_first_dom, d_last_dom, d_same_day_ly, d_same_day_lq,
   d_current_day, d_current_week, d_current_month, d_current_quarter, d_current_year
-) VALUES (
-  20240101, '2024-01-01', '2024-01-01', 1, 1, 1, 2024,
-  1, 1, 1, 1, 2024, 1, 1,
-  'MON', 'Q1', 'N', 'N', 'N',
-  1, 31, 20230101, 20231001,
-  'Y', 'Y', 'Y', 'Y', 'Y'
-);
+) VALUES
+  -- d_date_sk=1, d_year=2024, Monday
+  (1, '2024-01-01', '2024-01-01', 1, 1, 1, 2024,
+   1, 1, 1, 1, 2024, 1, 1,
+   'Monday', 'Q1', 'N', 'N', 'N',
+   1, 31, 20230101, 20231001,
+   'Y', 'Y', 'Y', 'Y', 'Y'),
+  -- d_date_sk=2, d_year=2025, Tuesday
+  (2, '2025-01-07', '2025-01-07', 13, 2, 5, 2025,
+   2, 1, 7, 1, 2025, 5, 2,
+   'Tuesday', 'Q1', 'N', 'N', 'N',
+   1, 31, 20240107, 20241007,
+   'Y', 'Y', 'Y', 'Y', 'Y'),
+  -- d_date_sk=3, d_year=2024, Wednesday
+  (3, '2024-01-03', '2024-01-03', 1, 1, 1, 2024,
+   3, 1, 3, 1, 2024, 1, 1,
+   'Wednesday', 'Q1', 'N', 'N', 'N',
+   1, 31, 20230103, 20231003,
+   'Y', 'Y', 'Y', 'Y', 'Y');
 
+-- Insert web_sales data
+-- Join conditions: ss_item_sk = ws_item_sk AND d_date_sk = ws_sold_date_sk
 INSERT INTO web_sales (
   ws_sold_date_sk, ws_sold_time_sk, ws_ship_date_sk, ws_item_sk,
   ws_bill_customer_sk, ws_bill_cdemo_sk, ws_bill_hdemo_sk, ws_bill_addr_sk,
@@ -209,17 +244,36 @@ INSERT INTO web_sales (
   ws_ext_discount_amt, ws_ext_sales_price, ws_ext_wholesale_cost, ws_ext_list_price,
   ws_ext_tax, ws_coupon_amt, ws_ext_ship_cost, ws_net_paid, ws_net_paid_inc_tax,
   ws_net_paid_inc_ship, ws_net_paid_inc_ship_tax, ws_net_profit
-) VALUES (
-  20240101, 43200, 20240103, 2001,
-  601, 701, 801, 901,
-  602, 702, 802, 902,
-  3001, 4001, 5001, 6001, 7001,
-  8800001, 3, 15.00, 18.00, 16.50,
-  4.50, 49.50, 45.00, 54.00,
-  3.47, 0.00, 5.00, 49.50, 52.97,
-  54.50, 58.00, 7.97
-);
+) VALUES
+  -- Row 1: item_sk=1001 (matches store_sales), sold_date_sk=1
+  (1, 43200, 3, 1001,
+   601, 701, 801, 901,
+   602, 702, 802, 902,
+   3001, 4001, 5001, 6001, 7001,
+   8800001, 3, 15.00, 18.00, 16.50,
+   4.50, 49.50, 45.00, 54.00,
+   3.47, 0.00, 5.00, 49.50, 52.97,
+   54.50, 58.00, 7.97),
+  -- Row 2: item_sk=1001 (matches store_sales), sold_date_sk=1
+  (1, 43201, 3, 1001,
+   602, 702, 802, 902,
+   603, 703, 803, 903,
+   3002, 4002, 5002, 6002, 7002,
+   8800002, 2, 12.00, 15.00, 14.00,
+   2.00, 28.00, 24.00, 30.00,
+   1.96, 0.00, 3.00, 28.00, 29.96,
+   31.00, 33.00, 5.96),
+  -- Row 3: item_sk=1002 (matches store_sales row 3,4), sold_date_sk=2
+  (2, 43202, 4, 1002,
+   603, 703, 803, 903,
+   604, 704, 804, 904,
+   3003, 4003, 5003, 6003, 7003,
+   8800003, 4, 20.00, 25.00, 22.00,
+   6.00, 88.00, 80.00, 100.00,
+   6.16, 0.00, 8.00, 88.00, 94.16,
+   96.00, 102.00, 14.16);
 
+-- Insert item data
 INSERT INTO item (
   i_item_sk, i_item_id, i_rec_start_date, i_rec_end_date,
   i_item_desc, i_current_price, i_wholesale_cost,
@@ -234,12 +288,12 @@ INSERT INTO item (
    201, 'CategoryA', 301, 'ManufactA',
    'M', 'Std', 'Red', 'EA', 'BOX',
    1, 'Product 1001'),
-  (2001, 'ITEM-0002001', '2024-01-01', NULL,
-   'Sample item 2001', 18.00, 15.00,
-   11, 'BrandB', 102, 'ClassB',
-   202, 'CategoryB', 302, 'ManufactB',
-   'L', 'Std', 'Blue', 'EA', 'BOX',
-   2, 'Product 2001');
+  (1002, 'ITEM-0001002', '2024-01-01', NULL,
+   'Sample item 1002', 25.00, 20.00,
+   10, 'BrandA', 101, 'ClassA',
+   201, 'CategoryA', 301, 'ManufactA',
+   'L', 'Std', 'Green', 'EA', 'BOX',
+   1, 'Product 1002');
 """
 }
 
