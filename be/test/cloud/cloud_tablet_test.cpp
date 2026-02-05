@@ -684,24 +684,66 @@ public:
     void SetUp() override {
         config::enable_file_cache = true;
 
+        // Use incrementing tablet_id to create unique schema cache keys for each test
+        // This avoids cache pollution between tests
+        int64_t unique_tablet_id = 15673 + _test_counter++;
+
         // Create tablet meta with a schema that has disable_auto_compaction = false
         TTabletSchema tablet_schema;
         tablet_schema.__set_disable_auto_compaction(false);
+        // Add a unique column to ensure unique cache key
+        TColumn col;
+        col.__set_column_name("test_col_" + std::to_string(unique_tablet_id));
+        col.__set_column_type(TColumnType());
+        col.column_type.__set_type(TPrimitiveType::INT);
+        col.__set_is_key(true);
+        col.__set_aggregation_type(TAggregationType::NONE);
+        col.__set_col_unique_id(0);
+        tablet_schema.__set_columns({col});
+        tablet_schema.__set_keys_type(TKeysType::DUP_KEYS);
 
-        _tablet_meta = std::make_shared<TabletMeta>(
-                1, 2, 15673, 15674, 4, 5, tablet_schema, 6, {{7, 8}}, UniqueId(9, 10),
-                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+        // Use column ordinal 0 -> unique_id 0 mapping
+        _tablet_meta.reset(new TabletMeta(1, 2, unique_tablet_id, 15674, 4, 5, tablet_schema, 1,
+                                          {{0, 0}}, UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                          TCompressionType::LZ4F));
 
         _tablet =
                 std::make_shared<CloudTablet>(_engine, std::make_shared<TabletMeta>(*_tablet_meta));
+
+        _current_tablet_id = unique_tablet_id;
     }
 
     void TearDown() override { config::enable_file_cache = false; }
 
 protected:
+    // Helper to create a unique TabletMeta for mock responses
+    TabletMetaSharedPtr createMockTabletMeta(bool disable_auto_compaction,
+                                             const std::string& compaction_policy = "size_based") {
+        TTabletSchema new_schema;
+        new_schema.__set_disable_auto_compaction(disable_auto_compaction);
+        TColumn col;
+        col.__set_column_name("test_col_" + std::to_string(_current_tablet_id));
+        col.__set_column_type(TColumnType());
+        col.column_type.__set_type(TPrimitiveType::INT);
+        col.__set_is_key(true);
+        col.__set_aggregation_type(TAggregationType::NONE);
+        col.__set_col_unique_id(0);
+        new_schema.__set_columns({col});
+        new_schema.__set_keys_type(TKeysType::DUP_KEYS);
+
+        TabletMetaSharedPtr meta;
+        meta.reset(new TabletMeta(1, 2, _current_tablet_id, 15674, 4, 5, new_schema, 1, {{0, 0}},
+                                  UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                  TCompressionType::LZ4F, 0, false, std::nullopt,
+                                  compaction_policy));
+        return meta;
+    }
+
     TabletMetaSharedPtr _tablet_meta;
     std::shared_ptr<CloudTablet> _tablet;
     CloudStorageEngine _engine;
+    int64_t _current_tablet_id;
+    static inline int _test_counter = 0;
 };
 
 // Test sync_meta syncs disable_auto_compaction from false to true
@@ -713,16 +755,16 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionFalseToTrue) {
     sp->clear_all_call_backs();
     sp->enable_processing();
 
-    // Mock get_tablet_meta to return tablet_meta with disable_auto_compaction = true
-    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [this](auto&& args) {
-        auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+    // Create mock tablet meta with disable_auto_compaction = true
+    auto mock_tablet_meta = createMockTabletMeta(true);
 
-        // Create a new tablet meta with disable_auto_compaction = true
-        TTabletSchema new_schema;
-        new_schema.__set_disable_auto_compaction(true);
-        *tablet_meta_ptr = std::make_shared<TabletMeta>(
-                1, 2, 15673, 15674, 4, 5, new_schema, 6, {{7, 8}}, UniqueId(9, 10),
-                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+    // Mock get_tablet_meta to return tablet_meta with disable_auto_compaction = true
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [mock_tablet_meta](auto&& args) {
+        auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+        *tablet_meta_ptr = mock_tablet_meta;
+
+        // Tell the sync point to return with Status::OK()
+        try_any_cast_ret<Status>(args)->second = true;
     });
 
     // Call sync_meta
@@ -738,24 +780,59 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionFalseToTrue) {
 
 // Test sync_meta syncs disable_auto_compaction from true to false
 TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionTrueToFalse) {
-    // Set initial state: disable_auto_compaction = true
-    _tablet->tablet_meta()->mutable_tablet_schema()->set_disable_auto_compaction(true);
+    // Create a tablet with disable_auto_compaction = true from the start
+    // We need to create a fresh tablet with true to avoid cache pollution issues
+    TTabletSchema initial_schema;
+    initial_schema.__set_disable_auto_compaction(true);
+    TColumn col;
+    col.__set_column_name("test_col_true_to_false_" + std::to_string(_current_tablet_id));
+    col.__set_column_type(TColumnType());
+    col.column_type.__set_type(TPrimitiveType::INT);
+    col.__set_is_key(true);
+    col.__set_aggregation_type(TAggregationType::NONE);
+    col.__set_col_unique_id(0);
+    initial_schema.__set_columns({col});
+    initial_schema.__set_keys_type(TKeysType::DUP_KEYS);
+
+    TabletMetaSharedPtr tablet_meta_true;
+    tablet_meta_true.reset(new TabletMeta(1, 2, _current_tablet_id + 1000, 15674, 4, 5,
+                                          initial_schema, 1, {{0, 0}}, UniqueId(9, 10),
+                                          TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
+    _tablet =
+            std::make_shared<CloudTablet>(_engine, std::make_shared<TabletMeta>(*tablet_meta_true));
+
+    // Verify initial state: disable_auto_compaction = true
     EXPECT_TRUE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
 
     auto sp = SyncPoint::get_instance();
     sp->clear_all_call_backs();
     sp->enable_processing();
 
-    // Mock get_tablet_meta to return tablet_meta with disable_auto_compaction = false
-    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [this](auto&& args) {
-        auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+    // Create mock tablet meta with disable_auto_compaction = false (with matching column name)
+    TTabletSchema mock_schema;
+    mock_schema.__set_disable_auto_compaction(false);
+    TColumn mock_col;
+    mock_col.__set_column_name("test_col_true_to_false_" + std::to_string(_current_tablet_id));
+    mock_col.__set_column_type(TColumnType());
+    mock_col.column_type.__set_type(TPrimitiveType::INT);
+    mock_col.__set_is_key(true);
+    mock_col.__set_aggregation_type(TAggregationType::NONE);
+    mock_col.__set_col_unique_id(0);
+    mock_schema.__set_columns({mock_col});
+    mock_schema.__set_keys_type(TKeysType::DUP_KEYS);
 
-        // Create a new tablet meta with disable_auto_compaction = false
-        TTabletSchema new_schema;
-        new_schema.__set_disable_auto_compaction(false);
-        *tablet_meta_ptr = std::make_shared<TabletMeta>(
-                1, 2, 15673, 15674, 4, 5, new_schema, 6, {{7, 8}}, UniqueId(9, 10),
-                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+    TabletMetaSharedPtr mock_tablet_meta;
+    mock_tablet_meta.reset(new TabletMeta(1, 2, _current_tablet_id + 1000, 15674, 4, 5, mock_schema,
+                                          1, {{0, 0}}, UniqueId(9, 10),
+                                          TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
+
+    // Mock get_tablet_meta to return tablet_meta with disable_auto_compaction = false
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [mock_tablet_meta](auto&& args) {
+        auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+        *tablet_meta_ptr = mock_tablet_meta;
+
+        // Tell the sync point to return with Status::OK()
+        try_any_cast_ret<Status>(args)->second = true;
     });
 
     // Call sync_meta
@@ -778,15 +855,16 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionUnchanged) {
     sp->clear_all_call_backs();
     sp->enable_processing();
 
-    // Mock get_tablet_meta to return tablet_meta with same disable_auto_compaction = false
-    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [this](auto&& args) {
-        auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+    // Create mock tablet meta with disable_auto_compaction = false (same as current)
+    auto mock_tablet_meta = createMockTabletMeta(false);
 
-        TTabletSchema new_schema;
-        new_schema.__set_disable_auto_compaction(false);
-        *tablet_meta_ptr = std::make_shared<TabletMeta>(
-                1, 2, 15673, 15674, 4, 5, new_schema, 6, {{7, 8}}, UniqueId(9, 10),
-                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+    // Mock get_tablet_meta to return tablet_meta with same disable_auto_compaction = false
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [mock_tablet_meta](auto&& args) {
+        auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+        *tablet_meta_ptr = mock_tablet_meta;
+
+        // Tell the sync point to return with Status::OK()
+        try_any_cast_ret<Status>(args)->second = true;
     });
 
     // Call sync_meta
@@ -839,21 +917,16 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaMultipleProperties) {
     sp->clear_all_call_backs();
     sp->enable_processing();
 
-    // Mock get_tablet_meta to return tablet_meta with updated properties
-    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [this](auto&& args) {
-        auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+    // Create mock tablet meta with updated properties
+    auto mock_tablet_meta = createMockTabletMeta(true, "time_series");
 
-        TTabletSchema new_schema;
-        new_schema.__set_disable_auto_compaction(true);
-        // TabletMeta constructor: ..., storage_policy_id, enable_unique_key_merge_on_write,
-        //                         binlog_config, compaction_policy, ...
-        *tablet_meta_ptr = std::make_shared<TabletMeta>(
-                1, 2, 15673, 15674, 4, 5, new_schema, 6, {{7, 8}}, UniqueId(9, 10),
-                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F,
-                0,              // storage_policy_id
-                false,          // enable_unique_key_merge_on_write
-                std::nullopt,   // binlog_config
-                "time_series"); // compaction_policy
+    // Mock get_tablet_meta to return tablet_meta with updated properties
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [mock_tablet_meta](auto&& args) {
+        auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+        *tablet_meta_ptr = mock_tablet_meta;
+
+        // Tell the sync point to return with Status::OK()
+        try_any_cast_ret<Status>(args)->second = true;
     });
 
     // Call sync_meta
