@@ -2353,8 +2353,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // in pipeline engine, we use parallel scan by default, but it broke the rule of data distribution
         // we need turn of parallel scan to ensure to get correct result.
         // TODO: nereids forbid all parallel scan under PhysicalSetOperation temporary
-        if (!setOperation.getPhysicalProperties().equals(PhysicalProperties.ANY)
-                && findOlapScanNodesByPassExchangeNode(setOperationFragment.getPlanRoot())) {
+        if (findOlapScanNodesByPassExchangeNode(setOperationFragment.getPlanRoot())) {
             setOperationFragment.setHasColocatePlanNode(true);
             setOperationNode.setColocate(true);
         }
