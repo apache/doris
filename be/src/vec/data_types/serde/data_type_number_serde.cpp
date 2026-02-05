@@ -19,9 +19,14 @@
 
 #include <arrow/builder.h>
 
+#include <cstdint>
+
 #include "common/exception.h"
 #include "common/status.h"
+#include "olap/olap_common.h"
+#include "olap/types.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_writer.h"
@@ -743,6 +748,26 @@ Status DataTypeNumberSerDe<T>::from_string(StringRef& str, IColumn& column,
     }
     column_data.insert_value(val);
     return Status::OK();
+}
+
+template <PrimitiveType T>
+std::string DataTypeNumberSerDe<T>::to_olap_string(const vectorized::Field& field) const {
+    if constexpr (T == TYPE_BOOLEAN) {
+        char buf[8] = {'\0'};
+        snprintf(buf, sizeof(buf), "%d", field.get<T>());
+        return std::string(buf);
+    } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+                         T == TYPE_BIGINT || T == TYPE_FLOAT || T == TYPE_DOUBLE) {
+        return CastToString::from_number(field.get<T>());
+    } else if constexpr (T == TYPE_LARGEINT) {
+        auto value = field.get<T>();
+        fmt::memory_buffer buffer;
+        fmt::format_to(buffer, "{}", value);
+        return std::string(buffer.data(), buffer.size());
+    } else {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "to_olap_string not implemented for type: {}", type_to_string(T));
+    }
 }
 
 template <PrimitiveType T>
