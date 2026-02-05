@@ -165,12 +165,12 @@ public class LdapConfig extends ConfigBase {
     public static boolean ldap_use_ssl = false;
 
     /**
-     * The method constructs correct URL connection string for specified host and port depending on
-     * value of ldap_use_ssl property.
-     * If ldap_use_ssl property is true - LDAPS is used as protocol
-     * If ldap_use_ssl_property is false or not specified - LDAP is used as protocol
-     * @param hostPortInAccessibleFormat
-     * @return
+     * The method constructs the correct URL connection string for the specified host and port depending on
+     * the value of the {@code ldap_use_ssl} property.
+     * If {@code ldap_use_ssl} is true, LDAPS is used as the protocol.
+     * If {@code ldap_use_ssl} is false or not specified, LDAP is used as the protocol.
+     * @param hostPortInAccessibleFormat the host and port in accessible format (for example, "host:port")
+     * @return the LDAP or LDAPS connection URL string
      */
     public static String getConnectionURL(String hostPortInAccessibleFormat) {
         return ((LdapConfig.ldap_use_ssl ? "ldaps" : "ldap") + "://" + hostPortInAccessibleFormat);
