@@ -315,10 +315,9 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
         } else {
             SCOPED_RAW_TIMER(&context->stats->inverted_index_analyzer_timer);
             if (analyzer_ctx != nullptr && !analyzer_ctx->should_tokenize()) {
-                // Don't add empty string as token - empty query should match nothing
-                if (!search_str.empty()) {
-                    query_info.term_infos.emplace_back(search_str);
-                }
+                // Keyword index: all strings (including empty) are valid tokens for exact match.
+                // Empty string is a valid value in keyword index and should be matchable.
+                query_info.term_infos.emplace_back(search_str);
             } else if (analyzer_ctx != nullptr && analyzer_ctx->analyzer != nullptr) {
                 // Use analyzer from query context for consistent behavior across all segments.
                 // This ensures that the query uses the same analyzer settings (e.g., lowercase)
