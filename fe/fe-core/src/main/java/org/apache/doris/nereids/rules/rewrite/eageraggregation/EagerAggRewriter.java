@@ -504,7 +504,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         if (stats == null) {
             stats = plan.accept(derive, new StatsDerive.DeriveContext());
         }
-        if (stats.getRowCount() == 0) {
+        if (stats.getRowCount() <= 0) {
             return false;
         }
 
@@ -519,6 +519,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         for (NamedExpression key : context.getGroupKeys()) {
             ColumnStatistic colStats = ExpressionEstimation.INSTANCE.estimate(key, stats);
             if (colStats.isUnKnown) {
+                return false;
+            }
+            if (stats.getRowCount() * 0.9 <= colStats.ndv) {
                 return false;
             }
             groupKeysStats.add(colStats);
