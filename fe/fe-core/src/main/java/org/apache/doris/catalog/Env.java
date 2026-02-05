@@ -1503,9 +1503,8 @@ public class Env {
             try {
                 // For upgrade compatibility, the host parameter name remains the same
                 // and the new hostname parameter is added
-                String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port)
-                        + "/role?host=" + selfNode.getHost()
-                        + "&port=" + selfNode.getPort();
+                String queryParams = "host=" + selfNode.getHost() + "&port=" + selfNode.getPort();
+                String url = HttpURLUtil.buildInternalFeUrl(helperNode.getHost(), "/role", queryParams);
                 HttpURLConnection conn = HttpURLUtil.getConnectionWithNodeIdent(url);
                 if (conn.getResponseCode() != 200) {
                     LOG.warn("failed to get fe node type from helper node: {}. response code: {}", helperNode,
@@ -2129,8 +2128,7 @@ public class Env {
 
     protected boolean getVersionFileFromHelper(HostInfo helperNode) throws IOException {
         try {
-            String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port)
-                    + "/version";
+            String url = HttpURLUtil.buildInternalFeUrl(helperNode.getHost(), "/version", null);
             File dir = new File(this.imageDir);
             MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000,
                     MetaHelper.getFile(Storage.VERSION_FILE, dir));

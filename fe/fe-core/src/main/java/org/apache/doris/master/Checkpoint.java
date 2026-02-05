@@ -207,10 +207,10 @@ public class Checkpoint extends MasterDaemon {
                     // skip master itself
                     continue;
                 }
-                int port = Config.http_port;
+                int port = Config.enable_https ? Config.https_port : Config.http_port;
 
-                String url = "http://" + NetUtils.getHostPortInAccessibleFormat(host, port) + "/put?version=" + replayedJournalId
-                        + "&port=" + port;
+                String queryParams = "version=" + replayedJournalId + "&port=" + port;
+                String url = HttpURLUtil.buildInternalFeUrl(host, "/put", queryParams);
                 LOG.info("Put image:{}", url);
 
                 try {
@@ -264,7 +264,6 @@ public class Checkpoint extends MasterDaemon {
                             // skip master itself
                             continue;
                         }
-                        int port = Config.http_port;
                         String idURL;
                         HttpURLConnection conn = null;
                         try {
@@ -274,7 +273,7 @@ public class Checkpoint extends MasterDaemon {
                              * any non-master node's current replayed journal id. otherwise,
                              * this lagging node can never get the deleted journal.
                              */
-                            idURL = "http://" + NetUtils.getHostPortInAccessibleFormat(host, port) + "/journal_id";
+                            idURL = HttpURLUtil.buildInternalFeUrl(host, "/journal_id", null);
                             conn = HttpURLUtil.getConnectionWithNodeIdent(idURL);
                             conn.setConnectTimeout(CONNECT_TIMEOUT_SECOND * 1000);
                             conn.setReadTimeout(READ_TIMEOUT_SECOND * 1000);
@@ -284,6 +283,7 @@ public class Checkpoint extends MasterDaemon {
                                 minOtherNodesJournalId = id;
                             }
                         } catch (Throwable e) {
+                            int port = Config.enable_https ? Config.https_port : Config.http_port;
                             throw new CheckpointException(String.format("Exception when getting current replayed"
                                     + " journal id. host=%s, port=%d", host, port), e);
                         } finally {
