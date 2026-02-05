@@ -29,6 +29,7 @@ suite("test_variant_count_on_index_fault_injection", "p0, nonConcurrent") {
     sql "set experimental_enable_nereids_planner = true"
     sql "set enable_fallback_to_original_planner = false"
     sql "set inverted_index_skip_threshold = 0"
+    sql "set default_variant_enable_doc_mode = false"
 
     sql """
         CREATE TABLE ${tbl} (
