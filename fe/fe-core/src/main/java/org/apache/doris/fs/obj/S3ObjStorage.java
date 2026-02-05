@@ -586,7 +586,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
             bucket = uri.getBucket();
 
-            // Optimization: For deterministic paths (no wildcards like *, ?, [...]),
+            // Optimization: For deterministic paths (no wildcards like *, ?),
             // use HEAD requests instead of listing to avoid requiring ListBucket permission.
             // This is useful when only GetObject permission is granted.
             // Controlled by config: s3_skip_list_for_deterministic_path
@@ -728,7 +728,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
      * This avoids requiring ListBucket permission when only GetObject permission is granted.
      *
      * @param bucket       S3 bucket name
-     * @param keyPattern   The key pattern (may contain {..} brace patterns but no wildcards)
+     * @param keyPattern   The key pattern (may contain {..} brace or [...] bracket patterns but no wildcards)
      * @param result       List to store matching RemoteFile objects
      * @param fileNameOnly If true, only store file names; otherwise store full S3 paths
      * @param startTime    Start time for logging duration
@@ -737,8 +737,9 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     private GlobListResult globListByHeadRequests(String bucket, String keyPattern,
             List<RemoteFile> result, boolean fileNameOnly, long startTime) {
         try {
-            // First expand any {..} patterns, then use HEAD requests
-            String expandedPattern = S3Util.extendGlobs(keyPattern);
+            // First expand [...] brackets to {...} braces, then expand {..} ranges, then expand braces
+            String expandedPattern = S3Util.expandBracketPatterns(keyPattern);
+            expandedPattern = S3Util.extendGlobs(expandedPattern);
             List<String> expandedPaths = S3Util.expandBracePatterns(expandedPattern);
 
             // Fall back to listing if too many paths to avoid overwhelming S3 with HEAD requests

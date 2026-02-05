@@ -3462,11 +3462,13 @@ public class Config extends ConfigBase {
     public static String[] s3_load_endpoint_white_list = {};
 
     @ConfField(mutable = true, description = {
-            "对于确定性的 S3 路径（无通配符如 *, ?, [...]），使用 HEAD 请求代替 ListObjects 来避免需要 ListBucket 权限。"
+            "对于确定性的 S3 路径（无通配符如 *, ?），使用 HEAD 请求代替 ListObjects 来避免需要 ListBucket 权限。"
+            + "花括号模式 {1,2,3} 和非否定方括号模式 [abc] 会展开为具体路径。"
             + "这对于只有 GetObject 权限的场景很有用。如果遇到问题可以设置为 false 回退到原有行为。",
-            "For deterministic S3 paths (without wildcards like *, ?, [...]), use HEAD requests instead of "
-            + "ListObjects to avoid requiring ListBucket permission. This is useful when only GetObject "
-            + "permission is granted. Set to false to fall back to the original listing behavior if issues occur."
+            "For deterministic S3 paths (without wildcards like *, ?), use HEAD requests instead of "
+            + "ListObjects to avoid requiring ListBucket permission. Brace patterns {1,2,3} and "
+            + "non-negated bracket patterns [abc] are expanded to concrete paths. This is useful when only "
+            + "GetObject permission is granted. Set to false to fall back to the original listing behavior."
     })
     public static boolean s3_skip_list_for_deterministic_path = true;
 

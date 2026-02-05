@@ -282,9 +282,25 @@ public class S3UtilTest {
 
     @Test
     public void testIsDeterministicPattern_withBrackets() {
-        // Path with bracket pattern (not deterministic)
-        Assert.assertFalse(S3Util.isDeterministicPattern("path/to/file[0-9].csv"));
-        Assert.assertFalse(S3Util.isDeterministicPattern("path/to/file[abc].csv"));
+        // Non-negated bracket patterns are deterministic (can be expanded)
+        Assert.assertTrue(S3Util.isDeterministicPattern("path/to/file[0-9].csv"));
+        Assert.assertTrue(S3Util.isDeterministicPattern("path/to/file[abc].csv"));
+        Assert.assertTrue(S3Util.isDeterministicPattern("path/to/file[a-zA-Z].csv"));
+    }
+
+    @Test
+    public void testIsDeterministicPattern_withNegatedBrackets() {
+        // Negated bracket patterns are NOT deterministic
+        Assert.assertFalse(S3Util.isDeterministicPattern("path/to/file[!abc].csv"));
+        Assert.assertFalse(S3Util.isDeterministicPattern("path/to/file[^0-9].csv"));
+    }
+
+    @Test
+    public void testIsDeterministicPattern_withMalformedBrackets() {
+        // Malformed brackets (no closing ]) are NOT deterministic
+        Assert.assertFalse(S3Util.isDeterministicPattern("path/to/file[abc.csv"));
+        // Empty brackets [] are NOT deterministic
+        Assert.assertFalse(S3Util.isDeterministicPattern("path/to/file[].csv"));
     }
 
     @Test
@@ -355,6 +371,90 @@ public class S3UtilTest {
         String expanded = S3Util.extendGlobs("file{1..3}.csv");
         List<String> result = S3Util.expandBracePatterns(expanded);
         Assert.assertEquals(Arrays.asList("file1.csv", "file2.csv", "file3.csv"), result);
+    }
+
+    @Test
+    public void testExpandBracePatterns_malformedBrace() {
+        // Malformed brace pattern (no closing }) - treated as literal
+        List<String> result = S3Util.expandBracePatterns("file{1,2.csv");
+        Assert.assertEquals(Arrays.asList("file{1,2.csv"), result);
+    }
+
+    @Test
+    public void testExpandBracePatterns_malformedBraceWithDots() {
+        // Malformed range-like pattern (no closing }) - treated as literal
+        List<String> result = S3Util.expandBracePatterns("file{1..csv");
+        Assert.assertEquals(Arrays.asList("file{1..csv"), result);
+    }
+
+    // Tests for expandBracketPatterns
+
+    @Test
+    public void testExpandBracketPatterns_noBrackets() {
+        // No brackets - returns unchanged
+        Assert.assertEquals("path/to/file.csv", S3Util.expandBracketPatterns("path/to/file.csv"));
+    }
+
+    @Test
+    public void testExpandBracketPatterns_simpleCharList() {
+        // [abc] => {a,b,c}
+        Assert.assertEquals("file{a,b,c}.csv", S3Util.expandBracketPatterns("file[abc].csv"));
+    }
+
+    @Test
+    public void testExpandBracketPatterns_charRange() {
+        // [0-3] => {0,1,2,3}
+        Assert.assertEquals("file{0,1,2,3}.csv", S3Util.expandBracketPatterns("file[0-3].csv"));
+    }
+
+    @Test
+    public void testExpandBracketPatterns_mixedRangeAndChars() {
+        // [a-cX] => {a,b,c,X}
+        Assert.assertEquals("file{a,b,c,X}.csv", S3Util.expandBracketPatterns("file[a-cX].csv"));
+    }
+
+    @Test
+    public void testExpandBracketPatterns_multipleRanges() {
+        // [a-c0-2] => {a,b,c,0,1,2}
+        Assert.assertEquals("file{a,b,c,0,1,2}.csv", S3Util.expandBracketPatterns("file[a-c0-2].csv"));
+    }
+
+    @Test
+    public void testExpandBracketPatterns_fullPipeline() {
+        // Full pipeline: bracket expansion -> extendGlobs -> brace expansion
+        // file[abc].csv => file{a,b,c}.csv => [filea.csv, fileb.csv, filec.csv]
+        String bracketExpanded = S3Util.expandBracketPatterns("file[abc].csv");
+        String globExpanded = S3Util.extendGlobs(bracketExpanded);
+        List<String> result = S3Util.expandBracePatterns(globExpanded);
+        Assert.assertEquals(Arrays.asList("filea.csv", "fileb.csv", "filec.csv"), result);
+    }
+
+    @Test
+    public void testExpandBracketPatterns_withBracesAndBrackets() {
+        // Mixed brackets and braces: dir[ab]/file{1,2}.csv
+        // => dir{a,b}/file{1,2}.csv => [dira/file1.csv, dira/file2.csv, dirb/file1.csv, dirb/file2.csv]
+        String bracketExpanded = S3Util.expandBracketPatterns("dir[ab]/file{1,2}.csv");
+        Assert.assertEquals("dir{a,b}/file{1,2}.csv", bracketExpanded);
+        List<String> result = S3Util.expandBracePatterns(bracketExpanded);
+        Assert.assertEquals(Arrays.asList(
+                "dira/file1.csv", "dira/file2.csv",
+                "dirb/file1.csv", "dirb/file2.csv"), result);
+    }
+
+    @Test
+    public void testExpandBracketPatterns_digitRange() {
+        // [0-9] => {0,1,2,3,4,5,6,7,8,9}
+        String expanded = S3Util.expandBracketPatterns("part[0-9].dat");
+        List<String> result = S3Util.expandBracePatterns(expanded);
+        Assert.assertEquals(10, result.size());
+        Assert.assertTrue(result.contains("part0.dat"));
+        Assert.assertTrue(result.contains("part9.dat"));
+    }
+
+    @Test
+    public void testExpandBracketPatterns_malformedBracket() {
+        // Malformed bracket (no closing ]) - [ kept as literal
+        Assert.assertEquals("file[abc.csv", S3Util.expandBracketPatterns("file[abc.csv"));
     }
 }
 

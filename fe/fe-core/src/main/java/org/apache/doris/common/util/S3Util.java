@@ -436,18 +436,23 @@ public class S3Util {
 
     /**
      * Check if a path pattern is deterministic, meaning all file paths can be determined
-     * without listing. A pattern is deterministic if it contains no wildcard characters
-     * (*, ?, [...]) but may contain brace patterns ({...}) which can be expanded.
+     * without listing. A pattern is deterministic if it contains no true wildcard characters
+     * (*, ?) but may contain brace patterns ({...}) and non-negated bracket patterns ([abc], [0-9])
+     * which can be expanded to concrete paths.
+     *
+     * Negated bracket patterns ([!abc], [^abc]) are NOT deterministic because they match
+     * any character except those listed, requiring a listing to discover matches.
      *
      * This allows skipping S3 ListBucket operations when only GetObject permission is available.
      *
      * @param pathPattern Path that may contain glob patterns
-     * @return true if the pattern is deterministic (no wildcards)
+     * @return true if the pattern is deterministic (expandable without listing)
      */
     public static boolean isDeterministicPattern(String pathPattern) {
         // Check for wildcard characters that require listing
         // Note: '{' is NOT a wildcard - it's a brace expansion pattern that can be deterministically expanded
-        char[] wildcardChars = {'*', '?', '['};
+        // Note: '[' is conditionally deterministic - [abc] can be expanded, but [!abc]/[^abc] cannot
+        char[] wildcardChars = {'*', '?'};
         for (char c : wildcardChars) {
             if (pathPattern.indexOf(c) != -1) {
                 return false;
@@ -457,7 +462,125 @@ public class S3Util {
         if (pathPattern.indexOf('\\') != -1) {
             return false;
         }
+        // Check bracket patterns: [abc] and [0-9] are deterministic, [!abc] and [^abc] are not
+        if (!areBracketPatternsDeterministic(pathPattern)) {
+            return false;
+        }
         return true;
+    }
+
+    /**
+     * Check if all bracket patterns in the path are deterministic (non-negated).
+     * - [abc], [0-9], [a-zA-Z] are deterministic (can be expanded to finite character sets)
+     * - [!abc], [^abc] are non-deterministic (negation requires listing)
+     * - Malformed brackets (no closing ]) are non-deterministic
+     */
+    private static boolean areBracketPatternsDeterministic(String pattern) {
+        int i = 0;
+        while (i < pattern.length()) {
+            if (pattern.charAt(i) == '[') {
+                int end = pattern.indexOf(']', i + 1);
+                if (end == -1) {
+                    // Malformed bracket - no closing ], treat as non-deterministic
+                    return false;
+                }
+                int contentStart = i + 1;
+                if (contentStart == end) {
+                    // Empty brackets [] - malformed, treat as non-deterministic
+                    return false;
+                }
+                // Check for negation
+                char first = pattern.charAt(contentStart);
+                if (first == '!' || first == '^') {
+                    return false;
+                }
+                i = end + 1;
+            } else {
+                i++;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Expand bracket character class patterns to brace patterns.
+     * This converts [abc] to {a,b,c} and [0-9] to {0,1,2,...,9} so that
+     * the existing brace expansion can handle them.
+     *
+     * Only call this on patterns already verified as deterministic by isDeterministicPattern()
+     * (i.e., no negated brackets like [!...] or [^...]).
+     *
+     * Examples:
+     *   - "file[abc].csv" => "file{a,b,c}.csv"
+     *   - "file[0-9].csv" => "file{0,1,2,3,4,5,6,7,8,9}.csv"
+     *   - "file[a-cX].csv" => "file{a,b,c,X}.csv"
+     *   - "file.csv" => "file.csv" (no brackets)
+     *
+     * @param pathPattern Path with optional bracket patterns (must not contain negated brackets)
+     * @return Path with brackets converted to brace patterns
+     */
+    public static String expandBracketPatterns(String pathPattern) {
+        StringBuilder result = new StringBuilder();
+        int i = 0;
+        while (i < pathPattern.length()) {
+            if (pathPattern.charAt(i) == '[') {
+                int end = pathPattern.indexOf(']', i + 1);
+                if (end == -1) {
+                    // Malformed, keep as-is
+                    result.append(pathPattern.charAt(i));
+                    i++;
+                    continue;
+                }
+                String content = pathPattern.substring(i + 1, end);
+                List<Character> chars = expandBracketContent(content);
+                result.append('{');
+                for (int j = 0; j < chars.size(); j++) {
+                    if (j > 0) {
+                        result.append(',');
+                    }
+                    result.append(chars.get(j));
+                }
+                result.append('}');
+                i = end + 1;
+            } else {
+                result.append(pathPattern.charAt(i));
+                i++;
+            }
+        }
+        return result.toString();
+    }
+
+    private static List<Character> expandBracketContent(String content) {
+        List<Character> chars = new ArrayList<>();
+        int i = 0;
+        while (i < content.length()) {
+            if (i + 2 < content.length() && content.charAt(i + 1) == '-') {
+                // Range like a-z or 0-9
+                char start = content.charAt(i);
+                char end = content.charAt(i + 2);
+                if (start <= end) {
+                    for (char c = start; c <= end; c++) {
+                        if (!chars.contains(c)) {
+                            chars.add(c);
+                        }
+                    }
+                } else {
+                    for (char c = start; c >= end; c--) {
+                        if (!chars.contains(c)) {
+                            chars.add(c);
+                        }
+                    }
+                }
+                i += 3;
+            } else {
+                char c = content.charAt(i);
+                if (!chars.contains(c)) {
+                    chars.add(c);
+                }
+                i++;
+            }
+        }
+        return chars;
     }
 
     /**

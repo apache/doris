@@ -360,7 +360,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             String bucket = uri.getBucket();
 
-            // Optimization: For deterministic paths (no wildcards like *, ?, [...]),
+            // Optimization: For deterministic paths (no wildcards like *, ?),
             // use getProperties requests instead of listing to avoid requiring list permission.
             // Controlled by config: s3_skip_list_for_deterministic_path
             String keyPattern = uri.getKey();
@@ -456,7 +456,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
      * This avoids requiring list permission when only read permission is granted.
      *
      * @param bucket       Azure container name
-     * @param keyPattern   The key pattern (may contain {..} brace patterns but no wildcards)
+     * @param keyPattern   The key pattern (may contain {..} brace or [...] bracket patterns but no wildcards)
      * @param result       List to store matching RemoteFile objects
      * @param fileNameOnly If true, only store file names; otherwise store full paths
      * @param startTime    Start time for logging duration
@@ -465,8 +465,9 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     private Status globListByGetProperties(String bucket, String keyPattern,
             List<RemoteFile> result, boolean fileNameOnly, long startTime) {
         try {
-            // First expand any {..} patterns, then use getProperties requests
-            String expandedPattern = S3Util.extendGlobs(keyPattern);
+            // First expand [...] brackets to {...} braces, then expand {..} ranges, then expand braces
+            String expandedPattern = S3Util.expandBracketPatterns(keyPattern);
+            expandedPattern = S3Util.extendGlobs(expandedPattern);
             List<String> expandedPaths = S3Util.expandBracePatterns(expandedPattern);
 
             // Fall back to listing if too many paths to avoid overwhelming Azure with requests
