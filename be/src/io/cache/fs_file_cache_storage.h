@@ -88,6 +88,10 @@ public:
 
     FileCacheStorageType get_type() override { return DISK; }
 
+    bool handle_already_loaded_block(BlockFileCache* mgr, const UInt128Wrapper& hash, size_t offset,
+                                     size_t new_size, int64_t tablet_id,
+                                     std::lock_guard<std::mutex>& cache_lock) const;
+
 private:
     void remove_old_version_directories();
 
