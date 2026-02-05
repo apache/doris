@@ -652,6 +652,50 @@ static TxnErrorCode get_txn_info(TxnKv* txn_kv, std::string_view instance_id, in
     return TxnErrorCode::TXN_OK;
 }
 
+static void report_oplog_recycle_stats(const std::string& instance_id,
+                                       const OplogRecycleStats& stats) {
+    g_bvar_recycler_oplog_last_round_total_num.put({instance_id}, stats.total_num.load());
+    g_bvar_recycler_oplog_last_round_not_recycled_num.put({instance_id},
+                                                          stats.not_recycled_num.load());
+    if (stats.failed_num.load() > 0) {
+        g_bvar_recycler_oplog_recycle_failed_num.put({instance_id}, stats.failed_num.load());
+    }
+    // Per-type last round counts (mBvarStatus, overwritten each round)
+    g_bvar_recycler_oplog_last_round_recycled_commit_partition_num.put(
+            {instance_id}, stats.recycled_commit_partition.load());
+    g_bvar_recycler_oplog_last_round_recycled_drop_partition_num.put(
+            {instance_id}, stats.recycled_drop_partition.load());
+    g_bvar_recycler_oplog_last_round_recycled_commit_index_num.put(
+            {instance_id}, stats.recycled_commit_index.load());
+    g_bvar_recycler_oplog_last_round_recycled_drop_index_num.put({instance_id},
+                                                                 stats.recycled_drop_index.load());
+    g_bvar_recycler_oplog_last_round_recycled_update_tablet_num.put(
+            {instance_id}, stats.recycled_update_tablet.load());
+    g_bvar_recycler_oplog_last_round_recycled_compaction_num.put({instance_id},
+                                                                 stats.recycled_compaction.load());
+    g_bvar_recycler_oplog_last_round_recycled_schema_change_num.put(
+            {instance_id}, stats.recycled_schema_change.load());
+    g_bvar_recycler_oplog_last_round_recycled_commit_txn_num.put({instance_id},
+                                                                 stats.recycled_commit_txn.load());
+    // Per-type cumulative counts (mBvarIntAdder, accumulated across rounds)
+    g_bvar_recycler_oplog_recycled_commit_partition_num.put({instance_id},
+                                                            stats.recycled_commit_partition.load());
+    g_bvar_recycler_oplog_recycled_drop_partition_num.put({instance_id},
+                                                          stats.recycled_drop_partition.load());
+    g_bvar_recycler_oplog_recycled_commit_index_num.put({instance_id},
+                                                        stats.recycled_commit_index.load());
+    g_bvar_recycler_oplog_recycled_drop_index_num.put({instance_id},
+                                                      stats.recycled_drop_index.load());
+    g_bvar_recycler_oplog_recycled_update_tablet_num.put({instance_id},
+                                                         stats.recycled_update_tablet.load());
+    g_bvar_recycler_oplog_recycled_compaction_num.put({instance_id},
+                                                      stats.recycled_compaction.load());
+    g_bvar_recycler_oplog_recycled_schema_change_num.put({instance_id},
+                                                         stats.recycled_schema_change.load());
+    g_bvar_recycler_oplog_recycled_commit_txn_num.put({instance_id},
+                                                      stats.recycled_commit_txn.load());
+}
+
 int InstanceRecycler::recycle_operation_logs() {
     if (!should_recycle_versioned_keys()) {
         VLOG_DEBUG << "instance " << instance_id_
@@ -668,11 +712,13 @@ int InstanceRecycler::recycle_operation_logs() {
 
     const std::string task_name = "recycle_operation_logs";
     RecyclerMetricsContext metrics_context(instance_id_, task_name);
-
-    const bool stats_enabled = config::enable_recycler_stats_metrics;
     OplogRecycleStats oplog_stats;
 
-    if (stats_enabled) {
+    // scan_and_statistics_operation_logs() is expensive (scans lots of KVs),
+    // so it's controlled by enable_recycler_stats_metrics.
+    // The other stats (counting what was actually recycled) are lightweight
+    // and always collected.
+    if (config::enable_recycler_stats_metrics) {
         scan_and_statistics_operation_logs();
     }
 
@@ -685,51 +731,7 @@ int InstanceRecycler::recycle_operation_logs() {
 
     DORIS_CLOUD_DEFER {
         metrics_context.finish_report();
-
-        if (stats_enabled) {
-            g_bvar_recycler_oplog_last_round_total_num.put({instance_id_},
-                                                           oplog_stats.total_num.load());
-            g_bvar_recycler_oplog_last_round_not_recycled_num.put(
-                    {instance_id_}, oplog_stats.not_recycled_num.load());
-            if (oplog_stats.failed_num.load() > 0) {
-                g_bvar_recycler_oplog_recycle_failed_num.put({instance_id_},
-                                                             oplog_stats.failed_num.load());
-            }
-            // Per-type last round counts (mBvarStatus, overwritten each round)
-            g_bvar_recycler_oplog_last_round_recycled_commit_partition_num.put(
-                    {instance_id_}, oplog_stats.recycled_commit_partition.load());
-            g_bvar_recycler_oplog_last_round_recycled_drop_partition_num.put(
-                    {instance_id_}, oplog_stats.recycled_drop_partition.load());
-            g_bvar_recycler_oplog_last_round_recycled_commit_index_num.put(
-                    {instance_id_}, oplog_stats.recycled_commit_index.load());
-            g_bvar_recycler_oplog_last_round_recycled_drop_index_num.put(
-                    {instance_id_}, oplog_stats.recycled_drop_index.load());
-            g_bvar_recycler_oplog_last_round_recycled_update_tablet_num.put(
-                    {instance_id_}, oplog_stats.recycled_update_tablet.load());
-            g_bvar_recycler_oplog_last_round_recycled_compaction_num.put(
-                    {instance_id_}, oplog_stats.recycled_compaction.load());
-            g_bvar_recycler_oplog_last_round_recycled_schema_change_num.put(
-                    {instance_id_}, oplog_stats.recycled_schema_change.load());
-            g_bvar_recycler_oplog_last_round_recycled_commit_txn_num.put(
-                    {instance_id_}, oplog_stats.recycled_commit_txn.load());
-            // Per-type cumulative counts (mBvarIntAdder, accumulated across rounds)
-            g_bvar_recycler_oplog_recycled_commit_partition_num.put(
-                    {instance_id_}, oplog_stats.recycled_commit_partition.load());
-            g_bvar_recycler_oplog_recycled_drop_partition_num.put(
-                    {instance_id_}, oplog_stats.recycled_drop_partition.load());
-            g_bvar_recycler_oplog_recycled_commit_index_num.put(
-                    {instance_id_}, oplog_stats.recycled_commit_index.load());
-            g_bvar_recycler_oplog_recycled_drop_index_num.put(
-                    {instance_id_}, oplog_stats.recycled_drop_index.load());
-            g_bvar_recycler_oplog_recycled_update_tablet_num.put(
-                    {instance_id_}, oplog_stats.recycled_update_tablet.load());
-            g_bvar_recycler_oplog_recycled_compaction_num.put(
-                    {instance_id_}, oplog_stats.recycled_compaction.load());
-            g_bvar_recycler_oplog_recycled_schema_change_num.put(
-                    {instance_id_}, oplog_stats.recycled_schema_change.load());
-            g_bvar_recycler_oplog_recycled_commit_txn_num.put(
-                    {instance_id_}, oplog_stats.recycled_commit_txn.load());
-        }
+        report_oplog_recycle_stats(instance_id_, oplog_stats);
 
         int64_t cost = stop_watch.elapsed_us() / 1000'000;
         LOG_WARNING("recycle operation logs, cost={}s", cost)
@@ -764,32 +766,24 @@ int InstanceRecycler::recycle_operation_logs() {
         OperationLogReferenceInfo reference_info;
         if (recycle_checker.can_recycle(log_versionstamp, operation_log.min_timestamp(),
                                         &reference_info)) {
-            if (stats_enabled) {
-                metrics_context.total_need_recycle_num++;
-                metrics_context.total_need_recycle_data_size += value_size;
-            }
+            metrics_context.total_need_recycle_num++;
+            metrics_context.total_need_recycle_data_size += value_size;
 
             AnnotateTag tag("log_key", hex(key));
             int res = recycle_operation_log(log_versionstamp, raw_keys, std::move(operation_log),
-                                            stats_enabled ? &oplog_stats : nullptr);
+                                            &oplog_stats);
             if (res != 0) {
                 LOG_WARNING("failed to recycle operation log").tag("error_code", res);
-                if (stats_enabled) {
-                    oplog_stats.failed_num.fetch_add(1, std::memory_order_relaxed);
-                }
+                oplog_stats.failed_num.fetch_add(1, std::memory_order_relaxed);
                 return res;
             }
 
             recycled_operation_logs++;
             recycled_operation_log_data_size += value_size;
-            if (stats_enabled) {
-                metrics_context.total_recycled_num++;
-                metrics_context.total_recycled_data_size += value_size;
-            }
+            metrics_context.total_recycled_num++;
+            metrics_context.total_recycled_data_size += value_size;
         } else {
-            if (stats_enabled) {
-                oplog_stats.not_recycled_num.fetch_add(1, std::memory_order_relaxed);
-            }
+            oplog_stats.not_recycled_num.fetch_add(1, std::memory_order_relaxed);
             int res = calculator.calculate_operation_log_data_size(key, operation_log,
                                                                    reference_info);
             if (res != 0) {
@@ -801,10 +795,8 @@ int InstanceRecycler::recycle_operation_logs() {
         total_operation_logs++;
         operation_log_data_size += value_size;
         max_operation_log_data_size = std::max(max_operation_log_data_size, value_size);
-        if (stats_enabled) {
-            oplog_stats.total_num.fetch_add(1, std::memory_order_relaxed);
-            metrics_context.report();
-        }
+        oplog_stats.total_num.fetch_add(1, std::memory_order_relaxed);
+        metrics_context.report();
         return 0;
     };
 
