@@ -1,13 +1,10 @@
-diff --git a/CMakeLists.txt b/CMakeLists.txt
-index f942510..ef5b68c 100644
---- a/CMakeLists.txt
-+++ b/CMakeLists.txt
-@@ -48,7 +48,12 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
- option(PAIMON_USE_ASAN "Use Address Sanitizer" OFF)
+diff -ruN a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt	2026-01-15 14:47:07.000000000 +0800
++++ b/CMakeLists.txt	2026-02-05 15:38:30.104110421 +0800
+@@ -49,6 +49,11 @@
  option(PAIMON_USE_UBSAN "Use Undefined Behavior Sanitizer" OFF)
  option(PAIMON_ENABLE_AVRO "Whether to enable avro file format" ON)
--option(PAIMON_ENABLE_ORC "Whether to enable orc file format" ON)
-+option(PAIMON_ENABLE_ORC "Whether to enable orc file format" ON)
+ option(PAIMON_ENABLE_ORC "Whether to enable orc file format" ON)
 +option(PAIMON_USE_EXTERNAL_GLOG "Use external glog library instead of bundled glog" OFF)
 +set(GLOG_INCLUDE_DIR "" CACHE PATH "External glog include directory")
 +set(GLOG_STATIC_LIB "" CACHE FILEPATH "External glog static library")
@@ -16,131 +13,10 @@ index f942510..ef5b68c 100644
  option(PAIMON_ENABLE_LANCE "Whether to enable lance file format" OFF)
  option(PAIMON_ENABLE_JINDO "Whether to enable jindo file system" OFF)
  option(PAIMON_ENABLE_LUMINA "Whether to enable lumina vector index" ON)
-diff --git a/cmake_modules/BuildUtils.cmake b/cmake_modules/BuildUtils.cmake
-index c63d17f..73db743 100644
---- a/cmake_modules/BuildUtils.cmake
-+++ b/cmake_modules/BuildUtils.cmake
-@@ -55,7 +55,18 @@ function(add_paimon_lib LIB_NAME)
-     # Necessary to make static linking into other shared libraries work properly
-     set_property(TARGET ${LIB_NAME}_objlib PROPERTY POSITION_INDEPENDENT_CODE 1)
-     if(ARG_DEPENDENCIES)
--        add_dependencies(${LIB_NAME}_objlib ${ARG_DEPENDENCIES})
-+        # Avoid add_dependencies on non-existent targets (e.g. when building static only).
-+        set(_paimon_objlib_deps)
-+        foreach(_paimon_dep IN LISTS ARG_DEPENDENCIES)
-+            if(TARGET ${_paimon_dep})
-+                list(APPEND _paimon_objlib_deps ${_paimon_dep})
-+            endif()
-+        endforeach()
-+        if(_paimon_objlib_deps)
-+            add_dependencies(${LIB_NAME}_objlib ${_paimon_objlib_deps})
-+        endif()
-+        unset(_paimon_objlib_deps)
-+        unset(_paimon_dep)
-     endif()
-     set(LIB_DEPS $<TARGET_OBJECTS:${LIB_NAME}_objlib>)
-     set(LIB_INCLUDES)
-@@ -72,3 +72,3 @@ function(add_paimon_lib LIB_NAME)
-     if(ARG_EXTRA_INCLUDES)
--        target_include_directories(${LIB_NAME}_objlib SYSTEM PUBLIC ${ARG_EXTRA_INCLUDES})
-+        target_include_directories(${LIB_NAME}_objlib SYSTEM BEFORE PUBLIC ${ARG_EXTRA_INCLUDES})
-     endif()
-diff --git a/cmake_modules/DefineOptions.cmake b/cmake_modules/DefineOptions.cmake
-index 0211f40..c4a6b2f 100644
---- a/cmake_modules/DefineOptions.cmake
-+++ b/cmake_modules/DefineOptions.cmake
-@@ -95,6 +95,7 @@ if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_CURRENT_SOURCE_DIR}")
-     define_option(PAIMON_BUILD_STATIC "Build static libraries" OFF)
- 
-     define_option(PAIMON_BUILD_SHARED "Build shared libraries" ON)
-+    define_option(PAIMON_USE_EXTERNAL_RAPIDJSON "Use external RapidJSON headers" OFF)
-     #----------------------------------------------------------------------
-     set_option_category("Test")
- 
-diff --git a/cmake_modules/SetupCxxFlags.cmake b/cmake_modules/SetupCxxFlags.cmake
-index e4b2710..2d705ba 100644
---- a/cmake_modules/SetupCxxFlags.cmake
-+++ b/cmake_modules/SetupCxxFlags.cmake
-@@ -41,6 +41,15 @@ set(CMAKE_CXX_EXTENSIONS OFF)
- # shared libraries
- set(CMAKE_POSITION_INDEPENDENT_CODE ON)
- 
-+# Use global-dynamic TLS model to avoid relocation issues when linking
-+# with other libraries that may use different TLS models (e.g., when
-+# rapidjson templates are instantiated in both this library and the
-+# consuming application)
-+if(NOT MSVC)
-+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ftls-model=global-dynamic")
-+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ftls-model=global-dynamic")
-+endif()
-+ 
- string(TOUPPER ${CMAKE_BUILD_TYPE} CMAKE_BUILD_TYPE)
- 
- set(UNKNOWN_COMPILER_MESSAGE
-diff --git a/cmake_modules/ThirdpartyToolchain.cmake b/cmake_modules/ThirdpartyToolchain.cmake
-index 3f07104..dfe2ba3 100644
---- a/cmake_modules/ThirdpartyToolchain.cmake
-+++ b/cmake_modules/ThirdpartyToolchain.cmake
-@@ -1011,6 +1011,17 @@ endmacro()
- 
- build_fmt()
--build_rapidjson()
-+if(PAIMON_USE_EXTERNAL_RAPIDJSON)
-+    if(NOT RAPIDJSON_INCLUDE_DIR)
-+        message(FATAL_ERROR
-+                "PAIMON_USE_EXTERNAL_RAPIDJSON=ON but RAPIDJSON_INCLUDE_DIR is not set")
-+    endif()
-+ 
-+    file(MAKE_DIRECTORY "${RAPIDJSON_INCLUDE_DIR}")
-+    add_library(RapidJSON INTERFACE IMPORTED)
-+    target_include_directories(RapidJSON SYSTEM INTERFACE "${RAPIDJSON_INCLUDE_DIR}")
-+else()
-+    build_rapidjson()
-+endif()
- build_snappy()
- build_zstd()
- build_zlib()
-@@ -1018,10 +1018,34 @@ build_zlib()
- build_lz4()
- build_arrow()
- build_tbb()
--build_glog()
-+if(PAIMON_USE_EXTERNAL_GLOG)
-+    if(NOT GLOG_INCLUDE_DIR OR NOT GLOG_STATIC_LIB)
-+        message(FATAL_ERROR
-+                "PAIMON_USE_EXTERNAL_GLOG=ON but GLOG_INCLUDE_DIR or GLOG_STATIC_LIB is not set")
-+    endif()
-+    add_library(glog STATIC IMPORTED)
-+    set(_glog_interface_includes "${GLOG_INCLUDE_DIR}")
-+    set(_glog_interface_libs "")
-+    if(GFLAGS_STATIC_LIB)
-+        list(APPEND _glog_interface_libs "${GFLAGS_STATIC_LIB}")
-+        if(GFLAGS_INCLUDE_DIR)
-+            list(APPEND _glog_interface_includes "${GFLAGS_INCLUDE_DIR}")
-+        endif()
-+    endif()
-+    set_target_properties(glog
-+                          PROPERTIES IMPORTED_LOCATION "${GLOG_STATIC_LIB}"
-+                                     INTERFACE_SYSTEM_INCLUDE_DIRECTORIES
-+                                     "${_glog_interface_includes}"
-+                                     INTERFACE_LINK_LIBRARIES "${_glog_interface_libs}"
-+                                     INTERFACE_COMPILE_DEFINITIONS "GLOG_USE_GLOG_EXPORT")
-+    unset(_glog_interface_includes)
-+    unset(_glog_interface_libs)
-+else()
-+    build_glog()
-+endif()
- 
- if(PAIMON_ENABLE_AVRO)
-     build_avro()
- endif()
- if(PAIMON_ENABLE_JINDO)
-     build_jindosdk_c()
-diff --git a/cmake_modules/arrow.diff b/cmake_modules/arrow.diff
-index 997cb6b..c7b1cf4 100644
---- a/cmake_modules/arrow.diff
-+++ b/cmake_modules/arrow.diff
-@@ -194,5 +194,22 @@ index 4d3acb491e..3906ff3c59 100644
+diff -ruN a/cmake_modules/arrow.diff b/cmake_modules/arrow.diff
+--- a/cmake_modules/arrow.diff	2026-01-15 14:47:07.000000000 +0800
++++ b/cmake_modules/arrow.diff	2026-02-05 15:38:30.104110421 +0800
+@@ -194,5 +194,22 @@
     int64_t max_row_group_length_;
  +  int64_t max_row_group_size_;
     int64_t pagesize_;
@@ -165,50 +41,52 @@ index 997cb6b..c7b1cf4 100644
 +   list(GET Thrift_VERSION_LIST 1 Thrift_VERSION_MINOR)
 +   list(GET Thrift_VERSION_LIST 2 Thrift_VERSION_PATCH)
 + endif()
-diff --git a/src/paimon/common/logging/logging.cpp b/src/paimon/common/logging/logging.cpp
-index 5892436..ce599f1 100644
---- a/src/paimon/common/logging/logging.cpp
-+++ b/src/paimon/common/logging/logging.cpp
-@@ -22,8 +22,8 @@
- #include <optional>
- #include <shared_mutex>
+diff -ruN a/cmake_modules/BuildUtils.cmake b/cmake_modules/BuildUtils.cmake
+--- a/cmake_modules/BuildUtils.cmake	2026-01-15 14:47:07.000000000 +0800
++++ b/cmake_modules/BuildUtils.cmake	2026-02-05 15:38:30.104110421 +0800
+@@ -55,14 +55,25 @@
+     # Necessary to make static linking into other shared libraries work properly
+     set_property(TARGET ${LIB_NAME}_objlib PROPERTY POSITION_INDEPENDENT_CODE 1)
+     if(ARG_DEPENDENCIES)
+-        add_dependencies(${LIB_NAME}_objlib ${ARG_DEPENDENCIES})
++        # Avoid add_dependencies on non-existent targets (e.g. when building static only).
++        set(_paimon_objlib_deps)
++        foreach(_paimon_dep IN LISTS ARG_DEPENDENCIES)
++            if(TARGET ${_paimon_dep})
++                list(APPEND _paimon_objlib_deps ${_paimon_dep})
++            endif()
++        endforeach()
++        if(_paimon_objlib_deps)
++            add_dependencies(${LIB_NAME}_objlib ${_paimon_objlib_deps})
++        endif()
++        unset(_paimon_objlib_deps)
++        unset(_paimon_dep)
+     endif()
+     set(LIB_DEPS $<TARGET_OBJECTS:${LIB_NAME}_objlib>)
+     set(LIB_INCLUDES)
+     set(EXTRA_DEPS)
  
--#include "glog/log_severity.h"
- #include "glog/logging.h"
-+#include "glog/log_severity.h"
- #include "glog/raw_logging.h"
+     if(ARG_EXTRA_INCLUDES)
+-        target_include_directories(${LIB_NAME}_objlib SYSTEM PUBLIC ${ARG_EXTRA_INCLUDES})
++        target_include_directories(${LIB_NAME}_objlib SYSTEM BEFORE PUBLIC ${ARG_EXTRA_INCLUDES})
+     endif()
+     if(ARG_PRIVATE_INCLUDES)
+         target_include_directories(${LIB_NAME}_objlib PRIVATE ${ARG_PRIVATE_INCLUDES})
+diff -ruN a/cmake_modules/DefineOptions.cmake b/cmake_modules/DefineOptions.cmake
+--- a/cmake_modules/DefineOptions.cmake	2026-01-15 14:47:07.000000000 +0800
++++ b/cmake_modules/DefineOptions.cmake	2026-02-05 15:38:30.104110421 +0800
+@@ -95,6 +95,7 @@
+     define_option(PAIMON_BUILD_STATIC "Build static libraries" OFF)
  
- namespace paimon {
-diff --git a/src/paimon/common/memory/bytes.cpp b/src/paimon/common/memory/bytes.cpp
-index 6b2b6c9..8a5f6d7 100644
---- a/src/paimon/common/memory/bytes.cpp
-+++ b/src/paimon/common/memory/bytes.cpp
-@@ -59,9 +59,16 @@ Bytes& Bytes::operator=(Bytes&& other) noexcept {
-     if (&other == this) {
-         return *this;
-     }
--    this->~Bytes();
--    std::memcpy(this, &other, sizeof(*this));
--    new (&other) Bytes();
-+    if (data_ != nullptr) {
-+        assert(pool_);
-+        pool_->Free(data_, size_);
-+    }
-+    pool_ = other.pool_;
-+    data_ = other.data_;
-+    size_ = other.size_;
-+    other.pool_ = nullptr;
-+    other.data_ = nullptr;
-+    other.size_ = 0;
-     return *this;
- }
-
-diff --git a/cmake_modules/orc.diff b/cmake_modules/orc.diff
---- a/cmake_modules/orc.diff
-+++ b/cmake_modules/orc.diff
-@@ -339,5 +339,57 @@ set(ORC_INSTALL_INTERFACE_TARGETS)
- +set(BUILD_POSITION_INDEPENDENT_LIB ON)
- +
+     define_option(PAIMON_BUILD_SHARED "Build shared libraries" ON)
++    define_option(PAIMON_USE_EXTERNAL_RAPIDJSON "Use external RapidJSON headers" OFF)
+     #----------------------------------------------------------------------
+     set_option_category("Test")
+ 
+diff -ruN a/cmake_modules/orc.diff b/cmake_modules/orc.diff
+--- a/cmake_modules/orc.diff	2026-01-15 14:47:07.000000000 +0800
++++ b/cmake_modules/orc.diff	2026-02-05 15:38:30.104110421 +0800
+@@ -341,3 +341,55 @@
   set(ORC_FORMAT_VERSION "1.0.0")
   set(LZ4_VERSION "1.10.0")
   set(SNAPPY_VERSION "1.2.1")
@@ -264,3 +142,520 @@ diff --git a/cmake_modules/orc.diff b/cmake_modules/orc.diff
 ++namespace orc {
 ++namespace proto = paimon_orc::proto;
 ++}
+diff -ruN a/cmake_modules/SetupCxxFlags.cmake b/cmake_modules/SetupCxxFlags.cmake
+--- a/cmake_modules/SetupCxxFlags.cmake	2026-01-15 14:47:07.000000000 +0800
++++ b/cmake_modules/SetupCxxFlags.cmake	2026-02-05 15:38:30.104110421 +0800
+@@ -41,6 +41,15 @@
+ # shared libraries
+ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+ 
++# Use global-dynamic TLS model to avoid relocation issues when linking
++# with other libraries that may use different TLS models (e.g., when
++# rapidjson templates are instantiated in both this library and the
++# consuming application)
++if(NOT MSVC)
++    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ftls-model=global-dynamic")
++    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ftls-model=global-dynamic")
++endif()
++ 
+ string(TOUPPER ${CMAKE_BUILD_TYPE} CMAKE_BUILD_TYPE)
+ 
+ set(UNKNOWN_COMPILER_MESSAGE
+diff -ruN a/cmake_modules/ThirdpartyToolchain.cmake b/cmake_modules/ThirdpartyToolchain.cmake
+--- a/cmake_modules/ThirdpartyToolchain.cmake	2026-01-15 14:47:07.000000000 +0800
++++ b/cmake_modules/ThirdpartyToolchain.cmake	2026-02-05 15:38:30.104110421 +0800
+@@ -1011,14 +1011,49 @@
+ endmacro()
+ 
+ build_fmt()
+-build_rapidjson()
++if(PAIMON_USE_EXTERNAL_RAPIDJSON)
++    if(NOT RAPIDJSON_INCLUDE_DIR)
++        message(FATAL_ERROR
++                "PAIMON_USE_EXTERNAL_RAPIDJSON=ON but RAPIDJSON_INCLUDE_DIR is not set")
++    endif()
++ 
++    file(MAKE_DIRECTORY "${RAPIDJSON_INCLUDE_DIR}")
++    add_library(RapidJSON INTERFACE IMPORTED)
++    target_include_directories(RapidJSON SYSTEM INTERFACE "${RAPIDJSON_INCLUDE_DIR}")
++else()
++    build_rapidjson()
++endif()
+ build_snappy()
+ build_zstd()
+ build_zlib()
+ build_lz4()
+ build_arrow()
+ build_tbb()
+-build_glog()
++if(PAIMON_USE_EXTERNAL_GLOG)
++    if(NOT GLOG_INCLUDE_DIR OR NOT GLOG_STATIC_LIB)
++        message(FATAL_ERROR
++                "PAIMON_USE_EXTERNAL_GLOG=ON but GLOG_INCLUDE_DIR or GLOG_STATIC_LIB is not set")
++    endif()
++    add_library(glog STATIC IMPORTED)
++    set(_glog_interface_includes "${GLOG_INCLUDE_DIR}")
++    set(_glog_interface_libs "")
++    if(GFLAGS_STATIC_LIB)
++        list(APPEND _glog_interface_libs "${GFLAGS_STATIC_LIB}")
++        if(GFLAGS_INCLUDE_DIR)
++            list(APPEND _glog_interface_includes "${GFLAGS_INCLUDE_DIR}")
++        endif()
++    endif()
++    set_target_properties(glog
++                          PROPERTIES IMPORTED_LOCATION "${GLOG_STATIC_LIB}"
++                                     INTERFACE_SYSTEM_INCLUDE_DIRECTORIES
++                                     "${_glog_interface_includes}"
++                                     INTERFACE_LINK_LIBRARIES "${_glog_interface_libs}"
++                                     INTERFACE_COMPILE_DEFINITIONS "GLOG_USE_GLOG_EXPORT")
++    unset(_glog_interface_includes)
++    unset(_glog_interface_libs)
++else()
++    build_glog()
++endif()
+ 
+ if(PAIMON_ENABLE_AVRO)
+     build_avro()
+diff -ruN a/src/paimon/CMakeLists.txt b/src/paimon/CMakeLists.txt
+--- a/src/paimon/CMakeLists.txt	2026-01-15 14:47:07.000000000 +0800
++++ b/src/paimon/CMakeLists.txt	2026-02-05 15:38:52.173277428 +0800
+@@ -26,6 +26,7 @@
+     common/data/columnar/columnar_array.cpp
+     common/data/columnar/columnar_map.cpp
+     common/data/columnar/columnar_row.cpp
++    common/data/columnar/columnar_row_ref.cpp
+     common/data/decimal.cpp
+     common/data/internal_row.cpp
+     common/data/record_batch.cpp
+diff -ruN a/src/paimon/common/data/columnar/columnar_batch_context.h b/src/paimon/common/data/columnar/columnar_batch_context.h
+--- a/src/paimon/common/data/columnar/columnar_batch_context.h	1970-01-01 08:00:00.000000000 +0800
++++ b/src/paimon/common/data/columnar/columnar_batch_context.h	2026-02-05 15:40:57.634210654 +0800
+@@ -0,0 +1,49 @@
++/*
++ * Copyright 2024-present Alibaba Inc.
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *   http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#pragma once
++
++#include <memory>
++#include <vector>
++
++#include "arrow/array/array_base.h"
++
++namespace arrow {
++class StructArray;
++}  // namespace arrow
++
++namespace paimon {
++class MemoryPool;
++
++struct ColumnarBatchContext {
++    ColumnarBatchContext(std::shared_ptr<arrow::StructArray> struct_array_in,
++                         const arrow::ArrayVector& array_vec_in,
++                         std::shared_ptr<MemoryPool> pool_in)
++        : struct_array(std::move(struct_array_in)),
++          pool(std::move(pool_in)),
++          array_vec_holder(array_vec_in) {
++        array_vec.reserve(array_vec_holder.size());
++        for (const auto& array : array_vec_holder) {
++            array_vec.push_back(array.get());
++        }
++    }
++
++    std::shared_ptr<arrow::StructArray> struct_array;
++    std::shared_ptr<MemoryPool> pool;
++    arrow::ArrayVector array_vec_holder;
++    std::vector<const arrow::Array*> array_vec;
++};
++}  // namespace paimon
+diff -ruN a/src/paimon/common/data/columnar/columnar_row_ref.cpp b/src/paimon/common/data/columnar/columnar_row_ref.cpp
+--- a/src/paimon/common/data/columnar/columnar_row_ref.cpp	1970-01-01 08:00:00.000000000 +0800
++++ b/src/paimon/common/data/columnar/columnar_row_ref.cpp	2026-02-05 15:41:03.990256702 +0800
+@@ -0,0 +1,82 @@
++/*
++ * Copyright 2024-present Alibaba Inc.
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *   http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#include "paimon/common/data/columnar/columnar_row_ref.h"
++
++#include <cassert>
++
++#include "arrow/array/array_decimal.h"
++#include "arrow/array/array_nested.h"
++#include "arrow/array/array_primitive.h"
++#include "arrow/type_traits.h"
++#include "arrow/util/checked_cast.h"
++#include "arrow/util/decimal.h"
++#include "paimon/common/data/columnar/columnar_array.h"
++#include "paimon/common/data/columnar/columnar_map.h"
++#include "paimon/common/utils/date_time_utils.h"
++
++namespace paimon {
++Decimal ColumnarRowRef::GetDecimal(int32_t pos, int32_t precision, int32_t scale) const {
++    using ArrayType = typename arrow::TypeTraits<arrow::Decimal128Type>::ArrayType;
++    auto array = arrow::internal::checked_cast<const ArrayType*>(ctx_->array_vec[pos]);
++    assert(array);
++    arrow::Decimal128 decimal(array->GetValue(row_id_));
++    return Decimal(precision, scale,
++                   static_cast<Decimal::int128_t>(decimal.high_bits()) << 64 | decimal.low_bits());
++}
++
++Timestamp ColumnarRowRef::GetTimestamp(int32_t pos, int32_t precision) const {
++    using ArrayType = typename arrow::TypeTraits<arrow::TimestampType>::ArrayType;
++    auto array = arrow::internal::checked_cast<const ArrayType*>(ctx_->array_vec[pos]);
++    assert(array);
++    int64_t data = array->Value(row_id_);
++    auto timestamp_type =
++        arrow::internal::checked_pointer_cast<arrow::TimestampType>(array->type());
++    // for orc format, data is saved as nano, therefore, Timestamp convert should consider precision
++    // in arrow array rather than input precision
++    DateTimeUtils::TimeType time_type = DateTimeUtils::GetTimeTypeFromArrowType(timestamp_type);
++    auto [milli, nano] = DateTimeUtils::TimestampConverter(
++        data, time_type, DateTimeUtils::TimeType::MILLISECOND, DateTimeUtils::TimeType::NANOSECOND);
++    return Timestamp(milli, nano);
++}
++
++std::shared_ptr<InternalRow> ColumnarRowRef::GetRow(int32_t pos, int32_t num_fields) const {
++    auto struct_array =
++        arrow::internal::checked_pointer_cast<arrow::StructArray>(ctx_->array_vec_holder[pos]);
++    assert(struct_array);
++    auto nested_ctx = std::make_shared<ColumnarBatchContext>(
++        struct_array, struct_array->fields(), ctx_->pool);
++    return std::make_shared<ColumnarRowRef>(std::move(nested_ctx), row_id_);
++}
++
++std::shared_ptr<InternalArray> ColumnarRowRef::GetArray(int32_t pos) const {
++    auto list_array = arrow::internal::checked_cast<const arrow::ListArray*>(ctx_->array_vec[pos]);
++    assert(list_array);
++    int32_t offset = list_array->value_offset(row_id_);
++    int32_t length = list_array->value_length(row_id_);
++    return std::make_shared<ColumnarArray>(list_array->values(), ctx_->pool, offset, length);
++}
++
++std::shared_ptr<InternalMap> ColumnarRowRef::GetMap(int32_t pos) const {
++    auto map_array = arrow::internal::checked_cast<const arrow::MapArray*>(ctx_->array_vec[pos]);
++    assert(map_array);
++    int32_t offset = map_array->value_offset(row_id_);
++    int32_t length = map_array->value_length(row_id_);
++    return std::make_shared<ColumnarMap>(map_array->keys(), map_array->items(), ctx_->pool, offset,
++                                         length);
++}
++
++}  // namespace paimon
+diff -ruN a/src/paimon/common/data/columnar/columnar_row_ref.h b/src/paimon/common/data/columnar/columnar_row_ref.h
+--- a/src/paimon/common/data/columnar/columnar_row_ref.h	1970-01-01 08:00:00.000000000 +0800
++++ b/src/paimon/common/data/columnar/columnar_row_ref.h	2026-02-05 15:41:03.990256702 +0800
+@@ -0,0 +1,134 @@
++/*
++ * Copyright 2024-present Alibaba Inc.
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *   http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#pragma once
++
++#include <cstdint>
++#include <memory>
++#include <string>
++#include <string_view>
++
++#include "fmt/format.h"
++#include "paimon/common/data/binary_string.h"
++#include "paimon/common/data/columnar/columnar_batch_context.h"
++#include "paimon/common/data/columnar/columnar_utils.h"
++#include "paimon/common/data/internal_array.h"
++#include "paimon/common/data/internal_map.h"
++#include "paimon/common/data/internal_row.h"
++#include "paimon/common/types/row_kind.h"
++#include "paimon/data/decimal.h"
++#include "paimon/data/timestamp.h"
++#include "paimon/result.h"
++
++namespace paimon {
++class Bytes;
++
++/// Columnar row view which shares batch-level context to reduce per-row overhead.
++class ColumnarRowRef : public InternalRow {
++ public:
++    ColumnarRowRef(std::shared_ptr<ColumnarBatchContext> ctx, int64_t row_id)
++        : ctx_(std::move(ctx)), row_id_(row_id) {}
++
++    Result<const RowKind*> GetRowKind() const override {
++        return row_kind_;
++    }
++
++    void SetRowKind(const RowKind* kind) override {
++        row_kind_ = kind;
++    }
++
++    int32_t GetFieldCount() const override {
++        return static_cast<int32_t>(ctx_->array_vec.size());
++    }
++
++    bool IsNullAt(int32_t pos) const override {
++        return ctx_->array_vec[pos]->IsNull(row_id_);
++    }
++
++    bool GetBoolean(int32_t pos) const override {
++        return ColumnarUtils::GetGenericValue<arrow::BooleanType, bool>(ctx_->array_vec[pos],
++                                                                        row_id_);
++    }
++
++    char GetByte(int32_t pos) const override {
++        return ColumnarUtils::GetGenericValue<arrow::Int8Type, char>(ctx_->array_vec[pos], row_id_);
++    }
++
++    int16_t GetShort(int32_t pos) const override {
++        return ColumnarUtils::GetGenericValue<arrow::Int16Type, int16_t>(ctx_->array_vec[pos],
++                                                                         row_id_);
++    }
++
++    int32_t GetInt(int32_t pos) const override {
++        return ColumnarUtils::GetGenericValue<arrow::Int32Type, int32_t>(ctx_->array_vec[pos],
++                                                                         row_id_);
++    }
++
++    int32_t GetDate(int32_t pos) const override {
++        return ColumnarUtils::GetGenericValue<arrow::Date32Type, int32_t>(ctx_->array_vec[pos],
++                                                                          row_id_);
++    }
++
++    int64_t GetLong(int32_t pos) const override {
++        return ColumnarUtils::GetGenericValue<arrow::Int64Type, int64_t>(ctx_->array_vec[pos],
++                                                                         row_id_);
++    }
++
++    float GetFloat(int32_t pos) const override {
++        return ColumnarUtils::GetGenericValue<arrow::FloatType, float>(ctx_->array_vec[pos],
++                                                                       row_id_);
++    }
++
++    double GetDouble(int32_t pos) const override {
++        return ColumnarUtils::GetGenericValue<arrow::DoubleType, double>(ctx_->array_vec[pos],
++                                                                         row_id_);
++    }
++
++    BinaryString GetString(int32_t pos) const override {
++        auto bytes = ColumnarUtils::GetBytes<arrow::StringType>(ctx_->array_vec[pos], row_id_,
++                                                                ctx_->pool.get());
++        return BinaryString::FromBytes(bytes);
++    }
++
++    std::string_view GetStringView(int32_t pos) const override {
++        return ColumnarUtils::GetView(ctx_->array_vec[pos], row_id_);
++    }
++
++    Decimal GetDecimal(int32_t pos, int32_t precision, int32_t scale) const override;
++
++    Timestamp GetTimestamp(int32_t pos, int32_t precision) const override;
++
++    std::shared_ptr<Bytes> GetBinary(int32_t pos) const override {
++        return ColumnarUtils::GetBytes<arrow::BinaryType>(ctx_->array_vec[pos], row_id_,
++                                                          ctx_->pool.get());
++    }
++
++    std::shared_ptr<InternalRow> GetRow(int32_t pos, int32_t num_fields) const override;
++
++    std::shared_ptr<InternalArray> GetArray(int32_t pos) const override;
++
++    std::shared_ptr<InternalMap> GetMap(int32_t pos) const override;
++
++    std::string ToString() const override {
++        return fmt::format("ColumnarRowRef, row_id {}", row_id_);
++    }
++
++ private:
++    std::shared_ptr<ColumnarBatchContext> ctx_;
++    const RowKind* row_kind_ = RowKind::Insert();
++    int64_t row_id_;
++};
++}  // namespace paimon
+diff -ruN a/src/paimon/common/data/columnar/columnar_row_test.cpp b/src/paimon/common/data/columnar/columnar_row_test.cpp
+--- a/src/paimon/common/data/columnar/columnar_row_test.cpp	2026-01-15 14:47:07.000000000 +0800
++++ b/src/paimon/common/data/columnar/columnar_row_test.cpp	2026-02-05 15:38:52.173277428 +0800
+@@ -15,6 +15,7 @@
+  */
+ 
+ #include "paimon/common/data/columnar/columnar_row.h"
++#include "paimon/common/data/columnar/columnar_row_ref.h"
+ 
+ #include <utility>
+ 
+@@ -70,6 +71,32 @@
+     ASSERT_EQ(std::string(row.GetStringView(7)), "Hello");
+ }
+ 
++TEST(ColumnarRowRefTest, TestSimple) {
++    auto pool = GetDefaultPool();
++    std::shared_ptr<arrow::DataType> target_type =
++        arrow::struct_({arrow::field("f1", arrow::int32()), arrow::field("f2", arrow::utf8())});
++    auto f1 =
++        arrow::ipc::internal::json::ArrayFromJSON(arrow::int32(), R"([1, 2, 3])").ValueOrDie();
++    auto f2 = arrow::ipc::internal::json::ArrayFromJSON(arrow::utf8(),
++                                                        R"(["alpha", "beta", "gamma"])")
++                  .ValueOrDie();
++    auto data = arrow::StructArray::Make({f1, f2}, target_type->fields()).ValueOrDie();
++
++    auto ctx = std::make_shared<ColumnarBatchContext>(data, data->fields(), pool);
++    ColumnarRowRef row(ctx, 1);
++    ASSERT_EQ(row.GetFieldCount(), 2);
++    ASSERT_EQ(row.GetInt(0), 2);
++    ASSERT_EQ(std::string(row.GetStringView(1)), "beta");
++
++    auto row_kind = row.GetRowKind();
++    ASSERT_TRUE(row_kind.ok());
++    ASSERT_EQ(row_kind.value(), RowKind::Insert());
++    row.SetRowKind(RowKind::Delete());
++    auto updated_kind = row.GetRowKind();
++    ASSERT_TRUE(updated_kind.ok());
++    ASSERT_EQ(updated_kind.value(), RowKind::Delete());
++}
++
+ TEST(ColumnarRowTest, TestComplexAndNestedType) {
+     auto pool = GetDefaultPool();
+     std::shared_ptr<arrow::DataType> target_type = arrow::struct_({
+diff -ruN a/src/paimon/common/logging/logging.cpp b/src/paimon/common/logging/logging.cpp
+--- a/src/paimon/common/logging/logging.cpp	2026-01-15 14:47:07.000000000 +0800
++++ b/src/paimon/common/logging/logging.cpp	2026-02-05 15:38:30.104110421 +0800
+@@ -22,8 +22,8 @@
+ #include <optional>
+ #include <shared_mutex>
+ 
+-#include "glog/log_severity.h"
+ #include "glog/logging.h"
++#include "glog/log_severity.h"
+ #include "glog/raw_logging.h"
+ 
+ namespace paimon {
+diff -ruN a/src/paimon/common/memory/bytes.cpp b/src/paimon/common/memory/bytes.cpp
+--- a/src/paimon/common/memory/bytes.cpp	2026-01-15 14:47:07.000000000 +0800
++++ b/src/paimon/common/memory/bytes.cpp	2026-02-05 15:38:30.104110421 +0800
+@@ -59,9 +59,16 @@
+     if (&other == this) {
+         return *this;
+     }
+-    this->~Bytes();
+-    std::memcpy(this, &other, sizeof(*this));
+-    new (&other) Bytes();
++    if (data_ != nullptr) {
++        assert(pool_);
++        pool_->Free(data_, size_);
++    }
++    pool_ = other.pool_;
++    data_ = other.data_;
++    size_ = other.size_;
++    other.pool_ = nullptr;
++    other.data_ = nullptr;
++    other.size_ = 0;
+     return *this;
+ }
+ 
+diff -ruN a/src/paimon/core/io/key_value_data_file_record_reader.cpp b/src/paimon/core/io/key_value_data_file_record_reader.cpp
+--- a/src/paimon/core/io/key_value_data_file_record_reader.cpp	2026-01-15 14:47:07.000000000 +0800
++++ b/src/paimon/core/io/key_value_data_file_record_reader.cpp	2026-02-05 15:38:52.173277428 +0800
+@@ -28,8 +28,7 @@
+ #include "arrow/type.h"
+ #include "arrow/util/checked_cast.h"
+ #include "fmt/format.h"
+-#include "paimon/common/data/columnar/columnar_row.h"
+-#include "paimon/common/data/internal_row.h"
++#include "paimon/common/data/columnar/columnar_row_ref.h"
+ #include "paimon/common/table/special_fields.h"
+ #include "paimon/common/types/row_kind.h"
+ #include "paimon/common/utils/arrow/status_utils.h"
+@@ -69,12 +68,11 @@
+ 
+ Result<KeyValue> KeyValueDataFileRecordReader::Iterator::Next() {
+     assert(HasNext());
+-    // as key is only used in merge sort, do not hold the data in ColumnarRow
+-    auto key = std::make_unique<ColumnarRow>(reader_->key_fields_, reader_->pool_, cursor_);
++    // as key is only used in merge sort, do not hold the data in ColumnarRowRef
++    auto key = std::make_unique<ColumnarRowRef>(reader_->key_ctx_, cursor_);
+     // as value is used in merge sort and projection (maybe async and multi-thread), hold the data
+-    // in ColumnarRow
+-    auto value = std::make_unique<ColumnarRow>(reader_->value_struct_array_, reader_->value_fields_,
+-                                               reader_->pool_, cursor_);
++    // in ColumnarRowRef
++    auto value = std::make_unique<ColumnarRowRef>(reader_->value_ctx_, cursor_);
+     PAIMON_ASSIGN_OR_RAISE(const RowKind* row_kind,
+                            RowKind::FromByteValue(reader_->row_kind_array_->Value(cursor_)));
+     int64_t sequence_number = reader_->sequence_number_array_->Value(cursor_);
+@@ -137,6 +135,8 @@
+                                       arrow::StructArray::Make(value_fields_, value_names_));
+     selection_bitmap_ = std::move(bitmap);
+     value_fields_ = value_struct_array_->fields();
++    key_ctx_ = std::make_shared<ColumnarBatchContext>(nullptr, key_fields_, pool_);
++    value_ctx_ = std::make_shared<ColumnarBatchContext>(value_struct_array_, value_fields_, pool_);
+     TraverseArray(value_struct_array_);
+     return std::make_unique<KeyValueDataFileRecordReader::Iterator>(this);
+ }
+@@ -148,6 +148,8 @@
+     value_struct_array_.reset();
+     sequence_number_array_.reset();
+     row_kind_array_.reset();
++    key_ctx_.reset();
++    value_ctx_.reset();
+ }
+ 
+ void KeyValueDataFileRecordReader::TraverseArray(const std::shared_ptr<arrow::Array>& array) {
+diff -ruN a/src/paimon/core/io/key_value_data_file_record_reader.h b/src/paimon/core/io/key_value_data_file_record_reader.h
+--- a/src/paimon/core/io/key_value_data_file_record_reader.h	2026-01-15 14:47:07.000000000 +0800
++++ b/src/paimon/core/io/key_value_data_file_record_reader.h	2026-02-05 15:38:52.173277428 +0800
+@@ -22,7 +22,6 @@
+ #include <vector>
+ 
+ #include "arrow/type_fwd.h"
+-#include "paimon/common/data/columnar/columnar_row.h"
+ #include "paimon/core/io/key_value_record_reader.h"
+ #include "paimon/core/key_value.h"
+ #include "paimon/reader/batch_reader.h"
+@@ -42,6 +41,7 @@
+ namespace paimon {
+ class MemoryPool;
+ class Metrics;
++struct ColumnarBatchContext;
+ 
+ // Convert the arrow array of data file into a KeyValue object iterator (parsing SEQUENCE_NUMBER and
+ // VALUE_KIND columns)
+@@ -95,5 +95,7 @@
+     arrow::ArrayVector value_fields_;
+     std::shared_ptr<arrow::NumericArray<arrow::Int64Type>> sequence_number_array_;
+     std::shared_ptr<arrow::NumericArray<arrow::Int8Type>> row_kind_array_;
++    std::shared_ptr<ColumnarBatchContext> key_ctx_;
++    std::shared_ptr<ColumnarBatchContext> value_ctx_;
+ };
+ }  // namespace paimon
