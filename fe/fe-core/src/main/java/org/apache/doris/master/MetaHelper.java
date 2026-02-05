@@ -148,10 +148,12 @@ public class MetaHelper {
     }
 
     public static <T> ResponseBody doGet(String url, int timeout, Class<T> clazz) throws IOException {
-        Map<String, String> headers = HttpURLUtil.getNodeIdentHeaders();
-        LOG.info("meta helper, url: {}, timeout{}, headers: {}", url, timeout, headers);
-        String response = HttpUtils.doGet(url, headers, timeout);
-        return parseResponse(response, clazz);
+        String response = HttpUtils.doGet(url, HttpURLUtil.getNodeIdentHeaders(), timeout);
+        try {
+            return parseResponse(response, clazz);
+        } catch (Exception e) {
+            throw new IOException("Failed to parse response from " + url + ". Response: " + response, e);
+        }
     }
 
     // download file from remote node
