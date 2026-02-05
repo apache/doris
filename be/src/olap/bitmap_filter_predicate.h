@@ -21,7 +21,6 @@
 
 #include "exprs/bitmapfilter_predicate.h"
 #include "olap/column_predicate.h"
-#include "olap/wrapper_field.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/predicate_column.h"
 

@@ -252,8 +252,6 @@ private:
 
     Status _parse_zone_map(const ZoneMapPB& zone_map, ZoneMapInfo& zone_map_info) const;
 
-    Status _parse_zone_map_skip_null(const ZoneMapPB& zone_map, ZoneMapInfo& zone_map_info) const;
-
     Status _get_filtered_pages(
             const AndBlockColumnPredicate* col_predicates,
             const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
@@ -746,7 +744,7 @@ public:
 
     ordinal_t get_current_ordinal() const override { return _current_rowid; }
 
-    static void insert_default_data(const TypeInfo* type_info, size_t type_size, void* mem_value,
+    static void insert_default_data(const vectorized::Field& field,
                                     vectorized::MutableColumnPtr& dst, size_t n);
 
 private:
@@ -756,11 +754,9 @@ private:
     std::string _default_value;
     bool _is_nullable;
     TypeInfoPtr _type_info;
-    bool _is_default_value_null {false};
-    size_t _type_size {0};
     int _precision;
     int _scale;
-    std::vector<char> _mem_value;
+    vectorized::Field _default_value_field;
 
     // current rowid
     ordinal_t _current_rowid = 0;

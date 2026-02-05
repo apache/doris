@@ -455,8 +455,8 @@ Status DataTypeStringSerDeBase<ColumnType>::from_string(StringRef& str, IColumn&
 }
 
 template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::from_string(const std::string& str, Field& field,
-                                                        const FormatOptions& options) const {
+Status DataTypeStringSerDeBase<ColumnType>::from_olap_string(const std::string& str, Field& field,
+                                                             const FormatOptions& options) const {
     field = Field::create_field<TYPE_STRING>(str);
     return Status::OK();
 }

@@ -397,8 +397,8 @@ Status DataTypeDateSerDe<T>::from_string(StringRef& str, IColumn& column,
 }
 
 template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::from_string(const std::string& str, Field& field,
-                                         const FormatOptions& options) const {
+Status DataTypeDateSerDe<T>::from_olap_string(const std::string& str, Field& field,
+                                              const FormatOptions& options) const {
     CastParameters params {.status = Status::OK(), .is_strict = false};
 
     CppType res;

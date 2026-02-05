@@ -126,14 +126,16 @@ Status DataTypeDecimalSerDe<T>::from_string(StringRef& str, IColumn& column,
 }
 
 template <PrimitiveType T>
-Status DataTypeDecimalSerDe<T>::from_string(const std::string& str, Field& field,
-                                            const FormatOptions& options) const {
+Status DataTypeDecimalSerDe<T>::from_olap_string(const std::string& str, Field& field,
+                                                 const FormatOptions& options) const {
     FieldType to;
     CastParameters params;
     params.is_strict = false;
 
     auto arg_precision = static_cast<UInt32>(precision);
 
+    // Decimal string in storage is saved as an integer. The scale is maintained by data type, so we
+    // can just parse the string as an integer here.
     if (!CastToDecimal::from_string(StringRef(str), to, arg_precision, 0, params)) {
         return Status::InvalidArgument("parse Decimal fail, string: '{}'", str);
     }
