@@ -20,7 +20,7 @@ package org.apache.doris.httpv2.meta;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
@@ -163,8 +163,7 @@ public class MetaService extends RestBaseController {
                 clientHost, clientPort, machine, portStr);
 
         clientHost = Strings.isNullOrEmpty(clientHost) ? machine : clientHost;
-        String url = "http://" + NetUtils.getHostPortInAccessibleFormat(clientHost, Integer.valueOf(portStr))
-                + "/image?version=" + versionStr;
+        String url = HttpURLUtil.buildInternalFeUrl(clientHost, "/image", "version=" + versionStr);
 
         String filename = Storage.IMAGE + "." + versionStr;
         File dir = new File(Env.getCurrentEnv().getImageDir());
