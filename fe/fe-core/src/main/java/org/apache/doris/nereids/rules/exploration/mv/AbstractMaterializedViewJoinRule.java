@@ -51,7 +51,6 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
                 queryStructInfo.getTopPlan(),
                 materializationContext.getShuttledExprToScanExprMapping(),
                 targetToSourceMapping,
-                queryStructInfo.getTableBitSet(),
                 ImmutableMap.of(), cascadesContext
         );
         // Can not rewrite, bail out
@@ -81,6 +80,8 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
     protected boolean checkQueryPattern(StructInfo structInfo, CascadesContext cascadesContext) {
         PlanCheckContext checkContext = PlanCheckContext.of(SUPPORTED_JOIN_TYPE_SET);
         return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext)
-                && !checkContext.isContainsTopAggregate();
+                && !checkContext.isContainsTopAggregate()
+                && !checkContext.isContainsTopLimit() && !checkContext.isContainsTopTopN()
+                && !checkContext.isContainsTopWindow();
     }
 }

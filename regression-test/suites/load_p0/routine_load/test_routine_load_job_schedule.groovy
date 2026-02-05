@@ -38,7 +38,6 @@ suite("test_routine_load_job_schedule","nonConcurrent") {
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
         def producer = new KafkaProducer<>(props)
         def adminClient = AdminClient.create(props)
-        def newTopic = new NewTopic(kafkaCsvTpoics[0], 5, (short)1)
         def testData = [
             "1,test_data_1,2023-01-01,value1,2023-01-01 10:00:00,extra1",
             "2,test_data_2,2023-01-02,value2,2023-01-02 11:00:00,extra2",
@@ -46,13 +45,11 @@ suite("test_routine_load_job_schedule","nonConcurrent") {
             "4,test_data_4,2023-01-04,value4,2023-01-04 13:00:00,extra4",
             "5,test_data_5,2023-01-05,value5,2023-01-05 14:00:00,extra5"
         ]
-        adminClient.createTopics(Collections.singletonList(newTopic))
-        testData.eachWithIndex { line, index ->
+        testData.each { line->
             logger.info("Sending data to kafka: ${line}")
-            def record = new ProducerRecord<>(newTopic.name(), index, null, line)
+            def record = new ProducerRecord<>(kafkaCsvTpoics[0], null, line)
             producer.send(record)
         }
-        producer.close()
 
         def tableName = "test_routine_load_job_schedule"
         def job = "test_routine_load_job_schedule"
@@ -110,6 +107,61 @@ suite("test_routine_load_job_schedule","nonConcurrent") {
             GetDebugPoint().disableDebugPointForAllBEs("FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED")
             try {
                 sql "stop routine load for ${job}"
+            } catch (Exception e) {
+                logger.warn("Failed to stop routine load job: ${e.message}")
+            }
+        }
+
+        sql "truncate table ${tableName}"
+        def memJob = "test_routine_load_job_schedule_mem_limit"
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs("FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED.MEM_LIMIT_EXCEEDED")
+            testData.each { line->
+                logger.info("Sending data to kafka: ${line}")
+                def record = new ProducerRecord<>(kafkaCsvTpoics[0], null, line)
+                producer.send(record)
+            }
+
+            sql """
+                CREATE ROUTINE LOAD ${memJob} ON ${tableName}
+                COLUMNS TERMINATED BY ","
+                FROM KAFKA
+                (
+                    "kafka_broker_list" = "${kafka_broker}",
+                    "kafka_topic" = "${newTopic.name()}",
+                    "property.kafka_default_offsets" = "OFFSET_BEGINNING",
+                    "max_batch_interval" = "6"
+                );
+            """
+
+            sleep(5000)
+
+            GetDebugPoint().disableDebugPointForAllBEs("FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED.MEM_LIMIT_EXCEEDED")
+
+            def count = 0
+            def maxWaitCount = 120 // > 60 = maxBatchIntervalS * Config.routine_load_task_timeout_multiplier
+            while (true) {
+                def state = sql "show routine load for ${memJob}"
+                def routineLoadState = state[0][8].toString()
+                def statistic = state[0][14].toString()
+                logger.info("Routine load state: ${routineLoadState}")
+                logger.info("Routine load statistic: ${statistic}")
+                def rowCount = sql "select count(*) from ${memTableName}"
+                if (routineLoadState == "RUNNING" && rowCount[0][0] == 5) {
+                    break
+                }
+                if (count > maxWaitCount) {
+                    assertEquals(1, 2)
+                }
+                sleep(1000)
+                count++
+            }
+        } catch (Exception e) {
+            logger.error("MEM_LIMIT_EXCEEDED test failed with exception: ${e.message}")
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED.MEM_LIMIT_EXCEEDED")
+            try {
+                sql "stop routine load for test_routine_load_job_schedule_mem_limit"
             } catch (Exception e) {
                 logger.warn("Failed to stop routine load job: ${e.message}")
             }

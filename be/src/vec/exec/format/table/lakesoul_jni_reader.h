@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// DEPRECATED: LakeSoul catalog support has been deprecated and will be removed in a future version.
+// This file is kept for backward compatibility but should not be used in new code.
+
 #pragma once
 
 #include <string>
@@ -48,8 +51,7 @@ public:
 
     ~LakeSoulJniReader() override = default;
 
-    Status init_reader(
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    Status init_reader();
 
 private:
     const TLakeSoulFileDesc& _lakesoul_params;

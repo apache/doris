@@ -144,11 +144,10 @@ public:
 
     // ADD_SEGMENT
     Status add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                       int32_t segment_id, const SegmentStatistics& segment_stat,
-                       TabletSchemaSPtr flush_schema);
+                       int32_t segment_id, const SegmentStatistics& segment_stat);
 
     // CLOSE_LOAD
-    Status close_load(const std::vector<PTabletID>& tablets_to_commit);
+    Status close_load(const std::vector<PTabletID>& tablets_to_commit, int num_incremental_streams);
 
     // GET_SCHEMA
     Status get_schema(const std::vector<PTabletID>& tablets);
@@ -237,6 +236,14 @@ public:
                                  _cancel_st.to_string_no_stack());
     }
 
+    int64_t get_and_reset_load_back_pressure_version_wait_time_ms() {
+        return _load_back_pressure_version_wait_time_ms.exchange(0);
+    }
+
+    void _refresh_back_pressure_version_wait_time(
+            const ::google::protobuf::RepeatedPtrField<::doris::PTabletLoadRowsetInfo>&
+                    tablet_load_infos);
+
 private:
     Status _encode_and_send(PStreamHeader& header, std::span<const Slice> data = {});
     Status _send_with_buffer(butil::IOBuf& buf, bool sync = false);
@@ -279,6 +286,8 @@ protected:
 
     bthread::Mutex _write_mutex;
     size_t _bytes_written = 0;
+
+    std::atomic<int64_t> _load_back_pressure_version_wait_time_ms {0};
 };
 
 // a collection of LoadStreams connect to the same node
@@ -321,7 +330,7 @@ public:
         }
     }
 
-    Status close_load(const std::vector<PTabletID>& tablets_to_commit);
+    Status close_load(const std::vector<PTabletID>& tablets_to_commit, int num_incremental_streams);
 
     std::unordered_set<int64_t> success_tablets() {
         std::unordered_set<int64_t> s;

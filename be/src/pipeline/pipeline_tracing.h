@@ -23,8 +23,10 @@
 #include <parallel_hashmap/phmap.h>
 
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 
+#include "common/atomic_shared_ptr.h"
 #include "common/config.h"
 #include "util/hash_util.hpp" // IWYU pragma: keep
 #include "util/thrift_util.h"
@@ -83,9 +85,18 @@ private:
     void _dump_timeslice();
     void _update(std::function<void(QueryTracesMap&)>&& handler);
 
-    std::filesystem::path _log_dir = fmt::format("{}/pipe_tracing", getenv("LOG_DIR"));
+    std::filesystem::path _log_dir = []() {
+        const char* env_log_dir = std::getenv("LOG_DIR");
+        if (env_log_dir != nullptr && env_log_dir[0] != '\0') {
+            return std::filesystem::path(fmt::format("{}/pipe_tracing", env_log_dir));
+        }
+        if (!config::sys_log_dir.empty()) {
+            return std::filesystem::path(fmt::format("{}/pipe_tracing", config::sys_log_dir));
+        }
+        return std::filesystem::path("pipe_tracing");
+    }();
 
-    std::shared_ptr<QueryTracesMap> _data;
+    atomic_shared_ptr<QueryTracesMap> _data;
     std::mutex _tg_lock; //TODO: use an lockfree DS
     phmap::flat_hash_map<TUniqueId, uint64_t>
             _id_to_workload_group; // save query's workload group number

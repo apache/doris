@@ -38,7 +38,28 @@ suite("test_is_ip_string_functions") {
     sql "insert into test_is_ip_string values(4, '255.255.255.255', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffffg')"
 
     qt_sql1 "select is_ipv4_string(ip_v4) from test_is_ip_string order by id"
-    qt_sql2 "select is_ipv6_string(ip_v6) from test_is_ip_string order by id"
+    qt_sql2 "select is_ipv4(ip_v4) from test_is_ip_string order by id"
+    qt_sql3 "select is_ipv6_string(ip_v6) from test_is_ip_string order by id"
+    qt_sql4 "select is_ipv6(ip_v6) from test_is_ip_string order by id"
+
+    // Compatibility test with MySQL.
+    qt_sql5 "select is_ipv4(NULL)"
+    qt_sql6 "select is_ipv4(1)"
+    qt_sql7 "select is_ipv4(1.0)"
+    qt_sql8 "select is_ipv4('1.2.3.4')"
+    qt_sql9 "select is_ipv4('001.02.000.255')"
+    qt_sql10 "select is_ipv4('::1.2.0.255')"
+    qt_sql11 "select is_ipv4('::1')"
+
+    qt_sql12 "select is_ipv6(NULL)"
+    qt_sql13 "select is_ipv6(1)"
+    qt_sql14 "select is_ipv6(1.0)"
+    qt_sql15 "select is_ipv6('1.2.3.4')"
+    qt_sql16 "select is_ipv6('001.02.000.255')"
+    qt_sql17 "select is_ipv6('::001.02.000.255')"
+    qt_sql18 "select is_ipv6('::1.2.0.255')"
+    qt_sql19 "select is_ipv6('::1')"
+    qt_sql20 "select is_ipv6('0000:0000:0000:0000:0000:0000:0000:0001')"
 
     sql "DROP TABLE test_is_ip_string"
 }

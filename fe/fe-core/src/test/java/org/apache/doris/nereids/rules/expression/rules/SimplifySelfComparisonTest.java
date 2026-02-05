@@ -43,7 +43,7 @@ class SimplifySelfComparisonTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("USER() = USER()", "TRUE");
         assertRewriteAfterTypeCoercion("CURRENT_TIMESTAMP() = CURRENT_TIMESTAMP()", "TRUE");
 
-        // not foldable, not cast
+        // non-foldable expressions are distinct, the two random will not equals
         assertRewriteAfterTypeCoercion("random(5, 10) = random(5, 10)", "random(5, 10) = random(5, 10)");
         assertRewriteAfterTypeCoercion("random(5, 10) + 100 = random(5, 10) + 100", "random(5, 10) + 100 = random(5, 10) + 100");
     }

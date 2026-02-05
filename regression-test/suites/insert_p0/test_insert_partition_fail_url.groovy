@@ -84,7 +84,7 @@ suite("test_insert_partition_fail_url") {
         sql """
             INSERT INTO ${dstName} SELECT `id`, `score` FROM ${srcName};
         """
-    }, "error_log")
+    }, "error_log", "first_error_msg")
 
     sql """
         INSERT INTO ${srcName} SELECT * FROM ${srcName};
@@ -94,5 +94,5 @@ suite("test_insert_partition_fail_url") {
         sql """
             INSERT INTO ${dstName} SELECT `id`, `score` FROM ${srcName};
         """
-    }, "error_log")
+    }, "error_log", "first_error_msg")
 }

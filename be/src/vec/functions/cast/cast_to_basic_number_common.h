@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
@@ -42,23 +43,54 @@ static inline constexpr const char* int_type_name = std::is_same_v<CppT, vectori
                                                                                        : "unknown";
 
 template <typename CppT>
-constexpr bool IsCppTypeInt =
-        std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_TINYINT>::ColumnItemType> ||
-        std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_SMALLINT>::ColumnItemType> ||
-        std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_INT>::ColumnItemType> ||
-        std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_BIGINT>::ColumnItemType> ||
-        std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_LARGEINT>::ColumnItemType>;
+constexpr bool IsCppTypeInt = std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_TINYINT>::CppType> ||
+                              std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_SMALLINT>::CppType> ||
+                              std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_INT>::CppType> ||
+                              std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_BIGINT>::CppType> ||
+                              std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_LARGEINT>::CppType>;
 
 template <typename CppT>
-constexpr bool IsCppTypeFloat =
-        std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_FLOAT>::ColumnItemType> ||
-        std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_DOUBLE>::ColumnItemType>;
+constexpr bool IsCppTypeFloat = std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_FLOAT>::CppType> ||
+                                std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_DOUBLE>::CppType>;
 
 template <typename CppT>
 constexpr bool IsCppTypeNumberOrTime =
-        std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnItemType> ||
-        IsCppTypeInt<CppT> || IsCppTypeFloat<CppT> ||
-        std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_TIMEV2>::ColumnItemType>;
+        std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType> || IsCppTypeInt<CppT> ||
+        IsCppTypeFloat<CppT> || std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_TIMEV2>::CppType>;
+
+template <typename T, typename FloatingType>
+    requires(IsCppTypeInt<T> and IsCppTypeFloat<FloatingType>)
+struct ValidFloatingRange {};
+
+template <typename FloatingType>
+struct ValidFloatingRange<int8_t, FloatingType> {
+    static constexpr FloatingType UPPER = 0x1p7;
+    static constexpr FloatingType LOWER = -0x1p7;
+};
+
+template <typename FloatingType>
+struct ValidFloatingRange<int16_t, FloatingType> {
+    static constexpr FloatingType UPPER = 0x1p15;
+    static constexpr FloatingType LOWER = -0x1p15;
+};
+
+template <typename FloatingType>
+struct ValidFloatingRange<int32_t, FloatingType> {
+    static constexpr FloatingType UPPER = 0x1p31;
+    static constexpr FloatingType LOWER = -0x1p31;
+};
+
+template <typename FloatingType>
+struct ValidFloatingRange<int64_t, FloatingType> {
+    static constexpr FloatingType UPPER = 0x1p63;
+    static constexpr FloatingType LOWER = -0x1p63;
+};
+
+template <typename FloatingType>
+struct ValidFloatingRange<int128_t, FloatingType> {
+    static constexpr FloatingType UPPER = 0x1p127;
+    static constexpr FloatingType LOWER = -0x1p127;
+};
 
 // cast to int, may overflow if:
 // 1. from wider int to narrower int
@@ -70,10 +102,10 @@ constexpr bool CastToIntFromWiderInt = IsCppTypeInt<FromCppT> && IsCppTypeInt<To
 
 template <typename FromCppT, typename ToCppT>
 constexpr bool CastToIntFromTimeMayOverflow =
-        std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_TIMEV2>::ColumnItemType> &&
-        (std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_INT>::ColumnItemType> ||
-         std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_SMALLINT>::ColumnItemType> ||
-         std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_TINYINT>::ColumnItemType>);
+        std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_TIMEV2>::CppType> &&
+        (std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_INT>::CppType> ||
+         std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_SMALLINT>::CppType> ||
+         std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_TINYINT>::CppType>);
 
 template <typename FromCppT, typename ToCppT>
 constexpr bool CastToIntCppTypeMayOverflow =
@@ -82,14 +114,14 @@ constexpr bool CastToIntCppTypeMayOverflow =
 
 template <typename CppT>
 constexpr static bool IntAllowCastFromDate =
-        std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_INT>::ColumnItemType> ||
-        std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_BIGINT>::ColumnItemType> ||
-        std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_LARGEINT>::ColumnItemType>;
+        std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_INT>::CppType> ||
+        std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_BIGINT>::CppType> ||
+        std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_LARGEINT>::CppType>;
 
 template <typename CppT>
 constexpr static bool IntAllowCastFromDatetime =
-        std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_BIGINT>::ColumnItemType> ||
-        std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_LARGEINT>::ColumnItemType>;
+        std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_BIGINT>::CppType> ||
+        std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_LARGEINT>::CppType>;
 
 template <typename CppT>
 constexpr bool IsCppTypeDate = std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_DATE>::CppType> ||
@@ -100,23 +132,16 @@ constexpr bool IsCppTypeDateTime =
         std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_DATETIME>::CppType> ||
         std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType>;
 struct CastToInt {
-    template <typename ToCppT>
+    template <bool is_strict_mode, typename ToCppT>
         requires(IsCppTypeInt<ToCppT>)
     static inline bool from_string(const StringRef& from, ToCppT& to, CastParameters& params) {
-        return std::visit(
-                [&](auto is_strict_mode) {
-                    if constexpr (is_strict_mode) {
-                        return try_read_int_text<ToCppT, true>(to, from);
-                    } else {
-                        return try_read_int_text<ToCppT, false>(to, from);
-                    }
-                },
-                vectorized::make_bool_variant(params.is_strict));
+        return try_read_int_text<ToCppT, is_strict_mode>(to, from);
     }
 
     template <typename FromCppT, typename ToCppT>
         requires(IsCppTypeInt<ToCppT> &&
-                 std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnItemType>)
+                 (std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType> ||
+                  std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType>))
     static inline bool from_bool(FromCppT from, ToCppT& to, CastParameters& params) {
         CastUtil::static_cast_set(to, from);
         return true;
@@ -132,7 +157,7 @@ struct CastToInt {
         if (from < min_to_value || from > max_to_value) {
             // overflow
             if (params.is_strict) {
-                params.status = Status::InternalError(fmt::format(
+                params.status = Status::InvalidArgument(fmt::format(
                         "Value {} out of range for type {}", from, int_type_name<ToCppT>));
             }
             return false;
@@ -154,20 +179,19 @@ struct CastToInt {
     template <typename FromCppT, typename ToCppT>
         requires(IsCppTypeInt<ToCppT> && IsCppTypeFloat<FromCppT>)
     static inline bool from_float(FromCppT from, ToCppT& to, CastParameters& params) {
-        constexpr auto min_to_value = std::numeric_limits<ToCppT>::min();
-        constexpr auto max_to_value = std::numeric_limits<ToCppT>::max();
         if (std::isinf(from) || std::isnan(from)) {
             if (params.is_strict) {
-                params.status = Status::InternalError(fmt::format(
+                params.status = Status::InvalidArgument(fmt::format(
                         "Value {} out of range for type {}", from, int_type_name<ToCppT>));
             }
             return false;
         }
         auto truncated_value = std::trunc(from);
-        if (truncated_value < min_to_value || truncated_value > static_cast<double>(max_to_value)) {
+        if (truncated_value < ValidFloatingRange<ToCppT, FromCppT>::LOWER ||
+            truncated_value >= ValidFloatingRange<ToCppT, FromCppT>::UPPER) {
             // overflow
             if (params.is_strict) {
-                params.status = Status::InternalError(fmt::format(
+                params.status = Status::InvalidArgument(fmt::format(
                         "Value {} out of range for type {}", from, int_type_name<ToCppT>));
             }
             return false;
@@ -181,11 +205,44 @@ struct CastToInt {
         requires(IsCppTypeInt<ToCppT> && IsDecimalNumber<FromCppT>)
     static inline bool from_decimal(FromCppT from, UInt32 from_precision, UInt32 from_scale,
                                     ToCppT& to, CastParameters& params) {
-        constexpr UInt32 to_max_digits = NumberTraits::max_ascii_len<ToCppT>();
-        bool narrow_integral = (from_precision - from_scale) >= to_max_digits;
-
         typename FromCppT::NativeType scale_multiplier =
                 DataTypeDecimal<FromCppT::PType>::get_scale_multiplier(from_scale);
+        constexpr UInt32 to_max_digits = NumberTraits::max_ascii_len<ToCppT>();
+        bool narrow_integral = (from_precision - from_scale) >= to_max_digits;
+        return _from_decimal(from, from_precision, from_scale, to, scale_multiplier,
+                             narrow_integral, params);
+    }
+
+    template <typename FromCppT, typename ToCppT>
+        requires(IsCppTypeInt<ToCppT> && IsDecimalV2<FromCppT>)
+    static inline bool _from_decimal(FromCppT from, UInt32 from_precision, UInt32 from_scale,
+                                     ToCppT& to,
+                                     const typename FromCppT::NativeType& scale_multiplier,
+                                     bool narrow_integral, CastParameters& params) {
+        constexpr auto min_result = std::numeric_limits<ToCppT>::lowest();
+        constexpr auto max_result = std::numeric_limits<ToCppT>::max();
+        auto tmp = from.value() / scale_multiplier;
+        if (narrow_integral) {
+            if (tmp < min_result || tmp > max_result) {
+                params.status = Status::Error(
+                        ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                        fmt::format("Arithmetic overflow when converting "
+                                    "value {} from type {} to type {}",
+                                    decimal_to_string(from.value(), from_scale),
+                                    type_to_string(FromCppT::PType), int_type_name<ToCppT>));
+                return false;
+            }
+        }
+        to = static_cast<ToCppT>(tmp);
+        return true;
+    }
+
+    template <typename FromCppT, typename ToCppT>
+        requires(IsCppTypeInt<ToCppT> && IsDecimalNumber<FromCppT> && !IsDecimal128V2<FromCppT>)
+    static inline bool _from_decimal(FromCppT from, UInt32 from_precision, UInt32 from_scale,
+                                     ToCppT& to,
+                                     const typename FromCppT::NativeType& scale_multiplier,
+                                     bool narrow_integral, CastParameters& params) {
         constexpr auto min_result = std::numeric_limits<ToCppT>::lowest();
         constexpr auto max_result = std::numeric_limits<ToCppT>::max();
         auto tmp = from.value / scale_multiplier;
@@ -233,7 +290,7 @@ struct CastToInt {
         if (from < min_to_value || from > max_to_value) {
             // overflow
             if (params.is_strict) {
-                params.status = Status::InternalError(fmt::format(
+                params.status = Status::InvalidArgument(fmt::format(
                         "Value {} out of range for type {}", from, int_type_name<ToCppT>));
             }
             return false;
@@ -251,7 +308,8 @@ struct CastToFloat {
     }
     template <typename FromCppT, typename ToCppT>
         requires(IsCppTypeFloat<ToCppT> &&
-                 std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnItemType>)
+                 (std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType> ||
+                  std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType>))
     static inline bool from_bool(const FromCppT& from, ToCppT& to, CastParameters& params) {
         CastUtil::static_cast_set(to, from);
         return true;
@@ -274,17 +332,29 @@ struct CastToFloat {
                                     CastParameters& params) {
         if constexpr (IsDecimalV2<FromCppT>) {
             to = binary_cast<int128_t, DecimalV2Value>(from);
+            return true;
         } else {
             typename FromCppT::NativeType scale_multiplier =
                     DataTypeDecimal<FromCppT::PType>::get_scale_multiplier(from_scale);
-            if constexpr (IsDecimal256<FromCppT>) {
-                to = static_cast<ToCppT>(static_cast<long double>(from.value) /
-                                         static_cast<long double>(scale_multiplier));
-            } else {
-                to = static_cast<ToCppT>(static_cast<double>(from.value) /
-                                         static_cast<double>(scale_multiplier));
-            }
+            return _from_decimalv3(from, from_scale, to, scale_multiplier, params);
         }
+    }
+    template <typename FromCppT, typename ToCppT>
+        requires(IsCppTypeFloat<ToCppT> && IsDecimalNumber<FromCppT> && !IsDecimalV2<FromCppT>)
+    static inline bool _from_decimalv3(const FromCppT& from, UInt32 from_scale, ToCppT& to,
+                                       const typename FromCppT::NativeType& scale_multiplier,
+                                       CastParameters& params) {
+        to = static_cast<ToCppT>(static_cast<double>(from.value) /
+                                 static_cast<double>(scale_multiplier));
+        return true;
+    }
+    template <typename FromCppT, typename ToCppT>
+        requires(IsCppTypeFloat<ToCppT> && IsDecimalV2<FromCppT>)
+    static inline bool _from_decimalv3(const FromCppT& from, UInt32 from_scale, ToCppT& to,
+                                       const typename FromCppT::NativeType& scale_multiplier,
+                                       CastParameters& params) {
+        to = static_cast<ToCppT>(static_cast<double>(from.value()) /
+                                 static_cast<double>(scale_multiplier));
         return true;
     }
     // cast from date and datetime to float/double, will not overflow
@@ -397,30 +467,27 @@ class CastToImpl<Mode, DataTypeString, ToDataType> : public CastToBase {
                 block.get_by_position(arguments[0]).column.get());
         auto to_type = block.get_by_position(result).type;
         auto serde = remove_nullable(to_type)->get_serde();
-        MutableColumnPtr column_to;
+
+        // by default framework, to_type is already unwrapped nullable
+        MutableColumnPtr column_to = to_type->create_column();
+        ColumnNullable::MutablePtr nullable_col_to = ColumnNullable::create(
+                std::move(column_to), ColumnUInt8::create(input_rows_count, 0));
 
         DataTypeSerDe::FormatOptions format_options;
         format_options.converted_from_string = true;
 
         if constexpr (Mode == CastModeType::NonStrictMode) {
-            auto to_nullable_type = make_nullable(to_type);
-            column_to = to_nullable_type->create_column();
-            auto& nullable_col_to = assert_cast<ColumnNullable&>(*column_to);
-            RETURN_IF_ERROR(serde->from_string_batch(*col_from, nullable_col_to, format_options));
+            // may write nulls to nullable_col_to
+            RETURN_IF_ERROR(serde->from_string_batch(*col_from, *nullable_col_to, format_options));
         } else if constexpr (Mode == CastModeType::StrictMode) {
-            if (to_type->is_nullable()) {
-                return Status::InternalError(
-                        "result type should be not nullable when casting string to number in "
-                        "strict cast mode");
-            }
-            column_to = to_type->create_column();
-            RETURN_IF_ERROR(serde->from_string_strict_mode_batch(*col_from, *column_to,
-                                                                 format_options, null_map));
+            // WON'T write nulls to nullable_col_to, just raise errors. null_map is only used to skip invalid rows
+            RETURN_IF_ERROR(serde->from_string_strict_mode_batch(
+                    *col_from, nullable_col_to->get_nested_column(), format_options, null_map));
         } else {
             return Status::InternalError("Unsupported cast mode");
         }
 
-        block.get_by_position(result).column = std::move(column_to);
+        block.get_by_position(result).column = std::move(nullable_col_to);
         return Status::OK();
     }
 };

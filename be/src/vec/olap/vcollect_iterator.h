@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/iterators.h"
 #include "olap/rowset/rowset_reader_context.h"
 #include "olap/utils.h"
 #ifdef USE_LIBCPP
@@ -249,9 +250,16 @@ private:
 
         Status _refresh() {
             if (_get_data_by_ref) {
-                return _rs_reader->next_block_view(&_block_view);
+                return _rs_reader->next_batch(&_block_view);
             } else {
-                return _rs_reader->next_block(_block.get());
+                if (_is_merge_iterator) {
+                    _row_is_same.clear();
+                    BlockWithSameBit block_with_same_bit {.block = _block.get(),
+                                                          .same_bit = _row_is_same};
+                    return _rs_reader->next_batch(&block_with_same_bit);
+                } else {
+                    return _rs_reader->next_batch(_block.get());
+                }
             }
         }
 
@@ -262,6 +270,8 @@ private:
         int _current;
         BlockView _block_view;
         std::vector<RowLocation> _block_row_locations;
+        std::vector<bool> _row_is_same;
+        bool _is_merge_iterator = false;
         bool _get_data_by_ref = false;
     };
 

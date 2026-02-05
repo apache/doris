@@ -23,6 +23,7 @@
 #include "operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class ExecNode;
 class RuntimeState;
 
@@ -42,6 +43,8 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
+    bool is_blockable() const override;
+
     Status setup_in_memory_sort_op(RuntimeState* state);
 
     Status initiate_merge_sort_spill_streams(RuntimeState* state);
@@ -50,6 +53,9 @@ protected:
     int _calc_spill_blocks_to_merge(RuntimeState* state) const;
     Status _create_intermediate_merger(int num_blocks,
                                        const vectorized::SortDescription& sort_description);
+
+    Status _execute_merge_sort_spill_streams(RuntimeState* state, TUniqueId query_id);
+
     friend class SpillSortSourceOperatorX;
     std::unique_ptr<RuntimeState> _runtime_state;
 
@@ -85,4 +91,5 @@ private:
     std::unique_ptr<SortSourceOperatorX> _sort_source_operator;
 };
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

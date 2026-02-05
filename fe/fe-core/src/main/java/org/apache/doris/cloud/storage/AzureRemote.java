@@ -17,8 +17,10 @@
 
 package org.apache.doris.cloud.storage;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.datasource.property.constants.AzureProperties;
+import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.property.storage.AzureProperties;
 
 import com.azure.core.credential.AccessToken;
 import com.azure.core.credential.TokenCredential;
@@ -37,8 +39,11 @@ import com.azure.storage.blob.batch.BlobBatchClientBuilder;
 import com.azure.storage.blob.models.BlobItem;
 import com.azure.storage.blob.models.BlobProperties;
 import com.azure.storage.blob.models.BlobStorageException;
+import com.azure.storage.blob.models.BlockBlobItem;
 import com.azure.storage.blob.models.ListBlobsOptions;
+import com.azure.storage.blob.models.ParallelTransferOptions;
 import com.azure.storage.blob.models.UserDelegationKey;
+import com.azure.storage.blob.options.BlobUploadFromFileOptions;
 import com.azure.storage.blob.sas.BlobContainerSasPermission;
 import com.azure.storage.blob.sas.BlobSasPermission;
 import com.azure.storage.blob.sas.BlobServiceSasSignatureValues;
@@ -51,9 +56,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import reactor.core.publisher.Mono;
 
+import java.io.File;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 
 public class AzureRemote extends RemoteBase {
 
@@ -186,6 +194,80 @@ public class AzureRemote extends RemoteBase {
         } catch (BlobStorageException e) {
             LOG.warn("Failed to delete objects for Azure", e);
             throw new DdlException("Failed to delete objects for Azure, Error message=" + e.getMessage());
+        }
+    }
+
+    @Override
+    public void putObject(File file, String key) throws DdlException {
+        initClient();
+        try {
+            BlobClient blobClient = client.getBlobClient(key);
+            blobClient.uploadFromFile(file.getAbsolutePath());
+        } catch (BlobStorageException e) {
+            LOG.warn("Failed to put object for Azure", e);
+            throw new DdlException("Failed to put object for Azure, Error message=" + e.getMessage());
+        }
+    }
+
+    @Override
+    public void multipartUploadObject(File file, String key, Function<String, Pair<Boolean, String>> function)
+            throws DdlException {
+        long fileSize = file.length();
+        if (fileSize <= Config.multi_part_upload_part_size_in_bytes) {
+            putObject(file, key);
+            return;
+        }
+
+        if (function != null) {
+            Pair<Boolean, String> result = function.apply("azure");
+            if (!result.first) {
+                LOG.warn("Failed to multipart upload object, file: {}, key: {}, reason: {}",
+                        file.getAbsolutePath(), key, result.second == null ? "" : result.second);
+                throw new DdlException("Failed to multi part upload object, reason: "
+                        + (result.second == null ? "" : result.second));
+            }
+        }
+
+        long start = System.currentTimeMillis();
+        initClient();
+        // https://docs.azure.cn/zh-cn/storage/blobs/storage-blob-upload-java
+        // https://learn.microsoft.com/en-us/rest/api/storageservices/understanding-block-blobs--append-blobs--and-page-blobs
+        ParallelTransferOptions parallelTransferOptions = new ParallelTransferOptions()
+                .setBlockSizeLong(Config.multi_part_upload_part_size_in_bytes)
+                .setMaxConcurrency(Config.multi_part_upload_pool_size)
+                .setMaxSingleUploadSizeLong(Config.multi_part_upload_part_size_in_bytes);
+        BlobUploadFromFileOptions options = new BlobUploadFromFileOptions(file.getAbsolutePath());
+        options.setParallelTransferOptions(parallelTransferOptions);
+        try {
+            BlobClient blobClient = client.getBlobClient(key);
+            Response<BlockBlobItem> blockBlob = blobClient.uploadFromFileWithResponse(options,
+                    Duration.ofSeconds(Config.multi_part_upload_max_seconds), null);
+            LOG.info("Finish multipart upload file: {}, size: {}, key: {}, etag: {}, cost {} ms",
+                    file.getAbsolutePath(), fileSize, key, blockBlob.getValue().getETag(),
+                    System.currentTimeMillis() - start);
+        } catch (Exception e) {
+            LOG.warn("Failed to put object for Azure", e);
+            try {
+                // delete uncommitted blobs
+                // https://learn.microsoft.com/en-us/rest/api/storageservices/delete-blob?tabs=microsoft-entra-id#remarks
+                BlobClient blobClient = client.getBlobClient(key);
+                blobClient.deleteIfExists();
+            } catch (Exception ex) {
+                LOG.warn("Failed to delete object after multipart upload failed, key={}", key, ex);
+            }
+            throw new DdlException("Failed to put object for Azure, Error message=" + e.getMessage());
+        }
+    }
+
+    @Override
+    public void getObject(String key, String file) throws DdlException {
+        initClient();
+        try {
+            BlobClient blobClient = client.getBlobClient(key);
+            blobClient.downloadToFile(file);
+        } catch (BlobStorageException e) {
+            LOG.warn("Failed to get object for Azure", e);
+            throw new DdlException("Failed to get object for Azure, Error message=" + e.getMessage());
         }
     }
 

@@ -36,6 +36,7 @@ Usage: $0 <shell_options> <framework_options>
      -s                                run a specified suite
      -g                                run a specified group
      -d                                run a specified directory
+     -f                                run a specified file (only when the file name equals the suite name; will be converted to -d and -s automatically)
      -h                                **print all framework options usage**
      -xs                               exclude the specified suite
      -xg                               exclude the specified group
@@ -51,18 +52,20 @@ Usage: $0 <shell_options> <framework_options>
      -times                            rum tests {times} times
 
   Eg.
-    $0                                        build regression test framework and run all suite which in default group
-    $0 --run test_select                      run a suite which named as test_select
-    $0 --compile                              only compile regression framework
-    $0 --run -s test_select                   run a suite which named as test_select
-    $0 --run test_select -genOut              generate output file for test_select if not exist
-    $0 --run -g default                       run all suite in the group which named as default
-    $0 --run -d demo,correctness/tmp          run all suite in the directories which named as demo and correctness/tmp
-    $0 --run -d regression-test/suites/demo   specify the suite directories path from repo root
-    $0 --clean                                clean output of regression test framework
-    $0 --clean --run test_select              clean output and build regression test framework and run a suite which named as test_select
-    $0 --run -h                               print framework options
-    $0 --teamcity --run test_select           print teamcity service messages and build regression test framework and run test_select
+    $0                                                                       build regression test framework and run all suite which in default group
+    $0 --run test_select                                                     run a suite which named as test_select
+    $0 --compile                                                             only compile regression framework
+    $0 --run -s test_select                                                  run a suite which named as test_select
+    $0 --run test_select -genOut                                             generate output file for test_select if not exist
+    $0 --run -g default                                                      run all suite in the group which named as default
+    $0 --run -d demo,correctness/tmp                                         run all suite in the directories which named as demo and correctness/tmp
+    $0 --run -d regression-test/suites/demo                                  specify the suite directories path from repo root
+    $0 --run -f regression-test/suites/demo/case.groovy                      run a specific .groovy test file (converted to -d and -s automatically)
+    $0 --run -f regression-test/suites/demo/case.sql                         run a specific .sql test file (converted to -d and -s automatically)
+    $0 --clean                                                               clean output of regression test framework
+    $0 --clean --run test_select                                             clean output and build regression test framework and run a suite which named as test_select
+    $0 --run -h                                                              print framework options
+    $0 --teamcity --run test_select                                          print teamcity service messages and build regression test framework and run test_select
 
 Log path: \${DORIS_HOME}/output/regression-test/log
 Default config file: \${DORIS_HOME}/regression-test/conf/regression-conf.groovy
@@ -169,30 +172,82 @@ fi
 if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     echo "===== Build Regression Test Framework ====="
 
-    # echo "Build generated code"
-    cd "${DORIS_HOME}/gensrc/thrift"
-    make
+    # Configure Maven for better network resilience
+    export MAVEN_OPTS="${MAVEN_OPTS:-} -Dmaven.wagon.http.retryHandler.count=3 -Dmaven.wagon.httpconnectionManager.ttlSeconds=25 -Dmaven.wagon.http.retryHandler.class=standard"
+
+    # Function to execute Maven command with retry logic
+    execute_maven_with_retry() {
+        local cmd="$1"
+        local max_attempts=3
+        local attempt=1
+        
+        while [[ ${attempt} -le ${max_attempts} ]]; do
+            echo "Attempt ${attempt}/${max_attempts}: ${cmd}"
+            if eval "${cmd}"; then
+                echo "Command succeeded on attempt ${attempt}"
+                return 0
+            else
+                echo "Command failed on attempt ${attempt}"
+                if [[ ${attempt} -lt ${max_attempts} ]]; then
+                    sleep $((attempt * 5))  # Linear backoff
+                fi
+                ((attempt++))
+            fi
+        done
+        
+        echo "Command failed after ${max_attempts} attempts"
+        return 1
+    }
+
+    # Build generated code
+    cd "${DORIS_HOME}/gensrc/thrift" || { echo "Failed to change directory"; exit 1; }
+    if ! make; then
+        echo "Make command failed in ${DORIS_HOME}/gensrc/thrift"
+        exit 1
+    fi
 
     cp -rf "${DORIS_HOME}/gensrc/build/gen_java/org/apache/doris/thrift" "${FRAMEWORK_APACHE_DIR}/doris/"
 
-    cd "${DORIS_HOME}/regression-test/framework"
-    "${MVN_CMD}" package
-    cd "${DORIS_HOME}"
+    # Navigate to framework directory and build with retry
+    cd "${DORIS_HOME}/regression-test/framework" || { echo "Failed to change directory"; exit 1; }
+    
+    # First try to download dependencies only
+    echo "Downloading dependencies..."
+    dep_output_file="$(mktemp -t doris-dependencies-XXXXXX.txt)" || { echo "Failed to create temporary file for dependency output"; exit 1; }
+    execute_maven_with_retry "${MVN_CMD} dependency:resolve -B -DskipTests=true -Dmdep.prependGroupId=true -DoutputFile=${dep_output_file}" || {
+        echo "Failed to download dependencies"
+        exit 1
+    }
+    
+    # Then package with retry
+    echo "Building package..."
+    execute_maven_with_retry "${MVN_CMD} clean package -B -DskipTests=true -Dmaven.javadoc.skip=true" || {
+        echo "Failed to build package"
+        exit 1
+    }
+    
+    cd "${DORIS_HOME}" || { echo "Failed to return to DORIS_HOME"; exit 1; }
 
     mkdir -p "${OUTPUT_DIR}"/{lib,log}
     cp -r "${REGRESSION_TEST_BUILD_DIR}"/regression-test-*.jar "${OUTPUT_DIR}/lib"
 
     echo "===== BUILD JAVA_UDF_SRC TO GENERATE JAR ====="
     mkdir -p "${DORIS_HOME}"/regression-test/suites/javaudf_p0/jars
-    cd "${DORIS_HOME}"/regression-test/java-udf-src
-    "${MVN_CMD}" package
+    cd "${DORIS_HOME}"/regression-test/java-udf-src || { echo "Failed to change directory to java-udf-src"; exit 1; }
+    
+    # Build UDF with retry
+    execute_maven_with_retry "${MVN_CMD} clean package -B -DskipTests=true -Dmaven.javadoc.skip=true" || {
+        echo "Failed to build UDF package"
+        exit 1
+    }
+    
     cp target/java-udf-case-jar-with-dependencies.jar "${DORIS_HOME}"/regression-test/suites/javaudf_p0/jars/
     # be and fe dir is compiled output
     mkdir -p "${DORIS_HOME}"/output/fe/custom_lib/
     mkdir -p "${DORIS_HOME}"/output/be/custom_lib/
     cp target/java-udf-case-jar-with-dependencies.jar "${DORIS_HOME}"/output/fe/custom_lib/
     cp target/java-udf-case-jar-with-dependencies.jar "${DORIS_HOME}"/output/be/custom_lib/
-    cd "${DORIS_HOME}"
+    cd "${DORIS_HOME}" || { echo "Failed to return to DORIS_HOME"; exit 1; }
 fi
 
 # check java home
@@ -205,6 +260,49 @@ fi
 export JAVA="${JAVA_HOME}/bin/java"
 
 REGRESSION_OPTIONS_PREFIX=''
+
+# Parse -f/--file option and convert to -d and -s
+FILE_PATH=""
+NEW_ARGS=()
+SKIP_NEXT=0
+
+for arg in "$@"; do
+    if [[ ${SKIP_NEXT} -eq 1 ]]; then
+        FILE_PATH="${arg}"
+        SKIP_NEXT=0
+        continue
+    fi
+    
+    if [[ "${arg}" == "-f" ]] || [[ "${arg}" == "--file" ]]; then
+        SKIP_NEXT=1
+        continue
+    fi
+    
+    NEW_ARGS+=("${arg}")
+done
+
+# If -f option is provided, extract directory and suite name
+if [[ -n "${FILE_PATH}" ]]; then
+    # Extract directory (parent path)
+    # e.g., "regression-test/suites/shape_check/tpch_sf1000/shape/q1.groovy" -> "regression-test/suites/shape_check/tpch_sf1000/shape"
+    FILE_DIR=$(dirname "${FILE_PATH}")
+    
+    # Extract suite name (filename without .groovy or .sql extension)
+    # e.g., "q1.groovy" -> "q1" or "q01.sql" -> "q01"
+    FILE_NAME=$(basename "${FILE_PATH}")
+    # Remove .groovy extension if exists
+    SUITE_NAME="${FILE_NAME%.groovy}"
+    # Remove .sql extension if exists
+    SUITE_NAME="${SUITE_NAME%.sql}"
+    
+    echo "Converted -f ${FILE_PATH} to -d ${FILE_DIR} -s ${SUITE_NAME}"
+    
+    # Add -d and -s to arguments
+    NEW_ARGS+=("-d" "${FILE_DIR}" "-s" "${SUITE_NAME}")
+fi
+
+# Reset positional parameters
+set -- "${NEW_ARGS[@]}"
 
 # contains framework options and not start with -
 # it should be suite name

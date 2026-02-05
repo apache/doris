@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_base") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """set enable_nereids_planner=true"""
     sql """SET enable_fallback_to_original_planner=false"""
     sql """ drop table if exists dwd;"""
@@ -38,14 +40,13 @@ suite ("test_base") {
     sql """insert into dwd(id) values(1);"""
 
     createMV ("""
-            create materialized view dwd_mv as SELECT created_at, id FROM dwd;
+            create materialized view dwd_mv as SELECT created_at as a1, id  as a2 FROM dwd;
     """)
 
     sql """insert into dwd(id) values(2);"""
 
     sql "analyze table dwd with sync;"
     sql """alter table dwd modify column id set stats ('row_count'='2');"""
-    sql """set enable_stats=false;"""
 
     mv_rewrite_success("SELECT created_at, id  FROM dwd where created_at = '2020-09-09 00:00:00' order by 1, 2;", "dwd_mv")
     qt_select_mv "SELECT created_at, id FROM dwd order by 1, 2;"
@@ -53,8 +54,13 @@ suite ("test_base") {
     mv_rewrite_success("SELECT id,created_at  FROM dwd where id is not null order by 1, 2;", "dwd_mv")
     qt_select_mv "SELECT id,created_at FROM dwd order by 1, 2;"
 
-    sql """set enable_stats=true;"""
-    mv_rewrite_success("SELECT created_at, id  FROM dwd where created_at = '2020-09-09 00:00:00' order by 1, 2;", "dwd_mv")
+    mv_rewrite_success_without_check_chosen("SELECT created_at, id  FROM dwd where created_at = '2020-09-09 00:00:00' order by 1, 2;",
+            "dwd_mv", [TRY_IN_RBO, NOT_IN_RBO])
+    mv_rewrite_success_without_check_chosen("SELECT created_at, id  FROM dwd where created_at = '2020-09-09 00:00:00' order by 1, 2;",
+            "dwd_mv", [FORCE_IN_RBO])
 
-    mv_rewrite_success("SELECT id,created_at  FROM dwd where id is not null order by 1, 2;", "dwd_mv")
+    mv_rewrite_success_without_check_chosen("SELECT id,created_at  FROM dwd where id is not null order by 1, 2;",
+            "dwd_mv", [TRY_IN_RBO, NOT_IN_RBO])
+    mv_rewrite_success_without_check_chosen("SELECT id,created_at  FROM dwd where id is not null order by 1, 2;",
+            "dwd_mv", [FORCE_IN_RBO])
 }

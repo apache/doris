@@ -116,5 +116,6 @@ public:
 
 void register_function_array_pushback(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayPushback>();
+    factory.register_alias("array_pushback", "array_append");
 }
 } // namespace doris::vectorized

@@ -100,7 +100,6 @@ public:
 
         broker_addr.__set_hostname(broker_ip);
         broker_addr.__set_port(broker_port);
-        CHECK_STATUS_OK(doris::JniUtil::Init());
     }
 
     virtual void TearDown() {}

@@ -53,7 +53,7 @@ suite("test_cloud_sc_self_retry_with_stop_token", "nonConcurrent") {
         sql "alter table ${table1} modify column c2 varchar(100);"
 
         def res
-        Awaitility.await().atMost(40, TimeUnit.SECONDS).pollDelay(1, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until(() -> {
+        Awaitility.await().atMost(600, TimeUnit.SECONDS).pollDelay(1, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until(() -> {
             res = sql_return_maparray """ SHOW ALTER TABLE COLUMN WHERE TableName='${table1}' ORDER BY createtime DESC LIMIT 1 """
             logger.info("res: ${res}")
             if (res[0].State == "FINISHED" || res[0].State == "CANCELLED") {

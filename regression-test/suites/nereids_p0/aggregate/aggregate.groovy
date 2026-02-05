@@ -298,6 +298,8 @@ suite("aggregate") {
     qt_aggregate """ select count(distinct c_bigint),count(distinct c_double),count(distinct c_string),count(distinct c_date_1),count(distinct c_timestamp_1),count(distinct c_timestamp_2),count(distinct c_timestamp_3),count(distinct c_boolean) from regression_test_nereids_p0_aggregate.${tableName} """
     qt_select_quantile_percent """ select QUANTILE_PERCENT(QUANTILE_UNION(TO_QUANTILE_STATE(c_bigint,2048)),0.5) from regression_test_nereids_p0_aggregate.${tableName};  """
 
+    qt_aggregate """ select count(distinct c_bigint),count(distinct c_boolean) from regression_test_nereids_p0_aggregate.${tableName} group by c_string order by 1;"""
+
     sql "select k1 as k, k1 from tempbaseall group by k1 having k1 > 0"
     sql "select k1 as k, k1 from tempbaseall group by k1 having k > 0"
     
@@ -317,7 +319,7 @@ suite("aggregate") {
               SELECT k1, k2 FROM tempbaseall
               GROUP BY k1;
             """
-        exception "java.sql.SQLException: errCode = 2, detailMessage = k2 not in aggregate's output"
+        exception "PROJECT expression 'k2' must appear in the GROUP BY clause or be used in an aggregate function"
     }
 
     test {
@@ -364,7 +366,6 @@ suite("aggregate") {
     sql "insert into test_four_phase_full_distribute values(1, 21, 'hello'), (2, 22, 'world')"
     sql " sync "
     order_qt_four_phase_full_distribute """select
-        /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI,TWO_PHASE_AGGREGATE_WITH_MULTI_DISTINCT,THREE_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI,THREE_PHASE_AGGREGATE_WITH_DISTINCT,FOUR_PHASE_AGGREGATE_WITH_DISTINCT')*/
         name, count(distinct name), count(distinct age)
         from test_four_phase_full_distribute
         group by name

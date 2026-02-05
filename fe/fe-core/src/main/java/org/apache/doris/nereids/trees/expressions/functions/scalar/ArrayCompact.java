@@ -18,12 +18,14 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import com.google.common.base.Preconditions;
@@ -48,13 +50,31 @@ public class ArrayCompact extends ScalarFunction
         super("array_compact", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayCompact(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
+    /**
+     * array_compact needs to compare whether the sub-elements in the array are equal.
+     * so the sub-elements must be comparable. but now map and struct type is not comparable.
+     */
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        DataType argType = ((ArrayType) child(0).getDataType()).getItemType();
+        if (argType.isMapType() || argType.isStructType()) {
+            throw new AnalysisException("array_compact does not support type "
+            + argType.toString() + ", expression is " + toSql());
+        }
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayCompact withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayCompact(children.get(0));
+        return new ArrayCompact(getFunctionParams(children));
     }
 
     @Override

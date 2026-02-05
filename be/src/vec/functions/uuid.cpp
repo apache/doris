@@ -27,11 +27,13 @@
 #include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_string.h"
+#include "vec/common/string_utils/string_utils.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
+#include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris {
@@ -76,8 +78,73 @@ public:
     }
 };
 
+struct NameIsUuid {
+    static constexpr auto name = "is_uuid";
+};
+
+struct IsUuidImpl {
+    using ReturnType = DataTypeBool;
+    using ReturnColumnType = ColumnUInt8;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
+    static constexpr size_t uuid_without_dash_length = 32;
+    static constexpr size_t uuid_with_dash_length = 36;
+    static constexpr size_t uuid_with_braces_and_dash_length = 38;
+    static constexpr size_t dash_positions[4] = {8, 13, 18, 23};
+
+    static bool is_uuid_with_dash(const char* src, const char* end) {
+        size_t str_size = end - src;
+        for (int i = 0; i < str_size; ++i) {
+            if (!is_hex_ascii(src[i])) {
+                if (i == dash_positions[0] || i == dash_positions[1] || i == dash_positions[2] ||
+                    i == dash_positions[3]) {
+                    if (src[i] != '-') {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         PaddedPODArray<UInt8>& res) {
+        size_t rows_count = offsets.size();
+        res.resize(rows_count);
+        for (size_t i = 0; i < rows_count; ++i) {
+            const char* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            int str_size = offsets[i] - offsets[i - 1];
+            if (str_size == uuid_without_dash_length) {
+                bool is_valid = true;
+                for (int j = 0; j < str_size; ++j) {
+                    if (!is_hex_ascii(source[j])) {
+                        is_valid = false;
+                        break;
+                    }
+                }
+                res[i] = is_valid;
+            } else if (str_size == uuid_with_dash_length) {
+                res[i] = is_uuid_with_dash(source, source + str_size);
+            } else if (str_size == uuid_with_braces_and_dash_length) {
+                if (source[0] != '{' || source[str_size - 1] != '}') {
+                    res[i] = 0;
+                    continue;
+                }
+                res[i] = is_uuid_with_dash(source + 1, source + str_size - 1);
+            } else {
+                res[i] = 0;
+            }
+        }
+        return Status::OK();
+    }
+};
+
+using FunctionIsUuid = FunctionUnaryToType<IsUuidImpl, NameIsUuid>;
+
 void register_function_uuid(SimpleFunctionFactory& factory) {
     factory.register_function<Uuid>();
+    factory.register_function<FunctionIsUuid>();
 }
 
 } // namespace doris::vectorized

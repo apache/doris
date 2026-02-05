@@ -97,6 +97,7 @@ public:
 
     Status start() override;
     void stop() override;
+    void wait() override;
 
     Result<std::shared_ptr<TaskHandle>> create_task(
             const TaskId& task_id, std::function<double()> utilization_supplier,
@@ -245,8 +246,6 @@ private:
             std::unique_lock<std::mutex>& lock);
     void _record_leaf_splits_size(std::unique_lock<std::mutex>& lock);
     void _split_finished(std::shared_ptr<PrioritizedSplitRunner> split, const Status& status);
-    // Waits until all the tasks are completed.
-    void wait();
 
     int64_t _get_running_tasks_for_level(int level) const;
 
@@ -369,16 +368,16 @@ private:
     const UniqueId _id {UniqueId::gen_uid()};
 
     std::shared_ptr<MetricEntity> _metric_entity;
-    IntGauge* split_thread_pool_active_threads = nullptr;
-    IntGauge* split_thread_pool_queue_size = nullptr;
-    IntGauge* split_thread_pool_max_queue_size = nullptr;
-    IntGauge* split_thread_pool_max_threads = nullptr;
-    IntCounter* split_thread_pool_task_execution_time_ns_total = nullptr;
-    IntCounter* split_thread_pool_task_execution_count_total = nullptr;
-    IntCounter* split_thread_pool_task_wait_worker_time_ns_total = nullptr;
-    IntCounter* split_thread_pool_task_wait_worker_count_total = nullptr;
+    IntGauge* thread_pool_active_threads = nullptr;
+    IntGauge* thread_pool_queue_size = nullptr;
+    IntGauge* thread_pool_max_queue_size = nullptr;
+    IntGauge* thread_pool_max_threads = nullptr;
+    IntCounter* thread_pool_task_execution_time_ns_total = nullptr;
+    IntCounter* thread_pool_task_execution_count_total = nullptr;
+    IntCounter* thread_pool_task_wait_worker_time_ns_total = nullptr;
+    IntCounter* thread_pool_task_wait_worker_count_total = nullptr;
 
-    IntCounter* split_thread_pool_submit_failed = nullptr;
+    IntCounter* thread_pool_submit_failed = nullptr;
 
     bool _enable_concurrency_control = true;
 };

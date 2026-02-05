@@ -35,7 +35,9 @@ import org.apache.http.client.methods.CloseableHttpResponse
 import org.apache.http.util.EntityUtils
 
 suite("test_partial_update_2pc_schema_change", "p0") {
-
+    if (isCloudMode()) {
+        return
+    }
     String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database
     def user = context.config.jdbcUser

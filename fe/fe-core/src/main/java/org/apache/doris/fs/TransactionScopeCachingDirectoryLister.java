@@ -29,7 +29,7 @@ import com.google.common.base.Throwables;
 import com.google.common.cache.Cache;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
-import org.apache.commons.collections.ListUtils;
+import org.apache.commons.collections4.ListUtils;
 
 import java.util.ArrayList;
 import java.util.Iterator;

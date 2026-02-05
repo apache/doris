@@ -60,7 +60,9 @@ struct AggregateFunctionBitmapAggData {
 template <bool arg_nullable, PrimitiveType T>
 class AggregateFunctionBitmapAgg final
         : public IAggregateFunctionDataHelper<AggregateFunctionBitmapAggData<T>,
-                                              AggregateFunctionBitmapAgg<arg_nullable, T>> {
+                                              AggregateFunctionBitmapAgg<arg_nullable, T>>,
+          UnaryExpression,
+          NotNullableAggregateFunction {
 public:
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using Data = AggregateFunctionBitmapAggData<T>;

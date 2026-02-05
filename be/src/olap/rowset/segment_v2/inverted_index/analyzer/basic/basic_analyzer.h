@@ -17,9 +17,9 @@
 
 #pragma once
 
-#include <memory>
-
-#include "basic_tokenizer.h"
+#include "olap/rowset/segment_v2/inverted_index/token_filter/lower_case_filter.h"
+#include "olap/rowset/segment_v2/inverted_index/token_stream.h"
+#include "olap/rowset/segment_v2/inverted_index/tokenizer/basic/basic_tokenizer.h"
 
 namespace doris::segment_v2 {
 
@@ -35,22 +35,47 @@ public:
     bool isSDocOpt() override { return true; }
 
     TokenStream* tokenStream(const TCHAR* fieldName, lucene::util::Reader* reader) override {
-        auto* tokenizer = _CLNEW BasicTokenizer(_lowercase, _ownReader);
-        tokenizer->reset(reader);
-        return (TokenStream*)tokenizer;
+        throw Exception(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED,
+                        "BasicAnalyzer::tokenStream not supported");
     }
 
     TokenStream* reusableTokenStream(const TCHAR* fieldName,
                                      lucene::util::Reader* reader) override {
-        if (_tokenizer == nullptr) {
-            _tokenizer = std::make_unique<BasicTokenizer>(_lowercase, _ownReader);
+        throw Exception(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED,
+                        "BasicAnalyzer::reusableTokenStream not supported");
+    }
+
+    TokenStream* tokenStream(const TCHAR* fieldName,
+                             const inverted_index::ReaderPtr& reader) override {
+        auto token_stream = create_components();
+        token_stream->set_reader(reader);
+        token_stream->get_token_stream()->reset();
+        return new inverted_index::TokenStreamWrapper(token_stream->get_token_stream());
+    }
+
+    TokenStream* reusableTokenStream(const TCHAR* fieldName,
+                                     const inverted_index::ReaderPtr& reader) override {
+        if (_reuse_token_stream == nullptr) {
+            _reuse_token_stream = create_components();
         }
-        _tokenizer->reset(reader);
-        return (TokenStream*)_tokenizer.get();
+        _reuse_token_stream->set_reader(reader);
+        return _reuse_token_stream->get_token_stream().get();
     };
 
 private:
-    std::unique_ptr<BasicTokenizer> _tokenizer;
+    inverted_index::TokenStreamComponentsPtr create_components() {
+        auto tk = std::make_shared<inverted_index::BasicTokenizer>();
+        tk->initialize();
+        inverted_index::TokenStreamPtr ts = tk;
+        if (_lowercase) {
+            auto lower_case_filter = std::make_shared<inverted_index::LowerCaseFilter>(tk);
+            lower_case_filter->initialize();
+            ts = lower_case_filter;
+        }
+        return std::make_shared<inverted_index::TokenStreamComponents>(tk, ts);
+    }
+
+    inverted_index::TokenStreamComponentsPtr _reuse_token_stream;
 };
 
 } // namespace doris::segment_v2

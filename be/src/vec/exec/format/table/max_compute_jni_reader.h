@@ -56,14 +56,12 @@ public:
 
     ~MaxComputeJniReader() override = default;
 
-    Status init_reader(
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    Status init_reader();
 
 private:
     const MaxComputeTableDescriptor* _table_desc = nullptr;
     const TMaxComputeFileDesc& _max_compute_params;
     const TFileRangeDesc& _range;
-    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
 };
 
 #include "common/compile_check_end.h"

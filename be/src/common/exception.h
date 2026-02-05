@@ -27,7 +27,7 @@
 #include <utility>
 
 #include "common/status.h"
-#include "util/defer_op.h"
+#include "util/defer_op.h" // IWYU pragma: keep
 
 namespace doris {
 
@@ -35,8 +35,8 @@ inline thread_local int enable_thread_catch_bad_alloc = 0;
 class Exception : public std::exception {
 public:
     Exception() : _code(ErrorCode::OK) {}
-    Exception(int code, const std::string_view& msg);
-    Exception(const Status& status) : Exception(status.code(), status.msg()) {}
+    Exception(int code, const std::string_view& msg) : Exception(code, std::string(msg), false) {}
+    Exception(const Status& status) : Exception(status.code(), status.msg(), true) {}
 
     // Format message with fmt::format, like the logging functions.
     template <typename... Args>
@@ -46,35 +46,23 @@ public:
     int code() const { return _code; }
     std::string message() const { return _err_msg ? _err_msg->_msg : ""; }
 
-    const std::string& to_string() const;
+    const std::string& to_string() const { return _cache_string; }
 
-    const char* what() const noexcept override { return to_string().c_str(); }
+    const char* what() const noexcept override { return _cache_string.c_str(); }
 
     Status to_status() const { return {code(), _err_msg->_msg, _err_msg->_stack}; }
 
 private:
+    Exception(int code, const std::string_view& msg, bool from_status);
+
     int _code;
     struct ErrMsg {
         std::string _msg;
         std::string _stack;
     };
     std::unique_ptr<ErrMsg> _err_msg;
-    mutable std::string _cache_string;
+    std::string _cache_string {};
 };
-
-inline const std::string& Exception::to_string() const {
-    if (!_cache_string.empty()) {
-        return _cache_string;
-    }
-    fmt::memory_buffer buf;
-    fmt::format_to(buf, "[E{}] {}", _code, _err_msg ? _err_msg->_msg : "");
-    if (_err_msg && !_err_msg->_stack.empty()) {
-        fmt::format_to(buf, "\n{}", _err_msg->_stack);
-    }
-    _cache_string = fmt::to_string(buf);
-    return _cache_string;
-}
-
 } // namespace doris
 
 #define RETURN_IF_CATCH_EXCEPTION(stmt)                                                          \
@@ -118,7 +106,7 @@ inline const std::string& Exception::to_string() const {
     do {                                                                                         \
         try {                                                                                    \
             doris::enable_thread_catch_bad_alloc++;                                              \
-            Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};                     \
+            Defer macro_defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};               \
             { stmt; }                                                                            \
         } catch (const doris::Exception& e) {                                                    \
             if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {                                \

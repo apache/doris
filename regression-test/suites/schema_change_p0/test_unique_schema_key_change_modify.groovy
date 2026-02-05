@@ -1929,6 +1929,7 @@ suite("test_unique_schema_key_change_modify","p0") {
 
      //TODO Test the unique model by modify a key type from DATETIME to BOOLEAN
      errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to BOOLEAN"
+     sql "set enable_insert_strict = false"
      expectException({
           sql initTable
           sql initTableData

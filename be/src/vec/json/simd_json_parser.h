@@ -27,6 +27,8 @@
 
 namespace doris::vectorized {
 
+#include "common/compile_check_begin.h"
+
 /// This class can be used as an argument for the template class FunctionJSON.
 /// It provides ability to parse JSONs using simdjson library.
 class SimdJSONParser {
@@ -70,6 +72,7 @@ public:
         ALWAYS_INLINE std::string_view getString() const {
             return element.get_string().value_unsafe();
         }
+        ALWAYS_INLINE UInt64 getUInt64() const { return element.get_uint64().value_unsafe(); }
         ALWAYS_INLINE Array getArray() const;
         ALWAYS_INLINE Object getObject() const;
 
@@ -175,5 +178,7 @@ inline ALWAYS_INLINE SimdJSONParser::Array SimdJSONParser::Element::getArray() c
 inline ALWAYS_INLINE SimdJSONParser::Object SimdJSONParser::Element::getObject() const {
     return element.get_object().value_unsafe();
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

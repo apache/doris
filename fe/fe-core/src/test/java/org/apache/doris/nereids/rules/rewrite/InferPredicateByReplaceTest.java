@@ -152,7 +152,7 @@ public class InferPredicateByReplaceTest {
         inputs.add(equalTo);
 
         Set<Expression> result = InferPredicateByReplace.infer(inputs);
-        Assertions.assertEquals(2, result.size());
+        Assertions.assertEquals(3, result.size());
     }
 
     @Test

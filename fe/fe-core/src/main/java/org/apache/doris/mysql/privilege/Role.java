@@ -23,6 +23,7 @@ import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -37,7 +38,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -47,6 +48,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 
 public class Role implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(Role.class);
@@ -79,17 +81,17 @@ public class Role implements GsonPostProcessable {
     private String comment;
     // Will be persisted
     @SerializedName(value = "tblPatternToPrivs")
-    private Map<TablePattern, PrivBitSet> tblPatternToPrivs = Maps.newConcurrentMap();
+    private ConcurrentMap<TablePattern, PrivBitSet> tblPatternToPrivs = Maps.newConcurrentMap();
     @SerializedName(value = "resourcePatternToPrivs")
-    private Map<ResourcePattern, PrivBitSet> resourcePatternToPrivs = Maps.newConcurrentMap();
+    private ConcurrentMap<ResourcePattern, PrivBitSet> resourcePatternToPrivs = Maps.newConcurrentMap();
     @SerializedName(value = "storageVaultPatternToPrivs")
-    private Map<ResourcePattern, PrivBitSet> storageVaultPatternToPrivs = Maps.newConcurrentMap();
+    private ConcurrentMap<ResourcePattern, PrivBitSet> storageVaultPatternToPrivs = Maps.newConcurrentMap();
     @SerializedName(value = "clusterPatternToPrivs")
-    private Map<ResourcePattern, PrivBitSet> clusterPatternToPrivs = Maps.newConcurrentMap();
+    private ConcurrentMap<ResourcePattern, PrivBitSet> clusterPatternToPrivs = Maps.newConcurrentMap();
     @SerializedName(value = "stagePatternToPrivs")
-    private Map<ResourcePattern, PrivBitSet> stagePatternToPrivs = Maps.newConcurrentMap();
+    private ConcurrentMap<ResourcePattern, PrivBitSet> stagePatternToPrivs = Maps.newConcurrentMap();
     @SerializedName(value = "workloadGroupPatternToPrivs")
-    private Map<WorkloadGroupPattern, PrivBitSet> workloadGroupPatternToPrivs = Maps.newConcurrentMap();
+    private ConcurrentMap<WorkloadGroupPattern, PrivBitSet> workloadGroupPatternToPrivs = Maps.newConcurrentMap();
     @SerializedName(value = "colPrivMap")
     private Map<ColPrivilegeKey, Set<String>> colPrivMap = Maps.newHashMap();
 
@@ -449,7 +451,8 @@ public class Role implements GsonPostProcessable {
         }
 
         if (checkGlobalInternal(wanted, savedPrivs)
-                || checkCloudInternal(cloudName, wanted, savedPrivs, cloudPrivTable, type)) {
+                || checkCloudInternal(cloudName, wanted, savedPrivs, cloudPrivTable, type)
+                || checkCloudVirtualComputeGroup(cloudName, wanted, savedPrivs, cloudPrivTable)) {
             return true;
         }
 
@@ -518,6 +521,17 @@ public class Role implements GsonPostProcessable {
     private boolean checkCloudInternal(String cloudName, PrivPredicate wanted,
             PrivBitSet savedPrivs, ResourcePrivTable table, ResourceTypeEnum type) {
         table.getPrivs(cloudName, savedPrivs);
+        return Privilege.satisfy(savedPrivs, wanted);
+    }
+
+    private boolean checkCloudVirtualComputeGroup(String cloudName, PrivPredicate wanted,
+                                       PrivBitSet savedPrivs, ResourcePrivTable table) {
+        String virtualComputeGroupName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .ownedByVirtualComputeGroup(cloudName);
+        if (virtualComputeGroupName == null) {
+            return false;
+        }
+        table.getPrivs(virtualComputeGroupName, savedPrivs);
         return Privilege.satisfy(savedPrivs, wanted);
     }
 

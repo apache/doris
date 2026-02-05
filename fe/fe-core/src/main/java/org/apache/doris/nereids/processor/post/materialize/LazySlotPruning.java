@@ -26,55 +26,52 @@ import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeTVFScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
- * prune lazy materialized slot
+ prune lazy materialized slot
  */
 public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context> {
     /**
-     * Context
+     Context
      */
     public static class Context {
-        private PhysicalCatalogRelation scan;
+        private PhysicalRelation scan;
         private List<Slot> lazySlots;
         private SlotReference rowIdSlot;
 
-        public Context(PhysicalCatalogRelation scan, SlotReference rowIdSlot, List<Slot> lazySlots) {
-            this.scan = scan;
-            this.lazySlots = lazySlots;
-            this.rowIdSlot = rowIdSlot;
-        }
-
-        private Context(PhysicalCatalogRelation scan, List<Slot> lazySlots, SlotReference rowIdSlot) {
+        public Context(PhysicalRelation scan, SlotReference rowIdSlot, List<Slot> lazySlots) {
             this.scan = scan;
             this.lazySlots = lazySlots;
             this.rowIdSlot = rowIdSlot;
         }
 
         public Context withLazySlots(List<Slot> otherLazySlots) {
-            return new Context(this.scan, otherLazySlots, this.rowIdSlot);
-        }
-
-        public void forceRowIdNullable() {
-            rowIdSlot = rowIdSlot.withNullable(true);
+            return new Context(this.scan, this.rowIdSlot, otherLazySlots);
         }
 
         public void updateRowIdSlot(SlotReference rowIdSlot) {
@@ -107,6 +104,48 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
     }
 
     @Override
+    public Plan visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, Context context) {
+        if (SessionVariable.getTopNLazyMaterializationUsingIndex() && filter.child() instanceof PhysicalOlapScan) {
+            /*
+             materialization(materializedSlots=[a, b], lazy=[c])
+             ->topn(b)
+               ->filter(a=1, output=(rowid, a, b))
+                ->materializeOlapScan(rowid, lazy=[c], T[a,b,c])
+             =>
+             materialization(materializedSlots=[b], lazy=[a, c])
+             ->topn(b)
+              ->project(rowid, b)
+               ->filter(a=1, output=(rowid, a, b))
+                ->materializeOlapScan(rowid, lazy=[a,c], T[a,b,c])
+             */
+            List<Slot> lazySlotsToScan = new ArrayList<>();
+            boolean lazySlotsChanged = false;
+
+            for (Slot slot : context.lazySlots) {
+                if (!filter.getInputSlots().contains(slot)) {
+                    lazySlotsToScan.add(slot);
+                } else {
+                    lazySlotsChanged = true;
+                }
+            }
+            if (lazySlotsChanged) {
+                Context contextForScan = context.withLazySlots(lazySlotsToScan);
+                filter = (PhysicalFilter<? extends Plan>) filter.withChildren(
+                        filter.child().accept(this, contextForScan));
+                filter = (PhysicalFilter<? extends Plan>) filter
+                        .copyStatsAndGroupIdFrom(filter).resetLogicalProperties();
+                List<Slot> filterOutput = Lists.newArrayList(filter.getOutput());
+                filterOutput.removeAll(filter.getInputSlots());
+                return new PhysicalProject<>(
+                        filterOutput.stream().map(s -> (SlotReference) s).collect(Collectors.toList()),
+                        Optional.empty(), null,
+                        filter.getPhysicalProperties(), filter.getStats(), filter);
+            }
+        }
+        return visit(filter, context);
+    }
+
+    @Override
     public Plan visitPhysicalOlapScan(PhysicalOlapScan scan, Context context) {
         if (scan.getOutput().containsAll(context.lazySlots)) {
             PhysicalLazyMaterializeOlapScan lazyScan = new PhysicalLazyMaterializeOlapScan(scan,
@@ -122,6 +161,18 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
     public Plan visitPhysicalFileScan(PhysicalFileScan scan, Context context) {
         if (scan.getOutput().containsAll(context.lazySlots)) {
             PhysicalLazyMaterializeFileScan lazyScan = new PhysicalLazyMaterializeFileScan(scan,
+                    context.rowIdSlot, context.lazySlots);
+            return lazyScan;
+        } else {
+            // should not hit here
+            throw new RuntimeException("Lazy materialize fault");
+        }
+    }
+
+    @Override
+    public Plan visitPhysicalTVFRelation(PhysicalTVFRelation tvfRelation, Context context) {
+        if (tvfRelation.getOutput().containsAll(context.lazySlots)) {
+            PhysicalLazyMaterializeTVFScan lazyScan = new PhysicalLazyMaterializeTVFScan(tvfRelation,
                     context.rowIdSlot, context.lazySlots);
             return lazyScan;
         } else {
@@ -192,6 +243,7 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
             }
             Context childContext = context.withLazySlots(childLazySlots);
             child = child.accept(this, childContext);
+            context.updateRowIdSlot(childContext.rowIdSlot);
         }
         if (child.getOutput().contains(context.rowIdSlot)) {
             List<NamedExpression> newProjections = new ArrayList<>();

@@ -105,11 +105,6 @@ inline constexpr bool IsNumber<Int128> = true;
 template <>
 inline constexpr bool IsNumber<wide::Int256> = true;
 
-using Date = Int64;
-using DateTime = Int64;
-using DateV2 = UInt32;
-using DateTimeV2 = UInt64;
-
 template <typename T>
 inline constexpr T decimal_scale_multiplier(UInt32 scale);
 template <>
@@ -481,6 +476,12 @@ using Decimal64 = Decimal<Int64>;
 using Decimal128V2 = Decimal<Int128>;
 using Decimal256 = Decimal<wide::Int256>;
 
+static_assert(std::is_trivial_v<Decimal32>, "Decimal32 must be trivial");
+static_assert(std::is_trivial_v<Decimal64>, "Decimal64 must be trivial");
+static_assert(std::is_trivial_v<Decimal128V2>, "Decimal128V2 must be trivial");
+static_assert(std::is_trivial_v<Decimal128V3>, "Decimal128V3 must be trivial");
+static_assert(std::is_trivial_v<Decimal256>, "Decimal256 must be trivial");
+
 inline bool operator<(const Decimal256& x, const Decimal256& y) {
     return x.value < y.value;
 }
@@ -513,6 +514,8 @@ template <typename T>
 constexpr bool IsDecimal128V2 = false;
 template <>
 inline constexpr bool IsDecimal128V2<Decimal128V2> = true;
+template <>
+inline constexpr bool IsDecimal128V2<DecimalV2Value> = true;
 
 template <typename T>
 constexpr bool IsDecimal128V3 = false;
@@ -558,6 +561,10 @@ struct NativeType<Decimal64> {
 };
 template <>
 struct NativeType<Decimal128V2> {
+    using Type = Int128;
+};
+template <>
+struct NativeType<DecimalV2Value> {
     using Type = Int128;
 };
 template <>

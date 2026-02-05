@@ -25,12 +25,9 @@ import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
 import org.apache.doris.datasource.lakesoul.LakeSoulUtils;
-import org.apache.doris.datasource.property.constants.OssProperties;
-import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TLakeSoulFileDesc;
@@ -62,6 +59,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * @deprecated LakeSoul catalog support has been deprecated and will be removed in a future version.
+ */
+@Deprecated
 public class LakeSoulScanNode extends FileQueryScanNode {
 
     private static final Logger LOG = LogManager.getLogger(LakeSoulScanNode.class);
@@ -82,7 +83,7 @@ public class LakeSoulScanNode extends FileQueryScanNode {
     String readType;
 
     public LakeSoulScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv) {
-        super(id, desc, "planNodeName", StatisticalType.LAKESOUL_SCAN_NODE, needCheckColumnPriv, sv);
+        super(id, desc, "planNodeName", needCheckColumnPriv, sv);
     }
 
     @Override
@@ -181,23 +182,23 @@ public class LakeSoulScanNode extends FileQueryScanNode {
             LOG.debug("{}", catalogProps);
         }
 
-        if (catalogProps.get(S3Properties.Env.ENDPOINT) != null) {
-            options.put(LakeSoulUtils.FS_S3A_ENDPOINT, catalogProps.get(S3Properties.Env.ENDPOINT));
-            if (!options.containsKey(OssProperties.ENDPOINT)) {
+        if (catalogProps.get("AWS_ENDPOINT") != null) {
+            options.put(LakeSoulUtils.FS_S3A_ENDPOINT, catalogProps.get("AWS_ENDPOINT"));
+            if (!options.containsKey("oss.endpoint")) {
                 // Aliyun OSS requires virtual host style access
                 options.put(LakeSoulUtils.FS_S3A_PATH_STYLE_ACCESS, "false");
             } else {
                 // use path style access for all other s3 compatible storage services
                 options.put(LakeSoulUtils.FS_S3A_PATH_STYLE_ACCESS, "true");
             }
-            if (catalogProps.get(S3Properties.Env.ACCESS_KEY) != null) {
-                options.put(LakeSoulUtils.FS_S3A_ACCESS_KEY, catalogProps.get(S3Properties.Env.ACCESS_KEY));
+            if (catalogProps.get("AWS_ACCESS_KEY") != null) {
+                options.put(LakeSoulUtils.FS_S3A_ACCESS_KEY, catalogProps.get("AWS_ACCESS_KEY"));
             }
-            if (catalogProps.get(S3Properties.Env.SECRET_KEY) != null) {
-                options.put(LakeSoulUtils.FS_S3A_SECRET_KEY, catalogProps.get(S3Properties.Env.SECRET_KEY));
+            if (catalogProps.get("AWS_SECRET_KEY") != null) {
+                options.put(LakeSoulUtils.FS_S3A_SECRET_KEY, catalogProps.get("AWS_SECRET_KEY"));
             }
-            if (catalogProps.get(S3Properties.Env.REGION) != null) {
-                options.put(LakeSoulUtils.FS_S3A_REGION, catalogProps.get(S3Properties.Env.REGION));
+            if (catalogProps.get("AWS_REGION") != null) {
+                options.put(LakeSoulUtils.FS_S3A_REGION, catalogProps.get("AWS_REGION"));
             }
         }
 

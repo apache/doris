@@ -45,9 +45,10 @@ class SipHash;
     ColumnUInt8, ColumnInt8, ColumnInt16, ColumnInt32, ColumnInt64, ColumnInt128, ColumnFloat32, \
             ColumnFloat64, ColumnDecimal32, ColumnDecimal64, ColumnDecimal128V3,                 \
             ColumnDecimal128V2, ColumnDecimal256
-#define ALL_COLUMNS_TIME ColumnDate, ColumnDateTime, ColumnDateV2, ColumnDateTimeV2
+#define ALL_COLUMNS_TIME \
+    ColumnDate, ColumnDateTime, ColumnDateV2, ColumnDateTimeV2, ColumnTimeStampTz
 #define ALL_COLUMNS_NUMERIC ALL_COLUMNS_NUMBER, ALL_COLUMNS_TIME
-#define ALL_COLUMNS_SIMPLE ALL_COLUMNS_NUMERIC, ColumnString
+#define ALL_COLUMNS_SIMPLE ALL_COLUMNS_NUMERIC, ColumnString, ColumnIPv4, ColumnIPv6
 
 namespace doris::vectorized {
 
@@ -148,6 +149,11 @@ public:
     void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
                                 uint32_t offset = 0,
                                 const uint8_t* __restrict null_data = nullptr) const override;
+    void update_crc32c_batch(uint32_t* __restrict hashes,
+                             const uint8_t* __restrict null_map) const override;
+
+    void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                              const uint8_t* __restrict null_map) const override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
     void insert_range_from_ignore_overflow(const IColumn& src, size_t start,
@@ -165,13 +171,13 @@ public:
     size_t allocated_bytes() const override;
     bool has_enough_capacity(const IColumn& src) const override;
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint, HybridSorter& sorter,
                          IColumn::Permutation& res) const override;
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;
-    void deserialize_vec(StringRef* keys, const size_t num_rows) override;
+    void deserialize(StringRef* keys, const size_t num_rows) override;
     size_t get_max_row_byte_size() const override;
-    void serialize_vec(StringRef* keys, size_t num_rows) const override;
+    void serialize(StringRef* keys, size_t num_rows) const override;
     /** More efficient methods of manipulation */
     IColumn& get_data() { return *data; }
     const IColumn& get_data() const { return *data; }
@@ -238,6 +244,9 @@ public:
     size_t serialize_impl(char* pos, const size_t row) const override;
     size_t deserialize_impl(const char* pos) override;
     size_t serialize_size_at(size_t row) const override;
+
+    void replace_float_special_values() override;
+
     template <bool positive>
     struct less;
 

@@ -29,7 +29,9 @@
 
 #include "common/config.h"
 #include "common/object_pool.h"
+#include "vec/aggregate_functions/aggregate_function_ai_agg.h"
 #include "vec/aggregate_functions/aggregate_function_java_udaf.h"
+#include "vec/aggregate_functions/aggregate_function_python_udaf.h"
 #include "vec/aggregate_functions/aggregate_function_rpc.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_sort.h"
@@ -160,6 +162,18 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                     "Java UDAF is not enabled, you can change be config enable_java_support to "
                     "true and restart be.");
         }
+    } else if (_fn.binary_type == TFunctionBinaryType::PYTHON_UDF) {
+        if (config::enable_python_udf_support) {
+            _function = AggregatePythonUDAF::create(_fn, argument_types, _data_type);
+            RETURN_IF_ERROR(static_cast<AggregatePythonUDAF*>(_function.get())->open());
+            LOG(INFO) << fmt::format(
+                    "Created Python UDAF: {}, runtime_version: {}, function_code: {}",
+                    _fn.name.function_name, _fn.runtime_version, _fn.function_code);
+        } else {
+            return Status::InternalError(
+                    "Python UDAF is not enabled, you can change be config "
+                    "enable_python_udf_support to true and restart be.");
+        }
     } else if (_fn.binary_type == TFunctionBinaryType::RPC) {
         _function = AggregateRpcUdaf::create(_fn, argument_types, _data_type);
     } else if (_fn.binary_type == TFunctionBinaryType::AGG_STATE) {
@@ -205,21 +219,24 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                                          _fn.name.function_name);
         }
     } else {
+        const bool is_foreach =
+                AggregateFunctionSimpleFactory::is_foreach(_fn.name.function_name) ||
+                AggregateFunctionSimpleFactory::is_foreachv2(_fn.name.function_name);
         // Here, only foreachv1 needs special treatment, and v2 can follow the normal code logic.
         if (AggregateFunctionSimpleFactory::is_foreach(_fn.name.function_name)) {
             _function = AggregateFunctionSimpleFactory::instance().get(
-                    _fn.name.function_name, argument_types,
+                    _fn.name.function_name, argument_types, _data_type,
                     AggregateFunctionSimpleFactory::result_nullable_by_foreach(_data_type),
                     state->be_exec_version(),
-                    {.enable_decimal256 = state->enable_decimal256(),
-                     .is_window_function = _is_window_function,
+                    {.is_window_function = _is_window_function,
+                     .is_foreach = is_foreach,
                      .column_names = std::move(column_names)});
         } else {
             _function = AggregateFunctionSimpleFactory::instance().get(
-                    _fn.name.function_name, argument_types, _data_type->is_nullable(),
+                    _fn.name.function_name, argument_types, _data_type, _data_type->is_nullable(),
                     state->be_exec_version(),
-                    {.enable_decimal256 = state->enable_decimal256(),
-                     .is_window_function = _is_window_function,
+                    {.is_window_function = _is_window_function,
+                     .is_foreach = is_foreach,
                      .column_names = std::move(column_names)});
         }
     }
@@ -230,6 +247,10 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
     if (!_sort_description.empty()) {
         _function = transform_to_sort_agg_function(_function, _argument_types_with_sort,
                                                    _sort_description, state);
+    }
+
+    if (_fn.name.function_name == "ai_agg") {
+        _function->set_query_context(state->get_query_ctx());
     }
 
     // Foreachv2, like foreachv1, does not check the return type,
@@ -398,6 +419,12 @@ Status AggFnEvaluator::check_agg_fn_output(uint32_t key_size,
         }
     }
     return Status::OK();
+}
+
+bool AggFnEvaluator::is_blockable() const {
+    return _function->is_blockable() ||
+           std::any_of(_input_exprs_ctxs.begin(), _input_exprs_ctxs.end(),
+                       [](VExprContextSPtr ctx) { return ctx->root()->is_blockable(); });
 }
 
 #include "common/compile_check_end.h"

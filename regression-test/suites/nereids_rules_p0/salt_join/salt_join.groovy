@@ -20,6 +20,7 @@ suite("salt_join") {
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "set disable_nereids_rules='prune_empty_partition'"
     sql "set runtime_filter_mode=OFF"
+    sql "set disable_join_reorder=true"
     sql "drop table if exists test_skew9;"
     sql """create table test_skew9(a int,c varchar(100), b int) distributed by hash(a) buckets 32 properties("replication_num"="1");"""
     sql """insert into test_skew9 values(1,'abc',9),(1,'abc',1),(1,'def',2),(null,'def',2),(2,'abc',2),(3,'abc',4),(5,'abc',6),(2,'def',2),(5,'abc',null),(3,'abc',null)"""
@@ -41,18 +42,6 @@ suite("salt_join") {
     qt_skew_value_only_null """
     select * from test_skew9 tl inner join [shuffle[skew(tl.b(null))]] test_skew10 tr on tl.b = tr.b order by 1,2,3,4,5,6;
     """
-    qt_leading """
-    select /*+leading(tl shuffle [skew(tl.b(1,2))] tr) */ * from test_skew9 tl join test_skew10 tr on tl.b=tr.b order by 1,2,3,4,5,6;
-    """
-    qt_has_other_equal_condition """
-    select /*+leading(tl shuffle [skew(tl.b(1,2))] tr) */ * from test_skew9 tl join test_skew10 tr on tl.b=tr.b and tl.a=tr.a order by 1,2,3,4,5,6;
-    """
-    qt_has_other_unequal_condition """
-    select /*+leading(tl shuffle [skew(tl.b(1,2))] tr) */ * from test_skew9 tl join test_skew10 tr on tl.b=tr.b and tl.a<tr.a order by 1,2,3,4,5,6;
-    """
-    qt_test_varchar_skew_value """
-    select /*+leading(tl shuffle [skew(tl.c("abc","def"))] tr) */ * from test_skew9 tl join test_skew10 tr on tl.c=tr.c and tl.a=tr.a order by 1,2,3,4,5,6;
-    """
     qt_test_multi_join """
     select * from test_skew9 tl inner join [shuffle[skew(tl.b(1,2,null))]] test_skew10 tr on tl.b = tr.b left join  [shuffle[skew(tl.b(1,2,null))]] test_skew10 tt on tl.b=tt.b
     order by 1,2,3,4,5,6,7,8,9;
@@ -63,16 +52,6 @@ suite("salt_join") {
     """
     qt_test_left_join_right_join """
     select * from test_skew9 tl left join [shuffle[skew(tl.b(1,2,null))]] test_skew10 tr on tl.b = tr.b right join  [shuffle[skew(tl.b(1,2,null))]] test_skew10 tt on tl.b=tt.b
-    order by 1,2,3,4,5,6,7,8,9;
-    """
-    qt_leading_multi_join """
-    select /*+leading(tl shuffle [skew(tl.c("abc","def"))] tr shuffle[skew(tl.c("abc","def"))] tt) */ * from 
-    test_skew9 tl join test_skew10 tr on tl.c=tr.c and tl.a=tr.a inner join test_skew10 tt on tl.c = tt.c
-    order by 1,2,3,4,5,6,7,8,9;
-    """
-    qt_leading_multi_join_bracket """
-    select /*+leading(tl shuffle [skew(tl.c("abc","def"))] {tr shuffle[skew(tr.c("abc","def"))] tt}) */ * from 
-    test_skew9 tl join test_skew10 tr on tl.c=tr.c and tl.a=tr.a inner join test_skew10 tt on tr.c = tt.c
     order by 1,2,3,4,5,6,7,8,9;
     """
 
@@ -186,23 +165,6 @@ suite("salt_join") {
     order by 1,2,3,4,5,6;
     """
 
-    sql """drop table if exists t1;"""
-    sql """drop table if exists t2;"""
-    sql """drop table if exists t3;"""
-    sql """drop table if exists t4;"""
-    sql """create table t1 (c1 int, c11 int) distributed by hash(c1) buckets 3 properties('replication_num' = '1');"""
-    sql """create table t2 (c2 int, c22 int) distributed by hash(c2) buckets 3 properties('replication_num' = '1');"""
-    sql """create table t3 (c3 int, c33 int) distributed by hash(c3) buckets 3 properties('replication_num' = '1');"""
-    sql """create table t4 (c4 int, c44 int) distributed by hash(c4) buckets 3 properties('replication_num' = '1');"""
-    qt_shape_leading_inner_subquery """
-    explain shape plan
-    select count(*) from (select /*+leading(alias2 shuffle[skew(alias2.c2(1,2))] t1) */ c1, c11 from t1 join (select c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;
-    """
-    qt_shape_leading_inner_subquery_switch """
-    explain shape plan
-    select count(*) from (select /*+leading(t1 shuffle[skew(t1.c1(1,2))] alias2) */ c1, c11 from t1 join (select c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;
-    """
-
     // test null safe equal
     sql "drop table if exists test_null_safe1"
     sql "drop table if exists test_null_safe2"
@@ -279,4 +241,48 @@ suite("salt_join") {
     qt_null_safe_equal_inner_other_and_null_shape "explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 inner join[shuffle[skew(t1.b(1,2,null))]] test_null_safe4 t2 on t1.b<=>t2.b;"
     qt_null_safe_equal_left_other_and_null_shape "explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 left join[shuffle[skew(t1.b(1,2,null))]] test_null_safe4 t2 on t1.b<=>t2.b;"
     qt_null_safe_equal_right_other_and_null_shape "explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 right join[shuffle[skew(t2.b(1,2,null))]] test_null_safe4 t2 on t1.b<=>t2.b;"
+
+    sql "set disable_join_reorder=false"
+
+    qt_leading_multi_join """
+    select /*+leading(tl shuffle [skew(tl.c("abc","def"))] tr shuffle[skew(tl.c("abc","def"))] tt) */ * from 
+    test_skew9 tl join test_skew10 tr on tl.c=tr.c and tl.a=tr.a inner join test_skew10 tt on tl.c = tt.c
+    order by 1,2,3,4,5,6,7,8,9;
+    """
+    qt_leading_multi_join_bracket """
+    select /*+leading(tl shuffle [skew(tl.c("abc","def"))] {tr shuffle[skew(tr.c("abc","def"))] tt}) */ * from 
+    test_skew9 tl join test_skew10 tr on tl.c=tr.c and tl.a=tr.a inner join test_skew10 tt on tr.c = tt.c
+    order by 1,2,3,4,5,6,7,8,9;
+    """
+
+    qt_leading """
+    select /*+leading(tl shuffle [skew(tl.b(1,2))] tr) */ * from test_skew9 tl join test_skew10 tr on tl.b=tr.b order by 1,2,3,4,5,6;
+    """
+    qt_has_other_equal_condition """
+    select /*+leading(tl shuffle [skew(tl.b(1,2))] tr) */ * from test_skew9 tl join test_skew10 tr on tl.b=tr.b and tl.a=tr.a order by 1,2,3,4,5,6;
+    """
+    qt_has_other_unequal_condition """
+    select /*+leading(tl shuffle [skew(tl.b(1,2))] tr) */ * from test_skew9 tl join test_skew10 tr on tl.b=tr.b and tl.a<tr.a order by 1,2,3,4,5,6;
+    """
+    qt_test_varchar_skew_value """
+    select /*+leading(tl shuffle [skew(tl.c("abc","def"))] tr) */ * from test_skew9 tl join test_skew10 tr on tl.c=tr.c and tl.a=tr.a order by 1,2,3,4,5,6;
+    """
+
+    sql """drop table if exists t1;"""
+    sql """drop table if exists t2;"""
+    sql """drop table if exists t3;"""
+    sql """drop table if exists t4;"""
+    sql """create table t1 (c1 int, c11 int) distributed by hash(c1) buckets 3 properties('replication_num' = '1');"""
+    sql """create table t2 (c2 int, c22 int) distributed by hash(c2) buckets 3 properties('replication_num' = '1');"""
+    sql """create table t3 (c3 int, c33 int) distributed by hash(c3) buckets 3 properties('replication_num' = '1');"""
+    sql """create table t4 (c4 int, c44 int) distributed by hash(c4) buckets 3 properties('replication_num' = '1');"""
+
+    qt_shape_leading_inner_subquery """
+    explain shape plan
+    select count(*) from (select /*+leading(alias2 shuffle[skew(alias2.c2(1,2))] t1) */ c1, c11 from t1 join (select c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;
+    """
+    qt_shape_leading_inner_subquery_switch """
+    explain shape plan
+    select count(*) from (select /*+leading(t1 shuffle[skew(t1.c1(1,2))] alias2) */ c1, c11 from t1 join (select c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;
+    """
 }

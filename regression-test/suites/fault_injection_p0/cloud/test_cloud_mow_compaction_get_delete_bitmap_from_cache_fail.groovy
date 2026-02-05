@@ -61,7 +61,7 @@ suite("test_cloud_mow_compaction_get_delete_bitmap_from_cache_fail", "nonConcurr
         DebugPoint.enableDebugPoint(injectBe.Host, injectBe.HttpPort.toInteger(), NodeType.BE, inject_spin_block)
         DebugPoint.enableDebugPoint(injectBe.Host, injectBe.HttpPort.toInteger(), NodeType.BE, inject_cache_miss)
         logger.info("run compaction:" + tabletId)
-        (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, tabletId)
+        def (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, tabletId)
         logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
 
         // Concurrent inserts
@@ -74,14 +74,15 @@ suite("test_cloud_mow_compaction_get_delete_bitmap_from_cache_fail", "nonConcurr
         // let compaction continue
         DebugPoint.disableDebugPoint(injectBe.Host, injectBe.HttpPort.toInteger(), NodeType.BE, inject_spin_block)
 
-         do {
-             Thread.sleep(100)
-             (code, out, err) = be_get_compaction_status(injectBe.Host, injectBe.HttpPort, tabletId)
-             logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-             assertEquals(code, 0)
-             def compactionStatus = parseJson(out.trim())
-             assertEquals("success", compactionStatus.status.toLowerCase())
-             running = compactionStatus.run_status
+        def running = true
+        do {
+            Thread.sleep(100)
+            (code, out, err) = be_get_compaction_status(injectBe.Host, injectBe.HttpPort, tabletId)
+            logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
+            assertEquals(code, 0)
+            def compactionStatus = parseJson(out.trim())
+            assertEquals("success", compactionStatus.status.toLowerCase())
+            running = compactionStatus.run_status
          } while (running)
 
         Thread.sleep(200)

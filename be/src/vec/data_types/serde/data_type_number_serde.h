@@ -25,11 +25,13 @@
 #include "common/status.h"
 #include "data_type_serde.h"
 #include "olap/olap_common.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 class JsonbOutStream;
@@ -48,7 +50,7 @@ class Arena;
 template <PrimitiveType T>
 class DataTypeNumberSerDe : public DataTypeSerDe {
     static_assert(is_int_or_bool(T) || is_ip(T) || is_date_type(T) || is_float_or_double(T) ||
-                  T == TYPE_TIME || T == TYPE_TIMEV2);
+                  T == TYPE_TIME || T == TYPE_TIMEV2 || T == TYPE_TIMESTAMPTZ);
 
 public:
     using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
@@ -58,6 +60,9 @@ public:
     std::string get_name() const override { return type_to_string(T); }
 
     Status from_string(StringRef& str, IColumn& column,
+                       const FormatOptions& options) const override;
+
+    Status from_string(const std::string& str, Field& field,
                        const FormatOptions& options) const override;
 
     Status from_string_strict_mode(StringRef& str, IColumn& column,
@@ -90,6 +95,14 @@ public:
 
     Status serialize_column_to_jsonb_vector(const IColumn& from_column,
                                             ColumnString& to_column) const override;
+
+    Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
+                                         CastParameters& castParms) const override;
+
+    Status deserialize_column_from_jsonb_vector(ColumnNullable& column_to,
+                                                const ColumnString& from_column,
+                                                CastParameters& castParms) const override;
+
     void insert_column_last_value_multiple_times(IColumn& column, uint64_t times) const override;
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
@@ -97,7 +110,8 @@ public:
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
 
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena& mem_pool,
-                                 int32_t col_id, int64_t row_num) const override;
+                                 int32_t col_id, int64_t row_num,
+                                 const FormatOptions& options) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
@@ -107,26 +121,34 @@ public:
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                   int64_t end, const cctz::time_zone& ctz) const override;
 
-    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int64_t row_idx, bool col_const,
-                                 const FormatOptions& options) const override;
-    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int64_t row_idx, bool col_const,
-                                 const FormatOptions& options) const override;
-
+    Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& row_buffer,
+                                        int64_t row_idx, bool col_const,
+                                        const FormatOptions& options) const override;
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end, vectorized::Arena& arena) const override;
-    Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
-                                  int64_t row_num) const override;
-    Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
+                               int64_t start, int64_t end, vectorized::Arena& arena,
+                               const FormatOptions& options) const override;
 
-private:
-    template <bool is_binary_format>
-    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int64_t row_idx, bool col_const,
-                                  const FormatOptions& options) const;
+    void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
+                                  int64_t row_num) const override;
+
+    bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw, int64_t row_idx,
+                                     const FormatOptions& options) const override;
+    bool write_column_to_hive_text(const IColumn& column, BufferWritable& bw, int64_t row_idx,
+                                   const FormatOptions& options) const override;
+
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                   const FormatOptions& options) const override;
+
+    void to_string_batch(const IColumn& column, ColumnString& column_to,
+                         const FormatOptions& options) const override;
+    // will override in DateTime and Time
+    virtual int get_scale() const { return 0; }
+
+    static const uint8_t* deserialize_binary_to_column(const uint8_t* data, IColumn& column);
+
+    static const uint8_t* deserialize_binary_to_field(const uint8_t* data, Field& field,
+                                                      FieldInfo& info);
 };
 
 template <PrimitiveType T>
@@ -137,7 +159,7 @@ Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValue
         auto& data = assert_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.uint32_value_size(); ++i) {
             data[old_column_size + i] =
-                    cast_set<typename PrimitiveTypeTraits<T>::ColumnItemType, uint32_t, false>(
+                    cast_set<typename PrimitiveTypeTraits<T>::CppType, uint32_t, false>(
                             arg.uint32_value(i));
         }
     } else if constexpr (T == TYPE_DATEV2 || T == TYPE_IPV4) {
@@ -151,7 +173,7 @@ Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValue
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.int32_value_size(); ++i) {
             data[old_column_size + i] =
-                    cast_set<typename PrimitiveTypeTraits<T>::ColumnItemType, int32_t, false>(
+                    cast_set<typename PrimitiveTypeTraits<T>::CppType, int32_t, false>(
                             arg.int32_value(i));
         }
     } else if constexpr (T == TYPE_INT) {
@@ -164,9 +186,22 @@ Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValue
         column.resize(old_column_size + arg.uint64_value_size());
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.uint64_value_size(); ++i) {
-            data[old_column_size + i] = arg.uint64_value(i);
+            data[old_column_size + i] =
+                    binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(arg.uint64_value(i));
         }
-    } else if constexpr (T == TYPE_BIGINT || T == TYPE_DATE || T == TYPE_DATETIME) {
+    } else if constexpr (T == TYPE_TIMESTAMPTZ) {
+        column.resize(old_column_size + arg.uint64_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.uint64_value_size(); ++i) {
+            data[old_column_size + i] = binary_cast<UInt64, TimestampTzValue>(arg.uint64_value(i));
+        }
+    } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
+        column.resize(old_column_size + arg.int64_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.int64_value_size(); ++i) {
+            data[old_column_size + i] = binary_cast<Int64, VecDateTimeValue>(arg.int64_value(i));
+        }
+    } else if constexpr (T == TYPE_BIGINT) {
         column.resize(old_column_size + arg.int64_value_size());
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.int64_value_size(); ++i) {
@@ -217,16 +252,21 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
         auto* values = result.mutable_uint32_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);
-    } else if constexpr (T == TYPE_DATEV2 || T == TYPE_IPV4) {
+    } else if constexpr (T == TYPE_DATEV2) {
+        ptype->set_id(PGenericType::UINT32);
+        auto* values = result.mutable_uint32_value();
+        values->Reserve(row_count);
+        values->Add((uint32_t*)data.begin() + start, (uint32_t*)data.begin() + end);
+    } else if constexpr (T == TYPE_IPV4) {
         ptype->set_id(PGenericType::UINT32);
         auto* values = result.mutable_uint32_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);
-    } else if constexpr (T == TYPE_DATETIMEV2) {
+    } else if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
         ptype->set_id(PGenericType::UINT64);
         auto* values = result.mutable_uint64_value();
         values->Reserve(row_count);
-        values->Add(data.begin() + start, data.begin() + end);
+        values->Add((uint64_t*)data.begin() + start, (uint64_t*)data.begin() + end);
     } else if constexpr (T == TYPE_TINYINT) {
         ptype->set_id(PGenericType::INT8);
         auto* values = result.mutable_int32_value();
@@ -242,7 +282,12 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
         auto* values = result.mutable_int32_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);
-    } else if constexpr (T == TYPE_BIGINT || T == TYPE_DATE || T == TYPE_DATETIME) {
+    } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
+        ptype->set_id(PGenericType::INT64);
+        auto* values = result.mutable_int64_value();
+        values->Reserve(row_count);
+        values->Add((int64_t*)data.begin() + start, (int64_t*)data.begin() + end);
+    } else if constexpr (T == TYPE_BIGINT) {
         ptype->set_id(PGenericType::INT64);
         auto* values = result.mutable_int64_value();
         values->Reserve(row_count);

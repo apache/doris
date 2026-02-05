@@ -65,6 +65,14 @@ public class IsNull extends Expression implements UnaryExpression, AlwaysNotNull
     }
 
     @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(child().toDigest());
+        sb.append(" IS NULL");
+        return sb.toString();
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (!super.equals(o)) {
             return false;

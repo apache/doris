@@ -76,7 +76,27 @@ public class CacheFactory {
 
     // Build a loading cache, with executor, it will use given executor for refresh
     public <K, V> LoadingCache<K, V> buildCache(CacheLoader<K, V> cacheLoader,
-            RemovalListener<K, V> removalListener, ExecutorService executor) {
+            ExecutorService executor) {
+        Caffeine<Object, Object> builder = buildWithParams();
+        builder.executor(executor);
+        return builder.build(cacheLoader);
+    }
+
+    // Build cache with sync removal listener to prevent deadlock when listener calls invalidateAll()
+    public <K, V> LoadingCache<K, V> buildCacheWithSyncRemovalListener(CacheLoader<K, V> cacheLoader,
+            RemovalListener<K, V> removalListener) {
+        Caffeine<Object, Object> builder = buildWithParams();
+        if (removalListener != null) {
+            builder.removalListener(removalListener);
+        }
+        builder.executor(Runnable::run);  // Sync execution to avoid thread pool deadlock
+        return builder.build(cacheLoader);
+    }
+
+    // Build cache with async removal listener. Use with caution if listener may trigger nested operations
+    public <K, V> LoadingCache<K, V> buildCacheWithAsyncRemovalListener(CacheLoader<K, V> cacheLoader,
+            RemovalListener<K, V> removalListener,
+            ExecutorService executor) {
         Caffeine<Object, Object> builder = buildWithParams();
         builder.executor(executor);
         if (removalListener != null) {

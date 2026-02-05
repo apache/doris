@@ -18,13 +18,17 @@
 package org.apache.doris.nereids.postprocess;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
 import org.apache.doris.nereids.datasets.ssb.SSBUtils;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.hint.DistributeHint;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -34,13 +38,17 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
@@ -419,5 +427,26 @@ public class RuntimeFilterTest extends SSBTestBase {
         System.out.println(plan.treeString());
         Assertions.assertEquals(0, ((AbstractPhysicalPlan) plan.child(0).child(1).child(0))
                 .getAppliedRuntimeFilters().size());
+    }
+
+    @Test
+    public void testRuntimeFilterBlockByRecCte() {
+        String sql = new StringBuilder().append("with recursive xx as (\n").append("  select\n")
+                .append("    c_custkey as c1\n").append("  from\n").append("    customer\n").append("  union\n")
+                .append("  select\n").append("    xx.c1 as c1\n").append("  from\n").append("    xx\n").append(")\n")
+                .append("select\n").append("    xx.c1\n").append("  from\n").append("    xx\n")
+                .append("    join lineorder on lineorder.lo_custkey = xx.c1").toString();
+        LogicalPlan unboundPlan = new NereidsParser().parseSingle(sql);
+        StatementContext statementContext = new StatementContext(connectContext,
+                new OriginStatement(sql, 0));
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
+        planner.planWithLock(unboundPlan, PhysicalProperties.ANY,
+                ExplainCommand.ExplainLevel.OPTIMIZED_PLAN);
+        MemoTestUtils.initMemoAndValidState(planner.getCascadesContext());
+        new PhysicalPlanTranslator(new PlanTranslatorContext(planner.getCascadesContext()))
+                .translatePlan((PhysicalPlan) planner.getOptimizedPlan());
+        RuntimeFilterContext context = planner.getCascadesContext().getRuntimeFilterContext();
+        List<RuntimeFilter> filters = context.getNereidsRuntimeFilter();
+        Assertions.assertEquals(0, filters.size());
     }
 }

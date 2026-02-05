@@ -28,7 +28,6 @@
 #include <utility>
 
 #include "common/status.h"
-#include "gutil/ref_counted.h"
 #include "util/countdown_latch.h"
 
 namespace doris {
@@ -67,7 +66,7 @@ private:
     void gc_expired_context();
 
     CountDownLatch _stop_background_threads_latch;
-    scoped_refptr<Thread> _keep_alive_reaper;
+    std::shared_ptr<Thread> _keep_alive_reaper;
 
     std::mutex _lock;
 };

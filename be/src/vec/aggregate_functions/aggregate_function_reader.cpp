@@ -41,7 +41,12 @@ void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& fac
         factory.register_function_both(name + AGG_LOAD_SUFFIX, creator);
     };
 
-    register_function_both("sum", creator_with_type::creator<AggregateFunctionSumSimpleReader>);
+    register_function_both(
+            "sum",
+            creator_with_type_list<TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT,
+                                   TYPE_LARGEINT, TYPE_FLOAT, TYPE_DOUBLE, TYPE_DECIMAL32,
+                                   TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DECIMAL256,
+                                   TYPE_DECIMALV2>::creator<AggregateFunctionSumSimpleReader>);
     register_function_both("max", create_aggregate_function_single_value<AggregateFunctionMaxData>);
     register_function_both("min", create_aggregate_function_single_value<AggregateFunctionMinData>);
     register_function_both("bitmap_union",

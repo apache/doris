@@ -179,7 +179,9 @@ private:
 
 template <typename Data>
 class AggregateFunctionCountByEnum final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionCountByEnum<Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionCountByEnum<Data>>,
+          VarargsExpression,
+          NotNullableAggregateFunction {
 public:
     AggregateFunctionCountByEnum() = default;
     AggregateFunctionCountByEnum(const DataTypes& argument_types_)

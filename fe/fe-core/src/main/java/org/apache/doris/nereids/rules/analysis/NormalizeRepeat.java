@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
@@ -38,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Repeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncs;
 import org.apache.doris.qe.SqlModeHelper;
@@ -63,30 +63,35 @@ import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /** NormalizeRepeat
- * eg: select sum(b + 1), grouping(a+1) from t1 group by grouping sets ((b+1));
+ * eg: SELECT
+ *      camp,
+ *      COUNT(occupation) AS occ_cnt,
+ *      GROUPING(camp) AS grouping
+ *     FROM
+ *      `roles`
+ *      GROUP BY ROLLUP(camp);
  * Original Plan:
- * LogicalRepeat ( groupingSets=[[(a#0 + 1)]],
- *                 outputExpressions=[sum((b#1 + 1)) AS `sum((b + 1))`#2,
- *                 Grouping((a#0 + 1)) AS `Grouping((a + 1))`#3] )
- *      +--LogicalOlapScan (t1)
- *
+ * LogicalRepeat ( groupingSets=[[camp#2], []], outputExpressions=[camp#2,
+ *                  count(occupation#1) AS `occ_cnt`#6, Grouping(camp#2) AS `grouping`#7], groupingId=Optional.empty )
+ *  +--LogicalFilter[10] ( predicates=(__DORIS_DELETE_SIGN__#4 = 0) )
+ *      +--LogicalOlapScan ( qualified=roles, indexName=index_not_selected, selectedIndexId=1765187322191,
+ *                              preAgg=UNSET, operativeCol=[], virtualColumns=[] )
  * After:
- * LogicalAggregate[62] ( groupByExpr=[(a + 1)#4, GROUPING_ID#7, GROUPING_PREFIX_(a + 1)#6],
- *                        outputExpr=[sum((b + 1)#5) AS `sum((b + 1))`#2,
- *                                    GROUPING_PREFIX_(a + 1)#6 AS `GROUPING_PREFIX_(a + 1)`#3] )
- *    +--LogicalRepeat ( groupingSets=[[(a + 1)#4]],
- *                       outputExpressions=[(a + 1)#4,
- *                                          (b + 1)#5,
- *                                          GROUPING_ID#7,
- *                                          GROUPING_PREFIX_(a + 1)#6] )
- *      +--LogicalProject[60] ( projects=[(a#0 + 1) AS `(a + 1)`#4, (b#1 + 1) AS `(b + 1)`#5], excepts=[]
- *          +--LogicalOlapScan ( t1 )
+ * LogicalAggregate[19] ( groupByExpr=[camp#2, GROUPING_PREFIX_camp#8, GROUPING_ID#9],
+ *                          outputExpr=[camp#2, count(occupation#1) AS `occ_cnt`#6,
+ *                              GROUPING_PREFIX_camp#8 AS `grouping`#7], hasRepeat=true )
+ *  +--LogicalRepeat ( groupingSets=[[camp#2], []], outputExpressions=[camp#2, occupation#1,
+ *                              Grouping(camp#2) AS `GROUPING_PREFIX_camp`#8], groupingId=Optional[GROUPING_ID#9] )
+ *      +--LogicalProject[17] ( distinct=false, projects=[camp#2, occupation#1] )
+ *          +--LogicalFilter[10] ( predicates=(__DORIS_DELETE_SIGN__#4 = 0) )
+ *              +--LogicalOlapScan ( qualified=roles, indexName=index_not_selected,
+ *                                  selectedIndexId=1765187322191, preAgg=UNSET, operativeCol=[], virtualColumns=[] )
  */
 public class NormalizeRepeat extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return RuleType.NORMALIZE_REPEAT.build(
-            logicalRepeat(any()).when(LogicalRepeat::canBindVirtualSlot).then(repeat -> {
+            logicalRepeat(any()).whenNot(r -> r.getGroupingId().isPresent()).then(repeat -> {
                 if (repeat.getGroupingSets().size() == 1
                         && ExpressionUtils.collect(repeat.getOutputExpressions(),
                         GroupingScalarFunction.class::isInstance).isEmpty()) {
@@ -154,38 +159,30 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         // rewrite grouping scalar function to virtual slots
         // rewrite the arguments of agg function to slots
         List<NamedExpression> normalizedAggOutput = Lists.newArrayList();
+        List<NamedExpression> groupingFunctions = Lists.newArrayList();
         for (Expression expr : repeat.getOutputExpressions()) {
             Expression rewrittenExpr = expr.rewriteDownShortCircuit(
-                    e -> normalizeAggFuncChildrenAndGroupingScalarFunc(argsContext, e));
+                    e -> normalizeAggFuncChildrenAndGroupingScalarFunc(argsContext, e, groupingFunctions));
             normalizedAggOutput.add((NamedExpression) rewrittenExpr);
         }
 
         // use groupingExprContext rewrite the normalizedAggOutput
         normalizedAggOutput = groupingExprContext.normalizeToUseSlotRef(normalizedAggOutput);
 
-        Set<VirtualSlotReference> virtualSlotsInFunction =
-                ExpressionUtils.collect(normalizedAggOutput, VirtualSlotReference.class::isInstance);
-
-        List<VirtualSlotReference> allVirtualSlots = ImmutableList.<VirtualSlotReference>builder()
-                // add the virtual grouping id slot
-                .add(Repeat.generateVirtualGroupingIdSlot())
-                // add other virtual slots in the grouping scalar functions
-                .addAll(virtualSlotsInFunction)
-                .build();
-
-        Set<SlotReference> aggUsedNonVirtualSlots = ExpressionUtils.collect(
+        Set<SlotReference> aggUsedSlots = ExpressionUtils.collect(
                 normalizedAggOutput, expr -> expr.getClass().equals(SlotReference.class));
 
         Set<Slot> groupingSetsUsedSlot = ImmutableSet.copyOf(
                 ExpressionUtils.flatExpressions(normalizedGroupingSets));
 
         SetView<SlotReference> aggUsedSlotNotInGroupBy
-                = Sets.difference(aggUsedNonVirtualSlots, groupingSetsUsedSlot);
+                = Sets.difference(Sets.difference(aggUsedSlots, groupingFunctions.stream()
+                .map(NamedExpression::toSlot).collect(Collectors.toSet())), groupingSetsUsedSlot);
 
-        List<Slot> normalizedRepeatOutput = ImmutableList.<Slot>builder()
+        List<NamedExpression> normalizedRepeatOutput = ImmutableList.<NamedExpression>builder()
                 .addAll(groupingSetsUsedSlot)
                 .addAll(aggUsedSlotNotInGroupBy)
-                .addAll(allVirtualSlots)
+                .addAll(groupingFunctions)
                 .build();
 
         // 3 parts need push down:
@@ -206,12 +203,23 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
 
         Plan normalizedChild = pushDownProject(pushedProject, repeat.child());
 
+        // If grouping id is not present, we need to add it, if repeat already has grouping id, use it directly
+        // which is for the case repeat is introduced by mv rewrite, should keep the rewritten grouping id
+        // is same to the original grouping id
+        SlotReference groupingId = repeat.getGroupingId().orElse(
+                new SlotReference(Repeat.COL_GROUPING_ID, BigIntType.INSTANCE, false));
+        // remove grouping id from repeat output expressions, grouping id should not in repeat output
+        // this keep consistent with original repeat behavior
+        normalizedRepeatOutput = normalizedRepeatOutput.stream()
+                .filter(expr -> !expr.equals(groupingId))
+                .collect(Collectors.toList());
         LogicalRepeat<Plan> normalizedRepeat = repeat.withNormalizedExpr(
-                (List) normalizedGroupingSets, (List) normalizedRepeatOutput, normalizedChild);
+                (List) normalizedGroupingSets, normalizedRepeatOutput, groupingId, normalizedChild);
 
         List<Expression> normalizedAggGroupBy = ImmutableList.<Expression>builder()
                 .addAll(groupingSetsUsedSlot)
-                .addAll(allVirtualSlots)
+                .addAll(groupingFunctions.stream().map(NamedExpression::toSlot).collect(Collectors.toList()))
+                .add(groupingId)
                 .build();
 
         normalizedAggOutput = getExprIdUnchangedNormalizedAggOutput(normalizedAggOutput, repeat.getOutputExpressions());
@@ -314,7 +322,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     }
 
     private static Expression normalizeAggFuncChildrenAndGroupingScalarFunc(NormalizeToSlotContext context,
-            Expression expr) {
+            Expression expr, List<NamedExpression> groupingSetExpressions) {
         if (expr instanceof AggregateFunction) {
             AggregateFunction function = (AggregateFunction) expr;
             List<Expression> normalizedRealExpressions = context.normalizeToUseSlotRef(function.getArguments());
@@ -325,7 +333,9 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
             List<Expression> normalizedRealExpressions = context.normalizeToUseSlotRef(function.getArguments());
             function = function.withChildren(normalizedRealExpressions);
             // eliminate GroupingScalarFunction and replace to VirtualSlotReference
-            return Repeat.generateVirtualSlotByFunction(function);
+            Alias alias = new Alias(function, Repeat.generateVirtualSlotName(function));
+            groupingSetExpressions.add(alias);
+            return alias.toSlot();
         } else {
             return expr;
         }
@@ -379,24 +389,13 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         repeat = repeat.withChildren(ImmutableList.of(newLogicalProject));
 
         // modify repeat outputs
-        List<Slot> originRepeatSlots = repeat.getOutput();
-        List<Slot> virtualSlots = Lists.newArrayList();
-        List<Slot> nonVirtualSlots = Lists.newArrayList();
-        for (Slot slot : originRepeatSlots) {
-            if (slot instanceof VirtualSlotReference) {
-                virtualSlots.add(slot);
-            } else {
-                nonVirtualSlots.add(slot);
-            }
-        }
         List<Slot> newSlots = Lists.newArrayList();
         for (Alias alias : newAliases) {
             newSlots.add(alias.toSlot());
         }
         repeat = repeat.withAggOutput(ImmutableList.<NamedExpression>builder()
-                .addAll(nonVirtualSlots)
+                .addAll(repeat.getOutputExpressions())
                 .addAll(newSlots)
-                .addAll(virtualSlots)
                 .build());
         aggregate = aggregate.withChildren(ImmutableList.of(repeat));
 

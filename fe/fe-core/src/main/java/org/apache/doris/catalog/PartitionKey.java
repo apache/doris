@@ -28,11 +28,16 @@ import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -113,7 +118,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             Type keyType = columns.get(i).getType();
             // If column type is datatime and key type is date, we should convert date to datetime.
             // if it's max value, no need to parse.
-            if (!keys.get(i).isMax() && (keyType.isDatetime() || keyType.isDatetimeV2())) {
+            if (!keys.get(i).isMax() && (keyType.isDatetime() || keyType.isDatetimeV2() || keyType.isTimeStampTz())) {
                 Literal dateTimeLiteral = getDateTimeLiteral(keys.get(i).getStringValue(), keyType);
                 partitionKey.keys.add(dateTimeLiteral.toLegacyLiteral());
             } else {
@@ -133,10 +138,24 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     }
 
     private static Literal getDateTimeLiteral(String value, Type type) throws AnalysisException {
-        if (type.isDatetime()) {
-            return new DateTimeLiteral(value);
-        } else if (type.isDatetimeV2()) {
-            return new DateTimeV2Literal(value);
+        try {
+            if (type.isDatetime()) {
+                return new DateTimeLiteral(value);
+            } else if (type.isDatetimeV2()) {
+                return new DateTimeV2Literal(value);
+            } else if (type.isTimeStampTz()) {
+                DateTimeV2Literal literal = new DateTimeV2Literal(value);
+                DateTimeV2Literal dtV2Lit = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(
+                        literal,
+                        new StringLiteral(ConnectContext.get().getSessionVariable().timeZone),
+                        new StringLiteral("UTC")));
+                return new TimestampTzLiteral((TimeStampTzType) DataType.fromCatalogType(type),
+                        dtV2Lit.getYear(), dtV2Lit.getMonth(), dtV2Lit.getDay(),
+                        dtV2Lit.getHour(), dtV2Lit.getMinute(), dtV2Lit.getSecond(), dtV2Lit.getMicroSecond());
+
+            }
+        } catch (Exception e) {
+            LOG.warn("convert {} to type {} failed, because: {}", value, type, e.getMessage(), e);
         }
         throw new AnalysisException("date convert to datetime failed, "
                 + "value is [" + value + "], type is [" + type + "].");
@@ -270,22 +289,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         if (key1 instanceof MaxLiteral || key2 instanceof MaxLiteral) {
             ret = key1.compareLiteral(key2);
         } else {
-            boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
-            final Type destType = Type.getAssignmentCompatibleType(key1.getType(), key2.getType(), false,
-                    enableDecimal256);
-            try {
-                LiteralExpr newKey = key1;
-                if (key1.getType() != destType) {
-                    newKey = (LiteralExpr) key1.castTo(destType);
-                }
-                LiteralExpr newOtherKey = key2;
-                if (key2.getType() != destType) {
-                    newOtherKey = (LiteralExpr) key2.castTo(destType);
-                }
-                ret = newKey.compareLiteral(newOtherKey);
-            } catch (AnalysisException e) {
-                throw new RuntimeException("Cast error in partition");
-            }
+            ret = key1.compareLiteral(key2);
         }
         return ret;
     }
@@ -337,6 +341,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             case DATEV2:
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMPTZ:
                 DateLiteral dateLiteral = (DateLiteral) literal;
                 LocalDateTime successorDateTime = LocalDateTime.of(
                         (int) dateLiteral.getYear(),
@@ -555,10 +560,10 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                 if (key instanceof MaxLiteral) {
                     key = MaxLiteral.MAX_VALUE;
                 }
-                if (type != PrimitiveType.DATETIMEV2) {
+                if (type != PrimitiveType.DATETIMEV2 && type != PrimitiveType.TIMESTAMPTZ) {
                     key.setType(Type.fromPrimitiveType(type));
                 }
-                if (type.isDateV2Type()) {
+                if (type.isDateV2LikeType()) {
                     try {
                         key.checkValueValid();
                     } catch (AnalysisException e) {

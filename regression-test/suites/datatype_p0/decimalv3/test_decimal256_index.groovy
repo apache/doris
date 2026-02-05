@@ -111,9 +111,9 @@ suite("test_decimal256_index") {
     // RowsStatsFiltered in profile
     qt_decimal256_zonemap_0 "select * from test_decimal256_zonemap_index where k2 < 900000000000000000000000000000000000000000000000000000000000000010.9999999999 order by k1, k2;"
 
-    sql "DROP TABLE IF EXISTS `test_decimal256_bitmap_index`"
+    sql "DROP TABLE IF EXISTS `test_decimal256`"
     sql """
-    CREATE TABLE IF NOT EXISTS `test_decimal256_bitmap_index` (
+    CREATE TABLE IF NOT EXISTS `test_decimal256` (
       `k1` decimalv3(76, 9) NULL COMMENT "",
       `k2` decimalv3(76, 10) NULL COMMENT "",
       `k3` decimalv3(76, 11) NULL COMMENT ""
@@ -125,7 +125,7 @@ suite("test_decimal256_index") {
     );
     """
 
-    sql """insert into test_decimal256_bitmap_index values
+    sql """insert into test_decimal256 values
             (1, 999999999999999999999999999999999999999999999999999999999999999999.9999999999, 99999999999999999999999999999999999999999999999999999999999999999.99999999999),
             (1, 999999999999999999999999999999999999999999999999999999999999999999.9999999999, 99999999999999999999999999999999999999999999999999999999999999999.99999999999),
             (2, 499999999999999999999999999999999999999999999999999999999999999999.9999999999, 49999999999999999999999999999999999999999999999999999999999999999.99999999999),
@@ -140,76 +140,68 @@ suite("test_decimal256_index") {
         """
     sql "sync"
 
-    sql """CREATE INDEX k2_bitmap_index ON test_decimal256_bitmap_index(k2) USING BITMAP;"""
-    wait_for_latest_op_on_table_finish("test_decimal256_bitmap_index", 10000);
-    if (!isCloudMode()) {
-        sql """BUILD INDEX k2_bitmap_index ON test_decimal256_bitmap_index;"""
-        wait_for_latest_op_on_table_finish("test_decimal256_bitmap_index", 10000);
-        wait_for_build_index_on_partition_finish("test_decimal256_bitmap_index", 10000)
-    }
-
     qt_sql_bitmap_index_select_all """
-        select * from test_decimal256_bitmap_index order by 1,2,3;
+        select * from test_decimal256 order by 1,2,3;
     """
     // profile item RowsBitmapIndexFiltered
     qt_sql_eq_1 """
-        select * from test_decimal256_bitmap_index where k2 = 499999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
+        select * from test_decimal256 where k2 = 499999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
     """
     qt_sql_eq_2 """
-        select * from test_decimal256_bitmap_index where k2 = -999999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
+        select * from test_decimal256 where k2 = -999999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
     """
     qt_sql_eq_3 """
-        select * from test_decimal256_bitmap_index where k2 = -333333333333333333333333333333333333333333333333333333333333333333.3333333333 order by 1, 2, 3;
+        select * from test_decimal256 where k2 = -333333333333333333333333333333333333333333333333333333333333333333.3333333333 order by 1, 2, 3;
     """
 
     qt_sql_neq_1 """
-        select * from test_decimal256_bitmap_index where k2 != 499999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
+        select * from test_decimal256 where k2 != 499999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
     """
     qt_sql_neq_2 """
-        select * from test_decimal256_bitmap_index where k2 != -999999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
+        select * from test_decimal256 where k2 != -999999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
     """
     qt_sql_neq_3 """
-        select * from test_decimal256_bitmap_index where k2 != -333333333333333333333333333333333333333333333333333333333333333333.3333333333 order by 1, 2, 3;
+        select * from test_decimal256 where k2 != -333333333333333333333333333333333333333333333333333333333333333333.3333333333 order by 1, 2, 3;
     """
 
     qt_sql_gt_1 """
-        select * from test_decimal256_bitmap_index where k2 > 499999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
+        select * from test_decimal256 where k2 > 499999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
     """
     qt_sql_gt_2 """
-        select * from test_decimal256_bitmap_index where k2 > -999999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
+        select * from test_decimal256 where k2 > -999999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
     """
     qt_sql_gt_3 """
-        select * from test_decimal256_bitmap_index where k2 > -333333333333333333333333333333333333333333333333333333333333333333.3333333333 order by 1, 2, 3;
+        select * from test_decimal256 where k2 > -333333333333333333333333333333333333333333333333333333333333333333.3333333333 order by 1, 2, 3;
     """
 
     qt_sql_ge_1 """
-        select * from test_decimal256_bitmap_index where k2 >= 499999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
+        select * from test_decimal256 where k2 >= 499999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
     """
     qt_sql_ge_2 """
-        select * from test_decimal256_bitmap_index where k2 >= -999999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
+        select * from test_decimal256 where k2 >= -999999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
     """
     qt_sql_ge_3 """
-        select * from test_decimal256_bitmap_index where k2 >= -333333333333333333333333333333333333333333333333333333333333333333.3333333333 order by 1, 2, 3;
+        select * from test_decimal256 where k2 >= -333333333333333333333333333333333333333333333333333333333333333333.3333333333 order by 1, 2, 3;
     """
 
     qt_sql_lt_1 """
-        select * from test_decimal256_bitmap_index where k2 < 499999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
+        select * from test_decimal256 where k2 < 499999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
     """
     qt_sql_lt_2 """
-        select * from test_decimal256_bitmap_index where k2 < -999999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
+        select * from test_decimal256 where k2 < -999999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
     """
     qt_sql_lt_3 """
-        select * from test_decimal256_bitmap_index where k2 < -333333333333333333333333333333333333333333333333333333333333333333.3333333333 order by 1, 2, 3;
+        select * from test_decimal256 where k2 < -333333333333333333333333333333333333333333333333333333333333333333.3333333333 order by 1, 2, 3;
     """
 
     qt_sql_le_1 """
-        select * from test_decimal256_bitmap_index where k2 <= 499999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
+        select * from test_decimal256 where k2 <= 499999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
     """
     qt_sql_le_2 """
-        select * from test_decimal256_bitmap_index where k2 <= -999999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
+        select * from test_decimal256 where k2 <= -999999999999999999999999999999999999999999999999999999999999999999.9999999999 order by 1, 2, 3;
     """
     qt_sql_le_3 """
-        select * from test_decimal256_bitmap_index where k2 <= -333333333333333333333333333333333333333333333333333333333333333333.3333333333 order by 1, 2, 3;
+        select * from test_decimal256 where k2 <= -333333333333333333333333333333333333333333333333333333333333333333.3333333333 order by 1, 2, 3;
     """
 
     // bloom filter index

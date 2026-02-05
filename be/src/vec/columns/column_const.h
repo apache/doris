@@ -27,15 +27,13 @@
 #include <cstdint>
 #include <functional>
 #include <initializer_list>
-#include <ostream>
 #include <string>
 #include <type_traits>
 #include <utility>
-#include <vector>
 
-#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
 #include "vec/common/string_ref.h"
@@ -95,6 +93,10 @@ void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_co
                                           const std::initializer_list<size_t>& parameters,
                                           Block& block, const ColumnNumbers& arg_indexes);
 
+void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_const,
+                                          const std::span<const size_t>& parameters, Block& block,
+                                          const ColumnNumbers& arg_indexes);
+
 /** ColumnConst contains another column with single element,
   *  but looks like a column with arbitrary amount of same elements.
   */
@@ -105,8 +107,8 @@ private:
     WrappedPtr data;
     size_t s;
 
-    ColumnConst(const ColumnPtr& data, size_t s_);
-    ColumnConst(const ColumnPtr& data, size_t s_, bool create_with_empty);
+    ColumnConst(const ColumnPtr& data, size_t s_, bool create_with_empty = false,
+                bool need_squash = true);
     ColumnConst(const ColumnConst& src) = default;
 
 public:
@@ -123,7 +125,7 @@ public:
     void resize(size_t new_size) override { s = new_size; }
 
     MutableColumnPtr clone_resized(size_t new_size) const override {
-        return ColumnConst::create(data->clone_resized(1), new_size);
+        return ColumnConst::create(data, new_size, false, false);
     }
 
     size_t size() const override { return s; }
@@ -160,7 +162,8 @@ public:
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override {
-        if (!is_column_const(src) || compare_at(0, 0, src, 0) != 0) {
+        if (this->s != 0 /*not empty*/ &&
+            (!is_column_const(src) || compare_at(0, 0, src, 0) != 0)) {
             throw Exception(
                     ErrorCode::INTERNAL_ERROR,
                     "ColumnConst::insert_indices_from: src is not const or not equal to dst");
@@ -200,21 +203,18 @@ public:
 
     size_t get_max_row_byte_size() const override { return data->get_max_row_byte_size(); }
 
-    void serialize_vec(StringRef* keys, size_t num_rows) const override {
+    void serialize(StringRef* keys, size_t num_rows) const override {
         DCHECK_EQ(data->size(), 1);
         for (size_t i = 0; i < num_rows; i++) {
+            // Used in hash_map_context.h, this address is allocated via Arena,
+            // but passed through StringRef, so using const_cast is acceptable.
             serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
         }
     }
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override {
-        auto real_data = data->get_data_at(0);
-        if (real_data.data == nullptr) {
-            hash = HashUtil::xxHash64NullWithSeed(hash);
-        } else {
-            hash = HashUtil::xxHash64WithSeed(real_data.data, real_data.size, hash);
-        }
+        data->update_xxHash_with_value(0, 1, hash, null_data);
     }
 
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
@@ -231,7 +231,7 @@ public:
 
     MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
     // ColumnPtr index(const IColumn & indexes, size_t limit) const override;
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint, HybridSorter& sorter,
                          Permutation& res) const override;
 
     size_t byte_size() const override { return s > 0 ? data->byte_size() + sizeof(s) : 0; }
@@ -275,22 +275,33 @@ public:
     StringRef get_raw_data() const override { return data->get_raw_data(); }
 
     /// Not part of the common interface.
-
-    IColumn& get_data_column() { return *data; }
     const IColumn& get_data_column() const { return *data; }
     const ColumnPtr& get_data_column_ptr() const { return data; }
 
     Field get_field() const { return get_data_column()[0]; }
 
-    template <typename T>
-    T get_value() const {
+    template <PrimitiveType T>
+    typename PrimitiveTypeTraits<T>::CppType get_value() const {
         // Here the cast is correct, relevant code is rather tricky.
-        return static_cast<T>(get_field().get<NearestFieldType<T>>());
+        return get_field().get<T>();
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        data->replace_column_data(rhs, row, self_row);
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                        "Method replace_column_data is not supported for " + get_name());
+    }
+
+    void replace_column_null_data(const uint8_t* __restrict null_map) override {
+        // For ColumnConst, the null_map has only 1 element (the const value's null status)
+        // If the const value is null, replace the nested data with default value
+        if (null_map[0]) {
+            data = std::move(*data).mutate();
+            data->replace_column_null_data(null_map);
+        }
+    }
+
+    bool support_replace_column_null_data() const override {
+        return data->support_replace_column_null_data();
     }
 
     void finalize() override { data->finalize(); }
@@ -313,6 +324,8 @@ public:
         ++s;
         return data->deserialize_impl(pos);
     }
+
+    void replace_float_special_values() override;
 };
 
 // For example, DataType may not correspond to a type and const,

@@ -47,13 +47,18 @@ public class Dpow extends ScalarFunction
         super("dpow", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Dpow(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Dpow withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Dpow(children.get(0), children.get(1));
+        return new Dpow(getFunctionParams(children));
     }
 
     @Override

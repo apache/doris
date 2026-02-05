@@ -159,7 +159,7 @@ public class IcebergExternalTableBranchAndTagTest {
 
         // create an existed tag: tag1
         Assertions.assertThrows(
-                IllegalArgumentException.class,
+                RuntimeException.class,
                 () -> catalog.createOrReplaceTag(dorisTable, info));
 
         // create an existed tag with replace
@@ -241,8 +241,7 @@ public class IcebergExternalTableBranchAndTagTest {
                 true, null, null, null);
 
         // create an existed branch, failed
-        Assertions.assertThrows(
-                IllegalArgumentException.class,
+        Assertions.assertThrowsExactly(RuntimeException.class,
                 () -> catalog.createOrReplaceBranch(dorisTable, info));
 
         // create or replace an empty branch, will fail

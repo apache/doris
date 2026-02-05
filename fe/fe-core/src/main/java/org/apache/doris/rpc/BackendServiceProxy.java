@@ -31,7 +31,6 @@ import org.apache.doris.proto.InternalService.PGetWalQueueSizeResponse;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertRequest;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertResponse;
 import org.apache.doris.proto.Types;
-import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TFoldConstantParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPipelineFragmentParamsList;
@@ -120,6 +119,15 @@ public class BackendServiceProxy {
 
     private BackendServiceClient getProxy(TNetworkAddress address) throws UnknownHostException {
         String realIp = Env.getCurrentEnv().getDnsCache().get(address.hostname);
+
+        // Check if DNS resolution failed (returns empty string)
+        if (realIp.isEmpty() && Config.enable_fqdn_mode) {
+            String errorMsg = String.format("Failed to resolve hostname: %s. DNS cache returned empty IP address.",
+                    address.hostname);
+            LOG.warn(errorMsg);
+            throw new UnknownHostException(errorMsg);
+        }
+
         BackendServiceClientExtIp serviceClientExtIp = serviceMap.get(address);
         if (serviceClientExtIp != null && serviceClientExtIp.realIp.equals(realIp)
                 && serviceClientExtIp.client.isNormalState()) {
@@ -132,7 +140,7 @@ public class BackendServiceProxy {
         try {
             serviceClientExtIp = serviceMap.get(address);
             if (serviceClientExtIp != null && !serviceClientExtIp.realIp.equals(realIp)) {
-                LOG.warn("Cached ip changed ,before ip: {}, curIp: {}", serviceClientExtIp.realIp, realIp);
+                LOG.warn("Cached ip changed, before ip: {}, curIp: {}", serviceClientExtIp.realIp, realIp);
                 serviceMap.remove(address);
                 removedClient = serviceClientExtIp.client;
                 serviceClientExtIp = null;
@@ -146,7 +154,8 @@ public class BackendServiceProxy {
                 serviceClientExtIp = null;
             }
             if (serviceClientExtIp == null) {
-                BackendServiceClient client = new BackendServiceClient(address, grpcThreadPool);
+                // Pass resolved IP to BackendServiceClient to avoid DNS resolution at gRPC layer
+                BackendServiceClient client = new BackendServiceClient(address, realIp, grpcThreadPool);
                 serviceMap.put(address, new BackendServiceClientExtIp(realIp, client));
             }
             return serviceMap.get(address).client;
@@ -155,38 +164,6 @@ public class BackendServiceProxy {
             if (removedClient != null) {
                 removedClient.shutdown();
             }
-        }
-    }
-
-    public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentsAsync(TNetworkAddress address,
-            TExecPlanFragmentParamsList paramsList, boolean twoPhaseExecution) throws TException, RpcException {
-        InternalService.PExecPlanFragmentRequest.Builder builder =
-                InternalService.PExecPlanFragmentRequest.newBuilder();
-        if (Config.use_compact_thrift_rpc) {
-            builder.setRequest(
-                    ByteString.copyFrom(new TSerializer(new TCompactProtocol.Factory()).serialize(paramsList)));
-            builder.setCompact(true);
-        } else {
-            builder.setRequest(ByteString.copyFrom(new TSerializer().serialize(paramsList))).build();
-            builder.setCompact(false);
-        }
-        // VERSION 2 means we send TExecPlanFragmentParamsList, not single TExecPlanFragmentParams
-        builder.setVersion(InternalService.PFragmentRequestVersion.VERSION_2);
-
-        final InternalService.PExecPlanFragmentRequest pRequest = builder.build();
-        MetricRepo.BE_COUNTER_QUERY_RPC_ALL.getOrAdd(address.hostname).increase(1L);
-        MetricRepo.BE_COUNTER_QUERY_RPC_SIZE.getOrAdd(address.hostname).increase((long) pRequest.getSerializedSize());
-        try {
-            final BackendServiceClient client = getProxy(address);
-            if (twoPhaseExecution) {
-                return client.execPlanFragmentPrepareAsync(pRequest);
-            } else {
-                return client.execPlanFragmentAsync(pRequest);
-            }
-        } catch (Throwable e) {
-            LOG.warn("Execute plan fragment catch a exception, address={}:{}", address.getHostname(), address.getPort(),
-                    e);
-            throw new RpcException(address.hostname, e.getMessage());
         }
     }
 
@@ -617,6 +594,17 @@ public class BackendServiceProxy {
             return client.abortRefreshDictionary(request, timeoutSec);
         } catch (Throwable e) {
             LOG.warn("abort refrersh dictionary failed, address={}:{}", address.getHostname(), address.getPort(), e);
+        }
+        return null;
+    }
+
+    public Future<InternalService.PRequestCdcClientResult> requestCdcClient(TNetworkAddress address,
+            InternalService.PRequestCdcClientRequest request) {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.requestCdcClient(request);
+        } catch (Throwable e) {
+            LOG.warn("request cdc client failed, address={}:{}", address.getHostname(), address.getPort(), e);
         }
         return null;
     }

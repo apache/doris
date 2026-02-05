@@ -520,7 +520,7 @@ TEST_F(OrderedDataCompactionTest, test_01) {
     Status s = Status::OK();
     do {
         block_create(tablet_schema, &output_block);
-        s = output_rs_reader->next_block(&output_block);
+        s = output_rs_reader->next_batch(&output_block);
         auto columns = output_block.get_columns_with_type_and_name();
         EXPECT_EQ(columns.size(), 2);
         for (auto i = 0; i < output_block.rows(); i++) {

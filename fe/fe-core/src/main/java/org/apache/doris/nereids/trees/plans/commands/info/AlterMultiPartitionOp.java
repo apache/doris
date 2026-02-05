@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterMultiPartitionClause;
-import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -87,8 +85,10 @@ public class AlterMultiPartitionOp extends AlterTableOp {
         return properties;
     }
 
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
+    /**
+     * getPartitionKeyDesc
+     */
+    public PartitionKeyDesc getPartitionKeyDesc() {
         List<PartitionValue> fromValues = fromExpression.stream()
                 .map(this::toLegacyPartitionValue)
                 .collect(Collectors.toList());
@@ -98,7 +98,7 @@ public class AlterMultiPartitionOp extends AlterTableOp {
         PartitionKeyDesc partitionKeyDesc = (unitString == null
                 ? PartitionKeyDesc.createMultiFixed(fromValues, toValues, unit)
                 : PartitionKeyDesc.createMultiFixed(fromValues, toValues, unit, unitString));
-        return new AlterMultiPartitionClause(partitionKeyDesc, properties, isTempPartition);
+        return partitionKeyDesc;
     }
 
     public boolean isTempPartition() {

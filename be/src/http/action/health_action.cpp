@@ -24,21 +24,42 @@
 #include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/http_status.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
 void HealthAction::handle(HttpRequest* req) {
+    std::string status;
+    std::string msg;
+    HttpStatus st;
+    // always return HttpStatus::OK
+    // because in k8s, we don't want the pod to be removed
+    // from service during shutdown
+    if (!doris::k_is_server_ready) {
+        status = "Server is not available";
+        msg = "Server is not ready";
+        st = HttpStatus::OK;
+    } else if (doris::k_doris_exit) {
+        status = "Server is not available";
+        msg = "Server is shutting down";
+        st = HttpStatus::OK;
+    } else {
+        status = "OK";
+        msg = "OK";
+        st = HttpStatus::OK;
+    }
+
     std::stringstream ss;
     ss << "{";
-    ss << "\"status\": \"OK\",";
-    ss << "\"msg\": \"To Be Added\"";
+    ss << "\"status\": \"" << status << "\",";
+    ss << "\"msg\": \"" << msg << "\"";
     ss << "}";
     std::string result = ss.str();
 
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
-    HttpChannel::send_reply(req, HttpStatus::OK, result);
+    HttpChannel::send_reply(req, st, result);
 }
 
 } // end namespace doris

@@ -18,6 +18,7 @@
 package org.apache.doris.clone;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.LocalTabletInvertedIndex;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
@@ -65,7 +66,7 @@ public class DecommissionTest {
     private long id = 10086;
 
     private final SystemInfoService systemInfoService = new SystemInfoService();
-    private final TabletInvertedIndex invertedIndex = new TabletInvertedIndex();
+    private final TabletInvertedIndex invertedIndex = new LocalTabletInvertedIndex();
 
     @BeforeClass
     public static void beforeClass() throws Exception {

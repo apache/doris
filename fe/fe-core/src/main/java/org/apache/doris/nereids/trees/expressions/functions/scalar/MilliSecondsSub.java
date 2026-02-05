@@ -21,11 +21,12 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateOrTimeLikeV2Args;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -35,22 +36,27 @@ import java.util.List;
 /**
  * ScalarFunction 'MilliSeconds_sub'.
  */
-public class MilliSecondsSub extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateOrTimeLikeV2Args,
-        DateAddSubMonotonic {
+public class MilliSecondsSub extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
+        PropagateNullable, DateAddSubMonotonic {
 
-    private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeV2Type.MAX)
-                    .args(DateTimeV2Type.MAX, IntegerType.INSTANCE));
+    private static final List<FunctionSignature> SIGNATURES = ImmutableList
+            .of(FunctionSignature.ret(DateTimeV2Type.MAX).args(DateTimeV2Type.MAX, BigIntType.INSTANCE),
+                FunctionSignature.ret(TimeStampTzType.MAX).args(TimeStampTzType.MAX, BigIntType.INSTANCE)
+    );
 
     public MilliSecondsSub(Expression arg0, Expression arg1) {
         super("milliseconds_sub", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MilliSecondsSub(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public MilliSecondsSub withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MilliSecondsSub(children.get(0), children.get(1));
+        return new MilliSecondsSub(getFunctionParams(children));
     }
 
     @Override
@@ -61,6 +67,9 @@ public class MilliSecondsSub extends ScalarFunction
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         signature = super.computeSignature(signature);
+        if (signature.argumentsTypes.get(0) instanceof TimeStampTzType) {
+            return signature.withArgumentType(0, TimeStampTzType.MAX).withReturnType(TimeStampTzType.MAX);
+        }
         return signature.withArgumentType(0, DateTimeV2Type.MAX).withReturnType(DateTimeV2Type.MAX);
     }
 

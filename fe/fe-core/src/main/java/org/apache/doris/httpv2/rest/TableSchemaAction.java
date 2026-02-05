@@ -21,6 +21,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -33,11 +35,15 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
+import org.apache.doris.httpv2.rest.response.GsonSchemaResponse;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -51,14 +57,43 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+import java.util.stream.Collectors;
 
 /**
  * Get table schema for specified cluster.database.table with privilege checking
  */
 @RestController
 public class TableSchemaAction extends RestBaseController {
+
+    /**
+     * Build column information map for a given column
+     * @param column the column to build info for
+     * @return map containing column information
+     */
+    private Map<String, String> buildColumnInfo(Column column) {
+        Map<String, String> columnInfo = new HashMap<>(2);
+        Type colType = column.getOriginType();
+        PrimitiveType primitiveType = colType.getPrimitiveType();
+
+        if (primitiveType == PrimitiveType.DECIMALV2 || primitiveType.isDecimalV3Type()) {
+            ScalarType scalarType = (ScalarType) colType;
+            columnInfo.put("precision", scalarType.getPrecision() + "");
+            columnInfo.put("scale", scalarType.getScalarScale() + "");
+        }
+
+        columnInfo.put("column_uid", String.valueOf(column.getUniqueId()));
+        columnInfo.put("type", primitiveType.toString());
+        columnInfo.put("comment", column.getComment());
+        columnInfo.put("name", column.getDisplayName());
+
+        Optional aggregationType = Optional.ofNullable(column.getAggregationType());
+        columnInfo.put("aggregation_type", aggregationType.isPresent()
+                ? column.getAggregationType().toSql() : "");
+        columnInfo.put("is_nullable", column.isAllowNull() ? "Yes" : "No");
+        columnInfo.put("is_key", column.isKey() ? "Yes" : "No");
+
+        return columnInfo;
+    }
 
     @RequestMapping(path = {"/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_schema",
             "/api/{" + CATALOG_KEY + "}/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_schema"}, method = RequestMethod.GET)
@@ -95,26 +130,45 @@ public class TableSchemaAction extends RestBaseController {
                     List<Column> columns = table.getBaseSchema();
                     List<Map<String, String>> propList = new ArrayList(columns.size());
                     for (Column column : columns) {
-                        Map<String, String> baseInfo = new HashMap<>(2);
-                        Type colType = column.getOriginType();
-                        PrimitiveType primitiveType = colType.getPrimitiveType();
-                        if (primitiveType == PrimitiveType.DECIMALV2 || primitiveType.isDecimalV3Type()) {
-                            ScalarType scalarType = (ScalarType) colType;
-                            baseInfo.put("precision", scalarType.getPrecision() + "");
-                            baseInfo.put("scale", scalarType.getScalarScale() + "");
-                        }
-                        baseInfo.put("type", primitiveType.toString());
-                        baseInfo.put("comment", column.getComment());
-                        baseInfo.put("name", column.getDisplayName());
-                        Optional aggregationType = Optional.ofNullable(column.getAggregationType());
-                        baseInfo.put("aggregation_type", aggregationType.isPresent()
-                                ? column.getAggregationType().toSql() : "");
-                        baseInfo.put("is_nullable", column.isAllowNull() ? "Yes" : "No");
+                        Map<String, String> baseInfo = buildColumnInfo(column);
                         propList.add(baseInfo);
                     }
                     resultMap.put("status", 200);
                     if (table instanceof OlapTable) {
                         resultMap.put("keysType", ((OlapTable) table).getKeysType().name());
+                        resultMap.put("schema_version", ((OlapTable) table).getBaseSchemaVersion());
+
+                        // Add materialized index schemas for debugging
+                        OlapTable olapTable = (OlapTable) table;
+                        Map<Long, MaterializedIndexMeta> indexIdToMeta = olapTable.getIndexIdToMeta();
+                        Map<String, Object> materializedIndexSchemas = new HashMap<>();
+
+                        for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
+                            Long indexId = entry.getKey();
+                            MaterializedIndexMeta indexMeta = entry.getValue();
+                            String indexName = olapTable.getIndexNameById(indexId);
+
+                            Map<String, Object> indexInfo = new HashMap<>();
+                            indexInfo.put("index_id", indexId);
+                            indexInfo.put("keys_type", indexMeta.getKeysType().name());
+                            indexInfo.put("schema_version", indexMeta.getSchemaVersion());
+                            indexInfo.put("schema_hash", indexMeta.getSchemaHash());
+                            indexInfo.put("storage_type", indexMeta.getStorageType().name());
+
+                            // Get schema columns for this materialized index
+                            List<Column> indexColumns = indexMeta.getSchema();
+                            List<Map<String, String>> indexColumnList = new ArrayList<>();
+
+                            for (Column column : indexColumns) {
+                                Map<String, String> columnInfo = buildColumnInfo(column);
+                                indexColumnList.add(columnInfo);
+                            }
+
+                            indexInfo.put("columns", indexColumnList);
+                            materializedIndexSchemas.put(indexName != null ? indexName : "index_" + indexId, indexInfo);
+                        }
+
+                        resultMap.put("materialized_indexes", materializedIndexSchemas);
                     }
                     resultMap.put("properties", propList);
                 } catch (Exception e) {
@@ -190,4 +244,52 @@ public class TableSchemaAction extends RestBaseController {
         }
         return ResponseEntityBuilder.ok();
     }
+
+    @RequestMapping(path = {"/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_gson_schema",
+            "/api/{" + CATALOG_KEY + "}/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_gson_schema"}, method = RequestMethod.GET)
+    protected Object gsonSchema(
+            @PathVariable(value = CATALOG_KEY, required = false) String catalogName,
+            @PathVariable(value = DB_KEY) final String dbName,
+            @PathVariable(value = TABLE_KEY) final String tblName,
+            HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
+        GsonSchemaResponse gsonSchemaResponse = new GsonSchemaResponse();
+        if (StringUtils.isBlank(catalogName)) {
+            catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        }
+
+        try {
+            String fullDbName = getFullDbName(dbName);
+            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), catalogName, fullDbName, tblName,
+                    PrivPredicate.SELECT);
+            TableIf table;
+            try {
+                CatalogIf catalog = StringUtils.isNotBlank(catalogName) ? Env.getCurrentEnv().getCatalogMgr()
+                        .getCatalogOrAnalysisException(catalogName) : Env.getCurrentInternalCatalog();
+                DatabaseIf db = catalog.getDbOrMetaException(fullDbName);
+                table = db.getTableOrMetaException(tblName);
+            } catch (MetaNotFoundException | AnalysisException e) {
+                return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+            }
+            table.readLock();
+            try {
+                List<String> jsonColumns = table.getBaseSchema().stream()
+                        .map(GsonUtils.GSON::toJson)
+                        .collect(Collectors.toList());
+                gsonSchemaResponse.setJsonColumns(jsonColumns);
+                if (table instanceof OlapTable) {
+                    gsonSchemaResponse.setKeysType(((OlapTable) table).getKeysType());
+                } else {
+                    gsonSchemaResponse.setKeysType(KeysType.UNKNOWN);
+                }
+            } finally {
+                table.readUnlock();
+            }
+        } catch (Exception e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
+
+        return ResponseEntityBuilder.ok(gsonSchemaResponse);
+    }
+
 }

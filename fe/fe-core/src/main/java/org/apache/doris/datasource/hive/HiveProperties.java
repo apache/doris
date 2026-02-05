@@ -89,8 +89,8 @@ public class HiveProperties {
         Optional<String> fieldDelim = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_FIELD_DELIMITER);
         Optional<String> serFormat = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_SERIALIZATION_FORMAT);
         String delimiter = HiveMetaStoreClientHelper.firstPresentOrDefault(
-                DEFAULT_FIELD_DELIMITER, fieldDelim, serFormat);
-        return supportMultiChar ? delimiter : HiveMetaStoreClientHelper.getByte(delimiter);
+                "", fieldDelim, serFormat);
+        return supportMultiChar ? delimiter : HiveMetaStoreClientHelper.getByte(delimiter, DEFAULT_FIELD_DELIMITER);
     }
 
     public static String getSeparatorChar(Table table) {
@@ -102,13 +102,13 @@ public class HiveProperties {
     public static String getLineDelimiter(Table table) {
         Optional<String> lineDelim = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_LINE_DELIMITER);
         return HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                DEFAULT_LINE_DELIMITER, lineDelim));
+                "", lineDelim), DEFAULT_LINE_DELIMITER);
     }
 
     public static String getMapKvDelimiter(Table table) {
         Optional<String> mapkvDelim = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_MAP_KV_DELIMITER);
         return HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                DEFAULT_MAP_KV_DELIMITER, mapkvDelim));
+                "", mapkvDelim), DEFAULT_MAP_KV_DELIMITER);
     }
 
     public static String getCollectionDelimiter(Table table) {
@@ -117,18 +117,13 @@ public class HiveProperties {
         Optional<String> collectionDelimHive3 = HiveMetaStoreClientHelper.getSerdeProperty(table,
                 PROP_COLLECTION_DELIMITER_HIVE3);
         return HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                DEFAULT_COLLECTION_DELIMITER, collectionDelimHive2, collectionDelimHive3));
+                "", collectionDelimHive2, collectionDelimHive3), DEFAULT_COLLECTION_DELIMITER);
     }
 
     public static Optional<String> getEscapeDelimiter(Table table) {
         Optional<String> escapeDelim = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_ESCAPE_DELIMITER);
         if (escapeDelim.isPresent()) {
-            String escape = HiveMetaStoreClientHelper.getByte(escapeDelim.get());
-            if (escape != null) {
-                return Optional.of(escape);
-            } else {
-                return Optional.of(DEFAULT_ESCAPE_DELIMIER);
-            }
+            return Optional.of(HiveMetaStoreClientHelper.getByte(escapeDelim.get(), DEFAULT_ESCAPE_DELIMIER));
         }
         return Optional.empty();
     }

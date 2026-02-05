@@ -305,9 +305,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------NestedLoopJoin[INNER_JOIN](cast(sum(c11) as DOUBLE) > 0.05 * avg(t1.c11))
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
-------------hashAgg[LOCAL]
---------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecGather]
 ------------hashAgg[LOCAL]

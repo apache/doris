@@ -23,6 +23,9 @@ suite("infer_set_operator_distinct") {
     sql "set enable_parallel_result_sink=false;"
     sql "set enable_nereids_distribute_planner=false;"
 
+    // make bucket shuffle set operation stable
+    sql "set parallel_pipeline_task_num=5"
+
     sql """
         DROP TABLE IF EXISTS t1;
     """

@@ -62,7 +62,6 @@ std::atomic<double> GlobalMemoryArbitrator::last_periodic_refreshed_cache_capaci
 std::atomic<double> GlobalMemoryArbitrator::last_memory_exceeded_cache_capacity_adjust_weighted {1};
 // The value that take affect
 std::atomic<double> GlobalMemoryArbitrator::last_affected_cache_capacity_adjust_weighted {1};
-std::atomic<bool> GlobalMemoryArbitrator::any_workload_group_exceed_limit {false};
 std::mutex GlobalMemoryArbitrator::memtable_memory_refresh_lock;
 std::condition_variable GlobalMemoryArbitrator::memtable_memory_refresh_cv;
 std::atomic<bool> GlobalMemoryArbitrator::memtable_memory_refresh_notify {false};

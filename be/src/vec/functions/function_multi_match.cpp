@@ -57,6 +57,7 @@ Status FunctionMultiMatch::evaluate_inverted_index(
         const ColumnsWithTypeAndName& arguments,
         const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
         std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+        const InvertedIndexAnalyzerCtx* analyzer_ctx,
         segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
     DCHECK(arguments.size() == 2);
     std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
@@ -94,8 +95,10 @@ Status FunctionMultiMatch::evaluate_inverted_index(
         }
 
         param.column_name = column_name;
+        param.column_type = data_type_with_names[i].second;
         param.roaring = std::make_shared<roaring::Roaring>();
-        RETURN_IF_ERROR(iter->read_from_index(&param));
+        param.analyzer_ctx = analyzer_ctx;
+        RETURN_IF_ERROR(iter->read_from_index(segment_v2::IndexParam {&param}));
         *roaring |= *param.roaring;
     }
     segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);

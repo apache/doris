@@ -38,6 +38,7 @@ import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -53,12 +54,16 @@ public class CreateWorkloadGroupCommand extends Command implements ForwardWithSy
      * Constructor for CreateWorkloadGroupCommand
      */
     public CreateWorkloadGroupCommand(String computeGroup, String workloadGroupName, boolean ifNotExists,
-            Map<String, String> properties) {
+            Map<String, String> inputProperties) {
         super(PlanType.CREATE_WORKLOAD_GROUP_COMMAND);
 
         this.workloadGroupName = workloadGroupName;
         this.ifNotExists = ifNotExists;
-        this.properties = properties;
+
+        this.properties = new HashMap<>();
+        for (String key : inputProperties.keySet()) {
+            properties.put(key.toLowerCase(), inputProperties.get(key));
+        }
         this.computeGroup = computeGroup;
     }
 

@@ -52,6 +52,11 @@ public abstract class NotNullableAggregateFunction extends AggregateFunction imp
         super(name, distinct, isSkew, expressions);
     }
 
+    /** constructor for withChildren and reuse signature */
+    protected NotNullableAggregateFunction(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     // return value of this function if the input data is empty.
     // for example, count(*) of empty table is 0;
     public abstract Expression resultForEmptyInput();

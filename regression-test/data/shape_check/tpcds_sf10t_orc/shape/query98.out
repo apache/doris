@@ -7,20 +7,19 @@ PhysicalResultSink
 --------PhysicalProject
 ----------PhysicalWindow
 ------------PhysicalQuickSort[LOCAL_SORT]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
---------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[ss_item_sk]
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
-------------------------------PhysicalProject
---------------------------------filter(i_category IN ('Home', 'Men', 'Sports'))
-----------------------------------PhysicalOlapScan[item]
---------------------------PhysicalProject
-----------------------------filter((date_dim.d_date <= '2002-02-04') and (date_dim.d_date >= '2002-01-05'))
-------------------------------PhysicalOlapScan[date_dim]
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------hashAgg[LOCAL]
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[ss_item_sk]
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
+----------------------------PhysicalProject
+------------------------------filter(i_category IN ('Home', 'Men', 'Sports'))
+--------------------------------PhysicalOlapScan[item]
+------------------------PhysicalProject
+--------------------------filter((date_dim.d_date <= '2002-02-04') and (date_dim.d_date >= '2002-01-05'))
+----------------------------PhysicalOlapScan[date_dim]
 

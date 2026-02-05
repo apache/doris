@@ -49,13 +49,18 @@ public class StAreaSquareMeters extends ScalarFunction
         super("st_area_square_meters", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StAreaSquareMeters(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StAreaSquareMeters withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new StAreaSquareMeters(children.get(0));
+        return new StAreaSquareMeters(getFunctionParams(children));
     }
 
     @Override

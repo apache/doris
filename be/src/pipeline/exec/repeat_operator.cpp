@@ -23,6 +23,7 @@
 #include "pipeline/exec/operator.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -130,6 +131,7 @@ Status RepeatLocalState::get_repeated_block(vectorized::Block* input_block, int 
         const bool is_repeat_slot = p._all_slot_ids.contains(slot_id);
         const bool is_set_null_slot = !p._slot_id_set_list[repeat_id_idx].contains(slot_id);
         const auto row_size = src_column.column->size();
+        vectorized::ColumnPtr src = src_column.column;
         if (is_repeat_slot) {
             DCHECK(p._output_slots[cur_col]->is_nullable());
             auto* nullable_column =
@@ -139,8 +141,9 @@ Status RepeatLocalState::get_repeated_block(vectorized::Block* input_block, int 
                 nullable_column->insert_many_defaults(row_size);
             } else {
                 if (!src_column.type->is_nullable()) {
-                    nullable_column->insert_range_from_not_nullable(*src_column.column, 0,
-                                                                    row_size);
+                    nullable_column->get_nested_column().insert_range_from(*src_column.column, 0,
+                                                                           row_size);
+                    nullable_column->push_false_to_nullmap(row_size);
                 } else {
                     nullable_column->insert_range_from(*src_column.column, 0, row_size);
                 }
@@ -188,13 +191,10 @@ Status RepeatOperatorX::push(RuntimeState* state, vectorized::Block* input_block
         intermediate_block = vectorized::Block::create_unique();
 
         for (auto& expr : expr_ctxs) {
-            int result_column_id = -1;
-            RETURN_IF_ERROR(expr->execute(input_block, &result_column_id));
-            DCHECK(result_column_id != -1);
-            input_block->get_by_position(result_column_id).column =
-                    input_block->get_by_position(result_column_id)
-                            .column->convert_to_full_column_if_const();
-            intermediate_block->insert(input_block->get_by_position(result_column_id));
+            vectorized::ColumnWithTypeAndName result_data;
+            RETURN_IF_ERROR(expr->execute(input_block, result_data));
+            result_data.column = result_data.column->convert_to_full_column_if_const();
+            intermediate_block->insert(result_data);
         }
         DCHECK_EQ(expr_ctxs.size(), intermediate_block->columns());
     }

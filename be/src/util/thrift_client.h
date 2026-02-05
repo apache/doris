@@ -62,13 +62,31 @@ public:
     void close();
 
     // Set the connect timeout
-    void set_conn_timeout(int ms) { _socket->setConnTimeout(ms); }
+    void set_conn_timeout(int ms) {
+        if (!_socket) {
+            LOG(WARNING) << "socket is nullptr";
+            return;
+        }
+        _socket->setConnTimeout(ms);
+    }
 
     // Set the receive timeout
-    void set_recv_timeout(int ms) { _socket->setRecvTimeout(ms); }
+    void set_recv_timeout(int ms) {
+        if (!_socket) {
+            LOG(WARNING) << "socket is nullptr";
+            return;
+        }
+        _socket->setRecvTimeout(ms);
+    }
 
     // Set the send timeout
-    void set_send_timeout(int ms) { _socket->setSendTimeout(ms); }
+    void set_send_timeout(int ms) {
+        if (!_socket) {
+            LOG(WARNING) << "socket is nullptr";
+            return;
+        }
+        _socket->setSendTimeout(ms);
+    }
 
 protected:
     ThriftClientImpl(const std::string& ipaddress, int port)

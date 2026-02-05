@@ -6,7 +6,7 @@
 -- !shape_1 --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----filter((rn <= 2))
+----filter((T.rn <= 2))
 ------PhysicalWindow
 --------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalPartitionTopN
@@ -22,7 +22,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------filter((rn <= 2))
+------filter((T.rn <= 2))
 --------PhysicalWindow
 ----------PhysicalQuickSort[LOCAL_SORT]
 ------------PhysicalPartitionTopN
@@ -32,7 +32,7 @@ PhysicalResultSink
 -- !3 --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----filter((T.b = 2) and (rn <= 2))
+----filter((T.b = 2) and (T.rn <= 2))
 ------PhysicalWindow
 --------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalPartitionTopN
@@ -42,7 +42,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------filter((T.b = 2) and (rn <= 2))
+------filter((T.b = 2) and (T.rn <= 2))
 --------PhysicalWindow
 ----------PhysicalQuickSort[LOCAL_SORT]
 ------------PhysicalDistribute[DistributionSpecHash]

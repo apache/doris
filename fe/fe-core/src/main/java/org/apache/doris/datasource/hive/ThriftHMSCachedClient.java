@@ -17,14 +17,14 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.DatabaseMetadata;
 import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
-import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
+import org.apache.doris.info.TableNameInfo;
 
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
@@ -37,7 +37,6 @@ import org.apache.hadoop.hive.common.ValidTxnList;
 import org.apache.hadoop.hive.common.ValidTxnWriteIdList;
 import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.hadoop.hive.metastore.HiveMetaHookLoader;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
@@ -98,10 +97,6 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
 
     public ThriftHMSCachedClient(HiveConf hiveConf, int poolSize, ExecutionAuthenticator executionAuthenticator) {
         Preconditions.checkArgument(poolSize > 0, poolSize);
-        if (hiveConf != null) {
-            HiveConf.setVar(hiveConf, ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT,
-                    String.valueOf(Config.hive_metastore_client_timeout_second));
-        }
         this.hiveConf = hiveConf;
         this.poolSize = poolSize;
         this.isClosed = false;
@@ -527,7 +522,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     }
 
     @Override
-    public void acquireSharedLock(String queryId, long txnId, String user, TableName tblName,
+    public void acquireSharedLock(String queryId, long txnId, String user, TableNameInfo tblName,
                                   List<String> partitionNames, long timeoutMs) {
         LockRequestBuilder request = new LockRequestBuilder(queryId).setTransactionId(txnId).setUser(user);
         List<LockComponent> lockComponents = createLockComponentsForRead(tblName, partitionNames);
@@ -617,7 +612,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         }
     }
 
-    private static List<LockComponent> createLockComponentsForRead(TableName tblName, List<String> partitionNames) {
+    private static List<LockComponent> createLockComponentsForRead(TableNameInfo tblName, List<String> partitionNames) {
         List<LockComponent> components = Lists.newArrayListWithCapacity(
                 partitionNames.isEmpty() ? 1 : partitionNames.size());
         if (partitionNames.isEmpty()) {
@@ -630,7 +625,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         return components;
     }
 
-    private static LockComponent createLockComponentForRead(TableName tblName, Optional<String> partitionName) {
+    private static LockComponent createLockComponentForRead(TableNameInfo tblName, Optional<String> partitionName) {
         LockComponentBuilder builder = new LockComponentBuilder();
         builder.setShared();
         builder.setOperationType(DataOperationType.SELECT);
@@ -646,11 +641,11 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         private volatile Throwable throwable;
 
         private ThriftHMSClient(HiveConf hiveConf) throws MetaException {
-            String type = hiveConf.get(HMSProperties.HIVE_METASTORE_TYPE);
-            if (HMSProperties.DLF_TYPE.equalsIgnoreCase(type)) {
+            String type = hiveConf.get(HMSBaseProperties.HIVE_METASTORE_TYPE);
+            if (HMSBaseProperties.DLF_TYPE.equalsIgnoreCase(type)) {
                 client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
                         ProxyMetaStoreClient.class.getName());
-            } else if (HMSProperties.GLUE_TYPE.equalsIgnoreCase(type)) {
+            } else if (HMSBaseProperties.GLUE_TYPE.equalsIgnoreCase(type)) {
                 client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
                         AWSCatalogMetastoreClient.class.getName());
             } else {

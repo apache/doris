@@ -43,24 +43,29 @@ suite("test_insert_limit") {
             }
         }
 
-        qt_select """
-        select k1, length(group_concat_merge(k2)) from `tbl_test_insert_limit` group by k1;
-        """
-        qt_select """
-        select k1, length(k2) from `tbl_test_insert_limit`;
-        """
-
         if (error != "") {
             break
         }
+
+        quickTest(
+            "in_progress_merge_$i",
+            """
+        select k1, length(group_concat_merge(k2)) from `tbl_test_insert_limit` group by k1;
+        """)
+        quickTest(
+            "in_progress_length_$i",
+            """
+        select k1, length(k2) from `tbl_test_insert_limit`;
+        """)
     }
 
-    assertTrue(error != "")
+    assertTrue(error != "", "expected error but no error")
+    assertTrue(error.toString().contains("the length of input string is too long than vec schema"), "error message: $error")
 
-    qt_select """
+    qt_select1 """
         select k1, length(group_concat_merge(k2)) from `tbl_test_insert_limit` group by k1;
     """
-    qt_select """
+    qt_select2 """
         select k1, length(k2) from `tbl_test_insert_limit`;
     """
 

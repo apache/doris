@@ -46,7 +46,7 @@ class ColumnDecimal;
 
 template <PrimitiveType T>
 struct AggregateFunctionAvgWeightedData {
-    using DataType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using DataType = typename PrimitiveTypeTraits<T>::CppType;
     void add(const DataType& data_val, double weight_val) {
 #ifdef __clang__
 #pragma clang fp reassociate(on)
@@ -87,7 +87,9 @@ struct AggregateFunctionAvgWeightedData {
 template <PrimitiveType type>
 class AggregateFunctionAvgWeight final
         : public IAggregateFunctionDataHelper<AggregateFunctionAvgWeightedData<type>,
-                                              AggregateFunctionAvgWeight<type>> {
+                                              AggregateFunctionAvgWeight<type>>,
+          MultiExpression,
+          NullableAggregateFunction {
 public:
     using T = typename PrimitiveTypeTraits<type>::CppType;
     using ColVecType = typename PrimitiveTypeTraits<type>::ColumnType;

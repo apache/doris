@@ -22,15 +22,18 @@
 
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <cmath> // IWYU pragma: keep
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <string>
 #include <string_view>
 
+#include "runtime/define_primitive_type.h"
 #include "util/hash_util.hpp"
 #include "vec/core/extended_types.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 typedef __int128_t int128_t;
 
@@ -50,6 +53,7 @@ enum DecimalRoundMode { HALF_UP = 1, HALF_EVEN = 2, CEILING = 3, FLOOR = 4, TRUN
 
 class DecimalV2Value {
 public:
+    static constexpr PrimitiveType PType = TYPE_DECIMALV2;
     using NativeType = __int128_t;
     friend DecimalV2Value operator+(const DecimalV2Value& v1, const DecimalV2Value& v2);
     friend DecimalV2Value operator-(const DecimalV2Value& v1, const DecimalV2Value& v2);
@@ -74,6 +78,7 @@ public:
 
     static const int128_t MAX_DECIMAL_VALUE =
             static_cast<int128_t>(MAX_INT64) * ONE_BILLION + MAX_FRAC_VALUE;
+    static constexpr int max_string_length() { return PRECISION + 1; }
 
     DecimalV2Value() = default;
     const int128_t& value() const { return _value; }
@@ -175,7 +180,7 @@ public:
     // NOTE: return a negative value if decimal is negative.
     // ATTN: the max length of fraction part in OLAP is 9, so the 'big digits' except the first one
     // will be truncated.
-    int32_t frac_value() const { return static_cast<int64_t>(_value % ONE_BILLION); }
+    int32_t frac_value() const { return static_cast<int32_t>(_value % ONE_BILLION); }
 
     bool operator==(const DecimalV2Value& other) const { return _value == other.value(); }
 
@@ -211,7 +216,7 @@ public:
     // (to make error handling easier)
     //
     // e.g. "1.2"  ".2"  "1.2e-3"  "1.2e3"
-    int parse_from_str(const char* decimal_str, int32_t length);
+    int parse_from_str(const char* decimal_str, size_t length);
 
     std::string get_debug_info() const { return to_string(); }
 
@@ -224,17 +229,21 @@ public:
     }
 
     static DecimalV2Value get_min_decimal(int precision, int scale) {
-        DCHECK(precision <= 27 && scale <= 9);
+        DCHECK(precision > 0 && precision <= 27 && scale >= 0 && scale <= 9 && precision >= scale &&
+               (precision - scale <= 18));
         return DecimalV2Value(
-                -MAX_INT_VALUE % get_scale_base(18 - precision + scale),
-                MAX_FRAC_VALUE / get_scale_base(9 - scale) * get_scale_base(9 - scale));
+                -MAX_INT_VALUE % static_cast<int64_t>(get_scale_base(18 - precision + scale)),
+                MAX_FRAC_VALUE / static_cast<int64_t>(get_scale_base(9 - scale)) *
+                        static_cast<int64_t>(get_scale_base(9 - scale)));
     }
 
     static DecimalV2Value get_max_decimal(int precision, int scale) {
-        DCHECK(precision <= 27 && scale <= 9);
+        DCHECK(precision > 0 && precision <= 27 && scale >= 0 && scale <= 9 && precision >= scale &&
+               (precision - scale <= 18));
         return DecimalV2Value(
-                MAX_INT_VALUE % get_scale_base(18 - precision + scale),
-                MAX_FRAC_VALUE / get_scale_base(9 - scale) * get_scale_base(9 - scale));
+                MAX_INT_VALUE % static_cast<int64_t>(get_scale_base(18 - precision + scale)),
+                MAX_FRAC_VALUE / static_cast<int64_t>(get_scale_base(9 - scale)) *
+                        static_cast<int64_t>(get_scale_base(9 - scale)));
     }
 
     // Solve Square root for int128
@@ -321,6 +330,7 @@ std::istream& operator>>(std::istream& ism, DecimalV2Value& decimal_value);
 
 std::size_t hash_value(DecimalV2Value const& value);
 
+#include "common/compile_check_end.h"
 } // end namespace doris
 
 template <>

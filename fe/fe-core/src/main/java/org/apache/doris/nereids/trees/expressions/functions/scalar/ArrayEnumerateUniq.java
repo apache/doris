@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -25,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -52,13 +54,35 @@ public class ArrayEnumerateUniq extends ScalarFunction
         super("array_enumerate_uniq", ExpressionUtils.mergeArguments(arg, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayEnumerateUniq(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
+    /**
+     * array_enumerate_uniq needs to compare whether the sub-elements in the array are equal.
+     * so the sub-elements must be comparable. but now map and struct type is not comparable.
+     */
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        for (Expression arg : children()) {
+            DataType argType = arg.getDataType();
+            if (argType.isArrayType()) {
+                DataType itemType = ((ArrayType) argType).getItemType();
+                if (itemType.isComplexType()) {
+                    throw new AnalysisException("array_enumerate_uniq does not support types: " + toSql());
+                }
+            }
+        }
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayEnumerateUniq withChildren(List<Expression> children) {
         Preconditions.checkArgument(!children.isEmpty());
-        return new ArrayEnumerateUniq(children.get(0), children.subList(1, children.size()).toArray(new Expression[0]));
+        return new ArrayEnumerateUniq(getFunctionParams(children));
     }
 
     @Override

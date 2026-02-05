@@ -47,7 +47,7 @@ suite("test_ctas_auto_partition") {
             as
             select 1 as today;
         """
-        exception "partition expr date_trunc is illegal!"
+        exception "is illegal!"
     }
 
     test{

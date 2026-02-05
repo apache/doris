@@ -22,6 +22,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
@@ -39,6 +40,7 @@
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/types.h"
 #include "olap/uint24.h"
+#include "testutil/datetime_ut_util.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -146,45 +148,53 @@ Status test_bloom_filter_index_reader_writer_template(
         get_bloom_filter_reader_iter(file_name, meta, &reader, &iter);
         EXPECT_EQ(reader->algorithm(), BloomFilterAlgorithmPB::BLOCK_BLOOM_FILTER);
         // page 0
-        std::unique_ptr<BloomFilter> bf;
-        RETURN_IF_ERROR(iter->read_bloom_filter(0, &bf));
+        std::unique_ptr<BloomFilter> bf0;
+        RETURN_IF_ERROR(iter->read_bloom_filter(0, &bf0));
         for (int i = 0; i < 1024; ++i) {
             if (is_slice_type) {
                 Slice* value = (Slice*)(val + i);
-                EXPECT_TRUE(bf->test_bytes(value->data, value->size));
+                EXPECT_TRUE(bf0->test_bytes(value->data, value->size));
             } else {
-                EXPECT_TRUE(bf->test_bytes((char*)&val[i], sizeof(CppType)));
+                EXPECT_TRUE(bf0->test_bytes((char*)&val[i], sizeof(CppType)));
             }
         }
 
         // page 1
-        RETURN_IF_ERROR(iter->read_bloom_filter(1, &bf));
+        std::unique_ptr<BloomFilter> bf1;
+        RETURN_IF_ERROR(iter->read_bloom_filter(1, &bf1));
         for (int i = 1024; i < 2048; ++i) {
             if (is_slice_type) {
                 Slice* value = (Slice*)(val + i);
-                EXPECT_TRUE(bf->test_bytes(value->data, value->size));
+                EXPECT_TRUE(bf1->test_bytes(value->data, value->size));
             } else {
-                EXPECT_TRUE(bf->test_bytes((char*)&val[i], sizeof(CppType)));
+                EXPECT_TRUE(bf1->test_bytes((char*)&val[i], sizeof(CppType)));
             }
         }
 
         // page 2
-        RETURN_IF_ERROR(iter->read_bloom_filter(2, &bf));
+        std::unique_ptr<BloomFilter> bf2;
+        RETURN_IF_ERROR(iter->read_bloom_filter(2, &bf2));
         for (int i = 2048; i < 3071; ++i) {
             if (is_slice_type) {
                 Slice* value = (Slice*)(val + i);
-                EXPECT_TRUE(bf->test_bytes(value->data, value->size));
+                EXPECT_TRUE(bf2->test_bytes(value->data, value->size));
             } else {
-                EXPECT_TRUE(bf->test_bytes((char*)&val[i], sizeof(CppType)));
+                EXPECT_TRUE(bf2->test_bytes((char*)&val[i], sizeof(CppType)));
             }
         }
         // test nullptr
-        EXPECT_TRUE(bf->test_bytes(nullptr, 1));
+        EXPECT_TRUE(bf2->test_bytes(nullptr, 1));
+
+        // test non-exist value
         if (is_slice_type) {
             Slice* value = (Slice*)(not_exist_value);
-            EXPECT_FALSE(bf->test_bytes(value->data, value->size));
+            EXPECT_FALSE(bf0->test_bytes(value->data, value->size));
+            EXPECT_FALSE(bf1->test_bytes(value->data, value->size));
+            EXPECT_FALSE(bf2->test_bytes(value->data, value->size));
         } else {
-            EXPECT_FALSE(bf->test_bytes((char*)not_exist_value, sizeof(CppType)));
+            EXPECT_FALSE(bf0->test_bytes((char*)not_exist_value, sizeof(CppType)));
+            EXPECT_FALSE(bf1->test_bytes((char*)not_exist_value, sizeof(CppType)));
+            EXPECT_FALSE(bf2->test_bytes((char*)not_exist_value, sizeof(CppType)));
         }
         delete reader;
     }
@@ -372,7 +382,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_decimal) {
     }
 
     std::string file_name = "bloom_filter_decimal";
-    decimal12_t not_exist_value = {666, 666};
+    decimal12_t not_exist_value = {-1, -1};
     auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DECIMAL>(
             file_name, val, num, 1, &not_exist_value);
     EXPECT_TRUE(st.ok());
@@ -438,13 +448,14 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_primary_key_bloom_filter_index_int
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_datev2) {
     size_t num = 1024 * 3;
+    uint32_t base_val = 20210101;
     uint32_t* val = new uint32_t[num];
     for (size_t i = 0; i < num; ++i) {
-        val[i] = 20210101 + i; // YYYYMMDD
+        val[i] = base_val + i; // YYYYMMDD
     }
 
     std::string file_name = "bloom_filter_datev2";
-    uint32_t not_exist_value = 20211231;
+    uint32_t not_exist_value = base_val - 1;
     auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DATEV2>(
             file_name, val, num, 1, &not_exist_value);
     EXPECT_TRUE(st.ok());
@@ -464,6 +475,35 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_datetimev2) {
             file_name, val, num, 1, &not_exist_value);
     EXPECT_TRUE(st.ok());
     delete[] val;
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_timestamptz) {
+    size_t num = 1024 * 3;
+    auto base_dt = make_timestamptz(2025, 11, 14, 14, 37, 30, 999998);
+    std::vector<uint64_t> val(num);
+    for (size_t i = 0; i < num; ++i) {
+        val[i] = base_dt.to_date_int_val() + i * 100000;
+    }
+
+    {
+        std::string file_name = "bloom_filter_timestamptz";
+        auto not_exist_value = base_dt.to_date_int_val() - 1;
+        auto st = test_bloom_filter_index_reader_writer_template<
+                FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>(file_name, val.data(), num, 1,
+                                                        &not_exist_value);
+        EXPECT_TRUE(st.ok());
+    }
+
+    // primary key
+    {
+        std::cout << "test timestamptz primary key bloom filter index\n";
+        std::string file_name = "bloom_filter_timestamptz_pk";
+        auto not_exist_value = base_dt.to_date_int_val() - 1;
+        auto st = test_bloom_filter_index_reader_writer_template<
+                FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>(file_name, val.data(), num, 1,
+                                                        &not_exist_value, false, true);
+        EXPECT_FALSE(st.ok());
+    }
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_decimal32) {

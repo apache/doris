@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
@@ -170,6 +171,17 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
         for (NamedExpression virtualColumn : relation.getVirtualColumns()) {
             operandSlots.add(virtualColumn.toSlot());
             operandSlots.addAll(virtualColumn.getInputSlots());
+        }
+        return relation.withOperativeSlots(operandSlots.build());
+    }
+
+    @Override
+    public Plan visitLogicalTVFRelation(LogicalTVFRelation relation, DeriveContext context) {
+        ImmutableSet.Builder<Slot> operandSlots = ImmutableSet.builder();
+        for (Slot slot : relation.getOutput()) {
+            if (context.operativeSlotIds.contains(slot.getExprId().asInt())) {
+                operandSlots.add(slot);
+            }
         }
         return relation.withOperativeSlots(operandSlots.build());
     }

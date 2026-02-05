@@ -180,13 +180,13 @@ PhysicalResultSink
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
-------------hashAgg[LOCAL]
+------------hashAgg[GLOBAL]
 --------------filter((mal_test_push_count.a > 1))
 ----------------PhysicalOlapScan[mal_test_push_count]
-------------hashAgg[LOCAL]
+------------hashAgg[GLOBAL]
 --------------filter((mal_test_push_count.a < 100))
 ----------------PhysicalOlapScan[mal_test_push_count]
-------------hashAgg[LOCAL]
+------------hashAgg[GLOBAL]
 --------------filter((mal_test_push_count.a = 1))
 ----------------PhysicalOlapScan[mal_test_push_count]
 

@@ -26,7 +26,11 @@ WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& fr
                                  const DataTypeArray& to_type) {
     /// Conversion from String through parsing.
     if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
-        return cast_from_string_to_generic;
+        if (context->enable_strict_mode()) {
+            return cast_from_string_to_complex_type_strict_mode;
+        } else {
+            return cast_from_string_to_complex_type;
+        }
     }
 
     const auto* from_type = check_and_get_data_type<DataTypeArray>(from_type_untyped.get());

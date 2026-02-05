@@ -36,7 +36,7 @@ namespace doris::vectorized {
 Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int rows,
                                       std::vector<VOlapTablePartition*>& partitions,
                                       std::vector<uint32_t>& tablet_index, std::vector<bool>& skip,
-                                      std::vector<int64_t>* miss_rows) {
+                                      std::vector<uint32_t>* miss_rows) {
     for (int index = 0; index < rows; index++) {
         _vpartition->find_partition(block, index, partitions[index]);
     }
@@ -58,8 +58,8 @@ Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int row
                     []() -> std::string { return ""; },
                     [&]() -> std::string {
                         fmt::memory_buffer buf;
-                        fmt::format_to(buf, "no partition for this tuple. tuple=\n{}",
-                                       block->dump_data(row_index, 1));
+                        fmt::format_to(buf, "no partition for this tuple. tuple={}",
+                                       block->dump_data_json(row_index, 1));
                         return fmt::to_string(buf);
                     }));
             continue;

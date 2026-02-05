@@ -19,24 +19,24 @@ tbl_scalar_types_dup	DUP_KEYS	k1	bigint	bigint	Yes	true	\N		true
 		c_varchar	varchar(100)	varchar(100)	Yes	false	\N	NONE	true		
 		c_string	text	text	Yes	false	\N	NONE	true		
 											
-mv_tbl_scalar_types_dup_1	DUP_KEYS	mv_c_tinyint	tinyint	tinyint	Yes	true	\N		true	`c_tinyint`	
-		mv_c_bool	boolean	boolean	Yes	true	\N		true	`c_bool`	
-		mv_k1	bigint	bigint	Yes	true	\N		true	`k1`	
-		mv_c_smallint	smallint	smallint	Yes	false	\N	NONE	true	`c_smallint`	
-		mv_c_int	int	int	Yes	false	\N	NONE	true	`c_int`	
-		mv_c_bigint	bigint	bigint	Yes	false	\N	NONE	true	`c_bigint`	
-		mv_c_largeint	largeint	largeint	Yes	false	\N	NONE	true	`c_largeint`	
-		mv_c_float	float	float	Yes	false	\N	NONE	true	`c_float`	
-		mv_c_double	double	double	Yes	false	\N	NONE	true	`c_double`	
-		mv_c_decimal	decimal(20,3)	decimalv3(20,3)	Yes	false	\N	NONE	true	`c_decimal`	
-		mv_c_decimalv3	decimal(20,3)	decimalv3(20,3)	Yes	false	\N	NONE	true	`c_decimalv3`	
-		mv_c_date	date	datev2	Yes	false	\N	NONE	true	`c_date`	
-		mv_c_datetime	datetime	datetimev2(0)	Yes	false	\N	NONE	true	`c_datetime`	
-		mv_c_datev2	date	datev2	Yes	false	\N	NONE	true	`c_datev2`	
-		mv_c_datetimev2	datetime	datetimev2(0)	Yes	false	\N	NONE	true	`c_datetimev2`	
-		mv_c_char	character(255)	character(255)	Yes	false	\N	NONE	true	`c_char`	
-		mv_c_varchar	varchar(65533)	varchar(65533)	Yes	false	\N	NONE	true	`c_varchar`	
-		mv_c_string	text	text	Yes	false	\N	NONE	true	`c_string`	
+mv_tbl_scalar_types_dup_1	DUP_KEYS	a1	tinyint	tinyint	Yes	true	\N		true	`c_tinyint`	
+		a2	boolean	boolean	Yes	true	\N		true	`c_bool`	
+		a3	bigint	bigint	Yes	true	\N		true	`k1`	
+		a4	smallint	smallint	Yes	false	\N	NONE	true	`c_smallint`	
+		a5	int	int	Yes	false	\N	NONE	true	`c_int`	
+		a6	bigint	bigint	Yes	false	\N	NONE	true	`c_bigint`	
+		b1	largeint	largeint	Yes	false	\N	NONE	true	`c_largeint`	
+		b2	float	float	Yes	false	\N	NONE	true	`c_float`	
+		b3	double	double	Yes	false	\N	NONE	true	`c_double`	
+		b4	decimal(20,3)	decimalv3(20,3)	Yes	false	\N	NONE	true	`c_decimal`	
+		b5	decimal(20,3)	decimalv3(20,3)	Yes	false	\N	NONE	true	`c_decimalv3`	
+		b6	date	datev2	Yes	false	\N	NONE	true	`c_date`	
+		c1	datetime	datetimev2(0)	Yes	false	\N	NONE	true	`c_datetime`	
+		c2	date	datev2	Yes	false	\N	NONE	true	`c_datev2`	
+		c3	datetime	datetimev2(0)	Yes	false	\N	NONE	true	`c_datetimev2`	
+		c4	character(255)	character(255)	Yes	false	\N	NONE	true	`c_char`	
+		c5	varchar(65533)	varchar(65533)	Yes	false	\N	NONE	true	`c_varchar`	
+		c6	text	text	Yes	false	\N	NONE	true	`c_string`	
 
 -- !sql --
 -2147475406	true	45	23794	-11023	915989078	2115356192	15927.068	1.392557423391501E9	45951348783208518.810	8340516346665031.310	2022-01-26	2022-04-13T11:13:48	2022-01-31	2022-02-16T06:07:21	130.50.6.0	DeniseMatthews@Yozio.mil	Londonderry Alley 61

@@ -17,13 +17,12 @@
 
 package org.apache.doris.nereids.load;
 
+import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -41,6 +40,8 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
+import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
@@ -112,7 +113,7 @@ public class NereidsDataDescription {
     private final String tableName;
 
     private String dbName;
-    private final PartitionNames partitionNames;
+    private final PartitionNamesInfo partitionNamesInfo;
     private final List<String> filePaths;
     private boolean clientLocal = false;
     private final boolean isNegative;
@@ -161,19 +162,19 @@ public class NereidsDataDescription {
     private Map<String, String> analysisMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     public NereidsDataDescription(String tableName,
-            PartitionNames partitionNames,
+            PartitionNamesInfo partitionNamesInfo,
             List<String> filePaths,
             List<String> columns,
             Separator columnSeparator,
             String fileFormat,
             boolean isNegative,
             List<Expression> columnMappingList) {
-        this(tableName, partitionNames, filePaths, columns, columnSeparator, fileFormat, null,
+        this(tableName, partitionNamesInfo, filePaths, columns, columnSeparator, fileFormat, null,
                 isNegative, columnMappingList, null, null, LoadTask.MergeType.APPEND, null, null, null);
     }
 
     public NereidsDataDescription(String tableName,
-            PartitionNames partitionNames,
+            PartitionNamesInfo partitionNamesInfo,
             List<String> filePaths,
             List<String> columns,
             Separator columnSeparator,
@@ -187,7 +188,7 @@ public class NereidsDataDescription {
             Expression deleteCondition,
             String sequenceColName,
             Map<String, String> properties) {
-        this(tableName, partitionNames, filePaths, columns, columnSeparator, null,
+        this(tableName, partitionNamesInfo, filePaths, columns, columnSeparator, null,
                 fileFormat, null, columnsFromPath, isNegative, columnMappingList, fileFilterExpr, whereExpr,
                 mergeType, deleteCondition, sequenceColName, properties);
     }
@@ -196,7 +197,7 @@ public class NereidsDataDescription {
      * full param constructor
      */
     public NereidsDataDescription(String tableName,
-                                  PartitionNames partitionNames,
+                                  PartitionNamesInfo partitionNamesInfo,
                                   List<String> filePaths,
                                   List<String> columns,
                                   Separator columnSeparator,
@@ -214,7 +215,7 @@ public class NereidsDataDescription {
                                   String sequenceColName,
                                   Map<String, String> properties) {
         this.tableName = tableName;
-        this.partitionNames = partitionNames;
+        this.partitionNamesInfo = partitionNamesInfo;
         this.filePaths = filePaths;
         this.fileFieldNames = columns;
         this.columnsFromPath = columnsFromPath;
@@ -250,7 +251,7 @@ public class NereidsDataDescription {
      * NereidsDataDescription
      */
     public NereidsDataDescription(String tableName,
-            PartitionNames partitionNames,
+            PartitionNamesInfo partitionNamesInfo,
             List<String> filePaths,
             List<String> columns,
             Separator columnSeparator,
@@ -267,7 +268,7 @@ public class NereidsDataDescription {
             String sequenceColName,
             Map<String, String> properties) {
         this.tableName = tableName;
-        this.partitionNames = partitionNames;
+        this.partitionNamesInfo = partitionNamesInfo;
         this.filePaths = filePaths;
         this.fileFieldNames = columns;
         this.columnsFromPath = columnsFromPath;
@@ -303,7 +304,7 @@ public class NereidsDataDescription {
      * data from table external_hive_table
      */
     public NereidsDataDescription(String tableName,
-            PartitionNames partitionNames,
+            PartitionNamesInfo partitionNamesInfo,
             String srcTableName,
             boolean isNegative,
             List<Expression> columnMappingList,
@@ -312,7 +313,7 @@ public class NereidsDataDescription {
             Expression deleteCondition,
             Map<String, String> properties) {
         this.tableName = tableName;
-        this.partitionNames = partitionNames;
+        this.partitionNamesInfo = partitionNamesInfo;
         this.filePaths = null;
         this.fileFieldNames = null;
         this.columnsFromPath = null;
@@ -336,19 +337,19 @@ public class NereidsDataDescription {
     /**
      * data desc for mysql client
      */
-    public NereidsDataDescription(TableName tableName,
-            PartitionNames partitionNames,
-            String file,
-            boolean clientLocal,
-            List<String> columns,
-            Separator columnSeparator,
-            Separator lineDelimiter,
-            int skipLines,
-            List<Expression> columnMappingList,
-            Map<String, String> properties) {
-        this.tableName = tableName.getTbl();
-        this.dbName = tableName.getDb();
-        this.partitionNames = partitionNames;
+    public NereidsDataDescription(TableNameInfo tableNameInfo,
+                                  PartitionNamesInfo partitionNamesInfo,
+                                  String file,
+                                  boolean clientLocal,
+                                  List<String> columns,
+                                  Separator columnSeparator,
+                                  Separator lineDelimiter,
+                                  int skipLines,
+                                  List<Expression> columnMappingList,
+                                  Map<String, String> properties) {
+        this.tableName = tableNameInfo.getTbl();
+        this.dbName = tableNameInfo.getDb();
+        this.partitionNamesInfo = partitionNamesInfo;
         this.filePaths = Lists.newArrayList(file);
         this.clientLocal = clientLocal;
         this.fileFieldNames = columns;
@@ -384,7 +385,7 @@ public class NereidsDataDescription {
      */
     public NereidsDataDescription(String tableName, NereidsLoadTaskInfo taskInfo) {
         this.tableName = tableName;
-        this.partitionNames = taskInfo.getPartitions();
+        this.partitionNamesInfo = taskInfo.getPartitionNamesInfo();
 
         if (!Strings.isNullOrEmpty(taskInfo.getPath())) {
             this.filePaths = Lists.newArrayList(taskInfo.getPath());
@@ -426,6 +427,8 @@ public class NereidsDataDescription {
                 String.valueOf(taskInfo.getTrimDoubleQuotes()));
         putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_SKIP_LINES,
                 String.valueOf(taskInfo.getSkipLines()));
+        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL,
+                String.valueOf(taskInfo.getEmptyFieldAsNull()));
 
         putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY,
                 String.valueOf(taskInfo.isStripOuterArray()));
@@ -661,8 +664,8 @@ public class NereidsDataDescription {
         return tableName;
     }
 
-    public PartitionNames getPartitionNames() {
-        return partitionNames;
+    public PartitionNamesInfo getPartitionNamesInfo() {
+        return partitionNamesInfo;
     }
 
     public Expression getPrecdingFilterExpr() {
@@ -1056,15 +1059,16 @@ public class NereidsDataDescription {
     public void analyzeWithoutCheckPriv(String fullDbName) throws AnalysisException {
         analyzeFilePaths();
 
-        if (partitionNames != null) {
-            partitionNames.analyze();
+        if (partitionNamesInfo != null) {
+            partitionNamesInfo.validate();
         }
 
         analyzeColumns();
         analyzeMultiLoadColumns();
         analyzeSequenceCol(fullDbName);
 
-        fileFormatProperties = FileFormatProperties.createFileFormatProperties(analysisMap);
+        fileFormatProperties = FileFormatProperties.createFileFormatPropertiesOrDeferred(
+                analysisMap.getOrDefault(FileFormatProperties.PROP_FORMAT, ""));
         fileFormatProperties.analyzeFileFormatProperties(analysisMap, false);
     }
 
@@ -1098,9 +1102,9 @@ public class NereidsDataDescription {
         }
         sb.append(" INTO TABLE ");
         sb.append(isMysqlLoad ? ClusterNamespace.getNameFromFullName(dbName) + "." + tableName : tableName);
-        if (partitionNames != null) {
+        if (partitionNamesInfo != null) {
             sb.append(" ");
-            sb.append(partitionNames.toSql());
+            sb.append(partitionNamesInfo.toSql());
         }
         if (analysisMap.get(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR) != null) {
             sb.append(" COLUMNS TERMINATED BY ")
@@ -1167,7 +1171,16 @@ public class NereidsDataDescription {
         if (this.columnMappingList != null && !this.columnMappingList.isEmpty()) {
             for (Expression expression : this.columnMappingList) {
                 if (expression != null) {
-                    legacyColumnMappingList.add(PlanUtils.translateToLegacyExpr(expression, null, ctx));
+                    if (expression instanceof EqualTo) {
+                        // we should not cast right type to left type here, because we do the cast when
+                        // creating load plan later, see NereidsLoadUtils.createLoadPlan for more details
+                        Expr left = PlanUtils.translateToLegacyExpr(((EqualTo) expression).left(), null, ctx);
+                        Expr right = PlanUtils.translateToLegacyExpr(((EqualTo) expression).right(), null, ctx);
+                        legacyColumnMappingList.add(new BinaryPredicate(BinaryPredicate.Operator.EQ, left, right));
+                    } else {
+                        throw new AnalysisException(String.format("column mapping expr must be EqualTo, but it's %s",
+                                expression));
+                    }
                 }
             }
         }
@@ -1192,7 +1205,7 @@ public class NereidsDataDescription {
         // first, we give an empty parsedColumnExprList
         List<ImportColumnDesc> parsedColumnExprList = Lists.newArrayList();
         DataDescription dataDescription = new DataDescription(
-                this.tableName, this.partitionNames, this.filePaths, this.fileFieldNames,
+                this.tableName, this.partitionNamesInfo, this.filePaths, this.fileFieldNames,
                 columnSeparator, lineDelimiter, analysisMap.get(FileFormatProperties.PROP_FORMAT),
                 analysisMap.get(FileFormatProperties.PROP_COMPRESS_TYPE), this.columnsFromPath, this.isNegative,
                 legacyColumnMappingList, legacyPrecedingFilterExpr, legacyWhere, this.mergeType, legacyDeleteCondition,

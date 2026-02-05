@@ -36,4 +36,6 @@ service MicrobenchService {
       rpc file_cache_release(HttpRequest) returns (HttpResponse);
       rpc update_config(HttpRequest) returns (HttpResponse);
       rpc show_config(HttpRequest) returns (HttpResponse);
+      rpc reload_config(HttpRequest) returns (HttpResponse);
+      rpc show_reload_status(HttpRequest) returns (HttpResponse);
 };

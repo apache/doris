@@ -46,13 +46,18 @@ public class IsIpv4Mapped extends ScalarFunction
         super("is_ipv4_mapped", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private IsIpv4Mapped(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public IsIpv4Mapped withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "is_ipv4_mapped accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new IsIpv4Mapped(children.get(0));
+        return new IsIpv4Mapped(getFunctionParams(children));
     }
 
     @Override

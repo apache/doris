@@ -3,10 +3,10 @@
 1	1
 
 -- !replace --
-test_base_replace_on_commit_mtmv_mv	SCHEMA_CHANGE	SUCCESS
+test_base_replace_on_commit_mtmv_mv	SCHEMA_CHANGE	SUCCESS	false
 
 -- !replace_normal --
-test_base_replace_on_commit_mtmv_mv	NORMAL	SUCCESS
+test_base_replace_on_commit_mtmv_mv	NORMAL	SUCCESS	true
 
 -- !select_replace --
 10	10

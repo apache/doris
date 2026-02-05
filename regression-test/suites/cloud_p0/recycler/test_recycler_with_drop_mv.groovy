@@ -35,7 +35,7 @@ suite("test_recycler_with_drop_mv") {
             C_ADDRESS     VARCHAR(40) NOT NULL,
             C_NATIONKEY   INTEGER NOT NULL,
             C_PHONE       CHAR(15) NOT NULL,
-            C_ACCTBAL     DECIMAL(15,2)   NOT NULL,
+            C_ACCTBAL     DECIMALV3(15,2)   NOT NULL,
             C_MKTSEGMENT  CHAR(10) NOT NULL,
             C_COMMENT     VARCHAR(117) NOT NULL
         )
@@ -80,7 +80,7 @@ suite("test_recycler_with_drop_mv") {
     logger.info("tabletIdSet1:${tabletIdSet1}")
     assertTrue(tabletIdSet1.size() > 0)
 
-    sql "create materialized view ${mvName} as select C_CUSTKEY, C_ADDRESS from ${tableName};"
+    sql "create materialized view ${mvName} as select C_CUSTKEY as C_CUSTKEY_T, C_ADDRESS as C_ADDRESS_T from ${tableName};"
     waitMvJobFinished(tableName)
 
     String[][] tabletInfoList2 = sql """ show tablets from ${tableName}; """

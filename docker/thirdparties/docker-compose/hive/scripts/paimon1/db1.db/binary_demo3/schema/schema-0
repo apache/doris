@@ -1,0 +1,31 @@
+{
+  "version" : 3,
+  "id" : 0,
+  "fields" : [ {
+    "id" : 0,
+    "name" : "id",
+    "type" : "INT NOT NULL"
+  }, {
+    "id" : 1,
+    "name" : "record_name",
+    "type" : "CHAR(10)"
+  }, {
+    "id" : 2,
+    "name" : "vrecord_name",
+    "type" : "STRING"
+  }, {
+    "id" : 3,
+    "name" : "bin",
+    "type" : "BINARY(10)"
+  }, {
+    "id" : 4,
+    "name" : "varbin",
+    "type" : "BYTES"
+  } ],
+  "highestFieldId" : 4,
+  "partitionKeys" : [ ],
+  "primaryKeys" : [ "id" ],
+  "options" : { },
+  "comment" : "",
+  "timeMillis" : 1762755840518
+}

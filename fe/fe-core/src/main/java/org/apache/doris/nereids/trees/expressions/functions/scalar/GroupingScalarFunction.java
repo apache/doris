@@ -37,10 +37,15 @@ public abstract class GroupingScalarFunction extends ScalarFunction implements A
         super(name, arguments);
     }
 
+    /** constructor for withChildren and reuse signature */
+    protected GroupingScalarFunction(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * compute a long value that backend need to fill to the VirtualSlotRef
      */
-    public abstract List<Long> computeVirtualSlotValue(GroupingSetShapes shapes);
+    public abstract List<Long> computeValue(GroupingSetShapes shapes);
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

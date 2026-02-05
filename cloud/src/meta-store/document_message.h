@@ -69,7 +69,8 @@ template <typename Message>
     requires IsProtobufMessage<Message>
 void document_remove(Transaction* txn, std::string_view key) {
     if constexpr (std::is_same_v<Message, RowsetMetaCloudPB> ||
-                  std::is_same_v<Message, SplitSingleMessagePB>) {
+                  std::is_same_v<Message, SplitSingleMessagePB> ||
+                  std::is_same_v<Message, TabletSchemaCloudPB>) {
         details::document_delete_range(txn, key);
     } else {
         details::document_delete_single(txn, key);
@@ -118,7 +119,8 @@ template <typename Message>
     requires IsProtobufMessage<Message>
 void document_remove(Transaction* txn, std::string_view key_prefix, Versionstamp v) {
     if constexpr (std::is_same_v<Message, RowsetMetaCloudPB> ||
-                  std::is_same_v<Message, SplitSingleMessagePB>) {
+                  std::is_same_v<Message, SplitSingleMessagePB> ||
+                  std::is_same_v<Message, TabletSchemaCloudPB>) {
         details::versioned_document_delete_range(txn, key_prefix, v);
     } else {
         details::versioned_document_delete_single(txn, key_prefix, v);

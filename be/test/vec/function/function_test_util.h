@@ -35,7 +35,6 @@
 #include "testutil/any_type.h"
 #include "testutil/function_utils.h"
 #include "testutil/test_util.h"
-#include "udf/udf.h"
 #include "util/bitmap_value.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -59,6 +58,8 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time.h"
+#include "vec/data_types/data_type_varbinary.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -103,6 +104,8 @@ using VARCHAR = std::string;
 using CHAR = std::string;
 using STRING = std::string;
 
+using VARBINARY = doris::StringView;
+
 using DOUBLE = double;
 using FLOAT = float;
 
@@ -127,6 +130,11 @@ template <>
 struct ut_input_type<DataTypeString> {
     using type = std::string;
     inline static type default_value = "test_default";
+};
+template <>
+struct ut_input_type<DataTypeVarbinary> {
+    using type = doris::StringView;
+    inline static type default_value = doris::StringView("test_default");
 };
 template <>
 struct ut_input_type<DataTypeDate> {
@@ -198,13 +206,21 @@ inline auto DECIMAL64 = [](int64_t x, int64_t y, int scale) {
     return Decimal64::from_int_frac(x, y, scale);
 };
 inline auto DECIMAL128V2 = [](int128_t x, int128_t y, int scale) {
-    return Decimal128V2::from_int_frac(x, y, scale);
+    return Decimal128V2::from_int_frac(x, y, 9);
 };
 inline auto DECIMAL128V3 = [](int128_t x, int128_t y, int scale) {
     return Decimal128V3::from_int_frac(x, y, scale);
 };
 inline auto DECIMAL256 = [](wide::Int256 x, wide::Int256 y, int scale) {
     return Decimal256::from_int_frac(x, y, scale);
+};
+inline auto DECIMALV2VALUE = [](int128_t x, int128_t y, int scale) {
+    return DecimalV2Value(Decimal128V2::from_int_frac(x, y, 9).value);
+};
+inline auto DECIMALV2VALUEFROMDOUBLE = [](double value) {
+    DecimalV2Value decimal_value;
+    decimal_value.assign_from_double(value);
+    return DecimalV2Value(binary_cast<DecimalV2Value, Int128>(decimal_value));
 };
 
 using DATETIME = std::string;
@@ -246,13 +262,13 @@ DataTypePtr get_return_type_descriptor(int scale, int precision) {
     } else if constexpr (std::is_same_v<ReturnType, DataTypeTimeV2>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_TIMEV2,
                                                             false, precision, scale);
-    } else if constexpr (std::is_same_v<ReturnType, DateTime>) {
+    } else if constexpr (std::is_same_v<ReturnType, DataTypeDateTime>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DATETIME,
                                                             false);
-    } else if (std::is_same_v<ReturnType, DateV2>) {
+    } else if (std::is_same_v<ReturnType, DataTypeDateV2>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DATEV2,
                                                             false);
-    } else if (std::is_same_v<ReturnType, DateTimeV2>) {
+    } else if (std::is_same_v<ReturnType, DataTypeDateTimeV2>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DATETIMEV2,
                                                             false, precision, scale);
     } else if (std::is_same_v<ReturnType, DataTypeDecimalV2>) {
@@ -273,6 +289,10 @@ DataTypePtr get_return_type_descriptor(int scale, int precision) {
     } else {
         return std::make_shared<DataTypeNothing>();
     }
+}
+
+inline std::string debug_hex_string(const std::string& str) {
+    return ut_type::VARBINARY(str).dump_hex();
 }
 
 struct Consted {
@@ -318,7 +338,9 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         auto column = desc.data_type->create_column();
         column->reserve(row_size);
 
-        for (int j = 0; j < row_size; j++) {
+        // for function cast, the second column is const but there's many rows in block. so we only insert one row
+        // for the second column.
+        for (int j = 0; j < ((func_name == "CAST" && i == 1) ? 1 : row_size); j++) {
             // null dealed in insert_cell
             EXPECT_TRUE(insert_cell(column, desc.data_type, data_set[j].first[i],
                                     datetime_is_string_format));
@@ -378,8 +400,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     FunctionUtils fn_utils(fn_ctx_return, arg_types, is_strict_mode);
     auto* fn_ctx = fn_utils.get_fn_ctx();
     fn_ctx->set_constant_cols(constant_cols);
-    static_cast<void>(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
-    static_cast<void>(func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
 
     block.insert({nullptr, return_type, "result"});
 
@@ -390,6 +412,10 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         return st;
     } else {
         EXPECT_EQ(Status::OK(), st);
+        // avoid subsequent visit
+        if (st != Status::OK()) {
+            return st;
+        }
     }
 
     static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
@@ -438,11 +464,21 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                     << ", expected result: " << result_type_ptr->to_string(*expected_col_ptr, i);
         } else {
             auto comp_res = column->compare_at(i, i, *expected_col_ptr, 1);
-            EXPECT_EQ(0, comp_res)
-                    << ", function " << func_name << ". input row:\n"
-                    << block.dump_data(i, 1)
-                    << "result: " << block.get_data_types()[result]->to_string(*column, i)
-                    << ", expected result: " << result_type_ptr->to_string(*expected_col_ptr, i);
+            if (std::is_same_v<ResultType, DataTypeVarbinary>) {
+                EXPECT_EQ(0, comp_res)
+                        << ", function " << func_name << ". input row:\n"
+                        << block.dump_data(i, 1) << "result: "
+                        << debug_hex_string(block.get_data_types()[result]->to_string(*column, i))
+                        << ", expected result: "
+                        << debug_hex_string(result_type_ptr->to_string(*expected_col_ptr, i));
+            } else {
+                EXPECT_EQ(0, comp_res)
+                        << ", function " << func_name << ". input row:\n"
+                        << block.dump_data(i, 1)
+                        << "result: " << block.get_data_types()[result]->to_string(*column, i)
+                        << ", expected result: "
+                        << result_type_ptr->to_string(*expected_col_ptr, i);
+            }
         }
     }
 

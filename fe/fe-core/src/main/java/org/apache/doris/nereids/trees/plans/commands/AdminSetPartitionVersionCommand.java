@@ -19,13 +19,14 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -33,7 +34,7 @@ import org.apache.doris.qe.StmtExecutor;
 import java.util.Map;
 
 /**
- * admin set partition version ("key" = "value");
+ * admin set table {table_name} partition version properties ("key" = "value");
  * key and value may be : "partition_id" = "10075", "visible_version" = "100");
  */
 public class AdminSetPartitionVersionCommand extends Command implements ForwardWithSync {
@@ -98,5 +99,10 @@ public class AdminSetPartitionVersionCommand extends Command implements ForwardW
         if (properties != null && !properties.isEmpty()) {
             throw new AnalysisException("Unknown properties: " + properties.keySet());
         }
+    }
+
+    @Override
+    protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
+        throw new DdlException("Unsupported operation");
     }
 }

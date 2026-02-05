@@ -178,7 +178,7 @@ public class TabletsProcDir implements ProcDirInterface {
                         String compactionUrl = String.format(
                                 "http://" + hostPort + "/api/compaction/show?tablet_id=%d", tabletId);
                         tabletInfo.add(compactionUrl);
-                        tabletInfo.add(tablet.getCooldownConf().first);
+                        tabletInfo.add(tablet.getCooldownReplicaId());
                         if (replica.getCooldownMetaId() == null) {
                             tabletInfo.add("");
                         } else {

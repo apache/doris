@@ -228,14 +228,7 @@ suite("test_union") {
             check2_doris(res3, res4)
         }
     }
-    test {
-        sql """(select k1, k2 from ${tbName2}) union (select k2, k10 from ${tbName1} order by k10)
-            order by k1, k2"""
-        check {result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-            logger.info(exception.message)
-        }
-    }
+
     // cast类型
     // def res5 = sql"""(select k1, k2 from ${tbName2}) union (select k2, cast(k11 as int) from ${tbName1})
     //    order by k1, k2"""

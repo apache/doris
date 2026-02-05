@@ -21,6 +21,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.exploration.mv.PartitionCompensator;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
@@ -46,14 +47,19 @@ public class QueryPartitionCollector extends DefaultPlanVisitor<Void, CascadesCo
 
     @Override
     public Void visitLogicalCatalogRelation(LogicalCatalogRelation catalogRelation, CascadesContext context) {
-
         TableIf table = catalogRelation.getTable();
         if (table.getDatabase() == null) {
             LOG.error("QueryPartitionCollector visitLogicalCatalogRelation database is null, table is "
                     + table.getName());
             return null;
         }
-        Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = context.getStatementContext()
+        StatementContext statementContext = context.getStatementContext();
+        // Collect relationId to tableId mapping
+        Multimap<Integer, Integer> relationIdToTableId = statementContext.getCommonTableIdToRelationIdMap();
+        relationIdToTableId.put(statementContext.getTableId(catalogRelation.getTable()).asInt(),
+                catalogRelation.getRelationId().asInt());
+        // Collect table used partition mapping
+        Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = statementContext
                 .getTableUsedPartitionNameMap();
         Set<String> tablePartitions = new HashSet<>();
         if (catalogRelation instanceof LogicalOlapScan) {

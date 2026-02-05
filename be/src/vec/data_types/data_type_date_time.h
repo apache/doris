@@ -36,7 +36,6 @@
 
 namespace doris::vectorized {
 class BufferWritable;
-class ReadBuffer;
 class IColumn;
 class DataTypeDate;
 class DataTypeDateV2;
@@ -65,6 +64,7 @@ class DataTypeDateV2;
 	*/
 class DataTypeDateTime final : public DataTypeNumberBase<PrimitiveType::TYPE_DATETIME> {
 public:
+    static constexpr PrimitiveType PType = TYPE_DATETIME;
     DataTypeDateTime() = default;
 
     const std::string get_family_name() const override { return "DateTime"; }
@@ -76,10 +76,16 @@ public:
     }
 
     bool equals(const IDataType& rhs) const override;
-
-    std::string to_string(const IColumn& column, size_t row_num) const override;
-    std::string to_string(Int64 value) const;
-
+#ifdef BE_TEST
+    /// TODO: remove this in the future
+    using IDataType::to_string;
+    std::string to_string(VecDateTimeValue value) const {
+        char buf[64];
+        value.to_string(buf);
+        // DateTime to_string the end is /0
+        return buf;
+    }
+#endif
     using SerDeType = DataTypeDateTimeSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<SerDeType>(nesting_level);
@@ -89,25 +95,14 @@ public:
         VecDateTimeValue value;
         if (value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size())) {
             value.to_datetime();
-            return Field::create_field<TYPE_DATETIME>(Int64(*reinterpret_cast<__int64_t*>(&value)));
+            return Field::create_field<TYPE_DATETIME>(std::move(value));
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                    "Invalid value: {} for type DateTime", node.date_literal.value);
         }
     }
 
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
-        DataTypeNumberBase<PrimitiveType::TYPE_DATETIME>::template to_string_batch_impl<
-                DataTypeDateTime>(column, column_to);
-    }
-
-    size_t number_length() const;
-    void push_number(ColumnString::Chars& chars, const Int64& num) const;
-
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
-
-    static void cast_to_date_time(Int64& x);
+    static void cast_to_date_time(VecDateTimeValue& x);
 
     MutableColumnPtr create_column() const override;
 };
@@ -136,6 +131,11 @@ template <typename DataType>
 constexpr bool IsTimeV2Type = false;
 template <>
 inline constexpr bool IsTimeV2Type<DataTypeTimeV2> = true;
+
+template <typename DataType>
+constexpr bool IsTimeStampTzType = false;
+template <>
+inline constexpr bool IsTimeStampTzType<DataTypeTimeStampTz> = true;
 
 template <typename DataType>
 constexpr bool IsDatelikeV1Types = IsDateTimeType<DataType> || IsDateType<DataType>;

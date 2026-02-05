@@ -145,4 +145,74 @@ public class HdfsPropertiesUtilsTest {
         String result = HdfsPropertiesUtils.convertUrlToFilePath(uri, "", supportSchema);
         Assertions.assertEquals("HDFS://localhost:9000/test", result);
     }
+
+    @Test
+    public void testValidHaConfig() {
+        Map<String, String> config = new HashMap<>();
+        config.put("dfs.nameservices", "ns1");
+        config.put("dfs.ha.namenodes.ns1", "nn1,nn2");
+        config.put("dfs.namenode.rpc-address.ns1.nn1", "127.0.0.1:8020");
+        config.put("dfs.namenode.rpc-address.ns1.nn2", "127.0.0.2:8020");
+        config.put("dfs.client.failover.proxy.provider.ns1",
+                "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider");
+
+        // Valid HA configuration should pass without exception
+        Assertions.assertDoesNotThrow(() -> HdfsPropertiesUtils.checkHaConfig(config));
+    }
+
+    @Test
+    public void testNoNameservices() {
+        Map<String, String> config = new HashMap<>();
+        // No dfs.nameservices configured → not HA mode, should not throw
+        Assertions.assertDoesNotThrow(() -> HdfsPropertiesUtils.checkHaConfig(config));
+    }
+
+    @Test
+    public void testMissingHaNamenodes() {
+        Map<String, String> config = new HashMap<>();
+        config.put("dfs.nameservices", "ns1");
+        // dfs.ha.namenodes.ns1 missing
+        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> HdfsPropertiesUtils.checkHaConfig(config));
+        Assertions.assertTrue(ex.getMessage().contains("dfs.ha.namenodes.ns1"));
+    }
+
+    @Test
+    public void testNotEnoughNamenodes() {
+        Map<String, String> config = new HashMap<>();
+        config.put("dfs.nameservices", "ns1");
+        config.put("dfs.ha.namenodes.ns1", "nn1"); // Only 1 namenode
+        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> HdfsPropertiesUtils.checkHaConfig(config));
+        Assertions.assertTrue(ex.getMessage().contains("HA requires at least 2 namenodes"));
+    }
+
+    @Test
+    public void testMissingRpcAddress() {
+        Map<String, String> config = new HashMap<>();
+        config.put("dfs.nameservices", "ns1");
+        config.put("dfs.ha.namenodes.ns1", "nn1,nn2");
+        config.put("dfs.namenode.rpc-address.ns1.nn1", "127.0.0.1:8020");
+        // nn2 rpc-address missing
+        config.put("dfs.client.failover.proxy.provider.ns1",
+                "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider");
+
+        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> HdfsPropertiesUtils.checkHaConfig(config));
+        Assertions.assertTrue(ex.getMessage().contains("dfs.namenode.rpc-address.ns1.nn2"));
+    }
+
+    @Test
+    public void testMissingFailoverProvider() {
+        Map<String, String> config = new HashMap<>();
+        config.put("dfs.nameservices", "ns1");
+        config.put("dfs.ha.namenodes.ns1", "nn1,nn2");
+        config.put("dfs.namenode.rpc-address.ns1.nn1", "127.0.0.1:8020");
+        config.put("dfs.namenode.rpc-address.ns1.nn2", "127.0.0.2:8020");
+        // failover provider missing
+
+        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> HdfsPropertiesUtils.checkHaConfig(config));
+        Assertions.assertTrue(ex.getMessage().contains("dfs.client.failover.proxy.provider.ns1"));
+    }
 }

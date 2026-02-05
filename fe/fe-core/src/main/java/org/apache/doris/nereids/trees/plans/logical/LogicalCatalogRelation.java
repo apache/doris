@@ -24,6 +24,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -68,37 +69,54 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     // use for virtual slot
     protected final List<NamedExpression> virtualColumns;
 
+    /**
+     * Table alias for this relation, empty string if no alias.
+     */
+    protected final String tableAlias;
+
     public LogicalCatalogRelation(RelationId relationId, PlanType type, TableIf table, List<String> qualifier) {
-        this(relationId, type, table, qualifier, Optional.empty(), Optional.empty());
+        this(relationId, type, table, qualifier, Optional.empty(), Optional.empty(), "");
     }
 
     public LogicalCatalogRelation(RelationId relationId, PlanType type, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         this(relationId, type, table, qualifier, ImmutableList.of(), ImmutableList.of(),
-                groupExpression, logicalProperties);
+                groupExpression, logicalProperties, "");
+    }
+
+    public LogicalCatalogRelation(RelationId relationId, PlanType type, TableIf table, List<String> qualifier,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            String tableAlias) {
+        this(relationId, type, table, qualifier, ImmutableList.of(), ImmutableList.of(),
+                groupExpression, logicalProperties, tableAlias);
     }
 
     /**
      * Constructs a LogicalCatalogRelation with specified parameters.
      *
-     * @param relationId Unique identifier for this relation
-     * @param type Plan type
-     * @param table Table object associated with this relation
-     * @param qualifier List of qualifiers, typically [catalogName, databaseName]
-     * @param operativeSlots Collection of operative slots
-     * @param virtualColumns List of virtual columns
-     * @param groupExpression Optional group expression
+     * @param relationId        Unique identifier for this relation
+     * @param type              Plan type
+     * @param table             Table object associated with this relation
+     * @param qualifier         List of qualifiers, typically [catalogName,
+     *                          databaseName]
+     * @param operativeSlots    Collection of operative slots
+     * @param virtualColumns    List of virtual columns
+     * @param groupExpression   Optional group expression
      * @param logicalProperties Optional logical properties
+     * @param tableAlias        Table alias for this relation, empty string if no
+     *                          alias
      */
     public LogicalCatalogRelation(RelationId relationId, PlanType type, TableIf table, List<String> qualifier,
             Collection<Slot> operativeSlots, List<NamedExpression> virtualColumns,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            String tableAlias) {
         super(relationId, type, groupExpression, logicalProperties);
         this.table = Objects.requireNonNull(table, "table can not be null");
         this.qualifier = Utils.fastToImmutableList(Objects.requireNonNull(qualifier, "qualifier can not be null"));
         this.operativeSlots = Utils.fastToImmutableList(operativeSlots);
         this.virtualColumns = Utils.fastToImmutableList(Objects.requireNonNull(virtualColumns,
                 "virtualColumns can not be null"));
+        this.tableAlias = Objects.requireNonNull(tableAlias, "tableAlias can not be null");
     }
 
     @Override
@@ -153,14 +171,14 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
      * Full qualified name parts, i.e., concat qualifier and name into a list.
      */
     public List<String> qualified() {
-        return Utils.qualifiedNameParts(qualifier, table.getName());
+        return Utils.qualifiedNameParts(qualifier, Util.getTempTableDisplayName(table.getName()));
     }
 
     /**
      * Full qualified table name, concat qualifier and name with `.` as separator.
      */
     public String qualifiedName() {
-        return Utils.qualifiedName(qualifier, table.getName());
+        return Utils.qualifiedName(qualifier, Util.getTempTableDisplayName(table.getName()));
     }
 
     @Override
@@ -170,6 +188,10 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
 
     public List<NamedExpression> getVirtualColumns() {
         return virtualColumns;
+    }
+
+    public String getTableAlias() {
+        return tableAlias;
     }
 
     @Override
@@ -250,6 +272,14 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     }
 
     public abstract LogicalCatalogRelation withRelationId(RelationId relationId);
+
+    /**
+     * Return a new LogicalCatalogRelation with the specified table alias.
+     *
+     * @param tableAlias the table alias to set
+     * @return a new LogicalCatalogRelation with the specified table alias
+     */
+    public abstract LogicalCatalogRelation withTableAlias(String tableAlias);
 
     @Override
     public boolean equals(Object o) {

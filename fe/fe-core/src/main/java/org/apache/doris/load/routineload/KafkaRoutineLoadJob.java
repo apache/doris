@@ -17,12 +17,12 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
@@ -50,7 +50,9 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TFileCompressType;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
@@ -62,8 +64,8 @@ import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.collections.MapUtils;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.BooleanUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -262,7 +264,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     public void updateCloudProgress() throws UserException {
         Cloud.GetRLTaskCommitAttachRequest.Builder builder =
-                Cloud.GetRLTaskCommitAttachRequest.newBuilder();
+                Cloud.GetRLTaskCommitAttachRequest.newBuilder()
+                        .setRequestIp(FrontendOptions.getLocalHostAddressCached());
         builder.setCloudUniqueId(Config.cloud_unique_id);
         builder.setDbId(dbId);
         builder.setJobId(id);
@@ -357,11 +360,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    protected RoutineLoadTaskInfo unprotectRenewTask(RoutineLoadTaskInfo routineLoadTaskInfo) {
+    protected RoutineLoadTaskInfo unprotectRenewTask(RoutineLoadTaskInfo routineLoadTaskInfo, boolean delaySchedule) {
         KafkaTaskInfo oldKafkaTaskInfo = (KafkaTaskInfo) routineLoadTaskInfo;
         // add new task
         KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(oldKafkaTaskInfo,
                 ((KafkaProgress) progress).getPartitionIdToOffset(oldKafkaTaskInfo.getPartitions()), isMultiTable());
+        kafkaTaskInfo.setDelaySchedule(delaySchedule);
         // remove old task
         routineLoadTaskInfoList.remove(routineLoadTaskInfo);
         // add new task
@@ -511,6 +515,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         } else {
             OlapTable olapTable = db.getOlapTableOrDdlException(info.getTableName());
             checkMeta(olapTable, info.getRoutineLoadDesc());
+            // check load_to_single_tablet compatibility with distribution type
+            if (info.isLoadToSingleTablet()
+                    && !(olapTable.getDefaultDistributionInfo() instanceof RandomDistributionInfo)) {
+                throw new DdlException(
+                        "if load_to_single_tablet set to true, the olap table must be with random distribution");
+            }
             long tableId = olapTable.getId();
             // init kafka routine load job
             kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, info.getName(),
@@ -518,33 +528,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 kafkaProperties.getBrokerList(), kafkaProperties.getTopic(), ctx.getCurrentUserIdentity());
         }
         kafkaRoutineLoadJob.setOptional(info);
-        kafkaRoutineLoadJob.checkCustomProperties();
-        kafkaRoutineLoadJob.checkCustomPartition();
-
-        return kafkaRoutineLoadJob;
-    }
-
-    public static KafkaRoutineLoadJob fromCreateStmt(CreateRoutineLoadStmt stmt) throws UserException {
-        // check db and table
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(stmt.getDBName());
-
-        long id = Env.getCurrentEnv().getNextId();
-        KafkaDataSourceProperties kafkaProperties = (KafkaDataSourceProperties) stmt.getDataSourceProperties();
-        KafkaRoutineLoadJob kafkaRoutineLoadJob;
-        if (kafkaProperties.isMultiTable()) {
-            kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(),
-                    db.getId(),
-                    kafkaProperties.getBrokerList(), kafkaProperties.getTopic(), stmt.getUserInfo(), true);
-        } else {
-            OlapTable olapTable = db.getOlapTableOrDdlException(stmt.getTableName());
-            checkMeta(olapTable, stmt.getRoutineLoadDesc());
-            long tableId = olapTable.getId();
-            // init kafka routine load job
-            kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(),
-                    db.getId(), tableId,
-                    kafkaProperties.getBrokerList(), kafkaProperties.getTopic(), stmt.getUserInfo());
-        }
-        kafkaRoutineLoadJob.setOptional(stmt);
         kafkaRoutineLoadJob.checkCustomProperties();
         kafkaRoutineLoadJob.checkCustomPartition();
 
@@ -636,21 +619,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         super.setOptional(info);
         KafkaDataSourceProperties kafkaDataSourceProperties
                 = (KafkaDataSourceProperties) info.getDataSourceProperties();
-        if (CollectionUtils.isNotEmpty(kafkaDataSourceProperties.getKafkaPartitionOffsets())) {
-            setCustomKafkaPartitions(kafkaDataSourceProperties);
-        }
-        if (MapUtils.isNotEmpty(kafkaDataSourceProperties.getCustomKafkaProperties())) {
-            setCustomKafkaProperties(kafkaDataSourceProperties.getCustomKafkaProperties());
-        }
-        // set group id if not specified
-        this.customProperties.putIfAbsent(PROP_GROUP_ID, name + "_" + UUID.randomUUID());
-    }
-
-    @Override
-    protected void setOptional(CreateRoutineLoadStmt stmt) throws UserException {
-        super.setOptional(stmt);
-        KafkaDataSourceProperties kafkaDataSourceProperties
-                = (KafkaDataSourceProperties) stmt.getDataSourceProperties();
         if (CollectionUtils.isNotEmpty(kafkaDataSourceProperties.getKafkaPartitionOffsets())) {
             setCustomKafkaPartitions(kafkaDataSourceProperties);
         }
@@ -761,7 +729,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     private void modifyPropertiesInternal(Map<String, String> jobProperties,
                                           KafkaDataSourceProperties dataSourceProperties)
-            throws DdlException {
+            throws UserException {
         if (null != dataSourceProperties) {
             List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
             Map<String, String> customKafkaProperties = Maps.newHashMap();
@@ -782,7 +750,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             }
 
             if (Config.isCloudMode()) {
-                Cloud.ResetRLProgressRequest.Builder builder = Cloud.ResetRLProgressRequest.newBuilder();
+                Cloud.ResetRLProgressRequest.Builder builder = Cloud.ResetRLProgressRequest.newBuilder()
+                        .setRequestIp(FrontendOptions.getLocalHostAddressCached());
                 builder.setCloudUniqueId(Config.cloud_unique_id);
                 builder.setDbId(dbId);
                 builder.setJobId(id);
@@ -822,8 +791,16 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             Map<String, String> copiedJobProperties = Maps.newHashMap(jobProperties);
             modifyCommonJobProperties(copiedJobProperties);
             this.jobProperties.putAll(copiedJobProperties);
-            if (jobProperties.containsKey(CreateRoutineLoadStmt.PARTIAL_COLUMNS)) {
-                this.isPartialUpdate = BooleanUtils.toBoolean(jobProperties.get(CreateRoutineLoadStmt.PARTIAL_COLUMNS));
+            if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
+                this.isPartialUpdate = BooleanUtils.toBoolean(jobProperties.get(CreateRoutineLoadInfo.PARTIAL_COLUMNS));
+            }
+            if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY)) {
+                String policy = jobProperties.get(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY);
+                if ("ERROR".equalsIgnoreCase(policy)) {
+                    this.partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.ERROR;
+                } else {
+                    this.partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
+                }
             }
         }
         LOG.info("modify the properties of kafka routine load job: {}, jobProperties: {}, datasource properties: {}",
@@ -853,7 +830,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     public void replayModifyProperties(AlterRoutineLoadJobOperationLog log) {
         try {
             modifyPropertiesInternal(log.getJobProperties(), (KafkaDataSourceProperties) log.getDataSourceProperties());
-        } catch (DdlException e) {
+        } catch (UserException e) {
             // should not happen
             LOG.error("failed to replay modify kafka routine load job: {}", id, e);
         }
@@ -994,9 +971,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 importColumnDescs.descs.add(new NereidsImportColumnDesc(desc.getColumnName(), expression));
             }
         }
-        return new NereidsRoutineLoadTaskInfo(execMemLimit, new HashMap<>(jobProperties), maxBatchIntervalS, partitions,
-                mergeType, deleteCondition, sequenceCol, maxFilterRatio, importColumnDescs, precedingFilter,
-                whereExpr, columnSeparator, lineDelimiter, enclose, escape, sendBatchParallelism, loadToSingleTablet,
-                isPartialUpdate, memtableOnSinkNode);
+        return new NereidsRoutineLoadTaskInfo(execMemLimit, new HashMap<>(jobProperties), maxBatchIntervalS,
+                partitionNamesInfo, mergeType, deleteCondition, sequenceCol, maxFilterRatio, importColumnDescs,
+                precedingFilter, whereExpr, columnSeparator, lineDelimiter, enclose, escape, sendBatchParallelism,
+                loadToSingleTablet, uniqueKeyUpdateMode, partialUpdateNewKeyPolicy, memtableOnSinkNode);
     }
 }

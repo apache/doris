@@ -64,13 +64,18 @@ public class Abs extends ScalarFunction
         super("abs", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Abs(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Abs withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Abs(children.get(0));
+        return new Abs(getFunctionParams(children));
     }
 
     @Override

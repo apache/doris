@@ -24,6 +24,7 @@
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
 #include <fcntl.h>
+#include <fmt/core.h>
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
         !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
 #include <gperftools/malloc_extension.h> // IWYU pragma: keep
@@ -76,9 +77,11 @@
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
 #include "service/http_service.h"
+#include "udf/python/python_env.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
 #include "util/mem_info.h"
+#include "util/string_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
@@ -490,13 +493,77 @@ int main(int argc, char** argv) {
     Status status = Status::OK();
     if (doris::config::enable_java_support) {
         // Init jni
-        status = doris::JniUtil::Init();
+        status = doris::Jni::Util::Init();
         if (!status.ok()) {
             LOG(WARNING) << "Failed to initialize JNI: " << status;
             exit(1);
         } else {
             LOG(INFO) << "Doris backend JNI is initialized.";
         }
+    }
+
+    if (doris::config::enable_python_udf_support) {
+        if (std::string python_udf_root_path =
+                    fmt::format("{}/lib/udf/python", std::getenv("DORIS_HOME"));
+            !std::filesystem::exists(python_udf_root_path)) {
+            std::filesystem::create_directories(python_udf_root_path);
+        }
+
+        // Normalize and trim all Python-related config parameters
+        std::string python_env_mode =
+                std::string(doris::trim(doris::to_lower(doris::config::python_env_mode)));
+        std::string python_conda_root_path =
+                std::string(doris::trim(doris::config::python_conda_root_path));
+        std::string python_venv_root_path =
+                std::string(doris::trim(doris::config::python_venv_root_path));
+        std::string python_venv_interpreter_paths =
+                std::string(doris::trim(doris::config::python_venv_interpreter_paths));
+
+        if (python_env_mode == "conda") {
+            if (python_conda_root_path.empty()) {
+                LOG(ERROR)
+                        << "Python conda root path is empty, please set `python_conda_root_path` "
+                           "or set `enable_python_udf_support` to `false`";
+                exit(1);
+            }
+            LOG(INFO) << "Doris backend python version manager is initialized. Python conda "
+                         "root path: "
+                      << python_conda_root_path;
+            status = doris::PythonVersionManager::instance().init(doris::PythonEnvType::CONDA,
+                                                                  python_conda_root_path, "");
+        } else if (python_env_mode == "venv") {
+            if (python_venv_root_path.empty()) {
+                LOG(ERROR)
+                        << "Python venv root path is empty, please set `python_venv_root_path` or "
+                           "set `enable_python_udf_support` to `false`";
+                exit(1);
+            }
+            if (python_venv_interpreter_paths.empty()) {
+                LOG(ERROR)
+                        << "Python interpreter paths is empty, please set "
+                           "`python_venv_interpreter_paths` or set `enable_python_udf_support` to "
+                           "`false`";
+                exit(1);
+            }
+            LOG(INFO) << "Doris backend python version manager is initialized. Python venv "
+                         "root path: "
+                      << python_venv_root_path
+                      << ", python interpreter paths: " << python_venv_interpreter_paths;
+            status = doris::PythonVersionManager::instance().init(doris::PythonEnvType::VENV,
+                                                                  python_venv_root_path,
+                                                                  python_venv_interpreter_paths);
+        } else {
+            status = Status::InvalidArgument(
+                    "Python env mode is invalid, should be `conda` or `venv`. If you don't want to "
+                    "enable the Python UDF function, please set `enable_python_udf_support` to "
+                    "`false`");
+        }
+
+        if (!status.ok()) {
+            LOG(ERROR) << "Failed to initialize python version manager: " << status;
+            exit(1);
+        }
+        LOG(INFO) << doris::PythonVersionManager::instance().to_string();
     }
 
     // Doris own signal handler must be register after jvm is init.
@@ -602,12 +669,15 @@ int main(int argc, char** argv) {
 
     exec_env->storage_engine().notify_listeners();
 
+    doris::k_is_server_ready = true;
+
     while (!doris::k_doris_exit) {
 #if defined(LEAK_SANITIZER)
         __lsan_do_leak_check();
 #endif
         sleep(3);
     }
+    doris::k_is_server_ready = false;
     LOG(INFO) << "Doris main exiting.";
 #if defined(LLVM_PROFILE)
     __llvm_profile_write_file();
@@ -615,6 +685,15 @@ int main(int argc, char** argv) {
 #endif
     // For graceful shutdown, need to wait for all running queries to stop
     exec_env->wait_for_all_tasks_done();
+
+    if (!doris::config::enable_graceful_exit_check) {
+        // If not in memleak check mode, no need to wait all objects de-constructed normally, just exit.
+        // It will make sure that graceful shutdown can be done definitely.
+        LOG(INFO) << "Doris main exited.";
+        google::FlushLogFiles(google::GLOG_INFO);
+        _exit(0); // Do not call exit(0), it will wait for all objects de-constructed normally
+        return 0;
+    }
     daemon.stop();
     flight_server.reset();
     LOG(INFO) << "Flight server stopped.";
@@ -633,7 +712,7 @@ int main(int argc, char** argv) {
     service.reset();
     LOG(INFO) << "Backend Service stopped";
     exec_env->destroy();
-    LOG(INFO) << "Doris main exited.";
+    LOG(INFO) << "All service stopped, doris main exited.";
     return 0;
 }
 

@@ -17,11 +17,11 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.DatabaseMetadata;
 import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
+import org.apache.doris.info.TableNameInfo;
 
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
@@ -83,7 +83,7 @@ public interface HMSCachedClient {
 
     Map<String, String> getValidWriteIds(String fullTableName, long currentTransactionId);
 
-    void acquireSharedLock(String queryId, long txnId, String user, TableName tblName,
+    void acquireSharedLock(String queryId, long txnId, String user, TableNameInfo tblName,
             List<String> partitionNames, long timeoutMs);
 
     String getCatalogLocation(String catalogName);

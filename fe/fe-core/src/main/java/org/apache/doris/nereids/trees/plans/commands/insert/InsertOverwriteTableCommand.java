@@ -43,6 +43,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -65,13 +67,15 @@ import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import org.apache.commons.collections.CollectionUtils;
+import com.google.common.collect.Maps;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.awaitility.Awaitility;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -137,6 +141,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         if (targetTableIf instanceof MTMV && !MTMVUtil.allowModifyMTMVData(ctx)) {
             throw new AnalysisException("Not allowed to perform current operation on async materialized view");
         }
+        ctx.getStatementContext().setIsInsert(true);
         Optional<CascadesContext> analyzeContext = Optional.of(
                 CascadesContext.initContext(ctx.getStatementContext(), originLogicalQuery, PhysicalProperties.ANY)
         );
@@ -209,7 +214,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         try {
             if (isAutoDetectOverwrite(getLogicalQuery())) {
                 // taskId here is a group id. it contains all replace tasks made and registered in rpc process.
-                taskId = insertOverwriteManager.registerTaskGroup();
+                taskId = insertOverwriteManager.registerTaskGroup(targetTable.getId());
                 // When inserting, BE will call to replace partition by FrontendService. FE will register new temp
                 // partitions and return. for transactional, the replacement will really occur when insert successed,
                 // i.e. `insertInto` finished. then we call taskGroupSuccess to make replacement.
@@ -365,9 +370,11 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                     false,
                     TPartialUpdateNewRowPolicy.APPEND,
                     sink.getDMLCommandType(),
-                    (LogicalPlan) (sink.child(0)));
+                    (LogicalPlan) (sink.child(0)),
+                    sink.getStaticPartitionKeyValues());
             insertCtx = new IcebergInsertCommandContext();
             ((IcebergInsertCommandContext) insertCtx).setOverwrite(true);
+            setStaticPartitionToContext(sink, (IcebergInsertCommandContext) insertCtx);
             branchName.ifPresent(notUsed -> ((IcebergInsertCommandContext) insertCtx).setBranchName(branchName));
         } else {
             throw new UserException("Current catalog does not support insert overwrite yet.");
@@ -393,14 +400,31 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         } else if (logicalQuery instanceof UnboundHiveTableSink) {
             insertCtx = new HiveInsertCommandContext();
             ((HiveInsertCommandContext) insertCtx).setOverwrite(true);
-        } else if (logicalQuery instanceof UnboundIcebergTableSink) {
-            insertCtx = new IcebergInsertCommandContext();
-            ((IcebergInsertCommandContext) insertCtx).setOverwrite(true);
-            branchName.ifPresent(notUsed -> ((IcebergInsertCommandContext) insertCtx).setBranchName(branchName));
         } else {
-            throw new UserException("Current catalog does not support insert overwrite yet.");
+            throw new UserException("Current catalog does not support insert overwrite with auto-detect partition.");
         }
         runInsertCommand(logicalQuery, insertCtx, ctx, executor);
+    }
+
+    /**
+     * Extract static partition information from sink and set to context.
+     */
+    private void setStaticPartitionToContext(UnboundIcebergTableSink<?> sink,
+            IcebergInsertCommandContext insertCtx) {
+        if (sink.hasStaticPartition()) {
+            Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
+            Map<String, String> staticPartitionValues = Maps.newHashMap();
+            for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
+                Expression expr = entry.getValue();
+                if (expr instanceof Literal) {
+                    staticPartitionValues.put(entry.getKey(), ((Literal) expr).getStringValue());
+                } else {
+                    throw new AnalysisException(
+                            String.format("Static partition value must be a literal, but got: %s", expr));
+                }
+            }
+            insertCtx.setStaticPartitionValues(staticPartitionValues);
+        }
     }
 
     @Override
@@ -441,5 +465,17 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
     @Override
     public boolean needAuditEncryption() {
         return originLogicalQuery.anyMatch(node -> node instanceof TVFRelation);
+    }
+
+    @Override
+    public String toDigest() {
+        // if with cte, query will be print twice
+        StringBuilder sb = new StringBuilder();
+        sb.append("OVERWRITE TABLE "); // there is no way add overwrite flag in sink(logic query), so add it here
+        sb.append(originLogicalQuery.toDigest());
+        if (cte.isPresent()) {
+            sb.append(" (").append(cte.get().toDigest()).append(")");
+        }
+        return sb.toString();
     }
 }

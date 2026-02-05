@@ -31,31 +31,42 @@ suite("test_json_search") {
               `j`  varchar(1000) NULL,
               `jb` json NULL,
               `o`  varchar(1000) NULL,
-              `p`  varchar(1000) NULL
+              `p`  varchar(1000) NULL,
+              `q` string not null
             ) ENGINE=OLAP
             DUPLICATE KEY(`id`)
-            DISTRIBUTED BY HASH(`id`) BUCKETS 10
+            DISTRIBUTED BY HASH(`id`) BUCKETS 2
             PROPERTIES (
             "replication_allocation" = "tag.location.default: 1"
             );
     """
     def jsonValue = """'["A",[{"B":"1"}],{"C":"AB"},{"D":"BC"}]'"""
 
-    sql """insert into ${testTable} values(1, $jsonValue, $jsonValue, NULL, '_%')"""
-    sql """insert into ${testTable} values(2, $jsonValue, $jsonValue, 'one', '_%')"""
-    sql """insert into ${testTable} values(3, $jsonValue, $jsonValue, 'One', '_%')"""
-    sql """insert into ${testTable} values(4, $jsonValue, $jsonValue, 'all', '_%')"""
-    sql """insert into ${testTable} values(5, $jsonValue, $jsonValue, 'All', '_%')"""
-    sql """insert into ${testTable} values(6, $jsonValue, $jsonValue, 'invalid_one_or_all', '_%')"""
-    sql """insert into ${testTable} values(7, NULL, NULL, 'one', '_%')"""
-    sql """insert into ${testTable} values(8, $jsonValue, $jsonValue, 'all', NULL)"""
-    sql """insert into ${testTable} values(9, $jsonValue, $jsonValue, 'all', 'X')"""
+    sql """insert into ${testTable} values(1, $jsonValue, $jsonValue, NULL, '_%', 'one');"""
+    sql """insert into ${testTable} values(2, $jsonValue, $jsonValue, 'one', '_%', 'one')"""
+    sql """insert into ${testTable} values(3, $jsonValue, $jsonValue, 'One', '_%', 'One')"""
+    sql """insert into ${testTable} values(4, $jsonValue, $jsonValue, 'all', '_%', 'all')"""
+    sql """insert into ${testTable} values(5, $jsonValue, $jsonValue, 'All', '_%', 'All')"""
+    sql """insert into ${testTable} values(6, $jsonValue, $jsonValue, 'invalid_one_or_all', '_%', 'invalid_one_or_all')"""
+    sql """insert into ${testTable} values(7, NULL, NULL, 'one', '_%', 'one')"""
+    sql """insert into ${testTable} values(8, $jsonValue, $jsonValue, 'all', NULL, 'all')"""
+    sql """insert into ${testTable} values(9, $jsonValue, $jsonValue, 'all', 'X', 'all')"""
 
     qt_one_is_valid_or_null """ SELECT id, j, o, p, JSON_SEARCH(j, o, p), JSON_SEARCH(jb, o, p) 
-                FROM ${testTable} WHERE o <> 'invalid_one_or_all' ORDER BY id;"""
+                FROM ${testTable} WHERE o <> 'invalid_one_or_all' or o is null ORDER BY id;"""
+    qt_one_is_valid_or_non_null """ SELECT id, j, o, p, q, JSON_SEARCH(j, q, p), JSON_SEARCH(jb, q, p) 
+                FROM ${testTable} WHERE q <> 'invalid_one_or_all' or o is null ORDER BY id;"""
+    qt_json_is_null_const """ SELECT id, j, o, p, q, JSON_SEARCH(null, q, p), JSON_SEARCH(null, q, p) 
+                FROM ${testTable} WHERE q <> 'invalid_one_or_all' or o is null ORDER BY id;"""
     test {
         sql """SELECT id, j, o, p, JSON_SEARCH(j, o, p), JSON_SEARCH(jb, o, p) 
-                   FROM ${testTable} WHERE o = 'invalid_one_or_all' ORDER BY id;"""
+                   FROM ${testTable}  ORDER BY id;"""
+        exception "[INVALID_ARGUMENT]the one_or_all argument invalid_one_or_all is not 'one' not 'all'"
+    }
+
+    test {
+        sql """SELECT id, j, o, p, q, JSON_SEARCH(j, q, p), JSON_SEARCH(jb, q, p) 
+                   FROM ${testTable} ORDER BY id;"""
         exception "[INVALID_ARGUMENT]the one_or_all argument invalid_one_or_all is not 'one' not 'all'"
     }
 
@@ -117,5 +128,19 @@ suite("test_json_search") {
     qt_one_case1 """ SELECT id, $jsonValue, 'One', p, JSON_SEARCH($jsonValue, 'One', p) FROM ${testTable} ORDER BY id; """
     qt_one_case2 """ SELECT id, $jsonValue, 'All', p, JSON_SEARCH($jsonValue, 'One', p) FROM ${testTable} ORDER BY id; """
 
-    sql "drop table ${testTable}"
+    // sql "drop table ${testTable}"
+
+    qt_search1 """
+        select JSON_SEARCH('{ "onepotato": "foot", "one potato": "food" , "one \\\\"potato": "fool" }','all', 'food');
+    """
+
+    qt_search2 """
+        select JSON_SEARCH('{ "onepotato": "foot", "one potato": "food" , "one \\\\"potato": "fool" }','all', 'fool');
+    """
+
+    qt_search3 """
+        select JSON_EXTRACT('{ "onepotato": "foot", "one potato": "food" , "one \\\\"potato": "fool" }',
+            JSON_UNQUOTE(JSON_SEARCH('{ "onepotato": "foot", "one potato": "food" , "one \\\\"potato": "fool" }','all', 'fool'))
+        );
+    """
 }

@@ -20,11 +20,12 @@
 #include <hs/hs_common.h>
 #include <hs/hs_runtime.h>
 #include <re2/re2.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <boost/regex.hpp>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -32,7 +33,6 @@
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/string_search.hpp"
-#include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/predicate_column.h"
@@ -40,15 +40,112 @@
 #include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/function.h"
 
-namespace doris {
-namespace vectorized {
-class Block;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
+class Block;
+
+// FastPath types for LIKE pattern matching optimization
+// This allows per-row pattern analysis to avoid regex when possible
+enum class LikeFastPath {
+    ALLPASS,     // Pattern is just '%' or '%%...' - matches everything
+    EQUALS,      // No wildcards - exact string match
+    STARTS_WITH, // Pattern ends with '%' only - prefix match
+    ENDS_WITH,   // Pattern starts with '%' only - suffix match
+    SUBSTRING,   // Pattern is '%xxx%' - substring search
+    REGEX        // Contains '_' or multiple '%' - needs regex
+};
+
+// Lightweight pattern analysis without RE2
+// Returns the fast path type and extracts the search string (without wildcards)
+// Correctly handles escape sequences: backslash-% -> literal %, backslash-_ -> literal _
+inline LikeFastPath extract_like_fast_path(const char* pattern, size_t len,
+                                           std::string& search_string) {
+    search_string.clear();
+    if (len == 0) {
+        return LikeFastPath::EQUALS;
+    }
+
+    // Returns true if the character is NOT escaped (even number of preceding backslashes)
+    auto is_unescaped = [&pattern](size_t pos) -> bool {
+        size_t backslash_count = 0;
+        while (pos > 0 && pattern[pos - 1] == '\\') {
+            backslash_count++;
+            pos--;
+        }
+        return (backslash_count % 2 == 0);
+    };
+
+    bool starts_with_percent = (pattern[0] == '%');
+    bool ends_with_percent = (pattern[len - 1] == '%' && is_unescaped(len - 1));
+
+    // Quick check: if starts or ends with unescaped '_', need regex
+    if (pattern[0] == '_') {
+        return LikeFastPath::REGEX;
+    }
+    if (pattern[len - 1] == '_' && is_unescaped(len - 1)) {
+        return LikeFastPath::REGEX;
+    }
+
+    // Helper lambda: check if character is a wildcard that needs escaping
+    auto is_wildcard = [](char c) { return c == '%' || c == '_' || c == '\\'; };
+
+    size_t i = 0;
+    // Skip leading '%' characters (unescaped)
+    while (i < len && pattern[i] == '%') {
+        i++;
+    }
+    // If pattern is all '%', it's ALLPASS
+    if (i >= len) {
+        return LikeFastPath::ALLPASS;
+    }
+
+    search_string.reserve(len);
+    while (i < len) {
+        char c = pattern[i];
+        // Escaped character - add the literal
+        if (c == '\\' && i + 1 < len && is_wildcard(pattern[i + 1])) {
+            search_string.push_back(pattern[i + 1]);
+            i += 2;
+            continue;
+        }
+
+        // Unescaped '_' requires regex
+        if (c == '_') {
+            return LikeFastPath::REGEX;
+        }
+
+        // Check for trailing '%' or middle '%' (which needs regex)
+        if (c == '%') {
+            // Check if this is a trailing '%' sequence
+            size_t j = i;
+            while (j < len && pattern[j] == '%') {
+                j++;
+            }
+            if (j >= len) {
+                // All remaining chars are '%', we're done parsing
+                break;
+            }
+            // '%' in the middle with more content after - need regex
+            return LikeFastPath::REGEX;
+        }
+
+        search_string.push_back(c);
+        i++;
+    }
+
+    // Determine the pattern type based on '%' positions
+    if (starts_with_percent && ends_with_percent) {
+        return LikeFastPath::SUBSTRING;
+    } else if (starts_with_percent) {
+        return LikeFastPath::ENDS_WITH;
+    } else if (ends_with_percent) {
+        return LikeFastPath::STARTS_WITH;
+    } else {
+        return LikeFastPath::EQUALS;
+    }
+}
 
 inline std::string replace_pattern_by_escape(const StringRef& pattern, char escape_char) {
     std::string result;
@@ -100,6 +197,9 @@ struct LikeSearchState {
     /// Used for RLIKE and REGEXP predicates if the pattern is a constant argument.
     std::unique_ptr<re2::RE2> regex;
 
+    /// Used for REGEXP predicates when RE2 doesn't support the pattern (e.g., zero-width assertions like `?=`, `?!`, `?<=`, `?<!`)
+    std::unique_ptr<boost::regex> boost_regex;
+
     template <typename Deleter, Deleter deleter>
     struct HyperscanDeleter {
         template <typename T>
@@ -136,10 +236,10 @@ struct LikeSearchState {
     }
 };
 
-using LikeFn = std::function<doris::Status(LikeSearchState*, const ColumnString&, const StringRef&,
-                                           ColumnUInt8::Container&)>;
+using LikeFn = std::function<doris::Status(const LikeSearchState*, const ColumnString&,
+                                           const StringRef&, ColumnUInt8::Container&)>;
 
-using ScalarLikeFn = std::function<doris::Status(LikeSearchState*, const StringRef&,
+using ScalarLikeFn = std::function<doris::Status(const LikeSearchState*, const StringRef&,
                                                  const StringRef&, unsigned char*)>;
 
 using VectorLikeFn = std::function<doris::Status(const ColumnString&, const ColumnString&,
@@ -208,62 +308,62 @@ protected:
     template <bool LIKE_PATTERN>
     static VPatternSearchStateSPtr pattern_type_recognition(const ColumnString& patterns);
 
-    static Status constant_allpass_fn(LikeSearchState* state, const ColumnString& val,
+    static Status constant_allpass_fn(const LikeSearchState* state, const ColumnString& val,
                                       const StringRef& pattern, ColumnUInt8::Container& result);
 
-    static Status constant_allpass_fn_scalar(LikeSearchState* state, const StringRef& val,
+    static Status constant_allpass_fn_scalar(const LikeSearchState* state, const StringRef& val,
                                              const StringRef& pattern, unsigned char* result);
 
     static Status vector_allpass_fn(const ColumnString& vals, const ColumnString& search_strings,
                                     ColumnUInt8::Container& result);
 
-    static Status constant_starts_with_fn(LikeSearchState* state, const ColumnString& val,
+    static Status constant_starts_with_fn(const LikeSearchState* state, const ColumnString& val,
                                           const StringRef& pattern, ColumnUInt8::Container& result);
 
-    static Status constant_starts_with_fn_scalar(LikeSearchState* state, const StringRef& val,
+    static Status constant_starts_with_fn_scalar(const LikeSearchState* state, const StringRef& val,
                                                  const StringRef& pattern, unsigned char* result);
 
     static Status vector_starts_with_fn(const ColumnString& vals,
                                         const ColumnString& search_strings,
                                         ColumnUInt8::Container& result);
 
-    static Status constant_ends_with_fn(LikeSearchState* state, const ColumnString& val,
+    static Status constant_ends_with_fn(const LikeSearchState* state, const ColumnString& val,
                                         const StringRef& pattern, ColumnUInt8::Container& result);
 
-    static Status constant_ends_with_fn_scalar(LikeSearchState* state, const StringRef& val,
+    static Status constant_ends_with_fn_scalar(const LikeSearchState* state, const StringRef& val,
                                                const StringRef& pattern, unsigned char* result);
 
     static Status vector_ends_with_fn(const ColumnString& vals, const ColumnString& search_strings,
                                       ColumnUInt8::Container& result);
 
-    static Status constant_equals_fn(LikeSearchState* state, const ColumnString& val,
+    static Status constant_equals_fn(const LikeSearchState* state, const ColumnString& val,
                                      const StringRef& pattern, ColumnUInt8::Container& result);
 
-    static Status constant_equals_fn_scalar(LikeSearchState* state, const StringRef& val,
+    static Status constant_equals_fn_scalar(const LikeSearchState* state, const StringRef& val,
                                             const StringRef& pattern, unsigned char* result);
 
     static Status vector_equals_fn(const ColumnString& vals, const ColumnString& search_strings,
                                    ColumnUInt8::Container& result);
 
-    static Status constant_substring_fn(LikeSearchState* state, const ColumnString& val,
+    static Status constant_substring_fn(const LikeSearchState* state, const ColumnString& val,
                                         const StringRef& pattern, ColumnUInt8::Container& result);
 
-    static Status constant_substring_fn_scalar(LikeSearchState* state, const StringRef& val,
+    static Status constant_substring_fn_scalar(const LikeSearchState* state, const StringRef& val,
                                                const StringRef& pattern, unsigned char* result);
 
     static Status vector_substring_fn(const ColumnString& vals, const ColumnString& search_strings,
                                       ColumnUInt8::Container& result);
 
-    static Status constant_regex_fn(LikeSearchState* state, const ColumnString& val,
+    static Status constant_regex_fn(const LikeSearchState* state, const ColumnString& val,
                                     const StringRef& pattern, ColumnUInt8::Container& result);
 
-    static Status constant_regex_fn_scalar(LikeSearchState* state, const StringRef& val,
+    static Status constant_regex_fn_scalar(const LikeSearchState* state, const StringRef& val,
                                            const StringRef& pattern, unsigned char* result);
 
-    static Status regexp_fn(LikeSearchState* state, const ColumnString& val,
+    static Status regexp_fn(const LikeSearchState* state, const ColumnString& val,
                             const StringRef& pattern, ColumnUInt8::Container& result);
 
-    static Status regexp_fn_scalar(LikeSearchState* state, const StringRef& val,
+    static Status regexp_fn_scalar(const LikeSearchState* state, const StringRef& val,
                                    const StringRef& pattern, unsigned char* result);
 
     // hyperscan compile expression to database and allocate scratch space
@@ -293,13 +393,13 @@ public:
     friend struct VectorEndsWithSearchState;
 
 private:
-    static Status like_fn(LikeSearchState* state, const ColumnString& val, const StringRef& pattern,
-                          ColumnUInt8::Container& result);
+    static Status like_fn(const LikeSearchState* state, const ColumnString& val,
+                          const StringRef& pattern, ColumnUInt8::Container& result);
 
-    static Status like_fn_scalar(LikeSearchState* state, const StringRef& val,
+    static Status like_fn_scalar(const LikeSearchState* state, const StringRef& val,
                                  const StringRef& pattern, unsigned char* result);
 
-    static void convert_like_pattern(LikeSearchState* state, const std::string& pattern,
+    static void convert_like_pattern(const LikeSearchState* state, const std::string& pattern,
                                      std::string* re_pattern);
 
     static void remove_escape_character(std::string* search_string);

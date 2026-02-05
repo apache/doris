@@ -19,6 +19,8 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.HadoopKerberosAuthenticator;
+import org.apache.doris.common.security.authentication.HadoopSimpleAuthenticator;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import com.google.common.collect.Maps;
@@ -38,12 +40,13 @@ public class HdfsPropertiesTest {
         // Test 1: Check default authentication type (should be "simple")
         Map<String, String> simpleHdfsProperties = new HashMap<>();
         simpleHdfsProperties.put("uri", "hdfs://test/1.orc");
-        Assertions.assertEquals(HdfsProperties.class,  StorageProperties.createPrimary(simpleHdfsProperties).getClass());
+        Assertions.assertEquals(HdfsProperties.class, StorageProperties.createPrimary(simpleHdfsProperties).getClass());
         Map<String, String> origProps = createBaseHdfsProperties();
         List<StorageProperties> storageProperties = StorageProperties.createAll(origProps);
         HdfsProperties hdfsProperties = (HdfsProperties) storageProperties.get(0);
         Configuration conf = hdfsProperties.getHadoopStorageConfig();
         Assertions.assertEquals("simple", conf.get("hadoop.security.authentication"));
+        Assertions.assertEquals(HadoopSimpleAuthenticator.class, hdfsProperties.getHadoopAuthenticator().getClass());
 
         // Test 2: Kerberos without necessary configurations (should throw exception)
         origProps.put("hdfs.authentication.type", "kerberos");
@@ -61,6 +64,7 @@ public class HdfsPropertiesTest {
         Assertions.assertEquals("kerberos", configuration.get("hdfs.security.authentication"));
         Assertions.assertEquals("hadoop", configuration.get("hadoop.kerberos.principal"));
         Assertions.assertEquals("keytab", configuration.get("hadoop.kerberos.keytab"));
+        Assertions.assertEquals(HadoopKerberosAuthenticator.class, properties.hadoopAuthenticator.getClass());
     }
 
     @Test
@@ -76,6 +80,10 @@ public class HdfsPropertiesTest {
 
         // Test 3: Valid config resources (should succeed)
         origProps.put("hadoop.config.resources", "hadoop1/core-site.xml,hadoop1/hdfs-site.xml");
+        origProps.put("dfs.ha.namenodes.ns1", "nn1,nn2");
+        origProps.put("dfs.namenode.rpc-address.ns1.nn1", "localhost:9000");
+        origProps.put("dfs.namenode.rpc-address.ns1.nn2", "localhost:9001");
+        origProps.put("dfs.client.failover.proxy.provider.ns1", "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider");
         List<StorageProperties> storageProperties = StorageProperties.createAll(origProps);
         HdfsProperties hdfsProperties = (HdfsProperties) storageProperties.get(0);
         Configuration conf = hdfsProperties.getHadoopStorageConfig();
@@ -129,6 +137,8 @@ public class HdfsPropertiesTest {
         origProps.put("dfs.nameservices", "ns1");
         origProps.put("dfs.ha.namenodes.ns1", "nn1,nn2");
         origProps.put("dfs.namenode.rpc-address.ns1.nn1", "localhost:9000");
+        origProps.put("dfs.namenode.rpc-address.ns1.nn2", "localhost:9001");
+        origProps.put("dfs.client.failover.proxy.provider.ns1", "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider");
         origProps.put("hadoop.async.threads.max", "10");
         properties = StorageProperties.createAll(origProps).get(0);
         Assertions.assertEquals(properties.getClass(), HdfsProperties.class);

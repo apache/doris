@@ -57,6 +57,8 @@ struct FileReaderOptions {
     int64_t file_size = -1;
     // Use modification time to determine whether the file is changed
     int64_t mtime = 0;
+    // Used to query the location of the file cache
+    int64_t tablet_id = -1;
 
     static const FileReaderOptions DEFAULT;
 };
@@ -87,6 +89,9 @@ public:
     virtual bool closed() const = 0;
 
     virtual const std::string& get_data_dir_path() { return VIRTUAL_REMOTE_DATA_DIR; }
+
+    // File modification time (seconds since epoch). Default to 0 meaning unknown.
+    virtual int64_t mtime() const = 0;
 
 protected:
     virtual Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,

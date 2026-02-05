@@ -23,13 +23,15 @@ import org.apache.doris.thrift.TIndexPolicyType;
  * Index policy type enum.
  **/
 public enum IndexPolicyTypeEnum {
-    ANALYZER, TOKENIZER, TOKEN_FILTER;
+    ANALYZER, TOKENIZER, TOKEN_FILTER, CHAR_FILTER, NORMALIZER;
 
     public TIndexPolicyType toThrift() {
         switch (this) {
             case ANALYZER: return TIndexPolicyType.ANALYZER;
             case TOKENIZER: return TIndexPolicyType.TOKENIZER;
             case TOKEN_FILTER: return TIndexPolicyType.TOKEN_FILTER;
+            case CHAR_FILTER: return TIndexPolicyType.CHAR_FILTER;
+            case NORMALIZER: return TIndexPolicyType.NORMALIZER;
             default: throw new IllegalStateException("Unknown type: " + this);
         }
     }

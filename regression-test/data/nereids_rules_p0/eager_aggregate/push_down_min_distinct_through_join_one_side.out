@@ -34,10 +34,10 @@
 -- !groupby_pushdown_complex_conditions --
 
 -- !groupby_pushdown_with_aggregate --
-1	1.0
-1	2.0
-2	2.0
-3	3.0
+1	1
+1	2
+2	2
+3	3
 
 -- !groupby_pushdown_subquery --
 
@@ -92,7 +92,7 @@ c	3	3
 
 -- !groupby_pushdown_varied_aggregates --
 1	1.5	a
-1	7.0	\N
+1	7	\N
 2	4.5	b
 3	7.5	c
 
@@ -152,10 +152,10 @@ c	3	3
 -- !with_hint_groupby_pushdown_complex_conditions --
 
 -- !with_hint_groupby_pushdown_with_aggregate --
-1	1.0
-1	2.0
-2	2.0
-3	3.0
+1	1
+1	2
+2	2
+3	3
 
 -- !with_hint_groupby_pushdown_subquery --
 
@@ -210,7 +210,7 @@ c	3	3
 
 -- !with_hint_groupby_pushdown_varied_aggregates --
 1	1.5	a
-1	7.0	\N
+1	7	\N
 2	4.5	b
 3	7.5	c
 

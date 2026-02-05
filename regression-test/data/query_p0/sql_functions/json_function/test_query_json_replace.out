@@ -77,3 +77,6 @@ null
 -- !replace6 --
 \N
 
+-- !replace8 --
+{"a":100}
+

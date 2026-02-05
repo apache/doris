@@ -60,11 +60,6 @@ public class EmptyIncrementalRelation implements IncrementalRelation {
     }
 
     @Override
-    public boolean isIncludeStartTime() {
-        return true;
-    }
-
-    @Override
     public String getStartTs() {
         return EMPTY_TS;
     }

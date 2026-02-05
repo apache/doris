@@ -92,7 +92,7 @@ public:
     /// param current_cumulative_point, current cumulative position
     /// return cumulative_point, the result of calculating cumulative point position
     virtual void calculate_cumulative_point(Tablet* tablet,
-                                            const std::vector<RowsetMetaSharedPtr>& all_rowsets,
+                                            const RowsetMetaMapContainer& all_rowsets,
                                             int64_t current_cumulative_point,
                                             int64_t* cumulative_point) = 0;
 
@@ -128,8 +128,7 @@ public:
     /// SizeBased cumulative compaction policy implements calculate cumulative point function.
     /// When the first time the tablet does compact, this calculation is executed. Its main policy is to find first rowset
     /// which does not satisfied the promotion conditions.
-    void calculate_cumulative_point(Tablet* tablet,
-                                    const std::vector<RowsetMetaSharedPtr>& all_rowsets,
+    void calculate_cumulative_point(Tablet* tablet, const RowsetMetaMapContainer& all_rowsets,
                                     int64_t current_cumulative_point,
                                     int64_t* cumulative_point) override;
 

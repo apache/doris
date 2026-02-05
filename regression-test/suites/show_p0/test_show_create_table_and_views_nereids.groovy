@@ -76,7 +76,8 @@ suite("test_show_create_table_and_views_nereids", "show") {
         )
         DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
         PROPERTIES (
-            "replication_num" = "1"
+            "replication_num" = "1",
+            "storage_format" = "V2"
         )
         """
 

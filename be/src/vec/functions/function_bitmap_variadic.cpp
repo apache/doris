@@ -104,7 +104,7 @@ namespace doris::vectorized {
                     res_nulls_data[row] = null_map_data[row];                                     \
                 }                                                                                 \
                 for (int i = 1; i < nullable_cols_count; ++i) {                                   \
-                    const auto* null_map_data = null_map_datas[i];                                \
+                    null_map_data = null_map_datas[i];                                            \
                     for (size_t row = 0; row < input_rows_count; ++row) {                         \
                         res_nulls_data[row] &= null_map_data[row];                                \
                     }                                                                             \

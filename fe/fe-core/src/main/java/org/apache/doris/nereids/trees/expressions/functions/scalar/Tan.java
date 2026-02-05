@@ -47,13 +47,18 @@ public class Tan extends ScalarFunction
         super("tan", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Tan(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Tan withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Tan(children.get(0));
+        return new Tan(getFunctionParams(children));
     }
 
     @Override

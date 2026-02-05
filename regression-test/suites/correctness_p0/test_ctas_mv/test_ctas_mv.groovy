@@ -67,9 +67,10 @@ suite("test_ctas_mv") {
     sql """ insert into test_table_t2 values(); """
 
     createMV(""" CREATE MATERIALIZED VIEW test_table_view As
-            select a1,a3,a4,DATE_FORMAT(a5, 'yyyyMMdd') QUERY_TIME,DATE_FORMAT(a6 ,'yyyyMMdd') CREATE_TIME
+            select a1 as b1,a3 as b2,a4 as b3,DATE_FORMAT(a5, 'yyyyMMdd') QUERY_TIME,DATE_FORMAT(a6 ,'yyyyMMdd') CREATE_TIME
             from test_table_t1 where DATE_FORMAT(a5, 'yyyyMMdd') =20230131; """)
 
+    sql "set enable_insert_strict = false;"
     sql """ create table szjdf_zjb PROPERTIES("replication_num"="1") as
             select disf.a2, disf.a1, disf.a3, disf.a4,
             substr(date_format(disf.a5,"yyyyMMdd"), 1, 6),
@@ -84,6 +85,7 @@ suite("test_ctas_mv") {
             left join
             test_table_t2 cmif
             on disf.a1 = cmif.a1; """
+    sql "set enable_insert_strict = true;"
 
     qt_select """
         select * from szjdf_zjb;

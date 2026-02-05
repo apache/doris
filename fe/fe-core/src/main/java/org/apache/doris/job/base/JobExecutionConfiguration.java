@@ -100,7 +100,7 @@ public class JobExecutionConfiguration {
         if (timerDefinition.getStartTimeMs() == null) {
             throw new IllegalArgumentException("startTimeMs cannot be null");
         }
-        if (isImmediate()) {
+        if (isImmediate() || JobExecuteType.STREAMING.equals(executeType)) {
             return;
         }
         if (timerDefinition.getStartTimeMs() < System.currentTimeMillis()) {
@@ -124,22 +124,7 @@ public class JobExecutionConfiguration {
             return delayTimeSeconds;
         }
 
-        if (JobExecuteType.STREAMING.equals(executeType) && null != timerDefinition) {
-            if (null == timerDefinition.getStartTimeMs() || null != timerDefinition.getLatestSchedulerTimeMs()) {
-                return delayTimeSeconds;
-            }
-
-            // If the job is already executed or in the schedule queue, or not within this schedule window
-            if (endTimeMs < timerDefinition.getStartTimeMs()) {
-                return delayTimeSeconds;
-            }
-
-            delayTimeSeconds.add(queryDelayTimeSecond(currentTimeMs, timerDefinition.getStartTimeMs()));
-            this.timerDefinition.setLatestSchedulerTimeMs(timerDefinition.getStartTimeMs());
-            return delayTimeSeconds;
-        }
-
-        if (JobExecuteType.RECURRING.equals(executeType)) {
+        if (JobExecuteType.RECURRING.equals(executeType) || JobExecuteType.STREAMING.equals(executeType)) {
             if (timerDefinition.getStartTimeMs() > endTimeMs || null != timerDefinition.getEndTimeMs()
                     && timerDefinition.getEndTimeMs() < startTimeMs) {
                 return delayTimeSeconds;

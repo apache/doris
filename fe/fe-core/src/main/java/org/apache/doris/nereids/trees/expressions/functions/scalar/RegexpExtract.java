@@ -53,13 +53,18 @@ public class RegexpExtract extends ScalarFunction
         super("regexp_extract", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private RegexpExtract(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public RegexpExtract withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new RegexpExtract(children.get(0), children.get(1), children.get(2));
+        return new RegexpExtract(getFunctionParams(children));
     }
 
     @Override

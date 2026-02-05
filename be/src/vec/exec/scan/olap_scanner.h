@@ -66,14 +66,14 @@ public:
         std::vector<OlapScanRange*> key_ranges;
         BaseTabletSPtr tablet;
         int64_t version;
-        TabletReader::ReadSource read_source;
+        TabletReadSource read_source;
         int64_t limit;
         bool aggregation;
     };
 
     OlapScanner(pipeline::ScanLocalStateBase* parent, Params&& params);
 
-    Status init() override;
+    Status prepare() override;
 
     Status open(RuntimeState* state) override;
 
@@ -88,10 +88,12 @@ protected:
     void _collect_profile_before_close() override;
 
 private:
-    Status _init_tablet_reader_params(const std::vector<OlapScanRange*>& key_ranges,
-                                      const std::vector<FilterOlapParam<TCondition>>& filters,
-                                      const pipeline::FilterPredicates& filter_predicates,
-                                      const std::vector<FunctionFilter>& function_filters);
+    Status _init_tablet_reader_params(
+            const phmap::flat_hash_map<int, SlotDescriptor*>& slot_id_to_slot_desc,
+            const std::vector<OlapScanRange*>& key_ranges,
+            const phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
+                    predicates,
+            const std::vector<FunctionFilter>& function_filters);
 
     [[nodiscard]] Status _init_return_columns();
     [[nodiscard]] Status _init_variant_columns();
@@ -100,6 +102,9 @@ private:
 
     TabletReader::ReaderParams _tablet_reader_params;
     std::unique_ptr<TabletReader> _tablet_reader;
+
+    int64_t _bytes_read_from_local = 0;
+    int64_t _bytes_read_from_remote = 0;
 
 public:
     std::vector<ColumnId> _return_columns;
@@ -117,6 +122,11 @@ public:
     std::map<ColumnId, size_t> _vir_cid_to_idx_in_block;
     // The idx of vir_col in block to its data type.
     std::map<size_t, vectorized::DataTypePtr> _vir_col_idx_to_type;
+    std::shared_ptr<vectorized::ScoreRuntime> _score_runtime;
+
+    std::shared_ptr<segment_v2::AnnTopNRuntime> _ann_topn_runtime;
+
+    VectorSearchUserParams _vector_search_params;
 };
 } // namespace vectorized
 } // namespace doris

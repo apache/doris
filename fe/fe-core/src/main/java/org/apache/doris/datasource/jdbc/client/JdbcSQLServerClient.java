@@ -90,6 +90,8 @@ public class JdbcSQLServerClient extends JdbcClient {
             case "image":
             case "binary":
             case "varbinary":
+                return enableMappingVarbinary ? ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize())
+                        : ScalarType.createStringType();
             default:
                 return Type.UNSUPPORTED;
         }

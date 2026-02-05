@@ -39,6 +39,7 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 namespace vectorized {
@@ -132,8 +133,8 @@ bool RowSourcesBuffer::get_agg_flag(uint64_t index) {
 
 size_t RowSourcesBuffer::continuous_agg_count(uint64_t index) {
     size_t result = 1;
-    int start = index + 1;
-    int end = _buffer.size();
+    int64_t start = index + 1;
+    int64_t end = _buffer.size();
     while (start < end) {
         RowSource next(_buffer[start++]);
         if (next.agg_flag()) {
@@ -147,14 +148,30 @@ size_t RowSourcesBuffer::continuous_agg_count(uint64_t index) {
 
 size_t RowSourcesBuffer::same_source_count(uint16_t source, size_t limit) {
     int result = 1;
-    int start = _buf_idx + 1;
-    int end = _buffer.size();
+    int64_t start = _buf_idx + 1;
+    int64_t end = _buffer.size();
     while (result < limit && start < end) {
         RowSource next(_buffer[start++]);
         if (source != next.get_source_num()) {
             break;
         }
         ++result;
+    }
+    return result;
+}
+
+size_t RowSourcesBuffer::same_source_continuous_non_agg_count(uint16_t source, size_t limit) {
+    size_t result = 0;
+    int64_t start = _buf_idx;
+    int64_t end = _buffer.size();
+    while (result < limit && start < end) {
+        RowSource rs(_buffer[start]);
+        // Stop if different source or agg_flag=true
+        if (rs.get_source_num() != source || rs.agg_flag()) {
+            break;
+        }
+        ++result;
+        ++start;
     }
     return result;
 }
@@ -170,7 +187,7 @@ Status RowSourcesBuffer::_create_buffer_file() {
             return Status::InternalError("fail to create write buffer due to missing cache path");
         }
         std::size_t hash_val = std::hash<int64_t> {}(_tablet_id);
-        int idx = hash_val % paths.size();
+        int64_t idx = hash_val % paths.size();
         file_path_ss << paths[idx] << "/compaction_row_source_" << _tablet_id;
     } else {
         file_path_ss << _tablet_path << "/compaction_row_source_" << _tablet_id;
@@ -373,6 +390,41 @@ Status VerticalMergeIteratorContext::advance() {
         // current batch has no data, load next batch
         RETURN_IF_ERROR(_load_next_block());
     } while (_valid);
+    return Status::OK();
+}
+
+Status VerticalMergeIteratorContext::advance_by(size_t n) {
+    if (n == 0) {
+        return Status::OK();
+    }
+    _is_same = false;
+
+    while (n > 0) {
+        // Calculate how many rows we can advance within current block
+        // _index_in_block points to current row, so remaining = total - current - 1
+        int64_t remaining_in_block = static_cast<int64_t>(_block->rows()) - _index_in_block - 1;
+
+        if (static_cast<int64_t>(n) <= remaining_in_block) {
+            // All n rows are within current block
+            _index_in_block += n;
+            return Status::OK();
+        }
+
+        // Need to cross block boundary
+        // Consume all remaining rows in current block (including advancing past current row)
+        n -= remaining_in_block + 1;
+
+        // Load next block
+        RETURN_IF_ERROR(_load_next_block());
+        if (!_valid) {
+            if (n > 0) {
+                return Status::InternalError("advance_by exceeded available data");
+            }
+            break;
+        }
+        // After _load_next_block(), _index_in_block is set to -1
+        // Next iteration will correctly calculate remaining_in_block
+    }
     return Status::OK();
 }
 
@@ -742,6 +794,109 @@ Status VerticalMaskMergeIterator::unique_key_next_row(vectorized::IteratorRowRef
     return st;
 }
 
+Status VerticalMaskMergeIterator::unique_key_next_batch(std::vector<RowBatch>* batches,
+                                                        size_t max_rows, size_t* actual_rows) {
+    DCHECK(_row_sources_buf);
+    batches->clear();
+    *actual_rows = 0;
+
+    std::shared_ptr<Block> current_block;
+    uint32_t batch_start = 0;
+    uint32_t batch_count = 0;
+
+    while (*actual_rows < max_rows) {
+        // Check if RowSourceBuffer has remaining data
+        auto st = _row_sources_buf->has_remaining();
+        if (!st.ok()) {
+            if (st.is<END_OF_FILE>()) {
+                break;
+            }
+            return st;
+        }
+
+        auto row_source = _row_sources_buf->current();
+        uint16_t order = row_source.get_source_num();
+        auto& ctx = _origin_iter_ctx[order];
+
+        // Initialize context
+        RETURN_IF_ERROR(ctx->init(_opts, _sample_info));
+        if (!ctx->valid()) {
+            return Status::InternalError("VerticalMergeIteratorContext not valid");
+        }
+
+        // Handle is_first_row and position to current row
+        // Match the logic of unique_key_next_row:
+        // - Only skip advance when is_first_row=true AND agg_flag=false
+        // - When is_first_row=true AND agg_flag=true, we must advance to skip this row
+        bool is_first = ctx->is_first_row();
+        if (is_first && !row_source.agg_flag()) {
+            // First row in block with non-agg flag, don't advance
+            ctx->set_is_first_row(false);
+        } else {
+            // All other cases: advance to position at current row
+            // Keep is_first_row=true when skipping leading agg rows.
+            RETURN_IF_ERROR(ctx->advance());
+        }
+
+        // If current row has agg_flag=true, skip it (single row)
+        if (row_source.agg_flag()) {
+            _row_sources_buf->advance();
+            _filtered_rows++;
+            continue;
+        }
+
+        // Current row is non-agg, count continuous same-source non-agg rows
+        // Limit by: remaining capacity and current block's remaining rows
+        size_t limit = std::min(max_rows - *actual_rows, ctx->remain_rows());
+        size_t run_count = _row_sources_buf->same_source_continuous_non_agg_count(order, limit);
+
+        // run_count >= 1 (current row is non-agg)
+        uint32_t start_row = ctx->current_row_pos();
+
+        // Save block pointer before advance_by (block won't change due to limit)
+        auto block = ctx->block_ptr();
+
+        // Advance remaining rows in this run (first row already positioned)
+        if (run_count > 1) {
+            RETURN_IF_ERROR(ctx->advance_by(run_count - 1));
+        }
+
+        _row_sources_buf->advance(run_count);
+
+        // Try to merge into current batch or create new batch
+        if (current_block == block && start_row == batch_start + batch_count) {
+            // Continuous with previous batch, merge
+            batch_count += static_cast<uint32_t>(run_count);
+        } else {
+            // Save previous batch if exists
+            if (current_block != nullptr && batch_count > 0) {
+                batches->emplace_back(current_block, batch_start, batch_count);
+            }
+            // Start new batch
+            current_block = std::move(block);
+            batch_start = start_row;
+            batch_count = static_cast<uint32_t>(run_count);
+        }
+
+        *actual_rows += run_count;
+    }
+
+    // Save the last batch
+    if (current_block != nullptr && batch_count > 0) {
+        batches->emplace_back(current_block, batch_start, batch_count);
+    }
+
+    // Check if we've reached the end
+    if (*actual_rows == 0) {
+        auto st = _row_sources_buf->has_remaining();
+        if (st.is<END_OF_FILE>()) {
+            RETURN_IF_ERROR(check_all_iter_finished());
+        }
+    }
+
+    return Status::OK();
+}
+
 Status VerticalMaskMergeIterator::next_batch(Block* block) {
     DCHECK(_row_sources_buf);
     size_t rows = 0;
@@ -822,4 +977,5 @@ std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
 }
 
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

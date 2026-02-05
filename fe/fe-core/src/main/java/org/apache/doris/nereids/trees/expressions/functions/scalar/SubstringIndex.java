@@ -52,13 +52,18 @@ public class SubstringIndex extends ScalarFunction
         super("substring_index", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private SubstringIndex(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public SubstringIndex withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new SubstringIndex(children.get(0), children.get(1), children.get(2));
+        return new SubstringIndex(getFunctionParams(children));
     }
 
     @Override

@@ -67,7 +67,7 @@ public:
     DataTypePtr create_data_type(const TTypeDesc& raw_type, bool is_nullable);
 
     DataTypePtr create_data_type(const FieldType& type, int precision, int scale) {
-        return _create_primitive_data_type(type, precision, scale);
+        return _create_primitive_data_type(type, precision, scale, -1);
     }
     // Create DataType by PrimitiveType (only for naive types)
     DataTypePtr create_data_type(const PrimitiveType primitive_type, bool is_nullable,
@@ -86,7 +86,8 @@ public:
     }
 
 private:
-    DataTypePtr _create_primitive_data_type(const FieldType& type, int precision, int scale) const;
+    DataTypePtr _create_primitive_data_type(const FieldType& type, int precision, int scale,
+                                            int length) const;
 
     std::string _empty_string;
 };

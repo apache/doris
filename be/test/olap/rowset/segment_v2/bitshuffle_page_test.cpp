@@ -75,10 +75,11 @@ public:
         Status status = page_decoder_.init();
         EXPECT_FALSE(status.ok());
 
-        segment_v2::BitShufflePagePreDecoder<false> pre_decoder;
+        segment_v2::BitShufflePagePreDecoder pre_decoder;
         Slice page_slice = s.slice();
-        std::unique_ptr<char[]> auto_release;
-        pre_decoder.decode(&auto_release, &page_slice, 0);
+        std::unique_ptr<DataPage> decoded_page;
+        pre_decoder.decode(&decoded_page, &page_slice, 0, false, segment_v2::PageTypePB::DATA_PAGE,
+                           "");
         PageDecoderType page_decoder(page_slice, decoder_options);
         status = page_decoder.init();
         EXPECT_TRUE(status.ok());
@@ -134,10 +135,11 @@ public:
         Status status = page_decoder_.init();
         EXPECT_FALSE(status.ok());
 
-        segment_v2::BitShufflePagePreDecoder<false> pre_decoder;
+        segment_v2::BitShufflePagePreDecoder pre_decoder;
         Slice page_slice = s.slice();
-        std::unique_ptr<char[]> auto_release;
-        pre_decoder.decode(&auto_release, &page_slice, 0);
+        std::unique_ptr<DataPage> decoded_page;
+        pre_decoder.decode(&decoded_page, &page_slice, 0, false, segment_v2::PageTypePB::DATA_PAGE,
+                           "");
         PageDecoderType page_decoder(page_slice, decoder_options);
         status = page_decoder.init();
         EXPECT_TRUE(status.ok());

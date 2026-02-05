@@ -66,16 +66,17 @@ Result<FileReaderSPtr> HdfsFileReader::create(Path full_path, const hdfsFS& fs, 
     auto path = convert_path(full_path, fs_name);
     return get_file(fs, path, opts.mtime, opts.file_size).transform([&](auto&& accessor) {
         return std::make_shared<HdfsFileReader>(std::move(path), std::move(fs_name),
-                                                std::move(accessor), profile);
+                                                std::move(accessor), profile, opts.mtime);
     });
 }
 
 HdfsFileReader::HdfsFileReader(Path path, std::string fs_name, FileHandleCache::Accessor accessor,
-                               RuntimeProfile* profile)
+                               RuntimeProfile* profile, int64_t mtime)
         : _path(std::move(path)),
           _fs_name(std::move(fs_name)),
           _accessor(std::move(accessor)),
-          _profile(profile) {
+          _profile(profile),
+          _mtime(mtime) {
     _handle = _accessor.get();
 
     DorisMetrics::instance()->hdfs_file_open_reading->increment(1);
@@ -115,11 +116,26 @@ Status HdfsFileReader::close() {
     return Status::OK();
 }
 
-#ifdef USE_HADOOP_HDFS
 Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                                    const IOContext* /*io_ctx*/) {
+                                    const IOContext* io_ctx) {
+    auto st = do_read_at_impl(offset, result, bytes_read, io_ctx);
+    if (!st.ok()) {
+        _handle = nullptr;
+        _accessor.destroy();
+    }
+    return st;
+}
+
+#ifdef USE_HADOOP_HDFS
+Status HdfsFileReader::do_read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                                       const IOContext* /*io_ctx*/) {
     if (closed()) [[unlikely]] {
         return Status::InternalError("read closed file: {}", _path.native());
+    }
+
+    if (_handle == nullptr) [[unlikely]] {
+        return Status::InternalError("cached hdfs file handle has been destroyed: {}",
+                                     _path.native());
     }
 
     if (offset > _handle->file_size()) {
@@ -173,8 +189,8 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
 #else
 // The hedged read only support hdfsPread().
 // TODO: rethink here to see if there are some difference between hdfsPread() and hdfsRead()
-Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                                    const IOContext* /*io_ctx*/) {
+Status HdfsFileReader::do_read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                                       const IOContext* /*io_ctx*/) {
     if (closed()) [[unlikely]] {
         return Status::InternalError("read closed file: ", _path.native());
     }
@@ -236,6 +252,10 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
 void HdfsFileReader::_collect_profile_before_close() {
     if (_profile != nullptr && is_hdfs(_fs_name)) {
 #ifdef USE_HADOOP_HDFS
+        if (_handle == nullptr) [[unlikely]] {
+            return;
+        }
+
         struct hdfsReadStatistics* hdfs_statistics = nullptr;
         auto r = hdfsFileGetReadStatistics(_handle->file(), &hdfs_statistics);
         if (r != 0) {

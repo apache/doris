@@ -21,6 +21,7 @@
 #include <cstring>
 
 #include "vec/columns/column_string.h"
+#include "vec/common/arena.h"
 #include "vec/common/string_ref.h"
 
 namespace doris::vectorized {
@@ -51,6 +52,12 @@ public:
         _offsets.push_back(_offsets.back() + _now_offset);
         _now_offset = 0;
     }
+
+    char* data() { return reinterpret_cast<char*>(_data.data() + _now_offset + _offsets.back()); }
+
+    void add_offset(size_t len) { _now_offset += len; }
+
+    void resize(size_t size) { _data.resize(size + _now_offset + _offsets.back()); }
 
     template <typename T>
     void write_number(T data) {
@@ -235,6 +242,10 @@ public:
         _data += len;
     }
 
+    const char* data() { return _data; }
+
+    void add_offset(size_t len) { _data += len; }
+
     void read_var_uint(UInt64& x) {
         x = 0;
         // get length from first byte firstly
@@ -242,7 +253,7 @@ public:
         read((char*)&len, 1);
         auto ref = read(len);
         // read data and set it to x per byte.
-        char* bytes = const_cast<char*>(ref.data);
+        const char* bytes = ref.data;
         for (size_t i = 0; i < 9; ++i) {
             UInt64 byte = bytes[i];
             x |= (byte & 0x7F) << (7 * i);
@@ -256,7 +267,8 @@ public:
     template <typename Type>
     void read_binary(Type& x) {
         static_assert(std::is_standard_layout_v<Type>);
-        read(reinterpret_cast<char*>(&x), sizeof(x));
+        memcpy_fixed<Type>(reinterpret_cast<char*>(&x), _data);
+        _data += sizeof(x);
     }
 
     template <typename Type>
@@ -291,22 +303,21 @@ public:
         s = read(size);
     }
 
+    ///TODO: Currently this function is only called in one place, we might need to convert all read_binary(StringRef) to this style? Or directly use read_binary(String)
+    StringRef read_binary_into(Arena& arena) {
+        UInt64 size = 0;
+        read_var_uint(size);
+
+        char* data = arena.alloc(size);
+        read(data, size);
+
+        return {data, size};
+    }
+
 private:
     const char* _data;
 };
 
 using VectorBufferReader = BufferReadable;
 using BufferReader = BufferReadable;
-
-///TODO: Currently this function is only called in one place, we might need to convert all read_binary(StringRef) to this style? Or directly use read_binary(String)
-inline StringRef read_binary_into(Arena& arena, BufferReadable& buf) {
-    UInt64 size = 0;
-    buf.read_var_uint(size);
-
-    char* data = arena.alloc(size);
-    buf.read(data, size);
-
-    return {data, size};
-}
-
 } // namespace doris::vectorized

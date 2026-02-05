@@ -180,6 +180,45 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
                             inputSlots.stream()
                     ).distinct();
                 }
+
+                // for this sql:
+                //   select
+                //     SUBSTR(orderdate,1,10) AS dt,
+                //     ROW_NUMBER() OVER(PARTITION BY orderdate ORDER BY orderid DESC) AS rn
+                //   from lineorders
+                //   having dt = '2025-01-01'
+                //
+                // we not push down the `dt` slot under LogicalWindow, but push down [orderdate, orderid]
+                // to the bottom projects, because if we push down `dt`, the plan tree will be:
+                //
+                //             LogicalFilter(substr(dt#3, 1, 10) = '2025-01-01')
+                //                                     |
+                //      LogicalWindow(rowNumber(partition by orderdate#2, order by orderid#1))
+                //                                     |
+                //   LogicalProject(orderid#1, orderdate#2, substr(orderdate#1, 1, 10) as dt#3)
+                //
+                // and can not push down filter by `PushDownFilterThroughWindow`, causing inefficiency,
+                // because dt#3 in LogicalFilter not contains in the partition key in LogicalWindow: [orderdate#2].
+                //
+                // so we only push down orderdate in the LogicalFilter, not push down `dt`:
+                //
+                //      LogicalFilter(substr(orderdate#2, 1, 10) = '2025-01-01')
+                //                               |
+                //      LogicalWindow(rowNumber(partition by orderdate#2, order by orderid#1))
+                //                               |
+                //             LogicalProject(orderid#1, orderdate#2)
+                //
+                // and then, `PushDownFilterThroughWindow` found the LogicalFilter's `orderdate#2` contains
+                // in the LogicalWindow's partition key: [orderdate#2], and can push down filter to:
+                //
+                //   LogicalWindow(rowNumber(partition by orderdate#2, order by orderid#1))
+                //                               |
+                //             LogicalProject(orderid#1, orderdate#2)
+                //                              |
+                //     LogicalFilter(substr(orderdate#2, 1, 10) = '2025-01-01')
+                if (expression instanceof Alias) {
+                    return expression.getInputSlots().stream();
+                }
                 return ImmutableList.of(expression).stream();
             })
             .collect(ImmutableSet.toImmutableSet());

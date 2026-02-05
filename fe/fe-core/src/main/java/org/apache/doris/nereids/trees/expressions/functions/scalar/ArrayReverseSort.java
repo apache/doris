@@ -50,11 +50,24 @@ public class ArrayReverseSort extends ScalarFunction
         super("array_reverse_sort", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayReverseSort(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = child().getDataType();
-        if (((ArrayType) argType).getItemType().isComplexType()) {
-            throw new AnalysisException("array_reverse_sort does not support complex types: " + toSql());
+        if (children.get(0).getDataType() instanceof ArrayType) {
+            DataType argType = child(0).getDataType();
+            // Find the innermost element type for nested arrays
+            DataType itemType = ((ArrayType) argType).getItemType();
+            while (itemType.isArrayType()) {
+                itemType = ((ArrayType) itemType).getItemType();
+            }
+            if (itemType.isMapType() || itemType.isStructType()
+                    || itemType.isVariantType() || itemType.isJsonType()) {
+                throw new AnalysisException("array_reverse_sort does not support types: " + argType.toSql());
+            }
         }
     }
 
@@ -64,7 +77,7 @@ public class ArrayReverseSort extends ScalarFunction
     @Override
     public ArrayReverseSort withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayReverseSort(children.get(0));
+        return new ArrayReverseSort(getFunctionParams(children));
     }
 
     @Override

@@ -15,9 +15,6 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# if install docker failed, specific pyyaml version and docker version
-#pyyaml==5.3.1
-#docker==6.1.3
 docker
 docker-compose
 filelock
@@ -26,3 +23,7 @@ prettytable
 pymysql
 python-dateutil
 requests<=2.31.0
+
+# NOTICE: if install docker failed, specific pyyaml version and docker version
+#pyyaml==5.3.1
+#docker==6.1.3

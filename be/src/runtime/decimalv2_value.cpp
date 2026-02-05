@@ -28,6 +28,7 @@
 #include "util/string_parser.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 const int128_t DecimalV2Value::MAX_DECIMAL_VALUE;
 
@@ -59,9 +60,9 @@ static int clz128(unsigned __int128 v) {
     if (v == 0) return sizeof(__int128);
     unsigned __int128 shifted = v >> 64;
     if (shifted != 0) {
-        return leading_zeroes(shifted);
+        return leading_zeroes(static_cast<uint64_t>(shifted));
     } else {
-        return leading_zeroes(v) + 64;
+        return leading_zeroes(static_cast<uint64_t>(v)) + 64;
     }
 }
 
@@ -328,8 +329,8 @@ static double sqrt_fractional(int128_t sqrt_int, int128_t remainder) {
 }
 
 const int128_t DecimalV2Value::SQRT_MOLECULAR_MAGNIFICATION = get_scale_base(PRECISION / 2);
-const int128_t DecimalV2Value::SQRT_DENOMINATOR =
-        int128_t(std::sqrt(ONE_BILLION) * get_scale_base(PRECISION / 2 - SCALE));
+const int128_t DecimalV2Value::SQRT_DENOMINATOR = int128_t(
+        std::sqrt(ONE_BILLION) * static_cast<double>(get_scale_base(PRECISION / 2 - SCALE)));
 
 DecimalV2Value DecimalV2Value::sqrt(const DecimalV2Value& v) {
     int128_t x = v.value();
@@ -347,13 +348,13 @@ DecimalV2Value DecimalV2Value::sqrt(const DecimalV2Value& v) {
     // because integer_root can be up to 64 bits.
     int128_t molecular_integer = integer_root * SQRT_MOLECULAR_MAGNIFICATION;
     int128_t molecular_fractional =
-            static_cast<int128_t>(fractional * SQRT_MOLECULAR_MAGNIFICATION);
+            static_cast<int128_t>(fractional * static_cast<double>(SQRT_MOLECULAR_MAGNIFICATION));
     int128_t ret = (molecular_integer + molecular_fractional) / SQRT_DENOMINATOR;
     if (is_negative) ret = -ret;
     return DecimalV2Value(ret);
 }
 
-int DecimalV2Value::parse_from_str(const char* decimal_str, int32_t length) {
+int DecimalV2Value::parse_from_str(const char* decimal_str, size_t length) {
     int32_t error = E_DEC_OK;
     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
 
@@ -369,7 +370,7 @@ int DecimalV2Value::parse_from_str(const char* decimal_str, int32_t length) {
 
 std::string DecimalV2Value::to_string(int scale) const {
     int64_t int_val = int_value();
-    int32_t frac_val = abs(frac_value());
+    int32_t frac_val = static_cast<int32_t>(abs(frac_value()));
     if (scale < 0 || scale > SCALE) {
         if (frac_val == 0) {
             scale = 0;
@@ -421,7 +422,7 @@ std::string DecimalV2Value::to_string(int scale) const {
 
 int32_t DecimalV2Value::to_buffer(char* buffer, int scale) const {
     int64_t int_val = int_value();
-    int32_t frac_val = abs(frac_value());
+    int32_t frac_val = static_cast<int32_t>(abs(frac_value()));
     if (scale < 0 || scale > SCALE) {
         if (frac_val == 0) {
             scale = 0;
@@ -454,7 +455,7 @@ int32_t DecimalV2Value::to_buffer(char* buffer, int scale) const {
     auto f_int = fmt::format_int(int_val);
     memcpy(buffer, f_int.data(), f_int.size());
     if (scale == 0) {
-        return f_int.size();
+        return static_cast<int32_t>(f_int.size());
     }
     *(buffer + f_int.size()) = '.';
     buffer = buffer + f_int.size() + 1;
@@ -468,7 +469,7 @@ int32_t DecimalV2Value::to_buffer(char* buffer, int scale) const {
         }
         memcpy(buffer, f_frac.data(), f_frac.size());
     }
-    return f_int.size() + scale + 1 + extra_sign_size;
+    return static_cast<int32_t>(f_int.size() + scale + 1 + extra_sign_size);
 }
 
 std::string DecimalV2Value::to_string() const {
@@ -588,4 +589,5 @@ bool DecimalV2Value::greater_than_scale(int scale) {
     return false;
 }
 
+#include "common/compile_check_end.h"
 } // end namespace doris

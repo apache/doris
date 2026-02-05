@@ -87,7 +87,6 @@ suite("test_routine_load_follower_fe","docker") {
                     producer.send(record)
                 }
             }
-            producer.close()
             
             // 3. Connect to a follower FE and create table
             def masterFe = cluster.getMasterFe()

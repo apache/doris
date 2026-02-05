@@ -158,16 +158,16 @@ TEST_F(ColumnTest, ShrinkColumnArray) {
     EXPECT_EQ(shrunk_col->size(), 2);
     auto data_col = assert_cast<const ColumnArray&>(*shrunk_col).get_data_ptr();
     EXPECT_EQ(data_col->size(), 3);
-    auto v = get<Array>(shrunk_col->operator[](0));
+    auto v = shrunk_col->operator[](0).get<TYPE_ARRAY>();
     EXPECT_EQ(v.size(), 3);
-    EXPECT_EQ(get<int32_t>(v[0]), 1);
-    EXPECT_EQ(get<int32_t>(v[1]), 2);
-    EXPECT_EQ(get<int32_t>(v[2]), 3);
-    v = get<Array>(shrunk_col->operator[](1));
+    EXPECT_EQ(v[0].get<TYPE_BIGINT>(), 1);
+    EXPECT_EQ(v[1].get<TYPE_BIGINT>(), 2);
+    EXPECT_EQ(v[2].get<TYPE_BIGINT>(), 3);
+    v = shrunk_col->operator[](1).get<TYPE_ARRAY>();
     EXPECT_EQ(v.size(), 0);
-    EXPECT_EQ(get<int32_t>(data_col->operator[](0)), 1);
-    EXPECT_EQ(get<int32_t>(data_col->operator[](1)), 2);
-    EXPECT_EQ(get<int32_t>(data_col->operator[](2)), 3);
+    EXPECT_EQ(data_col->operator[](0).get<TYPE_BIGINT>(), 1);
+    EXPECT_EQ(data_col->operator[](1).get<TYPE_BIGINT>(), 2);
+    EXPECT_EQ(data_col->operator[](2).get<TYPE_BIGINT>(), 3);
 
     // expand will not make data expand
     EXPECT_EQ(col_arr->size(), 2);
@@ -175,14 +175,14 @@ TEST_F(ColumnTest, ShrinkColumnArray) {
     EXPECT_EQ(shrunk_col->size(), 10);
     data_col = assert_cast<const ColumnArray&>(*shrunk_col).get_data_ptr();
     EXPECT_EQ(data_col->size(), 3);
-    v = get<Array>(shrunk_col->operator[](0));
+    v = shrunk_col->operator[](0).get<TYPE_ARRAY>();
     EXPECT_EQ(v.size(), 3);
-    EXPECT_EQ(get<int32_t>(v[0]), 1);
-    EXPECT_EQ(get<int32_t>(v[1]), 2);
-    EXPECT_EQ(get<int32_t>(v[2]), 3);
-    v = get<Array>(shrunk_col->operator[](1));
+    EXPECT_EQ(v[0].get<TYPE_BIGINT>(), 1);
+    EXPECT_EQ(v[1].get<TYPE_BIGINT>(), 2);
+    EXPECT_EQ(v[2].get<TYPE_BIGINT>(), 3);
+    v = shrunk_col->operator[](1).get<TYPE_ARRAY>();
     EXPECT_EQ(v.size(), 0);
-    v = get<Array>(shrunk_col->operator[](2));
+    v = shrunk_col->operator[](2).get<TYPE_ARRAY>();
     EXPECT_EQ(v.size(), 0);
 }
 
@@ -193,21 +193,21 @@ TEST_F(ColumnTest, ShrinkColumnMap) {
     EXPECT_EQ(shrunk_col->size(), 2);
     auto data_col = assert_cast<const ColumnMap&>(*shrunk_col).get_values_ptr();
     EXPECT_EQ(data_col->size(), 3);
-    auto v = get<Map>(shrunk_col->operator[](0));
+    auto v = shrunk_col->operator[](0).get<TYPE_MAP>();
     EXPECT_EQ(v.size(), 2);
-    EXPECT_EQ(get<Array>(v[0]),
+    EXPECT_EQ(v[0].get<TYPE_ARRAY>(),
               Array({Field::create_field<TYPE_STRING>("a"), Field::create_field<TYPE_STRING>("b"),
                      Field::create_field<TYPE_STRING>("c")}));
-    EXPECT_EQ(get<Array>(v[1]),
-              Array({Field::create_field<TYPE_INT>(1), Field::create_field<TYPE_INT>(2),
-                     Field::create_field<TYPE_INT>(3)}));
-    v = get<Map>(shrunk_col->operator[](1));
+    EXPECT_EQ(v[1].get<TYPE_ARRAY>(),
+              Array({Field::create_field<TYPE_BIGINT>(1), Field::create_field<TYPE_BIGINT>(2),
+                     Field::create_field<TYPE_BIGINT>(3)}));
+    v = shrunk_col->operator[](1).get<TYPE_MAP>();
     EXPECT_EQ(v.size(), 2);
-    EXPECT_EQ(get<Array>(v[0]), Array());
-    EXPECT_EQ(get<Array>(v[1]), Array());
-    EXPECT_EQ(get<int32_t>(data_col->operator[](0)), 1);
-    EXPECT_EQ(get<int32_t>(data_col->operator[](1)), 2);
-    EXPECT_EQ(get<int32_t>(data_col->operator[](2)), 3);
+    EXPECT_EQ(v[0].get<TYPE_ARRAY>(), Array());
+    EXPECT_EQ(v[1].get<TYPE_ARRAY>(), Array());
+    EXPECT_EQ(data_col->operator[](0).get<TYPE_BIGINT>(), 1);
+    EXPECT_EQ(data_col->operator[](1).get<TYPE_BIGINT>(), 2);
+    EXPECT_EQ(data_col->operator[](2).get<TYPE_BIGINT>(), 3);
 
     // expand will not make data expand
     EXPECT_EQ(col_map->size(), 2);
@@ -215,22 +215,22 @@ TEST_F(ColumnTest, ShrinkColumnMap) {
     EXPECT_EQ(shrunk_col->size(), 10);
     data_col = assert_cast<const ColumnMap&>(*shrunk_col).get_values_ptr();
     EXPECT_EQ(data_col->size(), 3);
-    v = get<Map>(shrunk_col->operator[](0));
+    v = shrunk_col->operator[](0).get<TYPE_MAP>();
     EXPECT_EQ(v.size(), 2);
-    EXPECT_EQ(get<Array>(v[0]),
+    EXPECT_EQ(v[0].get<TYPE_ARRAY>(),
               Array({Field::create_field<TYPE_STRING>("a"), Field::create_field<TYPE_STRING>("b"),
                      Field::create_field<TYPE_STRING>("c")}));
-    EXPECT_EQ(get<Array>(v[1]),
-              Array({Field::create_field<TYPE_INT>(1), Field::create_field<TYPE_INT>(2),
-                     Field::create_field<TYPE_INT>(3)}));
-    v = get<Map>(shrunk_col->operator[](1));
+    EXPECT_EQ(v[1].get<TYPE_ARRAY>(),
+              Array({Field::create_field<TYPE_BIGINT>(1), Field::create_field<TYPE_BIGINT>(2),
+                     Field::create_field<TYPE_BIGINT>(3)}));
+    v = shrunk_col->operator[](1).get<TYPE_MAP>();
     EXPECT_EQ(v.size(), 2);
-    EXPECT_EQ(get<Array>(v[0]), Array());
-    EXPECT_EQ(get<Array>(v[1]), Array());
-    v = get<Map>(shrunk_col->operator[](2));
+    EXPECT_EQ(v[0].get<TYPE_ARRAY>(), Array());
+    EXPECT_EQ(v[1].get<TYPE_ARRAY>(), Array());
+    v = shrunk_col->operator[](2).get<TYPE_MAP>();
     EXPECT_EQ(v.size(), 2);
-    EXPECT_EQ(get<Array>(v[0]), Array());
-    EXPECT_EQ(get<Array>(v[1]), Array());
+    EXPECT_EQ(v[0].get<TYPE_ARRAY>(), Array());
+    EXPECT_EQ(v[1].get<TYPE_ARRAY>(), Array());
 }
 
 } // namespace doris::vectorized

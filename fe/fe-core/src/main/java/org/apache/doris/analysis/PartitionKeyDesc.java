@@ -24,6 +24,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.List;
 
 // Describe the partition key values in create table or add partition clause
@@ -117,7 +118,7 @@ public class PartitionKeyDesc {
     }
 
     public List<PartitionValue> getUpperValues() {
-        return upperValues;
+        return upperValues == null ? new ArrayList<>() : upperValues;
     }
 
     public List<List<PartitionValue>> getInValues() {

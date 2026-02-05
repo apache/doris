@@ -380,10 +380,11 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                     exprCost / 100 + inputStatistics.getRowCount() / beNumber,
                     inputStatistics.getRowCount() / beNumber, 0);
         } else {
+            int factor = aggregate.getGroupByExpressions().isEmpty() ? 1 : beNumber;
             // global
-            return Cost.of(context.getSessionVariable(), exprCost / 100
-                            + inputStatistics.getRowCount(),
-                    inputStatistics.getRowCount(), 0);
+            return Cost.of(context.getSessionVariable(),
+                    exprCost / 100 + inputStatistics.getRowCount() / factor,
+                    inputStatistics.getRowCount() / factor, 0);
         }
     }
 
@@ -451,7 +452,8 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             );
         }
         double probeShortcutFactor = 1.0;
-        if (ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null
+        if (rightRowCount < 10 * leftRowCount
+                && ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null
                 && !ConnectContext.get().getStatementContext().isHasUnknownColStats()
                 && physicalHashJoin.getJoinType().isLeftSemiOrAntiJoin()
                 && physicalHashJoin.getOtherJoinConjuncts().isEmpty()

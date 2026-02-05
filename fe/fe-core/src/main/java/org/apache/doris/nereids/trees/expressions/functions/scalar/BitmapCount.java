@@ -49,13 +49,18 @@ public class BitmapCount extends ScalarFunction
         super("bitmap_count", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private BitmapCount(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public BitmapCount withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new BitmapCount(children.get(0));
+        return new BitmapCount(getFunctionParams(children));
     }
 
     @Override

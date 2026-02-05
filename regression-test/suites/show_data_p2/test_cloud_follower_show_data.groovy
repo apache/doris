@@ -91,25 +91,27 @@ suite("test_cloud_follower_show_data","p2, nonConcurrent") {
         assertEquals(sizeRecords["apiSize"][0], sizeRecords["apiSize"][1])
         assertEquals(sizeRecords["cbsSize"][0], sizeRecords["cbsSize"][1])
 
-
+        sleep(10 * 1000)
         def result = sql """show frontends;"""
         logger.info("result:" + result)
         for (int i = 0; i < result.size(); i++) {
             if (result[i][8] == "false" && result[i][11] == "true") {
-                def tokens = context.config.jdbcUrl.split('/')
-                url = tokens[0] + "//" + tokens[2] + "/" + "information_schema" + "?"
-                def new_jdbc_url = url.replaceAll(/\/\/[0-9.]+:/, "//${switch_ip}:")
+                def follower_ip = result[i][1]
+                //jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round
+                def old_url = context.config.jdbcUrl
+                def new_jdbc_url = old_url.replaceAll("://[^:]+:", "://${follower_ip}:")
                 logger.info("new_jdbc_url: " + new_jdbc_url)
 
                 connect('root', '', new_jdbc_url) {
-                    sql "select count(*) from ${tableName}"
+                    sql "select count(*) from regression_test_show_data_p2.${tableName}"
+                    sql "use regression_test_show_data_p2"
 
                     sizeRecords["mysqlSize"].add(show_table_data_size_through_mysql(tableName))
                 }
             }
         }
 
-        for (int i = 0; i < sizeRecords["mysqlSize"].size(); i++) { 
+        for (int i = 0; i < sizeRecords["mysqlSize"].size(); i++) {
             if (i > 0) {
                 assertEquals(sizeRecords["mysqlSize"][i], sizeRecords["mysqlSize"][i-1])
             }

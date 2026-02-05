@@ -43,6 +43,10 @@ Status cast_from_generic_to_jsonb(FunctionContext* context, Block& block,
 
     auto tmp_col = ColumnString::create();
     vectorized::DataTypeSerDe::FormatOptions options;
+    auto time_zone = cctz::utc_time_zone();
+    options.timezone =
+            (context && context->state()) ? &context->state()->timezone_obj() : &time_zone;
+
     options.escape_char = '\\';
     for (size_t i = 0; i < input_rows_count; i++) {
         // convert to string
@@ -161,14 +165,78 @@ WrapperType create_identity_wrapper(const DataTypePtr&) {
     };
 }
 
-WrapperType create_nothing_wrapper(const IDataType* to_type) {
-    ColumnPtr res = to_type->create_column_const_with_default_value(1);
-    return [res](FunctionContext* context, Block& block, const ColumnNumbers&, uint32_t result,
-                 size_t input_rows_count, const NullMap::value_type* null_map = nullptr) {
-        /// Column of Nothing type is trivially convertible to any other column
-        block.get_by_position(result).column =
-                res->clone_resized(input_rows_count)->convert_to_full_column_if_const();
-        return Status::OK();
-    };
+/// the only difference between these two functions is throw error or not when parsing fail.
+/// the return columns are both nullable columns.
+Status cast_from_string_to_complex_type(FunctionContext* context, Block& block,
+                                        const ColumnNumbers& arguments, uint32_t result,
+                                        size_t input_rows_count,
+                                        const NullMap::value_type* null_map) {
+    const auto* col_from = check_and_get_column<DataTypeString::ColumnType>(
+            block.get_by_position(arguments[0]).column.get());
+
+    auto to_type = block.get_by_position(result).type;
+    auto to_serde = remove_nullable(to_type)->get_serde();
+
+    // string to complex type is always nullable
+    MutableColumnPtr to_column = make_nullable(to_type)->create_column();
+    auto& nullable_col_to = assert_cast<ColumnNullable&>(*to_column);
+    auto& nested_column = nullable_col_to.get_nested_column();
+
+    DataTypeSerDe::FormatOptions options;
+    options.converted_from_string = true;
+    options.escape_char = '\\';
+    options.timezone = &context->state()->timezone_obj();
+
+    for (size_t i = 0; i < input_rows_count; ++i) {
+        if (null_map && null_map[i]) {
+            nullable_col_to.insert_default();
+        } else {
+            auto str = col_from->get_data_at(i);
+            Status st = to_serde->from_string(str, nested_column, options);
+            if (st.ok()) {
+                nullable_col_to.get_null_map_data().push_back(0);
+            } else {
+                nullable_col_to.insert_default(); // fill null if fail
+            }
+        }
+    }
+
+    block.get_by_position(result).column = std::move(to_column);
+    return Status::OK();
 }
+
+Status cast_from_string_to_complex_type_strict_mode(FunctionContext* context, Block& block,
+                                                    const ColumnNumbers& arguments, uint32_t result,
+                                                    size_t input_rows_count,
+                                                    const NullMap::value_type* null_map) {
+    const auto* col_from = check_and_get_column<DataTypeString::ColumnType>(
+            block.get_by_position(arguments[0]).column.get());
+
+    auto to_type = block.get_by_position(result).type;
+    auto to_serde = remove_nullable(to_type)->get_serde();
+
+    // string to complex type is always nullable
+    MutableColumnPtr to_column = make_nullable(to_type)->create_column();
+    auto& nullable_col_to = assert_cast<ColumnNullable&>(*to_column);
+    auto& nested_column = nullable_col_to.get_nested_column();
+
+    DataTypeSerDe::FormatOptions options;
+    options.converted_from_string = true;
+    options.escape_char = '\\';
+    options.timezone = &context->state()->timezone_obj();
+
+    for (size_t i = 0; i < input_rows_count; ++i) {
+        if (null_map && null_map[i]) {
+            to_column->insert_default();
+        } else {
+            auto str = col_from->get_data_at(i);
+            RETURN_IF_ERROR(to_serde->from_string_strict_mode(str, nested_column, options));
+            // fill not null if success
+            nullable_col_to.get_null_map_data().push_back(0);
+        }
+    }
+    block.get_by_position(result).column = std::move(to_column);
+    return Status::OK();
+}
+
 } // namespace doris::vectorized::CastWrapper

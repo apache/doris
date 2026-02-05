@@ -204,8 +204,8 @@ public:
                          << "(" << data_types[0]->get_name() << ")";
 
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
-        auto agg_function = factory.get("linear_histogram", data_types, false, -1,
-                                        {.enable_decimal256 = true, .column_names = {""}});
+        auto agg_function = factory.get("linear_histogram", data_types, nullptr, false, -1,
+                                        {.column_names = {""}});
         EXPECT_NE(agg_function, nullptr);
 
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
@@ -301,7 +301,6 @@ TEST_F(AggLinearHistogramTest, test_empty) {
 
     test_agg_linear_histogram<DataTypeDecimal32>(0, 0.5, 0);
     test_agg_linear_histogram<DataTypeDecimal64>(0, 0.5, 0);
-    test_agg_linear_histogram<DataTypeDecimalV2>(0, 0.5, 0);
     test_agg_linear_histogram<DataTypeDecimal128>(0, 0.5, 0);
     test_agg_linear_histogram<DataTypeDecimal256>(0, 0.5, 0);
 }
@@ -318,7 +317,6 @@ TEST_F(AggLinearHistogramTest, test_with_data) {
 
     test_agg_linear_histogram<DataTypeDecimal32>(5, 0.5, 0);
     test_agg_linear_histogram<DataTypeDecimal64>(5, 0.5, 0);
-    test_agg_linear_histogram<DataTypeDecimalV2>(5, 0.5, 0);
     test_agg_linear_histogram<DataTypeDecimal128>(5, 0.5, 0);
     test_agg_linear_histogram<DataTypeDecimal256>(5, 0.5, 0);
 
@@ -333,7 +331,6 @@ TEST_F(AggLinearHistogramTest, test_with_data) {
 
     test_agg_linear_histogram<DataTypeDecimal32>(5, 0.5, 0.25);
     test_agg_linear_histogram<DataTypeDecimal64>(5, 0.5, 0.25);
-    test_agg_linear_histogram<DataTypeDecimalV2>(5, 0.5, 0.25);
     test_agg_linear_histogram<DataTypeDecimal128>(5, 0.5, 0.25);
     test_agg_linear_histogram<DataTypeDecimal256>(5, 0.5, 0.25);
 }

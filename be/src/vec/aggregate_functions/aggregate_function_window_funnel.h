@@ -32,6 +32,7 @@
 
 #include "common/cast_set.h"
 #include "common/exception.h"
+#include "common/status.h"
 #include "util/binary_cast.hpp"
 #include "util/simd/bits.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -73,7 +74,7 @@ WindowFunnelMode string_to_window_funnel_mode(const String& string) {
 
 struct DataValue {
     using TimestampEvent = std::vector<ColumnUInt8::Container>;
-    std::vector<UInt64> dt;
+    std::vector<DateV2Value<DateTimeV2ValueType>> dt;
     TimestampEvent event_columns_data;
     bool operator<(const DataValue& other) const { return dt < other.dt; }
     void clear() {
@@ -88,9 +89,7 @@ struct DataValue {
         std::string result = "\n" + std::to_string(dt.size()) + " " +
                              std::to_string(event_columns_data[0].size()) + "\n";
         for (size_t i = 0; i < dt.size(); ++i) {
-            result += std::to_string(dt[i]) + " VS " +
-                      binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(dt[i]).debug_string() +
-                      " ,";
+            result += dt[i].debug_string() + " ,";
             for (const auto& event : event_columns_data) {
                 result += std::to_string(event[i]) + ",";
             }
@@ -100,10 +99,10 @@ struct DataValue {
     }
 };
 
-template <PrimitiveType PrimitiveType, typename NativeType>
 struct WindowFunnelState {
-    using DateValueType = std::conditional_t<PrimitiveType == PrimitiveType::TYPE_DATETIMEV2,
-                                             DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>;
+    static constexpr PrimitiveType PType = PrimitiveType::TYPE_DATETIMEV2;
+    using NativeType = UInt64;
+    using DateValueType = DateV2Value<DateTimeV2ValueType>;
     int event_count = 0;
     int64_t window;
     bool enable_mode;
@@ -125,14 +124,15 @@ struct WindowFunnelState {
     void add(const IColumn** arg_columns, ssize_t row_num, int64_t win, WindowFunnelMode mode) {
         window = win;
         window_funnel_mode = enable_mode ? mode : WindowFunnelMode::DEFAULT;
-        events_list.dt.emplace_back(assert_cast<const ColumnVector<PrimitiveType>&>(*arg_columns[2])
-                                            .get_data()[row_num]);
+        events_list.dt.emplace_back(
+                assert_cast<const ColumnVector<PType>&>(*arg_columns[2]).get_data()[row_num]);
         for (int i = 0; i < event_count; i++) {
             events_list.event_columns_data[i].emplace_back(
                     assert_cast<const ColumnUInt8&>(*arg_columns[3 + i]).get_data()[row_num]);
         }
     }
 
+    // todo: rethink thid sort method.
     void sort() {
         auto num = events_list.size();
         std::vector<size_t> indices(num);
@@ -158,8 +158,13 @@ struct WindowFunnelState {
     template <WindowFunnelMode WINDOW_FUNNEL_MODE>
     int _match_event_list(size_t& start_row, size_t row_count) const {
         int matched_count = 0;
-        DateValueType start_timestamp;
         DateValueType end_timestamp;
+
+        if (window < 0) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "the sliding time window must be a positive integer, but got: {}",
+                            window);
+        }
         TimeInterval interval(SECOND, window, false);
         int column_idx = 0;
         const auto& timestamp_data = events_list.dt;
@@ -167,7 +172,7 @@ struct WindowFunnelState {
         auto match_row = simd::find_one(first_event_data, start_row, row_count);
         start_row = match_row + 1;
         if (match_row < row_count) {
-            auto prev_timestamp = binary_cast<NativeType, DateValueType>(timestamp_data[match_row]);
+            auto prev_timestamp = timestamp_data[match_row];
             end_timestamp = prev_timestamp;
             end_timestamp.template date_add_interval<SECOND>(interval);
 
@@ -179,8 +184,7 @@ struct WindowFunnelState {
                 const auto& event_data = events_list.event_columns_data[column_idx];
                 if constexpr (WINDOW_FUNNEL_MODE == WindowFunnelMode::FIXED) {
                     if (event_data[match_row] == 1) {
-                        auto current_timestamp =
-                                binary_cast<NativeType, DateValueType>(timestamp_data[match_row]);
+                        auto current_timestamp = timestamp_data[match_row];
                         if (current_timestamp <= end_timestamp) {
                             matched_count++;
                             continue;
@@ -190,8 +194,7 @@ struct WindowFunnelState {
                 }
                 match_row = simd::find_one(event_data.data(), match_row, row_count);
                 if (match_row < row_count) {
-                    auto current_timestamp =
-                            binary_cast<NativeType, DateValueType>(timestamp_data[match_row]);
+                    auto current_timestamp = timestamp_data[match_row];
                     bool is_matched = current_timestamp <= end_timestamp;
                     if (is_matched) {
                         if constexpr (WINDOW_FUNNEL_MODE == WindowFunnelMode::INCREASE) {
@@ -202,8 +205,7 @@ struct WindowFunnelState {
                         break;
                     }
                     if constexpr (WINDOW_FUNNEL_MODE == WindowFunnelMode::INCREASE) {
-                        prev_timestamp =
-                                binary_cast<NativeType, DateValueType>(timestamp_data[match_row]);
+                        prev_timestamp = timestamp_data[match_row];
                     }
                     if constexpr (WINDOW_FUNNEL_MODE == WindowFunnelMode::DEDUPLICATION) {
                         bool is_dup = false;
@@ -301,7 +303,7 @@ struct WindowFunnelState {
         auto size = events_list.size();
         write_var_int(size, out);
         for (const auto& timestamp : events_list.dt) {
-            write_var_int(timestamp, out);
+            write_var_int(timestamp.to_date_int_val(), out);
         }
         for (int64_t i = 0; i < event_count; i++) {
             const auto& event_columns_data = events_list.event_columns_data[i];
@@ -342,19 +344,17 @@ struct WindowFunnelState {
     }
 };
 
-template <PrimitiveType PrimitiveType, typename NativeType>
 class AggregateFunctionWindowFunnel
-        : public IAggregateFunctionDataHelper<
-                  WindowFunnelState<PrimitiveType, NativeType>,
-                  AggregateFunctionWindowFunnel<PrimitiveType, NativeType>> {
+        : public IAggregateFunctionDataHelper<WindowFunnelState, AggregateFunctionWindowFunnel>,
+          MultiExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionWindowFunnel(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<
-                      WindowFunnelState<PrimitiveType, NativeType>,
-                      AggregateFunctionWindowFunnel<PrimitiveType, NativeType>>(argument_types_) {}
+            : IAggregateFunctionDataHelper<WindowFunnelState, AggregateFunctionWindowFunnel>(
+                      argument_types_) {}
 
     void create(AggregateDataPtr __restrict place) const override {
-        auto data = new (place) WindowFunnelState<PrimitiveType, NativeType>(
+        auto data = new (place) WindowFunnelState(
                 cast_set<int>(IAggregateFunction::get_argument_types().size() - 3));
         /// support window funnel mode from 2.0. See `BeExecVersionManager::max_be_exec_version`
         data->enable_mode = IAggregateFunction::version >= 3;
@@ -389,11 +389,11 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        // place is essentially an AggregateDataPtr, passed as a ConstAggregateDataPtr.
         this->data(const_cast<AggregateDataPtr>(place)).sort();
         assert_cast<ColumnInt32&>(to).get_data().push_back(
-                IAggregateFunctionDataHelper<
-                        WindowFunnelState<PrimitiveType, NativeType>,
-                        AggregateFunctionWindowFunnel<PrimitiveType, NativeType>>::data(place)
+                IAggregateFunctionDataHelper<WindowFunnelState,
+                                             AggregateFunctionWindowFunnel>::data(place)
                         .get());
     }
 

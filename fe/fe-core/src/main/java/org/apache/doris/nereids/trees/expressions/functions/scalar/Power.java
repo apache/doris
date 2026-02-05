@@ -47,13 +47,18 @@ public class Power extends ScalarFunction
         super("power", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Power(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Power withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Power(children.get(0), children.get(1));
+        return new Power(getFunctionParams(children));
     }
 
     @Override

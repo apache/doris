@@ -9,3 +9,13 @@
 1000	7395.231067
 2000	\N
 
+-- !test_select2 --
+22	7291	7291	7291	\N	I am a long string here.	I am a long string here.	I am a long string here.	I am another long string here 4.	I am another long string here 4.	I am another long string here 4.	I am another long string here 4.	I am another long string here 4.	I am another long string here 4.	I am another long string here 4.	I am another long string here 4.	\N
+7291.703724	2000	2000	2000	\N	I am a long string here.	I am a long string here.	I am a long string here.	I am another long string here 3.	I am another long string here 3.	I am another long string here 3.	I am another long string here 3.	I am another long string here 3.	I am another long string here 3.	I am another long string here 3.	I am another long string here 3.	\N
+7395.231067	1000	1000	1000	\N	I am a long string here.	I am a long string here.	I am a long string here.	I am another long string here 2.	I am another long string here 2.	I am another long string here 2.	I am another long string here 2.	I am another long string here 2.	I am another long string here 2.	I am another long string here 2.	I am another long string here 2.	\N
+
+-- !test_select3 --
+22	7291	I am a long string here.	I am another long string here 4.
+7291.703724	2000	I am a long string here.	I am another long string here 3.
+7395.231067	1000	I am a long string here.	I am another long string here 2.
+

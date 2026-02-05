@@ -25,6 +25,7 @@
 #include "olap/accept_null_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/predicate_creator.h"
+#include "runtime/define_primitive_type.h"
 
 namespace doris::vectorized {
 
@@ -35,15 +36,15 @@ RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc)
         _contexts[p.first].expr = p.second;
     }
 
-    PrimitiveType type = thrift_to_type(desc.target_node_id_to_target_expr.begin()
-                                                ->second.nodes[0]
-                                                .type.types[0]
-                                                .scalar_type.type);
-    if (!_init(type)) {
+    _type = thrift_to_type(desc.target_node_id_to_target_expr.begin()
+                                   ->second.nodes[0]
+                                   .type.types[0]
+                                   .scalar_type.type);
+    if (!_init(_type)) {
         std::stringstream ss;
         desc.target_node_id_to_target_expr.begin()->second.nodes[0].printTo(ss);
-        throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type, type={}, expr={}", int(type),
-                        ss.str());
+        throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type, type={}, expr={}",
+                        type_to_string(_type), ss.str());
     }
 
     // For ASC  sort, create runtime predicate col_name <= max_top_value
@@ -54,153 +55,33 @@ RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc)
                                 : create_comparison_predicate<PredicateType::GE>;
 }
 
-void RuntimePredicate::init_target(
-        int32_t target_node_id, phmap::flat_hash_map<int, SlotDescriptor*> slot_id_to_slot_desc) {
+Status RuntimePredicate::init_target(
+        int32_t target_node_id, phmap::flat_hash_map<int, SlotDescriptor*> slot_id_to_slot_desc,
+        const int column_id) {
+    if (column_id < 0) {
+        return Status::OK();
+    }
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
     check_target_node_id(target_node_id);
+    // order by abs(col1) limit x;
+    // cannot be used min-max filter, no need create predicate.
+    // but can used in VTopNPred.execute_column
     if (target_is_slot(target_node_id)) {
         _contexts[target_node_id].col_name =
                 slot_id_to_slot_desc[get_texpr(target_node_id).nodes[0].slot_ref.slot_id]
                         ->col_name();
+        _contexts[target_node_id].col_data_type =
+                slot_id_to_slot_desc[get_texpr(target_node_id).nodes[0].slot_ref.slot_id]->type();
+        _contexts[target_node_id].predicate = SharedPredicate::create_shared(
+                cast_set<uint32_t>(column_id), _contexts[target_node_id].col_name);
     }
     _detected_target = true;
-}
-
-template <PrimitiveType type>
-std::string get_normal_value(const Field& field) {
-    using ValueType = typename PrimitiveTypeTraits<type>::CppType;
-    return cast_to_string<type, ValueType>(field.get<ValueType>(), 0);
-}
-
-std::string get_date_value(const Field& field) {
-    using ValueType = typename PrimitiveTypeTraits<TYPE_DATE>::CppType;
-    ValueType value;
-    Int64 v = field.get<Int64>();
-    auto* p = (VecDateTimeValue*)&v;
-    value.from_olap_date(p->to_olap_date());
-    value.cast_to_date();
-    return cast_to_string<TYPE_DATE, ValueType>(value, 0);
-}
-
-std::string get_datetime_value(const Field& field) {
-    using ValueType = typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType;
-    ValueType value;
-    Int64 v = field.get<Int64>();
-    auto* p = (VecDateTimeValue*)&v;
-    value.from_olap_datetime(p->to_olap_datetime());
-    value.to_datetime();
-    return cast_to_string<TYPE_DATETIME, ValueType>(value, 0);
-}
-
-std::string get_time_value(const Field& field) {
-    using ValueType = typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType;
-    ValueType value = field.get<ValueType>();
-    return cast_to_string<TYPE_TIMEV2, ValueType>(value, 0);
-}
-
-std::string get_decimalv2_value(const Field& field) {
-    // can NOT use PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType since
-    //   it is DecimalV2Value and Decimal128V2 can not convert to it implicitly
-    using ValueType = Decimal128V2::NativeType;
-    auto v = field.get<DecimalField<Decimal128V2>>();
-    // use TYPE_DECIMAL128I instead of TYPE_DECIMALV2 since v.get_scale()
-    //   is always 9 for DECIMALV2
-    return cast_to_string<TYPE_DECIMAL128I, ValueType>(v.get_value(), v.get_scale());
-}
-
-template <PrimitiveType type>
-std::string get_decimal_value(const Field& field) {
-    using ValueType = typename PrimitiveTypeTraits<type>::CppType;
-    auto v = field.get<DecimalField<ValueType>>();
-    return cast_to_string<type, ValueType>(v.get_value(), v.get_scale());
+    return Status::OK();
 }
 
 bool RuntimePredicate::_init(PrimitiveType type) {
-    // set get value function
-    switch (type) {
-    case PrimitiveType::TYPE_BOOLEAN: {
-        _get_value_fn = get_normal_value<TYPE_BOOLEAN>;
-        break;
-    }
-    case PrimitiveType::TYPE_TINYINT: {
-        _get_value_fn = get_normal_value<TYPE_TINYINT>;
-        break;
-    }
-    case PrimitiveType::TYPE_SMALLINT: {
-        _get_value_fn = get_normal_value<TYPE_SMALLINT>;
-        break;
-    }
-    case PrimitiveType::TYPE_INT: {
-        _get_value_fn = get_normal_value<TYPE_INT>;
-        break;
-    }
-    case PrimitiveType::TYPE_BIGINT: {
-        _get_value_fn = get_normal_value<TYPE_BIGINT>;
-        break;
-    }
-    case PrimitiveType::TYPE_LARGEINT: {
-        _get_value_fn = get_normal_value<TYPE_LARGEINT>;
-        break;
-    }
-    case PrimitiveType::TYPE_CHAR:
-    case PrimitiveType::TYPE_VARCHAR:
-    case PrimitiveType::TYPE_STRING: {
-        _get_value_fn = [](const Field& field) { return field.get<String>(); };
-        break;
-    }
-    case PrimitiveType::TYPE_DATEV2: {
-        _get_value_fn = get_normal_value<TYPE_DATEV2>;
-        break;
-    }
-    case PrimitiveType::TYPE_DATETIMEV2: {
-        _get_value_fn = get_normal_value<TYPE_DATETIMEV2>;
-        break;
-    }
-    case PrimitiveType::TYPE_DATE: {
-        _get_value_fn = get_date_value;
-        break;
-    }
-    case PrimitiveType::TYPE_DATETIME: {
-        _get_value_fn = get_datetime_value;
-        break;
-    }
-    case PrimitiveType::TYPE_TIMEV2: {
-        _get_value_fn = get_time_value;
-        break;
-    }
-    case PrimitiveType::TYPE_DECIMAL32: {
-        _get_value_fn = get_decimal_value<TYPE_DECIMAL32>;
-        break;
-    }
-    case PrimitiveType::TYPE_DECIMAL64: {
-        _get_value_fn = get_decimal_value<TYPE_DECIMAL64>;
-        break;
-    }
-    case PrimitiveType::TYPE_DECIMALV2: {
-        _get_value_fn = get_decimalv2_value;
-        break;
-    }
-    case PrimitiveType::TYPE_DECIMAL128I: {
-        _get_value_fn = get_decimal_value<TYPE_DECIMAL128I>;
-        break;
-    }
-    case PrimitiveType::TYPE_DECIMAL256: {
-        _get_value_fn = get_decimal_value<TYPE_DECIMAL256>;
-        break;
-    }
-    case PrimitiveType::TYPE_IPV4: {
-        _get_value_fn = get_normal_value<TYPE_IPV4>;
-        break;
-    }
-    case PrimitiveType::TYPE_IPV6: {
-        _get_value_fn = get_normal_value<TYPE_IPV6>;
-        break;
-    }
-    default:
-        return false;
-    }
-
-    return true;
+    return is_int_or_bool(type) || is_decimal(type) || is_string_type(type) || is_date_type(type) ||
+           is_time_type(type) || is_ip(type) || is_varbinary(type);
 }
 
 Status RuntimePredicate::update(const Field& value) {
@@ -229,22 +110,35 @@ Status RuntimePredicate::update(const Field& value) {
     }
     for (auto p : _contexts) {
         auto ctx = p.second;
-        if (!ctx.tablet_schema) {
+        if (ctx.predicate == nullptr) {
+            // 1. `init_target` will not create predicate. example : `order by abs(col1) limit x;`
+            // So don't need create new `ColumnPredicate`,
+            // but need update `_orderby_extrem` for  `VTopNPred.execute_column`
+            // 2. this `RuntimePredicate` will associate multiple scan nodes.
+            // When the sort node is updated, some scan nodes may not have called `init_target` yet.
+            // example:
+            //SELECT subq1.pk AS pk1 FROM (
+            //    ( SELECT t1.pk  FROM tb AS t1 )
+            //    UNION ALL
+            //    ( SELECT t1.pk  FROM tb AS t1  ORDER BY t1.pk ))
+            //    subq1
+            //WHERE subq1.pk <> (
+            //    SELECT t1.pk  FROM tb AS t1  ORDER BY t1.pk LIMIT 1
+            //) ORDER BY 1 LIMIT 1 ;
             continue;
         }
-        const auto& column = *DORIS_TRY(ctx.tablet_schema->column(ctx.col_name));
-        std::unique_ptr<ColumnPredicate> pred {_pred_constructor(column, ctx.predicate->column_id(),
-                                                                 _get_value_fn(_orderby_extrem),
-                                                                 false, _predicate_arena)};
+        std::shared_ptr<ColumnPredicate> pred =
+                _pred_constructor(ctx.predicate->column_id(), ctx.col_name, ctx.col_data_type,
+                                  _orderby_extrem, false);
 
         // For NULLS FIRST, wrap a AcceptNullPredicate to return true for NULL
         // since ORDER BY ASC/DESC should get NULL first but pred returns NULL
         // and NULL in where predicate will be treated as FALSE
         if (_nulls_first) {
-            pred = AcceptNullPredicate::create_unique(pred.release());
+            pred = AcceptNullPredicate::create_shared(pred);
         }
 
-        ((SharedPredicate*)ctx.predicate.get())->set_nested(pred.release());
+        ((SharedPredicate*)ctx.predicate.get())->set_nested(pred);
     }
     return Status::OK();
 }

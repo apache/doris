@@ -25,8 +25,8 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_percentile_approx(
-        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
-        const AggregateFunctionAttr& attr) {
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr) {
     const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
     if (argument_type->get_primitive_type() != PrimitiveType::TYPE_DOUBLE) {
         return nullptr;
@@ -43,8 +43,8 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx(
 }
 
 AggregateFunctionPtr create_aggregate_function_percentile_approx_weighted(
-        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
-        const AggregateFunctionAttr& attr) {
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr) {
     const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
     if (argument_type->get_primitive_type() != PrimitiveType::TYPE_DOUBLE) {
         return nullptr;
@@ -61,12 +61,12 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx_weighted(
 }
 
 void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("percentile",
-                                   creator_with_numeric_type::creator<AggregateFunctionPercentile>);
+    using creator = creator_with_type_list<TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT,
+                                           TYPE_LARGEINT, TYPE_FLOAT, TYPE_DOUBLE>;
+    factory.register_function_both("percentile", creator::creator<AggregateFunctionPercentile>);
     factory.register_alias("percentile", "percentile_cont");
-    factory.register_function_both(
-            "percentile_array",
-            creator_with_numeric_type::creator<AggregateFunctionPercentileArray>);
+    factory.register_function_both("percentile_array",
+                                   creator::creator<AggregateFunctionPercentileArray>);
 }
 
 void register_percentile_approx_old_function(AggregateFunctionSimpleFactory& factory) {

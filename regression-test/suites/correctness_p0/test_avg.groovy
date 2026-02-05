@@ -71,4 +71,31 @@ suite("test_avg") {
 
     sql """ drop table if exists avg_test; """
     qt_select4 """SELECT avg(col) from ( SELECT 0.01 col  union all  select 0.01 col ) t;"""
+
+
+    sql """ drop table if exists tast_avg; """
+    sql """
+        CREATE TABLE tast_avg ( pk INT, col_bigint_undef_signed bigint ) DISTRIBUTED BY HASH(pk) PROPERTIES ( "replication_num" = "1" );
+    """
+    sql """
+    INSERT INTO tast_avg (pk, col_bigint_undef_signed) VALUES
+        (4, 14294),
+        (0, -5865513),
+        (9, 300),
+        (12, NULL),
+        (11, NULL),
+        (13, 147483648),
+        (8, -8540657022265743099),
+        (14, 32679),
+        (1, 1),
+        (7, 32679),
+        (10, 147483648),
+        (5, 300),
+        (3, 34174101060390754),
+        (6, -4100284),
+        (15, 12413),
+        (2, NULL);
+    """
+    qt_select5 """select     pk,     col_bigint_undef_signed,     avg(col_bigint_undef_signed) over (         order by pk rows between current row and 4 following     ) as col_alias30897 from tast_avg order by pk;"""
+
 }

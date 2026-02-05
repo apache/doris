@@ -142,14 +142,14 @@ suite("test_fe_cached_partition_version", 'docker') {
                 insert_sql """INSERT INTO ${tbl} VALUES ('Guangzhou', 1})""", 1
                 sql """set global cloud_partition_version_cache_ttl_ms=0"""
                 result = sql_return_maparray """ select * from ${tbl} """
-                assertEquals(6, result.size())
+                assertEquals(7, result.size())
 
                 insert_sql """INSERT INTO ${tbl} VALUES ('Shanghai', 1})""", 1
                 insert_sql """INSERT INTO ${tbl} VALUES ('Guangzhou', 1})""", 1
                 insert_sql """INSERT INTO ${tbl} VALUES ('Beijing', 1})""", 1
                 // data present immediately without any cached versions
                 result = sql_return_maparray """ select * from ${tbl} """
-                assertEquals(9, result.size())
+                assertEquals(10, result.size())
             } finally {
             }
         }

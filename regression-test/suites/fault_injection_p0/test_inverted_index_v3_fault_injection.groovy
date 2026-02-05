@@ -40,20 +40,20 @@ suite("test_inverted_index_v3_fault_injection", "nonConcurrent"){
     """
 
     try {
-      GetDebugPoint().enableDebugPointForAllBEs("InvertedIndexColumnWriterImpl::create_field_v3")
+      GetDebugPoint().enableDebugPointForAllBEs("InvertedIndexColumnWriter::create_field_v3")
       
       sql """ INSERT INTO ${indexTbName1} VALUES (1, '40.135.0.0', 'GET /images/hm_bg.jpg HTTP/1.0', 200, 24736); """
     } finally {
-      GetDebugPoint().disableDebugPointForAllBEs("InvertedIndexColumnWriterImpl::create_field_v3")
+      GetDebugPoint().disableDebugPointForAllBEs("InvertedIndexColumnWriter::create_field_v3")
     }
 
     try {
-      GetDebugPoint().enableDebugPointForAllBEs("InvertedIndexColumnWriterImpl::create_field_v3")
-      GetDebugPoint().enableDebugPointForAllBEs("InvertedIndexColumnWriterImpl::create_field_dic_compression")
+      GetDebugPoint().enableDebugPointForAllBEs("InvertedIndexColumnWriter::create_field_v3")
+      GetDebugPoint().enableDebugPointForAllBEs("InvertedIndexColumnWriter::create_field_dic_compression")
 
       sql """ INSERT INTO ${indexTbName1} VALUES (2, '40.135.0.0', 'GET /images/hm_bg.jpg HTTP/1.0', 200, 24736); """
     } finally {
-      GetDebugPoint().disableDebugPointForAllBEs("InvertedIndexColumnWriterImpl::create_field_v3")
-      GetDebugPoint().disableDebugPointForAllBEs("InvertedIndexColumnWriterImpl::create_field_dic_compression")
+      GetDebugPoint().disableDebugPointForAllBEs("InvertedIndexColumnWriter::create_field_v3")
+      GetDebugPoint().disableDebugPointForAllBEs("InvertedIndexColumnWriter::create_field_dic_compression")
     }
 }

@@ -21,22 +21,22 @@ suite("test_prune_tablet_mv") {
 
     sql "DROP TABLE IF EXISTS test_prune_tablet_t2"
     sql """
-	    create table test_prune_tablet_t2(id int, c1 boolean) distributed by hash(id) BUCKETS 16 properties('replication_num'='1');
+	    create table test_prune_tablet_t2(mv_id int, mv_c1 boolean) distributed by hash(mv_id) BUCKETS 16 properties('replication_num'='1');
     """
 
     createMV( """
 	    CREATE
         MATERIALIZED VIEW mv_t2 AS
-        SELECT c1,
-            id
+        SELECT mv_c1 as a1,
+            mv_id as a2
         FROM test_prune_tablet_t2
-        ORDER BY c1,
-        id; 
+        ORDER BY mv_c1,
+        mv_id; 
     """)
     sql "insert into test_prune_tablet_t2 values(1,0),(2,0),(3,0),(4,0),(5,0),(6,0),(7,0);"
 
     explain {
-        sql("select * from test_prune_tablet_t2 where c1 = 0 and id = 3;")
+        sql("select * from test_prune_tablet_t2 where mv_c1 = 0 and mv_id = 3;")
         contains "mv_t2"
         contains "tablets=1/16"
     }

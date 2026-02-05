@@ -56,6 +56,11 @@ public class BitmapUnion extends NotNullableAggregateFunction
         this(arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private BitmapUnion(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     protected List<DataType> intermediateTypes() {
         return ImmutableList.of(BitmapType.INSTANCE);
@@ -67,7 +72,7 @@ public class BitmapUnion extends NotNullableAggregateFunction
     @Override
     public BitmapUnion withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new BitmapUnion(children.get(0));
+        return new BitmapUnion(getFunctionParams(distinct, children));
     }
 
     @Override
@@ -82,7 +87,7 @@ public class BitmapUnion extends NotNullableAggregateFunction
 
     @Override
     public Function constructRollUp(Expression param, Expression... varParams) {
-        return new BitmapUnion(this.isDistinct(), param);
+        return new BitmapUnion(getFunctionParams(ImmutableList.of(param)));
     }
 
     @Override

@@ -23,6 +23,7 @@
 #include <tuple>
 #include <vector>
 
+#include "io/fs/file_meta_cache.h"
 #include "orc/sargs/SearchArgument.hh"
 #include "runtime/define_primitive_type.h"
 #include "runtime/exec_env.h"
@@ -36,8 +37,10 @@
 namespace doris::vectorized {
 class OrcReaderTest : public testing::Test {
 public:
-    OrcReaderTest() = default;
+    OrcReaderTest() : cache(1024) {}
     ~OrcReaderTest() override = default;
+
+    FileMetaCache cache;
 
 private:
     static constexpr const char* CANNOT_PUSH_DOWN_ERROR = "can't push down";
@@ -46,6 +49,11 @@ private:
         std::vector<std::string> column_names = {
                 "o_orderkey",      "o_custkey", "o_orderstatus",  "o_totalprice", "o_orderdate",
                 "o_orderpriority", "o_clerk",   "o_shippriority", "o_comment"};
+        std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
+                {"o_orderkey", 0},   {"o_custkey", 1},      {"o_orderstatus", 2},
+                {"o_totalprice", 3}, {"o_orderdate", 4},    {"o_orderpriority", 5},
+                {"o_clerk", 6},      {"o_shippriority", 7}, {"o_comment", 8},
+        };
         ObjectPool object_pool;
         DescriptorTblBuilder builder(&object_pool);
         builder.declare_tuple()
@@ -69,15 +77,15 @@ private:
                                    "o_comment");
         DescriptorTbl* desc_tbl = builder.build();
         auto* tuple_desc = const_cast<TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
-        RowDescriptor row_desc(tuple_desc, false);
+        RowDescriptor row_desc(tuple_desc);
         TFileScanRangeParams params;
         TFileRangeDesc range;
         range.path = "./be/test/exec/test_data/orc_scanner/orders.orc";
         range.start_offset = 0;
         range.size = 1293;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, true);
-        auto status = reader->init_reader(&column_names, nullptr, {}, false, tuple_desc, &row_desc,
-                                          nullptr, nullptr);
+        auto reader = OrcReader::create_unique(params, range, "", nullptr, &cache, true);
+        auto status = reader->init_reader(&column_names, &col_name_to_block_idx, {}, false,
+                                          tuple_desc, &row_desc, nullptr, nullptr);
         EXPECT_TRUE(status.ok());
 
         // deserialize expr

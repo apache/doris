@@ -47,13 +47,18 @@ public class Cot extends ScalarFunction
         super("cot", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Cot(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Cot withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Cot(children.get(0));
+        return new Cot(getFunctionParams(children));
     }
 
     @Override

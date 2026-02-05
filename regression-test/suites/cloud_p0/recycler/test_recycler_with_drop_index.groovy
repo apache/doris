@@ -71,7 +71,7 @@ suite("test_recycler_with_drop_index") {
         return jobStateResult[0][8]
     }
 
-    sql "CREATE materialized VIEW ${mvName} AS SELECT lo_orderkey, lo_linenumber FROM ${tableName};"
+    sql "CREATE materialized VIEW ${mvName} AS SELECT lo_orderkey as lo_orderkey_t, lo_linenumber as lo_linenumber_t FROM ${tableName};"
     int max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tableName)

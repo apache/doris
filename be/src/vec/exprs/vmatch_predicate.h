@@ -22,7 +22,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "olap/inverted_index_parser.h"
-#include "udf/udf.h"
+#include "vec/exprs/function_context.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/functions/function.h"
 
@@ -49,7 +49,8 @@ class VMatchPredicate final : public VExpr {
 public:
     VMatchPredicate(const TExprNode& node);
     ~VMatchPredicate() override;
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
@@ -57,6 +58,7 @@ public:
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
     const std::string& expr_name() const override;
     const std::string& function_name() const;
+    [[nodiscard]] const std::string& get_analyzer_key() const override;
 
     std::string debug_string() const override;
 
@@ -66,7 +68,11 @@ private:
     FunctionBasePtr _function;
     std::string _expr_name;
     std::string _function_name;
-    InvertedIndexCtxSPtr _inverted_index_ctx;
+
+    // Lifecycle management: holds ownership of the analyzer
     std::shared_ptr<lucene::analysis::Analyzer> _analyzer;
+
+    // Runtime context: holds raw pointer to analyzer and necessary runtime info
+    InvertedIndexAnalyzerCtxSPtr _analyzer_ctx;
 };
 } // namespace doris::vectorized

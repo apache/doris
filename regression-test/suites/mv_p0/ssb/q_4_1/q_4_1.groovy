@@ -76,8 +76,8 @@ suite ("mv_ssb_q_4_1") {
 
     createMV ("""create materialized view lineorder_q_4_1 as 
                 SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
-                C_NATION,
-                SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
+                C_NATION as a2,
+                SUM(LO_REVENUE - LO_SUPPLYCOST) AS profita3
                 FROM lineorder_flat
                 WHERE
                 C_REGION = 'AMERICA'
@@ -93,6 +93,7 @@ suite ("mv_ssb_q_4_1") {
     sql """analyze table lineorder_flat with sync;"""
 
     sql """alter table lineorder_flat modify column LO_ORDERDATE set stats ('row_count'='2');"""
+    sql """alter table lineorder_flat modify column a2 set stats ('row_count'='1');"""
 
     mv_rewrite_success("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
                 C_NATION,

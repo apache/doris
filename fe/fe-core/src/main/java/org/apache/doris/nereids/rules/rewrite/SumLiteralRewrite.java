@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.thrift.annotation.Nullable;
@@ -144,12 +145,13 @@ public class SumLiteralRewrite extends OneRewriteRuleFactory {
             SumInfo originExpr = sumLiteralMap.get(namedExpr).first;
             Literal literal = sumLiteralMap.get(namedExpr).second;
             Expression newExpr;
+            Expression multiply
+                    = TypeCoercionUtils.processBinaryArithmetic(new Multiply(literal, exprToCount.get(originExpr)));
             if (namedExpr.child(0).child(0) instanceof Add) {
-                newExpr = new Add(exprToSum.get(originExpr),
-                        new Multiply(literal, exprToCount.get(originExpr)));
+                newExpr = TypeCoercionUtils.processBinaryArithmetic(new Add(exprToSum.get(originExpr), multiply));
+
             } else {
-                newExpr = new Subtract(exprToSum.get(originExpr),
-                        new Multiply(literal, exprToCount.get(originExpr)));
+                newExpr = TypeCoercionUtils.processBinaryArithmetic(new Subtract(exprToSum.get(originExpr), multiply));
             }
             newProjects.add(new Alias(namedExpr.getExprId(), newExpr, namedExpr.getName()));
         }
@@ -194,8 +196,8 @@ public class SumLiteralRewrite extends OneRewriteRuleFactory {
 
         Expression left = ((BinaryArithmetic) child).left();
         Expression right = ((BinaryArithmetic) child).right();
-        if (!(right.isLiteral() && left instanceof Slot)) {
-            // right now, only support slot +/- literal
+        if (!(right.isLiteral())) {
+            // right now, only support expr +/- literal
             return null;
         }
         if (!(right.getDataType().isIntegerLikeType() || right.getDataType().isFloatLikeType())) {

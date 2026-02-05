@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.distribute;
 
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.BackendDistributedPlanWorkerManager;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
@@ -38,6 +41,7 @@ import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.MultiCastDataSink;
 import org.apache.doris.planner.MultiCastPlanFragment;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.qe.ConnectContext;
@@ -80,10 +84,11 @@ public class DistributePlanner {
 
     /** plan */
     public FragmentIdMapping<DistributedPlan> plan() {
-        updateProfileIfPresent(SummaryProfile::setQueryPlanFinishTime);
+        updateProfileIfPresent(profile -> profile.setQueryPlanFinishTime(TimeUtils.getStartTimeMs()));
         try {
             BackendDistributedPlanWorkerManager workerManager = new BackendDistributedPlanWorkerManager(
                             statementContext.getConnectContext(), notNeedBackend, isLoadJob);
+            addExternalBackends(workerManager);
             LoadBalanceScanWorkerSelector workerSelector = new LoadBalanceScanWorkerSelector(workerManager);
             FragmentIdMapping<UnassignedJob> fragmentJobs
                     = UnassignedJobBuilder.buildJobs(workerSelector, statementContext, idToFragments);
@@ -112,9 +117,24 @@ public class DistributePlanner {
             updateProfileIfPresent(SummaryProfile::setAssignFragmentTime);
             return linkedPlans;
         } catch (Throwable t) {
-            LOG.error("Failed to build distribute plans", t);
+            if (t instanceof NereidsException && ((NereidsException) t).isSuppressStackTrace()) {
+                LOG.error("Failed to build distribute plans: {}", t);
+            } else {
+                LOG.error("Failed to build distribute plans", t);
+            }
             Throwables.throwIfInstanceOf(t, RuntimeException.class);
             throw new IllegalStateException(t.toString(), t);
+        }
+    }
+
+    private void addExternalBackends(BackendDistributedPlanWorkerManager workerManager) throws AnalysisException {
+        for (PlanFragment planFragment : idToFragments.values()) {
+            List<OlapScanNode> scanNodes = planFragment.getPlanRoot()
+                    .collectInCurrentFragment(OlapScanNode.class::isInstance);
+            for (OlapScanNode scanNode : scanNodes) {
+                workerManager.addBackends(scanNode.getCatalogId(),
+                        scanNode.getOlapTable().getAllBackendsByAllCluster());
+            }
         }
     }
 

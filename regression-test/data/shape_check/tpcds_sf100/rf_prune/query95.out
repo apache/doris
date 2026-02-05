@@ -5,9 +5,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----PhysicalProject
 ------hashJoin[INNER_JOIN shuffle] hashCondition=((ws1.ws_order_number = ws2.ws_order_number)) otherCondition=(( not (ws_warehouse_sk = ws_warehouse_sk))) build RFs:RF0 ws_order_number->[ws_order_number]
 --------PhysicalProject
-----------PhysicalOlapScan[web_sales] apply RFs: RF0 RF7
+----------PhysicalOlapScan[web_sales(ws1)] apply RFs: RF0 RF7
 --------PhysicalProject
-----------PhysicalOlapScan[web_sales] apply RFs: RF7
+----------PhysicalOlapScan[web_sales(ws2)] apply RFs: RF7
 --PhysicalResultSink
 ----PhysicalLimit[GLOBAL]
 ------PhysicalLimit[LOCAL]
@@ -31,7 +31,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((ws1.ws_ship_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[ws_ship_addr_sk]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF1 RF2 RF3
+------------------------------------PhysicalOlapScan[web_sales(ws1)] apply RFs: RF1 RF2 RF3
 ----------------------------------PhysicalProject
 ------------------------------------filter((customer_address.ca_state = 'NC'))
 --------------------------------------PhysicalOlapScan[customer_address]

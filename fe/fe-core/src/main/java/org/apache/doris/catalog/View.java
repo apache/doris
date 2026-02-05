@@ -32,6 +32,8 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * Table metadata representing a catalog view or a local view from a WITH clause.
@@ -65,8 +67,13 @@ public class View extends Table implements GsonPostProcessable, ViewIf {
     private String inlineViewDef;
 
     // for persist
+    // Replaced by sessionVariables
+    @Deprecated
     @SerializedName("sm")
     private long sqlMode = 0L;
+
+    @SerializedName(value = "sv")
+    private Map<String, String> sessionVariables;
 
     // Set if this View is from a WITH clause and not persisted in the catalog.
     private boolean isLocalView;
@@ -82,9 +89,9 @@ public class View extends Table implements GsonPostProcessable, ViewIf {
         isLocalView = false;
     }
 
-    public void setInlineViewDefWithSqlMode(String inlineViewDef, long sqlMode) {
+    public void setInlineViewDefWithSessionVariables(String inlineViewDef, Map<String, String> sessionVariables) {
         this.inlineViewDef = inlineViewDef;
-        this.sqlMode = sqlMode;
+        this.sessionVariables = sessionVariables;
     }
 
     public void setSqlMode(long sqlMode) {
@@ -152,13 +159,23 @@ public class View extends Table implements GsonPostProcessable, ViewIf {
     public void resetViewDefForRestore(String srcDbName, String dbName) {
         // the source db name is not setted in old BackupMeta, keep compatible with the old one.
         if (srcDbName != null) {
-            // replace dbName with a regular expression
-            inlineViewDef = inlineViewDef.replaceAll("(?<=`internal`\\.`)([^`]+)(?=`\\.`)", dbName);
+            // Only replace the source database name, preserve cross-database references
+            // Pattern: `internal`.`srcDbName`.`table` -> `internal`.`dbName`.`table`
+            String pattern = "(?<=`internal`\\.`)" + Pattern.quote(srcDbName) + "(?=`\\.`)";
+            inlineViewDef = inlineViewDef.replaceAll(pattern, dbName);
         }
     }
 
     @Override
     public void gsonPostProcess() throws IOException {
         originalViewDef = "";
+    }
+
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
+    }
+
+    public void setSessionVariables(Map<String, String> sessionVariables) {
+        this.sessionVariables = sessionVariables;
     }
 }

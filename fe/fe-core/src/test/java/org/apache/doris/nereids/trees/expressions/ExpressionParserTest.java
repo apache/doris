@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.analyzer.UnboundSlot;
-import org.apache.doris.nereids.exceptions.ParseException;
+import org.apache.doris.nereids.exceptions.SyntaxParseException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.parser.ParserTestBase;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -84,9 +84,10 @@ public class ExpressionParserTest extends ParserTestBase {
     public void testExprBetweenPredicate() {
         parseExpression("c BETWEEN a AND b")
                 .assertEquals(
-                        new And(
-                                new GreaterThanEqual(new UnboundSlot("c"), new UnboundSlot("a")),
-                                new LessThanEqual(new UnboundSlot("c"), new UnboundSlot("b"))
+                        new Between(
+                                new UnboundSlot("c"),
+                                new UnboundSlot("a"),
+                                new UnboundSlot("b")
                         )
                 );
     }
@@ -148,7 +149,7 @@ public class ExpressionParserTest extends ParserTestBase {
         assertExpr(subtract);
 
         parseExpression("3 += 2")
-                .assertThrowsExactly(ParseException.class)
+                .assertThrowsExactly(SyntaxParseException.class)
                 .assertMessageContains("extraneous input '=' expecting {'(");
 
     }

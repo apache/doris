@@ -21,7 +21,7 @@ BUILD_DIR = ${CURDIR}/../build/
 FE_TARGET_DIR = ${CURDIR}/../../fe/fe-core/target/generated-sources/build
 
 # Prerequisites on the right side of '|' is only order
-all: gen_builtins gen_version
+all: gen_version
 .PHONY: all
 
 ${BUILD_DIR}/python:
@@ -35,14 +35,6 @@ ${GEN_FUNC_OUTPUT}: gen_functions.py | ${BUILD_DIR}/python
 	cd ${BUILD_DIR}/python && ${PYTHON} ${CURDIR}/gen_functions.py
 gen_func: ${GEN_FUNC_OUTPUT}
 .PHONY: gen_func
-
-# generate 
-GEN_BUILTINS_OUTPUT = ${FE_TARGET_DIR}/org/apache/doris/builtins/ScalarBuiltins.java
-
-${GEN_BUILTINS_OUTPUT}: doris_builtins_functions.py gen_builtins_functions.py ${GEN_FUNC_OUTPUT} ${GEN_VEC_FUNC_OUTPUT}
-	cd ${BUILD_DIR}/python && ${PYTHON} ${CURDIR}/gen_builtins_functions.py
-gen_builtins: ${GEN_BUILTINS_OUTPUT}
-.PHONY: gen_builtins
 
 # generate version info
 gen_version:

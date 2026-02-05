@@ -23,6 +23,7 @@
 #include "runtime/snapshot_loader.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class CloudStorageEngine;
 
@@ -51,4 +52,5 @@ private:
     CloudStorageEngine& _engine;
 };
 
+#include "common/compile_check_end.h"
 } // end namespace doris

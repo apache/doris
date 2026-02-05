@@ -14,4 +14,6 @@
 *.thrift text eol=lf
 *.proto text eol=lf
 *.conf text eol=lf
-*.out text eol=lf -diff
+*.out text eol=lf diff
+*.groovy -linguist-detectable
+regression-test/ export-ignore

@@ -25,6 +25,12 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionTableInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableSet;
@@ -38,6 +44,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class PartitionDesc {
     protected List<String> partitionColNames;
@@ -288,5 +295,68 @@ public class PartitionDesc {
 
     public boolean inIdentifierPartitions(String colName) {
         return partitionColNames != null && partitionColNames.contains(colName);
+    }
+
+    /**
+     *  Convert to PartitionTableInfo
+     */
+    public PartitionTableInfo convertToPartitionTableInfo() {
+        List<PartitionDefinition> partitionDefinitions = null;
+        List<Expression> partitionFields = null;
+
+        if (!type.name().equalsIgnoreCase(PartitionType.UNPARTITIONED.name())) {
+            // only auto partition support partition expr
+            if (!isAutoCreatePartitions) {
+                if (partitionExprs.stream().anyMatch(expr -> expr instanceof FunctionCallExpr)) {
+                    throw new org.apache.doris.nereids.exceptions.AnalysisException("Non-auto partition "
+                        + "table not support partition expr!");
+                }
+            }
+
+            try {
+                partitionDefinitions = singlePartitionDescs.stream()
+                    .map(SinglePartitionDesc::translateToPartitionDefinition)
+                    .collect(Collectors.toList());
+
+                partitionFields = partitionExprs.stream()
+                    .map(expr -> {
+                        if (expr instanceof SlotRef) {
+                            SlotRef slot = (SlotRef) expr;
+                            return new UnboundSlot(slot.getColumnName());
+                        } else if (expr instanceof FunctionCallExpr) {
+                            FunctionCallExpr function = (FunctionCallExpr) expr;
+                            List<Expression> expressions = function.getFnParams().exprs().stream()
+                                    .map(exp -> {
+                                        if (exp instanceof SlotRef) {
+                                            SlotRef slot = (SlotRef) exp;
+                                            return new UnboundSlot(slot.getColumnName());
+                                        } else if (exp instanceof StringLiteral) {
+                                            return Literal.of((((StringLiteral) exp).getStringValue()));
+                                        } else {
+                                            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                                                "unsupported argument " + exp.toString());
+                                        }
+                                    })
+                                    .collect(Collectors.toList());
+
+                            return new UnboundFunction(
+                                function.getFnName().getFunction(),
+                                expressions);
+                        } else {
+                            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                                "unsupported auto partition expr " + expr.toString());
+                        }
+                    })
+                    .collect(Collectors.toList());
+            } catch (Exception e) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(e.getMessage(), e.getCause());
+            }
+        }
+
+        return new PartitionTableInfo(
+            isAutoCreatePartitions,
+            type.name(),
+            partitionDefinitions.isEmpty() ? null : partitionDefinitions,
+            partitionFields);
     }
 }

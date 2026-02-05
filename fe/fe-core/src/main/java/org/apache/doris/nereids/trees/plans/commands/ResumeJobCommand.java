@@ -18,11 +18,9 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
+import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.common.JobStatus;
-import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -43,10 +41,12 @@ public class ResumeJobCommand extends AlterJobStatusCommand implements ForwardWi
 
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        AbstractJob job = ctx.getEnv().getJobManager().getJobByName(super.getJobName());
+        if (job instanceof StreamingInsertJob) {
+            ctx.getEnv().getJobManager().alterJobStatus(super.getJobName(), JobStatus.PENDING, null);
+        } else {
+            ctx.getEnv().getJobManager().alterJobStatus(super.getJobName(), JobStatus.RUNNING, null);
         }
-        ctx.getEnv().getJobManager().alterJobStatus(super.getJobName(), JobStatus.RUNNING);
     }
 
     @Override

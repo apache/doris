@@ -19,6 +19,7 @@
 
 #include <memory>
 
+#include "gen_cpp/olap_file.pb.h"
 #include "olap/metadata_adder.h"
 
 namespace doris {
@@ -32,26 +33,16 @@ class IndexIterator;
 class InvertedIndexReader;
 using InvertedIndexReaderPtr = std::shared_ptr<InvertedIndexReader>;
 
-class AnnIndexReader;
-using AnnIndexReaderPtr = std::shared_ptr<AnnIndexReader>;
-
 class IndexReader : public std::enable_shared_from_this<IndexReader>,
                     public MetadataAdder<IndexReader> {
 public:
     IndexReader() = default;
     ~IndexReader() override = default;
 
+    virtual IndexType index_type() = 0;
     virtual uint64_t get_index_id() const = 0;
 
-    virtual Status new_iterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
-                                RuntimeState* runtime_state,
-                                std::unique_ptr<IndexIterator>* iterator) = 0;
-
-    virtual bool is_fulltext_index() { return false; }
-    virtual bool is_string_index() { return false; }
-    virtual bool is_bkd_index() { return false; }
-
-    virtual bool is_support_phrase() { return false; }
+    virtual Status new_iterator(std::unique_ptr<IndexIterator>* iterator) = 0;
 };
 using IndexReaderPtr = std::shared_ptr<IndexReader>;
 

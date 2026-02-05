@@ -30,16 +30,8 @@ template <PrimitiveType T>
 class DataTypeNumber final : public DataTypeNumberBase<T> {
 public:
     using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
-    using FieldType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using FieldType = typename PrimitiveTypeTraits<T>::CppType;
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
-
-    void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
-        DataTypeNumberBase<T>::template to_string_batch_impl<DataTypeNumber<T>>(column, column_to);
-    }
-
-    size_t number_length() const;
-    void push_number(ColumnString::Chars& chars,
-                     const typename PrimitiveTypeTraits<T>::ColumnItemType& num) const;
 };
 template <typename DataType>
 constexpr bool IsDataTypeBool = false;

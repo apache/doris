@@ -89,7 +89,8 @@ suite("test_template_two_args") {
 
     /// folding
     check_fold_consistency "atan2(-1, -2)"
-    check_fold_consistency "atan2(-1e100, 3.14)"
+    // TODO: fe follow float/double output format
+    // check_fold_consistency "atan2(-1e100, 3.14)"
     check_fold_consistency "atan2(0, 0)"
     check_fold_consistency "atan2(1e100, 1e100)"
     check_fold_consistency "atan2(-0.5, 0.5)"

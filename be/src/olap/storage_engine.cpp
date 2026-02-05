@@ -164,8 +164,9 @@ void CompactionSubmitRegistry::jsonfy_compaction_status(std::string* result) {
     root.SetObject();
 
     auto add_node = [&root](const std::string& name, const Registry& registry) {
-        rapidjson::Value key;
-        key.SetString(name.c_str(), cast_set<uint32_t>(name.length()), root.GetAllocator());
+        rapidjson::Value compaction_name;
+        compaction_name.SetString(name.c_str(), cast_set<uint32_t>(name.length()),
+                                  root.GetAllocator());
         rapidjson::Document path_obj;
         path_obj.SetObject();
         for (const auto& it : registry) {
@@ -177,15 +178,16 @@ void CompactionSubmitRegistry::jsonfy_compaction_status(std::string* result) {
             arr.SetArray();
 
             for (const auto& tablet : it.second) {
-                rapidjson::Value temp_key;
-                auto key_str = std::to_string(tablet->tablet_id());
-                temp_key.SetString(key_str.c_str(), cast_set<uint32_t>(key_str.length()),
-                                   root.GetAllocator());
-                arr.PushBack(key, root.GetAllocator());
+                rapidjson::Value tablet_id;
+                auto tablet_id_str = std::to_string(tablet->tablet_id());
+                tablet_id.SetString(tablet_id_str.c_str(),
+                                    cast_set<uint32_t>(tablet_id_str.length()),
+                                    root.GetAllocator());
+                arr.PushBack(tablet_id, root.GetAllocator());
             }
             path_obj.AddMember(path_key, arr, root.GetAllocator());
         }
-        root.AddMember(key, path_obj, root.GetAllocator());
+        root.AddMember(compaction_name, path_obj, root.GetAllocator());
     };
 
     std::unique_lock<std::mutex> l(_tablet_submitted_compaction_mutex);
@@ -303,7 +305,13 @@ Status StorageEngine::_open() {
     _memtable_flush_executor->init(_disk_num);
 
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
-    _calc_delete_bitmap_executor->init();
+    _calc_delete_bitmap_executor->init(config::calc_delete_bitmap_max_thread);
+
+    _calc_delete_bitmap_executor_for_load = std::make_unique<CalcDeleteBitmapExecutor>();
+    _calc_delete_bitmap_executor_for_load->init(
+            config::calc_delete_bitmap_for_load_max_thread > 0
+                    ? config::calc_delete_bitmap_for_load_max_thread
+                    : std::max(1, CpuInfo::num_cores() / 2));
 
     _parse_default_rowset_type();
 
@@ -763,6 +771,7 @@ void StorageEngine::stop() {
 
     _memtable_flush_executor.reset(nullptr);
     _calc_delete_bitmap_executor.reset(nullptr);
+    _calc_delete_bitmap_executor_for_load.reset();
 
     _stopped = true;
     LOG(INFO) << "Storage engine is stopped.";
@@ -950,7 +959,8 @@ void StorageEngine::_clean_unused_rowset_metas() {
             return true;
         }
         if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE &&
-            (!tablet->rowset_meta_is_useful(rowset_meta))) {
+            (!tablet->rowset_meta_is_useful(rowset_meta)) &&
+            !check_rowset_id_in_unused_rowsets(rowset_id)) {
             LOG(INFO) << "rowset meta is not used any more, remove it. rowset_id="
                       << rowset_meta->rowset_id();
             invalid_rowset_metas.push_back(rowset_meta);
@@ -1344,7 +1354,7 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request, RuntimeProf
 }
 
 Result<BaseTabletSPtr> StorageEngine::get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats,
-                                                 bool force_use_cache) {
+                                                 bool force_use_only_cached, bool cache_on_miss) {
     BaseTabletSPtr tablet;
     std::string err;
     tablet = _tablet_manager->get_tablet(tablet_id, true, &err);
@@ -1353,6 +1363,21 @@ Result<BaseTabletSPtr> StorageEngine::get_tablet(int64_t tablet_id, SyncRowsetSt
                 Status::InternalError("failed to get tablet: {}, reason: {}", tablet_id, err));
     }
     return tablet;
+}
+
+Status StorageEngine::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta,
+                                      bool force_use_only_cached) {
+    if (tablet_meta == nullptr) {
+        return Status::InvalidArgument("tablet_meta output is null");
+    }
+
+    auto res = get_tablet(tablet_id, nullptr, force_use_only_cached, true);
+    if (!res.has_value()) {
+        return res.error();
+    }
+
+    *tablet_meta = res.value()->tablet_meta();
+    return Status::OK();
 }
 
 Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium, int64_t path_hash,
@@ -1555,7 +1580,11 @@ bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TB
     std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
     if (result.tablet_replica_infos.contains(tablet_id)) {
         std::vector<TReplicaInfo> reps = result.tablet_replica_infos[tablet_id];
-        DCHECK_NE(reps.size(), 0);
+        if (reps.empty()) [[unlikely]] {
+            VLOG_DEBUG << "get_peers_replica_backends reps is empty, maybe this tablet is in "
+                          "schema change. Go to FE to see more info. Tablet id: "
+                       << tablet_id;
+        }
         for (const auto& rep : reps) {
             if (rep.replica_id != tablet->replica_id()) {
                 TBackend backend;

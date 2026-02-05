@@ -41,7 +41,7 @@ import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -248,10 +248,11 @@ public class PublishVersionDaemon extends MasterDaemon {
             dbExecutors.get((int) (transactionState.getDbId() % Config.publish_thread_pool_num)).execute(() -> {
                 try {
                     tryFinishTxnSync(transactionState, globalTransactionMgr);
-                    publishingTxnIds.remove(transactionState.getTransactionId());
                 } catch (Throwable e) {
                     LOG.warn("failed to finish dbId: {}, txnId: {}", transactionState.getDbId(),
                             transactionState.getTransactionId(), e);
+                } finally {
+                    publishingTxnIds.remove(transactionState.getTransactionId());
                 }
             });
         } catch (Throwable e) {
@@ -263,6 +264,10 @@ public class PublishVersionDaemon extends MasterDaemon {
     }
 
     private void tryFinishTxnSync(TransactionState transactionState, GlobalTransactionMgrIface globalTransactionMgr) {
+        if (DebugPointUtil.isEnable("PublishVersionDaemon.tryFinishTxnSync.fail")) {
+            throw new RuntimeException("finishTransaction failed for txnId: " + transactionState.getTransactionId());
+        }
+
         try {
             partitionVisibleVersions = Maps.newHashMap();
             backendPartitions = Maps.newHashMap();
@@ -376,6 +381,9 @@ public class PublishVersionDaemon extends MasterDaemon {
                 Map<Long, Long> backendPartitionVersions = partitionVisibleVersions.entrySet().stream()
                         .filter(entry -> partitionIds.contains(entry.getKey()))
                         .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+                if (backendPartitionVersions.isEmpty()) {
+                    return;
+                }
                 UpdateVisibleVersionTask task = new UpdateVisibleVersionTask(backendId, backendPartitionVersions,
                         createTime);
                 batchTask.addTask(task);

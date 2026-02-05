@@ -81,4 +81,113 @@ TEST(StorageResourceTest, RemotePath) {
     ASSERT_DEATH(StorageResource(res.value(), storage_vault_pb.path_format()), "unknown");
 }
 
+TEST(StorageResourceTest, ParseTabletIdFromPath) {
+    // Test Version 0 format: data/{tablet_id}/{rowset_id}_{seg_id}.dat
+    // see function StorageResource::remote_segment_path
+    // fmt::format("{}/{}/{}_{}.dat", DATA_PREFIX, tablet_id, rowset_id, seg_id);
+    EXPECT_EQ(
+            StorageResource::parse_tablet_id_from_path(
+                    "prefix_xxx/data/10005/0200000000001cc2224124562e7dfd4834d031b13c0210be_5.dat"),
+            10005);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("//data/12345/rowset_001_0.dat"), 12345);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("data/999999/rowset_abc_10.dat"), 999999);
+
+    // Test Version 0 format with .idx files (v1 format)
+    // see function StorageResource::remote_idx_v1_path
+    // fmt::format("{}/{}/{}_{}_{}{}.idx", DATA_PREFIX, rowset.tablet_id(), rowset.rowset_id().to_string(), seg_id, index_id, suffix);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path(
+                      "//data/10005/0200000000001cc2224124562e7_6_6666_suffix.idx"),
+              10005);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path(
+                      "bucket_xxx/data/12345/rowsetid_1_666_suffix.idx"),
+              12345);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("data/999999/rowsetid_10_8888_suffix.idx"),
+              999999);
+
+    // Test Version 0 format with .idx files (v2 format)
+    // see function StorageResource::remote_idx_v2_path
+    // fmt::format("{}/{}/{}_{}.idx", DATA_PREFIX, rowset.tablet_id(), rowset.rowset_id().to_string(), seg_id);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path(
+                      "s3://prefix_bucket/data/10005/0200000000001cc2224124562e7_5.idx"),
+              10005);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("/data/12345/rowset001_0.idx"), 12345);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("data/999999/rowsetabc_10.idx"), 999999);
+
+    // Test Version 1 format: data/{shard}/{tablet_id}/{rowset_id}/{seg_id}.dat
+    // see function StorageResource::remote_segment_path
+    // fmt::format("{}/{}/{}/{}/{}.dat", DATA_PREFIX, shard_fn(rowset.tablet_id()), rowset.tablet_id(), rowset.rowset_id().to_string(), seg_id);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path(
+                      "prefix_xxxx/data/611/10005/0200000000001cc2224124562e7dfd4834d031b13c0210be/"
+                      "5.dat"),
+              10005);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("data/0/12345/rowset_001/0.dat"), 12345);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("s3:///data/999/999999/rowset_abc/10.dat"),
+              999999);
+
+    // Test Version 1 format with .idx files (v1 format)
+    // see function StorageResource::remote_idx_v1_path
+    // fmt::format("{}/{}/{}/{}/{}_{}{}.idx", DATA_PREFIX, shard_fn(rowset.tablet_id()), rowset.tablet_id(), rowset.rowset_id().to_string(), seg_id, index_id, suffix);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path(
+                      "s3:///data/611/10005/0200000000001cc2224124562e7dfd4834d031b13c0210be/"
+                      "5_6666_suffix.idx"),
+              10005);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path(
+                      "prefix_bucket/data/0/12345/rowsetid/1_666_suffix.idx"),
+              12345);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path(
+                      "data/999/999999/rowsetid/10_8888_suffix.idx"),
+              999999);
+
+    // Test Version 1 format with .idx files (v2 format)
+    // see function StorageResource::remote_idx_v2_path
+    // fmt::format("{}/{}/{}/{}/{}.idx", DATA_PREFIX, shard_fn(rowset.tablet_id()), rowset.tablet_id(), rowset.rowset_id().to_string(), seg_id);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path(
+                      "s3://prefix_bucket/data/611/10005/"
+                      "0200000000001cc2224124562e7dfd4834d031b13c0210be/5.idx"),
+              10005);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("/data/0/12345/rowset001/0.idx"), 12345);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("data/999/999999/rowsetabc/10.idx"),
+              999999);
+
+    // Test edge cases
+    // fmt::format("{}/{}/{}_{}.dat", DATA_PREFIX, tablet_id, rowset_id, seg_id);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("prefix_bucket/data/0/rowset001_0.dat"),
+              0);
+    // fmt::format("{}/{}/{}/{}/{}.dat", DATA_PREFIX, shard_fn(rowset.tablet_id()), rowset.tablet_id(), rowset.rowset_id().to_string(), seg_id);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("/data/0/0/rowset001/0.dat"), 0);
+
+    // Test invalid cases
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path(""), std::nullopt);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("invalid_path"), std::nullopt);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("data/"), std::nullopt);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("/data/abc/rowset_001_0.dat"),
+              std::nullopt);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path(
+                      "s3://prefix_bucket/data/0/abc/rowset_001/0.dat"),
+              std::nullopt);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("data/10005/rowset_001_0.txt"),
+              std::nullopt);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("data/10005/rowset_001_0"), std::nullopt);
+
+    // Test paths with different slash counts (should return nullopt)
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("data/10005/rowset_001/extra/0.dat"),
+              std::nullopt);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("/data/10005/rowset_001/extra/0.idx"),
+              std::nullopt);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path(
+                      "prefix_bucket/data/10005/rowset_001/extra/0.dat"),
+              std::nullopt);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("data/10005.dat"), std::nullopt);
+
+    // Test paths without data prefix
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("10005/rowset_001_0.dat"), std::nullopt);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("0/12345/rowset_001/0.dat"), std::nullopt);
+
+    // Test paths with leading slash after data prefix
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("data//10005/rowset_001_0.dat"),
+              std::nullopt);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("data//0/12345/rowset_001/0.dat"),
+              std::nullopt);
+}
+
 } // namespace doris

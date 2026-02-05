@@ -5,7 +5,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN shuffle] hashCondition=((dn.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF3 c_customer_sk->[ss_customer_sk]
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((dn.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF3 c_customer_sk->[ss_customer_sk]
 ------------filter((dn.cnt <= 20) and (dn.cnt >= 15))
 --------------hashAgg[GLOBAL]
 ----------------PhysicalDistribute[DistributionSpecHash]
@@ -25,7 +25,7 @@ PhysicalResultSink
 ------------------------------filter(s_county IN ('Arthur County', 'Halifax County', 'Lunenburg County', 'Oglethorpe County', 'Perry County', 'Salem County', 'Sumner County', 'Terrell County'))
 --------------------------------PhysicalOlapScan[store]
 ------------------------PhysicalProject
---------------------------filter((household_demographics.hd_vehicle_count > 0) and (if((hd_vehicle_count > 0), (cast(hd_dep_count as DOUBLE) / cast(hd_vehicle_count as DOUBLE)), NULL) > 1.2) and hd_buy_potential IN ('>10000', 'Unknown'))
+--------------------------filter(((cast(hd_dep_count as DOUBLE) / cast(hd_vehicle_count as DOUBLE)) > 1.2) and (household_demographics.hd_vehicle_count > 0) and hd_buy_potential IN ('>10000', 'Unknown'))
 ----------------------------PhysicalOlapScan[household_demographics]
 ------------PhysicalProject
 --------------PhysicalOlapScan[customer]

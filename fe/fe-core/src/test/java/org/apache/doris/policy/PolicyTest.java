@@ -174,7 +174,7 @@ public class PolicyTest extends TestWithFeService {
     @Test
     public void testNoAuth() {
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "CreatePolicyStmt command denied to user 'root'@'%' for table 'table1'",
+                "not allow add row policy for system user",
                 () -> createPolicy(
                         "CREATE ROW POLICY test_row_policy1 ON test.table1 AS PERMISSIVE TO root USING (k1 = 1)"));
     }

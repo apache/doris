@@ -116,7 +116,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
-----------hashAgg[LOCAL]
+----------hashAgg[GLOBAL]
 ------------PhysicalOlapScan[mal_test1]
 
 -- !inner_agg_has_distinct_same_keys_shape --
@@ -125,10 +125,8 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
-----------hashAgg[DISTINCT_LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalOlapScan[mal_test1]
+----------hashAgg[GLOBAL]
+------------PhysicalOlapScan[mal_test1]
 
 -- !middle_project_has_expression_cannot_merge_shape1 --
 PhysicalResultSink
@@ -140,7 +138,7 @@ PhysicalResultSink
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashAgg[LOCAL]
+------------------hashAgg[GLOBAL]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[mal_test1]
 
@@ -154,7 +152,7 @@ PhysicalResultSink
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashAgg[LOCAL]
+------------------hashAgg[GLOBAL]
 --------------------PhysicalOlapScan[mal_test1]
 
 -- !maxGroupKey_minGroupKey_sumGroupKey_cannot_merge_shape --
@@ -164,7 +162,7 @@ PhysicalResultSink
 ------hashAgg[GLOBAL]
 --------PhysicalDistribute[DistributionSpecHash]
 ----------hashAgg[LOCAL]
-------------hashAgg[LOCAL]
+------------hashAgg[GLOBAL]
 --------------PhysicalProject
 ----------------PhysicalOlapScan[mal_test1]
 
@@ -176,7 +174,7 @@ PhysicalResultSink
 --------PhysicalDistribute[DistributionSpecHash]
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
---------------hashAgg[LOCAL]
+--------------hashAgg[GLOBAL]
 ----------------PhysicalOlapScan[mal_test1]
 
 -- !group_key_not_contain_cannot_merge_shape --
@@ -187,7 +185,7 @@ PhysicalResultSink
 --------PhysicalDistribute[DistributionSpecHash]
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
---------------hashAgg[LOCAL]
+--------------hashAgg[GLOBAL]
 ----------------PhysicalOlapScan[mal_test1]
 
 -- !outer_agg_has_distinct_cannot_merge_shape --
@@ -200,7 +198,7 @@ PhysicalResultSink
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashAgg[LOCAL]
+------------------hashAgg[GLOBAL]
 --------------------PhysicalOlapScan[mal_test1]
 
 -- !inner_agg_has_distinct_cannot_merge_shape --
@@ -213,10 +211,8 @@ PhysicalResultSink
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashAgg[DISTINCT_LOCAL]
---------------------hashAgg[GLOBAL]
-----------------------hashAgg[LOCAL]
-------------------------PhysicalOlapScan[mal_test1]
+------------------hashAgg[GLOBAL]
+--------------------PhysicalOlapScan[mal_test1]
 
 -- !agg_with_expr_cannot_merge_shape1 --
 PhysicalResultSink
@@ -228,7 +224,7 @@ PhysicalResultSink
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashAgg[LOCAL]
+------------------hashAgg[GLOBAL]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[mal_test1]
 
@@ -242,7 +238,7 @@ PhysicalResultSink
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashAgg[LOCAL]
+------------------hashAgg[GLOBAL]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[mal_test1]
 

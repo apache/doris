@@ -22,7 +22,7 @@ suite("test_hive_compress_type", "p0,external,hive,external_docker,external_dock
         return;
     }
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name = "${hivePrefix}_test_hive_compress_type"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -48,7 +48,7 @@ suite("test_hive_compress_type", "p0,external,hive,external_docker,external_dock
         sql """set file_split_size=8388608"""
         explain {
             sql("select count(*) from test_compress_partitioned")
-            contains "inputSplitNum=82, totalFileSize=734675596, scanRanges=82"
+            contains "inputSplitNum=16, totalFileSize=734675596, scanRanges=16"
             contains "partition=8/8"
         }
 

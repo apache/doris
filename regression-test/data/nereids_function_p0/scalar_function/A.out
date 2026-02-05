@@ -509,6 +509,12 @@ p4023ffe5257e7cworld111112e2e2e2e20
 -- !sql_auto_partition_name_list_literal_mixed --
 plist4X11X
 
+-- !sql_auto_partition_name_list_literal_mixed --
+p4f60597d20hello214023ffe5257e7cworld111112e2e2e2e_14dcd01b
+
+-- !sql_auto_partition_name_list_literal_mixed --
+pthis5fis5fa5fvery5flong5ftenant5fgroup5fname5ftha_45266af1
+
 -- !sql_auto_partition_name_list_literal_null --
 pXXX
 

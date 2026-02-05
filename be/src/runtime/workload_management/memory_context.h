@@ -89,13 +89,14 @@ public:
     void set_mem_limit(int64_t new_mem_limit) const { mem_tracker_->set_limit(new_mem_limit); }
     int64_t mem_limit() const { return mem_tracker_->limit(); }
 
+    int64_t user_set_mem_limit() const { return user_set_mem_limit_; }
+
     // The new memlimit should be less than user set memlimit.
     void set_adjusted_mem_limit(int64_t new_mem_limit) {
         adjusted_mem_limit_ = std::min<int64_t>(new_mem_limit, user_set_mem_limit_);
     }
     // Expected mem limit is the limit when workload group reached limit.
     int64_t adjusted_mem_limit() { return adjusted_mem_limit_; }
-    void effect_adjusted_mem_limit() { set_mem_limit(adjusted_mem_limit_); }
 
     int64_t current_memory_bytes() const { return mem_tracker_->consumption(); }
     int64_t peak_memory_bytes() const { return mem_tracker_->peak_consumption(); }

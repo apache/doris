@@ -56,13 +56,18 @@ public class MoneyFormat extends ScalarFunction
         super("money_format", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MoneyFormat(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public MoneyFormat withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new MoneyFormat(children.get(0));
+        return new MoneyFormat(getFunctionParams(children));
     }
 
     @Override

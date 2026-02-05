@@ -19,7 +19,7 @@
 
 #include <regex>
 
-#include "vec/exec/format/parquet/parquet_pred_cmp.h"
+#include "vec/exec/format/parquet/parquet_predicate.h"
 
 namespace doris {
 namespace vectorized {

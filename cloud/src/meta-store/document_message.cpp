@@ -27,6 +27,7 @@
 #include <string_view>
 
 #include "common/config.h"
+#include "common/lexical_util.h"
 #include "common/util.h"
 #include "meta-store/codec.h"
 #include "meta-store/txn_kv.h"
@@ -37,23 +38,6 @@ namespace doris::cloud {
 namespace details {
 
 constexpr uint32_t VERSIONSTAMP_DISABLED = std::numeric_limits<uint32_t>::max();
-
-static std::string lexical_next(std::string_view str) {
-    return std::string(str) + '\0';
-}
-
-static std::string lexical_end(std::string_view str) {
-    std::string::size_type pos = str.find_last_not_of('\xff');
-    if (pos == std::string::npos) {
-        // If the string is all '\xff', we return an empty string.
-        return {};
-    } else {
-        // Otherwise, we return the string with the last character incremented by one.
-        std::string result(str.substr(0, pos + 1));
-        result[pos]++;
-        return result;
-    }
-}
 
 void document_delete_single(Transaction* txn, std::string_view key) {
     txn->remove(key);
@@ -103,6 +87,9 @@ struct MessageSplitDescriptor {
                    config::split_rowset_meta_pb_size < msg.ByteSizeLong();
         } else if constexpr (std::is_same_v<Message, SplitSingleMessagePB>) {
             return true;
+        } else if constexpr (std::is_same_v<Message, TabletSchemaCloudPB>) {
+            return config::enable_split_tablet_schema_pb &&
+                   config::split_tablet_schema_pb_size < msg.ByteSizeLong();
         }
         return false;
     }
@@ -112,6 +99,8 @@ struct MessageSplitDescriptor {
             return {RowsetMetaCloudPB::kSegmentsKeyBoundsFieldNumber};
         } else if constexpr (std::is_same_v<Message, SplitSingleMessagePB>) {
             return {SplitSingleMessagePB::kSegmentKeyBoundsFieldNumber};
+        } else if constexpr (std::is_same_v<Message, TabletSchemaCloudPB>) {
+            return {TabletSchemaCloudPB::kColumnFieldNumber};
         }
         return {};
     }
@@ -256,6 +245,7 @@ bool document_put(Transaction* txn, std::string_view key, google::protobuf::Mess
 
     const SplitMethodDescriptor split_messages[] = {
             {RowsetMetaCloudPB::descriptor(), &document_put_split_fields<RowsetMetaCloudPB>},
+            {TabletSchemaCloudPB::descriptor(), &document_put_split_fields<TabletSchemaCloudPB>},
             // Add more split messages here as needed ...
             {SplitSingleMessagePB::descriptor(), &document_put_split_fields<SplitSingleMessagePB>},
     };
@@ -351,8 +341,8 @@ static TxnErrorCode parse_message_split_fields(Transaction* txn, std::string_vie
                                                const SplitSchemaPB& split_schema,
                                                google::protobuf::Message* msg, bool snapshot,
                                                ChildMessageParser child_message_parser) {
-    std::string begin_key = details::lexical_next(key_prefix);
-    std::string end_key = details::lexical_end(key_prefix);
+    std::string begin_key = lexical_next(key_prefix);
+    std::string end_key = lexical_end(key_prefix);
 
     FullRangeGetOptions options;
     options.batch_limit = 64;
@@ -423,6 +413,7 @@ static TxnErrorCode document_get_split_fields_if_exists(T* t, std::string_view k
 
     const SplitMessageDescriptor split_messages[] = {
             {RowsetMetaCloudPB::descriptor(), &document_get_split_fields<T, RowsetMetaCloudPB>},
+            {TabletSchemaCloudPB::descriptor(), &document_get_split_fields<T, TabletSchemaCloudPB>},
             // Add more split messages here as needed ...
             {SplitSingleMessagePB::descriptor(),
              &document_get_split_fields<T, SplitSingleMessagePB>}};
@@ -601,6 +592,8 @@ static bool document_put_with_encoded_key(Transaction* txn, std::string_view key
     const SplitMethodDescriptor split_messages[] = {
             {RowsetMetaCloudPB::descriptor(),
              &versioned_document_put_split_fields<RowsetMetaCloudPB>},
+            {TabletSchemaCloudPB::descriptor(),
+             &versioned_document_put_split_fields<TabletSchemaCloudPB>},
             // Add more split messages here as needed ...
             {SplitSingleMessagePB::descriptor(),
              &versioned_document_put_split_fields<SplitSingleMessagePB>},

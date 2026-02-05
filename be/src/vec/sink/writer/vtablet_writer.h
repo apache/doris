@@ -31,6 +31,8 @@
 #include <google/protobuf/stubs/callback.h>
 
 // IWYU pragma: no_include <bits/chrono.h>
+#include <bthread/mutex.h>
+
 #include <atomic>
 #include <chrono> // IWYU pragma: keep
 #include <cstddef>
@@ -216,6 +218,7 @@ struct WriterStats {
     int64_t max_wait_exec_time_ns = 0;
     int64_t total_add_batch_num = 0;
     int64_t num_node_channels = 0;
+    int64_t load_back_pressure_version_time_ms = 0;
     VNodeChannelStat channel_stat;
 };
 
@@ -312,6 +315,8 @@ public:
             writer_stats->total_wait_exec_time_ns +=
                     (_add_batch_counter.add_batch_wait_execution_time_us * 1000);
             writer_stats->total_add_batch_num += _add_batch_counter.add_batch_num;
+            writer_stats->load_back_pressure_version_time_ms +=
+                    _load_back_pressure_version_block_ms;
         }
     }
 
@@ -341,6 +346,10 @@ protected:
                                      const WriteBlockCallbackContext& ctx);
     void _add_block_failed_callback(const WriteBlockCallbackContext& ctx);
 
+    void _refresh_back_pressure_version_wait_time(
+            const ::google::protobuf::RepeatedPtrField<::doris::PTabletLoadRowsetInfo>&
+                    tablet_load_infos);
+
     VTabletWriter* _parent = nullptr;
     IndexChannel* _index_channel = nullptr;
     int64_t _node_id = -1;
@@ -348,6 +357,7 @@ protected:
     std::string _name;
 
     std::shared_ptr<MemTracker> _node_channel_tracker;
+    int64_t _load_mem_limit = -1;
 
     TupleDescriptor* _tuple_desc = nullptr;
     NodeInfo _node_info;
@@ -396,6 +406,7 @@ protected:
     std::atomic<int64_t> _serialize_batch_ns {0};
     std::atomic<int64_t> _queue_push_lock_ns {0};
     std::atomic<int64_t> _actual_consume_ns {0};
+    std::atomic<int64_t> _load_back_pressure_version_block_ms {0};
 
     VNodeChannelStat _stat;
     // lock to protect _is_closed.
@@ -434,6 +445,7 @@ protected:
     bool _is_incremental;
 
     std::atomic<int64_t> _write_bytes {0};
+    std::atomic<int64_t> _load_back_pressure_version_wait_time_ms {0};
 };
 
 // an IndexChannel is related to specific table and its rollup and mv
@@ -693,7 +705,7 @@ private:
     std::unique_ptr<OlapTabletFinder> _tablet_finder;
 
     // index_channel
-    std::mutex _stop_check_channel;
+    bthread::Mutex _stop_check_channel;
     std::vector<std::shared_ptr<IndexChannel>> _channels;
     std::unordered_map<int64_t, std::shared_ptr<IndexChannel>> _index_id_to_channel;
 
@@ -733,6 +745,7 @@ private:
     RuntimeProfile::Counter* _max_wait_exec_timer = nullptr;
     RuntimeProfile::Counter* _add_batch_number = nullptr;
     RuntimeProfile::Counter* _num_node_channels = nullptr;
+    RuntimeProfile::Counter* _load_back_pressure_version_time_ms = nullptr;
 
     // the timeout of load channels opened by this tablet sink. in second
     int64_t _load_channel_timeout_s = 0;

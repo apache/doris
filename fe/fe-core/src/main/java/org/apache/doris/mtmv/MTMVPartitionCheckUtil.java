@@ -120,7 +120,7 @@ public class MTMVPartitionCheckUtil {
     @VisibleForTesting
     public static Pair<Boolean, String> compareAutoPartition(OlapTable originalTable,
             OlapTable relatedTable) throws AnalysisException {
-        if (!isDynamicPartition(relatedTable)) {
+        if (!isAutoPartition(relatedTable)) {
             return Pair.of(false, "relatedTable is not dynamic partition.");
         }
         FunctionIntervalInfo originalFunctionIntervalInfo = PartitionExprUtil.getFunctionIntervalInfo(

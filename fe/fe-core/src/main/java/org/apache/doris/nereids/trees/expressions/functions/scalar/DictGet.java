@@ -49,6 +49,11 @@ public class DictGet extends ScalarFunction implements CustomSignature, AlwaysNu
         super("dict_get", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private DictGet(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (getArguments().size() != 3) {
@@ -63,7 +68,7 @@ public class DictGet extends ScalarFunction implements CustomSignature, AlwaysNu
         String[] firstNames = ((Literal) getArgument(0)).getStringValue().split("\\."); // db.dict
         String dbName = firstNames[0];
         String dictName = firstNames[1];
-        if (dbName.length() == 0 || dictName.length() == 0) {
+        if (dbName.isEmpty() || dictName.isEmpty()) {
             throw new AnalysisException("dict_get() requires dbName.dictName as first argument");
         }
     }
@@ -128,7 +133,7 @@ public class DictGet extends ScalarFunction implements CustomSignature, AlwaysNu
     @Override
     public DictGet withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new DictGet(children.get(0), children.get(1), children.get(2));
+        return new DictGet(getFunctionParams(children));
     }
 
     @Override

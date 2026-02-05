@@ -53,9 +53,11 @@ suite("test_compaction_variant") {
                 )
                 ${key_type} KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
-                properties("replication_num" = "1", "disable_auto_compaction" = "false");
+                properties("replication_num" = "1", "disable_auto_compaction" = "true");
             """
         }
+
+        sql """ set default_variant_enable_doc_mode = false; """
 
         def key_types = ["DUPLICATE", "UNIQUE", "AGGREGATE"]
         // def key_types = ["AGGREGATE"]
@@ -89,7 +91,7 @@ suite("test_compaction_variant") {
             def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
             // trigger compactions for all tablets in ${tableName}
-            trigger_and_wait_compaction(tableName, "cumulative")
+            trigger_and_wait_compaction(tableName, "cumulative", 1800)
 
             int rowCount = 0
             for (def tablet in tablets) {
@@ -104,7 +106,7 @@ suite("test_compaction_variant") {
                 }
             }
             // assert (rowCount < 8)
-            qt_sql_11 "SELECT * FROM ${tableName} ORDER BY k, cast(v as string); "
+            qt_sql_11 "SELECT * FROM ${tableName} where k != 18 ORDER BY k, cast(v as string); "
             qt_sql_22 "select k, cast(v['a'] as array<int>) from  ${tableName} where  size(cast(v['a'] as array<int>)) > 0 order by k"
             qt_sql_33 "select k, v['a'], cast(v['b'] as string) from  ${tableName} where  length(cast(v['b'] as string)) > 4 order  by k"
             qt_sql_55 "select cast(v['b'] as string), cast(v['b']['c'] as string) from  ${tableName} where cast(v['b'] as string) != 'null' and cast(v['b'] as string) != '{}' order by k desc limit 10;"

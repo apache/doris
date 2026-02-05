@@ -51,13 +51,18 @@ public class AppendTrailingCharIfAbsent extends ScalarFunction
         super("append_trailing_char_if_absent", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private AppendTrailingCharIfAbsent(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public AppendTrailingCharIfAbsent withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new AppendTrailingCharIfAbsent(children.get(0), children.get(1));
+        return new AppendTrailingCharIfAbsent(getFunctionParams(children));
     }
 
     @Override

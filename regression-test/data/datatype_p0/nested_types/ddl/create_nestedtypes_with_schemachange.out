@@ -45,7 +45,7 @@ col4	map<int,int>	Yes	false	\N	NONE
 col5	struct<f1:int>	Yes	false	\N	NONE
 
 -- !sql_before --
-1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1, 2, 3]}
 
 -- !master_sql --
 col0	bigint	No	true	\N	
@@ -53,13 +53,13 @@ col2	int	No	false	\N	NONE
 col3	array<int>	Yes	false	\N	NONE
 col4	map<int,int>	Yes	false	\N	NONE
 col5	struct<f1:int>	Yes	false	\N	NONE
-col6	variant	Yes	false	\N	NONE
+col6	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "0","variant_sparse_hash_shard_count" = "0")>	Yes	false	\N	NONE
 
 -- !sql_after --
-1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1, 2, 3]}
 
 -- !sql_before --
-1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1, 2, 3]}
 
 -- !master_sql --
 col0	bigint	No	true	\N	
@@ -67,13 +67,13 @@ col2	int	No	false	\N	NONE
 col3	array<int>	Yes	false	\N	NONE
 col4	map<int,int>	No	false	\N	NONE
 col5	struct<f1:int>	No	false	\N	NONE
-col6	variant	No	false	\N	NONE
+col6	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "0","variant_sparse_hash_shard_count" = "0")>	No	false	\N	NONE
 
 -- !sql_after --
-1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1, 2, 3]}
 
 -- !sql_before --
-1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1, 2, 3]}
 
 -- !master_sql --
 col0	bigint	No	true	\N	
@@ -81,13 +81,13 @@ col2	int	No	false	\N	NONE
 col3	array<int>	Yes	false	\N	NONE
 col4	map<int,int>	Yes	false	\N	NONE
 col5	struct<f1:int>	Yes	false	\N	NONE
-col6	variant	Yes	false	\N	NONE
+col6	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "0","variant_sparse_hash_shard_count" = "0")>	Yes	false	\N	NONE
 
 -- !sql_after --
-1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1, 2, 3]}
 
 -- !sql_before --
-1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1, 2, 3]}
 
 -- !master_sql --
 col0	bigint	No	true	\N	
@@ -95,13 +95,13 @@ col2	int	No	false	\N	NONE
 col3	array<int>	No	false	\N	NONE
 col4	map<int,int>	Yes	false	\N	NONE
 col5	struct<f1:int>	No	false	\N	NONE
-col6	variant	No	false	\N	NONE
+col6	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "0","variant_sparse_hash_shard_count" = "0")>	No	false	\N	NONE
 
 -- !sql_after --
-1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1, 2, 3]}
 
 -- !sql_before --
-1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1, 2, 3]}
 
 -- !master_sql --
 col0	bigint	No	true	\N	
@@ -109,13 +109,13 @@ col2	int	No	false	\N	NONE
 col3	array<int>	Yes	false	\N	NONE
 col4	map<int,int>	Yes	false	\N	NONE
 col5	struct<f1:int>	Yes	false	\N	NONE
-col6	variant	Yes	false	\N	NONE
+col6	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "0","variant_sparse_hash_shard_count" = "0")>	Yes	false	\N	NONE
 
 -- !sql_after --
-1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1, 2, 3]}
 
 -- !sql_before --
-1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1, 2, 3]}
 
 -- !master_sql --
 col0	bigint	No	true	\N	
@@ -123,8 +123,8 @@ col2	int	No	false	\N	NONE
 col3	array<int>	No	false	\N	NONE
 col4	map<int,int>	No	false	\N	NONE
 col5	struct<f1:int>	Yes	false	\N	NONE
-col6	variant	No	false	\N	NONE
+col6	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "0","variant_sparse_hash_shard_count" = "0")>	No	false	\N	NONE
 
 -- !sql_after --
-1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1, 2, 3]}
 

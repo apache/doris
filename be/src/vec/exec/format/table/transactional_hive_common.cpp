@@ -17,6 +17,8 @@
 
 #include "transactional_hive_common.h"
 
+#include <unordered_map>
+
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
@@ -69,6 +71,11 @@ const std::vector<std::string> TransactionalHive::ACID_COLUMN_NAMES = {
 const std::vector<std::string> TransactionalHive::ACID_COLUMN_NAMES_LOWER_CASE = {
         OPERATION_LOWER_CASE, ORIGINAL_TRANSACTION_LOWER_CASE, BUCKET_LOWER_CASE,
         ROW_ID_LOWER_CASE,    CURRENT_TRANSACTION_LOWER_CASE,  ROW_LOWER_CASE};
+
+const std::unordered_map<std::string, uint32_t> TransactionalHive::DELETE_COL_NAME_TO_BLOCK_IDX = {
+        {DELETE_ROW_PARAMS[0].column_lower_case, 0},
+        {DELETE_ROW_PARAMS[1].column_lower_case, 1},
+        {DELETE_ROW_PARAMS[2].column_lower_case, 2}};
 
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

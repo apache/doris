@@ -39,10 +39,6 @@ public class ArrayFirstIndex extends ScalarFunction
             FunctionSignature.ret(BigIntType.INSTANCE).args(ArrayType.of(BooleanType.INSTANCE))
     );
 
-    private ArrayFirstIndex(List<Expression> expressions) {
-        super("array_first_index", expressions);
-    }
-
     /**
      * constructor with arguments.
      * array_first_index(lambda, a1, ...) = array_first_index(array_map(lambda, a1, ...))
@@ -51,12 +47,17 @@ public class ArrayFirstIndex extends ScalarFunction
         super("array_first_index", arg instanceof Lambda ? new ArrayMap(arg) : arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayFirstIndex(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayFirstIndex withChildren(List<Expression> children) {
-        return new ArrayFirstIndex(children);
+        return new ArrayFirstIndex(getFunctionParams(children));
     }
 
     @Override

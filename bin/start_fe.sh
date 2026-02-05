@@ -34,6 +34,7 @@ OPTS="$(getopt \
     -l 'version' \
     -l 'metadata_failure_recovery' \
     -l 'console' \
+    -l 'cluster_snapshot:' \
     -- "$@")"
 
 eval set -- "${OPTS}"
@@ -45,6 +46,7 @@ IMAGE_PATH=''
 IMAGE_TOOL=''
 OPT_VERSION=''
 METADATA_FAILURE_RECOVERY=''
+CLUSTER_SNAPSHOT=''
 while true; do
     case "$1" in
     --daemon)
@@ -70,6 +72,10 @@ while true; do
     --image)
         IMAGE_TOOL=1
         IMAGE_PATH="$2"
+        shift 2
+        ;;
+    --cluster_snapshot)
+        CLUSTER_SNAPSHOT="-cluster_snapshot $2"
         shift 2
         ;;
     --)
@@ -187,6 +193,103 @@ log() {
     fi
 }
 
+# Extract the matching key from a Java option for deduplication purposes.
+# Different option types have different key extraction rules:
+#   --add-opens=java.base/sun.util.calendar=ALL-UNNAMED -> --add-opens=java.base/sun.util.calendar
+#   -XX:+HeapDumpOnOutOfMemoryError                     -> -XX:[+-]HeapDumpOnOutOfMemoryError
+#   -XX:HeapDumpPath=/path                              -> -XX:HeapDumpPath
+#   -Dfile.encoding=UTF-8                               -> -Dfile.encoding
+#   -Xmx8192m                                           -> -Xmx
+extract_java_opt_key() {
+    local param="$1"
+
+    case "${param}" in
+        "--add-opens="* | "--add-exports="* | "--add-reads="* | "--add-modules="*)
+            # --add-opens=java.base/sun.util.calendar=ALL-UNNAMED
+            # Extract module/package path as key: --add-opens=java.base/sun.util.calendar
+            echo "${param%=*}"
+            ;;
+        -XX:+* | -XX:-*)
+            # -XX:+HeapDumpOnOutOfMemoryError or -XX:-OmitStackTraceInFastThrow
+            # Extract flag name for pattern matching: -XX:[+-]FlagName
+            local flag_name="${param#-XX:?}"
+            echo "-XX:[+-]${flag_name}"
+            ;;
+        -XX:*=*)
+            # -XX:HeapDumpPath=/path or -XX:OnOutOfMemoryError="cmd"
+            # Extract key before '=': -XX:HeapDumpPath
+            echo "${param%%=*}"
+            ;;
+        -D*=*)
+            # -Dfile.encoding=UTF-8
+            # Extract property name: -Dfile.encoding
+            echo "${param%%=*}"
+            ;;
+        -D*)
+            # -Dfoo (boolean property without value)
+            echo "${param}"
+            ;;
+        -Xms* | -Xmx* | -Xmn* | -Xss*)
+            # -Xmx8192m, -Xms8192m, -Xmn2g, -Xss512k
+            # Extract the prefix: -Xmx, -Xms, -Xmn, -Xss
+            echo "${param}" | sed -E 's/^(-Xm[sxn]|-Xss).*/\1/'
+            ;;
+        -Xlog:*)
+            # -Xlog:gc*:file:decorators
+            # Use prefix as key
+            echo "-Xlog:"
+            ;;
+        *)
+            # For other options, use the full parameter as key
+            echo "${param}"
+            ;;
+    esac
+}
+
+# Check if a Java option already exists in the options string.
+# Arguments:
+#   $1 - The full java options string
+#   $2 - The option to check
+# Returns: 0 if exists, 1 if not exists
+java_opt_exists() {
+    local java_opts="$1"
+    local param="$2"
+    local key
+    key="$(extract_java_opt_key "${param}")"
+
+    # For -XX:[+-] boolean flags, use regex matching
+    if [[ "${key}" =~ ^\-XX:\[\+\-\](.+)$ ]]; then
+        local flag_name="${BASH_REMATCH[1]}"
+        # Add spaces around to ensure word boundary matching
+        if echo " ${java_opts} " | grep -qE " -XX:[+-]${flag_name}( |$)"; then
+            return 0
+        fi
+    else
+        # For other options, use fixed string matching
+        # Add spaces around to ensure word boundary matching
+        if echo " ${java_opts} " | grep -qF " ${key}"; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Add a Java option to final_java_opt if it doesn't already exist.
+# This function modifies the global variable 'final_java_opt'.
+# Arguments:
+#   $1 - The option to add
+# Usage:
+#   add_java_opt_if_missing "--add-opens=java.base/sun.util.calendar=ALL-UNNAMED"
+#   add_java_opt_if_missing "-XX:+HeapDumpOnOutOfMemoryError"
+#   add_java_opt_if_missing "-Dfile.encoding=UTF-8"
+add_java_opt_if_missing() {
+    local param="$1"
+    if ! java_opt_exists "${final_java_opt}" "${param}"; then
+        final_java_opt="${final_java_opt} ${param}"
+        log "Added missing Java option: ${param}"
+    fi
+}
+
 # check java version and choose correct JAVA_OPTS
 java_version="$(
     set -e
@@ -203,6 +306,33 @@ else
     exit 1
 fi
 log "Using Java version ${java_version}"
+
+# Add essential Java options if they are not already present in final_java_opt.
+# Users can customize JAVA_OPTS_FOR_JDK_17 in fe.conf, but these options ensure
+# basic functionality and compatibility.
+add_java_opt_if_missing "-Dhadoop.shell.setsid.enabled=false"
+add_java_opt_if_missing "-Darrow.enable_null_check_for_get=false"
+add_java_opt_if_missing "-Djavax.security.auth.useSubjectCredsOnly=false"
+add_java_opt_if_missing "-Dsun.security.krb5.debug=true"
+add_java_opt_if_missing "-Dfile.encoding=UTF-8"
+add_java_opt_if_missing "--add-opens=java.base/java.lang=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.lang.invoke=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.io=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.net=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.nio=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.util=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.util.concurrent=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/sun.nio.cs=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/sun.security.action=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/sun.util.calendar=ALL-UNNAME"
+add_java_opt_if_missing "--add-opens=java.security.jgss/sun.security.krb5=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.management/sun.management=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.base/jdk.internal.ref=ALL-UNNAMED"
+add_java_opt_if_missing "--add-opens=java.xml/com.sun.org.apache.xerces.internal.jaxp=ALL-UNNAMED"
+
 log "${final_java_opt}"
 export JAVA_OPTS="${final_java_opt}"
 
@@ -288,12 +418,12 @@ if [[ "${IMAGE_TOOL}" -eq 1 ]]; then
         echo "Internal error, USE IMAGE_TOOL like: ./start_fe.sh --image image_path"
     fi
 elif [[ "${RUN_DAEMON}" -eq 1 ]]; then
-    nohup ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} "${METADATA_FAILURE_RECOVERY}" "$@" >>"${STDOUT_LOGGER}" 2>&1 </dev/null &
+    nohup ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} "${METADATA_FAILURE_RECOVERY}" "${CLUSTER_SNAPSHOT}" "$@" >>"${STDOUT_LOGGER}" 2>&1 </dev/null &
 elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
     export DORIS_LOG_TO_STDERR=1
-    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "${METADATA_FAILURE_RECOVERY}" "$@" </dev/null
+    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "${METADATA_FAILURE_RECOVERY}" "${CLUSTER_SNAPSHOT}" "$@" </dev/null
 else
-    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "${METADATA_FAILURE_RECOVERY}" "$@" >>"${STDOUT_LOGGER}" 2>&1 </dev/null
+    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "${METADATA_FAILURE_RECOVERY}" "${CLUSTER_SNAPSHOT}" "$@" >>"${STDOUT_LOGGER}" 2>&1 </dev/null
 fi
 
 if [[ "${OPT_VERSION}" != "" ]]; then

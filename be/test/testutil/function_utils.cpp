@@ -22,8 +22,8 @@
 #include <memory>
 #include <vector>
 
-#include "udf/udf.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exprs/function_context.h"
 
 namespace doris {
 
@@ -34,6 +34,7 @@ FunctionUtils::FunctionUtils(const vectorized::DataTypePtr& return_type,
     globals.__set_now_string("2019-08-06 01:38:57");
     globals.__set_timestamp_ms(1565026737805);
     globals.__set_time_zone("Asia/Shanghai");
+    globals.__set_nano_seconds(805000000);
 
     _state = std::make_unique<MockRuntimeState>(globals);
     _fn_ctx = FunctionContext::create_context(_state.get(), return_type, arg_types);

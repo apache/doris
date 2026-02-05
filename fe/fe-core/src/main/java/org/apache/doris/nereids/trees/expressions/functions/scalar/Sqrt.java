@@ -48,13 +48,18 @@ public class Sqrt extends ScalarFunction
         super("sqrt", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Sqrt(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Sqrt withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Sqrt(children.get(0));
+        return new Sqrt(getFunctionParams(children));
     }
 
     @Override

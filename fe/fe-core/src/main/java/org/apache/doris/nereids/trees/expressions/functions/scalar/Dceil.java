@@ -59,17 +59,18 @@ public class Dceil extends ScalarFunction
         super("dceil", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Dceil(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Dceil withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
-        if (children.size() == 1) {
-            return new Dceil(children.get(0));
-        } else {
-            return new Dceil(children.get(0), children.get(1));
-        }
+        return new Dceil(getFunctionParams(children));
     }
 
     @Override

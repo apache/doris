@@ -45,13 +45,18 @@ public class Ipv6StringToNumOrNull extends ScalarFunction
         super("ipv6_string_to_num_or_null", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Ipv6StringToNumOrNull(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public Ipv6StringToNumOrNull withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "ipv6_string_to_num_or_null accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new Ipv6StringToNumOrNull(children.get(0));
+        return new Ipv6StringToNumOrNull(getFunctionParams(children));
     }
 
     @Override

@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateOrTimeLikeV2Args;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -35,19 +35,24 @@ import java.util.List;
  * ScalarFunction 'microsecond_timestamp'.
  */
 public class MicroSecondTimestamp extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateOrTimeLikeV2Args {
+        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT));
+            FunctionSignature.ret(BigIntType.INSTANCE).args(DateTimeV2Type.WILDCARD));
 
     public MicroSecondTimestamp(Expression arg0) {
         super("microsecond_timestamp", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MicroSecondTimestamp(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public MicroSecondTimestamp withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new MicroSecondTimestamp(children.get(0));
+        return new MicroSecondTimestamp(getFunctionParams(children));
     }
 
     @Override

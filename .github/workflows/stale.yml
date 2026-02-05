@@ -25,8 +25,11 @@ on:
 jobs:
   stale:
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
     steps:
-    - uses: actions/stale@c201d45ef4b0ccbd3bb0616f93bae13e73d0a080 # pin@v1.1.0
+    - uses: actions/stale@v3
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
         stale-pr-message: >
@@ -37,7 +40,13 @@ jobs:
 
           If you'd like to revive this PR, please reopen it and feel free a
           maintainer to remove the Stale tag!
-        days-before-stale: 180
-        # Setting this to 0 is the same as setting it to 1.
-        # See: https://github.com/actions/stale/issues/28
-        days-before-close: 0
+        stale-issue-message: >
+          We're closing this issue because it hasn't been updated in a while.
+          
+          If you'd like to revive this issue, please reopen it and feel free a
+          maintainer to remove the Stale tag!
+          
+        days-before-pr-stale: 180
+        days-before-issue-stale: 180
+        days-before-close: 10
+        operations-per-run: 1000

@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <atomic>
 #include <vector>
 
 #include "common/status.h"
@@ -59,7 +60,7 @@ public:
 
     //only used for FileScanner read one line.
     Scanner(RuntimeState* state, RuntimeProfile* profile)
-            : _state(state), _limit(1), _profile(profile), _total_rf_num(0) {
+            : _state(state), _limit(1), _profile(profile), _total_rf_num(0), _has_prepared(false) {
         DorisMetrics::instance()->scanner_cnt->increment(1);
     };
 
@@ -70,13 +71,14 @@ public:
         _projections.clear();
         _origin_block.clear();
         _common_expr_ctxs_push_down.clear();
-        _stale_expr_ctxs.clear();
         DorisMetrics::instance()->scanner_cnt->increment(-1);
     }
 
-    virtual Status init() { return Status::OK(); }
-    // Not virtual, all child will call this method explictly
-    virtual Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
+    virtual Status init(RuntimeState* state, const VExprContextSPtrs& conjuncts);
+    virtual Status prepare() {
+        _has_prepared = true;
+        return Status::OK();
+    }
     virtual Status open(RuntimeState* state) {
         _block_avg_bytes = state->batch_size() * 8;
         return Status::OK();
@@ -100,8 +102,23 @@ protected:
     // Subclass should implement this to return data.
     virtual Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) = 0;
 
+    Status _merge_padding_block() {
+        if (_padding_block.empty()) {
+            _padding_block.swap(_origin_block);
+        } else if (_origin_block.rows()) {
+            RETURN_IF_ERROR(
+                    MutableBlock::build_mutable_block(&_padding_block).merge(_origin_block));
+        }
+        return Status::OK();
+    }
+
     // Update the counters before closing this scanner
     virtual void _collect_profile_before_close();
+
+    // Check if scanner is already closed, if not, mark it as closed.
+    // Returns true if the scanner was successfully marked as closed (first time).
+    // Returns false if the scanner was already closed.
+    bool _try_close();
 
     // Filter the output block finally.
     Status _filter_output_block(Block* block);
@@ -114,7 +131,7 @@ public:
     int64_t projection_time() const { return _projection_timer; }
     int64_t get_rows_read() const { return _num_rows_read; }
 
-    bool is_init() const { return _is_init; }
+    bool has_prepared() const { return _has_prepared; }
 
     Status try_append_late_arrival_runtime_filter();
 
@@ -142,7 +159,7 @@ public:
 
     RuntimeState* runtime_state() { return _state; }
 
-    bool is_open() { return _is_open; }
+    bool is_open() const { return _is_open; }
     void set_opened() { _is_open = true; }
 
     virtual doris::TabletStorageType get_storage_type() {
@@ -171,13 +188,6 @@ public:
     void update_block_avg_bytes(size_t block_avg_bytes) { _block_avg_bytes = block_avg_bytes; }
 
 protected:
-    void _discard_conjuncts() {
-        for (auto& conjunct : _conjuncts) {
-            _stale_expr_ctxs.emplace_back(conjunct);
-        }
-        _conjuncts.clear();
-    }
-
     RuntimeState* _state = nullptr;
     pipeline::ScanLocalStateBase* _local_state = nullptr;
 
@@ -194,7 +204,7 @@ protected:
     Block _input_block;
 
     bool _is_open = false;
-    bool _is_closed = false;
+    std::atomic<bool> _is_closed {false};
     bool _need_to_close = false;
     Status _status;
 
@@ -209,12 +219,10 @@ protected:
     // Used in common subexpression elimination to compute intermediate results.
     std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
     vectorized::Block _origin_block;
+    vectorized::Block _padding_block;
+    bool _alreay_eos = false;
 
     VExprContextSPtrs _common_expr_ctxs_push_down;
-    // Late arriving runtime filters will update _conjuncts.
-    // The old _conjuncts will be temporarily placed in _stale_expr_ctxs
-    // and will be destroyed at the end.
-    VExprContextSPtrs _stale_expr_ctxs;
 
     // num of rows read from scanner
     int64_t _num_rows_read = 0;
@@ -238,7 +246,7 @@ protected:
 
     bool _is_load = false;
 
-    bool _is_init = true;
+    bool _has_prepared = false;
 
     ScannerCounter _counter;
     int64_t _per_scanner_timer = 0;

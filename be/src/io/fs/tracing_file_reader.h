@@ -47,7 +47,10 @@ public:
     void _collect_profile_at_runtime() override { return _inner->collect_profile_at_runtime(); }
     void _collect_profile_before_close() override { return _inner->collect_profile_before_close(); }
 
+    int64_t mtime() const override { return _inner->mtime(); }
+
     FileReaderStats* stats() const { return _stats; }
+    doris::io::FileReaderSPtr inner_reader() { return _inner; }
 
 private:
     doris::io::FileReaderSPtr _inner;

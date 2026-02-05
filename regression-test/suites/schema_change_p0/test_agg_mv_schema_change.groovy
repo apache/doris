@@ -77,7 +77,7 @@ suite ("test_agg_mv_schema_change") {
 
         //add materialized view
         def mvName = "mv1"
-        sql "create materialized view ${mvName} as select user_id, date, city, age, sum(cost) from ${tableName} group by user_id, date, city, age;"
+        sql "create materialized view ${mvName} as select user_id as a1, date as a2, city as a3, age as a4, sum(cost) as a5 from ${tableName} group by user_id, date, city, age;"
 
         waitForJob(tableName, 3000)
 
@@ -88,7 +88,7 @@ suite ("test_agg_mv_schema_change") {
 
         def mvName2 = "mv2"
         test{
-            sql "create materialized view ${mvName2} as select user_id, date, city, cost, max(age) from ${tableName} group by user_id, date, city, cost, sex;"
+            sql "create materialized view ${mvName2} as select user_id as b1, date as b2, city as b3, cost as b4, max(age) as b5 from ${tableName} group by user_id, date, city, cost, sex;"
             exception "err"
         }
 

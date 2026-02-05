@@ -57,6 +57,8 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
+extern bvar::Adder<int64_t> g_sink_load_back_pressure_version_time_ms;
+
 VTabletWriterV2::VTabletWriterV2(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
                                  std::shared_ptr<pipeline::Dependency> dep,
                                  std::shared_ptr<pipeline::Dependency> fin_dep)
@@ -100,9 +102,7 @@ Status VTabletWriterV2::_incremental_open_streams(
                     tablet.set_partition_id(partition->id);
                     tablet.set_index_id(index.index_id);
                     tablet.set_tablet_id(tablet_id);
-                    if (!_load_stream_map->contains(node)) {
-                        new_backends.insert(node);
-                    }
+                    new_backends.insert(node);
                     _tablets_for_node[node].emplace(tablet_id, tablet);
                     if (known_indexes.contains(index.index_id)) [[likely]] {
                         continue;
@@ -225,7 +225,7 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
             _schema->db_id(), _schema->table_id(), _state->batch_size(),
             _schema->is_fixed_partial_update() && !_schema->auto_increment_coulumn().empty(),
             _schema->auto_increment_column_unique_id());
-    _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
+    _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc));
 
     // add all counter
     _input_rows_counter = ADD_COUNTER(_operator_profile, "RowsRead", TUnit::UNIT);
@@ -238,11 +238,15 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
             ADD_CHILD_TIMER_WITH_LEVEL(_operator_profile, "RowDistributionTime", "SendDataTime", 1);
     _write_memtable_timer =
             ADD_CHILD_TIMER_WITH_LEVEL(_operator_profile, "WriteMemTableTime", "SendDataTime", 1);
+    _add_partition_request_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+            _operator_profile, "AddPartitionRequestTime", "SendDataTime", 1);
     _validate_data_timer = ADD_TIMER_WITH_LEVEL(_operator_profile, "ValidateDataTime", 1);
     _open_timer = ADD_TIMER(_operator_profile, "OpenTime");
     _close_timer = ADD_TIMER(_operator_profile, "CloseWaitTime");
     _close_writer_timer = ADD_CHILD_TIMER(_operator_profile, "CloseWriterTime", "CloseWaitTime");
     _close_load_timer = ADD_CHILD_TIMER(_operator_profile, "CloseLoadTime", "CloseWaitTime");
+    _load_back_pressure_version_time_ms =
+            ADD_TIMER(_operator_profile, "LoadBackPressureVersionTimeMs");
 
     if (config::share_delta_writers) {
         _delta_writer_for_tablet = ExecEnv::GetInstance()->delta_writer_v2_pool()->get_or_create(
@@ -467,6 +471,21 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
         return status;
     }
 
+    int64_t total_wait_time_ms = 0;
+    auto streams_for_node = _load_stream_map->get_streams_for_node();
+    for (const auto& [dst_id, streams] : streams_for_node) {
+        for (const auto& stream : streams->streams()) {
+            auto wait_time_ms = stream->get_and_reset_load_back_pressure_version_wait_time_ms();
+            if (wait_time_ms > 0) {
+                total_wait_time_ms = std::max(total_wait_time_ms, wait_time_ms);
+            }
+        }
+    }
+    if (UNLIKELY(total_wait_time_ms > 0)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(total_wait_time_ms));
+        _load_back_pressure_version_block_ms.fetch_add(total_wait_time_ms);
+    }
+
     // check out of limit
     RETURN_IF_ERROR(_send_new_partition_batch());
 
@@ -484,17 +503,13 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
     DorisMetrics::instance()->load_rows->increment(input_rows);
     DorisMetrics::instance()->load_bytes->increment(input_bytes);
 
-    bool has_filtered_rows = false;
-    int64_t filtered_rows = 0;
-
     SCOPED_RAW_TIMER(&_send_data_ns);
     // This is just for passing compilation.
     _row_distribution_watch.start();
 
     std::shared_ptr<vectorized::Block> block;
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
-            input_block, block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
-            _number_input_rows));
+            input_block, block, _row_part_tablet_ids, _number_input_rows));
     RowsForTablet rows_for_tablet;
     _generate_rows_for_tablet(_row_part_tablet_ids, rows_for_tablet);
 
@@ -564,8 +579,11 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
     }
     {
         SCOPED_TIMER(_wait_mem_limit_timer);
-        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_workload_group_memtable_flush(
-                _state->workload_group());
+        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush(
+                [state = _state]() { return state->is_cancelled(); });
+        if (_state->is_cancelled()) {
+            return _state->cancel_reason();
+        }
     }
     SCOPED_TIMER(_write_memtable_timer);
     st = delta_writer->write(block.get(), rows.row_idxes);
@@ -623,6 +641,11 @@ Status VTabletWriterV2::close(Status exec_status) {
         status = _send_new_partition_batch();
     }
 
+    DBUG_EXECUTE_IF("VTabletWriterV2.close.sleep", {
+        auto sleep_sec = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                "VTabletWriterV2.close.sleep", "sleep_sec", 1);
+        std::this_thread::sleep_for(std::chrono::seconds(sleep_sec));
+    });
     DBUG_EXECUTE_IF("VTabletWriterV2.close.cancel",
                     { status = Status::InternalError("load cancel"); });
     if (status.ok()) {
@@ -637,6 +660,9 @@ Status VTabletWriterV2::close(Status exec_status) {
         COUNTER_SET(_send_data_timer, _send_data_ns);
         COUNTER_SET(_row_distribution_timer, (int64_t)_row_distribution_watch.elapsed_time());
         COUNTER_SET(_validate_data_timer, _block_convertor->validate_data_ns());
+        auto back_pressure_time_ms = _load_back_pressure_version_block_ms.load();
+        COUNTER_SET(_load_back_pressure_version_time_ms, back_pressure_time_ms);
+        g_sink_load_back_pressure_version_time_ms << back_pressure_time_ms;
 
         // close DeltaWriters
         {
@@ -714,6 +740,11 @@ Status VTabletWriterV2::close(Status exec_status) {
                                               _tablet_finder->num_filtered_rows());
         _state->update_num_rows_load_unselected(
                 _tablet_finder->num_immutable_partition_filtered_rows());
+
+        if (_state->enable_profile() && _state->profile_level() >= 2) {
+            // Output detailed profiling info for auto-partition requests
+            _row_distribution.output_profile_info(_operator_profile);
+        }
 
         LOG(INFO) << "finished to close olap table sink. load_id=" << print_id(_load_id)
                   << ", txn_id=" << _txn_id;

@@ -35,11 +35,11 @@ protected:
             analyzer.initDict("./be/dict/icu");
             analyzer.set_lowercase(false);
 
-            lucene::util::SStringReader<char> reader;
-            reader.init(s.data(), s.size(), false);
+            auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+            reader->init(s.data(), s.size(), false);
 
-            std::unique_ptr<ICUTokenizer> tokenizer;
-            tokenizer.reset((ICUTokenizer*)analyzer.tokenStream(L"", &reader));
+            std::unique_ptr<inverted_index::ICUTokenizer> tokenizer;
+            tokenizer.reset((inverted_index::ICUTokenizer*)analyzer.tokenStream(L"", reader));
 
             Token t;
             while (tokenizer->next(&t)) {
@@ -570,6 +570,57 @@ TEST_F(ICUTokenizerTest, TestICUScriptExtensions) {
     for (size_t i = 0; i < datas.size(); i++) {
         ASSERT_EQ(datas[i], result[i]);
     }
+}
+
+TEST_F(ICUTokenizerTest, TestICUAnalyzerCreateComponentsWithLowercase) {
+    std::vector<std::string> datas;
+
+    ICUAnalyzer analyzer;
+    analyzer.initDict("./be/dict/icu");
+    analyzer.set_lowercase(true);
+
+    std::string text = "Mixed Case TEXT with Numbers 123.";
+    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+    reader->init(text.data(), text.size(), false);
+
+    auto token_stream = analyzer.tokenStream(L"", reader);
+    ASSERT_NE(token_stream, nullptr);
+
+    Token t;
+    while (token_stream->next(&t)) {
+        std::string term(t.termBuffer<char>(), t.termLength<char>());
+        datas.emplace_back(term);
+    }
+
+    std::vector<std::string> expected = {"mixed", "case", "text", "with", "numbers", "123"};
+    ASSERT_EQ(datas.size(), expected.size());
+    for (size_t i = 0; i < datas.size(); i++) {
+        ASSERT_EQ(datas[i], expected[i]);
+    }
+
+    delete token_stream;
+}
+
+TEST_F(ICUTokenizerTest, TestICUAnalyzerTokenStreamThrowsException) {
+    ICUAnalyzer analyzer;
+    analyzer.initDict("./be/dict/icu");
+
+    std::string text = "Hello World!";
+    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+    reader->init(text.data(), text.size(), false);
+
+    EXPECT_THROW({ analyzer.tokenStream(L"", reader.get()); }, Exception);
+}
+
+TEST_F(ICUTokenizerTest, TestICUAnalyzerReusableTokenStreamThrowsException) {
+    ICUAnalyzer analyzer;
+    analyzer.initDict("./be/dict/icu");
+
+    std::string text = "Hello World!";
+    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+    reader->init(text.data(), text.size(), false);
+
+    EXPECT_THROW({ analyzer.reusableTokenStream(L"", reader.get()); }, Exception);
 }
 
 } // namespace doris::segment_v2

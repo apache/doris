@@ -17,12 +17,12 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
@@ -71,7 +71,7 @@ public class TableAddOrDropColumnsInfoTest {
         indexNameToId.put("index", 1L);
 
         List<Index> indexes = Lists.newArrayList(
-                new Index(0, "index", Lists.newArrayList("testCol1"), IndexDef.IndexType.INVERTED, null, "xxxxxx"));
+                new Index(0, "index", Lists.newArrayList("testCol1"), IndexDefinition.IndexType.INVERTED, null, "xxxxxx"));
 
         TableAddOrDropColumnsInfo tableAddOrDropColumnsInfo1 = new TableAddOrDropColumnsInfo(
                 "", dbId, tableId, tableId,

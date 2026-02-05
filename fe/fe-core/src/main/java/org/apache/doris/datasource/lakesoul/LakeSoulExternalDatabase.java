@@ -21,6 +21,10 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InitDatabaseLog;
 
+/**
+ * @deprecated LakeSoul catalog support has been deprecated and will be removed in a future version.
+ */
+@Deprecated
 public class LakeSoulExternalDatabase extends ExternalDatabase<LakeSoulExternalTable> {
 
     public LakeSoulExternalDatabase(ExternalCatalog extCatalog, long id, String name, String remoteName) {

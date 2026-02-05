@@ -43,7 +43,7 @@ public:
                 assert_cast<const DataTypeArray&>(*(arguments[0])).get_nested_type());
         auto right_nested_type = remove_nullable(
                 assert_cast<const DataTypeArray&>(*(arguments[1])).get_nested_type());
-        DCHECK(left_nested_type->equals(*right_nested_type))
+        DCHECK(left_nested_type->equals_ignore_precision(*right_nested_type))
                 << "data type " << arguments[0]->get_name() << " not equal with "
                 << arguments[1]->get_name();
         return Impl::get_return_type(arguments);

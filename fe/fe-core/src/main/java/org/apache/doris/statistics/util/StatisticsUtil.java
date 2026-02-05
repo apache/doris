@@ -18,7 +18,6 @@
 package org.apache.doris.statistics.util;
 
 import org.apache.doris.analysis.BoolLiteral;
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
@@ -27,7 +26,6 @@ import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.AggStateType;
@@ -45,7 +43,6 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.catalog.VariantType;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
@@ -58,12 +55,14 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
@@ -88,7 +87,7 @@ import org.apache.doris.system.Frontend;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.iceberg.FileScanTask;
@@ -195,7 +194,7 @@ public class StatisticsUtil {
         if (CollectionUtils.isEmpty(resultBatches)) {
             return null;
         }
-        return ColumnStatistic.fromResultRow(resultBatches);
+        return ColumnStatistic.fromResultRowList(resultBatches);
     }
 
     public static List<Histogram> deserializeToHistogramStatistics(List<ResultRow> resultBatches) {
@@ -286,6 +285,7 @@ public class StatisticsUtil {
             case DATETIME:
             case DATEV2:
             case DATETIMEV2:
+            case TIMESTAMPTZ:
                 return new DateLiteral(columnValue, type);
             case CHAR:
             case VARCHAR:
@@ -340,6 +340,9 @@ public class StatisticsUtil {
                 case DATETIME:
                     DateTimeLiteral dateTimeLiteral = new DateTimeLiteral(columnValue);
                     return dateTimeLiteral.getDouble();
+                case TIMESTAMPTZ:
+                    TimestampTzLiteral timestampTzLiteral = new TimestampTzLiteral(columnValue);
+                    return timestampTzLiteral.getDouble();
                 case CHAR:
                 case VARCHAR:
                 case STRING:
@@ -378,23 +381,6 @@ public class StatisticsUtil {
         TableIf tableIf = databaseIf.getTableNullable(tableNameInfo.getTbl());
         if (tableIf == null) {
             throw new IllegalStateException(String.format("Table:%s doesn't exist", tableNameInfo.getTbl()));
-        }
-        return new DBObjects(catalogIf, databaseIf, tableIf);
-    }
-
-    public static DBObjects convertTableNameToObjects(TableName tableName) {
-        CatalogIf<? extends DatabaseIf<? extends TableIf>> catalogIf =
-                Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
-        if (catalogIf == null) {
-            throw new IllegalStateException(String.format("Catalog:%s doesn't exist", tableName.getCtl()));
-        }
-        DatabaseIf<? extends TableIf> databaseIf = catalogIf.getDbNullable(tableName.getDb());
-        if (databaseIf == null) {
-            throw new IllegalStateException(String.format("DB:%s doesn't exist", tableName.getDb()));
-        }
-        TableIf tableIf = databaseIf.getTableNullable(tableName.getTbl());
-        if (tableIf == null) {
-            throw new IllegalStateException(String.format("Table:%s doesn't exist", tableName.getTbl()));
         }
         return new DBObjects(catalogIf, databaseIf, tableIf);
     }
@@ -766,7 +752,7 @@ public class StatisticsUtil {
         return type instanceof ArrayType
                 || type instanceof StructType
                 || type instanceof MapType
-                || type instanceof VariantType
+                || type.isVariantType()
                 || type instanceof AggStateType;
     }
 
@@ -975,7 +961,7 @@ public class StatisticsUtil {
     public static long getExternalTableAutoAnalyzeIntervalInMillis() {
         try {
             return findConfigFromGlobalSessionVar(SessionVariable.EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS)
-                .externalTableAutoAnalyzeIntervalInMillis;
+                    .externalTableAutoAnalyzeIntervalInMillis;
         } catch (Exception e) {
             LOG.warn("Failed to get value of externalTableAutoAnalyzeIntervalInMillis, return default", e);
         }
@@ -1005,7 +991,7 @@ public class StatisticsUtil {
     public static int getAutoAnalyzeTableWidthThreshold() {
         try {
             return findConfigFromGlobalSessionVar(SessionVariable.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD)
-                .autoAnalyzeTableWidthThreshold;
+                    .autoAnalyzeTableWidthThreshold;
         } catch (Exception e) {
             LOG.warn("Failed to get value of auto_analyze_table_width_threshold, return default", e);
         }
@@ -1053,8 +1039,7 @@ public class StatisticsUtil {
      */
     public static boolean isMvColumn(TableIf table, String columnName) {
         return table instanceof OlapTable
-            && columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
-            || columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
+                && table.getColumn(columnName).isMaterializedViewColumn();
     }
 
     public static boolean isEmptyTable(TableIf table, AnalysisInfo.AnalysisMethod method) {
@@ -1092,6 +1077,12 @@ public class StatisticsUtil {
         // Table never been analyzed, need analyze.
         if (tableStatsStatus == null) {
             return true;
+        } else {
+            long ctlId = table.getDatabase().getCatalog().getId();
+            //external catalog may have same table id. as the id is generated by genIdByName.
+            if (ctlId != tableStatsStatus.ctlId) {
+                return true;
+            }
         }
         // User injected column stats, don't do auto analyze, avoid overwrite user injected stats.
         if (tableStatsStatus.userInjected) {
@@ -1146,18 +1137,43 @@ public class StatisticsUtil {
             // 3. Check partition
             return needAnalyzePartition(olapTable, tableStatsStatus, columnStatsMeta);
         } else {
-            // Now, we only support Hive external table auto analyze.
-            if (!(table instanceof HMSExternalTable)) {
+            if (!StatisticsUtil.supportAutoAnalyze(table)) {
                 return false;
             }
-            HMSExternalTable hmsTable = (HMSExternalTable) table;
-            if (!hmsTable.getDlaType().equals(DLAType.HIVE)) {
-                return false;
-            }
-            // External is hard to calculate change rate, use time interval to control analyze frequency.
+            // External is hard to calculate change rate, use time interval to control
+            // analyze frequency.
             return System.currentTimeMillis()
                     - tableStatsStatus.lastAnalyzeTime > StatisticsUtil.getExternalTableAutoAnalyzeIntervalInMillis();
         }
+    }
+
+    /**
+     * Check if the table supports auto analyze feature.
+     * @param table The table to check
+     * @return true if the table supports auto analyze, false otherwise
+     */
+    public static boolean supportAutoAnalyze(TableIf table) {
+        if (table == null) {
+            return false;
+        }
+
+        // Support OLAP table
+        if (table instanceof OlapTable) {
+            return true;
+        }
+
+        // Support Iceberg table
+        if (table instanceof IcebergExternalTable) {
+            return true;
+        }
+
+        // Support HMS table (only HIVE and ICEBERG types)
+        if (table instanceof HMSExternalTable) {
+            HMSExternalTable hmsTable = (HMSExternalTable) table;
+            DLAType dlaType = hmsTable.getDlaType();
+            return dlaType.equals(DLAType.HIVE) || dlaType.equals(DLAType.ICEBERG);
+        }
+        return false;
     }
 
     public static boolean needAnalyzePartition(OlapTable table, TableStatsMeta tableStatsStatus,
@@ -1272,8 +1288,8 @@ public class StatisticsUtil {
      * value1 :percent1 ;value2 :percent2 ;value3 :percent3
      * @return Map of LiteralExpr -> percentage.
      */
-    public static LinkedHashMap<Literal, Float> getHotValues(String stringValues, Type type) {
-        if (stringValues == null) {
+    public static LinkedHashMap<Literal, Float> getHotValues(String stringValues, Type type, double avgOccurrences) {
+        if (stringValues == null || "null".equalsIgnoreCase(stringValues)) {
             return null;
         }
         try {
@@ -1281,7 +1297,8 @@ public class StatisticsUtil {
             for (String oneRow : stringValues.split(" ;")) {
                 String[] oneRowSplit = oneRow.split(" :");
                 float value = Float.parseFloat(oneRowSplit[1]);
-                if (value > SessionVariable.getHotValueThreshold()) {
+                if (value >= avgOccurrences * SessionVariable.getSkewValueThreshold()
+                        || value >= SessionVariable.getHotValueThreshold()) {
                     org.apache.doris.nereids.trees.expressions.literal.StringLiteral stringLiteral =
                             new org.apache.doris.nereids.trees.expressions.literal.StringLiteral(
                                     oneRowSplit[0].replaceAll("\\\\:", ":")

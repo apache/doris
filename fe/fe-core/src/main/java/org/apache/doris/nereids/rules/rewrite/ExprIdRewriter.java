@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
@@ -75,18 +76,10 @@ public class ExprIdRewriter extends ExpressionRewrite {
      * SlotReference:a#0 -> a#3, a#1 -> a#7
      * */
     public static class ReplaceRule implements ExpressionPatternRuleFactory {
-        private final Map<ExprId, ExprId> replaceMap;
-
-        public ReplaceRule(Map<ExprId, ExprId> replaceMap) {
-            this.replaceMap = replaceMap;
-        }
-
-        @Override
-        public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
-            return ImmutableList.of(
-                    matchesType(SlotReference.class).thenApply(ctx -> {
-                        Slot slot = ctx.expr;
-
+        private static final DefaultExpressionRewriter<Map<ExprId, ExprId>> SLOT_REPLACER =
+                new DefaultExpressionRewriter<Map<ExprId, ExprId>>() {
+                    @Override
+                    public Expression visitSlotReference(SlotReference slot, Map<ExprId, ExprId> replaceMap) {
                         ExprId newId = replaceMap.get(slot.getExprId());
                         if (newId == null) {
                             return slot;
@@ -100,6 +93,20 @@ public class ExprIdRewriter extends ExpressionRewrite {
                                 lastId = newId;
                             }
                         }
+                    }
+                };
+        private final Map<ExprId, ExprId> replaceMap;
+
+        public ReplaceRule(Map<ExprId, ExprId> replaceMap) {
+            this.replaceMap = replaceMap;
+        }
+
+        @Override
+        public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+            return ImmutableList.of(
+                    matchesType(SlotReference.class).thenApply(ctx -> {
+                        Slot slot = ctx.expr;
+                        return slot.accept(SLOT_REPLACER, replaceMap);
                     }).toRule(ExpressionRuleType.EXPR_ID_REWRITE_REPLACE)
             );
         }

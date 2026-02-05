@@ -286,7 +286,7 @@ suite("test_reset_capacity") {
                         continue
                     }
                     def i = line.indexOf(' ')
-                    ttl_cache_size = line.substring(i).toLong()
+                    def ttl_cache_size = line.substring(i).toLong()
                     logger.info("current ttl_cache_size " + ttl_cache_size);
                     assertTrue(ttl_cache_size > 1073741824)
                     flag1 = true

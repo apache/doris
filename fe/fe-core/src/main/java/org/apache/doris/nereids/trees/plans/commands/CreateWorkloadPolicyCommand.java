@@ -31,6 +31,7 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadActionMeta;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadConditionMeta;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -50,13 +51,17 @@ public class CreateWorkloadPolicyCommand extends Command implements ForwardWithS
      */
     public CreateWorkloadPolicyCommand(boolean ifNotExists, String policyName,
             List<WorkloadConditionMeta> conditions, List<WorkloadActionMeta> actions,
-            Map<String, String> properties) {
+            Map<String, String> inputProperties) {
         super(PlanType.CREATE_WORKLOAD_POLICY_COMMAND);
         this.policyName = policyName;
         this.ifNotExists = ifNotExists;
         this.conditions = conditions;
         this.actions = actions;
-        this.properties = properties;
+
+        this.properties = new HashMap<>();
+        for (String key : inputProperties.keySet()) {
+            properties.put(key.toLowerCase(), inputProperties.get(key));
+        }
     }
 
     private void validate(ConnectContext ctx) throws UserException {

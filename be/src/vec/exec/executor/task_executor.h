@@ -37,6 +37,7 @@ public:
     virtual Status init() = 0;
     virtual Status start() = 0;
     virtual void stop() = 0;
+    virtual void wait() = 0;
 
     virtual Result<std::shared_ptr<TaskHandle>> create_task(
             const TaskId& task_id, std::function<double()> utilization_supplier,

@@ -24,11 +24,15 @@
 #include <cstring>
 #include <ctime>
 
+#include "common/cast_set.h"
+#include "vec/common/int_exp.h"
+#include "vec/core/types.h"
+#include "vec/functions/cast/cast_to_timestamptz.h"
 #include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 VecDateTimeValue timestamp_from_datetime(const std::string& datetime_str) {
     tm time_tm;
     char* res = strptime(datetime_str.c_str(), "%Y-%m-%d %H:%M:%S", &time_tm);
@@ -64,39 +68,16 @@ VecDateTimeValue timestamp_from_date(const std::string& date_str) {
     return VecDateTimeValue::create_from_olap_date(value);
 }
 
-DateV2Value<DateV2ValueType> timestamp_from_date_v2(const std::string& date_str) {
-    tm time_tm;
-    char* res = strptime(date_str.c_str(), "%Y-%m-%d", &time_tm);
-
-    uint32_t value = 0;
-    if (nullptr != res) {
-        value = ((time_tm.tm_year + 1900) << 9) | ((time_tm.tm_mon + 1) << 5) | time_tm.tm_mday;
-    } else {
-        value = MIN_DATE_V2;
-    }
-
-    return DateV2Value<DateV2ValueType>::create_from_olap_date(value);
-}
-
-DateV2Value<DateTimeV2ValueType> timestamp_from_datetime_v2(const std::string& date_str) {
-    DateV2Value<DateTimeV2ValueType> val;
-    std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
-    val.from_date_format_str(date_format.data(), date_format.size(), date_str.data(),
-                             date_str.size());
-    return val;
-}
-
 //FIXME: try to remove or refactor all those time input/output functions.
-int32_t timev2_to_buffer_from_double(double time, char* buffer, int scale) {
-    static int pow10[7] = {1, 10, 100, 1000, 10000, 100000, 1000000};
-
+uint8_t timev2_to_buffer_from_double(double time, char* buffer, int scale) {
     char* begin = buffer;
     if (time < 0) {
         time = -time;
         *buffer++ = '-';
     }
-    auto m_time = (int64_t)TimeValue::limit_with_bound(time);
-    int64_t hour = m_time / ((int64_t)3600 * 1000 * 1000);
+    auto m_time = (uint64_t)TimeValue::limit_with_bound(time);
+
+    auto hour = static_cast<uint16_t>(m_time / (3600ULL * 1000 * 1000));
     if (hour >= 100) {
         buffer = fmt::format_to(buffer, FMT_COMPILE("{}"), hour);
     } else {
@@ -104,31 +85,35 @@ int32_t timev2_to_buffer_from_double(double time, char* buffer, int scale) {
         *buffer++ = (char)('0' + (hour % 10));
     }
     *buffer++ = ':';
-    m_time %= (int64_t)3600 * 1000 * 1000;
-    int64_t minute = m_time / (60 * 1000 * 1000);
+    m_time %= 3600ULL * 1000 * 1000;
+
+    auto minute = static_cast<uint8_t>(m_time / (60 * 1000 * 1000));
     *buffer++ = (char)('0' + (minute / 10));
     *buffer++ = (char)('0' + (minute % 10));
     *buffer++ = ':';
     m_time %= 60 * 1000 * 1000;
-    int32_t second = m_time / (1000 * 1000);
+
+    auto second = static_cast<uint8_t>(m_time / (1000 * 1000));
     *buffer++ = (char)('0' + (second / 10));
     *buffer++ = (char)('0' + (second % 10));
     m_time %= 1000 * 1000;
     if (scale == 0) {
-        return buffer - begin;
+        return static_cast<uint8_t>(buffer - begin);
     }
+
     *buffer++ = '.';
     memset(buffer, '0', scale);
     buffer += scale;
     int32_t micosecond = m_time % (1000 * 1000);
-    micosecond /= pow10[6 - scale];
+    micosecond /= common::exp10_i32(6 - scale);
     auto* it = buffer - 1;
     while (micosecond) {
         *it = (char)('0' + (micosecond % 10));
         micosecond /= 10;
         it--;
     }
-    return buffer - begin;
+    DCHECK_LT(scale, 10);
+    return static_cast<uint8_t>(buffer - begin);
 }
 
 std::string timev2_to_buffer_from_double(double time, int scale) {
@@ -180,4 +165,5 @@ std::string timev2_to_buffer_from_double(double time, int scale) {
 
     return fmt::to_string(buffer);
 }
+#include "common/compile_check_end.h"
 } // namespace doris

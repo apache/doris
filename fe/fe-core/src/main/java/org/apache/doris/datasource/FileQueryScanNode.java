@@ -39,7 +39,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.spi.Split;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TExternalScanRange;
@@ -69,6 +68,7 @@ import org.apache.logging.log4j.Logger;
 import java.net.URI;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -95,6 +95,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected TableScanParams scanParams;
 
+    protected FileSplitter fileSplitter;
+
     /**
      * External file scan node for Query hms table
      * needCheckColumnPriv: Some of ExternalFileScanNode do not need to check column priv
@@ -102,9 +104,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
     public FileQueryScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            StatisticalType statisticalType, boolean needCheckColumnPriv,
-            SessionVariable sv) {
-        super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
+            boolean needCheckColumnPriv, SessionVariable sv) {
+        super(id, desc, planNodeName, needCheckColumnPriv);
         this.sessionVariable = sv;
     }
 
@@ -136,6 +137,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
         initBackendPolicy();
         initSchemaParams();
+        fileSplitter = new FileSplitter(sessionVariable.maxInitialSplitSize, sessionVariable.maxSplitSize,
+                sessionVariable.maxInitialSplitNum);
     }
 
     // Init schema (Tuple/Slot) related params.
@@ -150,9 +153,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
         List<Column> columns = desc.getTable().getBaseSchema(false);
         params.setNumOfColumnsFromFile(columns.size() - partitionKeys.size());
         for (SlotDescriptor slot : desc.getSlots()) {
-            if (!slot.isMaterialized()) {
-                continue;
-            }
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
             slotInfo.setSlotId(slot.getId().asInt());
             slotInfo.setIsFileSlot(!partitionKeys.contains(slot.getColumn().getName()));
@@ -162,15 +162,14 @@ public abstract class FileQueryScanNode extends FileScanNode {
         setColumnPositionMapping();
         // For query, set src tuple id to -1.
         params.setSrcTupleId(-1);
+        // Set enable_mapping_varbinary from catalog or TVF
+        params.setEnableMappingVarbinary(getEnableMappingVarbinary());
+        params.setEnableMappingTimestampTz(getEnableMappingTimestampTz());
     }
 
     private void updateRequiredSlots() throws UserException {
         params.unsetRequiredSlots();
         for (SlotDescriptor slot : desc.getSlots()) {
-            if (!slot.isMaterialized()) {
-                continue;
-            }
-
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
             slotInfo.setSlotId(slot.getId().asInt());
             slotInfo.setIsFileSlot(!getPathPartitionKeys().contains(slot.getColumn().getName()));
@@ -220,6 +219,14 @@ public abstract class FileQueryScanNode extends FileScanNode {
             params.setColumnIdxs(columnIdxs);
             return;
         }
+
+        // Pre-index columns into a Map for O(1) lookup
+        List<Column> columns = getColumns();
+        Map<String, Integer> columnNameMap = new HashMap<>(columns.size());
+        for (int i = 0; i < columns.size(); i++) {
+            columnNameMap.putIfAbsent(columns.get(i).getName(), i);
+        }
+
         for (TFileScanSlotInfo slot : params.getRequiredSlots()) {
             if (!slot.isIsFileSlot()) {
                 continue;
@@ -230,15 +237,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 continue;
             }
 
-            int idx = -1;
-            List<Column> columns = getColumns();
-            for (int i = 0; i < columns.size(); i++) {
-                if (columns.get(i).getName().equals(colName)) {
-                    idx = i;
-                    break;
-                }
-            }
-            if (idx == -1) {
+            Integer idx = columnNameMap.get(colName);
+            if (idx == null) {
                 throw new UserException("Column " + colName + " not found in table " + tbl.getName());
             }
             columnIdxs.add(idx);
@@ -456,7 +456,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
                     }
                 }
             }
-        } else if ((locationType == TFileType.FILE_S3 || locationType == TFileType.FILE_LOCAL)
+        } else if ((locationType == TFileType.FILE_S3 || locationType == TFileType.FILE_LOCAL
+                || locationType == TFileType.FILE_HTTP)
                 && !params.isSetProperties()) {
             params.setProperties(locationProperties);
         }
@@ -557,6 +558,54 @@ public abstract class FileQueryScanNode extends FileScanNode {
         throw new NotImplementedException("getFileAttributes is not implemented.");
     }
 
+    protected boolean getEnableMappingVarbinary() {
+        try {
+            TableIf table = getTargetTable();
+            // For External Catalog tables get from catalog properties
+            if (table instanceof ExternalTable) {
+                ExternalTable externalTable = (ExternalTable) table;
+                CatalogIf<?> catalog = externalTable.getCatalog();
+                if (catalog instanceof ExternalCatalog) {
+                    return ((ExternalCatalog) catalog).getEnableMappingVarbinary();
+                }
+            }
+            // For TVF read directly from fileFormatProperties
+            if (table instanceof FunctionGenTable) {
+                FunctionGenTable functionGenTable = (FunctionGenTable) table;
+                ExternalFileTableValuedFunction tvf = (ExternalFileTableValuedFunction) functionGenTable.getTvf();
+                return tvf.fileFormatProperties.enableMappingVarbinary;
+            }
+        } catch (Exception e) {
+            LOG.info("Failed to get enable_mapping_varbinary from catalog, use default value false. Error: {}",
+                    e.getMessage());
+        }
+        return false;
+    }
+
+    protected boolean getEnableMappingTimestampTz() {
+        try {
+            TableIf table = getTargetTable();
+            // For External Catalog tables get from catalog properties
+            if (table instanceof ExternalTable) {
+                ExternalTable externalTable = (ExternalTable) table;
+                CatalogIf<?> catalog = externalTable.getCatalog();
+                if (catalog instanceof ExternalCatalog) {
+                    return ((ExternalCatalog) catalog).getEnableMappingTimestampTz();
+                }
+            }
+            // For TVF read directly from fileFormatProperties
+            if (table instanceof FunctionGenTable) {
+                FunctionGenTable functionGenTable = (FunctionGenTable) table;
+                ExternalFileTableValuedFunction tvf = (ExternalFileTableValuedFunction) functionGenTable.getTvf();
+                return tvf.fileFormatProperties.enableMappingTimestampTz;
+            }
+        } catch (Exception e) {
+            LOG.info("Failed to get enable_mapping_timestamp_tz from catalog, use default value false. Error: {}",
+                    e.getMessage());
+        }
+        return false;
+    }
+
     protected abstract List<String> getPathPartitionKeys() throws UserException;
 
     protected abstract TableIf getTargetTable() throws UserException;
@@ -582,7 +631,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     }
 
     public TableSnapshot getQueryTableSnapshot() {
-        TableSnapshot snapshot = desc.getRef().getTableSnapshot();
+        TableSnapshot snapshot = desc.getRef().getTableSnapShot();
         if (snapshot != null) {
             return snapshot;
         }
@@ -601,18 +650,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
         return this.scanParams;
     }
 
-    /**
-     * The real file split size is determined by:
-     * 1. If user specify the split size in session variable `file_split_size`, use user specified value.
-     * 2. Otherwise, use the max value of DEFAULT_SPLIT_SIZE and block size.
-     * @param blockSize, got from file system, eg, hdfs
-     * @return the real file split size
-     */
-    protected long getRealFileSplitSize(long blockSize) {
-        long realSplitSize = sessionVariable.getFileSplitSize();
-        if (realSplitSize <= 0) {
-            realSplitSize = Math.max(DEFAULT_SPLIT_SIZE, blockSize);
+    protected long applyMaxFileSplitNumLimit(long targetSplitSize, long totalFileSize) {
+        int maxFileSplitNum = sessionVariable.getMaxFileSplitNum();
+        if (maxFileSplitNum <= 0 || totalFileSize <= 0) {
+            return targetSplitSize;
         }
-        return realSplitSize;
+        long minSplitSizeForMaxNum = (totalFileSize + maxFileSplitNum - 1L) / (long) maxFileSplitNum;
+        return Math.max(targetSplitSize, minSplitSizeForMaxNum);
     }
 }

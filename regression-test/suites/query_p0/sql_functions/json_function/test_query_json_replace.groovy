@@ -122,6 +122,7 @@ suite("test_query_json_replace", "query") {
     qt_replace4 """select json_replace('{"k": 1}', '\$.k[1]', 2);"""
     qt_replace5 """select json_replace('{"k": 1}', '\$.k[0]', NULL);"""
     qt_replace6 """select json_replace('{"k": 1}', NULL, 2);"""
+    qt_replace8 """select json_replace('{"a": 200}', '\$.a', 100, '\$.b.a', 200);"""
 
     test {
         sql """select json_replace('1', '\$.*', 4);"""

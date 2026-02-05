@@ -4,7 +4,7 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
---------filter((if((inv_before > 0), (cast(inv_after as DOUBLE) / cast(inv_before as DOUBLE)), NULL) <= 1.5) and (if((inv_before > 0), (cast(inv_after as DOUBLE) / cast(inv_before as DOUBLE)), NULL) >= cast((2.000000 / 3.0) as DOUBLE)))
+--------filter(((cast(inv_after as DOUBLE) / cast(inv_before as DOUBLE)) <= 1.5) and (if((inv_before > 0), (cast(inv_after as DOUBLE) / cast(inv_before as DOUBLE)), NULL) >= cast((2.000000 / 3.0) as DOUBLE)) and (x.inv_before > 0))
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
@@ -13,7 +13,7 @@ PhysicalResultSink
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[inv_date_sk]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = inventory.inv_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[inv_item_sk]
+--------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((item.i_item_sk = inventory.inv_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[inv_item_sk]
 ----------------------------PhysicalOlapScan[inventory] apply RFs: RF0 RF1
 ----------------------------PhysicalProject
 ------------------------------filter((item.i_current_price <= 1.49) and (item.i_current_price >= 0.99))

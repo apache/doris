@@ -113,5 +113,37 @@ public abstract class SqlBlockRuleCommand extends Command implements ForwardWith
     public abstract void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception;
 
     public abstract void setProperties(Map<String, String> properties) throws UserException;
+
+    public String getRuleName() {
+        return ruleName;
+    }
+
+    public String getSql() {
+        return sql;
+    }
+
+    public String getSqlHash() {
+        return sqlHash;
+    }
+
+    public Long getPartitionNum() {
+        return partitionNum;
+    }
+
+    public Long getTabletNum() {
+        return tabletNum;
+    }
+
+    public Long getCardinality() {
+        return cardinality;
+    }
+
+    public Boolean getGlobal() {
+        return global;
+    }
+
+    public Boolean getEnable() {
+        return enable;
+    }
 }
 

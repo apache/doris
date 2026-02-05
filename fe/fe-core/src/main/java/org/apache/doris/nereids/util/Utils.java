@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -25,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.plans.commands.info.AliasInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -191,12 +191,13 @@ public class Utils {
         if (variables.length == 0) {
             return stringBuilder.append(" )").toString();
         }
-
+        boolean first = true;
         for (int i = 0; i < variables.length - 1; i += 2) {
             if (!"".equals(toStringOrNull(variables[i + 1]))) {
-                if (i != 0) {
+                if (!first) {
                     stringBuilder.append(", ");
                 }
+                first = false;
                 stringBuilder.append(toStringOrNull(variables[i])).append("=").append(toStringOrNull(variables[i + 1]));
             }
         }
@@ -462,6 +463,19 @@ public class Utils {
             }
         }
         return false;
+    }
+
+    /**
+     * provide a method for generate an array with var arguments.
+     * Notice: java's array is mutable, the method is not intend for an immutable array,
+     *         but just convert var arguments to array without calling like "new XXXType[]".
+     * for example: given a function f(Expression[] a), if we have a NOT,  an AND to pass to it,
+     * the call will be  f(new Expression[]{not, and}), it needs to invoke 'new Expression[]',
+     * if we don't want to invoke the new array operator, we can call with f(Utils.fastArray(not, and))
+     */
+    @SafeVarargs
+    public static <T> T[] fastArray(T... elements) {
+        return elements;
     }
 
     public static <I, O> List<O> fastMapList(List<I> list, int additionSize, Function<I, O> transformer) {

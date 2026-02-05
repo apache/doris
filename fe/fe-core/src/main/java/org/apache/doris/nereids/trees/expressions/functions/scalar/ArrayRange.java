@@ -42,10 +42,10 @@ public class ArrayRange extends ScalarFunction
             FunctionSignature.ret(ArrayType.of(IntegerType.INSTANCE)).args(IntegerType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(IntegerType.INSTANCE))
                     .args(IntegerType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT))
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT))
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE)
+            FunctionSignature.ret(ArrayType.of(DateTimeV2Type.WILDCARD))
+                    .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD),
+            FunctionSignature.ret(ArrayType.of(DateTimeV2Type.WILDCARD))
+                    .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD, IntegerType.INSTANCE)
     );
 
     /**
@@ -69,6 +69,11 @@ public class ArrayRange extends ScalarFunction
         super("array_range", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayRange(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
@@ -77,13 +82,7 @@ public class ArrayRange extends ScalarFunction
         Preconditions.checkArgument(children.size() == 1
                 || children.size() == 2
                 || children.size() == 3);
-        if (children.size() == 1) {
-            return new ArrayRange(children.get(0));
-        } else if (children.size() == 2) {
-            return new ArrayRange(children.get(0), children.get(1));
-        } else {
-            return new ArrayRange(children.get(0), children.get(1), children.get(2));
-        }
+        return new ArrayRange(getFunctionParams(children));
     }
 
     @Override

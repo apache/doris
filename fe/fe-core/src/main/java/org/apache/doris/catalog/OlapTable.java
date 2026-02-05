@@ -18,14 +18,9 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.MaterializedViewHandler;
-import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.ColumnDef;
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DataSortInfo;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.IndexDef;
-import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -61,14 +56,18 @@ import org.apache.doris.mtmv.MTMVVersionSnapshot;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.proto.OlapFile.EncryptionAlgorithmPB;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -80,11 +79,13 @@ import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TOlapTable;
 import org.apache.doris.thrift.TPaloNodesInfo;
+import org.apache.doris.thrift.TPatternType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
@@ -97,6 +98,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -104,7 +106,7 @@ import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -123,6 +125,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -180,13 +183,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     private KeysType keysType;
     @Setter
     @SerializedName(value = "pi", alternate = {"partitionInfo"})
-    private PartitionInfo partitionInfo;
+    private PartitionInfo partitionInfo; // should modify only under table's lock
     @SerializedName(value = "itp", alternate = {"idToPartition"})
     @Getter
-    private ConcurrentHashMap<Long, Partition> idToPartition = new ConcurrentHashMap<>();
+    protected ConcurrentHashMap<Long, Partition> idToPartition = new ConcurrentHashMap<>();
     // handled in postgsonprocess
     @Getter
-    private Map<String, Partition> nameToPartition = Maps.newTreeMap();
+    protected Map<String, Partition> nameToPartition = Maps.newTreeMap();
 
     @SerializedName(value = "di", alternate = {"distributionInfo"})
     private DistributionInfo defaultDistributionInfo;
@@ -228,6 +231,15 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     private AutoIncrementGenerator autoIncrementGenerator;
 
     private volatile Statistics statistics = new Statistics();
+
+    // Transient map to coordinate concurrent partition creation tasks per partition name.
+    // Ensures only one creation task runs for a given partition at a time.
+    private ConcurrentHashMap<String, CompletableFuture<Void>> partitionCreationFutures = new ConcurrentHashMap<>();
+
+    // Cache for table version in cloud mode
+    // This value is set when get the table version from meta-service, 0 means version is not cached yet
+    private volatile long lastTableVersionCachedTimeMs = 0;
+    private volatile long cachedTableVersion = -1;
 
     public OlapTable() {
         // for persist
@@ -317,6 +329,38 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return tempPartitions.hasPartition(partitionId);
     }
 
+    /**
+     * Acquire a future representing the in-flight creation task for the given partition name.
+     * If no task exists, create and register a new one and return it with ownership=true.
+     * If a task already exists, return the existing one with ownership=false.
+     */
+    public Pair<CompletableFuture<Void>, Boolean> acquirePartitionCreationFuture(String partitionName) {
+        CompletableFuture<Void> newFuture = new CompletableFuture<>();
+        CompletableFuture<Void> existing = partitionCreationFutures.putIfAbsent(partitionName, newFuture);
+        if (existing == null) {
+            return Pair.of(newFuture, true);
+        } else {
+            return Pair.of(existing, false);
+        }
+    }
+
+    /**
+     * Complete and unregister the partition creation future. If t is null, complete normally,
+     * otherwise complete exceptionally. Removal uses (key, value) to avoid removing a new future
+     * that might have been installed after this one completed.
+     */
+    public void completePartitionCreationFuture(String partitionName, CompletableFuture<Void> future, Throwable t) {
+        try {
+            if (t == null) {
+                future.complete(null);
+            } else {
+                future.completeExceptionally(t);
+            }
+        } finally {
+            partitionCreationFutures.remove(partitionName, future);
+        }
+    }
+
     public void setTableProperty(TableProperty tableProperty) {
         this.tableProperty = tableProperty;
     }
@@ -372,7 +416,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
      * @param indexType The index type to check for
      * @return true if the table has at least one index of the specified type, false otherwise
      */
-    public boolean hasIndexOfType(IndexDef.IndexType indexType) {
+    public boolean hasIndexOfType(IndexDefinition.IndexType indexType) {
         if (indexes == null) {
             return false;
         }
@@ -435,27 +479,27 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType) {
         setIndexMeta(indexId, indexName, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType,
                 keysType,
-                null, null); // indexes is null by default
+                null, null, null); // indexes is null by default
     }
 
     public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion, int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, List<Index> indexes) {
         setIndexMeta(indexId, indexName, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType,
                 keysType,
-                null, indexes);
+                null, indexes, null);
     }
 
     public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion,
             int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement origStmt) {
         setIndexMeta(indexId, indexName, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType,
-                keysType, origStmt, null); // indexes is null by default
+                keysType, origStmt, null, null); // indexes is null by default
     }
 
     public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion,
             int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement origStmt,
-            List<Index> indexes) {
+            List<Index> indexes, Map<String, String> sessionVariables) {
         // Nullable when meta comes from schema change log replay.
         // The replay log only save the index id, so we need to get name by id.
         if (indexName == null) {
@@ -478,7 +522,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
 
         MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(indexId, schema, schemaVersion, schemaHash,
-                shortKeyColumnCount, storageType, keysType, origStmt, indexes, getQualifiedDbName());
+                shortKeyColumnCount, storageType, keysType, origStmt, indexes, getQualifiedDbName(), sessionVariables);
         try {
             indexMeta.parseStmt();
         } catch (Exception e) {
@@ -767,7 +811,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public void resetVersionForRestore() {
         for (Partition partition : idToPartition.values()) {
-            partition.setNextVersion(partition.getVisibleVersion() + 1);
+            partition.setNextVersion(partition.getCachedVisibleVersion() + 1);
         }
     }
 
@@ -905,7 +949,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                     if (Config.isCloudMode()) {
                         long newReplicaId = Env.getCurrentEnv().getNextId();
                         Replica replica = new CloudReplica(newReplicaId, null, ReplicaState.NORMAL,
-                                visibleVersion, schemaHash, db.getId(), id, partition.getId(), idx.getId(), i);
+                                visibleVersion, schemaHash, db.getId(), id, entry.getKey(), idx.getId(), i);
                         newTablet.addReplica(replica, true /* is restore */);
                         continue;
                     }
@@ -927,7 +971,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                         for (Map.Entry<Tag, List<Long>> entry3 : tag2beIds.entrySet()) {
                             for (Long beId : entry3.getValue()) {
                                 long newReplicaId = env.getNextId();
-                                Replica replica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
+                                Replica replica = new LocalReplica(newReplicaId, beId, ReplicaState.NORMAL,
                                         visibleVersion, schemaHash);
                                 newTablet.addReplica(replica, true /* is restore */);
                             }
@@ -1062,11 +1106,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public List<Column> getSchemaByIndexId(Long indexId, boolean full) {
+        List<Column> fullSchema = indexIdToMeta.get(indexId).getSchema();
         if (full) {
-            return indexIdToMeta.get(indexId).getSchema();
+            return fullSchema;
         } else {
-            return indexIdToMeta.get(indexId).getSchema().stream().filter(Column::isVisible)
-                    .collect(Collectors.toList());
+            List<Column> visibleSchema = new ArrayList<>(fullSchema.size());
+            for (Column column : fullSchema) {
+                if (column.isVisible()) {
+                    visibleSchema.add(column);
+                }
+            }
+            return visibleSchema;
         }
     }
 
@@ -1570,6 +1620,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         this.hasSequenceCol = true;
         this.sequenceType = type;
 
+        Column sequenceCol = buildSequenceCol(type, refColumn);
+        // add sequence column at last
+        fullSchema.add(sequenceCol);
+        nameToColumn.put(Column.SEQUENCE_COL, sequenceCol);
+        for (MaterializedIndexMeta indexMeta : indexIdToMeta.values()) {
+            List<Column> schema = indexMeta.getSchema();
+            if (indexMeta.getIndexId() != baseIndexId) {
+                sequenceCol = buildSequenceCol(type, refColumn);
+            }
+            schema.add(sequenceCol);
+        }
+    }
+
+    private Column buildSequenceCol(Type type, Column refColumn) {
         Column sequenceCol;
         if (getEnableUniqueKeyMergeOnWrite()) {
             // sequence column is value column with NONE aggregate type for
@@ -1583,13 +1647,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         if (refColumn != null) {
             sequenceCol.setDefaultValueInfo(refColumn);
         }
-        // add sequence column at last
-        fullSchema.add(sequenceCol);
-        nameToColumn.put(Column.SEQUENCE_COL, sequenceCol);
-        for (MaterializedIndexMeta indexMeta : indexIdToMeta.values()) {
-            List<Column> schema = indexMeta.getSchema();
-            schema.add(sequenceCol);
-        }
+        return sequenceCol;
     }
 
     public Column getSequenceCol() {
@@ -1640,6 +1698,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public boolean hasHiddenColumn() {
         return getBaseSchema().stream().anyMatch(column -> !column.isVisible());
+    }
+
+    public boolean hasGeneratedColumn() {
+        return getBaseSchema().stream().anyMatch(Column::isGeneratedColumn);
     }
 
     public Type getSequenceType() {
@@ -2190,7 +2252,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public long proximateRowCount() {
         long totalCount = 0;
         for (Partition partition : getPartitions()) {
-            long version = partition.getVisibleVersion();
+            // for local mode, getCachedVisibleVersion return visibleVersion.
+            // for cloud mode, the replica.checkVersionCatchUp always returns true.
+            long version = partition.getCachedVisibleVersion();
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                 for (Tablet tablet : index.getTablets()) {
                     long tabletRowCount = 0L;
@@ -2407,6 +2471,22 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         tableProperty.buildTTLSeconds();
     }
 
+    public long getPartitionRetentionCount() {
+        if (tableProperty != null) {
+            return tableProperty.getPartitionRetentionCount();
+        }
+        return -1;
+    }
+
+    public void setPartitionRetentionCount(long partitionRetentionCount) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT,
+                                            Long.valueOf(partitionRetentionCount).toString());
+        tableProperty.buildPartitionRetentionCount();
+    }
+
     public boolean getEnableLightSchemaChange() {
         if (tableProperty != null) {
             return tableProperty.getUseSchemaLightChange();
@@ -2502,7 +2582,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return false;
     }
 
-    public void setVariantEnableFlattenNested(boolean flattenNested) {
+    public void setVariantEnableFlattenNested(boolean flattenNested) throws AnalysisException {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED,
                 Boolean.valueOf(flattenNested).toString());
@@ -2658,6 +2738,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyDataSortInfoProperties(dataSortInfo);
         tableProperty.buildDataSortInfo();
+    }
+
+    public EncryptionAlgorithmPB getTDEAlgorithmPB() {
+        return tableProperty.getTDEAlgorithmPB();
+    }
+
+    public TEncryptionAlgorithm getTDEAlgorithm() {
+        return tableProperty.getTDEAlgorithm();
+    }
+
+    public void setEncryptionAlgorithm(TEncryptionAlgorithm algorithm) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_TDE_ALGORITHM, algorithm.name());
+        tableProperty.buildTDEAlgorithm();
     }
 
     // return true if partition with given name already exist, both in partitions and temp partitions.
@@ -2887,6 +2981,33 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return hasSkipBitmapColumn();
     }
 
+    /**
+     * Validate that the table supports flexible partial update.
+     * Checks the following constraints:
+     * 1. Must be MoW unique key table
+     * 2. Must have skip_bitmap column
+     * 3. Must have light_schema_change enabled
+     * 4. Cannot have variant columns
+     * @throws UserException if any constraint is not satisfied
+     */
+    public void validateForFlexiblePartialUpdate() throws UserException {
+        if (!getEnableUniqueKeyMergeOnWrite()) {
+            throw new UserException("Flexible partial update is only supported in unique table MoW");
+        }
+        if (!hasSkipBitmapColumn()) {
+            throw new UserException("Flexible partial update can only support table with skip bitmap hidden column."
+                    + " But table " + getName() + " doesn't have it. You can use `ALTER TABLE " + getName()
+                    + " ENABLE FEATURE \"UPDATE_FLEXIBLE_COLUMNS\";` to add it to the table.");
+        }
+        if (!getEnableLightSchemaChange()) {
+            throw new UserException("Flexible partial update can only support table with light_schema_change enabled."
+                    + " But table " + getName() + "'s property light_schema_change is false");
+        }
+        if (hasVariantColumns()) {
+            throw new UserException("Flexible partial update can only support table without variant columns.");
+        }
+    }
+
     public boolean getEnableUniqueKeyMergeOnWrite() {
         if (tableProperty == null) {
             return false;
@@ -2907,41 +3028,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public boolean isDuplicateWithoutKey() {
         return getKeysType() == KeysType.DUP_KEYS && getKeysNum() == 0;
-    }
-
-    // For non partitioned table:
-    //   The table's distribute hash columns need to be a subset of the aggregate columns.
-    //
-    // For partitioned table:
-    //   1. The table's partition columns need to be a subset of the table's hash columns.
-    //   2. The table's distribute hash columns need to be a subset of the aggregate columns.
-    public boolean meetAggDistributionRequirements(AggregateInfo aggregateInfo) {
-        ArrayList<Expr> groupingExps = aggregateInfo.getGroupingExprs();
-        if (groupingExps == null || groupingExps.isEmpty()) {
-            return false;
-        }
-        List<Expr> partitionExps = aggregateInfo.getPartitionExprs() != null
-                ? aggregateInfo.getPartitionExprs()
-                : groupingExps;
-        DistributionInfo distribution = getDefaultDistributionInfo();
-        if (distribution instanceof HashDistributionInfo) {
-            List<Column> distributeColumns = ((HashDistributionInfo) distribution).getDistributionColumns();
-            PartitionInfo partitionInfo = getPartitionInfo();
-            if (partitionInfo instanceof RangePartitionInfo) {
-                List<Column> rangeColumns = partitionInfo.getPartitionColumns();
-                if (!distributeColumns.containsAll(rangeColumns)) {
-                    return false;
-                }
-            }
-            List<SlotRef> partitionSlots = partitionExps.stream().map(Expr::unwrapSlotRef).collect(Collectors.toList());
-            if (partitionSlots.contains(null)) {
-                return false;
-            }
-            List<Column> hashColumns = partitionSlots.stream()
-                    .map(SlotRef::getDesc).map(SlotDescriptor::getColumn).collect(Collectors.toList());
-            return hashColumns.containsAll(distributeColumns);
-        }
-        return false;
     }
 
     // for ut
@@ -3121,11 +3207,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
-    public boolean isPartitionColumn(String columnName) {
-        if (columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)) {
-            columnName = columnName.substring(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX.length());
-        }
-        String finalColumnName = columnName;
+    public boolean isPartitionColumn(Column column) {
+        String finalColumnName = column.tryGetBaseColumnName();
         return getPartitionInfo().getPartitionColumns().stream()
                 .anyMatch(c -> c.getName().equalsIgnoreCase(finalColumnName));
     }
@@ -3233,13 +3316,46 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
     }
 
+    @VisibleForTesting
+    protected boolean isCachedTableVersionExpired() {
+        // -1 means no cache yet, need to fetch from MS
+        if (cachedTableVersion == -1) {
+            return true;
+        }
+        ConnectContext ctx = ConnectContext.get();
+        long cacheExpirationMs = ctx == null ? VariableMgr.getDefaultSessionVariable().cloudTableVersionCacheTtlMs
+                : ctx.getSessionVariable().cloudTableVersionCacheTtlMs;
+        if (cacheExpirationMs <= 0) { // always expired
+            return true;
+        }
+        return System.currentTimeMillis() - lastTableVersionCachedTimeMs > cacheExpirationMs;
+    }
+
+    @VisibleForTesting
+    protected void setCachedTableVersion(long version) {
+        if (version >= cachedTableVersion) {
+            cachedTableVersion = version;
+            lastTableVersionCachedTimeMs = System.currentTimeMillis();
+        }
+    }
+
+    public long getCachedTableVersion() {
+        return cachedTableVersion;
+    }
+
     public long getVisibleVersion() throws RpcException {
         if (Config.isNotCloudMode()) {
             return tableAttributes.getVisibleVersion();
         }
 
+        // check if cache is not expired
+        if (!isCachedTableVersionExpired()) {
+            return getCachedTableVersion();
+        }
+
         // get version rpc
         Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setDbId(this.getDatabase().getId())
                 .setTableId(this.id)
                 .setBatchMode(false)
@@ -3261,6 +3377,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             if (version == 0) {
                 version = 1;
             }
+            // update cache
+            setCachedTableVersion(version);
             return version;
         } catch (RpcException e) {
             LOG.warn("get version from meta service failed", e);
@@ -3269,9 +3387,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     // Get the table versions in batch.
-    public static List<Long> getVisibleVersionInBatch(Collection<OlapTable> tables) {
+    public static List<Long> getVisibleVersionInBatch(List<OlapTable> tables) {
         if (tables.isEmpty()) {
-            return new ArrayList<>();
+            return Collections.emptyList();
         }
 
         if (Config.isNotCloudMode()) {
@@ -3280,19 +3398,27 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                     .collect(Collectors.toList());
         }
 
-        List<Long> dbIds = new ArrayList<>();
-        List<Long> tableIds = new ArrayList<>();
+        List<Long> dbIds = new ArrayList<>(tables.size());
+        List<Long> tableIds = new ArrayList<>(tables.size());
         for (OlapTable table : tables) {
             dbIds.add(table.getDatabase().getId());
             tableIds.add(table.getId());
         }
 
-        return getVisibleVersionFromMeta(dbIds, tableIds);
+        List<Long> versions = getVisibleVersionFromMeta(dbIds, tableIds);
+
+        // update cache
+        Preconditions.checkState(tables.size() == versions.size());
+        for (int i = 0; i < tables.size(); i++) {
+            tables.get(i).setCachedTableVersion(versions.get(i));
+        }
+        return versions;
     }
 
     private static List<Long> getVisibleVersionFromMeta(List<Long> dbIds, List<Long> tableIds) {
         // get version rpc
         Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setDbId(-1)
                 .setTableId(-1)
                 .setPartitionId(-1)
@@ -3401,7 +3527,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
             Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
-        Map<String, Long> partitionVersions = context.getBaseVersions().getPartitionVersions();
+        Map<String, Long> partitionVersions = context.getBaseVersions().getPartitionVersions(this);
         long partitionId = getPartitionOrAnalysisException(partitionName).getId();
         long visibleVersion = partitionVersions.containsKey(partitionName) ? partitionVersions.get(partitionName)
                 : getPartitionOrAnalysisException(partitionName).getVisibleVersion();
@@ -3445,36 +3571,36 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         private String tableName;
 
         @Getter
-        private Long dataSize; // single replica data size
+        private long dataSize; // single replica data size
         @Getter
-        private Long totalReplicaDataSize;
+        private long totalReplicaDataSize;
 
         @Getter
-        private Long remoteDataSize; // single replica remote data size
+        private long remoteDataSize; // single replica remote data size
 
         @Getter
-        private Long replicaCount;
+        private long replicaCount;
 
         @Getter
-        private Long rowCount;
+        private long rowCount;
 
         @Getter
-        private Long rowsetCount;
+        private long rowsetCount;
 
         @Getter
-        private Long segmentCount;
+        private long segmentCount;
 
         @Getter
-        private Long localInvertedIndexSize;   // multi replicas
+        private long localInvertedIndexSize;   // multi replicas
 
         @Getter
-        private Long localSegmentSize;         // multi replicas
+        private long localSegmentSize;         // multi replicas
 
         @Getter
-        private Long remoteInvertedIndexSize;  // single replica
+        private long remoteInvertedIndexSize;  // single replica
 
         @Getter
-        private Long remoteSegmentSize;        // single replica
+        private long remoteSegmentSize;        // single replica
 
         public Statistics() {
             this.dbName = null;
@@ -3497,11 +3623,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
 
         public Statistics(String dbName, String tableName,
-                Long dataSize, Long totalReplicaDataSize,
-                Long remoteDataSize, Long replicaCount, Long rowCount,
-                Long rowsetCount, Long segmentCount,
-                Long localInvertedIndexSize, Long localSegmentSize,
-                Long remoteInvertedIndexSize, Long remoteSegmentSize) {
+                long dataSize, long totalReplicaDataSize,
+                long remoteDataSize, long replicaCount, long rowCount,
+                long rowsetCount, long segmentCount,
+                long localInvertedIndexSize, long localSegmentSize,
+                long remoteInvertedIndexSize, long remoteSegmentSize) {
 
             this.dbName = dbName;
             this.tableName = tableName;
@@ -3592,5 +3718,154 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     @VisibleForTesting
     protected void addIndexNameToIdForUnitTest(String name, long id) {
         indexNameToId.put(name, id);
+    }
+
+    public Index getInvertedIndex(Column column, List<String> subPath) {
+        return getInvertedIndex(column, subPath, null);
+    }
+
+    public Index getInvertedIndex(Column column, List<String> subPath, String analyzer) {
+        List<Index> invertedIndexes = new ArrayList<>();
+        for (Index index : indexes.getIndexes()) {
+            if (index.getIndexType() == IndexDefinition.IndexType.INVERTED) {
+                List<String> columns = index.getColumns();
+                if (columns != null && !columns.isEmpty() && column.getName().equals(columns.get(0))) {
+                    invertedIndexes.add(index);
+                }
+            }
+        }
+
+        List<Index> filteredInvertedIndexes = filterIndexesByAnalyzer(invertedIndexes, analyzer);
+
+        if (subPath == null || subPath.isEmpty()) {
+            return filteredInvertedIndexes.size() == 1 ? filteredInvertedIndexes.get(0)
+                : filteredInvertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
+        }
+
+        // subPath is not empty, means it is a variant column, find the field pattern from children
+        String subPathString = String.join(".", subPath);
+        String fieldPattern = "";
+        if (column.getChildren() != null) {
+            for (Column child : column.getChildren()) {
+                String childName = child.getName();
+                if (child.getFieldPatternType() == TPatternType.MATCH_NAME_GLOB) {
+                    try {
+                        java.nio.file.PathMatcher matcher = java.nio.file.FileSystems.getDefault()
+                                .getPathMatcher("glob:" + childName);
+                        if (matcher.matches(java.nio.file.Paths.get(subPathString))) {
+                            fieldPattern = childName;
+                        }
+                    } catch (Exception e) {
+                        continue;
+                    }
+                } else if (child.getFieldPatternType() == TPatternType.MATCH_NAME) {
+                    if (childName.equals(subPathString)) {
+                        fieldPattern = childName;
+                    }
+                }
+            }
+        }
+
+        List<Index> invertedIndexesWithFieldPattern = new ArrayList<>();
+        for (Index index : indexes.getIndexes()) {
+            if (index.getIndexType() == IndexDefinition.IndexType.INVERTED) {
+                List<String> columns = index.getColumns();
+                if (columns != null && !columns.isEmpty() && column.getName().equals(columns.get(0))
+                                        && fieldPattern.equals(index.getInvertedIndexFieldPattern())) {
+                    invertedIndexesWithFieldPattern.add(index);
+                }
+            }
+        }
+        List<Index> filteredFieldPatternIndexes = filterIndexesByAnalyzer(invertedIndexesWithFieldPattern, analyzer);
+        if (filteredFieldPatternIndexes.isEmpty()) {
+            return filteredInvertedIndexes.size() == 1 ? filteredInvertedIndexes.get(0)
+                : filteredInvertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
+        } else {
+            return filteredFieldPatternIndexes.size() == 1 ? filteredFieldPatternIndexes.get(0)
+                                        : filteredFieldPatternIndexes.stream()
+                                        .filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
+        }
+    }
+
+    /**
+     * caller should acquire the read lock and should not modify any field of the return obj
+     */
+    public OlapTable copyTableMeta() {
+        OlapTable table = new OlapTable();
+        // metaobj
+        table.signature = signature;
+        table.lastCheckTime =  lastCheckTime;
+        // abstract table
+        table.id = id;
+        table.name = name;
+        table.qualifiedDbName = qualifiedDbName;
+        table.type = type;
+        table.createTime = createTime;
+        table.fullSchema = fullSchema;
+        table.comment = comment;
+        table.tableAttributes = tableAttributes;
+        // olap table
+        // NOTE: currently do not need temp partitions, colocateGroup, autoIncrementGenerator
+        table.idToPartition = new ConcurrentHashMap<>();
+        table.tempPartitions = new TempPartitions();
+
+        table.state = state;
+        table.indexIdToMeta = ImmutableMap.copyOf(indexIdToMeta);
+        table.indexNameToId = ImmutableMap.copyOf(indexNameToId);
+        table.keysType = keysType;
+        table.partitionInfo = partitionInfo;
+        table.defaultDistributionInfo = defaultDistributionInfo;
+        table.bfColumns = bfColumns;
+        table.bfFpp = bfFpp;
+        table.indexes = indexes;
+        table.baseIndexId = baseIndexId;
+        table.tableProperty = tableProperty;
+        return table;
+    }
+
+    public long getCatalogId() {
+        return Env.getCurrentInternalCatalog().getId();
+    }
+
+    public ImmutableMap<Long, Backend> getAllBackendsByAllCluster() throws AnalysisException {
+        return Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
+    }
+
+    public void setColumnSeqMapping(Map<String, List<String>> columnSeqMapping) {
+        getOrCreatTableProperty().setColumnSeqMapping(columnSeqMapping);
+    }
+
+    public Map<String, List<String>> getColumnSeqMapping() {
+        return getOrCreatTableProperty().getColumnSeqMapping();
+    }
+
+    public boolean hasColumnSeqMapping() {
+        return getOrCreatTableProperty().hasColumnSeqMapping();
+    }
+
+    public boolean isSeqMappingKeyColumn(String column) {
+        return getOrCreatTableProperty().isSeqMappingKeyColumn(column);
+    }
+
+    public boolean isSeqMappingValueColumn(String column) {
+        return getOrCreatTableProperty().isSeqMappingValueColumn(column);
+    }
+
+    public String getSeqMappingKey(String column) {
+        return getOrCreatTableProperty().getSeqMappingKey(column);
+
+    }
+
+    private List<Index> filterIndexesByAnalyzer(List<Index> original, String analyzer) {
+        if (analyzer == null || analyzer.trim().isEmpty()) {
+            return original;
+        }
+        List<Index> matched = new ArrayList<>();
+        for (Index index : original) {
+            if (InvertedIndexUtil.isAnalyzerMatched(index.getProperties(), analyzer)) {
+                matched.add(index);
+            }
+        }
+        return matched;
     }
 }

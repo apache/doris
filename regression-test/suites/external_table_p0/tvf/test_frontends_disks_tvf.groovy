@@ -19,23 +19,23 @@
 suite("test_frontends_disks_tvf", "p0,external,external_docker") {
     List<List<Object>> table =  sql """ select * from `frontends_disks`(); """
     assertTrue(table.size() > 0)
-    assertTrue(table[0].size == 10)
+    assertTrue(table[0].size() == 10)
 
     // filter columns
     table = sql """ select Name from `frontends_disks`();"""
     assertTrue(table.size() > 0)
-    assertTrue(table[0].size == 1)
+    assertTrue(table[0].size() == 1)
 
     // case insensitive
     table = sql """ select name, host, dirtype, dir from frontends_disks() order by dirtype;"""
     assertTrue(table.size() > 0)
-    assertTrue(table[0].size == 4)
+    assertTrue(table[0].size() == 4)
     assertEquals("audit-log", table[0][2])
 
     // test aliase columns
     table = sql """ select name as n, host as h, dirtype as a from frontends_disks() order by dirtype; """
     assertTrue(table.size() > 0)
-    assertTrue(table[0].size == 3)
+    assertTrue(table[0].size() == 3)
     assertEquals("audit-log", table[0][2])
 
     // test changing position of columns

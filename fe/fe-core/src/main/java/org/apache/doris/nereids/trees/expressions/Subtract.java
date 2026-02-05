@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DecimalV3Type;
 
@@ -30,7 +31,7 @@ import java.util.List;
 /**
  * Subtract Expression. BinaryExpression.
  */
-public class Subtract extends BinaryArithmetic implements PropagateNullable {
+public class Subtract extends BinaryArithmetic implements PropagateNullable, NeedSessionVarGuard {
 
     public Subtract(Expression left, Expression right) {
         super(ImmutableList.of(left, right), Operator.SUBTRACT);
@@ -56,5 +57,17 @@ public class Subtract extends BinaryArithmetic implements PropagateNullable {
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitSubtract(this, context);
+    }
+
+    @Override
+    public String toDigest() {
+        if (left() instanceof IntegerLiteral) {
+            IntegerLiteral left = (IntegerLiteral) left();
+            if (left.getValue() == 0) {
+                // nereids parser change - operator to subtract, so compactible with that
+                return " -" + right().toDigest();
+            }
+        }
+        return super.toDigest();
     }
 }

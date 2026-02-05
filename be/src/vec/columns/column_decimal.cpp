@@ -20,6 +20,7 @@
 
 #include "vec/columns/column_decimal.h"
 
+#include <crc32c/crc32c.h>
 #include <fmt/format.h>
 
 #include <limits>
@@ -52,9 +53,19 @@ int ColumnDecimal<T>::compare_at(size_t n, size_t m, const IColumn& rhs_, int) c
     if (scale == other.scale) {
         return a > b ? 1 : (a < b ? -1 : 0);
     }
-    return decimal_less<value_type>(b, a, other.scale, scale)
-                   ? 1
-                   : (decimal_less<value_type>(a, b, scale, other.scale) ? -1 : 0);
+    if constexpr (T == TYPE_DECIMALV2) {
+        return decimal_less<DecimalV2Value>(*(DecimalV2Value*)&b, *(DecimalV2Value*)&a, other.scale,
+                                            scale)
+                       ? 1
+                       : (decimal_less<DecimalV2Value>(*(DecimalV2Value*)&a, *(DecimalV2Value*)&b,
+                                                       scale, other.scale)
+                                  ? -1
+                                  : 0);
+    } else {
+        return decimal_less<value_type>(b, a, other.scale, scale)
+                       ? 1
+                       : (decimal_less<value_type>(a, b, scale, other.scale) ? -1 : 0);
+    }
 }
 
 template <PrimitiveType T>
@@ -75,8 +86,10 @@ size_t ColumnDecimal<T>::get_max_row_byte_size() const {
 }
 
 template <PrimitiveType T>
-void ColumnDecimal<T>::serialize_vec(StringRef* keys, size_t num_rows) const {
+void ColumnDecimal<T>::serialize(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
+        // Used in hash_map_context.h, this address is allocated via Arena,
+        // but passed through StringRef, so using const_cast is acceptable.
         keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
     }
 }
@@ -88,7 +101,7 @@ size_t ColumnDecimal<T>::serialize_impl(char* pos, const size_t row) const {
 }
 
 template <PrimitiveType T>
-void ColumnDecimal<T>::deserialize_vec(StringRef* keys, const size_t num_rows) {
+void ColumnDecimal<T>::deserialize(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i < num_rows; ++i) {
         auto sz = deserialize_impl(keys[i].data);
         keys[i].data += sz;
@@ -100,6 +113,50 @@ template <PrimitiveType T>
 size_t ColumnDecimal<T>::deserialize_impl(const char* pos) {
     data.push_back(unaligned_load<value_type>(pos));
     return sizeof(value_type);
+}
+
+template <PrimitiveType T>
+void ColumnDecimal<T>::serialize_with_nullable(StringRef* keys, size_t num_rows,
+                                               const bool has_null,
+                                               const uint8_t* __restrict null_map) const {
+    if (has_null) {
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* dest = const_cast<char*>(keys[i].data + keys[i].size);
+            keys[i].size += sizeof(UInt8);
+            if (null_map[i]) {
+                // is null
+                *dest = true;
+                continue;
+            }
+            // not null
+            *dest = false;
+            keys[i].size += serialize_impl(dest + sizeof(UInt8), i);
+        }
+    } else {
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* dest = const_cast<char*>(keys[i].data + keys[i].size);
+            *dest = false;
+            keys[i].size += serialize_impl(dest + sizeof(UInt8), i) + sizeof(UInt8);
+        }
+    }
+}
+
+template <PrimitiveType T>
+void ColumnDecimal<T>::deserialize_with_nullable(StringRef* keys, const size_t num_rows,
+                                                 PaddedPODArray<UInt8>& null_map) {
+    for (size_t i = 0; i != num_rows; ++i) {
+        UInt8 is_null = *reinterpret_cast<const UInt8*>(keys[i].data);
+        null_map.push_back(is_null);
+        keys[i].data += sizeof(UInt8);
+        keys[i].size -= sizeof(UInt8);
+        if (is_null) {
+            insert_default();
+            continue;
+        }
+        auto sz = deserialize_impl(keys[i].data);
+        keys[i].data += sz;
+        keys[i].size -= sz;
+    }
 }
 
 template <PrimitiveType T>
@@ -163,6 +220,39 @@ void ColumnDecimal<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primi
 }
 
 template <PrimitiveType T>
+void ColumnDecimal<T>::update_crc32c_batch(uint32_t* __restrict hashes,
+                                           const uint8_t* __restrict null_map) const {
+    auto s = size();
+    if (null_map) {
+        for (size_t i = 0; i < s; ++i) {
+            if (null_map[i] == 0) {
+                hashes[i] = HashUtil::crc32c_fixed(data[i], hashes[i]);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; ++i) {
+            hashes[i] = HashUtil::crc32c_fixed(data[i], hashes[i]);
+        }
+    }
+}
+
+template <PrimitiveType T>
+void ColumnDecimal<T>::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                            const uint8_t* __restrict null_map) const {
+    if (null_map) {
+        for (size_t i = start; i < end; ++i) {
+            if (null_map[i] == 0) {
+                hash = HashUtil::crc32c_fixed(data[i], hash);
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; ++i) {
+            hash = HashUtil::crc32c_fixed(data[i], hash);
+        }
+    }
+}
+
+template <PrimitiveType T>
 void ColumnDecimal<T>::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                                 const uint8_t* __restrict null_data) const {
     if (null_data) {
@@ -201,22 +291,20 @@ void ColumnDecimal<T>::update_hashes_with_value(uint64_t* __restrict hashes,
 
 template <PrimitiveType T>
 Field ColumnDecimal<T>::operator[](size_t n) const {
-    return Field::create_field<T>(DecimalField<value_type>(data[n], scale));
+    return Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)(&data[n]));
 }
 
 template <PrimitiveType T>
-void ColumnDecimal<T>::get_permutation(bool reverse, size_t limit, int,
+void ColumnDecimal<T>::get_permutation(bool reverse, size_t limit, int, HybridSorter& sorter,
                                        IColumn::Permutation& res) const {
-#if 1 /// TODO: perf test
     if (data.size() <= std::numeric_limits<UInt32>::max()) {
         PaddedPODArray<UInt32> tmp_res;
-        permutation(reverse, limit, tmp_res);
+        permutation(reverse, limit, sorter, tmp_res);
 
         res.resize(tmp_res.size());
         for (size_t i = 0; i < tmp_res.size(); ++i) res[i] = tmp_res[i];
         return;
     }
-#endif
 }
 
 template <PrimitiveType T>
@@ -442,22 +530,26 @@ void ColumnDecimal<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
 template <PrimitiveType T>
 void ColumnDecimal<T>::replace_column_null_data(const uint8_t* __restrict null_map) {
     auto s = size();
-    size_t null_count = s - simd::count_zero_num((const int8_t*)null_map, s);
-    if (0 == null_count) {
-        return;
-    }
     for (size_t i = 0; i < s; ++i) {
         data[i] = null_map[i] ? value_type() : data[i];
     }
 }
 
 template <PrimitiveType T>
-ColumnDecimal<T>::CppNativeType ColumnDecimal<T>::get_intergral_part(size_t n) const {
-    return data[n].value / DataTypeDecimal<value_type::PType>::get_scale_multiplier(scale);
+typename ColumnDecimal<T>::CppNativeType ColumnDecimal<T>::get_intergral_part(size_t n) const {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return data[n].value() / DataTypeDecimal<T>::get_scale_multiplier(scale);
+    } else {
+        return data[n].value / DataTypeDecimal<T>::get_scale_multiplier(scale);
+    }
 }
 template <PrimitiveType T>
-ColumnDecimal<T>::CppNativeType ColumnDecimal<T>::get_fractional_part(size_t n) const {
-    return data[n].value % DataTypeDecimal<value_type::PType>::get_scale_multiplier(scale);
+typename ColumnDecimal<T>::CppNativeType ColumnDecimal<T>::get_fractional_part(size_t n) const {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return data[n].value() % DataTypeDecimal<T>::get_scale_multiplier(scale);
+    } else {
+        return data[n].value % DataTypeDecimal<T>::get_scale_multiplier(scale);
+    }
 }
 
 template class ColumnDecimal<TYPE_DECIMAL32>;

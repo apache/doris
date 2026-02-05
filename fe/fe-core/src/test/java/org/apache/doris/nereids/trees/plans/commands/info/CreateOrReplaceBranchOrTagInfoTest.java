@@ -61,15 +61,6 @@ public class CreateOrReplaceBranchOrTagInfoTest {
     }
 
     @Test
-    public void testCreateOrReplaceBranchIfNotExistsToSql() {
-        // Test CREATE OR REPLACE BRANCH IF NOT EXISTS
-        CreateOrReplaceBranchInfo branchInfo = new CreateOrReplaceBranchInfo(
-                "test_branch", true, true, true, null);
-        String expected = "CREATE OR REPLACE BRANCH IF NOT EXISTS test_branch";
-        Assertions.assertEquals(expected, branchInfo.toSql());
-    }
-
-    @Test
     public void testCreateBranchWithSnapshotIdToSql() {
         // Test CREATE BRANCH with snapshot ID
         BranchOptions options = new BranchOptions(

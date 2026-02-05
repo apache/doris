@@ -48,7 +48,7 @@ public class IcebergDLFExternalCatalogTest {
         IcebergDLFExternalCatalog catalog = new IcebergDLFExternalCatalog(1, "test", "test", props, "test");
         Assert.assertThrows(NotSupportedException.class, () -> catalog.createDb("db1", true, Maps.newHashMap()));
         Assert.assertThrows(NotSupportedException.class, () -> catalog.dropDb("", true, true));
-        Assert.assertThrows(NotSupportedException.class, () -> catalog.dropTable("", "", true, true, true, true));
+        Assert.assertThrows(NotSupportedException.class, () -> catalog.dropTable("", "", true, true, true, false, true));
         Assert.assertThrows(NotSupportedException.class, () -> catalog.truncateTable("", "", null, true, ""));
     }
 }

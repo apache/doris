@@ -23,7 +23,7 @@
 
 # choose a base image
 # doris 2.1, 3.0+, master use JDK 17
-ARG JDK_IMAGE=openjdk:17-jdk-slim
+ARG JDK_IMAGE=openjdk:17.0.1-jdk-slim
 
 # doris 2.0 use JDK 8
 # build 2.0 image, example:

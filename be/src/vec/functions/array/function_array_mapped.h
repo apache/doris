@@ -54,12 +54,12 @@ public:
         const typename Impl::column_type* column_array;
         if (ptr->is_nullable()) {
             column_array = check_and_get_column<const typename Impl::column_type>(
-                    static_cast<const ColumnNullable*>(ptr.get())->get_nested_column_ptr().get());
+                    assert_cast<const ColumnNullable*>(ptr.get())->get_nested_column_ptr().get());
         } else {
             column_array = check_and_get_column<const typename Impl::column_type>(ptr.get());
         }
         const auto* data_type_array =
-                static_cast<const DataTypeArray*>(remove_nullable(typed_column.type).get());
+                assert_cast<const DataTypeArray*>(remove_nullable(typed_column.type).get());
         return Impl::execute(block, arguments, result, data_type_array, *column_array);
     }
 

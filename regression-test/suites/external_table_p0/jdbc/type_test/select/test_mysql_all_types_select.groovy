@@ -20,7 +20,7 @@ suite("test_mysql_all_types_select", "p0,external,mysql,external_docker,external
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.3.0.jar"
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
 
@@ -31,7 +31,8 @@ suite("test_mysql_all_types_select", "p0,external,mysql,external_docker,external
             "password"="123456",
             "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
             "driver_url" = "${driver_url}",
-            "driver_class" = "com.mysql.cj.jdbc.Driver"
+            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "enable.mapping.varbinary" = "true"
         );"""
 
         sql """use mysql_all_type_test.doris_test"""
@@ -47,6 +48,36 @@ suite("test_mysql_all_types_select", "p0,external,mysql,external_docker,external
 
         qt_select_all_types_multi_block """select count(`int`),count(`varchar`) from all_types_multi_block;"""
 
+
+        sql """use mysql_all_type_test.test_varbinary_db"""
+        qt_desc_varbinary_type """desc test_varbinary;"""
+        qt_select_varbinary_type """select * from test_varbinary order by id;"""
+        qt_select_varbinary_type2 """insert into test_varbinary values(3, X'48656C6C6F20576F726C6421');"""
+        qt_select_varbinary_type3 """insert into test_varbinary values(4, NULL);"""
+        qt_select_varbinary_type4 """insert into test_varbinary values(5, X'AB');"""
+        qt_select_varbinary_type5 """select * from test_varbinary order by id;"""
+
         sql """drop catalog if exists mysql_all_type_test """
+
+        sql """drop catalog if exists mysql_timestamp_tz_type_test """
+        sql """create catalog if not exists mysql_timestamp_tz_type_test properties(
+            "type"="jdbc",
+            "user"="root",
+            "password"="123456",
+            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "enable.mapping.varbinary" = "true",
+            "enable.mapping.timestamp_tz" = "true"
+        );"""
+        sql """SET time_zone = '+08:00';"""
+        sql """use mysql_timestamp_tz_type_test.test_timestamp_tz_db"""
+        qt_desc_timestamp_tz """desc ts_test;"""
+        qt_select_timestamp_tz """select * from ts_test order by id;"""
+        qt_select_timestamp_tz2 """insert into ts_test values(3,"1999-10-10 12:00:00+08:00","1999-10-10 12:00:00");"""
+        qt_select_timestamp_tz3 """insert into ts_test values(4,NULL, NULL);"""
+        qt_select_timestamp_tz5 """select * from ts_test order by id;"""
+        sql """SET time_zone = '+00:00';"""
+        qt_select_timestamp_tz6 """select * from ts_test order by id;"""
     }
 }

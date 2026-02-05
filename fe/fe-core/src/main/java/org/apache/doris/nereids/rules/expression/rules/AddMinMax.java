@@ -21,11 +21,17 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
+import org.apache.doris.nereids.rules.expression.rules.AddMinMax.MinMaxValue;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.CompoundValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.DiscreteValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.EmptyValue;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.IsNotNullValue;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.IsNullValue;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.NotDiscreteValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.RangeValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.UnknownValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.ValueDesc;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.ValueDescVisitor;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -39,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.BoundType;
 import com.google.common.collect.ImmutableList;
@@ -46,7 +53,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
-import org.apache.commons.lang3.NotImplementedException;
 
 import java.util.List;
 import java.util.Map;
@@ -63,13 +69,14 @@ import java.util.stream.Collectors;
  * a between 10 and 20 and b between 10 and 20 or a between 100 and 200 and b between 100 and 200
  *   => (a <= 20 and b <= 20 or a >= 100 and b >= 100) and a >= 10 and a <= 200 and b >= 10 and b <= 200
  */
-public class AddMinMax implements ExpressionPatternRuleFactory {
+public class AddMinMax implements ExpressionPatternRuleFactory, ValueDescVisitor<Map<Expression, MinMaxValue>, Void> {
     public static final AddMinMax INSTANCE = new AddMinMax();
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 matchesTopType(CompoundPredicate.class)
+                        .whenCtx(ctx -> PlanUtils.isConditionExpressionPlan(ctx.rewriteContext.plan.orElse(null)))
                         .thenApply(ctx -> rewrite(ctx.expr, ctx.rewriteContext))
                         .toRule(ExpressionRuleType.ADD_MIN_MAX)
         );
@@ -78,7 +85,7 @@ public class AddMinMax implements ExpressionPatternRuleFactory {
     /** rewrite */
     public Expression rewrite(CompoundPredicate expr, ExpressionRewriteContext context) {
         ValueDesc valueDesc = (new RangeInference()).getValue(expr, context);
-        Map<Expression, MinMaxValue> exprMinMaxValues = getExprMinMaxValues(valueDesc);
+        Map<Expression, MinMaxValue> exprMinMaxValues = valueDesc.accept(this, null);
         removeUnnecessaryMinMaxValues(expr, exprMinMaxValues);
         if (!exprMinMaxValues.isEmpty()) {
             return addExprMinMaxValues(expr, context, exprMinMaxValues);
@@ -92,7 +99,8 @@ public class AddMinMax implements ExpressionPatternRuleFactory {
         MATCH_NONE,
     }
 
-    private static class MinMaxValue {
+    /** record each expression's min and max value */
+    public static class MinMaxValue {
         // min max range, if range = null means empty
         Range<ComparableLiteral> range;
 
@@ -280,21 +288,8 @@ public class AddMinMax implements ExpressionPatternRuleFactory {
         return (expr instanceof SlotReference) && ((SlotReference) expr).getOriginalColumn().isPresent();
     }
 
-    private Map<Expression, MinMaxValue> getExprMinMaxValues(ValueDesc value) {
-        if (value instanceof EmptyValue) {
-            return getExprMinMaxValues((EmptyValue) value);
-        } else if (value instanceof DiscreteValue) {
-            return getExprMinMaxValues((DiscreteValue) value);
-        } else if (value instanceof RangeValue) {
-            return getExprMinMaxValues((RangeValue) value);
-        } else if (value instanceof UnknownValue) {
-            return getExprMinMaxValues((UnknownValue) value);
-        } else {
-            throw new NotImplementedException("not implements");
-        }
-    }
-
-    private Map<Expression, MinMaxValue> getExprMinMaxValues(EmptyValue value) {
+    @Override
+    public Map<Expression, MinMaxValue> visitEmptyValue(EmptyValue value, Void context) {
         Expression reference = value.getReference();
         Map<Expression, MinMaxValue> exprMinMaxValues = Maps.newHashMap();
         if (isExprNeedAddMinMax(reference)) {
@@ -303,7 +298,8 @@ public class AddMinMax implements ExpressionPatternRuleFactory {
         return exprMinMaxValues;
     }
 
-    private Map<Expression, MinMaxValue> getExprMinMaxValues(DiscreteValue value) {
+    @Override
+    public Map<Expression, MinMaxValue> visitDiscreteValue(DiscreteValue value, Void context) {
         Expression reference = value.getReference();
         Map<Expression, MinMaxValue> exprMinMaxValues = Maps.newHashMap();
         if (isExprNeedAddMinMax(reference)) {
@@ -312,7 +308,23 @@ public class AddMinMax implements ExpressionPatternRuleFactory {
         return exprMinMaxValues;
     }
 
-    private Map<Expression, MinMaxValue> getExprMinMaxValues(RangeValue value) {
+    @Override
+    public Map<Expression, MinMaxValue> visitNotDiscreteValue(NotDiscreteValue value, Void context) {
+        return Maps.newHashMap();
+    }
+
+    @Override
+    public Map<Expression, MinMaxValue> visitIsNullValue(IsNullValue value, Void context) {
+        return Maps.newHashMap();
+    }
+
+    @Override
+    public Map<Expression, MinMaxValue> visitIsNotNullValue(IsNotNullValue value, Void context) {
+        return Maps.newHashMap();
+    }
+
+    @Override
+    public Map<Expression, MinMaxValue> visitRangeValue(RangeValue value, Void context) {
         Expression reference = value.getReference();
         Map<Expression, MinMaxValue> exprMinMaxValues = Maps.newHashMap();
         if (isExprNeedAddMinMax(reference)) {
@@ -321,16 +333,14 @@ public class AddMinMax implements ExpressionPatternRuleFactory {
         return exprMinMaxValues;
     }
 
-    private Map<Expression, MinMaxValue> getExprMinMaxValues(UnknownValue valueDesc) {
+    @Override
+    public Map<Expression, MinMaxValue> visitCompoundValue(CompoundValue valueDesc, Void context) {
         List<ValueDesc> sourceValues = valueDesc.getSourceValues();
-        if (sourceValues.isEmpty()) {
-            return Maps.newHashMap();
-        }
-        Map<Expression, MinMaxValue> result = Maps.newHashMap(getExprMinMaxValues(sourceValues.get(0)));
+        Map<Expression, MinMaxValue> result = Maps.newHashMap(sourceValues.get(0).accept(this, context));
         int nextExprOrderIndex = result.values().stream().mapToInt(k -> k.exprOrderIndex).max().orElse(0);
         for (int i = 1; i < sourceValues.size(); i++) {
             // process in sourceValues[i]
-            Map<Expression, MinMaxValue> minMaxValues = getExprMinMaxValues(sourceValues.get(i));
+            Map<Expression, MinMaxValue> minMaxValues = sourceValues.get(i).accept(this, context);
             // merge values of sourceValues[i] into result.
             // also keep the value's relative order in sourceValues[i].
             // for example, if a and b in sourceValues[i], but not in result, then during merging,
@@ -397,5 +407,10 @@ public class AddMinMax implements ExpressionPatternRuleFactory {
             }
         }
         return result;
+    }
+
+    @Override
+    public Map<Expression, MinMaxValue> visitUnknownValue(UnknownValue valueDesc, Void context) {
+        return Maps.newHashMap();
     }
 }

@@ -56,6 +56,11 @@ public class OrthogonalBitmapIntersect extends NotNullableAggregateFunction
                 ExpressionUtils.mergeArguments(arg0, arg1, arg2, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private OrthogonalBitmapIntersect(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public List<FunctionSignature> getSignatures() {
         return FUNCTION_SIGNATURES;
@@ -67,8 +72,7 @@ public class OrthogonalBitmapIntersect extends NotNullableAggregateFunction
     @Override
     public OrthogonalBitmapIntersect withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 3);
-        return new OrthogonalBitmapIntersect(distinct, children.get(0), children.get(1), children.get(2),
-                children.subList(3, children.size()).toArray(new Expression[0]));
+        return new OrthogonalBitmapIntersect(getFunctionParams(distinct, children));
     }
 
     @Override

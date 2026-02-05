@@ -72,8 +72,10 @@ struct AggregateFunctionSortData {
         PBlock pblock;
         size_t uncompressed_bytes = 0;
         size_t compressed_bytes = 0;
+        int64_t compressed_time = 0;
         auto st = block.serialize(state->be_exec_version(), &pblock, &uncompressed_bytes,
-                                  &compressed_bytes, segment_v2::CompressionTypePB::NO_COMPRESSION);
+                                  &compressed_bytes, &compressed_time,
+                                  segment_v2::CompressionTypePB::NO_COMPRESSION);
         if (!st.ok()) {
             throw doris::Exception(st);
         }
@@ -87,7 +89,9 @@ struct AggregateFunctionSortData {
 
         PBlock pblock;
         pblock.ParseFromString(data);
-        auto st = block.deserialize(pblock);
+        [[maybe_unused]] size_t uncompressed_size = 0;
+        [[maybe_unused]] int64_t uncompressed_time = 0;
+        auto st = block.deserialize(pblock, &uncompressed_size, &uncompressed_time);
         // If memory allocate failed during deserialize, st is not ok, throw exception here to
         // stop the query.
         if (!st.ok()) {
@@ -106,7 +110,10 @@ struct AggregateFunctionSortData {
         }
     }
 
-    void sort() { sort_block(block, block, sort_desc, block.rows()); }
+    void sort() {
+        HybridSorter hybrid_sorter;
+        sort_block(block, block, sort_desc, hybrid_sorter, block.rows());
+    }
 };
 
 template <typename Data>
@@ -164,6 +171,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr targetplace, IColumn& to) const override {
+        // place is essentially an AggregateDataPtr, passed as a ConstAggregateDataPtr.
         auto* place = const_cast<AggregateDataPtr>(targetplace);
         Arena arena;
         if (!this->data(place).block.is_empty_column()) {

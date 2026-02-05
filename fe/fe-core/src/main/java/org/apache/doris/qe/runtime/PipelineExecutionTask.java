@@ -23,6 +23,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
 import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.qe.SimpleScheduler;
@@ -56,7 +57,7 @@ import java.util.stream.Collectors;
  *
  * This class is used to describe which backend process which fragments
  */
-public class PipelineExecutionTask extends AbstractRuntimeTask<Long, MultiFragmentsPipelineTask> {
+public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, MultiFragmentsPipelineTask> {
     private static final Logger LOG = LogManager.getLogger(PipelineExecutionTask.class);
 
     // immutable parameters
@@ -68,7 +69,7 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<Long, MultiFragme
     public PipelineExecutionTask(
             CoordinatorContext coordinatorContext,
             BackendServiceProxy backendServiceProxy,
-            Map<Long, MultiFragmentsPipelineTask> fragmentTasks) {
+            Map<BackendWorker, MultiFragmentsPipelineTask> fragmentTasks) {
         // insert into stmt need latch to wait finish, but query stmt not need because result receiver can wait finish
         super(new ChildrenRuntimeTasks<>(fragmentTasks));
         this.coordinatorContext = Objects.requireNonNull(coordinatorContext, "coordinatorContext can not be null");
@@ -78,13 +79,13 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<Long, MultiFragme
         // flatten to fragment tasks to quickly index by BackendFragmentId, when receive the report message
         ImmutableMap.Builder<BackendFragmentId, SingleFragmentPipelineTask> backendFragmentTasks
                 = ImmutableMap.builder();
-        for (Entry<Long, MultiFragmentsPipelineTask> backendTask : fragmentTasks.entrySet()) {
-            Long backendId = backendTask.getKey();
+        for (Entry<BackendWorker, MultiFragmentsPipelineTask> backendTask : fragmentTasks.entrySet()) {
+            BackendWorker worker = backendTask.getKey();
             for (Entry<Integer, SingleFragmentPipelineTask> fragmentIdToTask : backendTask.getValue()
                     .getChildrenTasks().entrySet()) {
                 Integer fragmentId = fragmentIdToTask.getKey();
                 SingleFragmentPipelineTask fragmentTask = fragmentIdToTask.getValue();
-                backendFragmentTasks.put(new BackendFragmentId(backendId, fragmentId), fragmentTask);
+                backendFragmentTasks.put(new BackendFragmentId(worker.id(), fragmentId), fragmentTask);
             }
         }
     }

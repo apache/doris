@@ -63,13 +63,18 @@ public class TrimIn extends ScalarFunction
         super("trim_in", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private TrimIn(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public TrimIn withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
-        return new TrimIn(children);
+        return new TrimIn(getFunctionParams(children));
     }
 
     @Override

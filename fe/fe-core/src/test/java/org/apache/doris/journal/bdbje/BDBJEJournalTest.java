@@ -287,8 +287,8 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
                     Text.writeString(out, data);
                 }
             };
-            // CREATE_MTMV_JOB is deprecated, and safe to write any data.
-            batch.addJournal(OperationType.OP_CREATE_MTMV_JOB, writable);
+            // OP_START_ROLLUP is deprecated, and safe to write any data.
+            batch.addJournal(OperationType.OP_START_ROLLUP, writable);
         }
         long journalId = journal.write(batch);
         Assertions.assertEquals(1, journalId);
@@ -305,7 +305,7 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
         Assertions.assertEquals(1, journal.getDatabaseNames().get(0));
 
         JournalEntity journalEntity = journal.read(1);
-        Assertions.assertEquals(OperationType.OP_CREATE_MTMV_JOB, journalEntity.getOpCode());
+        Assertions.assertEquals(OperationType.OP_START_ROLLUP, journalEntity.getOpCode());
 
         batch = new JournalBatch(10);
         for (int i = 0; i < 10; i++) {
@@ -316,7 +316,7 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
                     Text.writeString(out, data);
                 }
             };
-            batch.addJournal(OperationType.OP_CREATE_MTMV_JOB, writable);
+            batch.addJournal(OperationType.OP_START_ROLLUP, writable);
         }
         journalId = journal.write(batch);
         Assertions.assertEquals(11, journalId);

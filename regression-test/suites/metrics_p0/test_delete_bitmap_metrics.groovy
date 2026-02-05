@@ -71,6 +71,9 @@ suite("test_delete_bitmap_metrics", "p0") {
         sb.append(tablet_id)
 
         String command = sb.toString()
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
         logger.info(command)
         def process = command.execute()
         def code = process.waitFor()
@@ -94,6 +97,27 @@ suite("test_delete_bitmap_metrics", "p0") {
         def code = process.waitFor()
         def out = process.getText()
         logger.info("Get ms delete bitmap count status:  =" + code + ", out=" + out)
+        assertEquals(code, 0)
+        def deleteBitmapStatus = parseJson(out.trim())
+        return deleteBitmapStatus
+    }
+
+    def getAggCacheDeleteBitmapStatus = { be_host, be_http_port, tablet_id, boolean verbose=false ->
+        boolean running = true
+        StringBuilder sb = new StringBuilder();
+        sb.append("curl -X GET http://${be_host}:${be_http_port}")
+        sb.append("/api/delete_bitmap/count_agg_cache?tablet_id=")
+        sb.append(tablet_id)
+        if (verbose) {
+            sb.append("&verbose=true")
+        }
+
+        String command = sb.toString()
+        logger.info(command)
+        def process = command.execute()
+        def code = process.waitFor()
+        def out = process.getText()
+        logger.info("Get agg cache delete bitmap count status:  =" + code + ", out=" + out)
         assertEquals(code, 0)
         def deleteBitmapStatus = parseJson(out.trim())
         return deleteBitmapStatus
@@ -187,6 +211,16 @@ suite("test_delete_bitmap_metrics", "p0") {
                 assertTrue(ms_delete_bitmap_count == 7)
                 assertTrue(ms_delete_bitmap_cardinality == 7)
             }
+
+            def status = getAggCacheDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
+            logger.info("agg cache status: ${status}")
+            assert status.delete_bitmap_count == 8
+            assert status.cardinality == 7
+            assert status.size > 0
+
+            status = getAggCacheDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id, true)
+            logger.info("agg cache verbose status: ${status}")
+
             def tablet_delete_bitmap_count = 0;
             def base_rowset_delete_bitmap_count = 0;
             int retry_time = 0;

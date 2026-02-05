@@ -22,6 +22,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 #include "common/status.h"
 #include "data_type_number_serde.h"
@@ -29,6 +30,7 @@
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris::vectorized {
 class Arena;
@@ -39,11 +41,21 @@ public:
     constexpr static bool IsDatetime = (T == PrimitiveType::TYPE_DATETIME);
     static_assert(IsDatetime || T == PrimitiveType::TYPE_DATE,
                   "DataTypeDateSerDe can only be used for TYPE_DATE or TYPE_DATETIME");
-    using ColumnType = PrimitiveTypeTraits<T>::ColumnType;
-    using NativeType = PrimitiveTypeTraits<T>::CppNativeType; // int64
-    using CppType = PrimitiveTypeTraits<T>::CppType;          // VecDateTimeValue
+    using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
+    using CppType = typename PrimitiveTypeTraits<T>::CppType; // VecDateTimeValue
+    constexpr static std::string_view name() { return IsDatetime ? "DateTime" : "Date"; }
 
+    using typename DataTypeNumberSerDe<T>::FormatOptions;
     DataTypeDateSerDe(int nesting_level = 1) : DataTypeNumberSerDe<T>(nesting_level) {};
+
+    Status from_string(StringRef& str, IColumn& column,
+                       const FormatOptions& options) const override;
+
+    Status from_string(const std::string& str, Field& field,
+                       const FormatOptions& options) const override;
+
+    Status from_string_strict_mode(StringRef& str, IColumn& column,
+                                   const FormatOptions& options) const override;
 
     /// these functions are for both TYPE_DATE and TYPE_DATETIME. we set field according to T.
     Status from_string_batch(
@@ -56,23 +68,24 @@ public:
             const NullMap::value_type* null_map = nullptr) const final;
 
     template <typename IntDataType>
-    Status from_int_batch(const IntDataType::ColumnType& int_col, ColumnNullable& target_col) const;
+    Status from_int_batch(const typename IntDataType::ColumnType& int_col,
+                          ColumnNullable& target_col) const;
     template <typename IntDataType>
-    Status from_int_strict_mode_batch(const IntDataType::ColumnType& int_col,
+    Status from_int_strict_mode_batch(const typename IntDataType::ColumnType& int_col,
                                       IColumn& target_col) const;
 
     template <typename FloatDataType>
-    Status from_float_batch(const FloatDataType::ColumnType& float_col,
+    Status from_float_batch(const typename FloatDataType::ColumnType& float_col,
                             ColumnNullable& target_col) const;
     template <typename FloatDataType>
-    Status from_float_strict_mode_batch(const FloatDataType::ColumnType& float_col,
+    Status from_float_strict_mode_batch(const typename FloatDataType::ColumnType& float_col,
                                         IColumn& target_col) const;
 
     template <typename DecimalDataType>
-    Status from_decimal_batch(const DecimalDataType::ColumnType& decimal_col,
+    Status from_decimal_batch(const typename DecimalDataType::ColumnType& decimal_col,
                               ColumnNullable& target_col) const;
     template <typename DecimalDataType>
-    Status from_decimal_strict_mode_batch(const DecimalDataType::ColumnType& decimal_col,
+    Status from_decimal_strict_mode_batch(const typename DecimalDataType::ColumnType& decimal_col,
                                           IColumn& target_col) const;
 
     Status serialize_one_cell_to_json(
@@ -94,29 +107,19 @@ public:
                                  const cctz::time_zone& ctz) const override;
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                   int64_t end, const cctz::time_zone& ctz) const override;
-    Status write_column_to_mysql(
-            const IColumn& column, MysqlRowBuffer<true>& row_buffer, int64_t row_idx,
-            bool col_const,
-            const typename DataTypeNumberSerDe<T>::FormatOptions& options) const override;
-    Status write_column_to_mysql(
-            const IColumn& column, MysqlRowBuffer<false>& row_buffer, int64_t row_idx,
-            bool col_const,
-            const typename DataTypeNumberSerDe<T>::FormatOptions& options) const override;
+    Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& row_buffer,
+                                        int64_t row_idx, bool col_const,
+                                        const FormatOptions& options) const override;
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end, vectorized::Arena& arena) const override;
+                               int64_t start, int64_t end, vectorized::Arena& arena,
+                               const FormatOptions& options) const override;
 
 protected:
     template <bool is_date>
     Status _read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                    int64_t end, const cctz::time_zone& ctz) const;
-
-private:
-    template <bool is_binary_format>
-    Status _write_column_to_mysql(
-            const IColumn& column, MysqlRowBuffer<is_binary_format>& result, int64_t row_idx,
-            bool col_const, const typename DataTypeNumberSerDe<T>::FormatOptions& options) const;
 };
 
 class DataTypeDateTimeSerDe : public DataTypeDateSerDe<PrimitiveType::TYPE_DATETIME> {

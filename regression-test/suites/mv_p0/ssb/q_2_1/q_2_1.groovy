@@ -80,8 +80,8 @@ suite ("mv_ssb_q_2_1") {
     createMV ("""create materialized view lineorder_q_2_1 as 
                 SELECT
                     (LO_ORDERDATE DIV 10000) AS YEAR,
-                    P_BRAND,
-                    SUM(LO_REVENUE)
+                    P_BRAND as a2,
+                    SUM(LO_REVENUE) as a3
                 FROM lineorder_flat
                 WHERE P_CATEGORY = 'MFGR#12' AND S_REGION = 'AMERICA'
                 GROUP BY YEAR, P_BRAND
@@ -94,6 +94,7 @@ suite ("mv_ssb_q_2_1") {
     qt_select_star "select * from lineorder_flat order by 1,2,P_MFGR;"
 
   sql """alter table lineorder_flat modify column LO_ORDERDATE set stats ('row_count'='2');"""
+  sql """alter table lineorder_flat modify column a2 set stats ('row_count'='1');"""
 
     mv_rewrite_success("""SELECT
                 SUM(LO_REVENUE), (LO_ORDERDATE DIV 10000) AS YEAR,

@@ -27,7 +27,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class HMSGlueMetaStorePropertiesTest {
-    private HMSGlueMetaStoreProperties properties;
+    private HiveGlueMetaStoreProperties properties;
 
     @BeforeEach
     public void setUp() {
@@ -43,7 +43,7 @@ public class HMSGlueMetaStorePropertiesTest {
                 "aws.glue.socket-timeout", "45000",
                 "aws.glue.catalog.separator", "::"
         );
-        properties = new HMSGlueMetaStoreProperties(config);
+        properties = new HiveGlueMetaStoreProperties(config);
     }
 
     @Test
@@ -65,23 +65,23 @@ public class HMSGlueMetaStorePropertiesTest {
 
     @Test
     public void testConstructorSetsTypeCorrectly() {
-        Assertions.assertEquals(AbstractHMSProperties.Type.GLUE, properties.getType());
+        Assertions.assertEquals(AbstractHiveProperties.Type.GLUE, properties.getType());
     }
 
     @Test
     public void testMissingRequiredPropertyThrows() {
         Map<String, String> incompleteConfig = new HashMap<>(properties.getOrigProps());
         incompleteConfig.remove("aws.glue.secret-key");
-        HMSGlueMetaStoreProperties props = new HMSGlueMetaStoreProperties(incompleteConfig);
+        HiveGlueMetaStoreProperties props = new HiveGlueMetaStoreProperties(incompleteConfig);
         Exception exception = Assertions.assertThrows(IllegalArgumentException.class, props::initNormalizeAndCheckProps);
-        Assertions.assertTrue(exception.getMessage().contains("glue.secret_key or aws.glue.secret-key"));
+        Assertions.assertTrue(exception.getMessage().contains("glue.access_key and glue.secret_key must be set together"));
     }
 
     @Test
     public void testInvalidNumberPropertyThrows() {
         Map<String, String> invalidConfig = new HashMap<>(properties.getOrigProps());
         invalidConfig.put("aws.glue.max-error-retries", "notANumber");
-        HMSGlueMetaStoreProperties props = new HMSGlueMetaStoreProperties(invalidConfig);
+        HiveGlueMetaStoreProperties props = new HiveGlueMetaStoreProperties(invalidConfig);
         Exception exception = Assertions.assertThrows(RuntimeException.class, props::initNormalizeAndCheckProps);
         Assertions.assertTrue(exception.getMessage().contains("Failed to set property"));
     }
@@ -90,17 +90,17 @@ public class HMSGlueMetaStorePropertiesTest {
     public void testDefaultValuesAreAppliedWhenMissing() {
         Map<String, String> partialConfig = new HashMap<>(properties.getOrigProps());
         partialConfig.remove("aws.glue.max-error-retries");
-        HMSGlueMetaStoreProperties props = new HMSGlueMetaStoreProperties(partialConfig);
+        HiveGlueMetaStoreProperties props = new HiveGlueMetaStoreProperties(partialConfig);
         props.initNormalizeAndCheckProps();
         HiveConf hiveConf = props.getHiveConf();
-        Assertions.assertEquals(String.valueOf(HMSGlueMetaStoreProperties.DEFAULT_MAX_RETRY), hiveConf.get("aws.glue.max-error-retries"));
+        Assertions.assertEquals(String.valueOf(HiveGlueMetaStoreProperties.DEFAULT_MAX_RETRY), hiveConf.get("aws.glue.max-error-retries"));
     }
 
     @Test
     public void testUnsupportedPropertyIsIgnored() {
         Map<String, String> configWithExtra = new HashMap<>(properties.getOrigProps());
         configWithExtra.put("some.unsupported.property", "value");
-        HMSGlueMetaStoreProperties props = new HMSGlueMetaStoreProperties(configWithExtra);
+        HiveGlueMetaStoreProperties props = new HiveGlueMetaStoreProperties(configWithExtra);
         props.initNormalizeAndCheckProps();
         HiveConf hiveConf = props.getHiveConf();
         Assertions.assertNull(hiveConf.get("some.unsupported.property"));

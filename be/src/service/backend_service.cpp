@@ -35,6 +35,7 @@
 #include <thrift/protocol/TDebugProtocol.h>
 #include <time.h>
 
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <ostream>
@@ -50,6 +51,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "http/http_client.h"
+#include "io/fs/connectivity/storage_connectivity_tester.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -111,6 +113,107 @@ Status _exec_http_req(std::optional<HttpClient>& client, int retry_times, int sl
     } else {
         return HttpClient::execute_with_retry(retry_times, sleep_time, callback);
     }
+}
+
+Status _download_binlog_segment_file(HttpClient* client, const std::string& get_segment_file_url,
+                                     const std::string& segment_path, uint64_t segment_file_size,
+                                     uint64_t estimate_timeout,
+                                     std::vector<std::string>& download_success_files) {
+    RETURN_IF_ERROR(client->init(get_segment_file_url));
+    client->set_timeout_ms(estimate_timeout * 1000);
+    RETURN_IF_ERROR(client->download(segment_path));
+    download_success_files.push_back(segment_path);
+
+    std::string remote_file_md5;
+    RETURN_IF_ERROR(client->get_content_md5(&remote_file_md5));
+    LOG(INFO) << "download segment file to " << segment_path << ", remote md5: " << remote_file_md5
+              << ", remote size: " << segment_file_size;
+
+    std::error_code ec;
+    // Check file length
+    uint64_t local_file_size = std::filesystem::file_size(segment_path, ec);
+    if (ec) {
+        LOG(WARNING) << "download file error" << ec.message();
+        return Status::IOError("can't retrive file_size of {}, due to {}", segment_path,
+                               ec.message());
+    }
+
+    if (local_file_size != segment_file_size) {
+        LOG(WARNING) << "download file length error"
+                     << ", get_segment_file_url=" << get_segment_file_url
+                     << ", file_size=" << segment_file_size
+                     << ", local_file_size=" << local_file_size;
+        return Status::RuntimeError("downloaded file size is not equal, local={}, remote={}",
+                                    local_file_size, segment_file_size);
+    }
+
+    if (!remote_file_md5.empty()) { // keep compatibility
+        std::string local_file_md5;
+        RETURN_IF_ERROR(io::global_local_filesystem()->md5sum(segment_path, &local_file_md5));
+        if (local_file_md5 != remote_file_md5) {
+            LOG(WARNING) << "download file md5 error"
+                         << ", get_segment_file_url=" << get_segment_file_url
+                         << ", remote_file_md5=" << remote_file_md5
+                         << ", local_file_md5=" << local_file_md5;
+            return Status::RuntimeError("download file md5 is not equal, local={}, remote={}",
+                                        local_file_md5, remote_file_md5);
+        }
+    }
+
+    return io::global_local_filesystem()->permission(segment_path,
+                                                     io::LocalFileSystem::PERMS_OWNER_RW);
+}
+
+Status _download_binlog_index_file(HttpClient* client,
+                                   const std::string& get_segment_index_file_url,
+                                   const std::string& local_segment_index_path,
+                                   uint64_t segment_index_file_size, uint64_t estimate_timeout,
+                                   std::vector<std::string>& download_success_files) {
+    RETURN_IF_ERROR(client->init(get_segment_index_file_url));
+    client->set_timeout_ms(estimate_timeout * 1000);
+    RETURN_IF_ERROR(client->download(local_segment_index_path));
+    download_success_files.push_back(local_segment_index_path);
+
+    std::string remote_file_md5;
+    RETURN_IF_ERROR(client->get_content_md5(&remote_file_md5));
+
+    LOG(INFO) << "download segment index file to " << local_segment_index_path
+              << ", remote md5: " << remote_file_md5
+              << ", remote size: " << segment_index_file_size;
+
+    std::error_code ec;
+    // Check file length
+    uint64_t local_index_file_size = std::filesystem::file_size(local_segment_index_path, ec);
+    if (ec) {
+        LOG(WARNING) << "download index file error" << ec.message();
+        return Status::IOError("can't retrive file_size of {}, due to {}", local_segment_index_path,
+                               ec.message());
+    }
+    if (local_index_file_size != segment_index_file_size) {
+        LOG(WARNING) << "download index file length error"
+                     << ", get_segment_index_file_url=" << get_segment_index_file_url
+                     << ", index_file_size=" << segment_index_file_size
+                     << ", local_index_file_size=" << local_index_file_size;
+        return Status::RuntimeError("downloaded index file size is not equal, local={}, remote={}",
+                                    local_index_file_size, segment_index_file_size);
+    }
+
+    if (!remote_file_md5.empty()) { // keep compatibility
+        std::string local_file_md5;
+        RETURN_IF_ERROR(
+                io::global_local_filesystem()->md5sum(local_segment_index_path, &local_file_md5));
+        if (local_file_md5 != remote_file_md5) {
+            LOG(WARNING) << "download file md5 error"
+                         << ", get_segment_index_file_url=" << get_segment_index_file_url
+                         << ", remote_file_md5=" << remote_file_md5
+                         << ", local_file_md5=" << local_file_md5;
+            return Status::RuntimeError("download file md5 is not equal, local={}, remote={}",
+                                        local_file_md5, remote_file_md5);
+        }
+    }
+
+    return io::global_local_filesystem()->permission(local_segment_index_path,
+                                                     io::LocalFileSystem::PERMS_OWNER_RW);
 }
 
 void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
@@ -345,53 +448,9 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         uint64_t estimate_timeout = estimate_download_timeout(segment_file_size);
         auto get_segment_file_cb = [&get_segment_file_url, &segment_path, segment_file_size,
                                     estimate_timeout, &download_success_files](HttpClient* client) {
-            RETURN_IF_ERROR(client->init(get_segment_file_url));
-            client->set_timeout_ms(estimate_timeout * 1000);
-            RETURN_IF_ERROR(client->download(segment_path));
-            download_success_files.push_back(segment_path);
-
-            std::string remote_file_md5;
-            RETURN_IF_ERROR(client->get_content_md5(&remote_file_md5));
-            LOG(INFO) << "download segment file to " << segment_path
-                      << ", remote md5: " << remote_file_md5
-                      << ", remote size: " << segment_file_size;
-
-            std::error_code ec;
-            // Check file length
-            uint64_t local_file_size = std::filesystem::file_size(segment_path, ec);
-            if (ec) {
-                LOG(WARNING) << "download file error" << ec.message();
-                return Status::IOError("can't retrive file_size of {}, due to {}", segment_path,
-                                       ec.message());
-            }
-
-            if (local_file_size != segment_file_size) {
-                LOG(WARNING) << "download file length error"
-                             << ", get_segment_file_url=" << get_segment_file_url
-                             << ", file_size=" << segment_file_size
-                             << ", local_file_size=" << local_file_size;
-                return Status::RuntimeError(
-                        "downloaded file size is not equal, local={}, remote={}", local_file_size,
-                        segment_file_size);
-            }
-
-            if (!remote_file_md5.empty()) { // keep compatibility
-                std::string local_file_md5;
-                RETURN_IF_ERROR(
-                        io::global_local_filesystem()->md5sum(segment_path, &local_file_md5));
-                if (local_file_md5 != remote_file_md5) {
-                    LOG(WARNING) << "download file md5 error"
-                                 << ", get_segment_file_url=" << get_segment_file_url
-                                 << ", remote_file_md5=" << remote_file_md5
-                                 << ", local_file_md5=" << local_file_md5;
-                    return Status::RuntimeError(
-                            "download file md5 is not equal, local={}, remote={}", local_file_md5,
-                            remote_file_md5);
-                }
-            }
-
-            return io::global_local_filesystem()->permission(segment_path,
-                                                             io::LocalFileSystem::PERMS_OWNER_RW);
+            return _download_binlog_segment_file(client, get_segment_file_url, segment_path,
+                                                 segment_file_size, estimate_timeout,
+                                                 download_success_files);
         };
 
         status = _exec_http_req(client, max_retry, 1, get_segment_file_cb);
@@ -451,7 +510,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         }
     } else {
         for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
-            if (tablet_schema->has_inverted_index()) {
+            if (tablet_schema->has_inverted_index() || tablet_schema->has_ann_index()) {
                 auto get_segment_index_file_size_url = fmt::format(
                         "{}?method={}&tablet_id={}&rowset_id={}&segment_index={}&segment_index_id={"
                         "}",
@@ -520,54 +579,9 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         auto get_segment_index_file_cb = [&get_segment_index_file_url, &local_segment_index_path,
                                           segment_index_file_size, estimate_timeout,
                                           &download_success_files](HttpClient* client) {
-            RETURN_IF_ERROR(client->init(get_segment_index_file_url));
-            client->set_timeout_ms(estimate_timeout * 1000);
-            RETURN_IF_ERROR(client->download(local_segment_index_path));
-            download_success_files.push_back(local_segment_index_path);
-
-            std::string remote_file_md5;
-            RETURN_IF_ERROR(client->get_content_md5(&remote_file_md5));
-
-            LOG(INFO) << "download segment index file to " << local_segment_index_path
-                      << ", remote md5: " << remote_file_md5
-                      << ", remote size: " << segment_index_file_size;
-
-            std::error_code ec;
-            // Check file length
-            uint64_t local_index_file_size =
-                    std::filesystem::file_size(local_segment_index_path, ec);
-            if (ec) {
-                LOG(WARNING) << "download index file error" << ec.message();
-                return Status::IOError("can't retrive file_size of {}, due to {}",
-                                       local_segment_index_path, ec.message());
-            }
-            if (local_index_file_size != segment_index_file_size) {
-                LOG(WARNING) << "download index file length error"
-                             << ", get_segment_index_file_url=" << get_segment_index_file_url
-                             << ", index_file_size=" << segment_index_file_size
-                             << ", local_index_file_size=" << local_index_file_size;
-                return Status::RuntimeError(
-                        "downloaded index file size is not equal, local={}, remote={}",
-                        local_index_file_size, segment_index_file_size);
-            }
-
-            if (!remote_file_md5.empty()) { // keep compatibility
-                std::string local_file_md5;
-                RETURN_IF_ERROR(io::global_local_filesystem()->md5sum(local_segment_index_path,
-                                                                      &local_file_md5));
-                if (local_file_md5 != remote_file_md5) {
-                    LOG(WARNING) << "download file md5 error"
-                                 << ", get_segment_index_file_url=" << get_segment_index_file_url
-                                 << ", remote_file_md5=" << remote_file_md5
-                                 << ", local_file_md5=" << local_file_md5;
-                    return Status::RuntimeError(
-                            "download file md5 is not equal, local={}, remote={}", local_file_md5,
-                            remote_file_md5);
-                }
-            }
-
-            return io::global_local_filesystem()->permission(local_segment_index_path,
-                                                             io::LocalFileSystem::PERMS_OWNER_RW);
+            return _download_binlog_index_file(client, get_segment_index_file_url,
+                                               local_segment_index_path, segment_index_file_size,
+                                               estimate_timeout, download_success_files);
         };
 
         status = _exec_http_req(client, max_retry, 1, get_segment_index_file_cb);
@@ -613,8 +627,8 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         elapsed_time_map.emplace("load_segments", watch.elapsed_time_microseconds());
         if (segments.size() > 1) {
             // calculate delete bitmap between segments
-            status = local_tablet->calc_delete_bitmap_between_segments(rowset->rowset_id(),
-                                                                       segments, delete_bitmap);
+            status = local_tablet->calc_delete_bitmap_between_segments(
+                    rowset->tablet_schema(), rowset->rowset_id(), segments, delete_bitmap);
             if (!status) {
                 LOG(WARNING) << "failed to calculate delete bitmap"
                              << ". tablet_id: " << local_tablet->tablet_id()
@@ -705,69 +719,6 @@ Status BackendService::create_service(StorageEngine& engine, ExecEnv* exec_env, 
                               .build(&(service->_ingest_binlog_workers)));
     LOG(INFO) << fmt::format("ingest binlog thread pool size is {}, in async mode", thread_num);
     return Status::OK();
-}
-
-void BaseBackendService::exec_plan_fragment(TExecPlanFragmentResult& return_val,
-                                            const TExecPlanFragmentParams& params) {
-    LOG(INFO) << "exec_plan_fragment() instance_id=" << print_id(params.params.fragment_instance_id)
-              << " coord=" << params.coord << " backend#=" << params.backend_num;
-    return_val.__set_status(start_plan_fragment_execution(params).to_thrift());
-}
-
-Status BaseBackendService::start_plan_fragment_execution(
-        const TExecPlanFragmentParams& exec_params) {
-    if (!exec_params.fragment.__isset.output_sink) {
-        return Status::InternalError("missing sink in plan fragment");
-    }
-    return _exec_env->fragment_mgr()->exec_plan_fragment(exec_params,
-                                                         QuerySource::INTERNAL_FRONTEND);
-}
-
-void BaseBackendService::submit_export_task(TStatus& t_status, const TExportTaskRequest& request) {
-    //    VLOG_ROW << "submit_export_task. request  is "
-    //            << apache::thrift::ThriftDebugString(request).c_str();
-    //
-    //    Status status = _exec_env->export_task_mgr()->start_task(request);
-    //    if (status.ok()) {
-    //        VLOG_RPC << "start export task successful id="
-    //            << request.params.params.fragment_instance_id;
-    //    } else {
-    //        VLOG_RPC << "start export task failed id="
-    //            << request.params.params.fragment_instance_id
-    //            << " and err_msg=" << status;
-    //    }
-    //    status.to_thrift(&t_status);
-}
-
-void BaseBackendService::get_export_status(TExportStatusResult& result, const TUniqueId& task_id) {
-    //    VLOG_ROW << "get_export_status. task_id  is " << task_id;
-    //    Status status = _exec_env->export_task_mgr()->get_task_state(task_id, &result);
-    //    if (!status.ok()) {
-    //        LOG(WARNING) << "get export task state failed. [id=" << task_id << "]";
-    //    } else {
-    //        VLOG_RPC << "get export task state successful. [id=" << task_id
-    //            << ",status=" << result.status.status_code
-    //            << ",state=" << result.state
-    //            << ",files=";
-    //        for (auto& item : result.files) {
-    //            VLOG_RPC << item << ", ";
-    //        }
-    //        VLOG_RPC << "]";
-    //    }
-    //    status.to_thrift(&result.status);
-    //    result.__set_state(TExportState::RUNNING);
-}
-
-void BaseBackendService::erase_export_task(TStatus& t_status, const TUniqueId& task_id) {
-    //    VLOG_ROW << "erase_export_task. task_id  is " << task_id;
-    //    Status status = _exec_env->export_task_mgr()->erase_task(task_id);
-    //    if (!status.ok()) {
-    //        LOG(WARNING) << "delete export task failed. because "
-    //            << status << " with task_id " << task_id;
-    //    } else {
-    //        VLOG_RPC << "delete export task successful with task_id " << task_id;
-    //    }
-    //    status.to_thrift(&t_status);
 }
 
 void BackendService::get_tablet_stat(TTabletStatResult& result) {
@@ -1086,10 +1037,8 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     p_load_id.set_lo(load_id.lo);
 
     {
-        // See RowsetBuilder::prepare_txn for details
-        std::shared_lock base_migration_lock(local_tablet->get_migration_lock());
-        auto status = _engine.txn_manager()->prepare_txn(partition_id, *local_tablet, txn_id,
-                                                         p_load_id, is_ingrest);
+        // TODO: Before push_lock is not held, but I think it should hold.
+        auto status = local_tablet->prepare_txn(partition_id, txn_id, p_load_id, is_ingrest);
         if (!status.ok()) {
             LOG(WARNING) << "prepare txn failed. txn_id=" << txn_id
                          << ", status=" << status.to_string();
@@ -1355,5 +1304,12 @@ void BaseBackendService::get_dictionary_status(TDictionaryStatusList& result,
     LOG(INFO) << "query for dictionary status, return " << result.dictionary_status_list.size()
               << " rows";
 }
+
+void BaseBackendService::test_storage_connectivity(TTestStorageConnectivityResponse& response,
+                                                   const TTestStorageConnectivityRequest& request) {
+    Status status = io::StorageConnectivityTester::test(request.type, request.properties);
+    response.__set_status(status.to_thrift());
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris

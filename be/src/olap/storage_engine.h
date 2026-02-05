@@ -112,9 +112,19 @@ public:
     // start all background threads. This should be call after env is ready.
     virtual Status start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr = nullptr) = 0;
 
+    /* Parameters:
+     * - tablet_id: the id of tablet to get
+     * - sync_stats: the stats of sync rowset
+     * - force_use_only_cached: whether only use cached tablet meta
+     * - cache_on_miss: whether cache the tablet meta when missing in cache
+     */
     virtual Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
                                               SyncRowsetStats* sync_stats = nullptr,
-                                              bool force_use_cache = false) = 0;
+                                              bool force_use_only_cached = false,
+                                              bool cache_on_miss = true) = 0;
+
+    virtual Status get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta,
+                                   bool force_use_only_cached = false) = 0;
 
     void register_report_listener(ReportWorker* listener);
     void deregister_report_listener(ReportWorker* listener);
@@ -132,6 +142,10 @@ public:
     MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor.get(); }
     CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() {
         return _calc_delete_bitmap_executor.get();
+    }
+
+    CalcDeleteBitmapExecutor* calc_delete_bitmap_executor_for_load() {
+        return _calc_delete_bitmap_executor_for_load.get();
     }
 
     void add_quering_rowset(RowsetSharedPtr rs);
@@ -163,12 +177,13 @@ protected:
     std::unique_ptr<RowsetIdGenerator> _rowset_id_generator;
     std::unique_ptr<MemTableFlushExecutor> _memtable_flush_executor;
     std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor;
+    std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor_for_load;
     CountDownLatch _stop_background_threads_latch;
 
     // Hold reference of quering rowsets
     std::mutex _quering_rowsets_mutex;
     std::unordered_map<RowsetId, RowsetSharedPtr> _querying_rowsets;
-    scoped_refptr<Thread> _evict_quering_rowset_thread;
+    std::shared_ptr<Thread> _evict_quering_rowset_thread;
 
     int64_t _memory_limitation_bytes_for_schema_change;
 
@@ -232,8 +247,18 @@ public:
 
     Status create_tablet(const TCreateTabletReq& request, RuntimeProfile* profile);
 
+    /* Parameters:
+     * - tablet_id: the id of tablet to get
+     * - sync_stats: the stats of sync rowset
+     * - force_use_only_cached: whether only use cached tablet meta
+     * - cache_on_miss: whether cache the tablet meta when missing in cache
+     */
     Result<BaseTabletSPtr> get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats = nullptr,
-                                      bool force_use_cache = false) override;
+                                      bool force_use_only_cached = false,
+                                      bool cache_on_miss = true) override;
+
+    Status get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta,
+                           bool force_use_only_cached = false) override;
 
     void clear_transaction_task(const TTransactionId transaction_id);
     void clear_transaction_task(const TTransactionId transaction_id,
@@ -422,6 +447,9 @@ private:
     Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
                                    bool force);
 
+    void _handle_compaction(TabletSharedPtr tablet, std::shared_ptr<CompactionMixin> compaction,
+                            CompactionType compaction_type, int64_t permits, bool force);
+
     Status _submit_single_replica_compaction_task(TabletSharedPtr tablet,
                                                   CompactionType compaction_type);
 
@@ -431,6 +459,8 @@ private:
     void _remove_unused_remote_files_callback();
     void do_remove_unused_remote_files();
     void _cold_data_compaction_producer_callback();
+    void _handle_cold_data_compaction(TabletSharedPtr tablet);
+    void _follow_cooldown_meta(TabletSharedPtr tablet);
 
     Status _handle_seg_compaction(std::shared_ptr<SegcompactionWorker> worker,
                                   SegCompactionCandidatesSharedPtr segments,
@@ -481,23 +511,23 @@ private:
     PendingRowsetSet _pending_local_rowsets;
     PendingRowsetSet _pending_remote_rowsets;
 
-    scoped_refptr<Thread> _unused_rowset_monitor_thread;
+    std::shared_ptr<Thread> _unused_rowset_monitor_thread;
     // thread to monitor snapshot expiry
-    scoped_refptr<Thread> _garbage_sweeper_thread;
+    std::shared_ptr<Thread> _garbage_sweeper_thread;
     // thread to monitor disk stat
-    scoped_refptr<Thread> _disk_stat_monitor_thread;
+    std::shared_ptr<Thread> _disk_stat_monitor_thread;
     // thread to produce both base and cumulative compaction tasks
-    scoped_refptr<Thread> _compaction_tasks_producer_thread;
-    scoped_refptr<Thread> _update_replica_infos_thread;
-    scoped_refptr<Thread> _cache_clean_thread;
+    std::shared_ptr<Thread> _compaction_tasks_producer_thread;
+    std::shared_ptr<Thread> _update_replica_infos_thread;
+    std::shared_ptr<Thread> _cache_clean_thread;
     // threads to clean all file descriptor not actively in use
-    std::vector<scoped_refptr<Thread>> _path_gc_threads;
+    std::vector<std::shared_ptr<Thread>> _path_gc_threads;
     // thread to produce tablet checkpoint tasks
-    scoped_refptr<Thread> _tablet_checkpoint_tasks_producer_thread;
+    std::shared_ptr<Thread> _tablet_checkpoint_tasks_producer_thread;
     // thread to check tablet path
-    scoped_refptr<Thread> _tablet_path_check_thread;
+    std::shared_ptr<Thread> _tablet_path_check_thread;
     // thread to clean tablet lookup cache
-    scoped_refptr<Thread> _lookup_cache_clean_thread;
+    std::shared_ptr<Thread> _lookup_cache_clean_thread;
 
     std::mutex _engine_task_mutex;
 
@@ -537,11 +567,11 @@ private:
     // we use unordered_map to store all cumulative compaction policy sharded ptr
     CumuCompactionPolicyTable _cumulative_compaction_policies;
 
-    scoped_refptr<Thread> _cooldown_tasks_producer_thread;
-    scoped_refptr<Thread> _remove_unused_remote_files_thread;
-    scoped_refptr<Thread> _cold_data_compaction_producer_thread;
+    std::shared_ptr<Thread> _cooldown_tasks_producer_thread;
+    std::shared_ptr<Thread> _remove_unused_remote_files_thread;
+    std::shared_ptr<Thread> _cold_data_compaction_producer_thread;
 
-    scoped_refptr<Thread> _cache_file_cleaner_tasks_producer_thread;
+    std::shared_ptr<Thread> _cache_file_cleaner_tasks_producer_thread;
 
     std::unique_ptr<PriorityThreadPool> _cooldown_thread_pool;
 
@@ -556,7 +586,7 @@ private:
     // tablet_id, publish_version, transaction_id, partition_id
     std::map<int64_t, std::map<int64_t, std::pair<int64_t, int64_t>>> _async_publish_tasks;
     // aync publish for discontinuous versions of merge_on_write table
-    scoped_refptr<Thread> _async_publish_thread;
+    std::shared_ptr<Thread> _async_publish_thread;
     std::shared_mutex _async_publish_lock;
 
     std::atomic<bool> _need_clean_trash {false};
@@ -569,7 +599,7 @@ private:
     std::unique_ptr<SnapshotManager> _snapshot_mgr;
 
     // thread to check tablet delete bitmap count tasks
-    scoped_refptr<Thread> _check_delete_bitmap_score_thread;
+    std::shared_ptr<Thread> _check_delete_bitmap_score_thread;
 
     int64_t _last_get_peers_replica_backends_time_ms {0};
 
@@ -599,7 +629,9 @@ public:
     CreateTabletRRIdxCache(size_t capacity)
             : LRUCachePolicy(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE, capacity,
                              LRUCacheType::NUMBER,
-                             /*stale_sweep_time_s*/ 30 * 60, 1) {}
+                             /*stale_sweep_time_s*/ 30 * 60, /*num shards*/ 1,
+                             /*element count capacity */ 0,
+                             /*enable prune*/ true, /*is lru-k*/ false) {}
 };
 
 struct DirInfo {

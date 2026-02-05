@@ -81,13 +81,15 @@ Status EngineChecksumTask::_compute_checksum() {
     vectorized::Block block;
     {
         std::shared_lock rdlock(tablet->get_header_lock());
-        Status acquire_reader_st =
-                tablet->capture_consistent_rowsets_unlocked(version, &input_rowsets);
-        if (!acquire_reader_st.ok()) {
+        auto ret = tablet->capture_consistent_rowsets_unlocked(version, CaptureRowsetOps {});
+        if (ret) {
+            input_rowsets = std::move(ret->rowsets);
+        } else {
             LOG(WARNING) << "fail to captute consistent rowsets. tablet=" << tablet->tablet_id()
-                         << "res=" << acquire_reader_st;
-            return acquire_reader_st;
+                         << "res=" << ret.error();
+            return std::move(ret.error());
         }
+
         RETURN_IF_ERROR(TabletReader::init_reader_params_and_create_block(
                 tablet, ReaderType::READER_CHECKSUM, input_rowsets, &reader_params, &block));
     }

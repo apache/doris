@@ -23,7 +23,7 @@ suite("test_nereids_show_resources") {
     String jdbcPassword = context.config.jdbcPassword
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
 
     String resource_name = "test_resource_for_show_resources"
     String url=tokens[0] + "//" + tokens[2] + "/" + "?"

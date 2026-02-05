@@ -389,6 +389,7 @@
 2	shanghai	2345672
 3	hangzhou	2345673
 4	shenzhen	2345674
+5	guangzho	2345675
 
 -- !desc --
 s_suppkey	int	Yes	false	\N	NONE

@@ -120,8 +120,8 @@ public:
     }
 
     void insert(const Field& x) override {
-        DCHECK_EQ(vectorized::get<const String&>(x).length(), _item_size);
-        insert_data(vectorized::get<const String&>(x).data(), _item_size);
+        DCHECK_EQ(x.get<TYPE_STRING>().length(), _item_size);
+        insert_data(x.get<TYPE_STRING>().data(), _item_size);
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override {
@@ -268,7 +268,7 @@ public:
         const auto begin_offset = offsets[0];
         const size_t total_mem_size = offsets[num] - begin_offset;
         resize(old_size + num);
-        memcpy(_data.data() + old_size, data + begin_offset, total_mem_size);
+        memcpy(&_data[old_size * _item_size], data + begin_offset, total_mem_size);
     }
 
     void insert_many_strings(const StringRef* strings, size_t num) override {
@@ -280,8 +280,8 @@ public:
         resize(old_count + num);
         auto* dst = _data.data() + old_count * _item_size;
         for (size_t i = 0; i < num; i++) {
-            dst += i * _item_size;
             memcpy(dst, strings[i].data, strings[i].size);
+            dst += _item_size;
         }
     }
 

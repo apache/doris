@@ -65,7 +65,7 @@ public class AccessTestUtil {
         try {
             new Expectations(auth) {
                 {
-                    auth.setPassword((SetPassVar) any);
+                    auth.setPassword((UserIdentity) any, (byte[]) any);
                     minTimes = 0;
                 }
             };

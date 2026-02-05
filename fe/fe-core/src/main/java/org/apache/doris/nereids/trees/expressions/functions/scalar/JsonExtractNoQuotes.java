@@ -48,14 +48,18 @@ public class JsonExtractNoQuotes extends ScalarFunction
         super("json_extract_no_quotes", ExpressionUtils.mergeArguments(arg0, arg1, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private JsonExtractNoQuotes(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public JsonExtractNoQuotes withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 2);
-        return new JsonExtractNoQuotes(children.get(0), children.get(1),
-                children.subList(2, children.size()).toArray(new Expression[0]));
+        return new JsonExtractNoQuotes(getFunctionParams(children));
     }
 
     @Override

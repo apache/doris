@@ -93,7 +93,7 @@ public class WindowExpression extends Expression {
      */
     public List<Expression> getExpressionsInWindowSpec() {
         List<Expression> expressions = Lists.newArrayList();
-        expressions.addAll(function.children());
+        expressions.addAll(SessionVarGuardExpr.getSessionVarGuardChild(function).children());
         expressions.addAll(partitionKeys);
         expressions.addAll(orderKeys.stream()
                 .map(UnaryNode::child)
@@ -225,6 +225,24 @@ public class WindowExpression extends Expression {
         sb.append("))");
         sb.append(isSkew ? " skew" : "");
         return sb.toString().trim();
+    }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(function.toDigest()).append(" OVER (");
+        if (!partitionKeys.isEmpty()) {
+            sb.append("PARTITION BY ").append(partitionKeys.stream()
+                    .map(Expression::toDigest)
+                    .collect(Collectors.joining(", ", "", " ")));
+        }
+        if (!orderKeys.isEmpty()) {
+            sb.append("ORDER BY ").append(orderKeys.stream()
+                    .map(OrderExpression::toDigest)
+                    .collect(Collectors.joining(", ", "", " ")));
+        }
+        windowFrame.ifPresent(wf -> sb.append(" ").append(wf.toDigest()));
+        return sb.toString().trim() + ")";
     }
 
     @Override

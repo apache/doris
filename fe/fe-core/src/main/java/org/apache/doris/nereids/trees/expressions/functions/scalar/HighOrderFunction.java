@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.types.LambdaType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
@@ -29,7 +30,7 @@ import java.util.List;
 /**
  * Interface of HighOrderFunction, provide default FunctionSignature of LambdaType argument
  */
-public interface HighOrderFunction extends ExplicitlyCastableSignature {
+public interface HighOrderFunction extends ExplicitlyCastableSignature, PreferPushDownProject {
     @Override
     default List<FunctionSignature> getSignatures() {
         return new ImmutableList.Builder<FunctionSignature>()

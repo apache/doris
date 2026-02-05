@@ -50,10 +50,9 @@ class BufferWritable;
 template <PrimitiveType T>
 struct AggregateFunctionUniqDistributeKeyData {
     static constexpr bool is_string_key = is_string_type(T);
-    using Key =
-            std::conditional_t<is_string_key, UInt128,
-                               std::conditional_t<T == TYPE_BOOLEAN, UInt8,
-                                                  typename PrimitiveTypeTraits<T>::CppNativeType>>;
+    using Key = std::conditional_t<
+            is_string_key, UInt128,
+            std::conditional_t<T == TYPE_BOOLEAN, UInt8, typename PrimitiveTypeTraits<T>::CppType>>;
     using Hash = std::conditional_t<is_string_key, UInt128TrivialHash, HashCRC32<Key>>;
 
     using Set = flat_hash_set<Key, Hash>;
@@ -75,10 +74,12 @@ struct AggregateFunctionUniqDistributeKeyData {
 
 template <PrimitiveType T, typename Data>
 class AggregateFunctionUniqDistributeKey final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionUniqDistributeKey<T, Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionUniqDistributeKey<T, Data>>,
+          VarargsExpression,
+          NullableAggregateFunction {
 public:
     using KeyType = std::conditional_t<is_string_type(T), UInt128,
-                                       typename PrimitiveTypeTraits<T>::ColumnItemType>;
+                                       typename PrimitiveTypeTraits<T>::CppType>;
     AggregateFunctionUniqDistributeKey(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionUniqDistributeKey<T, Data>>(
                       argument_types_) {}

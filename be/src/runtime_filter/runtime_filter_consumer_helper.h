@@ -44,13 +44,16 @@ public:
     // The un-arrival filters will be checked every time the scanner is scheduled.
     // And once new runtime filters arrived, we will use it to do operator's filtering.
     // Called by Scanner.
-    Status try_append_late_arrival_runtime_filter(RuntimeState* state, int* arrived_rf_num,
-                                                  vectorized::VExprContextSPtrs& conjuncts,
-                                                  const RowDescriptor& row_descriptor);
+    Status try_append_late_arrival_runtime_filter(RuntimeState* state,
+                                                  const RowDescriptor& row_descriptor,
+                                                  int& arrived_rf_num,
+                                                  vectorized::VExprContextSPtrs& arrived_conjuncts);
 
     // Called by XXXLocalState::close()
     // parent_operator_profile is owned by LocalState so update it is safe at here.
     void collect_realtime_profile(RuntimeProfile* parent_operator_profile);
+
+    size_t runtime_filter_nums() const { return _runtime_filter_descs.size(); }
 
 private:
     // Append late-arrival runtime filters to the vconjunct_ctx.

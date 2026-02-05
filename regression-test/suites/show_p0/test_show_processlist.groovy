@@ -18,15 +18,15 @@
 import org.apache.doris.regression.util.Http
 
 suite("test_show_processlist") {
-    sql """set show_all_fe_connection = false;"""
+    sql """set fetch_all_fe_for_system_table = false;"""
     def result = sql """show processlist;"""
     logger.info("result:${result}")
     assertTrue(result[0].size() == 15)
-    sql """set show_all_fe_connection = true;"""
+    sql """set fetch_all_fe_for_system_table = true;"""
     result = sql """show processlist;"""
     logger.info("result:${result}")
     assertTrue(result[0].size() == 15)
-    sql """set show_all_fe_connection = false;"""
+    sql """set fetch_all_fe_for_system_table = false;"""
 
     def url1 = "http://${context.config.feHttpAddress}/rest/v1/session"
     result =  Http.GET(url1, true)

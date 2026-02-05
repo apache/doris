@@ -31,6 +31,7 @@
 #include "common/logging.h"
 
 namespace doris {
+#include "common/compile_check_avoid_begin.h"
 
 static bool logging_initialized = false;
 
@@ -292,4 +293,5 @@ void update_logging(const std::string& name, const std::string& value) {
     }
 }
 
+#include "common/compile_check_avoid_end.h"
 } // namespace doris

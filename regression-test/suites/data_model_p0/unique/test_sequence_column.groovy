@@ -60,6 +60,22 @@ suite("test_sequence_column") {
 
     order_qt_all "SELECT * from ${tableName}"
 
+    // test sequence column with default value current_timestamp(6)
+    sql "DROP TABLE IF EXISTS ${tableName}"
+    sql """
+    CREATE TABLE `${tableName}` (
+              `ts_tz` datetimev2(6) default current_timestamp(6),
+              `ts_tz_value` datetimev2(6) default current_timestamp(6),
+              `value` INT
+            ) UNIQUE KEY(`ts_tz`)
+            DISTRIBUTED BY HASH(`ts_tz`) BUCKETS 16
+            PROPERTIES (
+            "replication_num" = "1",
+            "function_column.sequence_col" = 'ts_tz_value'
+            );
+    """
+    sql """insert into ${tableName} (value) VALUES(1), (2), (3)"""
+
     // test sequence X variant
     sql "DROP TABLE IF EXISTS ${tableName}"
     try{

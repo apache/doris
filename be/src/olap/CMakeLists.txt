@@ -22,7 +22,14 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/olap")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/olap")
 
 file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp)
+
+# Files in the ann_index directory use faiss header files
+# Some of Doris's compilation check options fail on these header files, so exclude files in the ann_index directory
+# They are compiled separately as a .a library and linked by Olap
+list(FILTER SRC_FILES EXCLUDE REGEX ".*/olap/rowset/segment_v2/ann_index/.*\\.cpp$")
+
 add_library(Olap STATIC ${SRC_FILES})
+target_link_libraries(Olap PRIVATE ann_index)
 
 if (OS_MACOSX)
     target_compile_options(Olap PRIVATE -Wno-unused-lambda-capture)

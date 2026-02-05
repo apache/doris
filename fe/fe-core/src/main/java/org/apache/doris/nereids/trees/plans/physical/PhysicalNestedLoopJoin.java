@@ -230,7 +230,13 @@ public class PhysicalNestedLoopJoin<
         } else {
             otherJoinConjuncts.forEach(expr -> builder.append(expr.shapeInfo()));
         }
-
+        if (!runtimeFilters.isEmpty()) {
+            builder.append(" build RFs:").append(runtimeFilters.stream()
+                    .map(rf -> rf.shapeInfo()).collect(Collectors.joining(";")));
+        }
+        if (!runtimeFiltersV2.isEmpty()) {
+            builder.append(" RFV2: ").append(runtimeFiltersV2);
+        }
         return builder.toString();
     }
 

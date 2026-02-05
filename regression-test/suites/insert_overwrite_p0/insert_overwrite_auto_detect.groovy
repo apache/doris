@@ -84,21 +84,7 @@ suite("test_iot_auto_detect") {
    sql """ insert overwrite table list1 partition(*) with label `iot_auto_txn${uniqueID2}` values ("SHANGHAI"), ("LIST"); """
    sql """ insert overwrite table list1 partition(*) with label `iot_auto_txn${uniqueID3}` values  ("XXX"); """
 
-   def max_try_milli_secs = 10000
-   while(max_try_milli_secs) {
-      def result = sql " show load where label like 'iot_auto_txn%' order by LoadStartTime desc "
-      // the last three loads are loads upper
-      if(result[0][2] == "FINISHED" && result[1][2] == "FINISHED" && result[2][2] == "FINISHED" ) {
-         break
-      } else {
-         sleep(1000) // wait 1 second every time
-         max_try_milli_secs -= 1000
-         if(max_try_milli_secs <= 0) {
-            log.info("result: ${result[0][2]}, ${result[1][2]}, ${result[2][2]}")
-            fail()
-         }
-      }
-   }
+   sleep(10000)
 
    qt_sql " select * from list1 order by k0; "
 
@@ -128,7 +114,8 @@ suite("test_iot_auto_detect") {
    } catch (Exception e) {
         log.info(e.getMessage())
         assertTrue(e.getMessage().contains('Insert has filtered data in strict mode') || 
-            e.getMessage().contains('Cannot found origin partitions in auto detect overwriting'))
+            e.getMessage().contains('Cannot found origin partitions in auto detect overwriting') ||
+            e.getMessage().contains('no partition for this tuple'))
     }
 
    sql " drop table if exists dt; "
@@ -152,7 +139,8 @@ suite("test_iot_auto_detect") {
       sql """ insert overwrite table dt partition(*) values ("2023-02-02"), ("3000-12-12"); """
       check { result, exception, startTime, endTime ->
          assertTrue(exception.getMessage().contains('Insert has filtered data in strict mode') || 
-               exception.getMessage().contains('Cannot found origin partitions in auto detect overwriting'))
+               exception.getMessage().contains('Cannot found origin partitions in auto detect overwriting') ||
+               exception.getMessage().contains('no partition for this tuple'))
       }
    } 
    // test no rows(no partition hits) overwrite

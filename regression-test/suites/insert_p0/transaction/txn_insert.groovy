@@ -112,7 +112,7 @@ suite("txn_insert") {
                 ) distributed by hash(id, c1) 
                 properties('replication_num'="1");
             """
-            createMV """ create materialized view mv_${tableMV} as select c1 from $tableMV; """
+            createMV """ create materialized view mv_${tableMV} as select c1 as a1 from $tableMV; """
             sql "begin"
             sql """insert into $tableMV values(1, 2), (3, 4)"""
             sql """insert into $tableMV values(5, 6)"""
@@ -281,7 +281,7 @@ suite("txn_insert") {
 
         // 8. insert into select to same table
         if (use_nereids_planner) {
-            createMV """ create materialized view mv_${table}_0 as select k1, sum(k2) from ${table}_0 group by k1; """
+            createMV """ create materialized view mv_${table}_0 as select k1 as a2, sum(k2) as a3 from ${table}_0 group by k1; """
             sql """ begin; """
             sql """ insert into ${table}_0 select * from ${table}_1; """
             sql """ insert into ${table}_0 select * from ${table}_2; """

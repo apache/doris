@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeAcquire;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
@@ -56,7 +55,7 @@ public enum ExpressionEvaluator {
      * Evaluate the value of the expression.
      */
     public Expression eval(Expression expression) {
-        if (!(expression.isConstant() || expression.foldable()) || expression instanceof AggregateFunction) {
+        if (!(expression.isConstant() || expression.foldable())) {
             return expression;
         }
 
@@ -64,9 +63,6 @@ public enum ExpressionEvaluator {
         if (expression instanceof BinaryArithmetic) {
             BinaryArithmetic arithmetic = (BinaryArithmetic) expression;
             fnName = arithmetic.getLegacyOperator().getName();
-        } else if (expression instanceof TimestampArithmetic) {
-            TimestampArithmetic arithmetic = (TimestampArithmetic) expression;
-            fnName = arithmetic.getFuncName();
         } else if (expression instanceof BoundFunction) {
             BoundFunction function = ((BoundFunction) expression);
             fnName = function.getName();

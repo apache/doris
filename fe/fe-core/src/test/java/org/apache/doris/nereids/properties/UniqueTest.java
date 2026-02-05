@@ -142,13 +142,13 @@ class UniqueTest extends TestWithFeService {
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isUniqueAndNotNull(plan.getOutput().get(0)));
         plan = PlanChecker.from(connectContext)
-                .analyze("select id from agg intersect select name from agg")
+                .analyze("select id from agg intersect select id from agg")
                 .rewrite()
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isUniqueAndNotNull(plan.getOutput().get(0)));
         plan = PlanChecker.from(connectContext)
-                .analyze("select id from agg union all select name from agg")
+                .analyze("select id from agg union all select id from agg")
                 .rewrite()
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()

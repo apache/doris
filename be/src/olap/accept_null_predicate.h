@@ -23,6 +23,7 @@
 #include "common/factory_creator.h"
 #include "olap/column_predicate.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/wrapper_field.h"
 #include "vec/columns/column_dictionary.h"
@@ -40,24 +41,47 @@ class AcceptNullPredicate : public ColumnPredicate {
     ENABLE_FACTORY_CREATOR(AcceptNullPredicate);
 
 public:
-    AcceptNullPredicate(ColumnPredicate* nested)
-            : ColumnPredicate(nested->column_id(), nested->opposite()), _nested {nested} {}
+    AcceptNullPredicate(const std::shared_ptr<ColumnPredicate>& nested)
+            : ColumnPredicate(nested->column_id(), nested->col_name(), nested->primitive_type(),
+                              nested->opposite()),
+              _nested {nested} {}
+    AcceptNullPredicate(const AcceptNullPredicate& other, uint32_t col_id)
+            : ColumnPredicate(other, col_id),
+              _nested(assert_cast<const AcceptNullPredicate&>(other)._nested
+                              ? assert_cast<const AcceptNullPredicate&>(other)._nested->clone(
+                                        col_id)
+                              : nullptr) {}
+    AcceptNullPredicate(const AcceptNullPredicate& other) = delete;
+    ~AcceptNullPredicate() override = default;
+    std::shared_ptr<ColumnPredicate> clone(uint32_t col_id) const override {
+        return AcceptNullPredicate::create_shared(*this, col_id);
+    }
+    std::string debug_string() const override {
+        auto n = _nested;
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer, "AcceptNullPredicate({}, nested={})",
+                       ColumnPredicate::debug_string(), n ? n->debug_string() : "null");
+        return fmt::to_string(debug_string_buffer);
+    }
 
     PredicateType type() const override { return _nested->type(); }
-
-    Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
-                    roaring::Roaring* roaring) const override {
-        return _nested->evaluate(iterator, num_rows, roaring);
-    }
 
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                     IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override {
-        return _nested->evaluate(name_with_type, iterator, num_rows, bitmap);
-    }
-
-    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
-        return _nested->can_do_apply_safely(input_type, is_null);
+        RETURN_IF_ERROR(_nested->evaluate(name_with_type, iterator, num_rows, bitmap));
+        if (iterator != nullptr) {
+            bool has_null = DORIS_TRY(iterator->has_null());
+            if (has_null) {
+                InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+                RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
+                auto null_bitmap = null_bitmap_cache_handle.get_bitmap();
+                if (null_bitmap) {
+                    *bitmap |= *null_bitmap;
+                }
+            }
+        }
+        return Status::OK();
     }
 
     void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
@@ -82,16 +106,36 @@ public:
         DCHECK(false) << "should not reach here";
     }
 
-    bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+    bool evaluate_and(const ZoneMapInfo& zone_map_info) const override {
         // there is null in range, accept it
-        if (statistic.first->is_null() || statistic.second->is_null()) {
+        if (zone_map_info.has_null) {
             return true;
         }
-        return _nested->evaluate_and(statistic);
+        return _nested->evaluate_and(zone_map_info);
     }
 
-    bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        return _nested->evaluate_del(statistic);
+    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+        return _nested->evaluate_and(statistic) || statistic->has_null;
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                      RowRanges* row_ranges) const override {
+        _nested->evaluate_and(statistic, row_ranges);
+        vectorized::ParquetPredicate::PageIndexStat* stat = nullptr;
+        if (!(statistic->get_stat_func)(&stat, column_id())) {
+            return true;
+        }
+
+        for (int page_id = 0; page_id < stat->num_of_pages; page_id++) {
+            if (stat->has_null[page_id]) {
+                row_ranges->add(stat->ranges[page_id]);
+            }
+        }
+        return row_ranges->count() > 0;
+    }
+
+    bool evaluate_del(const ZoneMapInfo& zone_map_info) const override {
+        return _nested->evaluate_del(zone_map_info);
     }
 
     bool evaluate_and(const BloomFilter* bf) const override { return _nested->evaluate_and(bf); }
@@ -182,11 +226,7 @@ private:
         return _nested->evaluate(column, sel, size);
     }
 
-    std::string _debug_string() const override {
-        return "passnull predicate for " + _nested->debug_string();
-    }
-
-    std::unique_ptr<ColumnPredicate> _nested;
+    std::shared_ptr<ColumnPredicate> _nested;
 };
 
 } //namespace doris

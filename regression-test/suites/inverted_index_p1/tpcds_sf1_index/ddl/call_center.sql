@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS call_center (
     cc_country varchar(20),
     cc_gmt_offset decimal(5,2),
     cc_tax_percentage decimal(5,2),
-    INDEX cc_call_center_sk_idx(cc_call_center_sk) USING BITMAP COMMENT "cc_call_center_sk index",
+    INDEX cc_call_center_sk_idx(cc_call_center_sk) USING INVERTED COMMENT "cc_call_center_sk index",
     INDEX cc_call_center_id_idx(cc_call_center_id) USING INVERTED COMMENT "cc_call_center_id index",
     INDEX cc_rec_start_date_idx(cc_rec_start_date) USING INVERTED COMMENT "cc_rec_start_date index",
     INDEX cc_name_idx(cc_name) USING INVERTED COMMENT "cc_name index",

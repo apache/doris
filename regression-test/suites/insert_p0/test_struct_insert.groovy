@@ -105,6 +105,7 @@ suite("test_struct_insert") {
 
     qt_select "select * from test_struct_insert_into order by id"
 
+    sql "set enable_insert_strict = false"
     sql """
     INSERT INTO test_struct_insert_into VALUES (
          3,

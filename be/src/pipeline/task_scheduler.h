@@ -42,30 +42,75 @@ class ThreadPool;
 
 namespace doris::pipeline {
 
+class HybridTaskScheduler;
 class TaskScheduler {
 public:
-    TaskScheduler(int core_num, std::string name, std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl)
-            : _task_queue(core_num), _name(std::move(name)), _cgroup_cpu_ctl(cgroup_cpu_ctl) {}
+    virtual ~TaskScheduler();
 
-    ~TaskScheduler();
+    virtual Status submit(PipelineTaskSPtr task);
 
-    Status schedule_task(PipelineTaskSPtr task);
+    virtual Status start();
 
-    Status start();
+    virtual void stop();
 
-    void stop();
+    virtual std::vector<std::pair<std::string, std::vector<int>>> thread_debug_info() {
+        return {{_name, _fix_thread_pool->debug_info()}};
+    }
 
-    std::vector<int> thread_debug_info() { return _fix_thread_pool->debug_info(); }
+protected:
+    std::string _name;
+    bool _need_to_stop = false;
+    bool _shutdown = false;
+    const int _num_threads;
 
 private:
+    friend class HybridTaskScheduler;
+
+    TaskScheduler(int core_num, std::string name, std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl)
+            : _name(std::move(name)),
+              _num_threads(core_num),
+              _task_queue(core_num),
+              _cgroup_cpu_ctl(cgroup_cpu_ctl) {
+        LOG(INFO) << "TaskScheduler " << _name << " created with " << core_num << " threads.";
+    }
+    TaskScheduler() : _num_threads(0), _task_queue(0) {}
     std::unique_ptr<ThreadPool> _fix_thread_pool;
 
     MultiCoreTaskQueue _task_queue;
-    bool _need_to_stop = false;
-    bool _shutdown = false;
-    std::string _name;
     std::weak_ptr<CgroupCpuCtl> _cgroup_cpu_ctl;
 
     void _do_work(int index);
+};
+
+class HybridTaskScheduler MOCK_REMOVE(final) : public TaskScheduler {
+public:
+    HybridTaskScheduler(int exec_thread_num, int blocking_exec_thread_num, std::string name,
+                        std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl)
+            : _blocking_scheduler(blocking_exec_thread_num, name + "_blocking_scheduler",
+                                  cgroup_cpu_ctl),
+              _simple_scheduler(exec_thread_num, name + "_simple_scheduler", cgroup_cpu_ctl) {}
+    ~HybridTaskScheduler() override {
+        DCHECK(_blocking_scheduler._shutdown)
+                << _blocking_scheduler._name << ": " << _blocking_scheduler._shutdown << " "
+                << _blocking_scheduler._need_to_stop << " " << _blocking_scheduler._num_threads;
+        DCHECK(_simple_scheduler._shutdown)
+                << _simple_scheduler._name << ": " << _simple_scheduler._shutdown << " "
+                << _simple_scheduler._need_to_stop << " " << _simple_scheduler._num_threads;
+    }
+
+    Status submit(PipelineTaskSPtr task) override;
+
+    Status start() override;
+
+    void stop() override;
+
+    std::vector<std::pair<std::string, std::vector<int>>> thread_debug_info() override {
+        return {_blocking_scheduler.thread_debug_info()[0],
+                _simple_scheduler.thread_debug_info()[0]};
+    }
+
+private:
+    TaskScheduler _blocking_scheduler;
+    TaskScheduler _simple_scheduler;
 };
 } // namespace doris::pipeline

@@ -278,13 +278,29 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     TStatus tstatus;
     tstatus.status_code = TStatusCode::OK;
     put_result.status = tstatus;
-    if (task.__isset.params) {
-        put_result.params = task.params;
-        put_result.__isset.params = true;
-    } else {
-        put_result.pipeline_params = task.pipeline_params;
-        put_result.__isset.pipeline_params = true;
+
+    put_result.pipeline_params = task.pipeline_params;
+    put_result.__isset.pipeline_params = true;
+    if (task.pipeline_params.__isset.file_scan_params &&
+        task.pipeline_params.file_scan_params.size() > 0) {
+        const auto& file_scan_range_param = task.pipeline_params.file_scan_params.begin()->second;
+        if (file_scan_range_param.__isset.strict_mode && file_scan_range_param.strict_mode) {
+            put_result.pipeline_params.query_options.__set_enable_insert_strict(true);
+        }
+    } else if (task.pipeline_params.local_params.size() > 0 &&
+               task.pipeline_params.local_params[0].per_node_scan_ranges.size() > 0) {
+        auto scan_ranges =
+                task.pipeline_params.local_params[0].per_node_scan_ranges.begin()->second;
+        if (scan_ranges.size() > 0 &&
+            scan_ranges[0].scan_range.ext_scan_range.file_scan_range.__isset.params) {
+            const auto& params = scan_ranges[0].scan_range.ext_scan_range.file_scan_range.params;
+            if (params.__isset.strict_mode) {
+                put_result.pipeline_params.query_options.__set_enable_insert_strict(
+                        params.strict_mode);
+            }
+        }
     }
+
     ctx->put_result = put_result;
     if (task.__isset.format) {
         ctx->format = task.format;
@@ -365,7 +381,7 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
         if (UNLIKELY(!_status_.ok() && !_status_.is<PUBLISH_TIMEOUT>())) { \
             err_handler(ctx, _status_, err_msg);                           \
             cb(ctx);                                                       \
-            _status_ = ctx->future.get();                                  \
+            _status_ = ctx->load_status_future.get();                      \
             if (!_status_.ok()) {                                          \
                 LOG(ERROR) << "failed to get future, " << ctx->brief();    \
             }                                                              \
@@ -452,7 +468,7 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     }
 
     // wait for all consumers finished
-    HANDLE_ERROR(ctx->future.get(), "consume failed");
+    HANDLE_ERROR(ctx->load_status_future.get(), "consume failed");
 
     ctx->load_cost_millis = UnixMillis() - ctx->start_millis;
 
@@ -533,12 +549,12 @@ Status RoutineLoadTaskExecutor::_execute_plan_for_test(std::shared_ptr<StreamLoa
             Status st = pipe->read_at(0, result, &read_bytes);
             if (!st.ok()) {
                 LOG(WARNING) << "read failed";
-                ctx->promise.set_value(st);
+                ctx->load_status_promise.set_value(st);
                 break;
             }
 
             if (read_bytes == 0) {
-                ctx->promise.set_value(Status::OK());
+                ctx->load_status_promise.set_value(Status::OK());
                 break;
             }
 

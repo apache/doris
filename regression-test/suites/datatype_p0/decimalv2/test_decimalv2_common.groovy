@@ -40,9 +40,7 @@ suite("test_decimalv2_common", "nonConcurrent") {
             `decimal_key1` decimalv2(8, 5) NULL COMMENT "",
             `decimal_key2` decimalv2(16, 5) NULL COMMENT "",
             `decimal_value1` decimalv2(8, 5) NULL COMMENT "",
-            `decimal_value2` decimalv2(16, 5) NULL COMMENT "",
-            INDEX `idx_key1` (`decimal_value1`) USING BITMAP,
-            INDEX `idx_key2` (`decimal_value2`) USING BITMAP
+            `decimal_value2` decimalv2(16, 5) NULL COMMENT ""
           ) ENGINE=OLAP
           DUPLICATE KEY(`decimal_key1`, `decimal_key2`)
           COMMENT "OLAP"
@@ -59,9 +57,7 @@ suite("test_decimalv2_common", "nonConcurrent") {
             `decimal_key1` decimalv2(8, 5) NULL COMMENT "",
             `decimal_key2` decimalv2(16, 5) NULL COMMENT "",
             `decimal_value1` decimalv2(8, 5) NULL COMMENT "",
-            `decimal_value2` decimalv2(16, 5) NULL COMMENT "",
-            INDEX `idx_key1` (`decimal_value1`) USING BITMAP,
-            INDEX `idx_key2` (`decimal_value2`) USING BITMAP
+            `decimal_value2` decimalv2(16, 5) NULL COMMENT ""
           ) ENGINE=OLAP
           UNIQUE KEY(`decimal_key1`, `decimal_key2`)
           COMMENT "OLAP"
@@ -95,9 +91,7 @@ suite("test_decimalv2_common", "nonConcurrent") {
             `decimal_key1` decimalv2(8, 5) NULL COMMENT "",
             `decimal_key2` decimalv2(16, 5) NULL COMMENT "",
             `decimal_value1` decimalv2(8, 5) NULL COMMENT "",
-            `decimal_value2` decimalv2(16, 5) NULL COMMENT "",
-            INDEX `idx_key1` (`decimal_value1`) USING BITMAP,
-            INDEX `idx_key2` (`decimal_value2`) USING BITMAP
+            `decimal_value2` decimalv2(16, 5) NULL COMMENT ""
           ) ENGINE=OLAP
           DUPLICATE KEY(`decimal_key1`, `decimal_key2`)
           COMMENT "OLAP"
@@ -116,8 +110,8 @@ suite("test_decimalv2_common", "nonConcurrent") {
             `decimal_key2` decimalv2(16, 5) NULL COMMENT "",
             `decimal_value1` decimalv2(8, 5) NULL COMMENT "",
             `decimal_value2` decimalv2(16, 5) NULL COMMENT "",
-            INDEX `idx_key1` (`decimal_value1`) USING BITMAP,
-            INDEX `idx_key2` (`decimal_value2`) USING BITMAP
+            INDEX `idx_key1` (`decimal_value1`) USING INVERTED,
+            INDEX `idx_key2` (`decimal_value2`) USING INVERTED
           ) ENGINE=OLAP
           UNIQUE KEY(`decimal_key1`, `decimal_key2`)
           PARTITION BY RANGE(`decimal_key1`) (

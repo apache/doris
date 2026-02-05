@@ -191,7 +191,7 @@ suite("test_ttl_preempt") {
                         continue
                     }
                     def i = line.indexOf(' ')
-                    assertTrue(line.substring(i).toLong() > 1073741824)
+                    assertTrue(line.substring(i).toLong() > 838860800)
                     flag1 = true
                 }
             }

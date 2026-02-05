@@ -28,6 +28,7 @@ public class Status {
     public static final Status OK = new Status();
     public static final Status CANCELLED = new Status(TStatusCode.CANCELLED, "Cancelled");
     public static final Status TIMEOUT = new Status(TStatusCode.TIMEOUT, "Timeout");
+    public static final Status FINISHED = new Status(TStatusCode.FINISHED, "Finished");
 
     private TStatusCode  errorCode; // anything other than OK
     private String errorMsg;
@@ -89,6 +90,10 @@ public class Status {
 
     public boolean isCancelled() {
         return this.errorCode == TStatusCode.CANCELLED;
+    }
+
+    public boolean isFinished() {
+        return this.errorCode == TStatusCode.FINISHED;
     }
 
     public boolean isRpcError() {

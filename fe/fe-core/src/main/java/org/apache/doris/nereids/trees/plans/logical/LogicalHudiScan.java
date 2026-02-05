@@ -33,7 +33,6 @@ import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -52,6 +51,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -77,20 +77,39 @@ public class LogicalHudiScan extends LogicalFileScan {
             Collection<Slot> operativeSlots,
             List<NamedExpression> virtualColumns,
             Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties) {
+            Optional<LogicalProperties> logicalProperties,
+            String tableAlias,
+            Optional<List<Slot>> cachedOutputs) {
         super(id, table, qualifier, selectedPartitions, operativeSlots, virtualColumns,
-                tableSample, tableSnapshot, scanParams, groupExpression, logicalProperties);
+                tableSample, tableSnapshot, scanParams, groupExpression, logicalProperties, tableAlias, cachedOutputs);
         Objects.requireNonNull(scanParams, "scanParams should not null");
         Objects.requireNonNull(incrementalRelation, "incrementalRelation should not null");
         this.incrementalRelation = incrementalRelation;
     }
 
+    /**
+     * Constructor for LogicalHudiScan (backward compatibility without tableAlias).
+     */
+    protected LogicalHudiScan(RelationId id, ExternalTable table, List<String> qualifier,
+            SelectedPartitions selectedPartitions, Optional<TableSample> tableSample,
+            Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation,
+            Collection<Slot> operativeSlots,
+            List<NamedExpression> virtualColumns,
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties,
+            Optional<List<Slot>> cachedOutputs) {
+        this(id, table, qualifier, selectedPartitions, tableSample, tableSnapshot, scanParams, incrementalRelation,
+                operativeSlots, virtualColumns, groupExpression, logicalProperties, "", cachedOutputs);
+    }
+
     public LogicalHudiScan(RelationId id, ExternalTable table, List<String> qualifier,
             Collection<Slot> operativeSlots, Optional<TableScanParams> scanParams,
-            Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot) {
+            Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot,
+            Optional<List<Slot>> cachedOutputs) {
         this(id, table, qualifier, ((HMSExternalTable) table).initHudiSelectedPartitions(tableSnapshot),
                 tableSample, tableSnapshot, scanParams, Optional.empty(), operativeSlots, ImmutableList.of(),
-                Optional.empty(), Optional.empty());
+                Optional.empty(), Optional.empty(), cachedOutputs);
     }
 
     public Optional<TableScanParams> getScanParams() {
@@ -104,7 +123,7 @@ public class LogicalHudiScan extends LogicalFileScan {
     /**
      * replace incremental params as AND expression
      * incr('beginTime'='20240308110257169', 'endTime'='20240308110677278') =>
-     * _hoodie_commit_time >= 20240308110257169 and _hoodie_commit_time <= '20240308110677278'
+     * _hoodie_commit_time > 20240308110257169 and _hoodie_commit_time <= '20240308110677278'
      */
     public Set<Expression> generateIncrementalExpression(List<Slot> slots) {
         if (!incrementalRelation.isPresent()) {
@@ -123,9 +142,7 @@ public class LogicalHudiScan extends LogicalFileScan {
         StringLiteral upperValue = new StringLiteral(incrementalRelation.get().getEndTs());
         StringLiteral lowerValue = new StringLiteral(incrementalRelation.get().getStartTs());
         ComparisonPredicate less = new LessThanEqual(timeField, upperValue);
-        ComparisonPredicate great = incrementalRelation.get().isIncludeStartTime()
-                ? new GreaterThanEqual(timeField, lowerValue)
-                : new GreaterThan(timeField, lowerValue);
+        ComparisonPredicate great = new GreaterThan(timeField, lowerValue);
         return ImmutableSet.of(great, less);
     }
 
@@ -142,7 +159,8 @@ public class LogicalHudiScan extends LogicalFileScan {
     public LogicalHudiScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, tableSample, tableSnapshot, scanParams, incrementalRelation,
-                operativeSlots, virtualColumns, groupExpression, Optional.of(getLogicalProperties()));
+                operativeSlots, virtualColumns, groupExpression, Optional.of(getLogicalProperties()),
+                tableAlias, cachedOutputs);
     }
 
     @Override
@@ -150,20 +168,23 @@ public class LogicalHudiScan extends LogicalFileScan {
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
             selectedPartitions, tableSample, tableSnapshot, scanParams, incrementalRelation,
-            operativeSlots, virtualColumns, groupExpression, logicalProperties);
+                operativeSlots, virtualColumns, groupExpression, logicalProperties,
+                tableAlias, cachedOutputs);
     }
 
     public LogicalHudiScan withSelectedPartitions(SelectedPartitions selectedPartitions) {
         return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
             selectedPartitions, tableSample, tableSnapshot, scanParams, incrementalRelation,
-            operativeSlots, virtualColumns, groupExpression, Optional.of(getLogicalProperties()));
+                operativeSlots, virtualColumns, groupExpression, Optional.of(getLogicalProperties()),
+                tableAlias, cachedOutputs);
     }
 
     @Override
     public LogicalHudiScan withRelationId(RelationId relationId) {
         return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
             selectedPartitions, tableSample, tableSnapshot, scanParams, incrementalRelation,
-            operativeSlots, virtualColumns, groupExpression, Optional.of(getLogicalProperties()));
+                operativeSlots, virtualColumns, groupExpression, Optional.empty(),
+                tableAlias, cachedOutputs);
     }
 
     @Override
@@ -172,10 +193,27 @@ public class LogicalHudiScan extends LogicalFileScan {
     }
 
     @Override
-    public LogicalFileScan withOperativeSlots(Collection<Slot> operativeSlots) {
+    public LogicalHudiScan withOperativeSlots(Collection<Slot> operativeSlots) {
+        return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
+                selectedPartitions, tableSample, tableSnapshot, scanParams, incrementalRelation,
+                operativeSlots, virtualColumns, groupExpression, Optional.of(getLogicalProperties()),
+                tableAlias, cachedOutputs);
+    }
+
+    @Override
+    public LogicalHudiScan withTableAlias(String tableAlias) {
+        return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
+                selectedPartitions, tableSample, tableSnapshot, scanParams, incrementalRelation,
+                operativeSlots, virtualColumns, Optional.empty(), Optional.of(getLogicalProperties()),
+                tableAlias, cachedOutputs);
+    }
+
+    @Override
+    public LogicalHudiScan withCachedOutput(List<Slot> cachedOutputs) {
         return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
             selectedPartitions, tableSample, tableSnapshot, scanParams, incrementalRelation,
-            operativeSlots, virtualColumns, groupExpression, Optional.of(getLogicalProperties()));
+                operativeSlots, virtualColumns, groupExpression, Optional.empty(),
+                tableAlias, Optional.of(cachedOutputs));
     }
 
     /**
@@ -187,7 +225,8 @@ public class LogicalHudiScan extends LogicalFileScan {
         Optional<IncrementalRelation> newIncrementalRelation = Optional.empty();
         if (optScanParams.isPresent() && optScanParams.get().incrementalRead()) {
             TableScanParams scanParams = optScanParams.get();
-            Map<String, String> optParams = table.getHadoopProperties();
+            // Clone the getBackendStorageProperties, because we need to modify it for the incremental read
+            Map<String, String> optParams = new HashMap<>(table.getBackendStorageProperties());
             if (scanParams.getMapParams().containsKey("beginTime")) {
                 optParams.put("hoodie.datasource.read.begin.instanttime", scanParams.getMapParams().get("beginTime"));
             }
@@ -227,6 +266,7 @@ public class LogicalHudiScan extends LogicalFileScan {
         }
         return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
             selectedPartitions, tableSample, tableSnapshot, scanParams, newIncrementalRelation,
-            operativeSlots, virtualColumns, groupExpression, Optional.of(getLogicalProperties()));
+                operativeSlots, virtualColumns, groupExpression, Optional.of(getLogicalProperties()),
+                tableAlias, cachedOutputs);
     }
 }

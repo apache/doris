@@ -21,12 +21,17 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
 
+#include <atomic>
+#include <chrono>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "common/cast_set.h"
 #include "common/config.h"
+#include "common/status.h"
+#include "io/fs/encrypted_fs_factory.h"
 #include "io/fs/file_system.h"
 #include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
@@ -34,6 +39,7 @@
 #include "olap/storage_policy.h"
 #include "olap/tablet_fwd.h"
 #include "runtime/memory/lru_cache_policy.h"
+#include "util/once.h"
 
 namespace doris {
 
@@ -59,13 +65,19 @@ public:
     // If the rowset is a local rowset, return the global local file system.
     // Otherwise, return the remote file system corresponding to rowset's resource id.
     // Note that if the resource id cannot be found for the corresponding remote file system, nullptr will be returned.
-    io::FileSystemSPtr fs();
+    MOCK_FUNCTION io::FileSystemSPtr fs();
+
+    io::FileSystemSPtr physical_fs();
 
     Result<const StorageResource*> remote_storage_resource();
 
     void set_remote_storage_resource(StorageResource resource);
 
     const std::string& resource_id() const { return _rowset_meta_pb.resource_id(); }
+
+    void set_resource_id(const std::string& resource_id) {
+        _rowset_meta_pb.set_resource_id(resource_id);
+    }
 
     bool is_local() const { return !_rowset_meta_pb.has_resource_id(); }
 
@@ -135,6 +147,18 @@ public:
 
     void set_num_rows(int64_t num_rows) { _rowset_meta_pb.set_num_rows(num_rows); }
 
+    void set_num_segment_rows(const std::vector<uint32_t>& num_segment_rows) {
+        _rowset_meta_pb.mutable_num_segment_rows()->Assign(num_segment_rows.cbegin(),
+                                                           num_segment_rows.cend());
+    }
+
+    void get_num_segment_rows(std::vector<uint32_t>* num_segment_rows) const {
+        num_segment_rows->assign(_rowset_meta_pb.num_segment_rows().cbegin(),
+                                 _rowset_meta_pb.num_segment_rows().cend());
+    }
+
+    auto& get_num_segment_rows() const { return _rowset_meta_pb.num_segment_rows(); }
+
     int64_t total_disk_size() const { return _rowset_meta_pb.total_disk_size(); }
 
     void set_total_disk_size(int64_t total_disk_size) {
@@ -196,6 +220,10 @@ public:
         new_load_id->set_lo(load_id.lo());
     }
 
+    void set_job_id(const std::string& job_id) { _rowset_meta_pb.set_job_id(job_id); }
+
+    const std::string& job_id() const { return _rowset_meta_pb.job_id(); }
+
     bool delete_flag() const { return _rowset_meta_pb.delete_flag(); }
 
     int64_t creation_time() const { return _rowset_meta_pb.creation_time(); }
@@ -203,6 +231,15 @@ public:
     void set_creation_time(int64_t creation_time) {
         return _rowset_meta_pb.set_creation_time(creation_time);
     }
+
+    int64_t stale_at() const {
+        int64_t stale_time = _stale_at_s.load();
+        return stale_time > 0 ? stale_time : _rowset_meta_pb.creation_time();
+    }
+
+    bool has_stale_at() const { return _stale_at_s.load() > 0; }
+
+    void set_stale_at(int64_t stale_at) { _stale_at_s.store(stale_at); }
 
     int64_t partition_id() const { return _rowset_meta_pb.partition_id(); }
 
@@ -348,6 +385,22 @@ public:
 
     int64_t newest_write_timestamp() const { return _rowset_meta_pb.newest_write_timestamp(); }
 
+    // for cloud only
+    bool has_visible_ts_ms() const { return _rowset_meta_pb.has_visible_ts_ms(); }
+    int64_t visible_ts_ms() const { return _rowset_meta_pb.visible_ts_ms(); }
+    std::chrono::time_point<std::chrono::system_clock> visible_timestamp() const {
+        using namespace std::chrono;
+        if (has_visible_ts_ms()) {
+            return time_point<system_clock>(milliseconds(visible_ts_ms()));
+        }
+        return system_clock::from_time_t(newest_write_timestamp());
+    }
+#ifdef BE_TEST
+    void set_visible_ts_ms(int64_t visible_ts_ms) {
+        _rowset_meta_pb.set_visible_ts_ms(visible_ts_ms);
+    }
+#endif
+
     void set_tablet_schema(const TabletSchemaSPtr& tablet_schema);
     void set_tablet_schema(const TabletSchemaPB& tablet_schema);
 
@@ -365,7 +418,7 @@ public:
     void add_segments_file_size(const std::vector<size_t>& seg_file_size);
 
     // Return -1 if segment file size is unknown
-    int64_t segment_file_size(int seg_id);
+    int64_t segment_file_size(int seg_id) const;
 
     const auto& segments_file_size() const { return _rowset_meta_pb.segments_file_size(); }
 
@@ -387,6 +440,21 @@ public:
     RowsetMeta(const RowsetMeta&) = delete;
     RowsetMeta operator=(const RowsetMeta&) = delete;
 
+    void add_packed_slice_location(const std::string& segment_path,
+                                   const std::string& packed_file_path, int64_t offset,
+                                   int64_t size, int64_t packed_file_size) {
+        auto* index_map = _rowset_meta_pb.mutable_packed_slice_locations();
+        auto& index_pb = (*index_map)[segment_path];
+        index_pb.set_packed_file_path(packed_file_path);
+        index_pb.set_offset(offset);
+        index_pb.set_size(size);
+        index_pb.set_packed_file_size(packed_file_size);
+    }
+
+    int32_t schema_version() const { return _rowset_meta_pb.schema_version(); }
+
+    std::string debug_string() const { return _rowset_meta_pb.ShortDebugString(); }
+
 private:
     bool _deserialize_from_pb(std::string_view value);
 
@@ -405,10 +473,13 @@ private:
     RowsetId _rowset_id;
     StorageResource _storage_resource;
     bool _is_removed_from_rowset_meta = false;
+    DorisCallOnce<Result<EncryptionAlgorithmPB>> _determine_encryption_once;
+    std::atomic<int64_t> _stale_at_s {0};
 };
 
-#include "common/compile_check_end.h"
+using RowsetMetaMapContainer = std::unordered_map<Version, RowsetMetaSharedPtr, HashOfVersion>;
 
+#include "common/compile_check_end.h"
 } // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_H

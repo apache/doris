@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_pk_no_need_read_data", "nonConcurrent"){
+suite("test_pk_no_need_read_data", "p0"){
     def table1 = "test_pk_no_need_read_data"
 
     sql "drop table if exists ${table1}"
@@ -56,15 +56,12 @@ suite("test_pk_no_need_read_data", "nonConcurrent"){
     sql "set enable_count_on_index_pushdown = true"
     sql """ set enable_common_expr_pushdown = true """
 
-    try {
-        GetDebugPoint().enableDebugPointForAllBEs("segment_iterator._read_columns_by_index")
-        qt_select_0 "SELECT COUNT() FROM ${table1} WHERE date='2017-10-01'"
-    } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("segment_iterator._read_columns_by_index")
-    }
+    qt_select_0 "SELECT COUNT() FROM ${table1} WHERE date='2017-10-01'"
     qt_select_1 "SELECT COUNT() FROM ${table1} WHERE year(date)='2017'"
-    // case2: disable count on index
+
+    // case1: disable count on index
     sql "set enable_count_on_index_pushdown = false"
+
     qt_select_2 "SELECT COUNT() FROM ${table1} WHERE date='2017-10-01'"
     qt_select_3 "SELECT COUNT() FROM ${table1} WHERE year(date)='2017'"
 }

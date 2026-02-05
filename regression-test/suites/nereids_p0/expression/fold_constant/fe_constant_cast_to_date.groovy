@@ -61,10 +61,7 @@ suite("fe_constant_cast_to_date") {
         sql """select cast("2023-07-16T19.123+08:00" as date)"""
         exception "can't cast to DATETIMEV2"
     }
-    test {
-        sql """select cast("2024/05/01" as date)"""
-        exception "can't cast to DATETIMEV2"
-    }
+    qt_sql """select cast("2024/05/01" as date)"""
     test {
         sql """select cast("24012" as date)"""
         exception "can't cast to DATETIMEV2"
@@ -182,4 +179,6 @@ suite("fe_constant_cast_to_date") {
     qt_date45("""select cast("123" as date)""")
     qt_date46("""select cast(1000 as date)""")
     qt_date47("""select cast(-123.123 as date)""")
+
+    qt_date48("""select cast("2020-12-12:12:12:12" as date)""")
 }

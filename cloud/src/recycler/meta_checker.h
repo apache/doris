@@ -27,30 +27,157 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "common/logging.h"
 #include "recycler/white_black_list.h"
+#include "snapshot/snapshot_manager.h"
 
 namespace doris::cloud {
 class TxnKv;
 
 struct StatInfo {
+    // fe
     int64_t check_fe_tablet_num = 0;
+    int64_t check_fe_partition_num = 0;
+    int64_t check_fe_tablet_schema_num = 0;
+    int64_t check_fe_table_version_num = 0;
+    int64_t check_fe_partition_version_num = 0;
+    // fdb
     int64_t check_fdb_tablet_idx_num = 0;
     int64_t check_fdb_tablet_meta_num = 0;
-    int64_t check_fdb_partition_version_num = 0;
+    int64_t check_fdb_tablet_schema_num = 0;
+};
+
+enum CHECK_TYPE { CHECK_VERSION, CHECK_META };
+
+struct TableInfo {
+    int64_t db_id;
+    int64_t table_id;
+
+    std::string debug_string() const {
+        return "db id: " + std::to_string(db_id) + " table id: " + std::to_string(table_id);
+    }
+};
+
+struct TabletInfo {
+    int64_t db_id;
+    int64_t table_id;
+    int64_t partition_id;
+    int64_t index_id;
+    int64_t tablet_id;
+    int64_t schema_version;
+
+    std::string debug_string() const {
+        return "db id: " + std::to_string(db_id) + " table id: " + std::to_string(table_id) +
+               " partition id: " + std::to_string(partition_id) +
+               " index id: " + std::to_string(index_id) +
+               " tablet id: " + std::to_string(tablet_id) +
+               " schema version: " + std::to_string(schema_version);
+    }
+};
+
+struct PartitionInfo {
+    int64_t db_id;
+    int64_t table_id;
+    int64_t partition_id;
+    int64_t tablet_id;
+
+    // clang-format off
+    std::string debug_string() const {
+        return "db id: " + std::to_string(db_id) + 
+               " table id: " + std::to_string(table_id) +
+               " partition id: " + std::to_string(partition_id);
+    }
+    // clang-format on
 };
 
 class MetaChecker {
 public:
     explicit MetaChecker(std::shared_ptr<TxnKv> txn_kv);
-    void do_check(const std::string& host, const std::string& port, const std::string& user,
-                  const std::string& password, const std::string& instance_id, std::string& msg);
-    bool check_fe_meta_by_fdb(MYSQL* conn);
-    bool check_fdb_by_fe_meta(MYSQL* conn);
+    void do_check(std::string& msg);
+
+    void init_mysql_connection(const std::string& host, const std::string& port,
+                               const std::string& user, const std::string& password,
+                               const std::string& instance_id, std::string& msg);
+
+    bool check_fe_meta_by_fdb();
+    bool check_fdb_by_fe_meta();
+    bool do_mvcc_check();
+
+    template <CHECK_TYPE>
+    bool handle_check_fe_meta_by_fdb();
+
+    template <CHECK_TYPE>
+    bool handle_check_fdb_by_fe_meta();
+
+    // forward check meta key
+    bool do_meta_tablet_key_index_check(std::vector<TabletInfo>& tablets_info);
+
+    bool do_meta_tablet_key_check(std::vector<TabletInfo>& tablets_info);
+
+    bool do_meta_schema_key_check(std::vector<TabletInfo>& tablets_info);
+
+    // forward check version key
+    bool do_version_partition_key_check(std::vector<PartitionInfo>& partitions_info);
+
+    bool do_version_table_key_check(std::vector<TableInfo>& tables_info);
+
+    // inverted check meta key
+    bool do_meta_tablet_index_key_inverted_check();
+
+    bool do_meta_tablet_key_inverted_check();
+
+    bool do_meta_schema_key_inverted_check();
+
+    // init this->db_meta_
+    void init_db_meta();
+
+    // init this->tablets, this->partitions
+    void init_tablet_and_partition_info_from_fe_meta();
+
+    std::string instance_id() const { return instance_id_; }
+
+    const std::vector<TabletInfo>& tablets_info_ref() const { return tablets_info; }
+
+    const std::map<int64_t, PartitionInfo>& partitions_ref() const { return partitions; }
+
+private:
+    bool scan_and_handle_kv(std::string& start_key, const std::string& end_key,
+                            std::function<int(std::string_view, std::string_view)>);
+
+    void init_tablet_index_info(std::vector<TabletInfo>* tablets_info);
+
+    void init_tablet_meta_info(std::vector<TabletInfo>* tablets_info);
+
+    void init_partition_info(std::vector<PartitionInfo>* partitions_info);
+
+    void init_table_info(std::vector<TableInfo>* tables_info);
 
 private:
     std::shared_ptr<TxnKv> txn_kv_;
+    std::shared_ptr<SnapshotManager> snapshot_manager_;
+    MYSQL conn;
     StatInfo stat_info_;
     std::string instance_id_;
+    // db_id -> db_name
+    std::unordered_map<int64_t, std::string> db_meta_;
+    // tablet info from fe meta
+    std::vector<TabletInfo> tablets_info;
+    // partition info from fe meta
+    // partition_id -> partition_info
+    std::map<int64_t, PartitionInfo> partitions;
 };
+
+// not implemented yet
+template <>
+bool MetaChecker::handle_check_fe_meta_by_fdb<CHECK_VERSION>();
+
+template <>
+bool MetaChecker::handle_check_fe_meta_by_fdb<CHECK_META>();
+
+template <>
+bool MetaChecker::handle_check_fdb_by_fe_meta<CHECK_VERSION>();
+
+template <>
+bool MetaChecker::handle_check_fdb_by_fe_meta<CHECK_META>();
 
 } // namespace doris::cloud

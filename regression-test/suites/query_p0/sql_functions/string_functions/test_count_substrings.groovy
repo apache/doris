@@ -24,6 +24,17 @@ suite("test_count_substrings") {
     qt_select5 "select count_substrings('a1你你c我你3我d你3你5你','你');"
     qt_select6 "select count_substrings('ccc','cc');"
 
+    // test with start_pos parameter
+    qt_select7 "select count_substrings('a12bc23de345f','2', 1);"
+    qt_select8 "select count_substrings('a12bc23de345f','2', 4);"
+    qt_select9 "select count_substrings('a12bc23de345f','2', 0);"
+    qt_select10 "select count_substrings('a12bc23de345f','2', -1);"
+    qt_select11 "select count_substrings('a12bc23de345f','2', NULL);"
+    qt_select12 "select count_substrings(NULL,'2', 1);"
+    qt_select13 "select count_substrings('a12bc23de345f',NULL, 1);"
+    qt_select14 "select count_substrings(NULL,NULL, 1);"
+    qt_select15 "select count_substrings(NULL,NULL, NULL);"
+
     sql """DROP TABLE IF EXISTS test_count_substrings"""
     sql """ 
             CREATE TABLE IF NOT EXISTS test_count_substrings (
@@ -60,6 +71,8 @@ suite("test_count_substrings") {
     sql """ INSERT INTO test_count_substrings VALUES(11, 'a,b,c,12345', 'a,b,c,12345','5','5') """
     sql """ INSERT INTO test_count_substrings VALUES(12, 'a,b,c,12345', 'a,b,c,12345','a','a') """
     sql """ INSERT INTO test_count_substrings VALUES(13, 'a,你,你,1我2你4我5', 'a你,你,1我2你4我5','你','我') """
+    sql """ INSERT INTO test_count_substrings VALUES(14, 'abababab', 'abababab','ab','ab') """
+    sql """ INSERT INTO test_count_substrings VALUES(15, 'abcabcabc', 'abcabcabc','abc','abc') """
 
     // null and not_null combine
     qt_select5_null_null "select s1,p1,count_substrings(s1, p1) from test_count_substrings order by k1;"
@@ -72,5 +85,29 @@ suite("test_count_substrings") {
     qt_select10_not_null_const "select s2, 'a',count_substrings(s2, 'a') from test_count_substrings order by k1;"
     qt_select11_const_null "select 'a',p1,count_substrings('a', p1) from test_count_substrings order by k1;"
     qt_select12_const_not_null "select 'a',p2,count_substrings('a', p2) from test_count_substrings order by k1;"
+
+    // test with start_pos parameter on table data
+    qt_start_pos1 "select s1, p1, count_substrings(s1, p1, 1) from test_count_substrings where k1 >= 14 order by k1;"
+    qt_start_pos2 "select s1, p1, count_substrings(s1, p1, 2) from test_count_substrings where k1 >= 14 order by k1;"
+    qt_start_pos3 "select s1, p1, count_substrings(s1, p1, 3) from test_count_substrings where k1 >= 14 order by k1;"
+
+    // test with different combinations of null/not null/const with start_pos
+    qt_start_pos_null "select s1, p1, count_substrings(s1, p1, NULL) from test_count_substrings where k1 >= 14 order by k1;"
+    qt_start_pos_const "select s1, p1, count_substrings(s1, p1, 2) from test_count_substrings where k1 >= 14 order by k1;"
+    qt_start_pos_column "select s1, p1, count_substrings(s1, p1, k1) from test_count_substrings where k1 >= 14 order by k1;"
+    
+    // test with large start_pos
+    qt_start_pos_large "select s1, p1, count_substrings(s1, p1, 100) from test_count_substrings where k1 >= 14 order by k1;"
+    qt_start_pos_negative "select s1, p1, count_substrings(s1, p1, -5) from test_count_substrings where k1 >= 14 order by k1;"
+    
+    // test combined with other parameters
+    qt_select_with_start_pos1 "select s1, 'a', count_substrings(s1, 'a', 2) from test_count_substrings order by k1;"
+    qt_select_with_start_pos2 "select s2, p2, count_substrings(s2, p2, 3) from test_count_substrings order by k1;"
+
+    // utf8
+    qt_utf8 "select count_substrings('你好，世界！你好，世界！', '世界');"
+    qt_utf8_start_pos "select count_substrings('你好，世界！你好，世界！', '世界', 1);"
+    qt_utf8_null "select count_substrings('你好，世界！你好，世界！', NULL);"
+    qt_utf8_const "select count_substrings('你好，世界！你好，世界！', '世界', 6);"
 }
 

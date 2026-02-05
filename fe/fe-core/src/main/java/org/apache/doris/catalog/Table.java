@@ -73,7 +73,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
 
     public volatile boolean isDropped = false;
 
-    private boolean hasCompoundKey = false;
     @SerializedName(value = "id")
     protected long id;
     @SerializedName(value = "name")
@@ -118,8 +117,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
      */
     protected Map<String, Column> nameToColumn;
 
-    // DO NOT persist this variable.
-    protected boolean isTypeRead = false;
     // table(view)'s comment
     @SerializedName(value = "comment")
     protected String comment = "";
@@ -350,14 +347,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         this.commitLock.unlock();
     }
 
-    public boolean isTypeRead() {
-        return isTypeRead;
-    }
-
-    public void setTypeRead(boolean isTypeRead) {
-        this.isTypeRead = isTypeRead;
-    }
-
     public long getId() {
         return id;
     }
@@ -490,7 +479,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         }
         if (keys.size() > 1) {
             keys.forEach(key -> key.setCompoundKey(true));
-            hasCompoundKey = true;
         }
     }
 

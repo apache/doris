@@ -16,10 +16,8 @@
 // under the License.
 
 suite("test_add_drop_index_repeatly"){
-    if (isCloudMode()) {
-        return 
-    }
-    def backends = sql_return_maparray('show backends')
+    sql "set enable_add_index_for_new_data = true"
+
     def timeout = 300000
     def delta_time = 1000
     def alter_res = "null"
@@ -70,12 +68,13 @@ suite("test_add_drop_index_repeatly"){
     for (def i = 1; i <= 10; i++) {
         // create index on table 
         sql """ create index idx_k2 on ${tbl}(k2) using inverted """
-        if (!isCloudMode()) {
-            // build index
-            sql """ build index idx_k2 on ${tbl} """
-            def state = wait_for_last_build_index_on_table_finish(tbl, timeout)
-            assertEquals(state, "FINISHED")
-        }
+
+        // build index
+        build_index_on_table("idx_k2", tbl)
+        def state = wait_for_last_build_index_on_table_finish(tbl, timeout)
+        assertEquals(state, "FINISHED")
+
         sql """ drop index idx_k2 on ${tbl} """
+        wait_for_last_build_index_finish(tbl, timeout)
     }
 }

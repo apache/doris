@@ -53,14 +53,18 @@ public class BitTest extends ScalarFunction
         super("bit_test", ExpressionUtils.mergeArguments(arg0, arg1, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private BitTest(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public BitTest withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 2);
-        return new BitTest(children.get(0), children.get(1),
-                children.subList(2, children.size()).toArray(new Expression[0]));
+        return new BitTest(getFunctionParams(children));
     }
 
     @Override

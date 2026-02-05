@@ -129,6 +129,7 @@ public:
     // Returns OK if successful, error indication otherwise.
     Status init(RuntimeState* state);
     Status open(RuntimeState* state);
+    std::string debug_string() const;
 
     MOCK_FUNCTION Status send_local_block(Block* block, bool eos, bool can_be_moved);
     // Flush buffered rows and close channel. This function don't wait the response
@@ -220,13 +221,13 @@ private:
     std::unique_ptr<PBlock> _pblock;
 };
 
-#define HANDLE_CHANNEL_STATUS(state, channel, status)    \
-    do {                                                 \
-        if (status.is<ErrorCode::END_OF_FILE>()) {       \
-            _handle_eof_channel(state, channel, status); \
-        } else {                                         \
-            RETURN_IF_ERROR(status);                     \
-        }                                                \
+#define HANDLE_CHANNEL_STATUS(state, channel, status)                     \
+    do {                                                                  \
+        if (status.is<ErrorCode::END_OF_FILE>()) {                        \
+            RETURN_IF_ERROR(_handle_eof_channel(state, channel, status)); \
+        } else {                                                          \
+            RETURN_IF_ERROR(status);                                      \
+        }                                                                 \
     } while (0)
 
 } // namespace vectorized

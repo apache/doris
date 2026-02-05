@@ -19,6 +19,7 @@
 
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
+#include "vec/common/custom_allocator.h"
 
 namespace doris {
 namespace vectorized {
@@ -53,6 +54,8 @@ public:
 
     bool closed() const override { return _closed; }
 
+    int64_t mtime() const override { return _inner_reader->mtime(); }
+
     // for test only
     const Statistics& statistics() const { return _statistics; }
 
@@ -75,7 +78,7 @@ private:
     io::FileReaderSPtr _inner_reader;
     io::PrefetchRange _range;
 
-    std::unique_ptr<char[]> _cache;
+    DorisUniqueBufferPtr<char> _cache;
     int64_t _current_start_offset = -1;
 
     size_t _size;

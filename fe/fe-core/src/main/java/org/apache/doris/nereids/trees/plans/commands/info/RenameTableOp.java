@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
@@ -51,11 +49,6 @@ public class RenameTableOp extends AlterTableOp {
         }
 
         FeNameFormat.checkTableName(newTableName);
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new TableRenameClause(newTableName);
     }
 
     @Override

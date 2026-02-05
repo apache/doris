@@ -33,13 +33,13 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 
 /*
  * calc row count from replica to table
@@ -75,7 +75,9 @@ public class RowCountAction extends RestBaseController {
         olapTable.readLock();
         try {
             for (Partition partition : olapTable.getAllPartitions()) {
-                long version = partition.getVisibleVersion();
+                // for local mode, getCachedVisibleVersion return visibleVersion.
+                // for cloud mode, the replica.checkVersionCatchUp always returns true.
+                long version = partition.getCachedVisibleVersion();
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     long indexRowCount = 0L;
                     for (Tablet tablet : index.getTablets()) {

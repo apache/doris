@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
@@ -27,7 +28,9 @@ import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.StringType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
@@ -49,7 +52,6 @@ class DateTimeLiteralTest {
         check("0-08-01 13:21:03", DateTimeV2Literal::new);
         check("0-08-01 13:21:03", DateTimeV2Literal::new);
         check("0001-01-01: 00:01:01.001", DateTimeV2Literal::new);
-        check("2021?01?01 00.00.00", DateTimeV2Literal::new);
     }
 
     @Test
@@ -611,6 +613,14 @@ class DateTimeLiteralTest {
         Assertions.assertEquals(25, dt2.minute);
         Assertions.assertEquals(59, dt2.second);
         Assertions.assertEquals(0, dt2.microSecond);
+
+        DateTimeLiteral finalV1 = v1;
+        Assertions.assertThrows(AnalysisException.class, () -> finalV1.uncheckedCastTo(IntegerType.INSTANCE));
+
+        // to string
+        expression = v1.uncheckedCastTo(StringType.INSTANCE);
+        Assertions.assertInstanceOf(StringLiteral.class, expression);
+        Assertions.assertEquals("2025-07-23 13:25:59", ((StringLiteral) expression).value);
     }
 
     @Test
@@ -668,5 +678,20 @@ class DateTimeLiteralTest {
         Assertions.assertEquals(25, dt2.minute);
         Assertions.assertEquals(59, dt2.second);
         Assertions.assertEquals(999999, dt2.microSecond);
+
+        // to string
+        expression = v2.uncheckedCastTo(StringType.INSTANCE);
+        Assertions.assertInstanceOf(StringLiteral.class, expression);
+        Assertions.assertEquals("2025-07-23 13:25:59.999999", ((StringLiteral) expression).value);
+
+        v2 = new DateTimeV2Literal(DateTimeV2Type.SYSTEM_DEFAULT, 2025, 7, 23, 13, 25, 59, 0);
+        expression = v2.uncheckedCastTo(StringType.INSTANCE);
+        Assertions.assertInstanceOf(StringLiteral.class, expression);
+        Assertions.assertEquals("2025-07-23 13:25:59", ((StringLiteral) expression).value);
+
+        v2 = new DateTimeV2Literal(DateTimeV2Type.MAX, 2025, 7, 23, 13, 25, 59, 0);
+        expression = v2.uncheckedCastTo(StringType.INSTANCE);
+        Assertions.assertInstanceOf(StringLiteral.class, expression);
+        Assertions.assertEquals("2025-07-23 13:25:59.000000", ((StringLiteral) expression).value);
     }
 }

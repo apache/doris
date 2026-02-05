@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -57,7 +56,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -201,38 +200,6 @@ public class RoutineLoadManager implements Writable {
         routineLoadJob.setComment(info.getComment());
         addRoutineLoadJob(routineLoadJob, info.getDBName(),
                 info.getTableName());
-    }
-
-    // cloud override
-    public void createRoutineLoadJob(CreateRoutineLoadStmt createRoutineLoadStmt)
-            throws UserException {
-        // check load auth
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
-                InternalCatalog.INTERNAL_CATALOG_NAME,
-                createRoutineLoadStmt.getDBName(),
-                createRoutineLoadStmt.getTableName(),
-                PrivPredicate.LOAD)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                    ConnectContext.get().getQualifiedUser(),
-                    ConnectContext.get().getRemoteIP(),
-                    createRoutineLoadStmt.getDBName(),
-                    createRoutineLoadStmt.getDBName() + ": " + createRoutineLoadStmt.getTableName());
-        }
-
-        RoutineLoadJob routineLoadJob = null;
-        LoadDataSourceType type = LoadDataSourceType.valueOf(createRoutineLoadStmt.getTypeName());
-        switch (type) {
-            case KAFKA:
-                routineLoadJob = KafkaRoutineLoadJob.fromCreateStmt(createRoutineLoadStmt);
-                break;
-            default:
-                throw new UserException("Unknown data source type: " + type);
-        }
-
-        routineLoadJob.setOrigStmt(createRoutineLoadStmt.getOrigStmt());
-        routineLoadJob.setComment(createRoutineLoadStmt.getComment());
-        addRoutineLoadJob(routineLoadJob, createRoutineLoadStmt.getDBName(),
-                    createRoutineLoadStmt.getTableName());
     }
 
     public void addRoutineLoadJob(RoutineLoadJob routineLoadJob, String dbName, String tableName)
@@ -533,7 +500,7 @@ public class RoutineLoadManager implements Writable {
         if (availableBeIds.isEmpty()) {
             RoutineLoadJob job = getJob(jobId);
             if (job != null) {
-                String msg = "no available BE found for job " + jobId
+                String msg = "no available BE found for job " + jobId + ", cluster Name {}, " + job.getCloudCluster()
                         + "please check the BE status and user's cluster or tags";
                 job.updateState(RoutineLoadJob.JobState.PAUSED,
                         new ErrorReason(InternalErrorCode.INTERNAL_ERR, msg), false /* not replay */);
@@ -949,6 +916,7 @@ public class RoutineLoadManager implements Writable {
                 + command.getDataSourceProperties().getDataSourceType());
         }
         job.modifyProperties(command);
+        job.setRoutineLoadDesc(command.getRoutineLoadDesc());
     }
 
     public void replayAlterRoutineLoadJob(AlterRoutineLoadJobOperationLog log) {
@@ -984,6 +952,9 @@ public class RoutineLoadManager implements Writable {
             jobs.add(routineLoadJob);
             if (!routineLoadJob.getState().isFinalState()) {
                 Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(routineLoadJob);
+            }
+            if (Config.isCloudMode()) {
+                routineLoadJob.setCloudCluster();
             }
         }
     }

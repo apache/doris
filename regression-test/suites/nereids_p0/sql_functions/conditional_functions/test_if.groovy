@@ -19,4 +19,33 @@ suite("test_if") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql "select if(id=1,count,hll_empty()) from (select 1 as id, hll_hash(1) as count) t"
+
+
+    sql "set debug_skip_fold_constant = true"
+
+    qt_sql """
+    select if(jsonb_exists_path(CAST('{"a":1}' AS json), '\$.b'), 'EXISTS', 'NOT_EXISTS')
+"""
+
+    qt_sql """
+select if(jsonb_exists_path(CAST(' {"a":1}' AS json), '\$.b'), 'NOT_EXISTS', 'EXISTS');
+"""
+
+    qt_sql """
+select if('EXISTS', jsonb_exists_path(CAST(' {"a":1}' AS json), '\$.b'), 'NOT_EXISTS');
+"""
+
+    qt_sql """
+select if('EXISTS', 'NOT_EXISTS', jsonb_exists_path(CAST(' {"a":1}' AS json), '\$.b'));
+"""
+
+    qt_sql """
+select if('NOT_EXISTS', jsonb_exists_path(CAST(' {"a":1}' AS json), '\$.b'), 'EXISTS');
+"""
+
+    qt_sql """
+select if('NOT_EXISTS', 'EXISTS', jsonb_exists_path(CAST(' {"a":1}' AS json), '\$.b'));
+"""
+
+
 }

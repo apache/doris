@@ -321,7 +321,7 @@ suite("test_partial_update_insert_light_schema_change", "p0") {
             qt_create_index_1 " select * from ${tableName} order by c0 "
 
             
-            sql " CREATE INDEX test ON ${tableName} (c1) USING BITMAP "
+            sql " CREATE INDEX test ON ${tableName} (c1) USING INVERTED "
             // if timeout awaitility will raise exception
             Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
                 def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "

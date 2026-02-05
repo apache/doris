@@ -3,6 +3,39 @@
 1	{"id":1, "name":"John"}	{"name":"Alice", "active":1}	{"tinyint_col":1, "smallint_col":2, "bigint_col":3, "largeint_col":4}	{"float_col":1.1, "double_col":2.2}	{"decimal32_col":1.10, "decimal64_col":2.200, "decimal128_col":3.30000, "decimal256_col":4.40000000}	{"date_col":"2021-01-01", "datetime_col":"2021-01-01 00:00:00"}	{"ipv4_col":"192.168.1.1", "ipv6_col":"::1"}	{"id":1, "tags":["tag1", "tag2"]}	{"id":1, "attributes":{"key1":1, "key2":2}}	{"person":{"name":"John", "age":25}, "address":{"city":"New York", "zip":10001}}	{"char_col":"1234567890", "varchar_col":"1234567890"}
 
 -- !sql --
+{"id":1, "name":"John"}	1
+
+-- !sql --
+{"name":"Alice", "active":1}	1
+
+-- !sql --
+{"tinyint_col":1, "smallint_col":2, "bigint_col":3, "largeint_col":4}	1
+
+-- !sql --
+{"float_col":1.1, "double_col":2.2}	1
+
+-- !sql --
+{"decimal32_col":1.10, "decimal64_col":2.200, "decimal128_col":3.30000, "decimal256_col":4.40000000}	1
+
+-- !sql --
+{"date_col":"2021-01-01", "datetime_col":"2021-01-01 00:00:00"}	1
+
+-- !sql --
+{"ipv4_col":"192.168.1.1", "ipv6_col":"::1"}	1
+
+-- !sql --
+{"id":1, "tags":["tag1", "tag2"]}	1
+
+-- !sql --
+{"id":1, "attributes":{"key1":1, "key2":2}}	1
+
+-- !sql --
+{"person":{"name":"John", "age":25}, "address":{"city":"New York", "zip":10001}}	1
+
+-- !sql --
+{"char_col":"1234567890", "varchar_col":"1234567890"}	1
+
+-- !sql --
 1	{"bool_col":1, "tinyint_col":1, "smallint_col":2, "int_col":3, "bigint_col":4, "largeint_col":5, "float_col":1.1, "double_col":2.2, "decimal32_col":3.30, "decimal64_col":4.400, "decimal128_col":5.50000, "decimal256_col":6.60000000, "string_col":"test", "date_col":"2021-01-01", "datetime_col":"2021-01-01 00:00:00", "ipv4_col":"192.168.1.1", "ipv6_col":"::1"}
 
 -- !sql --

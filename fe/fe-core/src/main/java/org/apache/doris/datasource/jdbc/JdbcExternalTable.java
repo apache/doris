@@ -74,6 +74,7 @@ public class JdbcExternalTable extends ExternalTable {
             + "(\"catalog\"=\"${ctlName}\", \"query\"=\"${sql}\");";
 
     private JdbcTable jdbcTable;
+    private String tableComment;
 
     /**
      * Create jdbc external table.
@@ -96,6 +97,21 @@ public class JdbcExternalTable extends ExternalTable {
             jdbcTable = toJdbcTable();
             objectCreated = true;
         }
+    }
+
+    @Override
+    public String getComment() {
+        return getComment(true);
+    }
+
+    @Override
+    public String getComment(boolean escapeQuota) {
+        if (tableComment != null) {
+            return tableComment;
+        }
+        JdbcExternalCatalog jdbcExternalCatalog = (JdbcExternalCatalog) catalog;
+        tableComment = jdbcExternalCatalog.getJdbcClient().getTableComment(db.getRemoteName(), getRemoteName());
+        return tableComment;
     }
 
     public JdbcTable getJdbcTable() {

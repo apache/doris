@@ -275,7 +275,7 @@ public class CoordinatorContext {
     public static CoordinatorContext buildForSql(NereidsPlanner planner, NereidsCoordinator coordinator) {
         ConnectContext connectContext = planner.getCascadesContext().getConnectContext();
         TQueryOptions queryOptions = initQueryOptions(connectContext);
-        TQueryGlobals queryGlobals = initQueryGlobals(connectContext);
+        TQueryGlobals queryGlobals = createQueryGlobals(connectContext);
         TDescriptorTable descriptorTable = planner.getDescTable().toThrift();
 
         ExecutionProfile executionProfile = new ExecutionProfile(
@@ -306,6 +306,7 @@ public class CoordinatorContext {
         queryOptions.setEnableProfile(enableProfile);
         queryOptions.setProfileLevel(2);
         queryOptions.setBeExecVersion(Config.be_exec_version);
+        queryOptions.setNewVersionUnixTimestamp(true);
 
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
@@ -340,7 +341,7 @@ public class CoordinatorContext {
         return queryOptions;
     }
 
-    private static TQueryGlobals initQueryGlobals(ConnectContext context) {
+    public static TQueryGlobals createQueryGlobals(ConnectContext context) {
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
         queryGlobals.setTimestampMs(System.currentTimeMillis());
@@ -351,6 +352,7 @@ public class CoordinatorContext {
         } else {
             queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
         }
+        queryGlobals.setLcTimeNames(context.getSessionVariable().getLcTimeNames());
         return queryGlobals;
     }
 

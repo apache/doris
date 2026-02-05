@@ -92,14 +92,21 @@ void TimezoneUtils::load_timezones_to_cache() {
 
     for (fs::recursive_directory_iterator it {base_str}; it != end(it); it++) {
         const auto& dir_entry = *it;
-        if (dir_entry.is_regular_file() ||
-            (dir_entry.is_symlink() && is_regular_file(read_symlink(dir_entry)))) {
-            auto tz_name = dir_entry.path().string().substr(base_str.length());
-            if (!parse_save_name_tz(tz_name)) {
-                LOG(WARNING) << "Meet illegal tzdata file: " << tz_name << ". skipped";
+        try {
+            if (dir_entry.is_regular_file() ||
+                (dir_entry.is_symlink() && is_regular_file(read_symlink(dir_entry)))) {
+                auto tz_name = dir_entry.path().string().substr(base_str.length());
+                if (!parse_save_name_tz(tz_name)) {
+                    LOG(WARNING) << "Meet illegal tzdata file: " << tz_name << ". skipped";
+                }
+            } else if (dir_entry.is_directory() &&
+                       ignore_paths.contains(dir_entry.path().filename())) {
+                it.disable_recursion_pending();
             }
-        } else if (dir_entry.is_directory() && ignore_paths.contains(dir_entry.path().filename())) {
-            it.disable_recursion_pending();
+        } catch (const fs::filesystem_error& e) {
+            // maybe symlink loop or to nowhere...
+            LOG(WARNING) << "filesystem error when loading timezone file from " << dir_entry.path()
+                         << ": " << e.what();
         }
     }
     // some special cases. Z = Zulu. CST = Asia/Shanghai

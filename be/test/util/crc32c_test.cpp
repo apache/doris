@@ -18,8 +18,7 @@
 // the following code are modified from RocksDB:
 // https://github.com/facebook/rocksdb/blob/master/util/crc32c_test.cc
 
-#include "util/crc32c.h"
-
+#include <crc32c/crc32c.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <string.h>
@@ -30,9 +29,6 @@
 #include "util/slice.h"
 
 namespace doris {
-namespace crc32c {
-
-class CRC {};
 
 TEST(CRC, StandardResults) {
     // Original Fast_CRC32 tests.
@@ -40,20 +36,20 @@ TEST(CRC, StandardResults) {
     char buf[32];
 
     memset(buf, 0, sizeof(buf));
-    EXPECT_EQ(0x8a9136aaU, Value(buf, sizeof(buf)));
+    EXPECT_EQ(0x8a9136aaU, crc32c::Crc32c(buf, sizeof(buf)));
 
     memset(buf, 0xff, sizeof(buf));
-    EXPECT_EQ(0x62a8ab43U, Value(buf, sizeof(buf)));
+    EXPECT_EQ(0x62a8ab43U, crc32c::Crc32c(buf, sizeof(buf)));
 
     for (int i = 0; i < 32; i++) {
         buf[i] = static_cast<char>(i);
     }
-    EXPECT_EQ(0x46dd794eU, Value(buf, sizeof(buf)));
+    EXPECT_EQ(0x46dd794eU, crc32c::Crc32c(buf, sizeof(buf)));
 
     for (int i = 0; i < 32; i++) {
         buf[i] = static_cast<char>(31 - i);
     }
-    EXPECT_EQ(0x113fdb5cU, Value(buf, sizeof(buf)));
+    EXPECT_EQ(0x113fdb5cU, crc32c::Crc32c(buf, sizeof(buf)));
 
     unsigned char data[48] = {
             0x01, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -61,19 +57,21 @@ TEST(CRC, StandardResults) {
             0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x18, 0x28, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     };
-    EXPECT_EQ(0xd9963a56, Value(reinterpret_cast<char*>(data), sizeof(data)));
+    EXPECT_EQ(0xd9963a56, crc32c::Crc32c(reinterpret_cast<char*>(data), sizeof(data)));
 }
 
 TEST(CRC, Values) {
-    EXPECT_NE(Value("a", 1), Value("foo", 3));
+    EXPECT_NE(crc32c::Crc32c(std::string("a")), crc32c::Crc32c(std::string("foo")));
 }
 
 TEST(CRC, Extend) {
-    EXPECT_EQ(Value("hello world", 11), Extend(Value("hello ", 6), "world", 5));
-
-    std::vector<Slice> slices = {Slice("hello "), Slice("world")};
-    EXPECT_EQ(Value("hello world", 11), Value(slices));
+    auto s1 = std::string("hello ");
+    auto s2 = std::string("world");
+    EXPECT_EQ(crc32c::Crc32c(std::string("hello world")),
+              crc32c::Extend(crc32c::Crc32c(s1), (const uint8_t*)s2.data(), s2.size()));
+    std::vector<std::string_view> slices = {s1, s2};
+    EXPECT_EQ(crc32c::Crc32c(std::string("hello world")),
+              crc32c::Extend(crc32c::Crc32c(slices[0]), (const uint8_t*)s2.data(), s2.size()));
 }
 
-} // namespace crc32c
 } // namespace doris

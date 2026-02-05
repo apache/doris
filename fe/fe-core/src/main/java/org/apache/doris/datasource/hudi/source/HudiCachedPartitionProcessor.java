@@ -63,7 +63,7 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
                 Config.max_external_table_cache_num,
                 true,
                 null);
-        this.partitionCache = partitionCacheFactory.buildCache(key -> new TablePartitionValues(), null, executor);
+        this.partitionCache = partitionCacheFactory.buildCache(key -> new TablePartitionValues(), executor);
     }
 
     @Override
@@ -99,7 +99,7 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
         if (!lastInstant.isPresent()) {
             return partitionValues;
         }
-        long lastTimestamp = Long.parseLong(lastInstant.get().getTimestamp());
+        long lastTimestamp = Long.parseLong(lastInstant.get().requestedTime());
         if (Long.parseLong(timestamp) == lastTimestamp) {
             return getPartitionValues(table, tableMetaClient, useHiveSyncPartition);
         }
@@ -130,7 +130,7 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
             return partitionValues;
         }
         try {
-            long lastTimestamp = Long.parseLong(lastInstant.get().getTimestamp());
+            long lastTimestamp = Long.parseLong(lastInstant.get().requestedTime());
             partitionValues = partitionCache.get(
                     new TablePartitionKey(table.getDbName(), table.getName(),
                             table.getHudiPartitionColumnTypes(lastTimestamp)));

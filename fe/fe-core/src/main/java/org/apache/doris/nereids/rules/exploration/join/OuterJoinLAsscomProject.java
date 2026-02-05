@@ -23,19 +23,18 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableSet;
 
 import java.util.HashSet;
 import java.util.Set;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -84,6 +83,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
                     newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
+                    newBottomJoin = JoinUtils.adjustJoinConjunctsNullable(newBottomJoin);
 
                     Set<ExprId> topUsedExprIds = new HashSet<>();
                     topProject.getProjects().forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
@@ -95,6 +95,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(left, right, null);
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
+                    newTopJoin = JoinUtils.adjustJoinConjunctsNullable(newTopJoin);
 
                     return topProject.withChildren(newTopJoin);
                 }).toRule(RuleType.LOGICAL_OUTER_JOIN_LASSCOM_PROJECT);
@@ -113,11 +114,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                         topJoin.getHashJoinConjuncts().stream(),
                         topJoin.getOtherJoinConjuncts().stream())
                 .allMatch(expr -> {
-                    Set<ExprId> usedExprIdSet = expr.<SlotReference>collect(SlotReference.class::isInstance)
-                            .stream()
-                            .map(SlotReference::getExprId)
-                            .collect(Collectors.toSet());
-                    return !Utils.isIntersecting(usedExprIdSet, bOutputExprIdSet);
+                    return !Utils.isIntersecting(expr.getInputSlotExprIds(), bOutputExprIdSet);
                 });
     }
 

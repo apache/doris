@@ -38,7 +38,7 @@ public:
 
     // get json string
     std::string to_json_string(const char* data, size_t size) {
-        JsonbDocument* pdoc;
+        const JsonbDocument* pdoc;
         THROW_IF_ERROR(doris::JsonbDocument::checkAndCreateDocument(data, size, &pdoc));
         return to_json_string(pdoc->getValue());
     }

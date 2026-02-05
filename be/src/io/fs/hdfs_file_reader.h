@@ -45,7 +45,7 @@ public:
                                          const FileReaderOptions& opts, RuntimeProfile* profile);
 
     HdfsFileReader(Path path, std::string fs_name, FileHandleCache::Accessor accessor,
-                   RuntimeProfile* profile);
+                   RuntimeProfile* profile, int64_t mtime = 0);
 
     ~HdfsFileReader() override;
 
@@ -57,11 +57,16 @@ public:
 
     bool closed() const override { return _closed.load(std::memory_order_acquire); }
 
+    int64_t mtime() const override { return _mtime; }
+
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
 
     void _collect_profile_before_close() override;
+
+    Status do_read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                           const IOContext* io_ctx);
 
 private:
 #ifdef USE_HADOOP_HDFS
@@ -83,6 +88,7 @@ private:
     CachedHdfsFileHandle* _handle = nullptr; // owned by _cached_file_handle
     std::atomic<bool> _closed = false;
     RuntimeProfile* _profile = nullptr;
+    int64_t _mtime;
 #ifdef USE_HADOOP_HDFS
     HDFSProfile _hdfs_profile;
 #endif

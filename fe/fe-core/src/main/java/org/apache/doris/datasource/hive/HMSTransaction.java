@@ -25,11 +25,13 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.common.util.PathUtils;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.statistics.CommonStatistics;
 import org.apache.doris.fs.FileSystem;
 import org.apache.doris.fs.FileSystemProvider;
 import org.apache.doris.fs.FileSystemUtil;
+import org.apache.doris.fs.remote.ObjFileSystem;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.fs.remote.SwitchingFileSystem;
@@ -42,9 +44,11 @@ import org.apache.doris.thrift.TS3MPUPendingUpload;
 import org.apache.doris.thrift.TUpdateMode;
 import org.apache.doris.transaction.Transaction;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.base.Verify;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
@@ -60,10 +64,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
-import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
-import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -229,7 +232,7 @@ public class HMSTransaction implements Transaction {
             if (pu.getS3MpuPendingUploads() != null) {
                 for (TS3MPUPendingUpload s3MPUPendingUpload : pu.getS3MpuPendingUploads()) {
                     uncompletedMpuPendingUploads.add(
-                            new UncompletedMpuPendingUpload(s3MPUPendingUpload, pu.getLocation().getTargetPath()));
+                            new UncompletedMpuPendingUpload(s3MPUPendingUpload, pu.getLocation().getWritePath()));
                 }
             }
         }
@@ -268,25 +271,48 @@ public class HMSTransaction implements Transaction {
                         insertExistsPartitions.add(Pair.of(pu, hivePartitionStatistics));
                         break;
                     case NEW:
-                    case OVERWRITE:
-                        StorageDescriptor sd = table.getSd();
-                        HivePartition hivePartition = new HivePartition(
-                                nameMapping,
-                                false,
-                                sd.getInputFormat(),
-                                pu.getLocation().getTargetPath(),
-                                HiveUtil.toPartitionValues(pu.getName()),
-                                Maps.newHashMap(),
-                                sd.getOutputFormat(),
-                                sd.getSerdeInfo().getSerializationLib(),
-                                sd.getCols()
-                        );
-                        if (updateMode == TUpdateMode.OVERWRITE) {
-                            dropPartition(nameMapping, hivePartition.getPartitionValues(), true);
+                        // Check if partition really exists in HMS (may be cache miss in Doris)
+                        String partitionName = pu.getName();
+                        if (Strings.isNullOrEmpty(partitionName)) {
+                            // This should not happen for partitioned tables
+                            LOG.warn("Partition name is null/empty for NEW mode in partitioned table, skipping");
+                            break;
                         }
-                        addPartition(
-                                nameMapping, hivePartition, writePath,
-                                pu.getName(), pu.getFileNames(), hivePartitionStatistics, pu);
+                        List<String> partitionValues = HiveUtil.toPartitionValues(partitionName);
+                        boolean existsInHMS = false;
+                        try {
+                            Partition hmsPartition = hiveOps.getClient().getPartition(
+                                    nameMapping.getRemoteDbName(),
+                                    nameMapping.getRemoteTblName(),
+                                    partitionValues);
+                            existsInHMS = (hmsPartition != null);
+                        } catch (Exception e) {
+                            // Partition not found in HMS, treat as truly new
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("Partition {} not found in HMS, will create it", pu.getName());
+                            }
+                        }
+
+                        if (existsInHMS) {
+                            // Partition exists in HMS but not in Doris cache
+                            // Treat as APPEND instead of NEW to avoid creation error
+                            LOG.info("Partition {} already exists in HMS (Doris cache miss), treating as APPEND",
+                                    pu.getName());
+                            insertExistsPartitions.add(Pair.of(pu, hivePartitionStatistics));
+                        } else {
+                            // Truly new partition, create it
+                            createAndAddPartition(nameMapping, table, partitionValues, writePath,
+                                    pu, hivePartitionStatistics, false);
+                        }
+                        break;
+                    case OVERWRITE:
+                        String overwritePartitionName = pu.getName();
+                        if (Strings.isNullOrEmpty(overwritePartitionName)) {
+                            LOG.warn("Partition name is null/empty for OVERWRITE mode in partitioned table, skipping");
+                            break;
+                        }
+                        createAndAddPartition(nameMapping, table, HiveUtil.toPartitionValues(overwritePartitionName),
+                                writePath, pu, hivePartitionStatistics, true);
                         break;
                     default:
                         throw new RuntimeException("Not support mode:[" + updateMode + "] in partitioned table");
@@ -370,6 +396,10 @@ public class HMSTransaction implements Transaction {
 
     public long getUpdateCnt() {
         return hivePartitionUpdates.stream().mapToLong(THivePartitionUpdate::getRowCount).sum();
+    }
+
+    public List<THivePartitionUpdate> getHivePartitionUpdates() {
+        return hivePartitionUpdates;
     }
 
     private void convertToInsertExistingPartitionAction(
@@ -1024,6 +1054,37 @@ public class HMSTransaction implements Transaction {
         }
     }
 
+    private void createAndAddPartition(
+            NameMapping nameMapping,
+            Table table,
+            List<String> partitionValues,
+            String writePath,
+            THivePartitionUpdate pu,
+            HivePartitionStatistics hivePartitionStatistics,
+            boolean dropFirst) {
+        StorageDescriptor sd = table.getSd();
+        String pathForHMS = this.fileType == TFileType.FILE_S3
+                ? writePath
+                : pu.getLocation().getTargetPath();
+        HivePartition hivePartition = new HivePartition(
+                nameMapping,
+                false,
+                sd.getInputFormat(),
+                pathForHMS,
+                partitionValues,
+                Maps.newHashMap(),
+                sd.getOutputFormat(),
+                sd.getSerdeInfo().getSerializationLib(),
+                sd.getCols()
+        );
+        if (dropFirst) {
+            dropPartition(nameMapping, hivePartition.getPartitionValues(), true);
+        }
+        addPartition(
+                nameMapping, hivePartition, writePath,
+                pu.getName(), pu.getFileNames(), hivePartitionStatistics, pu);
+    }
+
     public synchronized void addPartition(
             NameMapping nameMapping,
             HivePartition partition,
@@ -1179,7 +1240,16 @@ public class HMSTransaction implements Transaction {
             Table table = tableAndMore.getTable();
             String targetPath = table.getSd().getLocation();
             String writePath = tableAndMore.getCurrentLocation();
-            if (!targetPath.equals(writePath)) {
+            // Determine if a rename operation is required for the output file.
+            // In the BE (Backend) implementation, all object storage systems (e.g., AWS S3, MinIO, OSS, COS)
+            // are unified under the "s3" URI scheme, even if the actual underlying storage uses a different protocol.
+            // The method PathUtils.equalsIgnoreSchemeIfOneIsS3(...) compares two paths by ignoring the scheme
+            // if one of them uses the "s3" scheme, and only checks whether the bucket name and object key match.
+            // This prevents unnecessary rename operations when the scheme differs (e.g., "s3://" vs. "oss://")
+            // but the actual storage location is identical. If the paths differ after ignoring the scheme,
+            // a rename operation will be performed.
+            boolean needRename = !PathUtils.equalsIgnoreSchemeIfOneIsS3(targetPath, writePath);
+            if (needRename) {
                 wrapperAsyncRenameWithProfileSummary(
                         fileSystemExecutor,
                         asyncFileSystemTaskFutures,
@@ -1189,7 +1259,7 @@ public class HMSTransaction implements Transaction {
                         tableAndMore.getFileNames());
             } else {
                 if (!tableAndMore.hivePartitionUpdate.s3_mpu_pending_uploads.isEmpty()) {
-                    s3Commit(fileSystemExecutor, asyncFileSystemTaskFutures, fileSystemTaskCancelled,
+                    objCommit(fileSystemExecutor, asyncFileSystemTaskFutures, fileSystemTaskCancelled,
                             tableAndMore.hivePartitionUpdate, targetPath);
                 }
             }
@@ -1208,32 +1278,46 @@ public class HMSTransaction implements Transaction {
             String targetPath = table.getSd().getLocation();
             String writePath = tableAndMore.getCurrentLocation();
             if (!targetPath.equals(writePath)) {
-                Path path = new Path(targetPath);
-                String oldTablePath = new Path(
-                        path.getParent(), "_temp_" + queryId + "_" + path.getName()).toString();
-                Status status = wrapperRenameDirWithProfileSummary(
-                        targetPath,
-                        oldTablePath,
-                        () -> renameDirectoryTasksForAbort.add(new RenameDirectoryTask(oldTablePath, targetPath)));
-                if (!status.ok()) {
-                    throw new RuntimeException(
-                            "Error to rename dir from " + targetPath + " to " + oldTablePath + status.getErrMsg());
-                }
-                clearDirsForFinish.add(oldTablePath);
+                if (isSubDirectory(targetPath, writePath)) {
+                    String stagingRoot = getImmediateChildPath(targetPath, writePath);
+                    deleteTargetPathContents(targetPath, stagingRoot);
+                    ensureDirectory(targetPath);
+                    wrapperAsyncRenameWithProfileSummary(
+                            fileSystemExecutor,
+                            asyncFileSystemTaskFutures,
+                            fileSystemTaskCancelled,
+                            writePath,
+                            targetPath,
+                            tableAndMore.getFileNames());
+                } else {
+                    Path path = new Path(targetPath);
+                    String oldTablePath = new Path(
+                            path.getParent(), "_temp_" + queryId + "_" + path.getName()).toString();
+                    Status status = wrapperRenameDirWithProfileSummary(
+                            targetPath,
+                            oldTablePath,
+                            () -> renameDirectoryTasksForAbort.add(new RenameDirectoryTask(oldTablePath, targetPath)));
+                    if (!status.ok()) {
+                        throw new RuntimeException(
+                                "Error to rename dir from " + targetPath + " to " + oldTablePath + status.getErrMsg());
+                    }
+                    clearDirsForFinish.add(oldTablePath);
 
-                status = wrapperRenameDirWithProfileSummary(
-                        writePath,
-                        targetPath,
-                        () -> directoryCleanUpTasksForAbort.add(
-                                new DirectoryCleanUpTask(targetPath, true)));
-                if (!status.ok()) {
-                    throw new RuntimeException(
-                            "Error to rename dir from " + writePath + " to " + targetPath + ":" + status.getErrMsg());
+                    status = wrapperRenameDirWithProfileSummary(
+                            writePath,
+                            targetPath,
+                            () -> directoryCleanUpTasksForAbort.add(
+                                    new DirectoryCleanUpTask(targetPath, true)));
+                    if (!status.ok()) {
+                        throw new RuntimeException(
+                                "Error to rename dir from " + writePath + " to " + targetPath
+                                        + ":" + status.getErrMsg());
+                    }
                 }
             } else {
                 if (!tableAndMore.hivePartitionUpdate.s3_mpu_pending_uploads.isEmpty()) {
                     s3cleanWhenSuccess.add(targetPath);
-                    s3Commit(fileSystemExecutor, asyncFileSystemTaskFutures, fileSystemTaskCancelled,
+                    objCommit(fileSystemExecutor, asyncFileSystemTaskFutures, fileSystemTaskCancelled,
                             tableAndMore.hivePartitionUpdate, targetPath);
                 }
             }
@@ -1262,7 +1346,7 @@ public class HMSTransaction implements Transaction {
                         () -> directoryCleanUpTasksForAbort.add(new DirectoryCleanUpTask(targetPath, true)));
             } else {
                 if (!partitionAndMore.hivePartitionUpdate.s3_mpu_pending_uploads.isEmpty()) {
-                    s3Commit(fileSystemExecutor, asyncFileSystemTaskFutures, fileSystemTaskCancelled,
+                    objCommit(fileSystemExecutor, asyncFileSystemTaskFutures, fileSystemTaskCancelled,
                             partitionAndMore.hivePartitionUpdate, targetPath);
                 }
             }
@@ -1306,7 +1390,7 @@ public class HMSTransaction implements Transaction {
                         partitionAndMore.getFileNames());
             } else {
                 if (!partitionAndMore.hivePartitionUpdate.s3_mpu_pending_uploads.isEmpty()) {
-                    s3Commit(fileSystemExecutor, asyncFileSystemTaskFutures, fileSystemTaskCancelled,
+                    objCommit(fileSystemExecutor, asyncFileSystemTaskFutures, fileSystemTaskCancelled,
                             partitionAndMore.hivePartitionUpdate, targetPath);
                 }
             }
@@ -1390,7 +1474,7 @@ public class HMSTransaction implements Transaction {
             } else {
                 if (!partitionAndMore.hivePartitionUpdate.s3_mpu_pending_uploads.isEmpty()) {
                     s3cleanWhenSuccess.add(targetPath);
-                    s3Commit(fileSystemExecutor, asyncFileSystemTaskFutures, fileSystemTaskCancelled,
+                    objCommit(fileSystemExecutor, asyncFileSystemTaskFutures, fileSystemTaskCancelled,
                             partitionAndMore.hivePartitionUpdate, targetPath);
                 }
             }
@@ -1552,6 +1636,132 @@ public class HMSTransaction implements Transaction {
         }
     }
 
+    @VisibleForTesting
+    static boolean isSubDirectory(String parent, String child) {
+        if (parent == null || child == null) {
+            return false;
+        }
+        Path parentPath = new Path(parent);
+        Path childPath = new Path(child);
+        URI parentUri = parentPath.toUri();
+        URI childUri = childPath.toUri();
+        if (!sameFileSystem(parentUri, childUri)) {
+            return false;
+        }
+        String parentPathValue = normalizePath(parentUri.getPath());
+        String childPathValue = normalizePath(childUri.getPath());
+        if (parentPathValue.isEmpty() || childPathValue.isEmpty()) {
+            return false;
+        }
+        return !parentPathValue.equals(childPathValue)
+                && childPathValue.startsWith(parentPathValue + "/");
+    }
+
+    /**
+     * Returns the first-level child path of {@code parent} that contains {@code child},
+     * or null if {@code child} is not a subdirectory of {@code parent}.
+     * Example: parent=/warehouse/table, child=/warehouse/table/.doris_staging/user/uuid
+     * returns /warehouse/table/.doris_staging.
+     */
+    @VisibleForTesting
+    static String getImmediateChildPath(String parent, String child) {
+        if (!isSubDirectory(parent, child)) {
+            return null;
+        }
+        Path parentPath = new Path(parent);
+        URI parentUri = parentPath.toUri();
+        URI childUri = new Path(child).toUri();
+        String parentPathValue = normalizePath(parentUri.getPath());
+        String childPathValue = normalizePath(childUri.getPath());
+        String relative = childPathValue.substring(parentPathValue.length() + 1);
+        int slashIndex = relative.indexOf("/");
+        String firstComponent = slashIndex == -1 ? relative : relative.substring(0, slashIndex);
+        return new Path(parentPath, firstComponent).toString();
+    }
+
+    private static boolean sameFileSystem(URI left, URI right) {
+        String leftScheme = normalizeUriPart(left.getScheme());
+        String rightScheme = normalizeUriPart(right.getScheme());
+        if (!leftScheme.isEmpty() && !rightScheme.isEmpty()
+                && !leftScheme.equalsIgnoreCase(rightScheme)) {
+            return false;
+        }
+        String leftAuthority = normalizeUriPart(left.getAuthority());
+        String rightAuthority = normalizeUriPart(right.getAuthority());
+        if (!leftAuthority.isEmpty() && !rightAuthority.isEmpty()
+                && !leftAuthority.equalsIgnoreCase(rightAuthority)) {
+            return false;
+        }
+        return true;
+    }
+
+    private static String normalizeUriPart(String value) {
+        return value == null ? "" : value;
+    }
+
+    private static String normalizePath(String path) {
+        if (path == null || path.isEmpty()) {
+            return "";
+        }
+        int end = path.length();
+        while (end > 1 && path.charAt(end - 1) == '/') {
+            end--;
+        }
+        return path.substring(0, end);
+    }
+
+    private static boolean pathsEqual(String left, String right) {
+        if (left == null || right == null) {
+            return left == null && right == null;
+        }
+        URI leftUri = new Path(left).toUri();
+        URI rightUri = new Path(right).toUri();
+        if (!sameFileSystem(leftUri, rightUri)) {
+            return false;
+        }
+        return normalizePath(leftUri.getPath()).equals(normalizePath(rightUri.getPath()));
+    }
+
+    @VisibleForTesting
+    void deleteTargetPathContents(String targetPath, String excludedChildPath) {
+        Set<String> dirs = new HashSet<>();
+        Status status = fs.listDirectories(targetPath, dirs);
+        if (!status.ok() && !Status.ErrCode.NOT_FOUND.equals(status.getErrCode())) {
+            throw new RuntimeException(
+                    "Failed to list directories under " + targetPath + ":" + status.getErrMsg());
+        }
+        for (String dir : dirs) {
+            if (excludedChildPath != null && pathsEqual(dir, excludedChildPath)) {
+                continue;
+            }
+            Status deleteStatus = wrapperDeleteDirWithProfileSummary(dir);
+            if (!deleteStatus.ok() && !Status.ErrCode.NOT_FOUND.equals(deleteStatus.getErrCode())) {
+                throw new RuntimeException("Failed to delete directory " + dir + ":" + deleteStatus.getErrMsg());
+            }
+        }
+
+        List<RemoteFile> files = new ArrayList<>();
+        status = fs.listFiles(targetPath, false, files);
+        if (!status.ok() && !Status.ErrCode.NOT_FOUND.equals(status.getErrCode())) {
+            throw new RuntimeException(
+                    "Failed to list files under " + targetPath + ":" + status.getErrMsg());
+        }
+        for (RemoteFile file : files) {
+            Status deleteStatus = wrapperDeleteWithProfileSummary(file.getPath().toString());
+            if (!deleteStatus.ok() && !Status.ErrCode.NOT_FOUND.equals(deleteStatus.getErrCode())) {
+                throw new RuntimeException("Failed to delete file " + file.getPath() + ":" + deleteStatus.getErrMsg());
+            }
+        }
+    }
+
+    @VisibleForTesting
+    void ensureDirectory(String path) {
+        Status status = fs.makeDir(path);
+        if (!status.ok()) {
+            throw new RuntimeException("Failed to create directory " + path + ":" + status.getErrMsg());
+        }
+    }
+
     public Status wrapperRenameDirWithProfileSummary(String origFilePath,
             String destFilePath,
             Runnable runWhenPathNotExist) {
@@ -1612,22 +1822,35 @@ public class HMSTransaction implements Transaction {
         summaryProfile.ifPresent(SummaryProfile::incRenameDirCnt);
     }
 
-    private void s3Commit(Executor fileSystemExecutor, List<CompletableFuture<?>> asyncFileSystemTaskFutures,
+    /**
+     * Commits object storage partition updates (e.g., for S3, Azure Blob, etc.).
+     *
+     * <p>In object storage systems, the write workflow is typically divided into two stages:
+     * <ul>
+     *   <li><b>Upload (Stage) Phase</b> – Performed by the BE (Backend).
+     *       During this phase, data parts (for S3) or staged blocks (for Azure) are uploaded to
+     *       the storage system.</li>
+     *   <li><b>Commit Phase</b> – Performed by the FE (Frontend).
+     *       The FE is responsible for finalizing the uploads initiated by the BE:
+     *       <ul>
+     *         <li>For <b>S3</b>: the FE calls {@code completeMultipartUpload} to merge all uploaded parts into a
+     *         single object.</li>
+     *         <li>For <b>Azure Blob</b>: the BE stages blocks, and the FE performs the final commit to seal
+     *         the blob.</li>
+     *       </ul>
+     *   </li>
+     * </ul>
+     *
+     * <p>This method is executed by the FE and ensures that all uploads initiated by the BE
+     * are properly committed and finalized on the object storage side.
+     */
+    private void objCommit(Executor fileSystemExecutor, List<CompletableFuture<?>> asyncFileSystemTaskFutures,
             AtomicBoolean fileSystemTaskCancelled, THivePartitionUpdate hivePartitionUpdate, String path) {
-
         List<TS3MPUPendingUpload> s3MpuPendingUploads = hivePartitionUpdate.getS3MpuPendingUploads();
         if (isMockedPartitionUpdate) {
             return;
         }
-
-        S3FileSystem s3FileSystem = (S3FileSystem) ((SwitchingFileSystem) fs).fileSystem(path);
-        S3Client s3Client;
-        try {
-            s3Client = (S3Client) s3FileSystem.getObjStorage().getClient();
-        } catch (UserException e) {
-            throw new RuntimeException(e);
-        }
-
+        ObjFileSystem fileSystem = (ObjFileSystem) ((SwitchingFileSystem) fs).fileSystem(path);
         for (TS3MPUPendingUpload s3MPUPendingUpload : s3MpuPendingUploads) {
             asyncFileSystemTaskFutures.add(CompletableFuture.runAsync(() -> {
                 if (fileSystemTaskCancelled.get()) {
@@ -1636,15 +1859,13 @@ public class HMSTransaction implements Transaction {
                 List<CompletedPart> completedParts = Lists.newArrayList();
                 for (Map.Entry<Integer, String> entry : s3MPUPendingUpload.getEtags().entrySet()) {
                     completedParts.add(CompletedPart.builder().eTag(entry.getValue()).partNumber(entry.getKey())
-                            .build());
+                              .build());
                 }
 
-                s3Client.completeMultipartUpload(CompleteMultipartUploadRequest.builder()
-                        .bucket(s3MPUPendingUpload.getBucket())
-                        .key(s3MPUPendingUpload.getKey())
-                        .uploadId(s3MPUPendingUpload.getUploadId())
-                        .multipartUpload(CompletedMultipartUpload.builder().parts(completedParts).build())
-                        .build());
+                fileSystem.completeMultipartUpload(s3MPUPendingUpload.getBucket(),
+                         s3MPUPendingUpload.getKey(),
+                         s3MPUPendingUpload.getUploadId(),
+                         s3MPUPendingUpload.getEtags());
                 uncompletedMpuPendingUploads.remove(new UncompletedMpuPendingUpload(s3MPUPendingUpload, path));
             }, fileSystemExecutor));
         }

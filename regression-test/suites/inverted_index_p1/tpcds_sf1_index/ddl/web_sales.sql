@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS web_sales (
     ws_net_paid_inc_ship decimal(7,2),
     ws_net_paid_inc_ship_tax decimal(7,2),
     ws_net_profit decimal(7,2),
-    INDEX ws_sold_date_sk_idx(ws_sold_date_sk) USING BITMAP COMMENT "ws_sold_date_sk index",
+    INDEX ws_sold_date_sk_idx(ws_sold_date_sk) USING INVERTED COMMENT "ws_sold_date_sk index",
     INDEX ws_sold_time_sk_idx(ws_sold_time_sk) USING INVERTED COMMENT "ws_sold_time_sk index",
     INDEX ws_ship_date_sk_idx(ws_ship_date_sk) USING INVERTED COMMENT "ws_ship_date_sk index",
     INDEX ws_item_sk_idx(ws_item_sk) USING INVERTED COMMENT "ws_item_sk index",

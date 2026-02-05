@@ -51,13 +51,18 @@ public class ToBitmapWithCheck extends ScalarFunction
         super("to_bitmap_with_check", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ToBitmapWithCheck(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ToBitmapWithCheck withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ToBitmapWithCheck(children.get(0));
+        return new ToBitmapWithCheck(getFunctionParams(children));
     }
 
     @Override

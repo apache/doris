@@ -37,7 +37,8 @@ suite("test_table_properties") {
 	DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
 	PROPERTIES (
     "enable_mow_light_delete" = "false",
-	"replication_allocation" = "tag.location.default: 1"
+	"replication_allocation" = "tag.location.default: 1",
+    "storage_format" = "V2"
 	);
         """
     sql """
@@ -52,7 +53,8 @@ suite("test_table_properties") {
 	)
 	DISTRIBUTED BY HASH(`type`) BUCKETS 1
 	PROPERTIES (
-	"replication_allocation" = "tag.location.default: 1"
+	"replication_allocation" = "tag.location.default: 1",
+    "storage_format" = "V2"
 	);
         """
     sql """
@@ -80,9 +82,13 @@ suite("test_table_properties") {
 	DISTRIBUTED BY HASH(`user_id`) BUCKETS 16
 	PROPERTIES
 	(
-    		"replication_num" = "1"
+    		"replication_num" = "1",
+            "storage_format" = "V2"
 	);
     """
+
+    def compression_count = sql """ select count(*) from information_schema.table_properties where table_schema=\"${dbName}\" and PROPERTY_NAME=\"compression\" """;
+    assert compression_count.first()[0] == 3;
 
     qt_select_check_1 """select count(*) from information_schema.table_properties where table_schema=\"${dbName}\"; """
     qt_select_check_2 """select * from information_schema.table_properties where table_schema=\"${dbName}\" and PROPERTY_NAME != "default.replication_allocation" ORDER BY TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,PROPERTY_NAME,PROPERTY_VALUE"""

@@ -286,4 +286,108 @@ TEST_F(StoragePageCacheTest, mixed_pages) {
     }
 }
 
+TEST_F(StoragePageCacheTest, zero_index_cache_percentage) {
+    StoragePageCache cache(kNumShards * 2048, 0, 0, kNumShards);
+
+    StoragePageCache::CacheKey data_key("data", 0, 0);
+    StoragePageCache::CacheKey index_key("index", 0, 0);
+
+    segment_v2::PageTypePB page_type_data = segment_v2::DATA_PAGE;
+    segment_v2::PageTypePB page_type_index = segment_v2::INDEX_PAGE;
+
+    {
+        PageCacheHandle handle;
+        auto* data = new DataPage(1024, true, page_type_data);
+        cache.insert(data_key, data, &handle, page_type_data, false);
+        auto found = cache.lookup(data_key, &handle, page_type_data);
+        EXPECT_TRUE(found);
+    }
+
+    {
+        PageCacheHandle handle;
+        auto* index = new DataPage(1024, true, page_type_index);
+        cache.insert(index_key, index, &handle, page_type_index, false);
+        auto found = cache.lookup(index_key, &handle, page_type_index);
+        EXPECT_FALSE(found);
+    }
+}
+
+TEST_F(StoragePageCacheTest, full_index_cache_percentage) {
+    StoragePageCache cache(kNumShards * 2048, 100, 0, kNumShards);
+
+    StoragePageCache::CacheKey data_key("data", 0, 0);
+    StoragePageCache::CacheKey index_key("index", 0, 0);
+
+    segment_v2::PageTypePB page_type_data = segment_v2::DATA_PAGE;
+    segment_v2::PageTypePB page_type_index = segment_v2::INDEX_PAGE;
+
+    {
+        PageCacheHandle handle;
+        auto* data = new DataPage(1024, true, page_type_data);
+        cache.insert(data_key, data, &handle, page_type_data, false);
+        auto found = cache.lookup(data_key, &handle, page_type_data);
+        EXPECT_FALSE(found);
+    }
+
+    {
+        PageCacheHandle handle;
+        auto* index = new DataPage(1024, true, page_type_index);
+        cache.insert(index_key, index, &handle, page_type_index, false);
+        auto found = cache.lookup(index_key, &handle, page_type_index);
+        EXPECT_TRUE(found);
+    }
+}
+
+TEST_F(StoragePageCacheTest, zero_total_capacity) {
+    StoragePageCache cache(0, 50, 0, kNumShards);
+
+    StoragePageCache::CacheKey data_key("data", 0, 0);
+    StoragePageCache::CacheKey index_key("index", 0, 0);
+
+    segment_v2::PageTypePB page_type_data = segment_v2::DATA_PAGE;
+    segment_v2::PageTypePB page_type_index = segment_v2::INDEX_PAGE;
+
+    {
+        PageCacheHandle handle;
+        auto* data = new DataPage(1024, true, page_type_data);
+        cache.insert(data_key, data, &handle, page_type_data, false);
+        auto found = cache.lookup(data_key, &handle, page_type_data);
+        EXPECT_FALSE(found);
+    }
+
+    {
+        PageCacheHandle handle;
+        auto* index = new DataPage(1024, true, page_type_index);
+        cache.insert(index_key, index, &handle, page_type_index, false);
+        auto found = cache.lookup(index_key, &handle, page_type_index);
+        EXPECT_FALSE(found);
+    }
+}
+
+TEST_F(StoragePageCacheTest, capacity_less_than_num_shards) {
+    StoragePageCache cache(10, 50, 0, kNumShards);
+
+    StoragePageCache::CacheKey data_key("data", 0, 0);
+    StoragePageCache::CacheKey index_key("index", 0, 0);
+
+    segment_v2::PageTypePB page_type_data = segment_v2::DATA_PAGE;
+    segment_v2::PageTypePB page_type_index = segment_v2::INDEX_PAGE;
+
+    {
+        PageCacheHandle handle;
+        auto* data = new DataPage(1024, true, page_type_data);
+        cache.insert(data_key, data, &handle, page_type_data, false);
+        auto found = cache.lookup(data_key, &handle, page_type_data);
+        EXPECT_FALSE(found);
+    }
+
+    {
+        PageCacheHandle handle;
+        auto* index = new DataPage(1024, true, page_type_index);
+        cache.insert(index_key, index, &handle, page_type_index, false);
+        auto found = cache.lookup(index_key, &handle, page_type_index);
+        EXPECT_FALSE(found);
+    }
+}
+
 } // namespace doris

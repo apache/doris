@@ -50,11 +50,21 @@ public class Max extends NullableAggregateFunction
         super("max", false, alwaysNullable, arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Max(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (getArgumentType(0).isOnlyMetricType()) {
+        if (getArgumentType(0).isOnlyMetricType() && !getArgumentType(0).isArrayType()) {
             throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
         }
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        checkLegalityBeforeTypeCoercion();
     }
 
     @Override
@@ -74,12 +84,12 @@ public class Max extends NullableAggregateFunction
     @Override
     public Max withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Max(distinct, alwaysNullable, children.get(0));
+        return new Max(getFunctionParams(distinct, children));
     }
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new Max(distinct, alwaysNullable, children.get(0));
+        return new Max(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override
@@ -89,7 +99,7 @@ public class Max extends NullableAggregateFunction
 
     @Override
     public Function constructRollUp(Expression param, Expression... varParams) {
-        return new Max(this.distinct, this.alwaysNullable, param);
+        return new Max(getFunctionParams(ImmutableList.of(param)));
     }
 
     @Override

@@ -17,10 +17,8 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PartitionItem;
-import org.apache.doris.catalog.SupportBinarySearchFilteringPartitions;
-import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
@@ -28,6 +26,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionTableType;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
@@ -35,7 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -94,16 +93,15 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
 
         Map<String, PartitionItem> nameToPartitionItem = scan.getSelectedPartitions().selectedPartitions;
         Optional<SortedPartitionRanges<String>> sortedPartitionRanges = Optional.empty();
-        if (externalTable instanceof SupportBinarySearchFilteringPartitions) {
-            NereidsSortedPartitionsCacheManager partitionsCacheManager = Env.getCurrentEnv()
-                    .getSortedPartitionsCacheManager();
-            sortedPartitionRanges = (Optional) partitionsCacheManager.get(
-                            (SupportBinarySearchFilteringPartitions) externalTable, scan);
+        boolean enableBinarySearch = ctx.getConnectContext() == null
+                || ctx.getConnectContext().getSessionVariable().enableBinarySearchFilteringPartitions;
+        if (enableBinarySearch) {
+            sortedPartitionRanges = (Optional) externalTable.getSortedPartitionRanges(scan);
         }
-
-        List<String> prunedPartitions = new ArrayList<>(PartitionPruner.prune(
+        Pair<List<String>, Optional<Expression>> res = PartitionPruner.prune(
                 partitionSlots, filter.getPredicate(), nameToPartitionItem, ctx,
-                PartitionTableType.EXTERNAL, sortedPartitionRanges));
+                PartitionTableType.EXTERNAL, sortedPartitionRanges);
+        List<String> prunedPartitions = new ArrayList<>(res.first);
 
         for (String name : prunedPartitions) {
             selectedPartitionItems.put(name, nameToPartitionItem.get(name));

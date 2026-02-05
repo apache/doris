@@ -41,6 +41,8 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -57,8 +59,6 @@ import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 
 /**
  * For execute stmt or get create table stmt via http
@@ -174,7 +174,12 @@ public class StmtExecutionAction extends RestBaseController {
                 }
                 return ResponseEntityBuilder.ok(resultSet.getResult());
             } catch (InterruptedException | ExecutionException e) {
-                LOG.warn("failed to execute stmt", e);
+                Throwable cause = e.getCause() != null ? e.getCause() : e;
+                if (cause instanceof java.sql.SQLSyntaxErrorException) {
+                    LOG.warn("failed to execute stmt: {}", cause.getMessage());
+                } else {
+                    LOG.warn("failed to execute stmt", e);
+                }
                 return ResponseEntityBuilder.okWithCommonError("Failed to execute sql: " + e.getMessage());
             }
         } else {

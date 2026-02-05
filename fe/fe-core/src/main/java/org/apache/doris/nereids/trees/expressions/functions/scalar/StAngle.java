@@ -50,13 +50,18 @@ public class StAngle extends ScalarFunction
         super("st_angle", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StAngle(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StAngle withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new StAngle(children.get(0), children.get(1), children.get(2));
+        return new StAngle(getFunctionParams(children));
     }
 
     @Override

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -38,14 +39,19 @@ public class JsonbValid extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(IntegerType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT)
-    );
+            FunctionSignature.ret(IntegerType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(IntegerType.INSTANCE).args(JsonType.INSTANCE));
 
     /**
-     * constructor with 1 arguments.
+     * constructor with 1 argument.
      */
     public JsonbValid(Expression arg0) {
         super("json_valid", arg0);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private JsonbValid(ScalarFunctionParams functionParams) {
+        super(functionParams);
     }
 
     /**
@@ -54,7 +60,7 @@ public class JsonbValid extends ScalarFunction
     @Override
     public JsonbValid withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new JsonbValid(children.get(0));
+        return new JsonbValid(getFunctionParams(children));
     }
 
     @Override

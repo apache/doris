@@ -59,9 +59,7 @@ Status AvroJNIReader::get_columns(std::unordered_map<std::string, DataTypePtr>* 
     return Status::OK();
 }
 
-Status AvroJNIReader::init_reader(
-        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    _colname_to_value_range = colname_to_value_range;
+Status AvroJNIReader::init_reader() {
     std::ostringstream required_fields;
     std::ostringstream columns_types;
     std::vector<std::string> column_names;
@@ -97,7 +95,7 @@ Status AvroJNIReader::init_reader(
     required_param.insert(std::make_pair("uri", _range.path));
     _jni_connector = std::make_unique<JniConnector>("org/apache/doris/avro/AvroJNIScanner",
                                                     required_param, column_names);
-    RETURN_IF_ERROR(_jni_connector->init(_colname_to_value_range));
+    RETURN_IF_ERROR(_jni_connector->init());
     return _jni_connector->open(_state, _profile);
 }
 

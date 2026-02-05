@@ -51,14 +51,18 @@ public class JsonbExtract extends ScalarFunction
         super("jsonb_extract", ExpressionUtils.mergeArguments(arg0, arg1, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private JsonbExtract(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public JsonbExtract withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 2, "JsonbExtract should have at least two arguments");
-        return new JsonbExtract(children.get(0), children.get(1),
-            children.subList(2, children.size()).toArray(new Expression[0]));
+        return new JsonbExtract(getFunctionParams(children));
     }
 
     @Override

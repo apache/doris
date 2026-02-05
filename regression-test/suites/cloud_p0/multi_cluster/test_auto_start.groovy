@@ -77,6 +77,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
     }
 
     docker(options) {
+        sql "set global enable_audit_plugin = false"
         sql """
             CREATE TABLE table1 (
             class INT,

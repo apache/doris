@@ -31,14 +31,14 @@ namespace doris::segment_v2::inverted_index {
 
 TokenStreamPtr create_filter(const std::string& text, int32_t flags,
                              const std::unordered_set<std::string>& prot_words = {}) {
-    static lucene::util::SStringReader<char> reader;
-    reader.init(text.data(), text.size(), false);
+    ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
+    reader->init(text.data(), text.size(), false);
 
     Settings settings;
     KeywordTokenizerFactory tokenizer_factory;
     tokenizer_factory.initialize(settings);
     auto tokenizer = tokenizer_factory.create();
-    tokenizer->set_reader(&reader);
+    tokenizer->set_reader(reader);
 
     auto token_filter = std::make_shared<WordDelimiterFilter>(
             tokenizer, WordDelimiterIterator::DEFAULT_WORD_DELIM_TABLE, flags, prot_words);

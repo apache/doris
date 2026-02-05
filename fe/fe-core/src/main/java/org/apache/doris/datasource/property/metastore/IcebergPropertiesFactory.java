@@ -43,6 +43,7 @@ public class IcebergPropertiesFactory extends AbstractMetastorePropertiesFactory
         register("hadoop", IcebergFileSystemMetaStoreProperties::new);
         register("s3tables", IcebergS3TablesMetaStoreProperties::new);
         register("dlf", IcebergAliyunDLFMetaStoreProperties::new);
+        register("jdbc", IcebergJdbcMetaStoreProperties::new);
     }
 
     @Override

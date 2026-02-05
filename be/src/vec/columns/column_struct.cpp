@@ -109,7 +109,7 @@ void ColumnStruct::get(size_t n, Field& res) const {
     const size_t tuple_size = columns.size();
 
     res = Field::create_field<TYPE_STRUCT>(Tuple());
-    Tuple& res_tuple = res.get<Tuple&>();
+    auto& res_tuple = res.get<TYPE_STRUCT>();
     res_tuple.reserve(tuple_size);
 
     for (size_t i = 0; i < tuple_size; ++i) {
@@ -119,7 +119,7 @@ void ColumnStruct::get(size_t n, Field& res) const {
 
 void ColumnStruct::insert(const Field& x) {
     DCHECK_EQ(x.get_type(), PrimitiveType::TYPE_STRUCT);
-    const auto& tuple = x.get<const Tuple&>();
+    const auto& tuple = x.get<TYPE_STRUCT>();
     const size_t tuple_size = columns.size();
     if (tuple.size() != tuple_size) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
@@ -254,6 +254,20 @@ void ColumnStruct::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveTy
         for (size_t i = 0; i < s; ++i) {
             update_crc_with_value(i, i + 1, hash[i], nullptr);
         }
+    }
+}
+
+void ColumnStruct::update_crc32c_batch(uint32_t* __restrict hashes,
+                                       const uint8_t* __restrict null_map) const {
+    for (const auto& column : columns) {
+        column->update_crc32c_batch(hashes, nullptr);
+    }
+}
+
+void ColumnStruct::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                        const uint8_t* __restrict null_map) const {
+    for (const auto& column : columns) {
+        column->update_crc32c_single(start, end, hash, nullptr);
     }
 }
 
@@ -414,7 +428,7 @@ struct ColumnStruct::less {
 };
 
 void ColumnStruct::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                   IColumn::Permutation& res) const {
+                                   HybridSorter& sorter, IColumn::Permutation& res) const {
     size_t s = size();
     res.resize(s);
     for (size_t i = 0; i < s; ++i) {
@@ -422,9 +436,9 @@ void ColumnStruct::get_permutation(bool reverse, size_t limit, int nan_direction
     }
 
     if (reverse) {
-        pdqsort(res.begin(), res.end(), ColumnStruct::less<false>(*this, nan_direction_hint));
+        sorter.sort(res.begin(), res.end(), ColumnStruct::less<false>(*this, nan_direction_hint));
     } else {
-        pdqsort(res.begin(), res.end(), ColumnStruct::less<true>(*this, nan_direction_hint));
+        sorter.sort(res.begin(), res.end(), ColumnStruct::less<true>(*this, nan_direction_hint));
     }
 }
 
@@ -434,13 +448,15 @@ void ColumnStruct::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
     sorter->sort_column(static_cast<const ColumnStruct&>(*this), flags, perms, range, last_column);
 }
 
-void ColumnStruct::serialize_vec(StringRef* keys, size_t num_rows) const {
+void ColumnStruct::serialize(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
+        // Used in hash_map_context.h, this address is allocated via Arena,
+        // but passed through StringRef, so using const_cast is acceptable.
         keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
     }
 }
 
-void ColumnStruct::deserialize_vec(StringRef* keys, const size_t num_rows) {
+void ColumnStruct::deserialize(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
         auto sz = deserialize_impl(keys[i].data);
         keys[i].data += sz;
@@ -454,6 +470,12 @@ size_t ColumnStruct::get_max_row_byte_size() const {
         max_row_byte_sz += col->get_max_row_byte_size();
     }
     return max_row_byte_sz;
+}
+
+void ColumnStruct::replace_float_special_values() {
+    for (auto& col : columns) {
+        col->replace_float_special_values();
+    }
 }
 
 } // namespace doris::vectorized

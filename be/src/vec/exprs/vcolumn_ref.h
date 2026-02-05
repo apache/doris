@@ -57,10 +57,17 @@ public:
         return Status::OK();
     }
 
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override {
-        DCHECK(_open_finished || _getting_const_col);
-        *result_column_id = _column_id + _gap;
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override {
+        DCHECK(_open_finished || block == nullptr);
+        auto origin_column = block->get_by_position(_column_id + _gap).column;
+        result_column = filter_column_with_selector(origin_column, selector, count);
         return Status::OK();
+    }
+
+    DataTypePtr execute_type(const Block* block) const override {
+        DCHECK(_open_finished || block == nullptr);
+        return block->get_by_position(_column_id + _gap).type;
     }
 
     bool is_constant() const override { return false; }

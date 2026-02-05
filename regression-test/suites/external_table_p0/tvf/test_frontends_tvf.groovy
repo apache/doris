@@ -18,24 +18,25 @@
 // This suit test the `frontends` tvf
 suite("test_frontends_tvf","p0,external,tvf,external_docker") {
     List<List<Object>> table =  sql """ select * from `frontends`(); """
+    logger.info("${table}")
     assertTrue(table.size() > 0)
-    assertTrue(table[0].size == 19)
+    assertTrue(table[0].size() == 19)
 
     // filter columns
     table = sql """ select Name from `frontends`();"""
     assertTrue(table.size() > 0)
-    assertTrue(table[0].size == 1)
+    assertTrue(table[0].size() == 1)
 
     // case insensitive
     table = sql """ select name, host, editlogport, httpport, alive from frontends();"""
     assertTrue(table.size() > 0)
-    assertTrue(table[0].size == 5)
+    assertTrue(table[0].size() == 5)
     assertEquals("true", table[0][4])
 
     // test aliase columns
     table = sql """ select name as n, host as h, alive as a, editlogport as e from frontends(); """
     assertTrue(table.size() > 0)
-    assertTrue(table[0].size == 4)
+    assertTrue(table[0].size() == 4)
     assertEquals("true", table[0][2])
 
     // test changing position of columns

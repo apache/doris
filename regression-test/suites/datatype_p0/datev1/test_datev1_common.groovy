@@ -39,9 +39,7 @@ suite("test_datev1_common", "nonConcurrent") {
             `date_key1` datev1 NULL COMMENT "",
             `date_key2` datev1 NULL COMMENT "",
             `date_value1` datev1 NULL COMMENT "",
-            `date_value2` datev1 NULL COMMENT "",
-            INDEX `idx_key1` (`date_value1`) USING BITMAP,
-            INDEX `idx_key2` (`date_value2`) USING BITMAP
+            `date_value2` datev1 NULL COMMENT ""
           ) ENGINE=OLAP
           DUPLICATE KEY(`date_key1`, `date_key2`)
           COMMENT "OLAP"
@@ -58,9 +56,7 @@ suite("test_datev1_common", "nonConcurrent") {
             `date_key1` datev1 NULL COMMENT "",
             `date_key2` datev1 NULL COMMENT "",
             `date_value1` datev1 NULL COMMENT "",
-            `date_value2` datev1 NULL COMMENT "",
-            INDEX `idx_key1` (`date_value1`) USING BITMAP,
-            INDEX `idx_key2` (`date_value2`) USING BITMAP
+            `date_value2` datev1 NULL COMMENT ""
           ) ENGINE=OLAP
           UNIQUE KEY(`date_key1`, `date_key2`)
           COMMENT "OLAP"
@@ -94,9 +90,7 @@ suite("test_datev1_common", "nonConcurrent") {
             `date_key1` datev1 NULL COMMENT "",
             `date_key2` datev1 NULL COMMENT "",
             `date_value1` datev1 NULL COMMENT "",
-            `date_value2` datev1 NULL COMMENT "",
-            INDEX `idx_key1` (`date_value1`) USING BITMAP,
-            INDEX `idx_key2` (`date_value2`) USING BITMAP
+            `date_value2` datev1 NULL COMMENT ""
           ) ENGINE=OLAP
           DUPLICATE KEY(`date_key1`, `date_key2`)
           COMMENT "OLAP"
@@ -113,9 +107,7 @@ suite("test_datev1_common", "nonConcurrent") {
             `date_key1` datev1 NULL COMMENT "",
             `date_key2` datev1 NULL COMMENT "",
             `date_value1` datev1 NULL COMMENT "",
-            `date_value2` datev1 NULL COMMENT "",
-            INDEX `idx_key1` (`date_value1`) USING BITMAP,
-            INDEX `idx_key2` (`date_value2`) USING BITMAP
+            `date_value2` datev1 NULL COMMENT ""
           ) ENGINE=OLAP
           UNIQUE KEY(`date_key1`, `date_key2`)
           PARTITION BY RANGE(`date_key1`) (

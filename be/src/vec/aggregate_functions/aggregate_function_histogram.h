@@ -64,8 +64,7 @@ struct AggregateFunctionHistogramData {
         }
     }
 
-    void add(const typename PrimitiveTypeTraits<T>::ColumnItemType& value,
-             const UInt64& number = 1) {
+    void add(const typename PrimitiveTypeTraits<T>::CppType& value, const UInt64& number = 1) {
         auto it = ordered_map.find(value);
         if (it != ordered_map.end()) {
             it->second = it->second + number;
@@ -114,7 +113,7 @@ struct AggregateFunctionHistogramData {
         buf.read_binary(element_number);
 
         ordered_map.clear();
-        std::pair<typename PrimitiveTypeTraits<T>::ColumnItemType, size_t> element;
+        std::pair<typename PrimitiveTypeTraits<T>::CppType, size_t> element;
         for (auto i = 0; i < element_number; i++) {
             buf.read_binary(element.first);
             buf.read_binary(element.second);
@@ -136,7 +135,7 @@ struct AggregateFunctionHistogramData {
     }
 
     std::string get(const DataTypePtr& data_type) const {
-        std::vector<Bucket<typename PrimitiveTypeTraits<T>::ColumnItemType>> buckets;
+        std::vector<Bucket<typename PrimitiveTypeTraits<T>::CppType>> buckets;
         rapidjson::StringBuffer buffer;
         // NOTE: We need an extral branch for to handle max_num_buckets == 0,
         // when target column is nullable, and input block is all null,
@@ -149,9 +148,8 @@ struct AggregateFunctionHistogramData {
         return {buffer.GetString()};
     }
 
-    std::vector<std::pair<size_t, typename PrimitiveTypeTraits<T>::ColumnItemType>> map_to_vector()
-            const {
-        std::vector<std::pair<size_t, typename PrimitiveTypeTraits<T>::ColumnItemType>> pair_vector;
+    std::vector<std::pair<size_t, typename PrimitiveTypeTraits<T>::CppType>> map_to_vector() const {
+        std::vector<std::pair<size_t, typename PrimitiveTypeTraits<T>::CppType>> pair_vector;
         for (auto it : ordered_map) {
             pair_vector.emplace_back(it.second, it.first);
         }
@@ -160,13 +158,15 @@ struct AggregateFunctionHistogramData {
 
 private:
     size_t max_num_buckets = BUCKET_NUM_INIT_VALUE;
-    std::map<typename PrimitiveTypeTraits<T>::ColumnItemType, size_t> ordered_map;
+    std::map<typename PrimitiveTypeTraits<T>::CppType, size_t> ordered_map;
 };
 
 template <typename Data, bool has_input_param>
 class AggregateFunctionHistogram final
         : public IAggregateFunctionDataHelper<Data,
-                                              AggregateFunctionHistogram<Data, has_input_param>> {
+                                              AggregateFunctionHistogram<Data, has_input_param>>,
+          VarargsExpression,
+          NotNullableAggregateFunction {
 public:
     AggregateFunctionHistogram() = default;
     AggregateFunctionHistogram(const DataTypes& argument_types_)
@@ -183,10 +183,11 @@ public:
         if constexpr (has_input_param) {
             Int32 input_max_num_buckets =
                     assert_cast<const ColumnInt32*>(columns[1])->get_element(row_num);
-            if (input_max_num_buckets <= 0) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "Invalid max_num_buckets {}, row_num {}",
-                                       input_max_num_buckets, row_num);
+            if (input_max_num_buckets <= 0 || input_max_num_buckets > 1000000) {
+                throw doris::Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "Invalid max_num_buckets {}, row_num {}, should be in (0, 1000000]",
+                        input_max_num_buckets, row_num);
             }
             this->data(place).set_parameters(input_max_num_buckets);
         } else {

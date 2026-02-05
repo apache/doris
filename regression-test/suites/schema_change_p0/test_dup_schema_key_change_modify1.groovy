@@ -1062,6 +1062,7 @@ suite("test_dup_schema_key_change_modify1","p0") {
              "               (789012345, 'Grace', 0, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-01-01', '2022-07-07 22:00:00');"
 
      //TODO Test the dup model by modify a key type from DATETIME to BOOLEAN
+     sql "set enable_insert_strict = false"
      errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to BOOLEAN"
      expectException({
           sql initTable

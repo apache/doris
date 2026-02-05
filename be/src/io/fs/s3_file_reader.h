@@ -53,6 +53,8 @@ public:
 
     bool closed() const override { return _closed.load(std::memory_order_acquire); }
 
+    int64_t mtime() const override { return 0; }
+
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
@@ -65,6 +67,7 @@ private:
         int64_t too_many_request_err_counter = 0;
         int64_t too_many_request_sleep_time_ms = 0;
         int64_t total_bytes_read = 0;
+        int64_t total_get_request_time_ns = 0;
     };
     Path _path;
     size_t _file_size;

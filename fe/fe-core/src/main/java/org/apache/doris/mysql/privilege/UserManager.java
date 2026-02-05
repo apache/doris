@@ -38,7 +38,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.util.Strings;
@@ -245,6 +245,7 @@ public class UserManager implements Writable, GsonPostProcessable {
             userByUserIdentity.setPassword(pwd);
             userByUserIdentity.setComment(comment);
             userByUserIdentity.setSetByDomainResolver(setByResolver);
+            userByUserIdentity.setUserIdentity(userIdent);
             return userByUserIdentity;
         }
 
@@ -362,6 +363,11 @@ public class UserManager implements Writable, GsonPostProcessable {
                     // password, this "domain" user ident will be returned as "current user".
                     for (String newIP : entry.getValue()) {
                         UserIdentity userIdent = UserIdentity.createAnalyzedUserIdentWithIp(userEntry.getKey(), newIP);
+                        UserIdentity domainUserIdent = domainUser.getUserIdentity();
+                        userIdent.setSan(domainUserIdent.getSan());
+                        userIdent.setIssuer(domainUserIdent.getIssuer());
+                        userIdent.setCipher(domainUserIdent.getCipher());
+                        userIdent.setSubject(domainUserIdent.getSubject());
                         byte[] password = domainUser.getPassword().getPassword();
                         Preconditions.checkNotNull(password, entry.getKey());
                         try {

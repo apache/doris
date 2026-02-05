@@ -19,12 +19,13 @@ package org.apache.doris.nereids.trees.expressions.functions.executable;
 
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -37,16 +38,6 @@ public class DateTimeArithmetic {
      * datetime arithmetic function date-add.
      */
     @ExecFunction(name = "date_add")
-    public static Expression dateAdd(DateLiteral date, IntegerLiteral day) {
-        return daysAdd(date, day);
-    }
-
-    @ExecFunction(name = "date_add")
-    public static Expression dateAdd(DateTimeLiteral date, IntegerLiteral day) {
-        return daysAdd(date, day);
-    }
-
-    @ExecFunction(name = "date_add")
     public static Expression dateAdd(DateV2Literal date, IntegerLiteral day) {
         return daysAdd(date, day);
     }
@@ -56,19 +47,53 @@ public class DateTimeArithmetic {
         return daysAdd(date, day);
     }
 
+    @ExecFunction(name = "date_add")
+    public static Expression dateAdd(TimestampTzLiteral date, IntegerLiteral day) {
+        return daysAdd(date, day);
+    }
+
+    /**
+     * datetime arithmetic function day_hour-add.
+     */
+    @ExecFunction(name = "day_hour_add")
+    public static Expression dayHourAdd(DateTimeV2Literal date, VarcharLiteral dayHour) {
+        return date.plusDayHour(dayHour);
+    }
+
+    @ExecFunction(name = "day_hour_add")
+    public static Expression dayHourAdd(TimestampTzLiteral date, VarcharLiteral dayHour) {
+        return date.plusDayHour(dayHour);
+    }
+
+    /**
+     * datetime arithmetic function minute_second-add.
+     */
+    @ExecFunction(name = "minute_second_add")
+    public static Expression minuteSecondAdd(DateTimeV2Literal date, VarcharLiteral minuteSecond) {
+        return date.plusMinuteSecond(minuteSecond);
+    }
+
+    @ExecFunction(name = "minute_second_add")
+    public static Expression minuteSecondAdd(TimestampTzLiteral date, VarcharLiteral minuteSecond) {
+        return date.plusMinuteSecond(minuteSecond);
+    }
+
+    /**
+     * datetime arithmetic function second_microsecond-add.
+     */
+    @ExecFunction(name = "second_microsecond_add")
+    public static Expression secondMicrosecondAdd(DateTimeV2Literal date, VarcharLiteral secondMicrosecond) {
+        return date.plusSecondMicrosecond(secondMicrosecond);
+    }
+
+    @ExecFunction(name = "second_microsecond_add")
+    public static Expression secondMicrosecondAdd(TimestampTzLiteral date, VarcharLiteral secondMicrosecond) {
+        return date.plusSecondMicrosecond(secondMicrosecond);
+    }
+
     /**
      * datetime arithmetic function date-sub.
      */
-    @ExecFunction(name = "date_sub")
-    public static Expression dateSub(DateLiteral date, IntegerLiteral day) {
-        return dateAdd(date, new IntegerLiteral(-day.getValue()));
-    }
-
-    @ExecFunction(name = "date_sub")
-    public static Expression dateSub(DateTimeLiteral date, IntegerLiteral day) {
-        return dateAdd(date, new IntegerLiteral(-day.getValue()));
-    }
-
     @ExecFunction(name = "date_sub")
     public static Expression dateSub(DateV2Literal date, IntegerLiteral day) {
         return dateAdd(date, new IntegerLiteral(-day.getValue()));
@@ -79,19 +104,14 @@ public class DateTimeArithmetic {
         return dateAdd(date, new IntegerLiteral(-day.getValue()));
     }
 
+    @ExecFunction(name = "date_sub")
+    public static Expression dateSub(TimestampTzLiteral date, IntegerLiteral day) {
+        return dateAdd(date, new IntegerLiteral(-day.getValue()));
+    }
+
     /**
      * datetime arithmetic function years-add.
      */
-    @ExecFunction(name = "years_add")
-    public static Expression yearsAdd(DateLiteral date, IntegerLiteral year) {
-        return date.plusYears(year.getValue());
-    }
-
-    @ExecFunction(name = "years_add")
-    public static Expression yearsAdd(DateTimeLiteral date, IntegerLiteral year) {
-        return date.plusYears(year.getValue());
-    }
-
     @ExecFunction(name = "years_add")
     public static Expression yearsAdd(DateV2Literal date, IntegerLiteral year) {
         return date.plusYears(year.getValue());
@@ -102,19 +122,14 @@ public class DateTimeArithmetic {
         return date.plusYears(year.getValue());
     }
 
+    @ExecFunction(name = "years_add")
+    public static Expression yearsAdd(TimestampTzLiteral date, IntegerLiteral year) {
+        return date.plusYears(year.getValue());
+    }
+
     /**
      * datetime arithmetic function quarters-add.
      */
-    @ExecFunction(name = "quarters_add")
-    public static Expression quartersAdd(DateLiteral date, IntegerLiteral quarter) {
-        return date.plusMonths(3 * quarter.getValue());
-    }
-
-    @ExecFunction(name = "quarters_add")
-    public static Expression quartersAdd(DateTimeLiteral date, IntegerLiteral quarter) {
-        return date.plusMonths(3 * quarter.getValue());
-    }
-
     @ExecFunction(name = "quarters_add")
     public static Expression quartersAdd(DateV2Literal date, IntegerLiteral quarter) {
         return date.plusMonths(3 * quarter.getValue());
@@ -125,19 +140,14 @@ public class DateTimeArithmetic {
         return date.plusMonths(3 * quarter.getValue());
     }
 
+    @ExecFunction(name = "quarters_add")
+    public static Expression quartersAdd(TimestampTzLiteral date, IntegerLiteral quarter) {
+        return date.plusMonths(3 * quarter.getValue());
+    }
+
     /**
      * datetime arithmetic function months-add.
      */
-    @ExecFunction(name = "months_add")
-    public static Expression monthsAdd(DateLiteral date, IntegerLiteral month) {
-        return date.plusMonths(month.getValue());
-    }
-
-    @ExecFunction(name = "months_add")
-    public static Expression monthsAdd(DateTimeLiteral date, IntegerLiteral month) {
-        return date.plusMonths(month.getValue());
-    }
-
     @ExecFunction(name = "months_add")
     public static Expression monthsAdd(DateV2Literal date, IntegerLiteral month) {
         return date.plusMonths(month.getValue());
@@ -148,19 +158,14 @@ public class DateTimeArithmetic {
         return date.plusMonths(month.getValue());
     }
 
+    @ExecFunction(name = "months_add")
+    public static Expression monthsAdd(TimestampTzLiteral date, IntegerLiteral month) {
+        return date.plusMonths(month.getValue());
+    }
+
     /**
      * datetime arithmetic function weeks-add.
      */
-    @ExecFunction(name = "weeks_add")
-    public static Expression weeksAdd(DateLiteral date, IntegerLiteral weeks) {
-        return date.plusWeeks(weeks.getValue());
-    }
-
-    @ExecFunction(name = "weeks_add")
-    public static Expression weeksAdd(DateTimeLiteral date, IntegerLiteral weeks) {
-        return date.plusWeeks(weeks.getValue());
-    }
-
     @ExecFunction(name = "weeks_add")
     public static Expression weeksAdd(DateV2Literal date, IntegerLiteral weeks) {
         return date.plusWeeks(weeks.getValue());
@@ -171,19 +176,14 @@ public class DateTimeArithmetic {
         return date.plusWeeks(weeks.getValue());
     }
 
+    @ExecFunction(name = "weeks_add")
+    public static Expression weeksAdd(TimestampTzLiteral date, IntegerLiteral weeks) {
+        return date.plusWeeks(weeks.getValue());
+    }
+
     /**
      * datetime arithmetic function days-add.
      */
-    @ExecFunction(name = "days_add")
-    public static Expression daysAdd(DateLiteral date, IntegerLiteral day) {
-        return date.plusDays(day.getValue());
-    }
-
-    @ExecFunction(name = "days_add")
-    public static Expression daysAdd(DateTimeLiteral date, IntegerLiteral day) {
-        return date.plusDays(day.getValue());
-    }
-
     @ExecFunction(name = "days_add")
     public static Expression daysAdd(DateV2Literal date, IntegerLiteral day) {
         return date.plusDays(day.getValue());
@@ -194,26 +194,29 @@ public class DateTimeArithmetic {
         return date.plusDays(day.getValue());
     }
 
+    @ExecFunction(name = "days_add")
+    public static Expression daysAdd(TimestampTzLiteral date, IntegerLiteral day) {
+        return date.plusDays(day.getValue());
+    }
+
+    /**
+     * datetime arithmetic function day_second-add.
+     */
+    @ExecFunction(name = "day_second_add")
+    public static Expression daysAdd(DateTimeV2Literal date, VarcharLiteral daySecond) {
+        return date.plusDaySecond(daySecond);
+    }
+
     /**
      * datetime arithmetic function hours-add.
      */
     @ExecFunction(name = "hours_add")
-    public static Expression hoursAdd(DateLiteral date, IntegerLiteral hour) {
-        return date.toBeginOfTheDay().plusHours(hour.getValue());
-    }
-
-    @ExecFunction(name = "hours_add")
-    public static Expression hoursAdd(DateV2Literal date, IntegerLiteral hour) {
-        return date.toBeginOfTheDay().plusHours(hour.getValue());
-    }
-
-    @ExecFunction(name = "hours_add")
-    public static Expression hoursAdd(DateTimeLiteral date, IntegerLiteral hour) {
+    public static Expression hoursAdd(DateTimeV2Literal date, IntegerLiteral hour) {
         return date.plusHours(hour.getValue());
     }
 
     @ExecFunction(name = "hours_add")
-    public static Expression hoursAdd(DateTimeV2Literal date, IntegerLiteral hour) {
+    public static Expression hoursAdd(TimestampTzLiteral date, IntegerLiteral hour) {
         return date.plusHours(hour.getValue());
     }
 
@@ -221,22 +224,12 @@ public class DateTimeArithmetic {
      * datetime arithmetic function minutes-add.
      */
     @ExecFunction(name = "minutes_add")
-    public static Expression minutesAdd(DateLiteral date, IntegerLiteral minute) {
-        return date.toBeginOfTheDay().plusMinutes(minute.getValue());
-    }
-
-    @ExecFunction(name = "minutes_add")
-    public static Expression minutesAdd(DateV2Literal date, IntegerLiteral minute) {
-        return date.toBeginOfTheDay().plusMinutes(minute.getValue());
-    }
-
-    @ExecFunction(name = "minutes_add")
-    public static Expression minutesAdd(DateTimeLiteral date, IntegerLiteral minute) {
+    public static Expression minutesAdd(DateTimeV2Literal date, BigIntLiteral minute) {
         return date.plusMinutes(minute.getValue());
     }
 
     @ExecFunction(name = "minutes_add")
-    public static Expression minutesAdd(DateTimeV2Literal date, IntegerLiteral minute) {
+    public static Expression minutesAdd(TimestampTzLiteral date, BigIntLiteral minute) {
         return date.plusMinutes(minute.getValue());
     }
 
@@ -244,22 +237,12 @@ public class DateTimeArithmetic {
      * datetime arithmetic function seconds-add.
      */
     @ExecFunction(name = "seconds_add")
-    public static Expression secondsAdd(DateLiteral date, IntegerLiteral second) {
-        return date.toBeginOfTheDay().plusSeconds(second.getValue());
-    }
-
-    @ExecFunction(name = "seconds_add")
-    public static Expression secondsAdd(DateV2Literal date, IntegerLiteral second) {
-        return date.toBeginOfTheDay().plusSeconds(second.getValue());
-    }
-
-    @ExecFunction(name = "seconds_add")
-    public static Expression secondsAdd(DateTimeLiteral date, IntegerLiteral second) {
+    public static Expression secondsAdd(DateTimeV2Literal date, BigIntLiteral second) {
         return date.plusSeconds(second.getValue());
     }
 
     @ExecFunction(name = "seconds_add")
-    public static Expression secondsAdd(DateTimeV2Literal date, IntegerLiteral second) {
+    public static Expression secondsAdd(TimestampTzLiteral date, BigIntLiteral second) {
         return date.plusSeconds(second.getValue());
     }
 
@@ -267,47 +250,18 @@ public class DateTimeArithmetic {
      * datetime arithmetic function microseconds-add.
      */
     @ExecFunction(name = "microseconds_add")
-    public static Expression microSecondsAdd(DateTimeV2Literal date, IntegerLiteral microSecond) {
+    public static Expression microSecondsAdd(DateTimeV2Literal date, BigIntLiteral microSecond) {
         return date.plusMicroSeconds(microSecond.getValue());
     }
 
-    /**
-     * datetime arithmetic function microseconds_sub.
-     */
-    @ExecFunction(name = "microseconds_sub")
-    public static Expression microSecondsSub(DateTimeV2Literal date, IntegerLiteral microSecond) {
-        return date.plusMicroSeconds(-microSecond.getValue());
-    }
-
-    /**
-     * datetime arithmetic function milliseconds_add.
-     */
-    @ExecFunction(name = "milliseconds_add")
-    public static Expression milliSecondsAdd(DateTimeV2Literal date, IntegerLiteral milliSecond) {
-        return date.plusMilliSeconds(milliSecond.getValue());
-    }
-
-    /**
-     * datetime arithmetic function milliseconds_sub.
-     */
-    @ExecFunction(name = "milliseconds_sub")
-    public static Expression milliSecondsSub(DateTimeV2Literal date, IntegerLiteral milliSecond) {
-        return date.plusMilliSeconds(-milliSecond.getValue());
+    @ExecFunction(name = "microseconds_add")
+    public static Expression microSecondsAdd(TimestampTzLiteral date, BigIntLiteral microSecond) {
+        return date.plusMicroSeconds(microSecond.getValue());
     }
 
     /**
      * datetime arithmetic function years-sub.
      */
-    @ExecFunction(name = "years_sub")
-    public static Expression yearsSub(DateLiteral date, IntegerLiteral year) {
-        return yearsAdd(date, new IntegerLiteral(-year.getValue()));
-    }
-
-    @ExecFunction(name = "years_sub")
-    public static Expression yearsSub(DateTimeLiteral date, IntegerLiteral year) {
-        return yearsAdd(date, new IntegerLiteral(-year.getValue()));
-    }
-
     @ExecFunction(name = "years_sub")
     public static Expression yearsSub(DateV2Literal date, IntegerLiteral year) {
         return yearsAdd(date, new IntegerLiteral(-year.getValue()));
@@ -318,19 +272,14 @@ public class DateTimeArithmetic {
         return yearsAdd(date, new IntegerLiteral(-year.getValue()));
     }
 
+    @ExecFunction(name = "years_sub")
+    public static Expression yearsSub(TimestampTzLiteral date, IntegerLiteral year) {
+        return yearsAdd(date, new IntegerLiteral(-year.getValue()));
+    }
+
     /**
      * datetime arithmetic function quarters-sub.
      */
-    @ExecFunction(name = "quarters_sub")
-    public static Expression quartersSub(DateLiteral date, IntegerLiteral quarter) {
-        return quartersAdd(date, new IntegerLiteral(-quarter.getValue()));
-    }
-
-    @ExecFunction(name = "quarters_sub")
-    public static Expression quartersSub(DateTimeLiteral date, IntegerLiteral quarter) {
-        return quartersAdd(date, new IntegerLiteral(-quarter.getValue()));
-    }
-
     @ExecFunction(name = "quarters_sub")
     public static Expression quartersSub(DateV2Literal date, IntegerLiteral quarter) {
         return quartersAdd(date, new IntegerLiteral(-quarter.getValue()));
@@ -341,19 +290,14 @@ public class DateTimeArithmetic {
         return quartersAdd(date, new IntegerLiteral(-quarter.getValue()));
     }
 
+    @ExecFunction(name = "quarters_sub")
+    public static Expression quartersSub(TimestampTzLiteral date, IntegerLiteral quarter) {
+        return quartersAdd(date, new IntegerLiteral(-quarter.getValue()));
+    }
+
     /**
      * datetime arithmetic function months-sub
      */
-    @ExecFunction(name = "months_sub")
-    public static Expression monthsSub(DateLiteral date, IntegerLiteral month) {
-        return monthsAdd(date, new IntegerLiteral(-month.getValue()));
-    }
-
-    @ExecFunction(name = "months_sub")
-    public static Expression monthsSub(DateTimeLiteral date, IntegerLiteral month) {
-        return monthsAdd(date, new IntegerLiteral(-month.getValue()));
-    }
-
     @ExecFunction(name = "months_sub")
     public static Expression monthsSub(DateV2Literal date, IntegerLiteral month) {
         return monthsAdd(date, new IntegerLiteral(-month.getValue()));
@@ -364,19 +308,14 @@ public class DateTimeArithmetic {
         return monthsAdd(date, new IntegerLiteral(-month.getValue()));
     }
 
+    @ExecFunction(name = "months_sub")
+    public static Expression monthsSub(TimestampTzLiteral date, IntegerLiteral month) {
+        return monthsAdd(date, new IntegerLiteral(-month.getValue()));
+    }
+
     /**
      * datetime arithmetic function weeks-sub.
      */
-    @ExecFunction(name = "weeks_sub")
-    public static Expression weeksSub(DateLiteral date, IntegerLiteral weeks) {
-        return date.plusWeeks(-weeks.getValue());
-    }
-
-    @ExecFunction(name = "weeks_sub")
-    public static Expression weeksSub(DateTimeLiteral date, IntegerLiteral weeks) {
-        return date.plusWeeks(-weeks.getValue());
-    }
-
     @ExecFunction(name = "weeks_sub")
     public static Expression weeksSub(DateV2Literal date, IntegerLiteral weeks) {
         return date.plusWeeks(-weeks.getValue());
@@ -387,19 +326,14 @@ public class DateTimeArithmetic {
         return date.plusWeeks(-weeks.getValue());
     }
 
+    @ExecFunction(name = "weeks_sub")
+    public static Expression weeksSub(TimestampTzLiteral date, IntegerLiteral weeks) {
+        return date.plusWeeks(-weeks.getValue());
+    }
+
     /**
      * datetime arithmetic function days-sub
      */
-    @ExecFunction(name = "days_sub")
-    public static Expression daysSub(DateLiteral date, IntegerLiteral day) {
-        return daysAdd(date, new IntegerLiteral(-day.getValue()));
-    }
-
-    @ExecFunction(name = "days_sub")
-    public static Expression daysSub(DateTimeLiteral date, IntegerLiteral day) {
-        return daysAdd(date, new IntegerLiteral(-day.getValue()));
-    }
-
     @ExecFunction(name = "days_sub")
     public static Expression daysSub(DateV2Literal date, IntegerLiteral day) {
         return daysAdd(date, new IntegerLiteral(-day.getValue()));
@@ -410,16 +344,21 @@ public class DateTimeArithmetic {
         return daysAdd(date, new IntegerLiteral(-day.getValue()));
     }
 
+    @ExecFunction(name = "days_sub")
+    public static Expression daysSub(TimestampTzLiteral date, IntegerLiteral day) {
+        return daysAdd(date, new IntegerLiteral(-day.getValue()));
+    }
+
     /**
      * datetime arithmetic function hours-sub
      */
     @ExecFunction(name = "hours_sub")
-    public static Expression hoursSub(DateTimeLiteral date, IntegerLiteral hour) {
+    public static Expression hoursSub(DateTimeV2Literal date, IntegerLiteral hour) {
         return hoursAdd(date, new IntegerLiteral(-hour.getValue()));
     }
 
     @ExecFunction(name = "hours_sub")
-    public static Expression hoursSub(DateTimeV2Literal date, IntegerLiteral hour) {
+    public static Expression hoursSub(TimestampTzLiteral date, IntegerLiteral hour) {
         return hoursAdd(date, new IntegerLiteral(-hour.getValue()));
     }
 
@@ -427,36 +366,70 @@ public class DateTimeArithmetic {
      * datetime arithmetic function minutes-sub
      */
     @ExecFunction(name = "minutes_sub")
-    public static Expression minutesSub(DateTimeLiteral date, IntegerLiteral minute) {
-        return minutesAdd(date, new IntegerLiteral(-minute.getValue()));
+    public static Expression minutesSub(DateTimeV2Literal date, BigIntLiteral minute) {
+        return minutesAdd(date, new BigIntLiteral(-minute.getValue()));
     }
 
     @ExecFunction(name = "minutes_sub")
-    public static Expression minutesSub(DateTimeV2Literal date, IntegerLiteral minute) {
-        return minutesAdd(date, new IntegerLiteral(-minute.getValue()));
+    public static Expression minutesSub(TimestampTzLiteral date, BigIntLiteral minute) {
+        return minutesAdd(date, new BigIntLiteral(-minute.getValue()));
     }
 
     /**
      * datetime arithmetic function seconds-sub
      */
     @ExecFunction(name = "seconds_sub")
-    public static Expression secondsSub(DateTimeLiteral date, IntegerLiteral second) {
-        return secondsAdd(date, new IntegerLiteral(-second.getValue()));
+    public static Expression secondsSub(DateTimeV2Literal date, BigIntLiteral second) {
+        return secondsAdd(date, new BigIntLiteral(-second.getValue()));
     }
 
     @ExecFunction(name = "seconds_sub")
-    public static Expression secondsSub(DateTimeV2Literal date, IntegerLiteral second) {
-        return secondsAdd(date, new IntegerLiteral(-second.getValue()));
+    public static Expression secondsSub(TimestampTzLiteral date, BigIntLiteral second) {
+        return secondsAdd(date, new BigIntLiteral(-second.getValue()));
+    }
+
+    /**
+     * datetime arithmetic function microseconds_sub.
+     */
+    @ExecFunction(name = "microseconds_sub")
+    public static Expression microSecondsSub(DateTimeV2Literal date, BigIntLiteral microSecond) {
+        return date.plusMicroSeconds(-microSecond.getValue());
+    }
+
+    @ExecFunction(name = "microseconds_sub")
+    public static Expression microSecondsSub(TimestampTzLiteral date, BigIntLiteral microSecond) {
+        return date.plusMicroSeconds(-microSecond.getValue());
+    }
+
+    /**
+     * datetime arithmetic function milliseconds_add.
+     */
+    @ExecFunction(name = "milliseconds_add")
+    public static Expression milliSecondsAdd(DateTimeV2Literal date, BigIntLiteral milliSecond) {
+        return date.plusMilliSeconds(milliSecond.getValue());
+    }
+
+    @ExecFunction(name = "milliseconds_add")
+    public static Expression milliSecondsAdd(TimestampTzLiteral date, BigIntLiteral milliSecond) {
+        return date.plusMilliSeconds(milliSecond.getValue());
+    }
+
+    /**
+     * datetime arithmetic function milliseconds_sub.
+     */
+    @ExecFunction(name = "milliseconds_sub")
+    public static Expression milliSecondsSub(DateTimeV2Literal date, BigIntLiteral milliSecond) {
+        return date.plusMilliSeconds(-milliSecond.getValue());
+    }
+
+    @ExecFunction(name = "milliseconds_sub")
+    public static Expression milliSecondsSub(TimestampTzLiteral date, BigIntLiteral milliSecond) {
+        return date.plusMilliSeconds(-milliSecond.getValue());
     }
 
     /**
      * datetime arithmetic function datediff
      */
-    @ExecFunction(name = "datediff")
-    public static Expression dateDiff(DateTimeLiteral date1, DateTimeLiteral date2) {
-        return new IntegerLiteral(dateDiff(date1.toJavaDateType(), date2.toJavaDateType()));
-    }
-
     @ExecFunction(name = "datediff")
     public static Expression dateDiff(DateV2Literal date1, DateV2Literal date2) {
         return new IntegerLiteral(dateDiff(date1.toJavaDateType(), date2.toJavaDateType()));
@@ -482,13 +455,13 @@ public class DateTimeArithmetic {
     }
 
     @ExecFunction(name = "to_days")
-    public static Expression toDays(DateLiteral date) {
+    public static Expression toDays(DateV2Literal date) {
         return new IntegerLiteral((int) date.getDay());
     }
 
     @ExecFunction(name = "to_days")
-    public static Expression toDays(DateV2Literal date) {
-        return new IntegerLiteral((int) date.getDay());
+    public static Expression toDays(DateTimeV2Literal date) {
+        return new IntegerLiteral(((int) date.getDay()));
     }
 
     /**
@@ -498,5 +471,41 @@ public class DateTimeArithmetic {
     public static Expression time(DateTimeV2Literal date) {
         return new TimeV2Literal((int) date.getHour(), (int) date.getMinute(), (int) date.getSecond(),
                 (int) date.getMicroSecond(), (int) date.getScale(), false);
+    }
+
+    /**
+     * datetime arithmetic function add_time.
+     */
+    @ExecFunction(name = "add_time")
+    public static Expression addTime(DateTimeV2Literal date, TimeV2Literal time) {
+        return date.plusMicroSeconds((long) time.getValue());
+    }
+
+    @ExecFunction(name = "add_time")
+    public static Expression addTime(TimeV2Literal t1, TimeV2Literal t2) {
+        return t1.plusMicroSeconds((long) t2.getValue());
+    }
+
+    @ExecFunction(name = "add_time")
+    public static Expression addTime(TimestampTzLiteral date, TimeV2Literal time) {
+        return date.plusMicroSeconds((long) time.getValue());
+    }
+
+    /**
+     * datetime arithmetic function sub_time.
+     */
+    @ExecFunction(name = "sub_time")
+    public static Expression subTime(DateTimeV2Literal date, TimeV2Literal time) {
+        return date.plusMicroSeconds(-(long) time.getValue());
+    }
+
+    @ExecFunction(name = "sub_time")
+    public static Expression subTime(TimeV2Literal t1, TimeV2Literal t2) {
+        return t1.plusMicroSeconds(-(long) t2.getValue());
+    }
+
+    @ExecFunction(name = "sub_time")
+    public static Expression subTime(TimestampTzLiteral date, TimeV2Literal time) {
+        return date.plusMicroSeconds(-(long) time.getValue());
     }
 }

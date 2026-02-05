@@ -25,7 +25,7 @@
 #include <sstream>
 #include <tuple>
 
-#include "gutil/hash/city.h"
+#include "util/hash/city.h"
 #include "util/sse_util.hpp"
 #include "vec/core/extended_types.h"
 #include "vec/core/types.h"
@@ -60,6 +60,34 @@ struct UInt128TrivialHash {
 };
 
 using UInt256 = wide::UInt256;
+
+#pragma pack(1)
+struct UInt72 {
+    UInt8 a;
+    UInt64 b;
+
+    bool operator==(const UInt72& rhs) const { return a == rhs.a && b == rhs.b; }
+};
+#pragma pack()
+
+#pragma pack(1)
+struct UInt96 {
+    UInt32 a;
+    UInt64 b;
+
+    bool operator==(const UInt96& rhs) const { return a == rhs.a && b == rhs.b; }
+};
+#pragma pack()
+
+#pragma pack(1)
+struct UInt104 {
+    UInt8 a;
+    UInt32 b;
+    UInt64 c;
+
+    bool operator==(const UInt104& rhs) const { return a == rhs.a && b == rhs.b && c == rhs.c; }
+};
+#pragma pack()
 
 #pragma pack(1)
 struct UInt136 {

@@ -28,6 +28,8 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanRewriter;
@@ -86,6 +88,36 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
         Assertions.assertEquals(
                 ImmutableList.of("internal", DEFAULT_CLUSTER_PREFIX + DB1, "t"),
                 ((LogicalOlapScan) plan).qualified());
+    }
+
+    @Test
+    void bindSchemaTable() {
+        boolean originValue = connectContext.getSessionVariable().isFetchAllFeForSystemTable();
+        try {
+            connectContext.getSessionVariable().setFetchAllFeForSystemTable(true);
+            // test table which should fetch all fe
+            Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
+                            ImmutableList.of("information_schema", "sql_block_rule_status")),
+                    connectContext, new BindRelation());
+            Assertions.assertInstanceOf(LogicalAggregate.class, plan);
+            Assertions.assertInstanceOf(LogicalSubQueryAlias.class, plan.child(0));
+            Assertions.assertInstanceOf(LogicalSchemaScan.class, plan.child(0).child(0));
+            // test table which should not fetch all fe
+            plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
+                            ImmutableList.of("information_schema", "tables")),
+                    connectContext, new BindRelation());
+            Assertions.assertInstanceOf(LogicalSubQueryAlias.class, plan);
+            Assertions.assertInstanceOf(LogicalSchemaScan.class, plan.child(0));
+            // test table which should fetch all fe but close session variable
+            connectContext.getSessionVariable().setFetchAllFeForSystemTable(false);
+            plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
+                            ImmutableList.of("information_schema", "sql_block_rule_status")),
+                    connectContext, new BindRelation());
+            Assertions.assertInstanceOf(LogicalSubQueryAlias.class, plan);
+            Assertions.assertInstanceOf(LogicalSchemaScan.class, plan.child(0));
+        } finally {
+            connectContext.getSessionVariable().setFetchAllFeForSystemTable(originValue);
+        }
     }
 
     @Test

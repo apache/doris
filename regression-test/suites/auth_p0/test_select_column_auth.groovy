@@ -70,7 +70,7 @@ suite("test_select_column_auth","p0,auth") {
     }
     sleep(1000)
     
-    createMV("""create materialized view ${mtmv_name} as select username from ${dbName}.${tableName}""")
+    createMV("""create materialized view ${mtmv_name} as select username as username_new from ${dbName}.${tableName}""")
     sleep(5 * 1000)
     sql """CREATE MATERIALIZED VIEW ${dbName}.${mtmv_name} 
         BUILD IMMEDIATE REFRESH AUTO ON MANUAL 

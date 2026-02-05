@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.iceberg.IcebergSchemaCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -52,9 +51,7 @@ public class IcebergDlaTable extends HMSDlaTable {
 
     @Override
     public Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot) {
-        return Maps.newHashMap(
-                IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, hmsTable)
-                .getPartitionInfo().getNameToPartitionItem());
+        return Maps.newHashMap(IcebergUtils.getIcebergPartitionItems(snapshot, hmsTable));
     }
 
     @Override
@@ -69,22 +66,25 @@ public class IcebergDlaTable extends HMSDlaTable {
 
     @Override
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
-        IcebergSnapshotCacheValue snapshotValue =
-                IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, hmsTable);
-        IcebergSchemaCacheValue schemaValue = IcebergUtils.getSchemaCacheValue(
-                hmsTable,
-                snapshotValue.getSnapshot().getSchemaId());
-        return schemaValue.getPartitionColumns();
+        return IcebergUtils.getIcebergPartitionColumns(snapshot, hmsTable);
     }
 
     @Override
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
                                                Optional<MvccSnapshot> snapshot) throws AnalysisException {
-        IcebergSnapshotCacheValue snapshotValue =
-                IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, hmsTable);
+        IcebergSnapshotCacheValue snapshotValue = IcebergUtils.getSnapshotCacheValue(snapshot, hmsTable);
         long latestSnapshotId = snapshotValue.getPartitionInfo().getLatestSnapshotId(partitionName);
+        // If partition snapshot ID is unavailable (<= 0), fallback to table snapshot ID
+        // This can happen when last_updated_snapshot_id is null in Iceberg metadata
         if (latestSnapshotId <= 0) {
-            throw new AnalysisException("can not find partition: " + partitionName);
+            long tableSnapshotId = snapshotValue.getSnapshot().getSnapshotId();
+            // If table snapshot ID is also invalid, it means empty table
+            if (tableSnapshotId <= 0) {
+                throw new AnalysisException("can not find partition: " + partitionName
+                        + ", and table snapshot ID is also invalid");
+            }
+            // Use table snapshot ID as fallback when partition snapshot ID is unavailable
+            return new MTMVSnapshotIdSnapshot(tableSnapshotId);
         }
         return new MTMVSnapshotIdSnapshot(latestSnapshotId);
     }
@@ -93,16 +93,14 @@ public class IcebergDlaTable extends HMSDlaTable {
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
         hmsTable.makeSureInitialized();
-        IcebergSnapshotCacheValue snapshotValue =
-                IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, hmsTable);
+        IcebergSnapshotCacheValue snapshotValue = IcebergUtils.getSnapshotCacheValue(snapshot, hmsTable);
         return new MTMVSnapshotIdSnapshot(snapshotValue.getSnapshot().getSnapshotId());
     }
 
     @Override
     public MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException {
         hmsTable.makeSureInitialized();
-        IcebergSnapshotCacheValue snapshotValue =
-                IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, hmsTable);
+        IcebergSnapshotCacheValue snapshotValue = IcebergUtils.getSnapshotCacheValue(snapshot, hmsTable);
         return new MTMVSnapshotIdSnapshot(snapshotValue.getSnapshot().getSnapshotId());
     }
 

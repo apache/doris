@@ -42,11 +42,12 @@ public class StreamLoadRecord {
     private String startTime;
     private String finishTime;
     private String comment;
+    private String firstErrorMsg;
 
 
     public StreamLoadRecord(String label, String db, String table, String clientIp, String status,
             String message, String url, String totalRows, String loadedRows, String filteredRows, String unselectedRows,
-            String loadBytes, String startTime, String finishTime, String user, String comment) {
+            String loadBytes, String startTime, String finishTime, String user, String comment, String firstErrorMsg) {
         this.label = label;
         this.db = db;
         this.table = table;
@@ -63,6 +64,7 @@ public class StreamLoadRecord {
         this.startTime = startTime;
         this.finishTime = finishTime;
         this.comment = comment;
+        this.firstErrorMsg = firstErrorMsg;
     }
 
     public List<Comparable> getStreamLoadInfo() {
@@ -83,6 +85,7 @@ public class StreamLoadRecord {
         streamLoadInfo.add(this.finishTime);
         streamLoadInfo.add(this.user);
         streamLoadInfo.add(this.comment);
+        streamLoadInfo.add(this.firstErrorMsg);
         return streamLoadInfo;
     }
 

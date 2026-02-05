@@ -23,8 +23,12 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.plugin.CloudPluginDownloader;
+import org.apache.doris.common.plugin.CloudPluginDownloader.PluginType;
 import org.apache.doris.common.proc.BaseProcResult;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 
 import com.google.common.base.Preconditions;
@@ -44,8 +48,6 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -132,7 +134,9 @@ public class JdbcResource extends Resource {
             CONNECTION_POOL_MAX_WAIT_TIME,
             CONNECTION_POOL_KEEP_ALIVE,
             TEST_CONNECTION,
-            ExternalCatalog.USE_META_CACHE
+            ExternalCatalog.USE_META_CACHE,
+            CatalogProperty.ENABLE_MAPPING_VARBINARY,
+            CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ
     ).build();
 
     // The default value of optional properties
@@ -153,6 +157,8 @@ public class JdbcResource extends Resource {
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(TEST_CONNECTION, "true");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ExternalCatalog.USE_META_CACHE,
                 String.valueOf(ExternalCatalog.DEFAULT_USE_META_CACHE));
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CatalogProperty.ENABLE_MAPPING_VARBINARY, "false");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ, "false");
     }
 
     // timeout for both connection and read. 10 seconds is long enough.
@@ -201,7 +207,7 @@ public class JdbcResource extends Resource {
         this.configs = Maps.newHashMap(properties);
         validateProperties(this.configs);
         applyDefaultProperties();
-        String currentDateTime = LocalDateTime.now(ZoneId.systemDefault()).toString().replace("T", " ");
+        String currentDateTime = TimeUtils.longToTimeString(System.currentTimeMillis());
         configs.put(CREATE_TIME, currentDateTime);
         // check properties
         for (String property : ALL_PROPERTIES) {
@@ -330,12 +336,31 @@ public class JdbcResource extends Resource {
             // Because in new version, we change the default value of `jdbc_drivers_dir`
             // from `DORIS_HOME/jdbc_drivers` to `DORIS_HOME/plugins/jdbc_drivers`,
             // so we need to check the old default dir for compatibility.
-            File file = new File(defaultDriverUrl + "/" + driverUrl);
-            if (file.exists()) {
-                return "file://" + defaultDriverUrl + "/" + driverUrl;
+            String targetPath = defaultDriverUrl + "/" + driverUrl;
+            File targetFile = new File(targetPath);
+            String oldTargetPath = defaultOldDriverUrl + "/" + driverUrl;
+            File oldTargetFile = new File(oldTargetPath);
+            if (targetFile.exists()) {
+                // File exists in new default directory
+                return "file://" + targetPath;
+            } else if (oldTargetFile.exists()) {
+                // File exists in old default directory
+                return "file://" + oldTargetPath;
+            } else if (Config.isCloudMode()) {
+                // Cloud mode: download from cloud to default directory
+                try {
+                    String downloadedPath = CloudPluginDownloader.downloadFromCloud(
+                            PluginType.JDBC_DRIVERS, driverUrl, targetPath);
+                    return "file://" + downloadedPath;
+                } catch (Exception e) {
+                    LOG.warn("failed to download jdbc driver url: " + driverUrl, e);
+                    throw new RuntimeException("Cannot download JDBC driver from cloud: " + driverUrl
+                            + ". Please retry later or check your driver has been uploaded to cloud. Error: "
+                            + Util.getRootCauseMessage(e));
+                }
             } else {
-                // use old one
-                return "file://" + defaultOldDriverUrl + "/" + driverUrl;
+                // File does not exist in both new and old default directory
+                throw new RuntimeException("JDBC driver file does not exist: " + driverUrl);
             }
         } else {
             // Return user specified driver url directly.

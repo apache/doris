@@ -49,11 +49,11 @@ RUN mkdir -p /usr/share/maven /usr/share/maven/ref \
     && ln -s /usr/share/maven/bin/mvn /usr/bin/mvn
 
 # install nodejs
-RUN wget https://doris-thirdparty-1308700295.cos.ap-beijing.myqcloud.com/tools/node-v12.13.0-linux-x64.tar.gz \
-    -q -O /tmp/node-v12.13.0-linux-x64.tar.gz \
-    && cd /tmp/ && tar -xf node-v12.13.0-linux-x64.tar.gz \
-    && cp -r node-v12.13.0-linux-x64/* /usr/local/ \
-    && rm /tmp/node-v12.13.0-linux-x64.tar.gz && rm -rf node-v12.13.0-linux-x64
+RUN wget https://nodejs.org/download/release/latest-v14.x/node-v14.21.3-linux-x64.tar.gz \
+    -q -O /tmp/node-v14.21.3-linux-x64.tar.gz \
+    && cd /tmp/ && tar -xf node-v14.21.3-linux-x64.tar.gz \
+    && cp -r node-v14.21.3-linux-x64/* /usr/local/ \
+    && rm /tmp/node-v14.21.3-linux-x64.tar.gz && rm -rf node-v14.21.3-linux-x64
 
 # install ldb-toolchain
 ## 0.18

@@ -40,9 +40,11 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.plugin.CloudPluginDownloader;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -78,6 +80,7 @@ import org.apache.doris.proto.FunctionService;
 import org.apache.doris.proto.PFunctionServiceGrpc;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
@@ -87,8 +90,10 @@ import com.google.common.collect.ImmutableSortedMap;
 import io.grpc.ManagedChannel;
 import io.grpc.netty.NettyChannelBuilder;
 import org.apache.commons.codec.binary.Hex;
-import org.apache.commons.collections.map.CaseInsensitiveMap;
+import org.apache.commons.collections4.map.CaseInsensitiveMap;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -107,6 +112,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -114,33 +120,37 @@ import java.util.stream.Collectors;
  */
 public class CreateFunctionCommand extends Command implements ForwardWithSync {
     @Deprecated
-    private static final String OBJECT_FILE_KEY = "object_file";
-    private static final String FILE_KEY = "file";
-    private static final String SYMBOL_KEY = "symbol";
-    private static final String PREPARE_SYMBOL_KEY = "prepare_fn";
-    private static final String CLOSE_SYMBOL_KEY = "close_fn";
-    private static final String MD5_CHECKSUM = "md5";
-    private static final String INIT_KEY = "init_fn";
-    private static final String UPDATE_KEY = "update_fn";
-    private static final String MERGE_KEY = "merge_fn";
-    private static final String SERIALIZE_KEY = "serialize_fn";
-    private static final String FINALIZE_KEY = "finalize_fn";
-    private static final String GET_VALUE_KEY = "get_value_fn";
-    private static final String REMOVE_KEY = "remove_fn";
-    private static final String BINARY_TYPE = "type";
-    private static final String EVAL_METHOD_KEY = "evaluate";
-    private static final String CREATE_METHOD_NAME = "create";
-    private static final String DESTROY_METHOD_NAME = "destroy";
-    private static final String ADD_METHOD_NAME = "add";
-    private static final String SERIALIZE_METHOD_NAME = "serialize";
-    private static final String MERGE_METHOD_NAME = "merge";
-    private static final String GETVALUE_METHOD_NAME = "getValue";
-    private static final String STATE_CLASS_NAME = "State";
+    public static final String OBJECT_FILE_KEY = "object_file";
+    public static final String FILE_KEY = "file";
+    public static final String SYMBOL_KEY = "symbol";
+    public static final String PREPARE_SYMBOL_KEY = "prepare_fn";
+    public static final String CLOSE_SYMBOL_KEY = "close_fn";
+    public static final String MD5_CHECKSUM = "md5";
+    public static final String INIT_KEY = "init_fn";
+    public static final String UPDATE_KEY = "update_fn";
+    public static final String MERGE_KEY = "merge_fn";
+    public static final String SERIALIZE_KEY = "serialize_fn";
+    public static final String FINALIZE_KEY = "finalize_fn";
+    public static final String GET_VALUE_KEY = "get_value_fn";
+    public static final String REMOVE_KEY = "remove_fn";
+    public static final String BINARY_TYPE = "type";
+    public static final String EVAL_METHOD_KEY = "evaluate";
+    public static final String CREATE_METHOD_NAME = "create";
+    public static final String DESTROY_METHOD_NAME = "destroy";
+    public static final String ADD_METHOD_NAME = "add";
+    public static final String SERIALIZE_METHOD_NAME = "serialize";
+    public static final String MERGE_METHOD_NAME = "merge";
+    public static final String GETVALUE_METHOD_NAME = "getValue";
+    public static final String STATE_CLASS_NAME = "State";
     // add for java udf check return type nullable mode, always_nullable or always_not_nullable
-    private static final String IS_RETURN_NULL = "always_nullable";
+    public static final String IS_RETURN_NULL = "always_nullable";
     // iff is static load, BE will be cache the udf class load, so only need load once
-    private static final String IS_STATIC_LOAD = "static_load";
-    private static final String EXPIRATION_TIME = "expiration_time";
+    public static final String IS_STATIC_LOAD = "static_load";
+    public static final String EXPIRATION_TIME = "expiration_time";
+    public static final String RUNTIME_VERSION = "runtime_version";
+
+    private static final Pattern PYTHON_VERSION_PATTERN = Pattern.compile("^3\\.\\d{1,2}(?:\\.\\d{1,2})?$");
+    private static final Logger LOG = LogManager.getLogger(CreateFunctionCommand.class);
 
     // timeout for both connection and read. 10 seconds is long enough.
     private static final int HTTP_TIMEOUT_MS = 10000;
@@ -159,6 +169,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     private TFunctionBinaryType binaryType = TFunctionBinaryType.JAVA_UDF;
     // needed item set after analyzed
     private String userFile;
+    private String originalUserFile; // Keep original jar name for BE
     private Function function;
     private String checksum = "";
     private boolean isStaticLoad = false;
@@ -167,6 +178,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     // if not, will core dump when input is not null column, but need return null
     // like https://github.com/apache/doris/pull/14002/files
     private NullableMode returnNullMode = NullableMode.ALWAYS_NULLABLE;
+    private String runtimeVersion;
+    private String functionCode;
 
     /**
      * CreateFunctionCommand
@@ -174,7 +187,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     public CreateFunctionCommand(SetType setType, boolean ifNotExists, boolean isAggregate, boolean isAlias,
                                  boolean isTableFunction, FunctionName functionName, FunctionArgTypesInfo argsDef,
                                  DataType returnType, DataType intermediateType, List<String> parameters,
-                                 Expression originFunction, Map<String, String> properties) {
+                                 Expression originFunction, Map<String, String> properties, String functionCode) {
         super(PlanType.CREATE_FUNCTION_COMMAND);
         this.setType = setType;
         this.ifNotExists = ifNotExists;
@@ -196,6 +209,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         } else {
             this.properties = ImmutableSortedMap.copyOf(properties, String.CASE_INSENSITIVE_ORDER);
         }
+        this.functionCode = functionCode;
     }
 
     @Override
@@ -296,7 +310,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         String type = properties.getOrDefault(BINARY_TYPE, "JAVA_UDF");
         binaryType = getFunctionBinaryType(type);
         if (binaryType == null) {
-            throw new AnalysisException("unknown function type");
+            throw new AnalysisException("Unknown function type: '" + type + "'");
         }
         if (type.equals("NATIVE")) {
             throw new AnalysisException("do not support 'NATIVE' udf type after doris version 1.2.0,"
@@ -304,6 +318,11 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
 
         userFile = properties.getOrDefault(FILE_KEY, properties.get(OBJECT_FILE_KEY));
+        originalUserFile = userFile; // Keep original jar name for BE
+        // Convert userFile to realUrl only for FE checksum calculation
+        if (!Strings.isNullOrEmpty(userFile) && binaryType != TFunctionBinaryType.RPC) {
+            userFile = getRealUrl(userFile);
+        }
         if (!Strings.isNullOrEmpty(userFile) && binaryType != TFunctionBinaryType.RPC) {
             try {
                 computeObjectChecksum();
@@ -328,20 +347,46 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             if (staticLoad != null && staticLoad) {
                 isStaticLoad = true;
             }
-            String expirationTimeString = properties.get(EXPIRATION_TIME);
-            if (expirationTimeString != null) {
-                long timeMinutes = 0;
-                try {
-                    timeMinutes = Long.parseLong(expirationTimeString);
-                } catch (NumberFormatException e) {
-                    throw new AnalysisException(e.getMessage());
-                }
-                if (timeMinutes <= 0) {
-                    throw new AnalysisException("expirationTime should greater than zero: ");
-                }
-                this.expirationTime = timeMinutes;
+            extractExpirationTime();
+        } else if (binaryType == TFunctionBinaryType.PYTHON_UDF) {
+            FunctionUtil.checkEnablePythonUdf();
+
+            // always_nullable the default value is true, equal null means true
+            Boolean isReturnNull = parseBooleanFromProperties(IS_RETURN_NULL);
+            if (isReturnNull != null && !isReturnNull) {
+                returnNullMode = NullableMode.ALWAYS_NOT_NULLABLE;
             }
+            extractExpirationTime();
+            String runtimeVersionString = properties.get(RUNTIME_VERSION);
+            if (runtimeVersionString == null) {
+                throw new AnalysisException("Python runtime version is not set");
+            } else if (!validatePythonRuntimeVersion(runtimeVersionString)) {
+                throw new AnalysisException(
+                    String.format("Invalid Python runtime version: '%s'. Expected format:"
+                        + "'3.X.X' or '3.XX.XX' (e.g. '3.10.2').", runtimeVersionString));
+            }
+            runtimeVersion = runtimeVersionString;
         }
+    }
+
+    private void extractExpirationTime() throws AnalysisException {
+        String expirationTimeString = properties.get(EXPIRATION_TIME);
+        if (expirationTimeString != null) {
+            long timeMinutes = 0;
+            try {
+                timeMinutes = Long.parseLong(expirationTimeString);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException(e.getMessage());
+            }
+            if (timeMinutes <= 0) {
+                throw new AnalysisException("expirationTime should greater than zero: ");
+            }
+            this.expirationTime = timeMinutes;
+        }
+    }
+
+    private static boolean validatePythonRuntimeVersion(String runtimeVersionString) {
+        return runtimeVersionString != null && PYTHON_VERSION_PATTERN.matcher(runtimeVersionString).matches();
     }
 
     private Boolean parseBooleanFromProperties(String propertyString) throws AnalysisException {
@@ -377,18 +422,49 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
     }
 
+    private String getRealUrl(String url) {
+        if (!url.contains(":/")) {
+            return checkAndReturnDefaultJavaUdfUrl(url);
+        }
+        return url;
+    }
+
+    private String checkAndReturnDefaultJavaUdfUrl(String url) {
+        String defaultUrl = EnvUtils.getDorisHome() + "/plugins/java_udf";
+        // In cloud mode, try cloud download first
+        if (Config.isCloudMode()) {
+            String targetPath = defaultUrl + "/" + url;
+            try {
+                String downloadedPath = CloudPluginDownloader.downloadFromCloud(
+                        CloudPluginDownloader.PluginType.JAVA_UDF, url, targetPath);
+                if (!downloadedPath.isEmpty()) {
+                    return "file://" + downloadedPath;
+                }
+            } catch (Exception e) {
+                throw new RuntimeException("Cannot download UDF from cloud: " + url
+                        + ". Please retry later or check your UDF has been uploaded to cloud.");
+            }
+        }
+        // Return the file path (original UDF behavior)
+        return "file://" + defaultUrl + "/" + url;
+    }
+
     private void analyzeUdtf() throws AnalysisException {
         String symbol = properties.get(SYMBOL_KEY);
         if (Strings.isNullOrEmpty(symbol)) {
             throw new AnalysisException("No 'symbol' in properties");
         }
         if (!returnType.isArrayType()) {
-            throw new AnalysisException("JAVA_UDF OF UDTF return type must be array type");
+            throw new AnalysisException("JAVA_UDTF OR PYTHON_UDTF return type must be array type");
         }
-        analyzeJavaUdf(symbol);
+        if (binaryType == TFunctionBinaryType.JAVA_UDF) {
+            analyzeJavaUdf(symbol);
+        } else if (binaryType == TFunctionBinaryType.PYTHON_UDF) {
+            analyzePythonUdtf(symbol);
+        }
         URI location;
-        if (!Strings.isNullOrEmpty(userFile)) {
-            location = URI.create(userFile);
+        if (!Strings.isNullOrEmpty(originalUserFile)) {
+            location = URI.create(originalUserFile);
         } else {
             location = null;
         }
@@ -399,6 +475,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         function.setChecksum(checksum);
         function.setNullableMode(returnNullMode);
         function.setUDTFunction(true);
+        function.setRuntimeVersion(runtimeVersion);
+        function.setFunctionCode(functionCode);
         // Todo: maybe in create tables function, need register two function, one is
         // normal and one is outer as those have different result when result is NULL.
     }
@@ -407,8 +485,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         AggregateFunction.AggregateFunctionBuilder builder = AggregateFunction.AggregateFunctionBuilder
                 .createUdfBuilder();
         URI location;
-        if (!Strings.isNullOrEmpty(userFile)) {
-            location = URI.create(userFile);
+        if (!Strings.isNullOrEmpty(originalUserFile)) {
+            location = URI.create(originalUserFile);
         } else {
             location = null;
         }
@@ -417,15 +495,18 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                 .location(location);
         String initFnSymbol = properties.get(INIT_KEY);
         if (initFnSymbol == null && !(binaryType == TFunctionBinaryType.JAVA_UDF
+                || binaryType == TFunctionBinaryType.PYTHON_UDF
                 || binaryType == TFunctionBinaryType.RPC)) {
             throw new AnalysisException("No 'init_fn' in properties");
         }
         String updateFnSymbol = properties.get(UPDATE_KEY);
-        if (updateFnSymbol == null && !(binaryType == TFunctionBinaryType.JAVA_UDF)) {
+        if (updateFnSymbol == null && !(binaryType == TFunctionBinaryType.JAVA_UDF
+                || binaryType == TFunctionBinaryType.PYTHON_UDF)) {
             throw new AnalysisException("No 'update_fn' in properties");
         }
         String mergeFnSymbol = properties.get(MERGE_KEY);
-        if (mergeFnSymbol == null && !(binaryType == TFunctionBinaryType.JAVA_UDF)) {
+        if (mergeFnSymbol == null && !(binaryType == TFunctionBinaryType.JAVA_UDF
+                || binaryType == TFunctionBinaryType.PYTHON_UDF)) {
             throw new AnalysisException("No 'merge_fn' in properties");
         }
         String serializeFnSymbol = properties.get(SERIALIZE_KEY);
@@ -456,6 +537,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                 throw new AnalysisException("No 'symbol' in properties of java-udaf");
             }
             analyzeJavaUdaf(symbol);
+        } else if (binaryType == TFunctionBinaryType.PYTHON_UDF) {
+            analyzePythonUdaf(symbol);
         }
         function = builder.initFnSymbol(initFnSymbol).updateFnSymbol(updateFnSymbol).mergeFnSymbol(mergeFnSymbol)
                 .serializeFnSymbol(serializeFnSymbol).finalizeFnSymbol(finalizeFnSymbol)
@@ -466,6 +549,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         function.setNullableMode(returnNullMode);
         function.setStaticLoad(isStaticLoad);
         function.setExpirationTime(expirationTime);
+        function.setRuntimeVersion(runtimeVersion);
+        function.setFunctionCode(functionCode);
     }
 
     private void analyzeUdf() throws AnalysisException {
@@ -484,10 +569,12 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             checkRPCUdf(symbol);
         } else if (binaryType == TFunctionBinaryType.JAVA_UDF) {
             analyzeJavaUdf(symbol);
+        } else if (binaryType == TFunctionBinaryType.PYTHON_UDF) {
+            analyzePythonUdf(symbol);
         }
         URI location;
-        if (!Strings.isNullOrEmpty(userFile)) {
-            location = URI.create(userFile);
+        if (!Strings.isNullOrEmpty(originalUserFile)) {
+            location = URI.create(originalUserFile);
         } else {
             location = null;
         }
@@ -499,6 +586,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         function.setNullableMode(returnNullMode);
         function.setStaticLoad(isStaticLoad);
         function.setExpirationTime(expirationTime);
+        function.setRuntimeVersion(runtimeVersion);
+        function.setFunctionCode(functionCode);
     }
 
     private void analyzeJavaUdaf(String clazz) throws AnalysisException {
@@ -514,7 +603,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                     throw new AnalysisException("Class [" + clazz + "] not found in classpath");
                 }
             }
-            URL[] urls = { new URL("jar:" + userFile + "!/") };
+            URL[] urls = {new URL("jar:" + userFile + "!/")};
             try (URLClassLoader cl = URLClassLoader.newInstance(urls)) {
                 checkUdafClass(clazz, cl, allMethods);
             } catch (ClassNotFoundException e) {
@@ -525,6 +614,26 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             }
         } catch (MalformedURLException e) {
             throw new AnalysisException("Failed to load file: " + userFile);
+        }
+    }
+
+    private void analyzePythonUdaf(String clazz) throws AnalysisException {
+        if (Strings.isNullOrEmpty(clazz)) {
+            throw new AnalysisException("No symbol class name provided for Python UDAF");
+        }
+
+        if (Strings.isNullOrEmpty(this.functionCode)) {
+            return;
+        }
+
+        this.functionCode = this.functionCode.trim();
+        if (!(this.functionCode.startsWith("$$") && this.functionCode.endsWith("$$"))) {
+            throw new AnalysisException("Inline Python UDAF code must be start with $$ and end with $$");
+        }
+
+        this.functionCode = this.functionCode.substring(2, this.functionCode.length() - 2);
+        if (this.functionCode.isEmpty()) {
+            throw new AnalysisException("Inline Python UDAF is empty");
         }
     }
 
@@ -666,7 +775,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                     throw new AnalysisException("Class [" + clazz + "] not found in classpath");
                 }
             }
-            URL[] urls = { new URL("jar:" + userFile + "!/") };
+            URL[] urls = {new URL("jar:" + userFile + "!/")};
             try (URLClassLoader cl = URLClassLoader.newInstance(urls)) {
                 checkUdfClass(clazz, cl);
             } catch (ClassNotFoundException e) {
@@ -676,6 +785,26 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             }
         } catch (MalformedURLException e) {
             throw new AnalysisException("Failed to load file: " + userFile);
+        }
+    }
+
+    private void analyzePythonUdf(String clazz) throws AnalysisException {
+        if (Strings.isNullOrEmpty(clazz)) {
+            throw new AnalysisException("No symbol class name provided for Python UDF");
+        }
+
+        if (Strings.isNullOrEmpty(this.functionCode)) {
+            return;
+        }
+
+        this.functionCode = this.functionCode.trim();
+        if (!(this.functionCode.startsWith("$$") && this.functionCode.endsWith("$$"))) {
+            throw new AnalysisException("Inline Python UDF code must be start with $$ and end with $$");
+        }
+
+        this.functionCode = this.functionCode.substring(2, this.functionCode.length() - 2);
+        if (this.functionCode.isEmpty()) {
+            throw new AnalysisException("Inline Python UDF is empty");
         }
     }
 
@@ -700,7 +829,9 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                 m -> m.getParameters().length == argsDef.getArgTypes().length).collect(Collectors.toList());
         if (evalArgLengthMatchList.size() == 0) {
             throw new AnalysisException(
-                    String.format("The number of parameters for method '%s' in class '%s' should be %d",
+                    String.format(
+                            "The arguments number udf provided and create function command is not equal,"
+                                    + " the parameters of '%s' method in class '%s' maybe should %d.",
                             EVAL_METHOD_KEY, udfClass.getCanonicalName(), argsDef.getArgTypes().length));
         } else if (evalArgLengthMatchList.size() == 1) {
             Method method = evalArgLengthMatchList.get(0);
@@ -751,19 +882,41 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             javaTypes = Type.PrimitiveTypeToJavaClassType.get(structType.getPrimitiveType());
         } else {
             throw new AnalysisException(
-                    String.format("Method '%s' in class '%s' does not support type '%s'",
+                    String.format("Method '%s' in class '%s' does not support type '%s'.",
                             method.getName(), clazz.getCanonicalName(), expType));
         }
 
         if (javaTypes == null) {
             throw new AnalysisException(
-                    String.format("Method '%s' in class '%s' does not support type '%s'",
-                            method.getName(), clazz.getCanonicalName(), expType.toString()));
+                    String.format("Method '%s' in class '%s' does not support type '%s'.",
+                            method.getName(), clazz.getCanonicalName(), expType.getPrimitiveType().toString()));
         }
         if (!javaTypes.contains(pType)) {
             throw new AnalysisException(
-                    String.format("UDF class '%s' method '%s' %s[%s] type is not supported!",
-                            clazz.getCanonicalName(), method.getName(), pname, pType.getCanonicalName()));
+                    String.format(
+                            "UDF class '%s' of method '%s' %s is [%s] type, but create function command type is %s.",
+                            clazz.getCanonicalName(), method.getName(), pname, pType.getCanonicalName(),
+                            expType.getPrimitiveType().toString()));
+        }
+    }
+
+    private void analyzePythonUdtf(String clazz) throws AnalysisException {
+        if (Strings.isNullOrEmpty(clazz)) {
+            throw new AnalysisException("No symbol class name provided for Python UDTF");
+        }
+
+        if (Strings.isNullOrEmpty(this.functionCode)) {
+            return;
+        }
+
+        this.functionCode = this.functionCode.trim();
+        if (!(this.functionCode.startsWith("$$") && this.functionCode.endsWith("$$"))) {
+            throw new AnalysisException("Inline Python UDTF code must be start with $$ and end with $$");
+        }
+
+        this.functionCode = this.functionCode.substring(2, this.functionCode.length() - 2);
+        if (this.functionCode.isEmpty()) {
+            throw new AnalysisException("Inline Python UDTF is empty");
         }
     }
 
@@ -847,12 +1000,14 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                 typeBuilder.setId(Types.PGenericType.TypeId.DATEV2);
                 break;
             case DATETIME:
-            case TIME:
                 typeBuilder.setId(Types.PGenericType.TypeId.DATETIME);
                 break;
             case DATETIMEV2:
             case TIMEV2:
                 typeBuilder.setId(Types.PGenericType.TypeId.DATETIMEV2);
+                break;
+            case TIMESTAMPTZ:
+                typeBuilder.setId(Types.PGenericType.TypeId.TIMESTAMPTZ);
                 break;
             case DECIMALV2:
             case DECIMAL128:
@@ -955,8 +1110,10 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                         + typeDefParams.stream().map(String::toString).collect(Collectors.joining(", ")));
             }
         }
+        Map<String, String> sessionVariables = ConnectContextUtil.getAffectQueryResultInPlanVariables(ctx);
         function = AliasFunction.createFunction(functionName, argsDef.getArgTypes(),
-                Type.VARCHAR, argsDef.isVariadic(), parameters, translateToLegacyExpr(originFunction, ctx));
+                Type.VARCHAR, argsDef.isVariadic(), parameters, translateToLegacyExpr(originFunction, ctx),
+                sessionVariables);
     }
 
     private boolean checkParams(Expression expr, String param) {
@@ -1104,11 +1261,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                     expression.getDataType().toCatalogDataType(), hasVarArguments,
                     "", TFunctionBinaryType.BUILTIN, true, true, nullableMode);
 
-            FunctionCallExpr functionCallExpr;
             // create catalog FunctionCallExpr without analyze again
-            functionCallExpr = new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
-            functionCallExpr.setNullableFromNereids(expression.nullable());
-            return functionCallExpr;
+            return new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments), expression.nullable());
         }
     }
 }

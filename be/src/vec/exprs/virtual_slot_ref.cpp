@@ -22,6 +22,7 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <ostream>
+#include <vector>
 
 #include "common/exception.h"
 #include "common/logging.h"
@@ -35,9 +36,8 @@
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
-
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 VirtualSlotRef::VirtualSlotRef(const doris::TExprNode& node)
         : VExpr(node),
           _column_id(-1),
@@ -75,14 +75,7 @@ Status VirtualSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescr
     _column_name = &slot_desc->col_name();
     _column_data_type = slot_desc->get_data_type_ptr();
     DCHECK(_column_data_type != nullptr);
-    if (!context->force_materialize_slot() && !slot_desc->is_materialized()) {
-        // slot should be ignored manually
-        _column_id = -1;
-        _prepare_finished = true;
-        return Status::OK();
-    }
-
-    _column_id = desc.get_column_id(_slot_id, context->force_materialize_slot());
+    _column_id = desc.get_column_id(_slot_id);
     if (_column_id < 0) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "VirtualSlotRef {} has invalid slot id: "
@@ -110,7 +103,8 @@ Status VirtualSlotRef::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-Status VirtualSlotRef::execute(VExprContext* context, Block* block, int* result_column_id) {
+Status VirtualSlotRef::execute_column(VExprContext* context, const Block* block, Selector* selector,
+                                      size_t count, ColumnPtr& result_column) const {
     if (_column_id >= 0 && _column_id >= block->columns()) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "input block not contain slot column {}, column_id={}, block={}", *_column_name,
@@ -126,25 +120,23 @@ Status VirtualSlotRef::execute(VExprContext* context, Block* block, int* result_
                 *_column_name);
     }
 
-    const vectorized::ColumnNothing* col_nothing =
-            check_and_get_column<ColumnNothing>(col_type_name.column.get());
-
+    const auto* col_nothing = check_and_get_column<ColumnNothing>(col_type_name.column.get());
+    bool column_from_virtual_column_expr = false;
     if (this->_virtual_column_expr != nullptr) {
         if (col_nothing != nullptr) {
             // Virtual column is not materialized, so we need to materialize it.
             // Note: After executing 'execute', we cannot use the column from line 120 in subsequent code,
             // because the vector might be resized during execution, causing previous references to become invalid.
-            int tmp_column_id = -1;
-            RETURN_IF_ERROR(_virtual_column_expr->execute(context, block, &tmp_column_id));
-
-            // Maybe do clone.
-            block->replace_by_position(_column_id,
-                                       std::move(block->get_by_position(tmp_column_id).column));
+            ColumnPtr tmp_column;
+            RETURN_IF_ERROR(_virtual_column_expr->execute_column(context, block, selector, count,
+                                                                 tmp_column));
+            result_column = std::move(tmp_column);
+            column_from_virtual_column_expr = true;
 
             VLOG_DEBUG << fmt::format(
                     "Materialization of virtual column, slot_id {}, column_id {}, "
-                    "tmp_column_id {}, column_name {}, column size {}",
-                    _slot_id, _column_id, tmp_column_id, *_column_name,
+                    "column_name {}, column size {}",
+                    _slot_id, _column_id, *_column_name,
                     block->get_by_position(_column_id).column->size());
         }
 
@@ -169,9 +161,12 @@ Status VirtualSlotRef::execute(VExprContext* context, Block* block, int* result_
         }
     }
 
-    *result_column_id = _column_id;
-    VLOG_DEBUG << fmt::format("VirtualSlotRef execute, slot_id {}, column_id {}, column_name {}",
-                              _slot_id, _column_id, *_column_name);
+    if (!column_from_virtual_column_expr) {
+        // if the column is from virtual column expr, result_column has been filter already
+        result_column = filter_column_with_selector(col_type_name.column, selector, count);
+    }
+
+    DCHECK_EQ(result_column->size(), count);
     return Status::OK();
 }
 
@@ -218,4 +213,33 @@ bool VirtualSlotRef::equals(const VExpr& other) {
     return true;
 }
 
+/**
+ * @brief Implements ANN range search evaluation for virtual slot references.
+ * 
+ * This method handles the case where a virtual slot reference wraps a distance
+ * function call that can be optimized using ANN index range search. Instead of
+ * computing distances for all rows, it delegates to the underlying virtual
+ * expression to perform the optimized search.
+ * 
+ * @param range_search_runtime Runtime parameters for the range search
+ * @param cid_to_index_iterators Index iterators for each column
+ * @param idx_to_cid Column ID mapping
+ * @param column_iterators Data column iterators
+ * @param row_bitmap Result bitmap to be updated with matching rows
+ * @param ann_index_stats Performance statistics collector
+ * @return Status::OK() if successful, error status otherwise
+ */
+Status VirtualSlotRef::evaluate_ann_range_search(
+        const segment_v2::AnnRangeSearchRuntime& range_search_runtime,
+        const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
+        const std::vector<ColumnId>& idx_to_cid,
+        const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
+        roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats) {
+    return _virtual_column_expr->evaluate_ann_range_search(
+            range_search_runtime, cid_to_index_iterators, idx_to_cid, column_iterators, row_bitmap,
+            ann_index_stats);
+
+    return Status::OK();
+}
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

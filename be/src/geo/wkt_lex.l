@@ -30,14 +30,14 @@ class GeoShape;
 #include "geo/wkt_parse_ctx.h"
 #include "geo/wkt_parse_type.h"
 #include "geo/wkt_yacc.y.hpp"
-
-#define YYSTYPE WKT_STYPE
 #define YY_EXTRA_TYPE  WktParseContext*
+
+#undef YY_DECL
+#define YY_DECL wkt_::parser::symbol_type wkt_lex(WktParseContext* ctx, yyscan_t yyscanner)
 
 %}
 
 %option case-insensitive
-%option bison-bridge
 %option reentrant
 %option never-interactive
 %option prefix="wkt_"
@@ -48,17 +48,16 @@ class GeoShape;
 %%
 
 -?(([0-9]+\.?)|([0-9]*\.?[0-9]+)([eE][-+]?[0-9]+)?) {
-    yylval->double_value = atof(yytext);
-    return NUMERIC;
+    return wkt_::parser::make_NUMERIC(atof(yytext));
 }
 
-MULTIPOLYGON { return KW_MULTI_POLYGON; }
-MULTILINESTRING { return KW_MULTI_LINESTRING; }
-MULTIPOINT { return KW_MULTI_POINT; }
-POLYGON { return KW_POLYGON; }
-LINESTRING { return KW_LINESTRING; }
+MULTIPOLYGON { return wkt_::parser::make_KW_MULTI_POLYGON(); }
+MULTILINESTRING { return wkt_::parser::make_KW_MULTI_LINESTRING(); }
+MULTIPOINT { return wkt_::parser::make_KW_MULTI_POINT(); }
+POLYGON { return wkt_::parser::make_KW_POLYGON(); }
+LINESTRING { return wkt_::parser::make_KW_LINESTRING(); }
 POINT { 
-    return KW_POINT; }
+    return wkt_::parser::make_KW_POINT(); }
 
 \( |
 \) |

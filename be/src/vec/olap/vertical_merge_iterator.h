@@ -39,6 +39,7 @@
 #pragma once
 
 namespace doris {
+#include "common/compile_check_begin.h"
 enum KeysType : int;
 
 namespace vectorized {
@@ -100,7 +101,7 @@ public:
         DCHECK(_buf_idx < _buffer.size());
         return RowSource(_buffer[_buf_idx]);
     }
-    void advance(int32_t step = 1) {
+    void advance(int64_t step = 1) {
         DCHECK(_buf_idx + step <= _buffer.size());
         _buf_idx += step;
     }
@@ -119,6 +120,13 @@ public:
 
     // return continuous agg_flag=true count from index
     size_t continuous_agg_count(uint64_t index);
+
+    // Count continuous rows from current position that:
+    // 1. Have the same source number
+    // 2. Have agg_flag=false (non-aggregated rows)
+    // Stops at first agg_flag=true row or different source
+    // Used for batch optimization in unique_key_next_batch
+    size_t same_source_continuous_non_agg_count(uint16_t source, size_t limit);
 
 private:
     Status _create_buffer_file();
@@ -167,6 +175,10 @@ public:
 
     Status advance();
 
+    // Advance by n rows at once (batch optimization)
+    // More efficient than calling advance() n times when n rows are in same block
+    Status advance_by(size_t n);
+
     // Return if it has remaining data in this context.
     // Only when this function return true, current_row()
     // will return a valid row
@@ -212,6 +224,14 @@ public:
         }
     }
 
+    // Get current row position in block (for batch optimization)
+    uint32_t current_row_pos() const { return _index_in_block; }
+
+    // Get block pointer (for batch optimization)
+    Block* block() const { return _block.get(); }
+
+    const std::shared_ptr<Block>& block_ptr() const { return _block; }
+
 private:
     // Load next block into _block
     Status _load_next_block();
@@ -230,7 +250,7 @@ private:
     mutable bool _is_same = false;
     int32_t _index_in_block = -1;
     size_t _block_row_max = 0;
-    int _num_key_columns;
+    int64_t _num_key_columns;
     const std::vector<uint32_t> _key_group_cluster_key_idxes;
     size_t _cur_batch_num = 0;
 
@@ -278,7 +298,7 @@ public:
     }
 
 private:
-    int _get_size(Block* block) { return block->rows(); }
+    int64_t _get_size(Block* block) { return block->rows(); }
 
     // It will be released after '_merge_heap' has been built.
     std::vector<RowwiseIteratorUPtr> _origin_iters;
@@ -344,7 +364,7 @@ public:
     }
 
 private:
-    int _get_size(Block* block) { return block->rows(); }
+    int64_t _get_size(Block* block) { return block->rows(); }
 
     // It will be released after '_merge_heap' has been built.
     std::vector<RowwiseIteratorUPtr> _origin_iters;
@@ -363,6 +383,17 @@ private:
     StorageReadOptions _opts;
     bool _record_rowids = false;
     std::vector<RowLocation> _block_row_locations;
+};
+
+// --------------- RowBatch for batch optimization ------------- //
+// Batch of continuous rows from the same segment context
+struct RowBatch {
+    std::shared_ptr<Block> block; // source block snapshot
+    uint32_t start_row;           // start row position in source block
+    uint32_t count;               // number of rows
+
+    RowBatch(std::shared_ptr<Block> b, uint32_t start, uint32_t cnt)
+            : block(std::move(b)), start_row(start), count(cnt) {}
 };
 
 // --------------- VerticalMaskMergeIterator ------------- //
@@ -389,10 +420,15 @@ public:
 
     Status unique_key_next_row(IteratorRowRef* ref) override;
 
+    // Batch version of unique_key_next_row for performance optimization
+    // Returns batches of continuous rows from the same segment
+    Status unique_key_next_batch(std::vector<RowBatch>* batches, size_t max_rows,
+                                 size_t* actual_rows);
+
     uint64_t merged_rows() const override { return _filtered_rows; }
 
 private:
-    int _get_size(Block* block) { return block->rows(); }
+    int64_t _get_size(Block* block) { return block->rows(); }
 
     Status check_all_iter_finished();
 
@@ -428,4 +464,5 @@ std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
         RowSourcesBuffer* row_sources_buf);
 
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

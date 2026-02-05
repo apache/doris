@@ -239,7 +239,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         auto delta_writer = create_delta_writer(wrequest);
         {
             // here we modify _tablet_writers. so need lock.
-            std::lock_guard<std::mutex> l(_tablet_writers_lock);
+            std::lock_guard<std::mutex> lt(_tablet_writers_lock);
             _tablet_writers.emplace(tablet.tablet_id(), std::move(delta_writer));
         }
 
@@ -569,7 +569,9 @@ Status BaseTabletsChannel::_write_block_data(
         std::unordered_map<int64_t, DorisVector<uint32_t>>& tablet_to_rowidxs,
         PTabletWriterAddBlockResult* response) {
     vectorized::Block send_data;
-    RETURN_IF_ERROR(send_data.deserialize(request.block()));
+    [[maybe_unused]] size_t uncompressed_size = 0;
+    [[maybe_unused]] int64_t uncompressed_time = 0;
+    RETURN_IF_ERROR(send_data.deserialize(request.block(), &uncompressed_size, &uncompressed_time));
     CHECK(send_data.rows() == request.tablet_ids_size())
             << "block rows: " << send_data.rows()
             << ", tablet_ids_size: " << request.tablet_ids_size();
@@ -612,10 +614,16 @@ Status BaseTabletsChannel::_write_block_data(
     };
 
     SCOPED_TIMER(_write_block_timer);
+    auto* tablet_load_infos = response->mutable_tablet_load_rowset_num_infos();
     for (const auto& tablet_to_rowidxs_it : tablet_to_rowidxs) {
         RETURN_IF_ERROR(write_tablet_data(tablet_to_rowidxs_it.first, [&](BaseDeltaWriter* writer) {
             return writer->write(&send_data, tablet_to_rowidxs_it.second);
         }));
+
+        auto tablet_writer_it = _tablet_writers.find(tablet_to_rowidxs_it.first);
+        if (tablet_writer_it != _tablet_writers.end()) {
+            tablet_writer_it->second->set_tablet_load_rowset_num_info(tablet_load_infos);
+        }
     }
 
     {

@@ -49,7 +49,7 @@ namespace doris::vectorized {
 template <PrimitiveType T, bool HasLimit>
 struct AggregateFunctionCollectSetData {
     static constexpr PrimitiveType PType = T;
-    using ElementType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using ElementType = typename PrimitiveTypeTraits<T>::CppType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using SelfType = AggregateFunctionCollectSetData;
     using Set = phmap::flat_hash_set<ElementType>;
@@ -184,7 +184,7 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
 template <PrimitiveType T, bool HasLimit>
 struct AggregateFunctionCollectListData {
     static constexpr PrimitiveType PType = T;
-    using ElementType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using ElementType = typename PrimitiveTypeTraits<T>::CppType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using SelfType = AggregateFunctionCollectListData<T, HasLimit>;
     PaddedPODArray<ElementType> data;
@@ -310,7 +310,7 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
 
 template <PrimitiveType T, bool HasLimit>
     requires(!is_string_type(T) && !is_int_or_bool(T) && !is_float_or_double(T) && !is_decimal(T) &&
-             !is_date_type(T) && !is_ip(T))
+             !is_date_type(T) && !is_ip(T) && !is_timestamptz_type(T))
 struct AggregateFunctionCollectListData<T, HasLimit> {
     static constexpr PrimitiveType PType = T;
     using ElementType = StringRef;
@@ -395,8 +395,9 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
 
 template <typename Data, bool HasLimit>
 class AggregateFunctionCollect
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>,
-                                              true> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>, true>,
+          VarargsExpression,
+          NotNullableAggregateFunction {
     static constexpr bool ENABLE_ARENA =
             std::is_same_v<Data, AggregateFunctionCollectSetData<TYPE_STRING, HasLimit>> ||
             std::is_same_v<Data, AggregateFunctionCollectSetData<TYPE_CHAR, HasLimit>> ||

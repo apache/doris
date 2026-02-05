@@ -115,6 +115,14 @@ std::string Rowset::get_rowset_info_str() {
                        rowset_id().to_string(), disk_size);
 }
 
+const TabletSchemaSPtr& Rowset::tablet_schema() const {
+#ifdef BE_TEST
+    // for mocking tablet schema
+    return _schema;
+#endif
+    return _rowset_meta->tablet_schema() ? _rowset_meta->tablet_schema() : _schema;
+}
+
 void Rowset::clear_cache() {
     {
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(std::chrono::seconds(1));
@@ -193,6 +201,41 @@ std::vector<std::string> Rowset::get_index_file_names() {
         }
     }
     return file_names;
+}
+
+int64_t Rowset::approximate_cached_data_size() {
+    if (!config::enable_file_cache) {
+        return 0;
+    }
+
+    int64_t total_cache_size = 0;
+    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
+        auto cache_key = segment_v2::Segment::file_cache_key(rowset_id().to_string(), seg_id);
+        int64_t cache_size =
+                io::FileCacheFactory::instance()->get_cache_file_size_by_path(cache_key);
+        total_cache_size += cache_size;
+    }
+    return total_cache_size;
+}
+
+int64_t Rowset::approximate_cache_index_size() {
+    if (!config::enable_file_cache) {
+        return 0;
+    }
+
+    int64_t total_cache_size = 0;
+    auto file_names = get_index_file_names();
+    for (const auto& file_name : file_names) {
+        auto cache_key = io::BlockFileCache::hash(file_name);
+        int64_t cache_size =
+                io::FileCacheFactory::instance()->get_cache_file_size_by_path(cache_key);
+        total_cache_size += cache_size;
+    }
+    return total_cache_size;
+}
+
+std::chrono::time_point<std::chrono::system_clock> Rowset::visible_timestamp() const {
+    return _rowset_meta->visible_timestamp();
 }
 
 #include "common/compile_check_end.h"

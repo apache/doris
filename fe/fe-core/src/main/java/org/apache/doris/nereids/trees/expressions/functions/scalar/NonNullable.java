@@ -38,6 +38,11 @@ public class NonNullable extends ScalarFunction implements UnaryExpression, Cust
         super("non_nullable", expr);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private NonNullable(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitNonNullable(this, context);
@@ -53,6 +58,6 @@ public class NonNullable extends ScalarFunction implements UnaryExpression, Cust
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "the child expression of NonNullable should be only one");
-        return new NonNullable(children.get(0));
+        return new NonNullable(getFunctionParams(children));
     }
 }

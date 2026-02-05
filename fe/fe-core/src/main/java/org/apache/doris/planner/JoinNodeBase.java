@@ -17,12 +17,10 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.JoinOperator;
-import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.info.TableRefInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -32,37 +30,10 @@ import java.util.List;
 
 public abstract class JoinNodeBase extends PlanNode {
 
-    protected final TableRef innerRef;
+    protected final TableRefInfo innerRef;
     protected final JoinOperator joinOp;
     protected final boolean isMark;
-    protected ExprSubstitutionMap vSrcToOutputSMap;
     protected List<TupleDescriptor> vIntermediateTupleDescList;
-
-    public JoinNodeBase(PlanNodeId id, String planNodeName, StatisticalType statisticalType,
-            PlanNode outer, PlanNode inner, TableRef innerRef) {
-        super(id, planNodeName, statisticalType);
-        this.innerRef = innerRef;
-        tblRefIds.addAll(outer.getTblRefIds());
-        tblRefIds.addAll(inner.getTblRefIds());
-        children.add(outer);
-        children.add(inner);
-
-        // Inherits all the nullable tuple from the children
-        // Mark tuples that form the "nullable" side of the outer join as nullable.
-        nullableTupleIds.addAll(outer.getNullableTupleIds());
-        nullableTupleIds.addAll(inner.getNullableTupleIds());
-
-        joinOp = innerRef.getJoinOp();
-        if (joinOp.equals(JoinOperator.FULL_OUTER_JOIN)) {
-            nullableTupleIds.addAll(outer.getOutputTupleIds());
-            nullableTupleIds.addAll(inner.getOutputTupleIds());
-        } else if (joinOp.equals(JoinOperator.LEFT_OUTER_JOIN)) {
-            nullableTupleIds.addAll(inner.getOutputTupleIds());
-        } else if (joinOp.equals(JoinOperator.RIGHT_OUTER_JOIN)) {
-            nullableTupleIds.addAll(outer.getOutputTupleIds());
-        }
-        this.isMark = this.innerRef != null && innerRef.isMark();
-    }
 
     public boolean isMarkJoin() {
         return isMark;
@@ -72,12 +43,8 @@ public abstract class JoinNodeBase extends PlanNode {
         return joinOp;
     }
 
-    /**
-     * Only for Nereids.
-     */
-    public JoinNodeBase(PlanNodeId id, String planNodeName,
-                        StatisticalType statisticalType, JoinOperator joinOp, boolean isMark) {
-        super(id, planNodeName, statisticalType);
+    public JoinNodeBase(PlanNodeId id, String planNodeName, JoinOperator joinOp, boolean isMark) {
+        super(id, planNodeName);
         this.innerRef = null;
         this.joinOp = joinOp;
         this.isMark = isMark;
@@ -123,9 +90,6 @@ public abstract class JoinNodeBase extends PlanNode {
         return Math.max(children.get(0).getNumInstances(), children.get(1).getNumInstances());
     }
 
-    /**
-     * Used by nereids.
-     */
     public void setvIntermediateTupleDescList(List<TupleDescriptor> vIntermediateTupleDescList) {
         this.vIntermediateTupleDescList = vIntermediateTupleDescList;
     }

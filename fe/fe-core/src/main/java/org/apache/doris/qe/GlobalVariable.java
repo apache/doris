@@ -60,6 +60,8 @@ public final class GlobalVariable {
     public static final long VALIDATE_PASSWORD_POLICY_DISABLED = 0;
     public static final long VALIDATE_PASSWORD_POLICY_STRONG = 2;
 
+    public static final String VALIDATE_PASSWORD_DICTIONARY_FILE = "validate_password_dictionary_file";
+
     public static final String SQL_CONVERTER_SERVICE_URL = "sql_converter_service_url";
     public static final String ENABLE_AUDIT_PLUGIN = "enable_audit_plugin";
     public static final String AUDIT_PLUGIN_MAX_BATCH_BYTES = "audit_plugin_max_batch_bytes";
@@ -79,20 +81,24 @@ public final class GlobalVariable {
 
     public static final String ENABLE_FETCH_ICEBERG_STATS = "enable_fetch_iceberg_stats";
 
+    public static final String ENABLE_NESTED_NAMESPACE = "enable_nested_namespace";
+
     public static final String ENABLE_ANSI_QUERY_ORGANIZATION_BEHAVIOR
             = "enable_ansi_query_organization_behavior";
+    public static final String ENABLE_NEW_TYPE_COERCION_BEHAVIOR
+            = "enable_new_type_coercion_behavior";
 
     @VariableMgr.VarAttr(name = VARIABLE_VERSION, flag = VariableMgr.INVISIBLE
             | VariableMgr.READ_ONLY | VariableMgr.GLOBAL)
     public static int variableVersion = CURRENT_VARIABLE_VERSION;
 
     @VariableMgr.VarAttr(name = VERSION_COMMENT, flag = VariableMgr.READ_ONLY)
-    public static String versionComment = "Doris version "
+    public static String versionComment = Version.DORIS_BUILD_VERSION_PREFIX + " version "
             + Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH
             + (Config.isCloudMode() ? " (Cloud Mode)" : "");
 
-    @VariableMgr.VarAttr(name = VERSION, flag = VariableMgr.READ_ONLY)
-    public static String version = MysqlHandshakePacket.SERVER_VERSION;
+    @VariableMgr.VarAttr(name = VERSION)
+    public static String version = MysqlHandshakePacket.DEFAULT_SERVER_VERSION;
 
     // 0: table names are stored as specified and comparisons are case sensitive.
     // 1: table names are stored in lowercase on disk and comparisons are not case sensitive.
@@ -135,6 +141,17 @@ public final class GlobalVariable {
     @VariableMgr.VarAttr(name = VALIDATE_PASSWORD_POLICY, flag = VariableMgr.GLOBAL)
     public static long validatePasswordPolicy = 0;
 
+    @VariableMgr.VarAttr(name = VALIDATE_PASSWORD_DICTIONARY_FILE, flag = VariableMgr.GLOBAL,
+            description = {"密码验证字典文件路径。文件为纯文本格式，每行一个词。"
+                    + "当 validate_password_policy 为 STRONG(2) 时，密码中不能包含字典中的任何词（不区分大小写）。"
+                    + "如果为空，则使用内置字典。",
+                    "Path to the password validation dictionary file. "
+                            + "The file should be plain text with one word per line. "
+                            + "When validate_password_policy is STRONG(2), "
+                            + "the password cannot contain any word from the dictionary "
+                            + "(case-insensitive). If empty, a built-in dictionary will be used."})
+    public static volatile String validatePasswordDictionaryFile = "";
+
     // If set to true, the db name of TABLE_SCHEMA column in tables in information_schema
     // database will be shown as `ctl.db`. Otherwise, show only `db`.
     // This is used to compatible with some MySQL tools.
@@ -145,7 +162,7 @@ public final class GlobalVariable {
     public static String sqlConverterServiceUrl = "";
 
     @VariableMgr.VarAttr(name = ENABLE_AUDIT_PLUGIN, flag = VariableMgr.GLOBAL)
-    public static boolean enableAuditLoader = false;
+    public static boolean enableAuditLoader = true;
 
     @VariableMgr.VarAttr(name = AUDIT_PLUGIN_MAX_BATCH_BYTES, flag = VariableMgr.GLOBAL)
     public static long auditPluginMaxBatchBytes = 50 * 1024 * 1024;
@@ -154,7 +171,7 @@ public final class GlobalVariable {
     public static long auditPluginMaxBatchInternalSec = 60;
 
     @VariableMgr.VarAttr(name = AUDIT_PLUGIN_MAX_SQL_LENGTH, flag = VariableMgr.GLOBAL)
-    public static int auditPluginMaxSqlLength = 4096;
+    public static int auditPluginMaxSqlLength = 2097152;
 
     @VariableMgr.VarAttr(name = AUDIT_PLUGIN_MAX_INSERT_STMT_LENGTH, flag = VariableMgr.GLOBAL,
             description = {"专门用于限制 INSERT 语句的长度。如果该值大于 AUDIT_PLUGIN_MAX_SQL_LENGTH，"
@@ -180,12 +197,12 @@ public final class GlobalVariable {
     public static boolean enable_get_row_count_from_file_list = true;
 
     @VariableMgr.VarAttr(name = READ_ONLY, flag = VariableMgr.GLOBAL,
-            description = {"仅用于兼容MySQL生态，暂无实际意义",
+            description = {"仅用于兼容 MySQL 生态，暂无实际意义",
                     "Only for compatibility with MySQL ecosystem, no practical meaning"})
     public static boolean read_only = true;
 
     @VariableMgr.VarAttr(name = SUPER_READ_ONLY, flag = VariableMgr.GLOBAL,
-            description = {"仅用于兼容MySQL生态，暂无实际意义",
+            description = {"仅用于兼容 MySQL 生态，暂无实际意义",
                     "Only for compatibility with MySQL ecosystem, no practical meaning"})
     public static boolean super_read_only = true;
 
@@ -203,7 +220,7 @@ public final class GlobalVariable {
 
     @VariableMgr.VarAttr(name = ENABLE_FETCH_ICEBERG_STATS, flag = VariableMgr.GLOBAL,
             description = {
-                "当HMS catalog中的Iceberg表没有统计信息时，是否通过Iceberg Api获取统计信息",
+                "当 HMS catalog 中的 Iceberg 表没有统计信息时，是否通过 Iceberg Api 获取统计信息",
                 "Enable fetch stats for HMS Iceberg table when it's not analyzed."})
     public static boolean enableFetchIcebergStats = false;
 
@@ -218,6 +235,34 @@ public final class GlobalVariable {
                             + " uses the behavior of Doris's historical versions, where order by by default only"
                             + " applies to the last operand of the set operation."})
     public static boolean enable_ansi_query_organization_behavior = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_NEW_TYPE_COERCION_BEHAVIOR, flag = VariableMgr.GLOBAL,
+            description = {
+                    "控制隐式类型转换的行为，当设置为 true 时，使用新的行为。新行为更为合理。类型优先级从高到低为时间相关类型 > "
+                            + "数值类型 > 复杂类型 / JSON 类型 / IP 类型 > 字符串类型 > VARIANT 类型。当两个或多个不同类型的表达式"
+                            + "进行比较时，强制类型转换优先向高优先级类型转换。转换时尽可能保留精度，如："
+                            + "当转换为时间相关类型时，当无法确定精度时，优先使用 6 位精度的 DATETIME 类型。"
+                            + "当转换为数值类型时，当无法确定精度时，优先使用 DECIMAL 类型。",
+                    "Controls the behavior of implicit type conversion. When set to true, the new behavior is used,"
+                            + " which is more reasonable. The type priority, from highest to lowest, is: time-related"
+                            + " types > numeric types > complex types / JSON types / IP types > string types"
+                            + " > VARIANT types. When comparing two or more expressions of different types, "
+                            + "type coercion preferentially converts values toward the type with higher priority. "
+                            + "Precision is preserved as much as possible during conversion. For example, "
+                            + "when converting to a time-related type and precision cannot be determined, "
+                            + "the DATETIME type with 6-digit precision is preferred. When converting to"
+                            + " a numeric type and precision cannot be determined, the DECIMAL type is preferred."})
+    public static boolean enableNewTypeCoercionBehavior = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_NESTED_NAMESPACE, flag = VariableMgr.GLOBAL,
+            description = {
+                    "是否允许访问 `ns1.ns2` 这种类型的 database。当前仅适用于 External Catalog 中映射 Database 并访问。"
+                            + "不支持创建。",
+                    "Whether to allow accessing databases of the form `ns1.ns2`. "
+                            + "Currently, this only applies to mapping databases in "
+                            + "External Catalogs and accessing them. "
+                            + "Creation is not supported."})
+    public static boolean enableNestedNamespace = false;
 
     // Don't allow creating instance.
     private GlobalVariable() {

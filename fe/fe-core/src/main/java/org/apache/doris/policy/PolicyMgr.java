@@ -56,6 +56,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
@@ -68,7 +69,7 @@ public class PolicyMgr implements Writable {
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     @SerializedName(value = "typeToPolicyMap")
-    private Map<PolicyTypeEnum, List<Policy>> typeToPolicyMap = Maps.newConcurrentMap();
+    private ConcurrentMap<PolicyTypeEnum, List<Policy>> typeToPolicyMap = Maps.newConcurrentMap();
 
     // ctlName -> dbName -> tableName -> List<RowPolicy>
     private Map<String, Map<String, Map<String, List<RowPolicy>>>> tablePolicies = Maps.newConcurrentMap();

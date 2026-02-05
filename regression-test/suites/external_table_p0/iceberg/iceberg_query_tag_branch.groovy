@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("iceberg_query_tag_branch", "p0,external,doris,external_docker,external_docker_doris") {
+suite("iceberg_query_tag_branch", "p0,external,doris,external_docker,external_docker_doris,branch_tag") {
 
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -219,6 +219,11 @@ suite("iceberg_query_tag_branch", "p0,external,doris,external_docker,external_do
         test {
             sql """ select * from tag_branch_table@tag(b1) ; """
             exception "does not have tag named b1"
+        }
+
+        test {
+            sql """ select * from tag_branch_table@brand(b1) ; """
+            exception "Invalid param type: brand"
         }
     }
 

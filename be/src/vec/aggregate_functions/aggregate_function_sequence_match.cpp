@@ -30,6 +30,7 @@ namespace doris::vectorized {
 template <template <PrimitiveType> typename AggregateFunction>
 AggregateFunctionPtr create_aggregate_function_sequence_base(const std::string& name,
                                                              const DataTypes& argument_types,
+                                                             const DataTypePtr& result_type,
                                                              const bool result_is_nullable,
                                                              const AggregateFunctionAttr& attr) {
     const auto arg_count = argument_types.size();
@@ -47,9 +48,6 @@ AggregateFunctionPtr create_aggregate_function_sequence_base(const std::string& 
     switch (argument_types[1]->get_primitive_type()) {
     case TYPE_DATETIMEV2:
         return creator_without_type::create<AggregateFunction<TYPE_DATETIMEV2>>(
-                argument_types, result_is_nullable, attr);
-    case TYPE_DATETIME:
-        return creator_without_type::create<AggregateFunction<TYPE_DATETIME>>(
                 argument_types, result_is_nullable, attr);
     case TYPE_DATEV2:
         return creator_without_type::create<AggregateFunction<TYPE_DATEV2>>(

@@ -33,6 +33,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime/types.h"
+#include "util/jni-util.h"
 #include "util/profile_collector.h"
 #include "util/runtime_profile.h"
 #include "util/string_util.h"
@@ -41,6 +42,7 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace vectorized {
@@ -109,16 +111,16 @@ public:
 
         int length() {
             // name_length(4) + column_name + operator(4) + scale(4) + num_values(4)
-            int len = 4 + column_name.size() + 4 + 4 + 4;
+            int len = 4 + static_cast<int>(column_name.size()) + 4 + 4 + 4;
             if constexpr (std::is_same_v<CppType, StringRef>) {
                 for (const StringRef* s : values) {
                     // string_length(4) + string
-                    len += 4 + s->size;
+                    len += static_cast<int>(4 + s->size);
                 }
             } else {
                 int type_len = sizeof(CppType);
                 // value_length(4) + value
-                len += (4 + type_len) * values.size();
+                len += static_cast<int>((4 + type_len) * values.size());
             }
             return len;
         }
@@ -144,22 +146,22 @@ public:
             *reinterpret_cast<int*>(new_bytes) = num_filters;
 
             char* char_ptr = new_bytes + origin_length;
-            *reinterpret_cast<int*>(char_ptr) = column_name.size();
+            *reinterpret_cast<int*>(char_ptr) = static_cast<int>(column_name.size());
             char_ptr += 4;
             memcpy(char_ptr, column_name.data(), column_name.size());
-            char_ptr += column_name.size();
+            char_ptr += static_cast<int>(column_name.size());
             *reinterpret_cast<int*>(char_ptr) = op;
             char_ptr += 4;
             *reinterpret_cast<int*>(char_ptr) = scale;
             char_ptr += 4;
-            *reinterpret_cast<int*>(char_ptr) = values.size();
+            *reinterpret_cast<int*>(char_ptr) = static_cast<int>(values.size());
             char_ptr += 4;
             if constexpr (std::is_same_v<CppType, StringRef>) {
                 for (const StringRef* s : values) {
-                    *reinterpret_cast<int*>(char_ptr) = s->size;
+                    *reinterpret_cast<int*>(char_ptr) = static_cast<int>(s->size);
                     char_ptr += 4;
                     memcpy(char_ptr, s->data, s->size);
-                    char_ptr += s->size;
+                    char_ptr += static_cast<int>(s->size);
                 }
             } else {
                 // FIXME: it can not handle decimal type correctly.
@@ -191,7 +193,7 @@ public:
             : _connector_class(std::move(connector_class)),
               _scanner_params(std::move(scanner_params)),
               _column_names(std::move(column_names)),
-              _self_split_weight(self_split_weight) {
+              _self_split_weight(static_cast<int32_t>(self_split_weight)) {
         // Use java class name as connector name
         _connector_name = split(_connector_class, "/").back();
     }
@@ -223,8 +225,7 @@ public:
      * number_filters(4) | length(4) | column_name | op(4) | scale(4) | num_values(4) | value_length(4) | value | ...
      * Then, pass the byte array address in configuration map, like "push_down_predicates=${address}"
      */
-    Status init(
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    Status init();
 
     /**
      * Call java side function JniScanner.getNextBatchMeta. The columns information are stored as long array:
@@ -255,6 +256,14 @@ public:
      * Close scanner and release jni resources.
      */
     Status close();
+
+    /**
+     * Set column name to block index map from FileScanner to avoid repeated map creation.
+     */
+    void set_col_name_to_block_idx(
+            const std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
+        _col_name_to_block_idx = col_name_to_block_idx;
+    }
 
     static std::string get_jni_type(const DataTypePtr& data_type);
     static std::string get_jni_type_with_different_string(const DataTypePtr& data_type);
@@ -301,22 +310,26 @@ private:
 
     bool _closed = false;
     bool _scanner_opened = false;
-    jclass _jni_scanner_cls = nullptr;
-    jobject _jni_scanner_obj = nullptr;
-    jmethodID _jni_scanner_open = nullptr;
-    jmethodID _jni_scanner_get_append_data_time = nullptr;
-    jmethodID _jni_scanner_get_create_vector_table_time = nullptr;
-    jmethodID _jni_scanner_get_next_batch = nullptr;
-    jmethodID _jni_scanner_get_table_schema = nullptr;
-    jmethodID _jni_scanner_close = nullptr;
-    jmethodID _jni_scanner_release_column = nullptr;
-    jmethodID _jni_scanner_release_table = nullptr;
-    jmethodID _jni_scanner_get_statistics = nullptr;
+
+    Jni::GlobalClass _jni_scanner_cls;
+    Jni::GlobalObject _jni_scanner_obj;
+    Jni::MethodId _jni_scanner_open;
+    Jni::MethodId _jni_scanner_get_append_data_time;
+    Jni::MethodId _jni_scanner_get_create_vector_table_time;
+    Jni::MethodId _jni_scanner_get_next_batch;
+    Jni::MethodId _jni_scanner_get_table_schema;
+    Jni::MethodId _jni_scanner_close;
+    Jni::MethodId _jni_scanner_release_column;
+    Jni::MethodId _jni_scanner_release_table;
+    Jni::MethodId _jni_scanner_get_statistics;
 
     TableMetaAddress _table_meta;
 
     int _predicates_length = 0;
     std::unique_ptr<char[]> _predicates;
+
+    // Column name to block index map, passed from FileScanner to avoid repeated map creation
+    const std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
 
     /**
      * Set the address of meta information, which is returned by org.apache.doris.common.jni.JniScanner#getNextBatchMeta
@@ -328,24 +341,33 @@ private:
     Status _fill_block(Block* block, size_t num_rows);
 
     static Status _fill_column(TableMetaAddress& address, ColumnPtr& doris_column,
-                               DataTypePtr& data_type, size_t num_rows);
+                               const DataTypePtr& data_type, size_t num_rows);
 
     static Status _fill_string_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
                                       size_t num_rows);
 
+    static Status _fill_varbinary_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
+                                         size_t num_rows);
+
     static Status _fill_map_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                   DataTypePtr& data_type, size_t num_rows);
+                                   const DataTypePtr& data_type, size_t num_rows);
 
     static Status _fill_array_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                     DataTypePtr& data_type, size_t num_rows);
+                                     const DataTypePtr& data_type, size_t num_rows);
 
     static Status _fill_struct_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                      DataTypePtr& data_type, size_t num_rows);
+                                      const DataTypePtr& data_type, size_t num_rows);
 
     static Status _fill_column_meta(const ColumnPtr& doris_column, const DataTypePtr& data_type,
                                     std::vector<long>& meta_data);
 
     template <typename COLUMN_TYPE, typename CPP_TYPE>
+        requires(!std::is_same_v<COLUMN_TYPE, ColumnDecimal128V2> &&
+                 !std::is_same_v<COLUMN_TYPE, ColumnDate> &&
+                 !std::is_same_v<COLUMN_TYPE, ColumnDateTime> &&
+                 !std::is_same_v<COLUMN_TYPE, ColumnDateV2> &&
+                 !std::is_same_v<COLUMN_TYPE, ColumnDateTimeV2> &&
+                 !std::is_same_v<COLUMN_TYPE, ColumnTimeStampTz>)
     static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
                                             size_t num_rows) {
         auto& column_data = assert_cast<COLUMN_TYPE&>(*doris_column).get_data();
@@ -355,13 +377,58 @@ private:
         return Status::OK();
     }
 
+    template <typename COLUMN_TYPE, typename CPP_TYPE>
+        requires(std::is_same_v<COLUMN_TYPE, ColumnDate> ||
+                 std::is_same_v<COLUMN_TYPE, ColumnDateTime>)
+    static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
+                                            size_t num_rows) {
+        auto& column_data = assert_cast<COLUMN_TYPE&>(*doris_column).get_data();
+        size_t origin_size = column_data.size();
+        column_data.resize(origin_size + num_rows);
+        memcpy((int64_t*)column_data.data() + origin_size, ptr, sizeof(CPP_TYPE) * num_rows);
+        return Status::OK();
+    }
+
+    template <typename COLUMN_TYPE, typename CPP_TYPE>
+        requires(std::is_same_v<COLUMN_TYPE, ColumnDateV2>)
+    static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
+                                            size_t num_rows) {
+        auto& column_data = assert_cast<COLUMN_TYPE&>(*doris_column).get_data();
+        size_t origin_size = column_data.size();
+        column_data.resize(origin_size + num_rows);
+        memcpy((uint32_t*)column_data.data() + origin_size, ptr, sizeof(CPP_TYPE) * num_rows);
+        return Status::OK();
+    }
+
+    template <typename COLUMN_TYPE, typename CPP_TYPE>
+        requires(std::is_same_v<COLUMN_TYPE, ColumnDateTimeV2> ||
+                 std::is_same_v<COLUMN_TYPE, ColumnTimeStampTz>)
+    static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
+                                            size_t num_rows) {
+        auto& column_data = assert_cast<COLUMN_TYPE&>(*doris_column).get_data();
+        size_t origin_size = column_data.size();
+        column_data.resize(origin_size + num_rows);
+        memcpy((uint64_t*)column_data.data() + origin_size, ptr, sizeof(CPP_TYPE) * num_rows);
+        return Status::OK();
+    }
+
+    template <typename COLUMN_TYPE, typename CPP_TYPE>
+        requires(std::is_same_v<COLUMN_TYPE, ColumnDecimal128V2>)
+    static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
+                                            size_t num_rows) {
+        auto& column_data = assert_cast<COLUMN_TYPE&>(*doris_column).get_data();
+        size_t origin_size = column_data.size();
+        column_data.resize(origin_size + num_rows);
+        for (size_t i = 0; i < num_rows; i++) {
+            column_data[origin_size + i] = DecimalV2Value(ptr[i]);
+        }
+        return Status::OK();
+    }
+
     template <typename COLUMN_TYPE>
     static long _get_fixed_length_column_address(const IColumn& doris_column) {
         return (long)assert_cast<const COLUMN_TYPE&>(doris_column).get_data().data();
     }
-
-    void _generate_predicates(
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
     template <PrimitiveType primitive_type>
     void _parse_value_range(const ColumnValueRange<primitive_type>& col_val_range,
@@ -390,12 +457,12 @@ private:
         // orc can only push down is_null. When col_value_range._contain_null = true, only indicating that
         // value can be null, not equals null, so ignore _contain_null in col_value_range
         if (col_val_range.is_high_value_maximum() && high_op == SQLFilterOp::FILTER_LESS_OR_EQUAL &&
-            col_val_range.is_low_value_mininum() && low_op == SQLFilterOp::FILTER_LARGER_OR_EQUAL) {
+            col_val_range.is_low_value_minimum() && low_op == SQLFilterOp::FILTER_LARGER_OR_EQUAL) {
             return;
         }
 
         if (low_value < high_value) {
-            if (!col_val_range.is_low_value_mininum() ||
+            if (!col_val_range.is_low_value_minimum() ||
                 SQLFilterOp::FILTER_LARGER_OR_EQUAL != low_op) {
                 ScanPredicate<CppType> low_predicate(column_name);
                 low_predicate.scale = col_val_range.scale();
@@ -414,5 +481,5 @@ private:
         }
     }
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

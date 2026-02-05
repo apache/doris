@@ -170,37 +170,46 @@ suite("test_bloom_filter","nonConcurrent") {
     // bloom filter index for datetime/date/decimal columns
     def test_datetime_tb = "test_datetime_bloom_filter_tb"
     sql """DROP TABLE IF EXISTS ${test_datetime_tb}"""
-    sql """ADMIN SET FRONTEND CONFIG ('disable_decimalv2' = 'false')"""
-    sql """ADMIN SET FRONTEND CONFIG ('disable_datev1' = 'false')"""
-    sql """CREATE TABLE IF NOT EXISTS ${test_datetime_tb} (
-            a int,
-            b int,
-            c int,
-            d DATETIMEV1,
-            d2 DATETIMEV2,
-            da DATEv1,
-            dav2 DATEV2,
-            dec decimal(10,2),
-            dec2 decimalv2(10,2)
-        ) ENGINE=OLAP
-        DUPLICATE KEY(a)
-        DISTRIBUTED BY HASH(a) BUCKETS 5
-        PROPERTIES (
-            "replication_num" = "1"
-        )"""
-    sql """INSERT INTO ${test_datetime_tb} VALUES
-        (1,1,1,"2024-12-17 20:00:00", "2024-12-17 20:00:00", "2024-12-17", "2024-12-17", "3.32", "3.32"),
-        (1,1,1,"2024-12-17 20:00:00", "2024-12-17 20:00:00", "2024-12-17", "2024-12-17", "3.32", "3.32"),
-        (2,2,2,"2024-12-18 20:00:00", "2024-12-18 20:00:00", "2024-12-18", "2024-12-18", "3.33", "3.33"),
-        (3,3,3,"2024-12-22 20:00:00", "2024-12-22 20:00:00", "2024-12-22", "2024-12-22", "4.33", "4.33")"""
-    sql """ALTER TABLE ${test_datetime_tb} SET ("bloom_filter_columns" = "d,d2,da,dav2,dec,dec2")"""
-    wait_for_latest_op_on_table_finish(test_datetime_tb, timeout)
-    qt_select_datetime_v1 """SELECT * FROM ${test_datetime_tb} WHERE d IN ("2024-12-17 20:00:00", "2024-12-18 20:00:00") order by a"""
-    qt_select_datetime_v2 """SELECT * FROM ${test_datetime_tb} WHERE d2 IN ("2024-12-17 20:00:00", "2024-12-18 20:00:00") order by a"""
-    qt_select_date_v1 """SELECT * FROM ${test_datetime_tb} WHERE da IN ("2024-12-17", "2024-12-18") order by a"""
-    qt_select_date_v2 """SELECT * FROM ${test_datetime_tb} WHERE dav2 IN ("2024-12-17", "2024-12-18") order by a"""
-    sql """ADMIN SET FRONTEND CONFIG ('disable_decimalv2' = 'true')"""
-    sql """ADMIN SET FRONTEND CONFIG ('disable_datev1' = 'true')"""
+
+    def disable_decimalv2_config = sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'disable_decimalv2'; """
+    String old_disable_decimalv2 = disable_decimalv2_config[0][1]
+    def disable_datev1_config = sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'disable_datev1'; """
+    String old_disable_datev1 = disable_datev1_config[0][1]
+
+    try {
+        sql """ADMIN SET FRONTEND CONFIG ('disable_decimalv2' = 'false')"""
+        sql """ADMIN SET FRONTEND CONFIG ('disable_datev1' = 'false')"""
+        sql """CREATE TABLE IF NOT EXISTS ${test_datetime_tb} (
+                a int,
+                b int,
+                c int,
+                d DATETIMEV1,
+                d2 DATETIMEV2,
+                da DATEv1,
+                dav2 DATEV2,
+                dec decimal(10,2),
+                dec2 decimalv2(10,2)
+            ) ENGINE=OLAP
+            DUPLICATE KEY(a)
+            DISTRIBUTED BY HASH(a) BUCKETS 5
+            PROPERTIES (
+                "replication_num" = "1"
+            )"""
+        sql """INSERT INTO ${test_datetime_tb} VALUES
+            (1,1,1,"2024-12-17 20:00:00", "2024-12-17 20:00:00", "2024-12-17", "2024-12-17", "3.32", "3.32"),
+            (1,1,1,"2024-12-17 20:00:00", "2024-12-17 20:00:00", "2024-12-17", "2024-12-17", "3.32", "3.32"),
+            (2,2,2,"2024-12-18 20:00:00", "2024-12-18 20:00:00", "2024-12-18", "2024-12-18", "3.33", "3.33"),
+            (3,3,3,"2024-12-22 20:00:00", "2024-12-22 20:00:00", "2024-12-22", "2024-12-22", "4.33", "4.33")"""
+        sql """ALTER TABLE ${test_datetime_tb} SET ("bloom_filter_columns" = "d,d2,da,dav2,dec,dec2")"""
+        wait_for_latest_op_on_table_finish(test_datetime_tb, timeout)
+        qt_select_datetime_v1 """SELECT * FROM ${test_datetime_tb} WHERE d IN ("2024-12-17 20:00:00", "2024-12-18 20:00:00") order by a"""
+        qt_select_datetime_v2 """SELECT * FROM ${test_datetime_tb} WHERE d2 IN ("2024-12-17 20:00:00", "2024-12-18 20:00:00") order by a"""
+        qt_select_date_v1 """SELECT * FROM ${test_datetime_tb} WHERE da IN ("2024-12-17", "2024-12-18") order by a"""
+        qt_select_date_v2 """SELECT * FROM ${test_datetime_tb} WHERE dav2 IN ("2024-12-17", "2024-12-18") order by a"""
+    } finally {
+        sql """ADMIN SET FRONTEND CONFIG ('disable_decimalv2' = '${old_disable_decimalv2}')"""
+        sql """ADMIN SET FRONTEND CONFIG ('disable_datev1' = '${old_disable_datev1}')"""
+    }
 
     def test_dynamic_fpp_tb = "test_dynamic_fpp_bloom_filter_tb"
     sql """DROP TABLE IF EXISTS ${test_dynamic_fpp_tb}"""

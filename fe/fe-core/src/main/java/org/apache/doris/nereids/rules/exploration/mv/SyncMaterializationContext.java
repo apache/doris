@@ -70,7 +70,7 @@ public class SyncMaterializationContext extends MaterializationContext {
     }
 
     @Override
-    List<String> generateMaterializationIdentifier() {
+    public List<String> generateMaterializationIdentifier() {
         if (super.identifier == null) {
             // for performance
             super.identifier = MaterializationContext.generateMaterializationIdentifier(olapTable, indexName);

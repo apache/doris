@@ -23,14 +23,12 @@ suite("test_cloud_concurrent_calc_dbm_task", "multi_cluster,docker") {
     options.cloudMode = true
     options.setFeNum(1)
     options.setBeNum(1)
+    options.enableDebugPoints()
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
         'calculate_delete_bitmap_task_timeout_seconds=10',
         'mow_calculate_delete_bitmap_retry_times=10',
         'enable_workload_group=false',
-    ]
-    options.beConfigs += [
-        'enable_debug_points=true'
     ]
 
     docker(options) {

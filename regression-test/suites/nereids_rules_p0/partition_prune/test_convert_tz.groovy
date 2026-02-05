@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 suite("test_convert_tz") {
     sql "set enable_fallback_to_original_planner=false"
     sql "drop table if exists test_convert_tz;"
@@ -26,9 +25,9 @@ suite("test_convert_tz") {
     ENGINE = olap
     PARTITION BY range (timestamp)
     (
-            PARTITION `p1` VALUES LESS THAN ('2021-01-01'),
-    PARTITION `p2` VALUES LESS THAN ('2021-02-01'),
-    PARTITION `p3` VALUES LESS THAN ('2021-03-01')
+        PARTITION `p1` VALUES LESS THAN ('2021-01-01'),
+        PARTITION `p2` VALUES LESS THAN ('2021-02-01'),
+        PARTITION `p3` VALUES LESS THAN ('2021-03-01')
     ) DISTRIBUTED BY HASH (timestamp)
     PROPERTIES(
             "storage_format" = "DEFAULT",
@@ -63,7 +62,7 @@ suite("test_convert_tz") {
 
     explain {
         sql "SELECT * FROM test_convert_tz WHERE convert_tz(timestamp, 'Asia/Beijing', 'Europe/Paris') is null;";
-        contains("partitions=3/3 (p1,p2,p3)")
+        contains("partitions=1/3 (p1)") // propagate nullable
     }
 
     explain {

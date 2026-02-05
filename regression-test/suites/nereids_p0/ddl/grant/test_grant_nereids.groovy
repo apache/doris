@@ -94,11 +94,11 @@ suite("test_grant_nereids)") {
     sql """drop WORKLOAD GROUP if exists '${wg2}' $forComputeGroupStr """
     sql """CREATE WORKLOAD GROUP "${wg1}" $forComputeGroupStr
         PROPERTIES (
-            "cpu_share"="10"
+            "min_cpu_percent"="10"
         );"""
     sql """CREATE WORKLOAD GROUP "${wg2}" $forComputeGroupStr
         PROPERTIES (
-            "cpu_share"="10"
+            "min_cpu_percent"="10"
         );"""
 
     sql """DROP RESOURCE if exists ${rg1}"""

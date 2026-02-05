@@ -25,7 +25,8 @@ namespace doris::vectorized {
 struct AggregateFunctionCountTest : public AggregateFunctiontest {};
 
 TEST_F(AggregateFunctionCountTest, test_int64) {
-    create_agg("count", false, {std::make_shared<DataTypeInt64>()});
+    create_agg("count", false, {std::make_shared<DataTypeInt64>()},
+               std::make_shared<DataTypeInt64>());
 
     execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3})}),
             ColumnHelper::create_column_with_name<DataTypeInt64>({3}));

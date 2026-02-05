@@ -21,10 +21,10 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.ParamRules;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
-import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.collect.Maps;
+import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
@@ -49,6 +49,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     private Map<String, String> icebergRestCatalogProperties;
 
+    @Getter
     @ConnectorProperty(names = {"iceberg.rest.uri", "uri"},
             description = "The uri of the iceberg rest catalog service.")
     private String icebergRestUri = "";
@@ -57,11 +58,6 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             required = false,
             description = "The prefix of the iceberg rest catalog service.")
     private String icebergRestPrefix = "";
-
-    @ConnectorProperty(names = {"iceberg.rest.warehouse", "warehouse"},
-            required = false,
-            description = "The warehouse of the iceberg rest catalog service.")
-    private String icebergRestWarehouse = "";
 
     @ConnectorProperty(names = {"iceberg.rest.security.type"},
             required = false,
@@ -89,6 +85,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     @ConnectorProperty(names = {"iceberg.rest.oauth2.credential"},
             required = false,
+            sensitive = true,
             description = "The oauth2 credential for the iceberg rest catalog service.")
     private String icebergRestOauth2Credential;
 
@@ -105,7 +102,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     @ConnectorProperty(names = {"iceberg.rest.oauth2.token-refresh-enabled"},
             required = false,
             description = "Enable oauth2 token refresh for the iceberg rest catalog service.")
-    private String icebergRestOauth2TokenRefreshEnabled = "false";
+    private String icebergRestOauth2TokenRefreshEnabled = String.valueOf(
+            OAuth2Properties.TOKEN_REFRESH_ENABLED_DEFAULT);
 
     @ConnectorProperty(names = {"iceberg.rest.vended-credentials-enabled"},
             required = false,
@@ -114,9 +112,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     @ConnectorProperty(names = {"iceberg.rest.nested-namespace-enabled"},
             required = false,
-            supported = false,
             description = "Enable nested namespace for the iceberg rest catalog service.")
-    private String icebergRestNestedNamespaceEnabled = "true";
+    private String icebergRestNestedNamespaceEnabled = "false";
 
     @ConnectorProperty(names = {"iceberg.rest.case-insensitive-name-matching"},
             required = false,
@@ -130,6 +127,43 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             description = "The cache TTL for case insensitive name matching in ms.")
     private String icebergRestCaseInsensitiveNameMatchingCacheTtlMs = "0";
 
+    // The following properties are specific to AWS Glue Rest Catalog
+    @ConnectorProperty(names = {"iceberg.rest.sigv4-enabled"},
+            required = false,
+            description = "True for Glue Rest Catalog")
+    private String icebergRestSigV4Enabled = "";
+
+    @ConnectorProperty(names = {"iceberg.rest.signing-name"},
+            required = false,
+            description = "The signing name for the iceberg rest catalog service.")
+    private String icebergRestSigningName = "";
+
+    @ConnectorProperty(names = {"iceberg.rest.signing-region"},
+            required = false,
+            description = "The signing region for the iceberg rest catalog service.")
+    private String icebergRestSigningRegion = "";
+
+    @ConnectorProperty(names = {"iceberg.rest.access-key-id"},
+            required = false,
+            description = "The access key ID for the iceberg rest catalog service.")
+    private String icebergRestAccessKeyId = "";
+
+    @ConnectorProperty(names = {"iceberg.rest.secret-access-key"},
+            required = false,
+            sensitive = true,
+            description = "The secret access key for the iceberg rest catalog service.")
+    private String icebergRestSecretAccessKey = "";
+
+    @ConnectorProperty(names = {"iceberg.rest.connection-timeout-ms"},
+            required = false,
+            description = "Connection timeout in milliseconds for the REST catalog HTTP client. Default: 10000 (10s).")
+    private String icebergRestConnectionTimeoutMs = "10000";
+
+    @ConnectorProperty(names = {"iceberg.rest.socket-timeout-ms"},
+            required = false,
+            description = "Socket timeout in milliseconds for the REST catalog HTTP client. Default: 60000 (60s).")
+    private String icebergRestSocketTimeoutMs = "60000";
+
     protected IcebergRestProperties(Map<String, String> props) {
         super(props);
     }
@@ -140,7 +174,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     }
 
     @Override
-    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+    public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
+            List<StorageProperties> storagePropertiesList) {
         Map<String, String> fileIOProperties = Maps.newHashMap();
         Configuration conf = new Configuration();
         toFileIOProperties(storagePropertiesList, fileIOProperties, conf);
@@ -178,11 +213,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         ParamRules rules = new ParamRules()
                 // OAuth2 requires either credential or token, but not both
                 .mutuallyExclusive(icebergRestOauth2Credential, icebergRestOauth2Token,
-                        "OAuth2 cannot have both credential and token configured")
-                // If using credential flow, server URI is required
-                .requireAllIfPresent(icebergRestOauth2Credential,
-                        new String[] {icebergRestOauth2ServerUri},
-                        "OAuth2 credential flow requires server-uri");
+                        "OAuth2 cannot have both credential and token configured");
 
         // Custom validation: OAuth2 scope should not be used with token
         if (Strings.isNotBlank(icebergRestOauth2Token) && Strings.isNotBlank(icebergRestOauth2Scope)) {
@@ -196,6 +227,15 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
                 throw new IllegalArgumentException("OAuth2 requires either credential or token");
             }
         }
+
+        // Check for glue rest catalog specific properties
+        rules.requireIf(icebergRestSigningName, "glue",
+                new String[] {icebergRestSigningRegion,
+                        icebergRestAccessKeyId,
+                        icebergRestSecretAccessKey,
+                        icebergRestSigV4Enabled},
+                "Rest Catalog requires signing-region, access-key-id, secret-access-key "
+                        + "and sigv4-enabled set to true when signing-name is glue");
         return rules;
     }
 
@@ -207,6 +247,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         addOptionalProperties();
         // Authentication properties
         addAuthenticationProperties();
+        // Glue Rest Catalog specific properties
+        addGlueRestCatalogProperties();
     }
 
     private void addCoreCatalogProperties() {
@@ -221,12 +263,19 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             icebergRestCatalogProperties.put(PREFIX_PROPERTY, icebergRestPrefix);
         }
 
-        if (Strings.isNotBlank(icebergRestWarehouse)) {
-            icebergRestCatalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, icebergRestWarehouse);
+        if (Strings.isNotBlank(warehouse)) {
+            icebergRestCatalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
         }
 
         if (isIcebergRestVendedCredentialsEnabled()) {
             icebergRestCatalogProperties.put(VENDED_CREDENTIALS_HEADER, VENDED_CREDENTIALS_VALUE);
+        }
+
+        if (Strings.isNotBlank(icebergRestConnectionTimeoutMs)) {
+            icebergRestCatalogProperties.put("rest.client.connection-timeout-ms", icebergRestConnectionTimeoutMs);
+        }
+        if (Strings.isNotBlank(icebergRestSocketTimeoutMs)) {
+            icebergRestCatalogProperties.put("rest.client.socket-timeout-ms", icebergRestSocketTimeoutMs);
         }
     }
 
@@ -241,7 +290,9 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         if (Strings.isNotBlank(icebergRestOauth2Credential)) {
             // Client Credentials Flow
             icebergRestCatalogProperties.put(OAuth2Properties.CREDENTIAL, icebergRestOauth2Credential);
-            icebergRestCatalogProperties.put(OAuth2Properties.OAUTH2_SERVER_URI, icebergRestOauth2ServerUri);
+            if (Strings.isNotBlank(icebergRestOauth2ServerUri)) {
+                icebergRestCatalogProperties.put(OAuth2Properties.OAUTH2_SERVER_URI, icebergRestOauth2ServerUri);
+            }
             if (Strings.isNotBlank(icebergRestOauth2Scope)) {
                 icebergRestCatalogProperties.put(OAuth2Properties.SCOPE, icebergRestOauth2Scope);
             }
@@ -253,6 +304,17 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         }
     }
 
+    private void addGlueRestCatalogProperties() {
+        if (Strings.isNotBlank(icebergRestSigningName)) {
+            icebergRestCatalogProperties.put("rest.signing-name", icebergRestSigningName.toLowerCase());
+            icebergRestCatalogProperties.put("rest.sigv4-enabled", icebergRestSigV4Enabled);
+            icebergRestCatalogProperties.put("rest.access-key-id", icebergRestAccessKeyId);
+            icebergRestCatalogProperties.put("rest.secret-access-key", icebergRestSecretAccessKey);
+            icebergRestCatalogProperties.put("rest.signing-region", icebergRestSigningRegion);
+        }
+    }
+
+
     public Map<String, String> getIcebergRestCatalogProperties() {
         return Collections.unmodifiableMap(icebergRestCatalogProperties);
     }
@@ -261,12 +323,16 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         return Boolean.parseBoolean(icebergRestVendedCredentialsEnabled);
     }
 
+    public boolean isIcebergRestNestedNamespaceEnabled() {
+        return Boolean.parseBoolean(icebergRestNestedNamespaceEnabled);
+    }
+
     /**
      * Unified method to configure FileIO properties for Iceberg catalog.
      * This method handles all storage types (HDFS, S3, MinIO, etc.) and populates
      * the fileIOProperties map and Configuration object accordingly.
      *
-     * @param storagePropertiesMap Map of storage properties
+     * @param storagePropertiesList Map of storage properties
      * @param fileIOProperties Options map to be populated
      * @param conf Configuration object to be populated (for HDFS), will be created if null and HDFS is used
      */
@@ -274,14 +340,12 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             Map<String, String> fileIOProperties, Configuration conf) {
 
         for (StorageProperties storageProperties : storagePropertiesList) {
-            if (storageProperties instanceof HdfsCompatibleProperties) {
-                storageProperties.getBackendConfigProperties().forEach(conf::set);
-            } else if (storageProperties instanceof AbstractS3CompatibleProperties) {
+            if (storageProperties instanceof AbstractS3CompatibleProperties) {
                 // For all S3-compatible storage types, put properties in fileIOProperties map
                 toS3FileIOProperties((AbstractS3CompatibleProperties) storageProperties, fileIOProperties);
             } else {
                 // For other storage types, just use fileIOProperties map
-                fileIOProperties.putAll(storageProperties.getBackendConfigProperties());
+                conf.addResource(storageProperties.getHadoopStorageConfig());
             }
         }
 

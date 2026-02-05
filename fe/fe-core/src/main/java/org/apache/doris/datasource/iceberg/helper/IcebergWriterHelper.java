@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.iceberg.helper;
 
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.statistics.CommonStatistics;
 import org.apache.doris.thrift.TIcebergCommitData;
 
@@ -24,8 +25,10 @@ import com.google.common.base.VerifyException;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.io.WriteResult;
+import org.apache.iceberg.types.Types;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -51,7 +54,7 @@ public class IcebergWriterHelper {
             long recordCount = commitData.getRowCount();
             CommonStatistics stat = new CommonStatistics(recordCount, DEFAULT_FILE_COUNT, fileSize);
 
-            Optional<List<String>> partValues = Optional.empty();
+            Optional<PartitionData> partitionData = Optional.empty();
             //get and check partitionValues when table is partitionedTable
             if (spec.isPartitioned()) {
                 List<String> partitionValues = commitData.getPartitionValues();
@@ -60,9 +63,11 @@ public class IcebergWriterHelper {
                 }
                 partitionValues = partitionValues.stream().map(s -> s.equals("null") ? null : s)
                         .collect(Collectors.toList());
-                partValues = Optional.of(partitionValues);
+
+                // Convert human-readable partition values to PartitionData
+                partitionData = Optional.of(convertToPartitionData(partitionValues, spec));
             }
-            DataFile dataFile = genDataFile(format, location, spec, partValues, stat);
+            DataFile dataFile = genDataFile(format, location, spec, partitionData, stat);
             dataFiles.add(dataFile);
         }
         return WriteResult.builder()
@@ -75,7 +80,7 @@ public class IcebergWriterHelper {
             FileFormat format,
             String location,
             PartitionSpec spec,
-            Optional<List<String>> partValues,
+            Optional<PartitionData> partitionData,
             CommonStatistics statistics) {
 
         DataFiles.Builder builder = DataFiles.builder(spec)
@@ -84,8 +89,47 @@ public class IcebergWriterHelper {
                 .withRecordCount(statistics.getRowCount())
                 .withFormat(format);
 
-        partValues.ifPresent(builder::withPartitionValues);
+        partitionData.ifPresent(builder::withPartition);
 
         return builder.build();
+    }
+
+    /**
+     * Convert human-readable partition values (from Backend) to PartitionData.
+     *
+     * Backend sends partition values as human-readable strings:
+     * - DATE: "2025-01-25"
+     * - DATETIME: "2025-01-25 10:00:00"
+     */
+    private static PartitionData convertToPartitionData(
+            List<String> humanReadableValues, PartitionSpec spec) {
+        // Create PartitionData instance using the partition type from spec
+        PartitionData partitionData = new PartitionData(spec.partitionType());
+
+        // Get partition type fields to determine the result type of each partition field
+        Types.StructType partitionType = spec.partitionType();
+        List<Types.NestedField> partitionTypeFields = partitionType.fields();
+
+        for (int i = 0; i < humanReadableValues.size(); i++) {
+            String humanReadableValue = humanReadableValues.get(i);
+
+            if (humanReadableValue == null) {
+                partitionData.set(i, null);
+                continue;
+            }
+
+            // Get the partition field's result type
+            Types.NestedField partitionTypeField = partitionTypeFields.get(i);
+            org.apache.iceberg.types.Type partitionFieldType = partitionTypeField.type();
+
+            // Convert the human-readable value to internal format object
+            Object internalValue = IcebergUtils.parsePartitionValueFromString(
+                    humanReadableValue, partitionFieldType);
+
+            // Set the value in PartitionData
+            partitionData.set(i, internalValue);
+        }
+
+        return partitionData;
     }
 }

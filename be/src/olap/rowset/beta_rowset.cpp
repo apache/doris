@@ -17,6 +17,7 @@
 
 #include "olap/rowset/beta_rowset.h"
 
+#include <crc32c/crc32c.h>
 #include <ctype.h>
 #include <errno.h>
 #include <fmt/format.h>
@@ -28,9 +29,11 @@
 #include <utility>
 
 #include "beta_rowset.h"
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
@@ -39,13 +42,13 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_reader.h"
+#include "olap/rowset/rowset.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
-#include "util/crc32c.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 
@@ -70,21 +73,97 @@ Status BetaRowset::init() {
     return Status::OK(); // no op
 }
 
-Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows) {
-    DCHECK(_rowset_state_machine.rowset_state() == ROWSET_LOADED);
+namespace {
+Status load_segment_rows_from_footer(BetaRowsetSharedPtr rowset,
+                                     std::vector<uint32_t>* segment_rows, bool enable_segment_cache,
+                                     OlapReaderStatistics* read_stats) {
+    SegmentCacheHandle segment_cache_handle;
+    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
+            rowset, &segment_cache_handle, enable_segment_cache, false, read_stats));
+    for (const auto& segment : segment_cache_handle.get_segments()) {
+        segment_rows->emplace_back(segment->num_rows());
+    }
+    return Status::OK();
+}
 
-    RETURN_IF_ERROR(_load_segment_rows_once.call([this] {
-        auto segment_count = num_segments();
-        _segments_rows.resize(segment_count);
-        for (int64_t i = 0; i != segment_count; ++i) {
-            SegmentCacheHandle segment_cache_handle;
-            RETURN_IF_ERROR(SegmentLoader::instance()->load_segment(
-                    std::static_pointer_cast<BetaRowset>(shared_from_this()), i,
-                    &segment_cache_handle, false, false));
-            const auto& tmp_segments = segment_cache_handle.get_segments();
-            _segments_rows[i] = tmp_segments[0]->num_rows();
+Status check_segment_rows_consistency(const std::vector<uint32_t>& rows_from_meta,
+                                      const std::vector<uint32_t>& rows_from_footer,
+                                      int64_t tablet_id, const std::string& rowset_id) {
+    DCHECK_EQ(rows_from_footer.size(), rows_from_meta.size());
+    for (size_t i = 0; i < rows_from_footer.size(); i++) {
+        if (rows_from_footer[i] != rows_from_meta[i]) {
+            auto msg = fmt::format(
+                    "segment rows mismatch between rowset meta and segment footer. "
+                    "segment index: {}, meta rows: {}, footer rows: {}, tablet={}, rowset={}",
+                    i, rows_from_meta[i], rows_from_footer[i], tablet_id, rowset_id);
+            if (config::enable_segment_rows_check_core) {
+                CHECK(false) << msg;
+            }
+            return Status::InternalError(msg);
         }
-        return Status::OK();
+    }
+    return Status::OK();
+}
+} // namespace
+
+Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows,
+                                        bool enable_segment_cache,
+                                        OlapReaderStatistics* read_stats) {
+#ifndef BE_TEST
+    // `ROWSET_UNLOADING` is state for closed() called but owned by some readers.
+    // So here `ROWSET_UNLOADING` is allowed.
+    DCHECK_NE(_rowset_state_machine.rowset_state(), ROWSET_UNLOADED);
+#endif
+    RETURN_IF_ERROR(_load_segment_rows_once.call([this, enable_segment_cache, read_stats] {
+        auto segment_count = num_segments();
+        if (segment_count == 0) {
+            return Status::OK();
+        }
+
+        if (!_rowset_meta->get_num_segment_rows().empty()) {
+            if (_rowset_meta->get_num_segment_rows().size() == segment_count) {
+                // use segment rows in rowset meta if eligible
+                TEST_SYNC_POINT("BetaRowset::get_segment_num_rows:use_segment_rows_from_meta");
+                _segments_rows.assign(_rowset_meta->get_num_segment_rows().cbegin(),
+                                      _rowset_meta->get_num_segment_rows().cend());
+                if (config::enable_segment_rows_consistency_check) {
+                    // verify segment rows from meta match segment footer
+                    std::vector<uint32_t> rows_from_footer;
+                    auto self = std::dynamic_pointer_cast<BetaRowset>(shared_from_this());
+                    auto load_status = load_segment_rows_from_footer(
+                            self, &rows_from_footer, enable_segment_cache, read_stats);
+                    if (load_status.ok()) {
+                        return check_segment_rows_consistency(
+                                _segments_rows, rows_from_footer, _rowset_meta->tablet_id(),
+                                _rowset_meta->rowset_id().to_string());
+                    }
+                }
+                return Status::OK();
+            } else {
+                auto msg = fmt::format(
+                        "[verbose] corrupted segment rows info in rowset meta. "
+                        "segment count: {}, segment rows size: {}, tablet={}, rowset={}",
+                        segment_count, _rowset_meta->get_num_segment_rows().size(),
+                        _rowset_meta->tablet_id(), _rowset_meta->rowset_id().to_string());
+                if (config::enable_segment_rows_check_core) {
+                    CHECK(false) << msg;
+                }
+                LOG_EVERY_SECOND(WARNING) << msg;
+            }
+        }
+        if (config::fail_when_segment_rows_not_in_rowset_meta) {
+            CHECK(false) << "[verbose] segment rows info not found in rowset meta. tablet="
+                         << _rowset_meta->tablet_id()
+                         << ", rowset=" << _rowset_meta->rowset_id().to_string()
+                         << ", version=" << _rowset_meta->version()
+                         << ", debug_string=" << _rowset_meta->debug_string()
+                         << ", stack=" << Status::InternalError("error");
+        }
+        // otherwise, read it from segment footer
+        TEST_SYNC_POINT("BetaRowset::get_segment_num_rows:load_from_segment_footer");
+        auto self = std::dynamic_pointer_cast<BetaRowset>(shared_from_this());
+        return load_segment_rows_from_footer(self, &_segments_rows, enable_segment_cache,
+                                             read_stats);
     }));
     segment_rows->assign(_segments_rows.cbegin(), _segments_rows.cend());
     return Status::OK();
@@ -134,8 +213,8 @@ void BetaRowset::clear_inverted_index_cache() {
 
         auto index_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(*seg_path);
         for (const auto& column : tablet_schema()->columns()) {
-            const TabletIndex* index_meta = tablet_schema()->inverted_index(*column);
-            if (index_meta) {
+            auto index_metas = tablet_schema()->inverted_indexs(*column);
+            for (const auto& index_meta : index_metas) {
                 auto inverted_index_file_cache_key =
                         InvertedIndexDescriptor::get_index_file_cache_key(
                                 index_path_prefix, index_meta->index_id(),
@@ -194,6 +273,7 @@ Status BetaRowset::load_segment(int64_t seg_id, OlapReaderStatistics* stats,
             .is_doris_table = true,
             .cache_base_path = "",
             .file_size = _rowset_meta->segment_file_size(static_cast<int>(seg_id)),
+            .tablet_id = _rowset_meta->tablet_id(),
     };
 
     auto s = segment_v2::Segment::open(
@@ -240,9 +320,9 @@ Status BetaRowset::remove() {
         }
 
         if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
-            for (auto& column : _schema->columns()) {
-                const TabletIndex* index_meta = _schema->inverted_index(*column);
-                if (index_meta) {
+            for (const auto& column : _schema->columns()) {
+                auto index_metas = _schema->inverted_indexs(*column);
+                for (const auto& index_meta : index_metas) {
                     std::string inverted_index_file =
                             InvertedIndexDescriptor::get_index_file_path_v1(
                                     InvertedIndexDescriptor::get_index_file_path_prefix(seg_path),
@@ -255,7 +335,7 @@ Status BetaRowset::remove() {
                 }
             }
         } else {
-            if (_schema->has_inverted_index()) {
+            if (_schema->has_inverted_index() || _schema->has_ann_index()) {
                 std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_path_v2(
                         InvertedIndexDescriptor::get_index_file_path_prefix(seg_path));
                 st = fs->delete_file(inverted_index_file);
@@ -367,7 +447,7 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
                 }
             }
         } else {
-            if (_schema->has_inverted_index() &&
+            if ((_schema->has_inverted_index() || _schema->has_ann_index()) &&
                 (without_index_uids == nullptr || without_index_uids->empty())) {
                 std::string inverted_index_file_src =
                         InvertedIndexDescriptor::get_index_file_path_v2(
@@ -414,10 +494,10 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
         auto src_path = local_segment_path(_tablet_path, rowset_id().to_string(), i);
         RETURN_IF_ERROR(io::global_local_filesystem()->copy_path(src_path, dst_path));
         if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
-            for (auto& column : _schema->columns()) {
+            for (const auto& column : _schema->columns()) {
                 // if (column.has_inverted_index()) {
-                const TabletIndex* index_meta = _schema->inverted_index(*column);
-                if (index_meta) {
+                auto index_metas = _schema->inverted_indexs(*column);
+                for (const auto& index_meta : index_metas) {
                     std::string inverted_index_src_file_path =
                             InvertedIndexDescriptor::get_index_file_path_v1(
                                     InvertedIndexDescriptor::get_index_file_path_prefix(src_path),
@@ -434,7 +514,7 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
                 }
             }
         } else {
-            if (_schema->has_inverted_index()) {
+            if (_schema->has_inverted_index() || _schema->has_ann_index()) {
                 std::string inverted_index_src_file =
                         InvertedIndexDescriptor::get_index_file_path_v2(
                                 InvertedIndexDescriptor::get_index_file_path_prefix(src_path));
@@ -473,10 +553,10 @@ Status BetaRowset::upload_to(const StorageResource& dest_fs, const RowsetId& new
         dest_paths.emplace_back(remote_seg_path);
         local_paths.emplace_back(local_seg_path);
         if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
-            for (auto& column : _schema->columns()) {
+            for (const auto& column : _schema->columns()) {
                 // if (column.has_inverted_index()) {
-                const TabletIndex* index_meta = _schema->inverted_index(*column);
-                if (index_meta) {
+                auto index_metas = _schema->inverted_indexs(*column);
+                for (const auto& index_meta : index_metas) {
                     std::string remote_inverted_index_file =
                             InvertedIndexDescriptor::get_index_file_path_v1(
                                     InvertedIndexDescriptor::get_index_file_path_prefix(
@@ -492,7 +572,7 @@ Status BetaRowset::upload_to(const StorageResource& dest_fs, const RowsetId& new
                 }
             }
         } else {
-            if (_schema->has_inverted_index()) {
+            if (_schema->has_inverted_index() || _schema->has_ann_index()) {
                 std::string remote_inverted_index_file =
                         InvertedIndexDescriptor::get_index_file_path_v2(
                                 InvertedIndexDescriptor::get_index_file_path_prefix(
@@ -646,7 +726,7 @@ Status BetaRowset::add_to_binlog() {
                 linked_success_files.push_back(binlog_index_file);
             }
         } else {
-            if (_schema->has_inverted_index()) {
+            if (_schema->has_inverted_index() || _schema->has_ann_index()) {
                 auto index_file = InvertedIndexDescriptor::get_index_file_path_v2(
                         InvertedIndexDescriptor::get_index_file_path_prefix(seg_file));
                 auto binlog_index_file = (std::filesystem::path(binlog_dir) /
@@ -682,9 +762,9 @@ Status BetaRowset::calc_file_crc(uint32_t* crc_value, int64_t* file_count) {
         auto seg_path = DORIS_TRY(segment_path(seg_id));
         file_paths.emplace_back(seg_path);
         if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
-            for (auto& column : _schema->columns()) {
-                const TabletIndex* index_meta = _schema->inverted_index(*column);
-                if (index_meta) {
+            for (const auto& column : _schema->columns()) {
+                auto index_metas = _schema->inverted_indexs(*column);
+                for (const auto& index_meta : index_metas) {
                     std::string inverted_index_file =
                             InvertedIndexDescriptor::get_index_file_path_v1(
                                     InvertedIndexDescriptor::get_index_file_path_prefix(seg_path),
@@ -693,7 +773,7 @@ Status BetaRowset::calc_file_crc(uint32_t* crc_value, int64_t* file_count) {
                 }
             }
         } else {
-            if (_schema->has_inverted_index()) {
+            if (_schema->has_inverted_index() || _schema->has_ann_index()) {
                 std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_path_v2(
                         InvertedIndexDescriptor::get_index_file_path_prefix(seg_path));
                 file_paths.emplace_back(std::move(inverted_index_file));
@@ -726,7 +806,7 @@ Status BetaRowset::calc_file_crc(uint32_t* crc_value, int64_t* file_count) {
     // 3. calculate the crc_value based on all_file_md5
     DCHECK(file_paths.size() == all_file_md5.size());
     for (auto& i : all_file_md5) {
-        *crc_value = crc32c::Extend(*crc_value, i.data(), i.size());
+        *crc_value = crc32c::Extend(*crc_value, (const uint8_t*)i.data(), i.size());
     }
 
     return Status::OK();
@@ -841,26 +921,18 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
         } else {
             rapidjson::Value indices(rapidjson::kArrayType);
             for (auto column : _rowset_meta->tablet_schema()->columns()) {
-                const auto* index_meta = _rowset_meta->tablet_schema()->inverted_index(*column);
-                if (index_meta == nullptr) {
-                    continue;
-                }
-                rapidjson::Value index(rapidjson::kObjectType);
-                auto index_id = index_meta->index_id();
-                auto index_suffix = index_meta->get_index_suffix();
-                index.AddMember("index_id", rapidjson::Value(index_id).Move(), allocator);
-                index.AddMember("index_suffix", rapidjson::Value(index_suffix.c_str(), allocator),
-                                allocator);
-                auto path = InvertedIndexDescriptor::get_index_file_path_v1(index_file_path_prefix,
-                                                                            index_id, index_suffix);
-                auto st = add_file_info_to_json(path, index);
-                if (!st.ok()) {
-                    return st;
-                }
-
-                auto status = process_files(*index_meta, indices, index);
-                if (!status.ok()) {
-                    return status;
+                auto index_metas = _rowset_meta->tablet_schema()->inverted_indexs(*column);
+                for (const auto& index_meta : index_metas) {
+                    rapidjson::Value index(rapidjson::kObjectType);
+                    auto index_id = index_meta->index_id();
+                    auto index_suffix = index_meta->get_index_suffix();
+                    index.AddMember("index_id", rapidjson::Value(index_id).Move(), allocator);
+                    index.AddMember("index_suffix",
+                                    rapidjson::Value(index_suffix.c_str(), allocator), allocator);
+                    auto path = InvertedIndexDescriptor::get_index_file_path_v1(
+                            index_file_path_prefix, index_id, index_suffix);
+                    RETURN_IF_ERROR(add_file_info_to_json(path, index));
+                    RETURN_IF_ERROR(process_files(*index_meta, indices, index));
                 }
             }
             segment.AddMember("indices", indices, allocator);

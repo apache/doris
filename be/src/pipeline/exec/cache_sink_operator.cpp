@@ -56,8 +56,8 @@ Status CacheSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 
     if (in_block->rows() > 0) {
-        local_state._shared_state->data_queue.push_block(
-                vectorized::Block::create_unique(std::move(*in_block)), 0);
+        RETURN_IF_ERROR(local_state._shared_state->data_queue.push_block(
+                vectorized::Block::create_unique(std::move(*in_block)), 0));
     }
     if (UNLIKELY(eos)) {
         local_state._shared_state->data_queue.set_finish(0);

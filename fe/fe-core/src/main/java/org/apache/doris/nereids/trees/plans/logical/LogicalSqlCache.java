@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -141,5 +142,10 @@ public class LogicalSqlCache extends LogicalLeaf implements SqlCache, TreeString
     @Override
     public String getChildrenTreeString() {
         return planBody;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.SELECT;
     }
 }

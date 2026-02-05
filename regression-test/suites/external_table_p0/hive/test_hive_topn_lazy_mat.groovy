@@ -137,10 +137,47 @@ suite("test_hive_topn_lazy_mat", "p0,external,hive,external_docker,external_dock
                 order by o.id, o.score desc, p.value asc 
                 limit ${limit};
             """
+
+            qt_test_join4  """
+                select  * from parquet_topn_lazy_mat_table  as a join orc_topn_lazy_mat_table as b 
+                where a.file_id = 1  and b.file_id = 1
+                order by a.id,b.id  limit 100;
+            """
+
+            qt_test_join5  """
+                select  * from parquet_topn_lazy_mat_table  as a join orc_topn_lazy_mat_table as b 
+                where a.file_id = 1  and b.file_id = 1
+                order by a.id,b.id  limit 100;
+            """
+
+            qt_test_join6  """
+                select  * from parquet_topn_lazy_mat_table  as a join orc_topn_lazy_mat_table as b 
+                where a.file_id = 1  and b.file_id = 1 and a.id = 1
+                order by a.id,b.id  limit 100;
+            """
+        }
+
+        for (String table : ["parquet_topn_lazy_complex_table", "parquet_topn_lazy_complex_table_multi_pages"]) {
+            for (int limit : limitValues) {
+                qt_complex_1  """ select * from ${table} order by id asc limit ${limit}; """
+                qt_complex_2  """ select * from ${table} order by col1 desc limit ${limit}; """
+                qt_complex_3  """ select col1,col3,col2 from ${table} order by id desc limit ${limit}; """
+                qt_complex_4  """ select col3,col2 from ${table} order by col1 desc limit ${limit}; """
+
+                qt_complex_5  """ select * from ${table} where id = 1 order by id limit ${limit}; """
+                qt_complex_6  """ select col3,col2 from ${table} where id > 10 order by id limit ${limit}; """
+                qt_complex_7  """ select * from ${table} where id between 5 and 15 order by id limit ${limit}; """
+                qt_complex_8  """ select id, col1 from ${table} where id in (3, 7, 12) order by id limit ${limit}; """
+
+                qt_complex_9  """ select id,col3,col1 from ${table} where col1 = 'text_8' order by id limit ${limit}; """
+                qt_complex_10 """ select col2,id from ${table} where col1 like 'text_1%' order by id limit ${limit}; """
+                qt_complex_11 """ select id, col1 from ${table} where col1 in ('text_2', 'text_10', 'text_20') order by id limit ${limit}; """
+
+                qt_complex_12 """ select * from ${table} where id%2 = 0 order by id limit ${limit}; """
+                qt_complex_13 """ select * from ${table} where id%2 = 1 order by id limit ${limit}; """                
+            }
         }
     }
-
-
 
     for (String hivePrefix : ["hive2"]) {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
@@ -160,7 +197,7 @@ suite("test_hive_topn_lazy_mat", "p0,external,hive,external_docker,external_dock
 
 
         sql """
-        set enable_topn_lazy_materialization=true;
+        set topn_lazy_materialization_threshold=1024;
         set runtime_filter_mode=GLOBAL;
         set TOPN_FILTER_RATIO=0.5;
         set disable_join_reorder=true;
@@ -199,7 +236,7 @@ suite("test_hive_topn_lazy_mat", "p0,external,hive,external_docker,external_dock
         runTopNLazyMatTests()
 
 
-        sql """ set enable_topn_lazy_materialization=false; """
+        sql """ set topn_lazy_materialization_threshold=-1; """
         runTopNLazyMatTests()
 
 

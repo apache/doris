@@ -62,6 +62,8 @@ public:
 
     int exists(const std::string& path) override;
 
+    int abort_multipart_upload(const std::string& path, const std::string& upload_id) override;
+
 private:
     int delete_directory_impl(const std::string& dir_path);
 

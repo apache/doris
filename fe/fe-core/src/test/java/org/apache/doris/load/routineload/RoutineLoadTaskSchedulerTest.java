@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.analysis.LoadColumnsInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
@@ -55,7 +54,6 @@ public class RoutineLoadTaskSchedulerTest {
     public void testRunOneCycle(@Injectable KafkaRoutineLoadJob kafkaRoutineLoadJob1,
                                 @Injectable KafkaRoutineLoadJob routineLoadJob,
                                 @Injectable RoutineLoadDesc routineLoadDesc,
-                                @Injectable LoadColumnsInfo loadColumnsInfo,
                                 @Mocked GlobalTransactionMgr globalTransactionMgr,
                                 @Mocked BackendService.Client client,
                                 @Mocked ClientPool clientPool) throws LoadException,

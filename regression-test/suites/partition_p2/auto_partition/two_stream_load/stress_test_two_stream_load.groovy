@@ -169,7 +169,7 @@ suite("stress_test_two_stream_load", "p2,nonConcurrent") {
 
     def row_count_range = sql """select count(*) from ${tb_name2};"""
     def partition_res_range = sql """show partitions from ${tb_name2};"""
-    assertTrue(row_count_range[0][0] == partition_res_range.size)
+    assertTrue(row_count_range[0][0] == partition_res_range.size())
 
     data_delete("range")
     doris_dbgen_create_data(database_name, tb_name4, "list")
@@ -192,7 +192,7 @@ suite("stress_test_two_stream_load", "p2,nonConcurrent") {
 
     def row_count_list = sql """select count(*) from ${tb_name3};"""
     def partition_res_list = sql """show partitions from ${tb_name3};"""
-    assertTrue(row_count_list[0][0] == partition_res_list.size)
+    assertTrue(row_count_list[0][0] == partition_res_list.size())
 
     data_delete("list")
 }

@@ -65,24 +65,26 @@ public:
         }
 
         case TUnit::UNIT: {
-            std::string unit;
-            double output = get_unit(value, &unit);
-            if (unit.empty()) {
+            std::string nest_unit;
+            double output = get_unit(value, &nest_unit);
+            if (nest_unit.empty()) {
                 ss << value;
             } else {
-                ss << std::setprecision(PRECISION) << output << unit;
+                ss << std::setprecision(PRECISION) << output << nest_unit;
             }
-            if (verbose) ss << " (" << value << ")";
+            if (verbose) {
+                ss << " (" << value << ")";
+            }
             break;
         }
 
         case TUnit::UNIT_PER_SECOND: {
-            std::string unit;
-            double output = get_unit(value, &unit);
+            std::string nest_unit;
+            double output = get_unit(value, &nest_unit);
             if (output == 0) {
                 ss << "0";
             } else {
-                ss << std::setprecision(PRECISION) << output << " " << unit << "/sec";
+                ss << std::setprecision(PRECISION) << output << " " << nest_unit << "/sec";
             }
             break;
         }
@@ -127,21 +129,23 @@ public:
         }
 
         case TUnit::BYTES: {
-            std::string unit;
-            double output = get_byte_unit(value, &unit);
+            std::string nest_unit;
+            double output = get_byte_unit(value, &nest_unit);
             if (output == 0) {
                 ss << "0";
             } else {
-                ss << std::setprecision(PRECISION) << output << " " << unit;
-                if (verbose) ss << " (" << value << ")";
+                ss << std::setprecision(PRECISION) << output << " " << nest_unit;
+                if (verbose) {
+                    ss << " (" << value << ")";
+                }
             }
             break;
         }
 
         case TUnit::BYTES_PER_SECOND: {
-            std::string unit;
-            double output = get_byte_unit(value, &unit);
-            ss << std::setprecision(PRECISION) << output << " " << unit << "/sec";
+            std::string nest_unit;
+            double output = get_byte_unit(value, &nest_unit);
+            ss << std::setprecision(PRECISION) << output << " " << nest_unit << "/sec";
             break;
         }
 

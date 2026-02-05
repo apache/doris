@@ -50,8 +50,16 @@ public class CreateNamedStruct extends ScalarFunction implements CustomSignature
         super("named_struct", varArgs);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private CreateNamedStruct(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        if (arity() < 2) {
+            throw new AnalysisException("named_struct requires at least two arguments, like: named_struct('a', 1)");
+        }
         if (arity() % 2 != 0) {
             throw new AnalysisException("named_struct can't be odd parameters, need even parameters " + this.toSql());
         }
@@ -61,13 +69,17 @@ public class CreateNamedStruct extends ScalarFunction implements CustomSignature
                 throw new AnalysisException("named_struct only allows"
                         + " constant string parameter in odd position: " + this);
             } else {
-                String name = ((StringLikeLiteral) child(i)).getStringValue();
+                String name = ((StringLikeLiteral) child(i)).getStringValue().toLowerCase();
                 if (names.contains(name)) {
                     throw new AnalysisException("The name of the struct field cannot be repeated."
                             + " same name fields are " + name);
                 } else {
                     names.add(name);
                 }
+            }
+            // i+1 is value, check if it is not jsonb/variant type
+            if (child(i + 1).getDataType().isJsonType() || child(i + 1).getDataType().isVariantType()) {
+                throw new AnalysisException("named_struct does not support jsonb/variant type");
             }
         }
     }
@@ -77,7 +89,7 @@ public class CreateNamedStruct extends ScalarFunction implements CustomSignature
      */
     @Override
     public CreateNamedStruct withChildren(List<Expression> children) {
-        return new CreateNamedStruct(children.toArray(new Expression[0]));
+        return new CreateNamedStruct(getFunctionParams(children));
     }
 
     @Override

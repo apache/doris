@@ -38,7 +38,7 @@ suite("initial_join_order") {
         v varchar(50) NOT NULL COMMENT ""
         ) ENGINE=OLAP
         DUPLICATE KEY(k)
-        DISTRIBUTED BY HASH(k) BUCKETS 57
+        DISTRIBUTED BY HASH(v) BUCKETS 57
         PROPERTIES ("replication_num" = "1");
 
         insert into t2 values (1, 'a');

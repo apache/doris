@@ -58,6 +58,11 @@ public class ArraySlice extends ScalarFunction
         super("array_slice", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArraySlice(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
@@ -65,11 +70,7 @@ public class ArraySlice extends ScalarFunction
     public ArraySlice withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2
                 || children.size() == 3);
-        if (children.size() == 2) {
-            return new ArraySlice(children.get(0), children.get(1));
-        } else {
-            return new ArraySlice(children.get(0), children.get(1), children.get(2));
-        }
+        return new ArraySlice(getFunctionParams(children));
     }
 
     @Override

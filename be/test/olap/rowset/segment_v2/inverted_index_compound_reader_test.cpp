@@ -375,7 +375,9 @@ TEST_F(DorisCompoundReaderTest, IntegrationWithFileWriter) {
         out->close();
         _CLLDELETE(out);
 
-        auto st = index_file_writer->close();
+        auto st = index_file_writer->begin_close();
+        ASSERT_TRUE(st.ok()) << st;
+        st = index_file_writer->finish_close();
         ASSERT_TRUE(st.ok()) << st;
 
         auto file_reader = std::make_unique<IndexFileReader>(
@@ -422,7 +424,9 @@ TEST_F(DorisCompoundReaderTest, IntegrationWithFileWriter) {
         out->close();
         _CLLDELETE(out);
 
-        st = index_file_writer->close();
+        st = index_file_writer->begin_close();
+        ASSERT_TRUE(st.ok()) << st;
+        st = index_file_writer->finish_close();
         ASSERT_TRUE(st.ok()) << st;
 
         auto file_reader = std::make_unique<IndexFileReader>(

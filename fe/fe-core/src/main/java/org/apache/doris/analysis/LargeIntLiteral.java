@@ -28,7 +28,6 @@ import org.apache.doris.thrift.TLargeIntLiteral;
 
 import com.google.gson.annotations.SerializedName;
 
-import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -48,19 +47,12 @@ public class LargeIntLiteral extends NumericLiteralExpr {
 
     public LargeIntLiteral() {
         super();
-        analysisDone();
-    }
-
-    public LargeIntLiteral(boolean isMax) throws AnalysisException {
-        super();
-        type = Type.LARGEINT;
-        value = isMax ? LARGE_INT_MAX : LARGE_INT_MIN;
-        analysisDone();
     }
 
     public LargeIntLiteral(BigInteger v) {
         super();
         type = Type.LARGEINT;
+        this.nullable = false;
         value = v;
     }
 
@@ -72,7 +64,8 @@ public class LargeIntLiteral extends NumericLiteralExpr {
             // ATTN: value from 'sql_parser.y' is always be positive. for example: '-256' will to be
             // 256, and for int8_t, 256 is invalid, while -256 is valid. So we check the right border
             // is LARGE_INT_MAX_ABS
-            if (bigInt.compareTo(LARGE_INT_MIN) < 0 || bigInt.compareTo(LARGE_INT_MAX_ABS) > 0) {
+            // if (bigInt.compareTo(LARGE_INT_MIN) < 0 || bigInt.compareTo(LARGE_INT_MAX_ABS) > 0) {
+            if (bigInt.compareTo(LARGE_INT_MIN) < 0 || bigInt.compareTo(LARGE_INT_MAX) > 0) {
                 throw new AnalysisException("Large int literal is out of range: " + value);
             }
         } catch (NumberFormatException e) {
@@ -80,26 +73,7 @@ public class LargeIntLiteral extends NumericLiteralExpr {
         }
         this.value = bigInt;
         type = Type.LARGEINT;
-        analysisDone();
-    }
-
-    public LargeIntLiteral(BigDecimal value) throws AnalysisException {
-        super();
-        BigInteger bigInt;
-        try {
-            bigInt = new BigInteger(value.toPlainString());
-            // ATTN: value from 'sql_parser.y' is always be positive. for example: '-256' will to be
-            // 256, and for int8_t, 256 is invalid, while -256 is valid. So we check the right border
-            // is LARGE_INT_MAX_ABS
-            if (bigInt.compareTo(LARGE_INT_MIN) < 0 || bigInt.compareTo(LARGE_INT_MAX_ABS) > 0) {
-                throw new AnalysisException("Large int literal is out of range: " + value);
-            }
-        } catch (NumberFormatException e) {
-            throw new AnalysisException("Invalid integer literal: " + value, e);
-        }
-        this.value = bigInt;
-        type = Type.LARGEINT;
-        analysisDone();
+        this.nullable = false;
     }
 
     protected LargeIntLiteral(LargeIntLiteral other) {
@@ -213,30 +187,6 @@ public class LargeIntLiteral extends NumericLiteralExpr {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.LARGE_INT_LITERAL;
         msg.large_int_literal = new TLargeIntLiteral(value.toString());
-    }
-
-    @Override
-    protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        if (targetType.isFloatingPointType()) {
-            return new FloatLiteral(new Double(value.doubleValue()), targetType);
-        } else if (targetType.isDecimalV2() || targetType.isDecimalV3()) {
-            DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
-            res.setType(targetType);
-            return res;
-        } else if (targetType.isIntegerType()) {
-            try {
-                return new IntLiteral(value.longValueExact(), targetType);
-            } catch (ArithmeticException e) {
-                throw new AnalysisException("Number out of range[" + value + "]. type: " + targetType);
-            }
-        }
-        return super.uncheckedCastTo(targetType);
-    }
-
-    @Override
-    public void swapSign() {
-        // swapping sign does not change the type
-        value = value.negate();
     }
 
     @Override

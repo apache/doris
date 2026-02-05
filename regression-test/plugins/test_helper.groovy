@@ -26,7 +26,7 @@ Suite.metaClass.createTestTable = { String tableName, boolean uniqueTable = fals
     sql "set enable_nereids_planner=true"
     sql "set enable_fallback_to_original_planner=false"
 
-    sql "drop table if exists ${tableName}"
+    sql "drop table if exists ${tableName} force"
 
     sql """
         create table ${tableName}

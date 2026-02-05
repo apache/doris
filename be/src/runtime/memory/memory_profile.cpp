@@ -70,8 +70,15 @@ void MemoryProfile::init_memory_overview_counter() {
             tracked_memory_profile->create_child("TasksMemory", true, false);
     RuntimeProfile* tasks_memory_overview_details_profile =
             tasks_memory_overview_profile->create_child("Details", true, false);
+
+    RuntimeProfile* memtable_overview_profile =
+            tracked_memory_profile->create_child("MemtableMemory", true, false);
+
     RuntimeProfile* global_memory_overview_profile =
             tracked_memory_profile->create_child("GlobalMemory", true, false);
+
+    RuntimeProfile* jvm_memory_overview_profile =
+            tracked_memory_profile->create_child("JvmMemory", true, false);
     RuntimeProfile* metadata_memory_overview_profile =
             tracked_memory_profile->create_child("MetadataMemory", true, false);
     RuntimeProfile* cache_memory_overview_profile =
@@ -101,13 +108,17 @@ void MemoryProfile::init_memory_overview_counter() {
     _jemalloc_metadata_usage_counter =
             jemalloc_memory_details_profile->AddHighWaterMarkCounter("Metadata", TUnit::BYTES);
 
-    // 4 add global/metadata/cache memory counter
+    // 4 add global/metadata/cache/Jvm memory counter
     _global_usage_counter =
             global_memory_overview_profile->AddHighWaterMarkCounter("Memory", TUnit::BYTES);
     _metadata_usage_counter =
             metadata_memory_overview_profile->AddHighWaterMarkCounter("Memory", TUnit::BYTES);
     _cache_usage_counter =
             cache_memory_overview_profile->AddHighWaterMarkCounter("Memory", TUnit::BYTES);
+    _jvm_heap_memory_usage_counter =
+            jvm_memory_overview_profile->AddHighWaterMarkCounter("HeapMemory", TUnit::BYTES);
+    _jvm_non_heap_memory_usage_counter =
+            jvm_memory_overview_profile->AddHighWaterMarkCounter("NonHeapMemory", TUnit::BYTES);
 
     // 5 add tasks memory counter
     _tasks_memory_usage_counter =
@@ -115,13 +126,14 @@ void MemoryProfile::init_memory_overview_counter() {
     // Reserved memory is the sum of all task reserved memory, is duplicated with all task memory counter.
     _reserved_memory_usage_counter = tasks_memory_overview_profile->AddHighWaterMarkCounter(
             "ReservedMemory", TUnit::BYTES, "Memory", 1);
+
+    // 6 add memtable memory counter
+    _memtable_memory_usage_counter =
+            memtable_overview_profile->AddHighWaterMarkCounter("MemtableMemory", TUnit::BYTES);
     _query_usage_counter =
             tasks_memory_overview_details_profile->AddHighWaterMarkCounter("Query", TUnit::BYTES);
     _load_usage_counter =
             tasks_memory_overview_details_profile->AddHighWaterMarkCounter("Load", TUnit::BYTES);
-    _load_all_memtables_usage_counter =
-            tasks_memory_overview_details_profile->AddHighWaterMarkCounter("AllMemTablesMemory",
-                                                                           TUnit::BYTES, "Load", 1);
     _compaction_usage_counter = tasks_memory_overview_details_profile->AddHighWaterMarkCounter(
             "Compaction", TUnit::BYTES);
     _schema_change_usage_counter = tasks_memory_overview_details_profile->AddHighWaterMarkCounter(
@@ -254,6 +266,26 @@ void MemoryProfile::refresh_memory_overview_profile() {
     COUNTER_SET(_jemalloc_memory_usage_counter,
                 _jemalloc_cache_usage_counter->current_value() +
                         _jemalloc_metadata_usage_counter->current_value());
+    int64_t jvm_heap_bytes = 0;
+    int64_t jvm_non_heap_bytes = 0;
+    // JvmMetrics only inited when enable_java_support == true, or it is nullptr
+    if (DorisMetrics::instance()->jvm_metrics() != nullptr) {
+        DorisMetrics::instance()->jvm_metrics()->update();
+        jvm_heap_bytes =
+                DorisMetrics::instance()->jvm_metrics()->jvm_heap_size_bytes_committed->value();
+        jvm_non_heap_bytes =
+                DorisMetrics::instance()->jvm_metrics()->jvm_non_heap_size_bytes_committed->value();
+    }
+
+    all_tracked_mem_sum += jvm_heap_bytes + jvm_non_heap_bytes;
+    COUNTER_SET(_jvm_heap_memory_usage_counter, jvm_heap_bytes);
+    COUNTER_SET(_jvm_non_heap_memory_usage_counter, jvm_non_heap_bytes);
+
+    // Memtable memory is not included in the memory the load tasks. Because actually it is a buffer.
+    COUNTER_SET(_memtable_memory_usage_counter,
+                ExecEnv::GetInstance()->memtable_memory_limiter()->mem_tracker()->consumption());
+    all_tracked_mem_sum +=
+            ExecEnv::GetInstance()->memtable_memory_limiter()->mem_tracker()->consumption();
 
     COUNTER_SET(_tracked_memory_usage_counter, all_tracked_mem_sum);
     memory_all_tracked_sum_bytes << all_tracked_mem_sum - memory_all_tracked_sum_bytes.get_value();
@@ -264,12 +296,7 @@ void MemoryProfile::refresh_memory_overview_profile() {
     COUNTER_SET(_untracked_memory_usage_counter, untracked_memory);
     memory_untracked_memory_bytes << untracked_memory - memory_untracked_memory_bytes.get_value();
 
-    // 6 refresh additional tracker printed when memory exceeds limit.
-    // TODO, separate Framgnet and Memtable memory in Load memory.
-    COUNTER_SET(_load_all_memtables_usage_counter,
-                ExecEnv::GetInstance()->memtable_memory_limiter()->mem_tracker()->consumption());
-
-    // 7. reset profile
+    // 6. reset profile
     _global_memory_profile.set(std::move(global_memory_profile));
     _metadata_memory_profile.set(std::move(metadata_memory_profile));
     _cache_memory_profile.set(std::move(cache_memory_profile));
@@ -288,33 +315,32 @@ void MemoryProfile::make_memory_profile(RuntimeProfile* profile) const {
 
     RuntimeProfile* memory_overview_profile =
             memory_profile_snapshot->create_child(_memory_overview_profile->name(), true, false);
-    memory_overview_profile->merge(const_cast<RuntimeProfile*>(_memory_overview_profile.get()));
+    memory_overview_profile->merge(_memory_overview_profile.get());
 
     auto global_memory_version_ptr = _global_memory_profile.get();
     RuntimeProfile* global_memory_profile =
             memory_profile_snapshot->create_child(global_memory_version_ptr->name(), true, false);
-    global_memory_profile->merge(const_cast<RuntimeProfile*>(global_memory_version_ptr.get()));
+    global_memory_profile->merge(global_memory_version_ptr.get());
 
     auto metadata_memory_version_ptr = _metadata_memory_profile.get();
     RuntimeProfile* metadata_memory_profile =
             memory_profile_snapshot->create_child(metadata_memory_version_ptr->name(), true, false);
-    metadata_memory_profile->merge(const_cast<RuntimeProfile*>(metadata_memory_version_ptr.get()));
+    metadata_memory_profile->merge(metadata_memory_version_ptr.get());
 
     auto cache_memory_version_ptr = _cache_memory_profile.get();
     RuntimeProfile* cache_memory_profile =
             memory_profile_snapshot->create_child(cache_memory_version_ptr->name(), true, false);
-    cache_memory_profile->merge(const_cast<RuntimeProfile*>(cache_memory_version_ptr.get()));
+    cache_memory_profile->merge(cache_memory_version_ptr.get());
 
     auto top_memory_tasks_version_ptr = _top_memory_tasks_profile.get();
     RuntimeProfile* top_memory_tasks_profile = memory_profile_snapshot->create_child(
             top_memory_tasks_version_ptr->name(), true, false);
-    top_memory_tasks_profile->merge(
-            const_cast<RuntimeProfile*>(top_memory_tasks_version_ptr.get()));
+    top_memory_tasks_profile->merge(top_memory_tasks_version_ptr.get());
 
     auto tasks_memory_version_ptr = _tasks_memory_profile.get();
     RuntimeProfile* tasks_memory_profile =
             memory_profile_snapshot->create_child(tasks_memory_version_ptr->name(), true, false);
-    tasks_memory_profile->merge(const_cast<RuntimeProfile*>(tasks_memory_version_ptr.get()));
+    tasks_memory_profile->merge(tasks_memory_version_ptr.get());
 }
 
 int64_t MemoryProfile::query_current_usage() {

@@ -30,14 +30,23 @@ import com.google.common.base.Strings;
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Base properties for Hive Metastore.
+ */
 public class HMSBaseProperties {
+    public static final String HIVE_METASTORE_TYPE = "hive.metastore.type";
+    public static final String DLF_TYPE = "dlf";
+    public static final String GLUE_TYPE = "glue";
+    public static final String HIVE_VERSION = "hive.version";
+    public static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
 
     @Getter
-    @ConnectorProperty(names = {"hive.metastore.uris", "uri"},
+    @ConnectorProperty(names = {HIVE_METASTORE_URIS, "uri"},
             description = "The uri of the hive metastore.")
     private String hiveMetastoreUri = "";
 
@@ -51,7 +60,7 @@ public class HMSBaseProperties {
             description = "The conf resources of the hive metastore.")
     private String hiveConfResourcesConfig = "";
 
-    @ConnectorProperty(names = {"hive.metastore.service.principal"},
+    @ConnectorProperty(names = {"hive.metastore.service.principal", "hive.metastore.kerberos.principal"},
             required = false,
             description = "The service principal of the hive metastore.")
     private String hiveMetastoreServicePrincipal = "";
@@ -68,8 +77,14 @@ public class HMSBaseProperties {
 
     @ConnectorProperty(names = {"hadoop.security.authentication"},
             required = false,
-            description = "The authentication type of HDFS. The default value is 'none'.")
+            description = "The authentication type of HDFS. The default value is 'simple'.")
     private String hdfsAuthenticationType = "";
+
+    @ConnectorProperty(names = {"hive.metastore.username", "hadoop.username"},
+            required = false,
+            description = "The user name for the Hive Metastore service. "
+                    + "If not set, it will use the 'hadoop'.")
+    private String hmsUserName;
 
     @ConnectorProperty(names = {"hadoop.kerberos.principal"},
             required = false,
@@ -98,6 +113,7 @@ public class HMSBaseProperties {
     public static HMSBaseProperties of(Map<String, String> properties) {
         HMSBaseProperties propertiesObj = new HMSBaseProperties(properties);
         ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
+        propertiesObj.checkAndInit();
         return propertiesObj;
     }
 
@@ -134,7 +150,16 @@ public class HMSBaseProperties {
      * strongly recommended.
      */
     private void initHadoopAuthenticator() {
+        if (StringUtils.isNotBlank(hiveMetastoreServicePrincipal)) {
+            hiveConf.set("hive.metastore.kerberos.principal", hiveMetastoreServicePrincipal);
+        }
+        if (StringUtils.isNotBlank(origProps.get(AuthenticationConfig.HADOOP_SECURITY_AUTH_TO_LOCAL))) {
+            hiveConf.set(AuthenticationConfig.HADOOP_SECURITY_AUTH_TO_LOCAL,
+                    origProps.get(AuthenticationConfig.HADOOP_SECURITY_AUTH_TO_LOCAL));
+        }
         if (this.hiveMetastoreAuthenticationType.equalsIgnoreCase("kerberos")) {
+            hiveConf.set("hadoop.security.authentication", "kerberos");
+            hiveConf.set("hive.metastore.sasl.enabled", "true");
             KerberosAuthenticationConfig authenticationConfig = new KerberosAuthenticationConfig(
                     this.hiveMetastoreClientPrincipal, this.hiveMetastoreClientKeytab, hiveConf);
             this.hmsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
@@ -150,6 +175,8 @@ public class HMSBaseProperties {
                 && this.hdfsAuthenticationType.equalsIgnoreCase("kerberos")) {
             KerberosAuthenticationConfig authenticationConfig = new KerberosAuthenticationConfig(
                     this.hdfsKerberosPrincipal, this.hdfsKerberosKeytab, hiveConf);
+            hiveConf.set("hadoop.security.authentication", "kerberos");
+            hiveConf.set("hive.metastore.sasl.enabled", "true");
             this.hmsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
             return;
         }
@@ -165,15 +192,21 @@ public class HMSBaseProperties {
         return CatalogConfigFileUtils.loadHiveConfFromHiveConfDir(resourceConfig);
     }
 
-    public void initAndCheckParams() {
+    private void checkAndInit() {
         buildRules().validate();
         this.hiveConf = loadHiveConfFromFile(hiveConfResourcesConfig);
         initUserHiveConfig(origProps);
         userOverriddenHiveConfig.forEach(hiveConf::set);
-        initHadoopAuthenticator();
         hiveConf.set("hive.metastore.uris", hiveMetastoreUri);
-        HiveConf.setVar(hiveConf, HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT,
-                String.valueOf(Config.hive_metastore_client_timeout_second));
+        if (StringUtils.isNotBlank(hmsUserName)) {
+            hiveConf.set(AuthenticationConfig.HADOOP_USER_NAME, hmsUserName);
+        }
+        if (!userOverriddenHiveConfig.containsKey(ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.toString())) {
+            // use Config.hive_metastore_client_timeout_second as default timeout
+            HiveConf.setVar(hiveConf, HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT,
+                    String.valueOf(Config.hive_metastore_client_timeout_second));
+        }
+        initHadoopAuthenticator();
     }
 
     private void initUserHiveConfig(Map<String, String> origProps) {

@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_date_or_datetime_computation_negative") {
+    sql """ DROP TABLE IF EXISTS test_date_or_datetime_computation_negative """
     sql """ CREATE TABLE IF NOT EXISTS test_date_or_datetime_computation_negative (
                 `row_id` LARGEINT NOT NULL,
                 `date` DATE NOT NULL,

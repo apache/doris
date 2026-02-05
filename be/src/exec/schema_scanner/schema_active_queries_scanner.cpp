@@ -39,6 +39,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaActiveQueriesScanner::_s_tbls_colum
         {"QUEUE_START_TIME", TYPE_VARCHAR, sizeof(StringRef), true},
         {"QUEUE_END_TIME", TYPE_VARCHAR, sizeof(StringRef), true},
         {"QUERY_STATUS", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"USER", TYPE_VARCHAR, sizeof(StringRef), true},
         {"SQL", TYPE_STRING, sizeof(StringRef), true}};
 
 SchemaActiveQueriesScanner::SchemaActiveQueriesScanner()
@@ -62,7 +63,7 @@ Status SchemaActiveQueriesScanner::_get_active_queries_block_from_fe() {
     }
     schema_table_params.replay_to_other_fe = true;
     schema_table_params.__isset.replay_to_other_fe = true;
-    schema_table_params.__set_time_zone(_timezone_obj.name());
+    schema_table_params.__set_time_zone(_timezone);
 
     TFetchSchemaTableDataRequest request;
     request.__set_schema_table_name(TSchemaTableName::ACTIVE_QUERIES);

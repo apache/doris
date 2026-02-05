@@ -52,6 +52,8 @@ import com.google.common.collect.Sets;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;
@@ -77,8 +79,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 
 /*
  * Used to return all node information, configuration information and modify node config.
@@ -611,8 +611,8 @@ public class NodeAction extends RestBaseController {
     }
 
     @PostMapping("/{action}/be")
-    public Object operateBackend(HttpServletRequest request, HttpServletResponse response, @PathVariable String action,
-            @RequestBody BackendReqInfo reqInfo) {
+    public Object operateBackend(HttpServletRequest request, HttpServletResponse response,
+            @PathVariable("action") String action, @RequestBody BackendReqInfo reqInfo) {
         try {
             if (needRedirect(request.getScheme())) {
                 return redirectToHttps(request);
@@ -659,7 +659,7 @@ public class NodeAction extends RestBaseController {
 
     @PostMapping("/{action}/fe")
     public Object operateFrontends(HttpServletRequest request, HttpServletResponse response,
-            @PathVariable String action, @RequestBody FrontendReqInfo reqInfo) {
+            @PathVariable("action") String action, @RequestBody FrontendReqInfo reqInfo) {
         try {
             if (needRedirect(request.getScheme())) {
                 return redirectToHttps(request);
@@ -691,7 +691,7 @@ public class NodeAction extends RestBaseController {
 
     @PostMapping("/{action}/broker")
     public Object operateBroker(HttpServletRequest request, HttpServletResponse response,
-                                @PathVariable String action, @RequestBody BrokerReqInfo reqInfo) {
+                                @PathVariable("action") String action, @RequestBody BrokerReqInfo reqInfo) {
         try {
             if (!Env.getCurrentEnv().isMaster()) {
                 return redirectToMasterOrException(request, response);

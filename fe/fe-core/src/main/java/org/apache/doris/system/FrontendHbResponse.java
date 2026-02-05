@@ -62,7 +62,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         this.replayedJournalId = replayedJournalId;
         this.hbTime = hbTime;
         this.version = version;
-        this.processUUID = processUUID;
+        this.feStartTime = feStartTime;
         this.diskInfos = diskInfos;
         this.processUUID = processUUID;
     }

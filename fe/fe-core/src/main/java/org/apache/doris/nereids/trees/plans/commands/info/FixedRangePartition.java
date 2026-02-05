@@ -69,6 +69,14 @@ public class FixedRangePartition extends PartitionDefinition {
         return partitionName;
     }
 
+    public List<Expression> getUpperBounds() {
+        return upperBounds;
+    }
+
+    public List<Expression> getLowerBounds() {
+        return lowerBounds;
+    }
+
     /**
      * translate to catalog objects.
      */

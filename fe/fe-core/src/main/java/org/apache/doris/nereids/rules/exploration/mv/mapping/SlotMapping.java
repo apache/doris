@@ -87,7 +87,7 @@ public class SlotMapping extends Mapping {
                     // payload['issue']['number']#20 -> element_at(element_at(payload#10, 'issue'), 'number') mapping
                     // in expression rewrite
                     // 2
-                    // Maybe table add column after last refresh
+                    // Maybe table added column after last refresh
                     LOG.warn(String.format("SlotMapping generate is null, source relation is %s, "
                             + "target relation is %s", sourceRelation, targetRelation));
                     continue;

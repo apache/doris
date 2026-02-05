@@ -26,8 +26,10 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Set;
@@ -47,18 +49,31 @@ public class PushFilterInsideJoin extends OneRewriteRuleFactory {
                 .when(filter -> filter.child().getJoinType().isCrossJoin()
                         || filter.child().getJoinType().isInnerJoin())
                 .then(filter -> {
-                    List<Expression> otherConditions = Lists.newArrayList(filter.getConjuncts());
                     LogicalJoin<Plan, Plan> join = filter.child();
                     Set<Slot> childOutput = join.getOutputSet();
-                    if (ExpressionUtils.getInputSlotSet(otherConditions).stream()
+                    if (ExpressionUtils.getInputSlotSet(filter.getConjuncts()).stream()
                             .filter(MarkJoinSlotReference.class::isInstance)
                             .anyMatch(slot -> childOutput.contains(slot))) {
                         return null;
                     }
+                    Set<Expression> remainConditions = Sets.newLinkedHashSet();
+                    List<Expression> otherConditions = Lists.newArrayListWithExpectedSize(
+                            filter.getConjuncts().size() + join.getOtherJoinConjuncts().size());
+                    for (Expression expr : filter.getConjuncts()) {
+                        if (expr.containsUniqueFunction()) {
+                            remainConditions.add(expr);
+                        } else {
+                            otherConditions.add(expr);
+                        }
+                    }
+                    if (otherConditions.isEmpty()) {
+                        return null;
+                    }
                     otherConditions.addAll(join.getOtherJoinConjuncts());
-                    return new LogicalJoin<>(join.getJoinType(), join.getHashJoinConjuncts(),
+                    return PlanUtils.filterOrSelf(remainConditions, new LogicalJoin<>(
+                            join.getJoinType(), join.getHashJoinConjuncts(),
                             otherConditions, join.getDistributeHint(), join.getMarkJoinSlotReference(),
-                            join.children(), join.getJoinReorderContext());
+                            join.children(), join.getJoinReorderContext()));
                 }).toRule(RuleType.PUSH_FILTER_INSIDE_JOIN);
     }
 }

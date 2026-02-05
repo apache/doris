@@ -26,7 +26,11 @@ namespace doris::vectorized::CastWrapper {
 WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from_type,
                                const DataTypeMap& to_type) {
     if (is_string_type(from_type->get_primitive_type())) {
-        return cast_from_string_to_generic;
+        if (context->enable_strict_mode()) {
+            return cast_from_string_to_complex_type_strict_mode;
+        } else {
+            return cast_from_string_to_complex_type;
+        }
     }
     const auto* from = check_and_get_data_type<DataTypeMap>(from_type.get());
     if (!from) {
@@ -71,8 +75,10 @@ WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from
             converted_columns[i] = block.get_by_position(element_result).column;
         }
 
-        block.get_by_position(result).column = ColumnMap::create(
-                converted_columns[0], converted_columns[1], from_col_map->get_offsets_ptr());
+        auto map_column = ColumnMap::create(converted_columns[0], converted_columns[1],
+                                            from_col_map->get_offsets_ptr());
+        static_cast<void>(assert_cast<ColumnMap&>(*map_column).deduplicate_keys());
+        block.get_by_position(result).column = std::move(map_column);
         return Status::OK();
     };
 }

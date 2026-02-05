@@ -17,21 +17,25 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.DorisFE;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
 import java.util.Map;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 
 @RestController
 public class HealthAction extends RestBaseController {
+    public static final String TOTAL_BACKEND_NUM = "total_backend_num";
+    public static final String ONLINE_BACKEND_NUM = "online_backend_num";
 
     @RequestMapping(path = "/api/health", method = RequestMethod.GET)
     public Object execute(HttpServletRequest request, HttpServletResponse response) {
@@ -39,9 +43,13 @@ public class HealthAction extends RestBaseController {
             executeCheckPassword(request, response);
         }
 
+        if (!FeConstants.runningUnitTest && !DorisFE.isServerReady()) {
+            return ResponseEntityBuilder.serviceUnavailable("Server is not ready");
+        }
+
         Map<String, Object> result = new HashMap<>();
-        result.put("total_backend_num", Env.getCurrentSystemInfo().getAllBackendIds(false).size());
-        result.put("online_backend_num", Env.getCurrentSystemInfo().getAllBackendIds(true).size());
+        result.put(TOTAL_BACKEND_NUM, Env.getCurrentSystemInfo().getAllBackendIds(false).size());
+        result.put(ONLINE_BACKEND_NUM, Env.getCurrentSystemInfo().getAllBackendIds(true).size());
         return ResponseEntityBuilder.ok(result);
     }
 }

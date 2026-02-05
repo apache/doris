@@ -52,4 +52,8 @@ suite("test_size_function") {
             (3, [1,3,4,2], ['222', '444', '555'], {11: NULL, 0:"ss"});
         """
         qt_select_00 " select size(c_array1), size(c_array2), size(c_map) from ${tableName} order by id;"
+
+    // for some const and table 
+    qt_sql "select size(array(1,2,3)), array_size(array(1,2,3)) from ${tableName} order by id;"
+    qt_sql "select size(map(1,2,2,3)), map_size(map(1,2,2,3)) from ${tableName} order by id;"
 }

@@ -26,7 +26,7 @@ suite("test_stream_load_include_where_expr", "p0") {
                     `a` INT COMMENT 'timestamp',
                     `b` INT   COMMENT 'a int value',
                     `c` INT COMMENT 'b int value',
-                    `d` varchar(100)
+                    `d` STRING
                 )
                 DUPLICATE KEY(`a`)
                 DISTRIBUTED BY HASH(a) BUCKETS AUTO

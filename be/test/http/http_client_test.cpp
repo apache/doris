@@ -392,7 +392,7 @@ TEST_F(HttpClientTest, enable_http_auth) {
         st = client.execute(&response);
         EXPECT_TRUE(st.ok());
         std::cout << "response = " << response << "\n";
-        EXPECT_TRUE(response.find("To Be Added") != std::string::npos);
+        EXPECT_TRUE(response.find("Server is not ready") != std::string::npos);
     }
 
     {
@@ -423,7 +423,7 @@ TEST_F(HttpClientTest, enable_http_auth) {
         st = client.execute(&response);
         EXPECT_TRUE(st.ok());
         std::cout << "response = " << response << "\n";
-        EXPECT_TRUE(response.find("To Be Added") != std::string::npos);
+        EXPECT_TRUE(response.find("Server is not ready") != std::string::npos);
     }
 
     {

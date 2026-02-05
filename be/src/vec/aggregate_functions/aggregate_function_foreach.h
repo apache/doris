@@ -53,7 +53,9 @@ struct AggregateFunctionForEachData {
   * TODO Allow variable number of arguments.
   */
 class AggregateFunctionForEach : public IAggregateFunctionDataHelper<AggregateFunctionForEachData,
-                                                                     AggregateFunctionForEach> {
+                                                                     AggregateFunctionForEach>,
+                                 VarargsExpression,
+                                 NullableAggregateFunction {
 protected:
     using Base =
             IAggregateFunctionDataHelper<AggregateFunctionForEachData, AggregateFunctionForEach>;
@@ -156,8 +158,8 @@ public:
         }
     }
 
-    bool has_trivial_destructor() const override {
-        return std::is_trivially_destructible_v<Data> && nested_function->has_trivial_destructor();
+    bool is_trivial() const override {
+        return std::is_trivial_v<Data> && nested_function->is_trivial();
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,

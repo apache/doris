@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_variant_index_format_v1", "p2, nonConcurrent") {
+    if (isCloudMode()) {
+        return;
+    }
     def calc_file_crc_on_tablet = { ip, port, tablet ->
         return curl("GET", String.format("http://%s:%s/api/calc_crc?tablet_id=%s", ip, port, tablet))
     }
@@ -61,9 +64,6 @@ suite("test_variant_index_format_v1", "p2, nonConcurrent") {
     def table_name = "github_events"
     sql """DROP TABLE IF EXISTS ${table_name}"""
     setFeConfigTemporary([enable_inverted_index_v1_for_variant: true]) {
-        if (isCloudMode()) {
-            return;
-        }
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,

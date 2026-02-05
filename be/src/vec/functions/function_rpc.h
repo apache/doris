@@ -26,13 +26,13 @@
 #include <vector>
 
 #include "common/status.h"
-#include "udf/udf.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/function.h"
 
 namespace doris {
@@ -72,7 +72,7 @@ public:
     String get_name() const override { return "RPCPreparedFunction: "; }
 
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   uint32_t result, size_t input_rows_count, bool dry_run) const override {
+                   uint32_t result, size_t input_rows_count) const override {
         auto* fn = reinterpret_cast<RPCFnImpl*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         return fn->vec_call(context, block, arguments, result, input_rows_count);

@@ -25,30 +25,19 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.gson.annotations.SerializedName;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 /**
  * Class describing between predicates. After successful analysis, we equal
  * the between predicate to a conjunctive/disjunctive compound predicate
  * to be handed to the backend.
  */
+@Deprecated
 public class BetweenPredicate extends Predicate {
-    private static final Logger LOG = LogManager.getLogger(BetweenPredicate.class);
-
     @SerializedName("inb")
     private boolean isNotBetween;
 
     private BetweenPredicate() {
         // use for serde only
-    }
-
-    // First child is the comparison expr which should be in [lowerBound, upperBound].
-    public BetweenPredicate(Expr compareExpr, Expr lowerBound, Expr upperBound, boolean isNotBetween) {
-        children.add(compareExpr);
-        children.add(lowerBound);
-        children.add(upperBound);
-        this.isNotBetween = isNotBetween;
     }
 
     protected BetweenPredicate(BetweenPredicate other) {
@@ -59,10 +48,6 @@ public class BetweenPredicate extends Predicate {
     @Override
     public Expr clone() {
         return new BetweenPredicate(this);
-    }
-
-    public boolean isNotBetween() {
-        return isNotBetween;
     }
 
     @Override
@@ -85,13 +70,6 @@ public class BetweenPredicate extends Predicate {
         return children.get(0).toSql(disableTableName, needExternalSql, tableType, table) + " " + notStr + "BETWEEN "
                 + children.get(1).toSql(disableTableName, needExternalSql, tableType, table) + " AND " + children.get(2)
                 .toSql(disableTableName, needExternalSql, tableType, table);
-    }
-
-    @Override
-    public String toDigestImpl() {
-        String notStr = (isNotBetween) ? "NOT " : "";
-        return children.get(0).toDigest() + " " + notStr + "BETWEEN "
-                + children.get(1).toDigest() + " AND " + children.get(2).toDigest();
     }
 
     @Override

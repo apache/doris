@@ -29,8 +29,11 @@ class MockVExpr : public VExpr {
 public:
     MOCK_CONST_METHOD0(clone, VExprSPtr());
     MOCK_CONST_METHOD0(expr_name, const std::string&());
-    MOCK_METHOD3(execute,
-                 Status(VExprContext* context, vectorized::Block* block, int* result_column_id));
+    MOCK_CONST_METHOD3(execute, Status(VExprContext* context, vectorized::Block* block,
+                                       int* result_column_id));
+    MOCK_CONST_METHOD5(execute_column,
+                       Status(VExprContext* context, const vectorized::Block* block,
+                              Selector* selector, size_t count, ColumnPtr& result_column));
 }; // class MockVExpr
 
 } // namespace vectorized

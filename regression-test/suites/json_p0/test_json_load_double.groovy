@@ -84,4 +84,15 @@ suite("test_json_load_double", "p0") {
     qt_sql_select_src """  select jsonb_extract(v, '\$.rebookProfit') from ${srcTable} """
     qt_sql_select_dst """  select * from ${dstTable} """
 
+    qt_json_contains """
+        select /*+ set_var(enable_fold_constant_by_be=0) */
+            json_contains(v, '3.729672759600005773616970827788463793694972991943359375', '\$.rebookProfit')
+        from ${srcTable} order by 1 desc;
+    """
+
+    qt_json_contains_fold """
+        select /*+ set_var(enable_fold_constant_by_be=1) */
+            json_contains(v, '3.729672759600005773616970827788463793694972991943359375', '\$.rebookProfit')
+        from ${srcTable} order by 1 desc;
+    """
 }

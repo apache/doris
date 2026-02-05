@@ -260,13 +260,12 @@ suite("test_drop_view_nereids") {
     sql "create view test_view_from_view_drop(c1,c2,c3) as select * from test_view_with_as_drop"
     qt_test_create_view_from_view "select * from test_view_from_view_drop order by c1,c2,c3"
 
+    // test mv prefix in name
+    sql "drop view if exists test_mv_prefix_in_view_define_drop;"
+    sql "create view test_mv_prefix_in_view_define_drop(`mva_hello`, c2) as select a,b from mal_test_view_drop;"
+
     // test backquote in name
     sql "drop view if exists test_backquote_in_view_define_drop;"
-    test {
-        sql "create view test_backquote_in_view_define_drop(`mva_hello`, c2) as select a,b from mal_test_view_drop;"
-        exception "Incorrect column name"
-    }
-
     sql "create view test_backquote_in_view_define_drop(`abc`, c2) as select a,b from mal_test_view_drop;"
     qt_test_backquote_in_view_define_drop "select * from test_backquote_in_view_define_drop order by abc, c2;"
 
@@ -276,21 +275,16 @@ suite("test_drop_view_nereids") {
 
     // test invalid column name
     sql """set enable_unicode_name_support = true;"""
-    sql "drop view if exists test_invalid_column_name_in_table_drop;"
-    test {
-        // create view should fail if contains invalid column name
-        sql "create view test_invalid_column_name_in_table_drop as select a as 'mv_hello',b from mal_test_view_drop;"
-        exception "Incorrect column name"
-    }
+    sql "drop view if exists test_mv_prefix_in_view_define_drop;"
+    sql "create view test_mv_prefix_in_view_define_drop as select a as 'mv_hello',b from mal_test_view_drop;"
 
+    // test invalid column name
+    sql "drop view if exists test_invalid_column_name_in_table_drop;"
     sql "create view test_invalid_column_name_in_table_drop as select a ,b from mal_test_view_drop;"
     order_qt_test_invalid_column_name_in_table_drop "select * from test_invalid_column_name_in_table_drop"
 
-    test {
-        // alter view should fail if contains invalid column name
-        sql "alter view test_invalid_column_name_in_table_drop as select a as 'mv_hello',b from mal_test_view_drop;"
-        exception "Incorrect column name"
-    }
+    sql "alter view test_invalid_column_name_in_table_drop as select a as 'mv_hello',b from mal_test_view_drop;"
+
     sql """set enable_unicode_name_support = false;"""
 
     sql "drop table if exists create_view_table1_drop"

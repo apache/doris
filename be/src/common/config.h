@@ -100,6 +100,9 @@ DECLARE_Int32(brpc_port);
 // Default -1, do not start arrow flight sql server.
 DECLARE_Int32(arrow_flight_sql_port);
 
+// port for cdc client scan oltp cdc data
+DECLARE_Int32(cdc_client_port);
+
 // If the external client cannot directly access priority_networks, set public_host to be accessible
 // to external client.
 // There are usually two usage scenarios:
@@ -258,6 +261,8 @@ DECLARE_Int32(tablet_publish_txn_max_thread);
 DECLARE_Int32(publish_version_task_timeout_s);
 // the count of thread to calc delete bitmap
 DECLARE_Int32(calc_delete_bitmap_max_thread);
+// the num of threads to calc delete bitmap when building rowset
+DECLARE_Int32(calc_delete_bitmap_for_load_max_thread);
 // the count of thread to calc delete bitmap worker, only used for cloud
 DECLARE_Int32(calc_delete_bitmap_worker_count);
 // the count of thread to calc tablet delete bitmap task, only used for cloud
@@ -396,6 +401,8 @@ DECLARE_mInt32(unused_rowset_monitor_interval);
 DECLARE_mInt32(quering_rowsets_evict_interval);
 DECLARE_String(storage_root_path);
 DECLARE_mString(broken_storage_path);
+DECLARE_Int32(min_active_scan_threads);
+DECLARE_Int32(min_active_file_scan_threads);
 
 // Config is used to check incompatible old format hdr_ format
 // whether doris uses strict way. When config is true, process will log fatal
@@ -425,6 +432,12 @@ DECLARE_mInt32(trash_file_expire_time_sec);
 // modify them upon necessity
 DECLARE_Int32(min_file_descriptor_number);
 DECLARE_mBool(disable_segment_cache);
+// Enable checking segment rows consistency between rowset meta and segment footer
+DECLARE_mBool(enable_segment_rows_consistency_check);
+DECLARE_mBool(enable_segment_rows_check_core);
+// ATTENTION: For test only. In test environment, there are no historical data,
+// so all rowset meta should have segment rows info.
+DECLARE_mBool(fail_when_segment_rows_not_in_rowset_meta);
 DECLARE_String(row_cache_mem_limit);
 
 // Cache for storage page size
@@ -440,6 +453,12 @@ DECLARE_Int32(index_page_cache_percentage);
 DECLARE_Bool(disable_storage_page_cache);
 // whether to disable row cache feature in storage
 DECLARE_mBool(disable_storage_row_cache);
+// Parquet page cache: threshold ratio for caching decompressed vs compressed pages
+// If uncompressed_size / compressed_size <= threshold, cache decompressed;
+// otherwise cache compressed if enable_parquet_cache_compressed_pages = true
+DECLARE_Double(parquet_page_cache_decompress_threshold);
+// Parquet page cache: whether to enable caching compressed pages (when ratio exceeds threshold)
+DECLARE_Bool(enable_parquet_cache_compressed_pages);
 // whether to disable pk page cache feature in storage
 DECLARE_Bool(disable_pk_storage_page_cache);
 
@@ -455,7 +474,7 @@ DECLARE_mInt32(index_page_cache_stale_sweep_time_sec);
 // great impact on the performance of MOW, so it can be longer.
 DECLARE_mInt32(pk_index_page_cache_stale_sweep_time_sec);
 
-DECLARE_Bool(enable_low_cardinality_optimize);
+DECLARE_mBool(enable_low_cardinality_optimize);
 DECLARE_Bool(enable_low_cardinality_cache_code);
 
 // be policy
@@ -473,6 +492,15 @@ DECLARE_mInt32(vertical_compaction_num_columns_per_group);
 DECLARE_Int32(vertical_compaction_max_row_source_memory_mb);
 // In vertical compaction, max dest segment file size
 DECLARE_mInt64(vertical_compaction_max_segment_size);
+// Threshold for sparse column compaction optimization (average bytes per row)
+// Density threshold for sparse column compaction optimization
+// density = (total_cells - null_cells) / total_cells, smaller means more sparse
+// When density <= threshold, enable sparse optimization
+// 0 = disable optimization, 1 = always enable
+// Default 1 means always enable sparse optimization
+DECLARE_mDouble(sparse_column_compaction_threshold_percent);
+// Enable RLE batch Put optimization for compaction
+DECLARE_mBool(enable_rle_batch_put_optimization);
 
 // If enabled, segments will be flushed column by column
 DECLARE_mBool(enable_vertical_segment_writer);
@@ -604,6 +632,13 @@ DECLARE_Bool(enable_all_http_auth);
 // Number of webserver workers
 DECLARE_Int32(webserver_num_workers);
 
+// Async replies: stream load only now
+// reply wait timeout only happens if:
+// 1. Stream load fragment execution times out
+//    HTTP request freed → stream load canceled
+// 2. Client disconnects
+DECLARE_mInt32(async_reply_timeout_s);
+
 DECLARE_Bool(enable_single_replica_load);
 // Number of download workers for single replica load
 DECLARE_Int32(single_replica_load_download_num_workers);
@@ -646,6 +681,12 @@ DECLARE_mInt32(slave_replica_writer_rpc_timeout_sec);
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
 DECLARE_mBool(enable_stream_load_record);
+// Whether to enable stream load record to audit log table, the default is true.
+DECLARE_mBool(enable_stream_load_record_to_audit_log_table);
+// the maximum bytes of a batch of stream load records to audit log table
+DECLARE_mInt64(stream_load_record_batch_bytes);
+// the interval to send a batch of stream load records to audit log table
+DECLARE_mInt64(stream_load_record_batch_interval_secs);
 // batch size of stream load record reported to FE
 DECLARE_mInt32(stream_load_record_batch_size);
 // expire time of stream load record in rocksdb.
@@ -656,6 +697,9 @@ DECLARE_mInt64(clean_stream_load_record_interval_secs);
 DECLARE_mBool(enable_stream_load_commit_txn_on_be);
 // The buffer size to store stream table function schema info
 DECLARE_Int64(stream_tvf_buffer_size);
+
+// request cdc client timeout
+DECLARE_mInt32(request_cdc_client_timeout_ms);
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -709,6 +753,7 @@ DECLARE_mInt32(memory_gc_sleep_time_ms);
 
 // max write buffer size before flush, default 200MB
 DECLARE_mInt64(write_buffer_size);
+DECLARE_mBool(enable_adaptive_write_buffer_size);
 // max buffer size used in memtable for the aggregated table, default 400MB
 DECLARE_mInt64(write_buffer_size_for_agg);
 
@@ -806,12 +851,12 @@ DECLARE_mInt32(storage_flood_stage_usage_percent); // 90%
 // The min bytes that should be left of a data dir
 DECLARE_mInt64(storage_flood_stage_left_capacity_bytes); // 1GB
 // number of thread for flushing memtable per store
-DECLARE_Int32(flush_thread_num_per_store);
+DECLARE_mInt32(flush_thread_num_per_store);
 // number of thread for flushing memtable per store, for high priority load task
-DECLARE_Int32(high_priority_flush_thread_num_per_store);
+DECLARE_mInt32(high_priority_flush_thread_num_per_store);
 // number of threads = min(flush_thread_num_per_store * num_store,
 //                         max_flush_thread_num_per_cpu * num_cpu)
-DECLARE_Int32(max_flush_thread_num_per_cpu);
+DECLARE_mInt32(max_flush_thread_num_per_cpu);
 
 // config for tablet meta checkpoint
 DECLARE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num);
@@ -828,6 +873,8 @@ DECLARE_Int64(brpc_max_body_size);
 // Default, if the physical memory is less than or equal to 64G, the value is 1G
 //          if the physical memory is greater than 64G, the value is physical memory * mem_limit(0.8) / 1024 * 20
 DECLARE_Int64(brpc_socket_max_unwritten_bytes);
+// Whether to set FLAGS_usercode_in_pthread to true in brpc
+DECLARE_mBool(brpc_usercode_in_pthread);
 // TODO(zxy): expect to be true in v1.3
 // Whether to embed the ProtoBuf Request serialized string together with Tuple/Block data into
 // Controller Attachment and send it through http brpc when the length of the Tuple/Block data
@@ -871,6 +918,11 @@ DECLARE_Int32(query_cache_max_partition_count);
 DECLARE_mInt32(max_tablet_version_num);
 
 DECLARE_mInt32(time_series_max_tablet_version_num);
+
+// the max sleep time when meeting high pressure load task
+DECLARE_mInt64(max_load_back_pressure_version_wait_time_ms);
+// the threshold of rowset number gap that triggers back pressure
+DECLARE_mInt64(load_back_pressure_version_threshold);
 
 // Frontend mainly use two thrift sever type: THREAD_POOL, THREADED_SELECTOR. if fe use THREADED_SELECTOR model for thrift server,
 // the thrift_server_type_of_fe should be set THREADED_SELECTOR to make be thrift client to fe constructed with TFramedTransport
@@ -1040,6 +1092,7 @@ DECLARE_mInt32(remove_unused_remote_files_interval_sec); // 6h
 DECLARE_mInt32(confirm_unused_remote_files_interval_sec);
 DECLARE_Int32(cold_data_compaction_thread_num);
 DECLARE_mInt32(cold_data_compaction_interval_sec);
+DECLARE_mInt32(cold_data_compaction_score_threshold);
 
 DECLARE_Int32(min_s3_file_system_thread_num);
 DECLARE_Int32(max_s3_file_system_thread_num);
@@ -1100,20 +1153,34 @@ DECLARE_Int32(segcompaction_task_max_rows);
 // Max total file size allowed in a single segcompaction task.
 DECLARE_Int64(segcompaction_task_max_bytes);
 
-DECLARE_Int32(segcompaction_wait_for_dbm_task_timeout_s);
-
 // Global segcompaction thread pool size.
 DECLARE_mInt32(segcompaction_num_threads);
 
 // enable java udf and jdbc scannode
 DECLARE_Bool(enable_java_support);
 
+// enable python udf
+DECLARE_Bool(enable_python_udf_support);
+// python env mode, options: conda, venv
+DECLARE_String(python_env_mode);
+// root path of conda runtime, python_env_mode should be conda
+DECLARE_String(python_conda_root_path);
+// root path of venv runtime, python_env_mode should be venv
+DECLARE_String(python_venv_root_path);
+// python interpreter paths used by venv, e.g. /usr/bin/python3.7:/usr/bin/python3.6
+DECLARE_String(python_venv_interpreter_paths);
+// max python processes in global shared pool, each version can have up to this many processes
+DECLARE_mInt32(max_python_process_num);
+
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);
+
+DECLARE_Bool(enable_graceful_exit_check);
 
 DECLARE_Bool(enable_debug_points);
 
 DECLARE_Int32(pipeline_executor_size);
+DECLARE_Int32(blocking_pipeline_executor_size);
 
 // block file cache
 DECLARE_Bool(enable_file_cache);
@@ -1133,7 +1200,7 @@ DECLARE_Bool(enable_file_cache);
 DECLARE_String(file_cache_path);
 DECLARE_Int64(file_cache_each_block_size);
 DECLARE_Bool(clear_file_cache);
-DECLARE_Bool(enable_file_cache_query_limit);
+DECLARE_mBool(enable_file_cache_query_limit);
 DECLARE_Int32(file_cache_enter_disk_resource_limit_mode_percent);
 DECLARE_Int32(file_cache_exit_disk_resource_limit_mode_percent);
 DECLARE_mBool(enable_evict_file_cache_in_advance);
@@ -1159,11 +1226,19 @@ DECLARE_mInt64(cache_lock_held_long_tail_threshold_us);
 // If your file cache is ample enough to accommodate all the data in your database,
 // enable this option; otherwise, it is recommended to leave it disabled.
 DECLARE_mBool(enable_file_cache_keep_base_compaction_output);
+DECLARE_mBool(enable_file_cache_adaptive_write);
+DECLARE_mDouble(file_cache_keep_base_compaction_output_min_hit_ratio);
+DECLARE_mDouble(file_cache_meta_store_vs_file_system_diff_num_threshold);
+DECLARE_mDouble(file_cache_keep_schema_change_output_min_hit_ratio);
 DECLARE_mInt64(file_cache_remove_block_qps_limit);
 DECLARE_mInt64(file_cache_background_gc_interval_ms);
+DECLARE_mInt64(file_cache_background_block_lru_update_interval_ms);
+DECLARE_mInt64(file_cache_background_block_lru_update_qps_limit);
 DECLARE_mBool(enable_reader_dryrun_when_download_file_cache);
 DECLARE_mInt64(file_cache_background_monitor_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_interval_ms);
+DECLARE_mInt64(file_cache_background_ttl_info_update_interval_ms);
+DECLARE_mInt64(file_cache_background_tablet_id_flush_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_batch);
 DECLARE_Int32(file_cache_downloader_thread_num_min);
 DECLARE_Int32(file_cache_downloader_thread_num_max);
@@ -1174,6 +1249,8 @@ DECLARE_mInt64(file_cache_background_lru_dump_update_cnt_threshold);
 DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
 DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
 DECLARE_mBool(enable_evaluate_shadow_queue_diff);
+
+DECLARE_mBool(file_cache_enable_only_warm_up_idx);
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1190,6 +1267,9 @@ DECLARE_Int32(inverted_index_query_cache_shards);
 
 // inverted index match bitmap cache size
 DECLARE_String(inverted_index_query_cache_limit);
+
+// condition cache limit
+DECLARE_Int16(condition_cache_limit);
 
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
@@ -1298,13 +1378,16 @@ DECLARE_mInt64(lookup_connection_cache_capacity);
 DECLARE_mInt64(LZ4_HC_compression_level);
 // Threshold of a column as sparse column
 // Notice: TEST ONLY
-DECLARE_mDouble(variant_ratio_of_defaults_as_sparse_column);
 DECLARE_mBool(variant_use_cloud_schema_dict_cache);
 // Threshold to estimate a column is sparsed
 // Notice: TEST ONLY
 DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
+// Max json key length in bytes when parsing json into variant subcolumns/jsonb.
+DECLARE_mInt32(variant_max_json_key_length);
 // Treat invalid json format str as string, instead of throwing exception if false
 DECLARE_mBool(variant_throw_exeception_on_invalid_json);
+// Enable vertical compact subcolumns of variant column
+DECLARE_mBool(enable_vertical_compact_variant_subcolumns);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 // USED FOR DEBUGING
@@ -1335,7 +1418,7 @@ DECLARE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap);
 DECLARE_mBool(enable_check_agg_and_remove_pre_rowsets_delete_bitmap);
 
 // The secure path with user files, used in the `local` table function.
-DECLARE_mString(user_files_secure_path);
+DECLARE_String(user_files_secure_path);
 
 // If fe's frontend info has not been updated for more than fe_expire_duration_seconds, it will be regarded
 // as an abnormal fe, this will cause be to cancel this fe's related query.
@@ -1345,6 +1428,12 @@ DECLARE_Int32(fe_expire_duration_seconds);
 // , but if the waiting time exceed the limit, then be will exit directly.
 // During this period, FE will not send any queries to BE and waiting for all running queries to stop.
 DECLARE_Int32(grace_shutdown_wait_seconds);
+// When using the graceful stop feature, after the main process waits for
+// all currently running tasks to finish, it will continue to wait for
+// an additional period to ensure that queries still running on other nodes have also completed.
+// Since a BE node cannot detect the task execution status on other BE nodes,
+// you may need to increase this threshold to allow for a longer waiting time.
+DECLARE_Int32(grace_shutdown_post_delay_seconds);
 
 // BitmapValue serialize version.
 DECLARE_Int16(bitmap_serialize_version);
@@ -1437,9 +1526,8 @@ DECLARE_String(spill_storage_root_path);
 DECLARE_String(spill_storage_limit);
 DECLARE_mInt32(spill_gc_interval_ms);
 DECLARE_mInt32(spill_gc_work_time_ms);
-DECLARE_Int32(spill_io_thread_pool_thread_num);
-DECLARE_Int32(spill_io_thread_pool_queue_size);
 DECLARE_Int64(spill_in_paused_queue_timeout_ms);
+DECLARE_Int64(wait_cancel_release_memory_ms);
 
 DECLARE_mBool(check_segment_when_build_rowset_meta);
 
@@ -1545,6 +1633,9 @@ DECLARE_mBool(skip_loading_stale_rowset_meta);
 // Only works when starting BE with --console.
 DECLARE_Bool(enable_file_logger);
 
+// Enable partition column fallback when partition columns are missing from file
+DECLARE_Bool(enable_iceberg_partition_column_fallback);
+
 // The minimum row group size when exporting Parquet files.
 DECLARE_Int64(min_row_group_size);
 
@@ -1612,6 +1703,7 @@ DECLARE_mBool(enable_calc_delete_bitmap_between_segments_concurrently);
 
 DECLARE_mBool(enable_update_delete_bitmap_kv_check_core);
 
+DECLARE_mBool(enable_fetch_rowsets_from_peer_replicas);
 // the max length of segments key bounds, in bytes
 // ATTENTION: as long as this conf has ever been enabled, cluster downgrade and backup recovery will no longer be supported.
 DECLARE_mInt32(segments_key_bounds_truncation_threshold);
@@ -1624,6 +1716,28 @@ DECLARE_mBool(enable_auto_clone_on_mow_publish_missing_version);
 
 // p0, daily, rqg, external
 DECLARE_String(fuzzy_test_type);
+
+// The maximum csv line reader output buffer size
+DECLARE_mInt64(max_csv_line_reader_output_buffer_size);
+
+// Maximum number of OpenMP threads available for concurrent index builds.
+// -1 means auto: use 80% of detected CPU cores.
+DECLARE_Int32(omp_threads_limit);
+// The capacity of segment partial column cache, used to cache column readers for each segment.
+DECLARE_mInt32(max_segment_partial_column_cache_size);
+// Chunk size for ANN/vector index building per training/adding batch
+DECLARE_mInt64(ann_index_build_chunk_size);
+
+DECLARE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction);
+DECLARE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction);
+
+DECLARE_mBool(enable_wal_tde);
+
+DECLARE_mBool(print_stack_when_cache_miss);
+
+DECLARE_mBool(read_cluster_cache_opt_verbose_log);
+
+DECLARE_mString(aws_credentials_provider_version);
 
 #ifdef BE_TEST
 // test s3

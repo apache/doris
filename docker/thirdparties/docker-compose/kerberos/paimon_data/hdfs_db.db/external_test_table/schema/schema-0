@@ -1,0 +1,29 @@
+{
+  "version" : 3,
+  "id" : 0,
+  "fields" : [ {
+    "id" : 0,
+    "name" : "a",
+    "type" : "INT",
+    "description" : "The a field"
+  }, {
+    "id" : 1,
+    "name" : "b",
+    "type" : "STRING",
+    "description" : "The b field"
+  } ],
+  "highestFieldId" : 1,
+  "partitionKeys" : [ ],
+  "primaryKeys" : [ ],
+  "options" : {
+    "path" : "hdfs:///user/hive/warehouse/hdfs_db.db/external_test_table",
+    "totalSize" : "0",
+    "numRows" : "0",
+    "rawDataSize" : "0",
+    "COLUMN_STATS_ACCURATE" : "{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"a\":\"true\",\"b\":\"true\"}}",
+    "numFiles" : "0",
+    "bucketing_version" : "2",
+    "storage_handler" : "org.apache.paimon.hive.PaimonStorageHandler"
+  },
+  "timeMillis" : 1757405300463
+}

@@ -142,7 +142,9 @@ public:
 
     QueryCache(size_t capacity, uint32_t num_shards)
             : LRUCachePolicy(CachePolicy::CacheType::QUERY_CACHE, capacity, LRUCacheType::SIZE,
-                             3600 * 24, num_shards) {}
+                             3600 * 24, /*num_shards*/ num_shards,
+                             /*element_count_capacity*/ 0, /*enable_prune*/ true,
+                             /*is_lru_k*/ true) {}
 
     bool lookup(const CacheKey& key, int64_t version, QueryCacheHandle* handle);
 

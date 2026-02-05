@@ -63,12 +63,12 @@ suite("test_base_mtmv","mtmv") {
         ${querySql};
     """
     def jobName = getJobName("regression_test_mtmv_p0", mvName);
-    order_qt_init "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_init "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
      sql """
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
     """
     waitingMTMVTaskFinished(jobName)
-    order_qt_success "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_success "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
 
     mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
 
@@ -77,7 +77,7 @@ suite("test_base_mtmv","mtmv") {
         alter table ${tableName} add COLUMN new_col INT AFTER username;
     """
     assertEquals("FINISHED", getAlterColumnFinalState("${tableName}"))
-    order_qt_add_column "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_add_column "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
 
     mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // rename column
@@ -85,53 +85,53 @@ suite("test_base_mtmv","mtmv") {
         alter table ${tableName} rename COLUMN new_col new_col_1;
     """
     assertEquals("FINISHED", getAlterColumnFinalState("${tableName}"))
-    order_qt_rename_column "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_rename_column "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     sql """
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
     """
     waitingMTMVTaskFinished(jobName)
-    order_qt_success "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_success "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // modify column
     sql """
         alter table ${tableName} modify COLUMN new_col_1 BIGINT;
     """
     assertEquals("FINISHED", getAlterColumnFinalState("${tableName}"))
-    order_qt_modify_column "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_modify_column "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     sql """
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
     """
     waitingMTMVTaskFinished(jobName)
-    order_qt_success "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_success "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // drop column
     sql """
         alter table ${tableName} drop COLUMN new_col_1;
     """
     assertEquals("FINISHED", getAlterColumnFinalState("${tableName}"))
-    order_qt_drop_column "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_drop_column "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     sql """
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
     """
     waitingMTMVTaskFinished(jobName)
-    order_qt_success "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_success "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // replace table
      sql """
     ALTER TABLE ${tableName} REPLACE WITH TABLE ${newTableName} PROPERTIES('swap' = 'false');
     """
-    order_qt_replace_table "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_replace_table "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     sql """
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
     """
     waitingMTMVTaskFinished(jobName)
-    order_qt_success "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_success "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // rename table
      sql """
     ALTER TABLE ${tableName} rename ${newTableName};
     """
-    order_qt_rename_table "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_rename_table "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     sql """
     ALTER TABLE ${newTableName} rename ${tableName};
     """
@@ -139,13 +139,13 @@ suite("test_base_mtmv","mtmv") {
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
     """
     waitingMTMVTaskFinished(jobName)
-    order_qt_success "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_success "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // drop table
     sql """
         drop table ${tableName}
     """
-    order_qt_drop_table "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_drop_table "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     sql """
         CREATE TABLE IF NOT EXISTS `${tableName}` (
             event_day DATE,
@@ -164,7 +164,7 @@ suite("test_base_mtmv","mtmv") {
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
     """
     waitingMTMVTaskFinished(jobName)
-    order_qt_success "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_success "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
 
     qt_desc_mv_1 "desc ${mvName}"

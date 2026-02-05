@@ -96,4 +96,5 @@ enum TExprOpcode {
     MATCH_PHRASE_PREFIX = 75,
     MATCH_REGEXP = 76,
     MATCH_PHRASE_EDGE = 77,
+    TRY_CAST = 78,
 }

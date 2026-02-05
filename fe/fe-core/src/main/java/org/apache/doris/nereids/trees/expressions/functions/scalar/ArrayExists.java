@@ -38,10 +38,6 @@ public class ArrayExists extends ScalarFunction
             FunctionSignature.ret(ArrayType.of(BooleanType.INSTANCE)).args(ArrayType.of(BooleanType.INSTANCE))
     );
 
-    private ArrayExists(List<Expression> expressions) {
-        super("array_exists", expressions);
-    }
-
     /**
      * constructor with arguments.
      * array_exists(lambda, a1, ...) = array_exists(array_map(lambda, a1, ...))
@@ -50,12 +46,17 @@ public class ArrayExists extends ScalarFunction
         super("array_exists", arg instanceof Lambda ? new ArrayMap(arg) : arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayExists(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayExists withChildren(List<Expression> children) {
-        return new ArrayExists(children);
+        return new ArrayExists(getFunctionParams(children));
     }
 
     @Override

@@ -172,8 +172,6 @@ TPlanNode HashJoinTestHelper::create_test_plan_node(
 
     tnode.row_tuples.push_back(0);
     tnode.row_tuples.push_back(1);
-    tnode.nullable_tuples.push_back(false);
-    tnode.nullable_tuples.push_back(false);
     tnode.__isset.hash_join_node = true;
 
     tnode.hash_join_node.vintermediate_tuple_id_list.emplace_back(2);
@@ -605,10 +603,10 @@ HashJoinTestHelper::create_operators(const TPlanNode& tnode) {
     auto probe_side_source_operator = std::make_shared<MockSourceOperator>();
     auto probe_side_sink_operator = std::make_shared<MockSinkOperator>();
 
-    RowDescriptor row_desc(runtime_state->desc_tbl(), {1}, {false});
+    RowDescriptor row_desc(runtime_state->desc_tbl(), {1});
     child_operator->_row_descriptor = row_desc;
 
-    RowDescriptor probe_side_row_desc(runtime_state->desc_tbl(), {0}, {false});
+    RowDescriptor probe_side_row_desc(runtime_state->desc_tbl(), {0});
     probe_side_source_operator->_row_descriptor = probe_side_row_desc;
 
     EXPECT_TRUE(sink_operator->set_child(child_operator));

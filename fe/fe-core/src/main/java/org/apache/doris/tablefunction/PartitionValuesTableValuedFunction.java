@@ -145,7 +145,7 @@ public class PartitionValuesTableValuedFunction extends MetadataTableValuedFunct
     }
 
     @Override
-    public List<TMetaScanRange> getMetaScanRanges(List<String> requiredFileds) {
+    public TMetaScanRange getMetaScanRange(List<String> requiredFileds) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("getMetaScanRange() start");
         }
@@ -156,7 +156,7 @@ public class PartitionValuesTableValuedFunction extends MetadataTableValuedFunct
         partitionParam.setDatabase(databaseName);
         partitionParam.setTable(tableName);
         metaScanRange.setPartitionValuesParams(partitionParam);
-        return Lists.newArrayList(metaScanRange);
+        return metaScanRange;
     }
 
     @Override

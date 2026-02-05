@@ -52,13 +52,18 @@ public class Reverse extends ScalarFunction
         super("reverse", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Reverse(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Reverse withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Reverse(children.get(0));
+        return new Reverse(getFunctionParams(children));
     }
 
     @Override

@@ -114,8 +114,9 @@ public:
         if (col_needles_const) {
             status = Impl::vector_constant(
                     col_haystack_vector->get_chars(), col_haystack_vector->get_offsets(),
-                    col_needles_const->get_value<Array>(), vec_res, offsets_res, allow_hyperscan_,
-                    max_hyperscan_regexp_length_, max_hyperscan_regexp_total_length_);
+                    col_needles_const->get_value<TYPE_ARRAY>(), vec_res, offsets_res,
+                    allow_hyperscan_, max_hyperscan_regexp_length_,
+                    max_hyperscan_regexp_total_length_);
         } else {
             status = Impl::vector_vector(
                     col_haystack_vector->get_chars(), col_haystack_vector->get_offsets(),
@@ -139,9 +140,9 @@ public:
 private:
     using ResultType = typename Impl::ResultType;
 
-    const bool allow_hyperscan_ = true;
-    const size_t max_hyperscan_regexp_length_ = 0;       // not limited
-    const size_t max_hyperscan_regexp_total_length_ = 0; // not limited
+    constexpr static bool allow_hyperscan_ = true;
+    constexpr static size_t max_hyperscan_regexp_length_ = 0;       // not limited
+    constexpr static size_t max_hyperscan_regexp_total_length_ = 0; // not limited
 
     /// Handles nullable column by setting result to 0 if the input is null
     void handle_nullable_column(const ColumnPtr& column, PaddedPODArray<ResultType>& vec_res,
@@ -236,7 +237,8 @@ struct FunctionMultiMatchAnyImpl {
         std::vector<StringRef> needles;
         needles.reserve(needles_arr.size());
         for (const auto& needle : needles_arr) {
-            needles.emplace_back(needle.get<StringRef>());
+            const auto& tmp = needle.get<TYPE_STRING>();
+            needles.emplace_back(StringRef {tmp.data(), tmp.size()});
         }
 
         res.resize(haystack_offsets.size());

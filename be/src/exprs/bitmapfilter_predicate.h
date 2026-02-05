@@ -19,6 +19,7 @@
 
 #include <algorithm>
 
+#include "common/cast_set.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime_filter/runtime_filter_definitions.h"
@@ -33,7 +34,7 @@ public:
     virtual uint16_t find_fixed_len_olap_engine(const char* data, const uint8_t* nullmap,
                                                 uint16_t* offsets, int number) = 0;
     virtual void find_batch(const char* data, const uint8_t* nullmap, size_t number,
-                            uint8_t* results) const = 0;
+                            uint8_t* results, const uint8_t* __restrict filter = nullptr) const = 0;
     virtual size_t size() const = 0;
     bool is_not_in() const { return _not_in; }
     void set_not_in(bool not_in) { _not_in = not_in; }
@@ -58,8 +59,8 @@ public:
     uint16_t find_fixed_len_olap_engine(const char* data, const uint8_t* nullmap, uint16_t* offsets,
                                         int number) override;
 
-    void find_batch(const char* data, const uint8_t* nullmap, size_t number,
-                    uint8_t* results) const override;
+    void find_batch(const char* data, const uint8_t* nullmap, size_t number, uint8_t* results,
+                    const uint8_t* __restrict filter = nullptr) const override;
 
     size_t size() const override { return _bitmap_value->cardinality(); }
 
@@ -67,7 +68,8 @@ public:
         if (right < 0) {
             return false;
         }
-        return _bitmap_value->contains_any(std::max(left, (CppType)0), right);
+        return _bitmap_value->contains_any(cast_set<uint64_t>(std::max(left, (CppType)0)),
+                                           cast_set<uint64_t>(right));
     }
 
 private:
@@ -104,16 +106,27 @@ uint16_t BitmapFilterFunc<type>::find_fixed_len_olap_engine(const char* data,
 
 template <PrimitiveType type>
 void BitmapFilterFunc<type>::find_batch(const char* data, const uint8_t* nullmap, size_t number,
-                                        uint8_t* results) const {
-    for (size_t i = 0; i < number; i++) {
+                                        uint8_t* results, const uint8_t* __restrict filter) const {
+    auto update = [&](size_t i) {
         results[i] = false;
         if (nullmap != nullptr && nullmap[i]) {
-            continue;
+            return;
         }
         if (!find(*((CppType*)data + i))) {
-            continue;
+            return;
         }
         results[i] = true;
+    };
+    if (filter != nullptr) {
+        for (size_t i = 0; i < number; i++) {
+            if (filter[i]) {
+                update(i);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < number; i++) {
+            update(i);
+        }
     }
 }
 

@@ -47,7 +47,6 @@ private:
     int64_t _sorted_partition_input_rows = 0;
     std::vector<PartitionDataPtr> _value_places;
     int _num_partition = 0;
-    std::vector<const vectorized::IColumn*> _partition_columns;
     std::unique_ptr<PartitionedHashMapVariants> _partitioned_data;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool;
     int _partition_exprs_num = 0;
@@ -81,7 +80,8 @@ public:
               _partition_exprs_num(partition_exprs_num),
               _topn_phase(TPartTopNPhase::ONE_PHASE_GLOBAL),
               _has_global_limit(has_global_limit),
-              _partition_inner_limit(partition_inner_limit) {}
+              _partition_inner_limit(partition_inner_limit),
+              _distribute_exprs({}) {}
 #endif
 
     Status init(const TDataSink& tsink) override {
@@ -93,9 +93,9 @@ public:
 
     Status prepare(RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_topn_phase == TPartTopNPhase::TWO_PHASE_GLOBAL) {
-            return DataSinkOperatorX<PartitionSortSinkLocalState>::required_data_distribution();
+            return DataDistribution(ExchangeType::HASH_SHUFFLE, _distribute_exprs);
         }
         return {ExchangeType::PASSTHROUGH};
     }
@@ -114,6 +114,7 @@ private:
     const int64_t _partition_inner_limit = 0;
 
     vectorized::VExprContextSPtrs _partition_expr_ctxs;
+    const std::vector<TExpr> _distribute_exprs;
     // Expressions and parameters used for build _sort_description
     vectorized::VSortExecExprs _vsort_exec_exprs;
     std::vector<bool> _is_asc_order;

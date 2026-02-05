@@ -66,10 +66,10 @@ public:
     }
 
     // add
-    void add(const typename PrimitiveTypeTraits<T>::ColumnItemType& value, UInt32 scale) {
+    void add(const typename PrimitiveTypeTraits<T>::CppType& value, UInt32 scale) {
         double val = 0;
         if constexpr (is_decimal(T)) {
-            using NativeType = typename PrimitiveTypeTraits<T>::ColumnItemType::NativeType;
+            using NativeType = typename PrimitiveTypeTraits<T>::CppType::NativeType;
             val = static_cast<double>(value.value) /
                   static_cast<double>(decimal_scale_multiplier<NativeType>(scale));
         } else {
@@ -185,7 +185,9 @@ public:
 template <PrimitiveType T, typename Data, bool has_offset>
 class AggregateFunctionLinearHistogram final
         : public IAggregateFunctionDataHelper<
-                  Data, AggregateFunctionLinearHistogram<T, Data, has_offset>> {
+                  Data, AggregateFunctionLinearHistogram<T, Data, has_offset>>,
+          MultiExpression,
+          NotNullableAggregateFunction {
 public:
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
 

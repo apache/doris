@@ -93,6 +93,13 @@ suite("test_query_json_set", "query") {
                               '\$.data.array', k1, 
                               '\$.data.struct', k3, 
                               '\$.data.json', k4) from ${tableName} order by k0;"""
+    qt_sql3 """
+        select json_set(
+            '{"data": {"array": null, "map": null, "struct": null, "json": null}}',
+            '\$.data1.array', k1,
+            '\$.data2.struct', k3
+        ) from ${tableName} order by k0;
+    """
     sql "DROP TABLE ${tableName};"
 
     qt_set1 """select json_set('1', '\$[0]', 2);"""
@@ -102,6 +109,7 @@ suite("test_query_json_set", "query") {
     qt_set5 """select json_set('{"k": 1}', '\$.k[0]', NULL);"""
     qt_set6 """select json_set('{"k": 1}', '\$.k[1]', NULL);"""
     qt_set7 """select json_set('{"k": 1}', NULL, 2);"""
+    qt_set8 """select json_set('{}', '\$.a', 100, '\$.b.a', 200);"""
 
     test {
         sql """select json_set('1', '\$.*', 4);"""

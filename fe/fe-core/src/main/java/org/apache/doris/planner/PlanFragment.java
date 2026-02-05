@@ -40,7 +40,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.Lists;
 import org.apache.commons.codec.binary.Hex;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -155,9 +155,9 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     // has colocate plan node
     protected boolean hasColocatePlanNode = false;
-    protected final Supplier<Boolean> hasBucketShuffleJoin;
+    protected final Supplier<Boolean> hasBucketShuffleNode;
 
-    private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
+    private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCOL;
 
     public Optional<NereidsSpecifyInstances<ScanSource>> specifyInstances = Optional.empty();
 
@@ -176,7 +176,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.transferQueryStatisticsWithEveryBatch = false;
         this.builderRuntimeFilterIds = new HashSet<>();
         this.targetRuntimeFilterIds = new HashSet<>();
-        this.hasBucketShuffleJoin = buildHasBucketShuffleJoin();
+        this.hasBucketShuffleNode = buildHasBucketShuffleNode();
         setParallelExecNumIfExists();
         setFragmentInPlanTree(planRoot);
     }
@@ -193,11 +193,18 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.targetRuntimeFilterIds = new HashSet<>(targetRuntimeFilterIds);
     }
 
-    private Supplier<Boolean> buildHasBucketShuffleJoin() {
+    private Supplier<Boolean> buildHasBucketShuffleNode() {
         return Suppliers.memoize(() -> {
             List<HashJoinNode> hashJoinNodes = getPlanRoot().collectInCurrentFragment(HashJoinNode.class::isInstance);
             for (HashJoinNode hashJoinNode : hashJoinNodes) {
                 if (hashJoinNode.isBucketShuffle()) {
+                    return true;
+                }
+            }
+            List<SetOperationNode> setOperationNodes
+                    = getPlanRoot().collectInCurrentFragment(SetOperationNode.class::isInstance);
+            for (SetOperationNode setOperationNode : setOperationNodes) {
+                if (setOperationNode.isBucketShuffle()) {
                     return true;
                 }
             }
@@ -267,8 +274,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.hasColocatePlanNode = hasColocatePlanNode;
     }
 
-    public boolean hasBucketShuffleJoin() {
-        return hasBucketShuffleJoin.get();
+    public boolean hasBucketShuffleNode() {
+        return hasBucketShuffleNode.get();
     }
 
     public void setResultSinkType(TResultSinkType resultSinkType) {
@@ -467,11 +474,6 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.sink = sink;
     }
 
-    public void resetSink(DataSink sink) {
-        sink.setFragment(this);
-        this.sink = sink;
-    }
-
     public PlanFragmentId getFragmentId() {
         return fragmentId;
     }
@@ -482,11 +484,6 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public Set<RuntimeFilterId> getTargetRuntimeFilterIds() {
         return targetRuntimeFilterIds;
-    }
-
-    public void clearRuntimeFilters() {
-        builderRuntimeFilterIds.clear();
-        targetRuntimeFilterIds.clear();
     }
 
     public void setTransferQueryStatisticsWithEveryBatch(boolean value) {

@@ -90,6 +90,19 @@ public:
             const_cast<HyperLogLog*>(&hll)->update(static_cast<uint64_t>(expect_num));
             auto actual = hll.estimate_cardinality();
             EXPECT_EQ(expect, actual);
+        } else if constexpr (std::is_same_v<DataType, DataTypeDecimalV2>) {
+            EXPECT_EQ(expect_num, (*(int128_t*)unwrap_col->get_data_at(pos).data));
+        } else if constexpr (IsDataTypeDecimal<DataType>) {
+            EXPECT_EQ(expect_num,
+                      (*(typename DataType::FieldType::NativeType*)unwrap_col->get_data_at(pos)
+                                .data));
+        } else if constexpr (is_date_or_datetime(DataType::PType)) {
+            EXPECT_EQ(expect_num, (*(int64_t*)unwrap_col->get_data_at(pos).data));
+        } else if constexpr (DataType::PType == TYPE_DATEV2) {
+            EXPECT_EQ(expect_num, (*(uint32_t*)unwrap_col->get_data_at(pos).data));
+        } else if constexpr (DataType::PType == TYPE_DATETIMEV2 ||
+                             DataType::PType == TYPE_TIMESTAMPTZ) {
+            EXPECT_EQ(expect_num, (*(uint64_t*)unwrap_col->get_data_at(pos).data));
         } else {
             EXPECT_EQ(expect_num, unwrap_col->get_int(pos));
         }
@@ -132,6 +145,16 @@ public:
                 HyperLogLog hll;
                 hll.update(i);
                 input_col->insert_data(reinterpret_cast<const char*>(&hll), sizeof(hll));
+            } else if constexpr (std::is_same_v<DataType, DataTypeDateV2>) {
+                auto item = static_cast<uint32_t>(i);
+                input_col->insert_data(reinterpret_cast<const char*>(&item), 0);
+            } else if constexpr (std::is_same_v<DataType, DataTypeDateTimeV2>) {
+                auto item = static_cast<uint64_t>(i);
+                input_col->insert_data(reinterpret_cast<const char*>(&item), 0);
+            } else if constexpr (std::is_same_v<DataType, DataTypeDateTime> ||
+                                 std::is_same_v<DataType, DataTypeDate>) {
+                auto item = static_cast<int64_t>(i);
+                input_col->insert_data(reinterpret_cast<const char*>(&item), 0);
             } else {
                 auto item = FieldType(static_cast<uint64_t>(i));
                 input_col->insert_data(reinterpret_cast<const char*>(&item), 0);
@@ -164,11 +187,29 @@ public:
                     array[j] = Field::create_field<TYPE_STRING>(item);
                 } else if constexpr (IsDecimalNumber<FieldType>) {
                     auto item = FieldType(static_cast<uint64_t>(j));
-                    array[j] =
-                            Field::create_field<TYPE_DECIMALV2>(DecimalField<FieldType>(item, 20));
+                    array[j] = Field::create_field<TYPE_DECIMALV2>(
+                            *(typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType*)&item);
+                } else if (is_date_or_datetime(DataType::PType)) {
+                    auto v = static_cast<int64_t>(j);
+                    array[j] = Field::create_field<DataType::PType>(
+                            *(typename PrimitiveTypeTraits<DataType::PType>::CppType*)&v);
+                } else if (DataType::PType == TYPE_TIMESTAMPTZ ||
+                           DataType::PType == TYPE_DATETIMEV2) {
+                    auto v = static_cast<uint64_t>(j);
+                    array[j] = Field::create_field<DataType::PType>(
+                            *(typename PrimitiveTypeTraits<DataType::PType>::CppType*)&v);
+                } else if (DataType::PType == TYPE_DATEV2) {
+                    auto v = static_cast<uint32_t>(j);
+                    array[j] = Field::create_field<DataType::PType>(
+                            *(typename PrimitiveTypeTraits<DataType::PType>::CppType*)&v);
+                } else if (DataType::PType == TYPE_LARGEINT) {
+                    auto v = static_cast<__int128>(j);
+                    array[j] = Field::create_field<DataType::PType>(
+                            *(typename PrimitiveTypeTraits<DataType::PType>::CppType*)&v);
                 } else {
-                    array[j] = Field::create_field<TYPE_DATETIMEV2>(
-                            FieldType(static_cast<uint64_t>(j)));
+                    auto v = static_cast<uint64_t>(j);
+                    array[j] = Field::create_field<DataType::PType>(
+                            *(typename PrimitiveTypeTraits<DataType::PType>::CppType*)&v);
                 }
             }
             input_col->insert(Field::create_field<TYPE_ARRAY>(array));
@@ -220,7 +261,7 @@ public:
         DataTypes data_types = {data_type};
         LOG(INFO) << "test_agg_replace for " << fn_name << "(" << data_types[0]->get_name() << ")";
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
-        auto agg_function = factory.get(fn_name, data_types, nullable, -1);
+        auto agg_function = factory.get(fn_name, data_types, nullptr, nullable, -1);
         EXPECT_NE(agg_function, nullptr);
 
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
@@ -244,7 +285,7 @@ public:
         DataTypes data_types = {data_type};
         LOG(INFO) << "test_agg_replace for " << fn_name << "(" << data_types[0]->get_name() << ")";
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
-        auto agg_function = factory.get(fn_name, data_types, nullable, -1);
+        auto agg_function = factory.get(fn_name, data_types, nullptr, nullable, -1);
         EXPECT_NE(agg_function, nullptr);
 
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);

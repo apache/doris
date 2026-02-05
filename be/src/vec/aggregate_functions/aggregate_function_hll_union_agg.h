@@ -104,7 +104,9 @@ struct AggregateFunctionHLLUnionAggImpl : Data {
 
 template <typename Data>
 class AggregateFunctionHLLUnion
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionHLLUnion<Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionHLLUnion<Data>>,
+          UnaryExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionHLLUnion(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionHLLUnion<Data>>(argument_types_) {

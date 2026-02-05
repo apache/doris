@@ -22,6 +22,8 @@ suite("check_meta", "check_meta") {
     def caseStartTime = System.currentTimeMillis()
     def errMsg = "OK"
     def status = 200
+    def recyclerLastSuccessTime = -1
+    def recyclerLastFinishTime = -1
 
     String jdbcUrl = context.config.jdbcUrl
     String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
@@ -36,6 +38,30 @@ suite("check_meta", "check_meta") {
     } else {
         // e.g: jdbc:mysql://locahost:8080
         sqlPort = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1)
+    }
+
+    def getRecycleJobInfo = {
+        def recycleJobInfoApi = { checkFunc ->
+            httpTest {
+                endpoint context.config.recycleServiceHttpAddress
+                uri "/RecyclerService/http/recycle_job_info?token=$token&instance_id=$instanceId"
+                op "get"
+                check checkFunc
+            }
+        }
+        recycleJobInfoApi.call() {
+            respCode, body ->
+                logger.info("http cli result: ${body} ${respCode}")
+                def recycleJobInfoResult = body
+                logger.info("recycleJobInfoResult:${recycleJobInfoResult}")
+                assertEquals(respCode, 200)
+                def info = parseJson(recycleJobInfoResult.trim())
+                if (info.last_finish_time_ms != null) {
+                    recyclerLastFinishTime = Long.parseLong(info.last_finish_time_ms)
+                    assertTrue(info.last_success_time_ms != null)
+                    recyclerLastSuccessTime = Long.parseLong(info.last_success_time_ms)
+                }
+        }
     }
 
     def checkMeta = {
@@ -54,6 +80,17 @@ suite("check_meta", "check_meta") {
                 status = respCode
         }
     }
+
+    do {
+        triggerRecycle(token, instanceId)
+        Thread.sleep(10000)
+        getRecycleJobInfo()
+        logger.info("caseStartTime=${caseStartTime}, recyclerLastSuccessTime=${recyclerLastSuccessTime}")
+        if (recyclerLastSuccessTime > caseStartTime) {
+            break
+        }
+    } while (true)
+    assertEquals(recyclerLastFinishTime, recyclerLastSuccessTime)
 
     def start = System.currentTimeMillis()
     def now = -1;

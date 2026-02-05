@@ -19,6 +19,7 @@ package org.apache.doris.cloud.transaction;
 
 import org.apache.doris.cloud.proto.Cloud.RLTaskTxnCommitAttachmentPB;
 import org.apache.doris.cloud.proto.Cloud.RoutineLoadProgressPB;
+import org.apache.doris.cloud.proto.Cloud.StreamingTaskCommitAttachmentPB;
 import org.apache.doris.cloud.proto.Cloud.TxnCommitAttachmentPB;
 import org.apache.doris.cloud.proto.Cloud.TxnCommitAttachmentPB.LoadJobFinalOperationPB;
 import org.apache.doris.cloud.proto.Cloud.TxnCommitAttachmentPB.LoadJobFinalOperationPB.EtlStatusPB;
@@ -28,6 +29,7 @@ import org.apache.doris.cloud.proto.Cloud.TxnCoordinatorPB;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.proto.Cloud.TxnSourceTypePB;
 import org.apache.doris.cloud.proto.Cloud.UniqueIdPB;
+import org.apache.doris.job.extensions.insert.streaming.StreamingTaskTxnCommitAttachment;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.loadv2.JobState;
@@ -268,6 +270,41 @@ public class TxnUtil {
         return new RLTaskTxnCommitAttachment(txnCommitAttachmentPB.getRlTaskTxnCommitAttachment());
     }
 
+    public static TxnCommitAttachmentPB streamingTaskTxnCommitAttachmentToPb(StreamingTaskTxnCommitAttachment
+            streamingTaskTxnCommitAttachment) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("streamingTaskTxnCommitAttachment:{}", streamingTaskTxnCommitAttachment);
+        }
+        TxnCommitAttachmentPB.Builder attachementBuilder = TxnCommitAttachmentPB.newBuilder();
+        attachementBuilder.setType(TxnCommitAttachmentPB.Type.STREAMING_TASK_TXN_COMMIT_ATTACHMENT);
+
+        StreamingTaskCommitAttachmentPB.Builder builder =
+                StreamingTaskCommitAttachmentPB.newBuilder();
+
+        builder.setJobId(streamingTaskTxnCommitAttachment.getJobId())
+                .setScannedRows(streamingTaskTxnCommitAttachment.getScannedRows())
+                .setLoadBytes(streamingTaskTxnCommitAttachment.getLoadBytes())
+                .setNumFiles(streamingTaskTxnCommitAttachment.getNumFiles())
+                .setFileBytes(streamingTaskTxnCommitAttachment.getFileBytes());
+
+        if (streamingTaskTxnCommitAttachment.getOffset() != null) {
+            builder.setOffset(streamingTaskTxnCommitAttachment.getOffset());
+        }
+
+        attachementBuilder.setStreamingTaskTxnCommitAttachment(builder.build());
+        return attachementBuilder.build();
+    }
+
+    public static StreamingTaskTxnCommitAttachment streamingTaskTxnCommitAttachmentFromPb(
+            TxnCommitAttachmentPB txnCommitAttachmentPB) {
+        StreamingTaskCommitAttachmentPB streamingTaskCommitAttachmentPB =
+                txnCommitAttachmentPB.getStreamingTaskTxnCommitAttachment();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("StreamingTaskCommitAttachmentPB={}", streamingTaskCommitAttachmentPB);
+        }
+        return new StreamingTaskTxnCommitAttachment(streamingTaskCommitAttachmentPB);
+    }
+
     public static LoadJobFinalOperation loadJobFinalOperationFromPb(TxnCommitAttachmentPB txnCommitAttachmentPB) {
         LoadJobFinalOperationPB loadJobFinalOperationPB = txnCommitAttachmentPB.getLoadJobFinalOperation();
         if (LOG.isDebugEnabled()) {
@@ -335,6 +372,12 @@ public class TxnUtil {
             if (txnInfo.getCommitAttachment().getType() == TxnCommitAttachmentPB.Type.RT_TASK_TXN_COMMIT_ATTACHMENT) {
                 commitAttachment =
                     TxnUtil.rtTaskTxnCommitAttachmentFromPb(txnInfo.getCommitAttachment());
+            }
+
+            if (txnInfo.getCommitAttachment().getType()
+                    == TxnCommitAttachmentPB.Type.STREAMING_TASK_TXN_COMMIT_ATTACHMENT) {
+                commitAttachment =
+                    TxnUtil.streamingTaskTxnCommitAttachmentFromPb(txnInfo.getCommitAttachment());
             }
         }
 

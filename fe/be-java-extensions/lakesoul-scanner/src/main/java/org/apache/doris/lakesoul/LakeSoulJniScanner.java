@@ -39,6 +39,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * @deprecated LakeSoul catalog support has been deprecated and will be removed in a future version.
+ */
+@Deprecated
 public class LakeSoulJniScanner extends LakeSoulArrowJniScanner {
     private static final Logger LOG = LoggerFactory.getLogger(LakeSoulJniScanner.class);
 

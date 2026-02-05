@@ -68,13 +68,14 @@ struct CastToDecimal {
 
     // cast int to decimal
     template <typename FromCppT, typename ToCppT,
-              typename MaxFieldType =
+              typename MaxNativeType =
                       std::conditional_t<(sizeof(FromCppT) > sizeof(typename ToCppT::NativeType)),
                                          FromCppT, typename ToCppT::NativeType>>
-        requires(IsDecimalNumber<ToCppT> && IsCppTypeInt<FromCppT>)
+        requires(IsDecimalNumber<ToCppT> &&
+                 (IsCppTypeInt<FromCppT> || std::is_same_v<FromCppT, vectorized::UInt8>))
     static inline bool from_int(const FromCppT& from, ToCppT& to, UInt32 to_precision,
                                 UInt32 to_scale, CastParameters& params) {
-        MaxFieldType scale_multiplier =
+        MaxNativeType scale_multiplier =
                 DataTypeDecimal<ToCppT::PType>::get_scale_multiplier(to_scale);
         typename ToCppT::NativeType max_result =
                 DataTypeDecimal<ToCppT::PType>::get_max_digits_number(to_precision);
@@ -102,36 +103,13 @@ struct CastToDecimal {
 
     // cast bool to decimal
     template <typename FromCppT, typename ToCppT,
-              typename MaxFieldType =
+              typename MaxNativeType =
                       std::conditional_t<(sizeof(FromCppT) > sizeof(typename ToCppT::NativeType)),
                                          FromCppT, typename ToCppT::NativeType>>
         requires(IsDecimalNumber<ToCppT> && std::is_same_v<FromCppT, vectorized::UInt8>)
     static inline bool from_bool(const FromCppT& from, ToCppT& to, UInt32 to_precision,
                                  UInt32 to_scale, CastParameters& params) {
-        MaxFieldType scale_multiplier =
-                DataTypeDecimal<ToCppT::PType>::get_scale_multiplier(to_scale);
-        typename ToCppT::NativeType max_result =
-                DataTypeDecimal<ToCppT::PType>::get_max_digits_number(to_precision);
-        typename ToCppT::NativeType min_result = -max_result;
-
-        UInt32 from_precision = NumberTraits::max_ascii_len<FromCppT>();
-        constexpr UInt32 from_scale = 0;
-        constexpr UInt32 to_max_digits = NumberTraits::max_ascii_len<typename ToCppT::NativeType>();
-
-        auto from_max_int_digit_count = from_precision - from_scale;
-        auto to_max_int_digit_count = to_precision - to_scale;
-        bool narrow_integral = (to_max_int_digit_count < from_max_int_digit_count);
-        bool multiply_may_overflow = false;
-        if (to_scale > from_scale) {
-            multiply_may_overflow = (from_precision + to_scale - from_scale) >= to_max_digits;
-        }
-        return std::visit(
-                [&](auto multiply_may_overflow, auto narrow_integral) {
-                    return _from_int<FromCppT, ToCppT, multiply_may_overflow, narrow_integral>(
-                            from, to, to_precision, to_scale, scale_multiplier, min_result,
-                            max_result, params);
-                },
-                make_bool_variant(multiply_may_overflow), make_bool_variant(narrow_integral));
+        return from_int<FromCppT, ToCppT, MaxNativeType>(from, to, to_precision, to_scale, params);
     }
 
     template <typename FromCppT, typename ToCppT>
@@ -144,6 +122,18 @@ struct CastToDecimal {
                 DataTypeDecimal<ToCppT::PType>::get_max_digits_number(to_precision);
         typename ToCppT::NativeType min_result = -max_result;
 
+        return _from_float<FromCppT, ToCppT>(from, to, to_precision, to_scale, scale_multiplier,
+                                             min_result, max_result, params);
+    }
+
+    template <typename FromCppT, typename ToCppT>
+        requires(IsDecimalNumber<ToCppT> && IsCppTypeFloat<FromCppT> && !IsDecimal128V2<ToCppT>)
+    static inline bool _from_float(const FromCppT& from, ToCppT& to, UInt32 to_precision,
+                                   UInt32 to_scale,
+                                   const typename ToCppT::NativeType& scale_multiplier,
+                                   const typename ToCppT::NativeType& min_result,
+                                   const typename ToCppT::NativeType& max_result,
+                                   CastParameters& params) {
         if (!std::isfinite(from)) {
             params.status = Status(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
                                    "Decimal convert overflow. Cannot convert infinity or NaN "
@@ -162,8 +152,38 @@ struct CastToDecimal {
             }
             return false;
         }
-        to.value = static_cast<ToCppT::NativeType>(static_cast<double>(
+        to.value = static_cast<typename ToCppT::NativeType>(static_cast<double>(
                 from * static_cast<DoubleType>(scale_multiplier) + ((from >= 0) ? 0.5 : -0.5)));
+        return true;
+    }
+    template <typename FromCppT, typename ToCppT>
+        requires(IsDecimal128V2<ToCppT> && IsCppTypeFloat<FromCppT>)
+    static inline bool _from_float(const FromCppT& from, ToCppT& to, UInt32 to_precision,
+                                   UInt32 to_scale,
+                                   const typename ToCppT::NativeType& scale_multiplier,
+                                   const typename ToCppT::NativeType& min_result,
+                                   const typename ToCppT::NativeType& max_result,
+                                   CastParameters& params) {
+        if (!std::isfinite(from)) {
+            params.status = Status(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                   "Decimal convert overflow. Cannot convert infinity or NaN "
+                                   "to decimal");
+            return false;
+        }
+        // For decimal256, we need to use long double to avoid overflow when
+        // static casting the multiplier to floating type, and also to be as precise as possible;
+        // For other decimal types, we use double to be as precise as possible.
+        using DoubleType = std::conditional_t<IsDecimal256<ToCppT>, long double, double>;
+        DoubleType tmp = from * static_cast<DoubleType>(scale_multiplier);
+        if (tmp <= DoubleType(min_result) || tmp >= DoubleType(max_result)) {
+            if (params.is_strict) {
+                params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(from, "float/double", to_precision,
+                                                               to_scale);
+            }
+            return false;
+        }
+        to = DecimalV2Value(static_cast<typename ToCppT::NativeType>(static_cast<double>(
+                from * static_cast<DoubleType>(scale_multiplier) + ((from >= 0) ? 0.5 : -0.5))));
         return true;
     }
 
@@ -255,33 +275,56 @@ struct CastToDecimal {
                 DataTypeDecimal<ToCppT::PType>::get_max_digits_number(to_precision);
         typename ToCppT::NativeType min_result = -max_result;
 
+        MaxNativeType multiplier {};
+        if (from_scale < to_scale) {
+            multiplier = DataTypeDecimal<MaxFieldType::PType>::get_scale_multiplier(to_scale -
+                                                                                    from_scale);
+        } else if (from_scale > to_scale) {
+            multiplier = DataTypeDecimal<MaxFieldType::PType>::get_scale_multiplier(from_scale -
+                                                                                    to_scale);
+        }
+
         return std::visit(
                 [&](auto multiply_may_overflow, auto narrow_integral) {
-                    if (from_scale < to_scale) {
-                        MaxNativeType multiplier =
-                                DataTypeDecimal<MaxFieldType::PType>::get_scale_multiplier(
-                                        to_scale - from_scale);
-                        return _from_decimal_smaller_scale<FromCppT, ToCppT, multiply_may_overflow,
-                                                           narrow_integral>(
-                                from, from_precision, from_scale, to, to_precision, to_scale,
-                                multiplier, min_result, max_result, params);
-                    } else if (from_scale == to_scale) {
-                        return _from_decimal_same_scale<FromCppT, ToCppT, MaxNativeType,
-                                                        narrow_integral>(
-                                from, from_precision, from_scale, to, to_precision, to_scale,
-                                min_result, max_result, params);
-                    } else {
-                        MaxNativeType multiplier =
-                                DataTypeDecimal<MaxFieldType::PType>::get_scale_multiplier(
-                                        from_scale - to_scale);
-                        return _from_decimal_bigger_scale<FromCppT, ToCppT, multiply_may_overflow,
-                                                          narrow_integral>(
-                                from, from_precision, from_scale, to, to_precision, to_scale,
-                                multiplier, min_result, max_result, params);
-                    }
-                    return true;
+                    return _from_decimal<FromCppT, ToCppT, multiply_may_overflow, narrow_integral>(
+                            from, from_precision, from_scale, to, to_precision, to_scale,
+                            min_result, max_result, multiplier, params);
                 },
                 make_bool_variant(multiply_may_overflow), make_bool_variant(narrow_integral));
+    }
+
+    template <typename FromCppT, typename ToCppT, bool multiply_may_overflow, bool narrow_integral,
+              typename MaxFieldType = std::conditional_t<
+                      (sizeof(FromCppT) == sizeof(ToCppT)) &&
+                              (std::is_same_v<ToCppT, Decimal128V3> ||
+                               std::is_same_v<FromCppT, Decimal128V3>),
+                      Decimal128V3,
+                      std::conditional_t<(sizeof(FromCppT) > sizeof(ToCppT)), FromCppT, ToCppT>>>
+        requires(IsDecimalNumber<ToCppT> && IsDecimalNumber<FromCppT>)
+    static inline bool _from_decimal(const FromCppT& from, const UInt32 from_precision,
+                                     const UInt32 from_scale, ToCppT& to, UInt32 to_precision,
+                                     UInt32 to_scale, const ToCppT::NativeType& min_result,
+                                     const ToCppT::NativeType& max_result,
+                                     const typename MaxFieldType::NativeType& scale_multiplier,
+                                     CastParameters& params) {
+        using MaxNativeType = typename MaxFieldType::NativeType;
+
+        if (from_scale < to_scale) {
+            return _from_decimal_smaller_scale<FromCppT, ToCppT, multiply_may_overflow,
+                                               narrow_integral>(
+                    from, from_precision, from_scale, to, to_precision, to_scale, scale_multiplier,
+                    min_result, max_result, params);
+        } else if (from_scale == to_scale) {
+            return _from_decimal_same_scale<FromCppT, ToCppT, MaxNativeType, narrow_integral>(
+                    from, from_precision, from_scale, to, to_precision, to_scale, min_result,
+                    max_result, params);
+        } else {
+            return _from_decimal_bigger_scale<FromCppT, ToCppT, multiply_may_overflow,
+                                              narrow_integral>(
+                    from, from_precision, from_scale, to, to_precision, to_scale, scale_multiplier,
+                    min_result, max_result, params);
+        }
+        return true;
     }
 
     template <
@@ -301,17 +344,32 @@ struct CastToDecimal {
             const typename ToCppT::NativeType& max_result, CastParameters& params) {
         MaxNativeType res;
         if constexpr (multiply_may_overflow) {
-            if (common::mul_overflow(static_cast<MaxNativeType>(from.value), scale_multiplier,
-                                     res)) {
-                if (params.is_strict) {
-                    params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(
-                            decimal_to_string(from.value, scale_from),
-                            fmt::format("decimal({}, {})", precision_from, scale_from),
-                            precision_to, scale_to);
+            if constexpr (IsDecimal128V2<FromCppT>) {
+                if (common::mul_overflow(static_cast<MaxNativeType>(from.value()), scale_multiplier,
+                                         res)) {
+                    if (params.is_strict) {
+                        params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(
+                                decimal_to_string(from.value(), scale_from),
+                                fmt::format("decimal({}, {})", precision_from, scale_from),
+                                precision_to, scale_to);
+                    }
+                    return false;
+                } else {
+                    if (UNLIKELY(res > max_result || res < -max_result)) {
+                        if (params.is_strict) {
+                            params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(
+                                    decimal_to_string(from.value(), scale_from),
+                                    fmt::format("decimal({}, {})", precision_from, scale_from),
+                                    precision_to, scale_to);
+                        }
+                        return false;
+                    } else {
+                        to = ToCppT(res);
+                    }
                 }
-                return false;
             } else {
-                if (UNLIKELY(res > max_result || res < -max_result)) {
+                if (common::mul_overflow(static_cast<MaxNativeType>(from.value), scale_multiplier,
+                                         res)) {
                     if (params.is_strict) {
                         params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(
                                 decimal_to_string(from.value, scale_from),
@@ -320,18 +378,41 @@ struct CastToDecimal {
                     }
                     return false;
                 } else {
-                    to = ToCppT(res);
+                    if (UNLIKELY(res > max_result || res < -max_result)) {
+                        if (params.is_strict) {
+                            params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(
+                                    decimal_to_string(from.value, scale_from),
+                                    fmt::format("decimal({}, {})", precision_from, scale_from),
+                                    precision_to, scale_to);
+                        }
+                        return false;
+                    } else {
+                        to = ToCppT(res);
+                    }
                 }
             }
         } else {
-            res = from.value * scale_multiplier;
+            if constexpr (IsDecimal128V2<FromCppT>) {
+                res = from.value() * scale_multiplier;
+            } else {
+                res = from.value * scale_multiplier;
+            }
             if constexpr (narrow_integral) {
                 if (UNLIKELY(res > max_result || res < -max_result)) {
-                    if (params.is_strict) {
-                        params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(
-                                decimal_to_string(from.value, scale_from),
-                                fmt::format("decimal({}, {})", precision_from, scale_from),
-                                precision_to, scale_to);
+                    if constexpr (IsDecimal128V2<FromCppT>) {
+                        if (params.is_strict) {
+                            params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(
+                                    decimal_to_string(from.value(), scale_from),
+                                    fmt::format("decimal({}, {})", precision_from, scale_from),
+                                    precision_to, scale_to);
+                        }
+                    } else {
+                        if (params.is_strict) {
+                            params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(
+                                    decimal_to_string(from.value, scale_from),
+                                    fmt::format("decimal({}, {})", precision_from, scale_from),
+                                    precision_to, scale_to);
+                        }
                     }
                     return false;
                 }
@@ -349,18 +430,33 @@ struct CastToDecimal {
                                                 const typename ToCppT::NativeType& min_result,
                                                 const typename ToCppT::NativeType& max_result,
                                                 CastParameters& params) {
-        if constexpr (narrow_integral) {
-            if (UNLIKELY(from.value > max_result || from.value < -max_result)) {
-                if (params.is_strict) {
-                    params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(
-                            decimal_to_string(from.value, scale_from),
-                            fmt::format("decimal({}, {})", precision_from, scale_from),
-                            precision_to, scale_to);
+        if constexpr (IsDecimal128V2<FromCppT>) {
+            if constexpr (narrow_integral) {
+                if (UNLIKELY(from.value() > max_result || from.value() < -max_result)) {
+                    if (params.is_strict) {
+                        params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(
+                                decimal_to_string(from.value(), scale_from),
+                                fmt::format("decimal({}, {})", precision_from, scale_from),
+                                precision_to, scale_to);
+                    }
+                    return false;
                 }
-                return false;
             }
+            to = ToCppT(from.value());
+        } else {
+            if constexpr (narrow_integral) {
+                if (UNLIKELY(from.value > max_result || from.value < -max_result)) {
+                    if (params.is_strict) {
+                        params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(
+                                decimal_to_string(from.value, scale_from),
+                                fmt::format("decimal({}, {})", precision_from, scale_from),
+                                precision_to, scale_to);
+                    }
+                    return false;
+                }
+            }
+            to = ToCppT(from.value);
         }
-        to = ToCppT(from.value);
         return true;
     }
 
@@ -384,35 +480,69 @@ struct CastToDecimal {
         MaxNativeType res;
         if (from >= FromCppT(0)) {
             if constexpr (narrow_integral) {
-                res = (from.value + scale_multiplier / 2) / scale_multiplier;
-                if (UNLIKELY(res > max_result)) {
-                    if (params.is_strict) {
-                        params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(
-                                decimal_to_string(from.value, scale_from),
-                                fmt::format("decimal({}, {})", precision_from, scale_from),
-                                precision_to, scale_to);
+                if constexpr (IsDecimal128V2<FromCppT>) {
+                    res = (from.value() + scale_multiplier / 2) / scale_multiplier;
+                    if (UNLIKELY(res > max_result)) {
+                        if (params.is_strict) {
+                            params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(
+                                    decimal_to_string(from.value(), scale_from),
+                                    fmt::format("decimal({}, {})", precision_from, scale_from),
+                                    precision_to, scale_to);
+                        }
+                        return false;
                     }
-                    return false;
+                } else {
+                    res = (from.value + scale_multiplier / 2) / scale_multiplier;
+                    if (UNLIKELY(res > max_result)) {
+                        if (params.is_strict) {
+                            params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(
+                                    decimal_to_string(from.value, scale_from),
+                                    fmt::format("decimal({}, {})", precision_from, scale_from),
+                                    precision_to, scale_to);
+                        }
+                        return false;
+                    }
                 }
                 to = ToCppT(res);
             } else {
-                to = ToCppT((from.value + scale_multiplier / 2) / scale_multiplier);
+                if constexpr (IsDecimal128V2<FromCppT>) {
+                    to = ToCppT((from.value() + scale_multiplier / 2) / scale_multiplier);
+                } else {
+                    to = ToCppT((from.value + scale_multiplier / 2) / scale_multiplier);
+                }
             }
         } else {
             if constexpr (narrow_integral) {
-                res = (from.value - scale_multiplier / 2) / scale_multiplier;
-                if (UNLIKELY(res < -max_result)) {
-                    if (params.is_strict) {
-                        params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(
-                                decimal_to_string(from.value, scale_from),
-                                fmt::format("decimal({}, {})", precision_from, scale_from),
-                                precision_to, scale_to);
+                if constexpr (IsDecimal128V2<FromCppT>) {
+                    res = (from.value() - scale_multiplier / 2) / scale_multiplier;
+                    if (UNLIKELY(res < -max_result)) {
+                        if (params.is_strict) {
+                            params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(
+                                    decimal_to_string(from.value(), scale_from),
+                                    fmt::format("decimal({}, {})", precision_from, scale_from),
+                                    precision_to, scale_to);
+                        }
+                        return false;
                     }
-                    return false;
+                } else {
+                    res = (from.value - scale_multiplier / 2) / scale_multiplier;
+                    if (UNLIKELY(res < -max_result)) {
+                        if (params.is_strict) {
+                            params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(
+                                    decimal_to_string(from.value, scale_from),
+                                    fmt::format("decimal({}, {})", precision_from, scale_from),
+                                    precision_to, scale_to);
+                        }
+                        return false;
+                    }
                 }
                 to = ToCppT(res);
             } else {
-                to = ToCppT((from.value - scale_multiplier / 2) / scale_multiplier);
+                if constexpr (IsDecimal128V2<FromCppT>) {
+                    to = ToCppT((from.value() - scale_multiplier / 2) / scale_multiplier);
+                } else {
+                    to = ToCppT((from.value - scale_multiplier / 2) / scale_multiplier);
+                }
             }
         }
         return true;
@@ -422,7 +552,7 @@ struct CastToDecimal {
               typename MaxNativeType =
                       std::conditional_t<(sizeof(FromCppT) > sizeof(typename ToCppT::NativeType)),
                                          FromCppT, typename ToCppT::NativeType>>
-        requires(IsDecimalNumber<ToCppT> &&
+        requires(IsDecimalNumber<ToCppT> && !IsDecimal128V2<ToCppT> &&
                  (IsCppTypeInt<FromCppT> || std::is_same_v<FromCppT, vectorized::UInt8>))
     static inline bool _from_int(const FromCppT& from, ToCppT& to, UInt32 precision, UInt32 scale,
                                  const MaxNativeType& scale_multiplier,
@@ -464,6 +594,53 @@ struct CastToDecimal {
 
         return true;
     }
+
+    template <typename FromCppT, typename ToCppT, bool multiply_may_overflow, bool narrow_integral,
+              typename MaxNativeType =
+                      std::conditional_t<(sizeof(FromCppT) > sizeof(typename ToCppT::NativeType)),
+                                         FromCppT, typename ToCppT::NativeType>>
+        requires(IsDecimalV2<ToCppT> &&
+                 (IsCppTypeInt<FromCppT> || std::is_same_v<FromCppT, vectorized::UInt8>))
+    static inline bool _from_int(const FromCppT& from, ToCppT& to, UInt32 precision, UInt32 scale,
+                                 const MaxNativeType& scale_multiplier,
+                                 const typename ToCppT::NativeType& min_result,
+                                 const typename ToCppT::NativeType& max_result,
+                                 CastParameters& params) {
+        MaxNativeType tmp;
+        if constexpr (multiply_may_overflow) {
+            if (common::mul_overflow(static_cast<MaxNativeType>(from), scale_multiplier, tmp)) {
+                if (params.is_strict) {
+                    params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(from, int_type_name<FromCppT>,
+                                                                   precision, scale);
+                }
+                return false;
+            }
+            if constexpr (narrow_integral) {
+                if (tmp < min_result || tmp > max_result) {
+                    if (params.is_strict) {
+                        params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(
+                                from, int_type_name<FromCppT>, precision, scale);
+                    }
+                    return false;
+                }
+            }
+            to = DecimalV2Value(static_cast<typename ToCppT::NativeType>(tmp));
+        } else {
+            tmp = scale_multiplier * from;
+            if constexpr (narrow_integral) {
+                if (tmp < min_result || tmp > max_result) {
+                    if (params.is_strict) {
+                        params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(
+                                from, int_type_name<FromCppT>, precision, scale);
+                    }
+                    return false;
+                }
+            }
+            to = DecimalV2Value(static_cast<typename ToCppT::NativeType>(tmp));
+        }
+
+        return true;
+    }
 };
 
 // Casting from string to decimal types.
@@ -478,32 +655,29 @@ class CastToImpl<Mode, DataTypeString, ToDataType> : public CastToBase {
 
         auto to_type = block.get_by_position(result).type;
         auto serde = remove_nullable(to_type)->get_serde();
-        MutableColumnPtr column_to;
+
+        // by default framework, to_type is already unwrapped nullable
+        MutableColumnPtr column_to = to_type->create_column();
+        ColumnNullable::MutablePtr nullable_col_to = ColumnNullable::create(
+                std::move(column_to), ColumnUInt8::create(input_rows_count, 0));
 
         if constexpr (Mode == CastModeType::NonStrictMode) {
-            auto to_nullable_type = make_nullable(to_type);
-            column_to = to_nullable_type->create_column();
-            auto& nullable_col_to = assert_cast<ColumnNullable&>(*column_to);
-            RETURN_IF_ERROR(serde->from_string_batch(*col_from, nullable_col_to, {}));
+            // may write nulls to nullable_col_to
+            RETURN_IF_ERROR(serde->from_string_batch(*col_from, *nullable_col_to, {}));
         } else if constexpr (Mode == CastModeType::StrictMode) {
-            if (to_type->is_nullable()) {
-                return Status::InternalError(
-                        "result type should be not nullable when casting string to decimal in "
-                        "strict cast mode");
-            }
-            column_to = to_type->create_column();
-            RETURN_IF_ERROR(
-                    serde->from_string_strict_mode_batch(*col_from, *column_to, {}, null_map));
+            // WON'T write nulls to nullable_col_to, just raise errors. null_map is only used to skip invalid rows
+            RETURN_IF_ERROR(serde->from_string_strict_mode_batch(
+                    *col_from, nullable_col_to->get_nested_column(), {}, null_map));
         } else {
             return Status::InternalError("Unsupported cast mode");
         }
 
-        block.get_by_position(result).column = std::move(column_to);
+        block.get_by_position(result).column = std::move(nullable_col_to);
         return Status::OK();
     }
 };
 
-// cast bool and int to decimal
+// cast bool and int to decimal. when may overflow, result column is nullable.
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
     requires(IsDataTypeDecimal<ToDataType> &&
              (IsDataTypeInt<FromDataType> || IsDataTypeBool<FromDataType>))
@@ -513,6 +687,7 @@ public:
                         uint32_t result, size_t input_rows_count,
                         const NullMap::value_type* null_map = nullptr) const override {
         using FromFieldType = typename FromDataType::FieldType;
+        using ToFieldType = typename ToDataType::FieldType;
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
         const auto* col_from =
                 check_and_get_column<typename FromDataType::ColumnType>(named_from.column.get());
@@ -533,12 +708,29 @@ public:
 
         auto from_max_int_digit_count = from_precision - from_scale;
         auto to_max_int_digit_count = to_precision - to_scale;
+        // may overflow. nullable result column.
         bool narrow_integral = (to_max_int_digit_count < from_max_int_digit_count);
-        bool result_is_nullable = (CastMode == CastModeType::NonStrictMode) && narrow_integral;
+        // only in non-strict mode and may overflow, we set nullable
+        bool set_nullable = (CastMode == CastModeType::NonStrictMode) && narrow_integral;
+
+        constexpr UInt32 to_max_digits =
+                NumberTraits::max_ascii_len<typename ToFieldType::NativeType>();
+        bool multiply_may_overflow = false;
+        if (to_scale > from_scale) {
+            multiply_may_overflow = (from_precision + to_scale - from_scale) >= to_max_digits;
+        }
+        using MaxNativeType = std::conditional_t<(sizeof(FromFieldType) >
+                                                  sizeof(typename ToFieldType::NativeType)),
+                                                 FromFieldType, typename ToFieldType::NativeType>;
+        MaxNativeType scale_multiplier =
+                DataTypeDecimal<ToFieldType::PType>::get_scale_multiplier(to_scale);
+        typename ToFieldType::NativeType max_result =
+                DataTypeDecimal<ToFieldType::PType>::get_max_digits_number(to_precision);
+        typename ToFieldType::NativeType min_result = -max_result;
 
         ColumnUInt8::MutablePtr col_null_map_to;
         NullMap::value_type* null_map_data = nullptr;
-        if (result_is_nullable) {
+        if (narrow_integral) {
             col_null_map_to = ColumnUInt8::create(input_rows_count, 0);
             null_map_data = col_null_map_to->get_data().data();
         }
@@ -552,31 +744,27 @@ public:
         CastParameters params;
         params.is_strict = (CastMode == CastModeType::StrictMode);
         size_t size = vec_from.size();
-        for (size_t i = 0; i < size; i++) {
-            if constexpr (IsDataTypeBool<FromDataType>) {
-                if (!CastToDecimal::from_bool<typename FromDataType::FieldType,
-                                              typename ToDataType::FieldType>(
-                            vec_from_data[i], vec_to_data[i], to_precision, to_scale, params)) {
-                    if (result_is_nullable) {
-                        null_map_data[i] = 1;
-                    } else {
-                        return params.status;
-                    }
-                }
-            } else {
-                if (!CastToDecimal::from_int<typename FromDataType::FieldType,
-                                             typename ToDataType::FieldType>(
-                            vec_from_data[i], vec_to_data[i], to_precision, to_scale, params)) {
-                    if (result_is_nullable) {
-                        null_map_data[i] = 1;
-                    } else {
-                        return params.status;
-                    }
-                }
-            }
-        }
 
-        if (result_is_nullable) {
+        RETURN_IF_ERROR(std::visit(
+                [&](auto multiply_may_overflow, auto narrow_integral) {
+                    for (size_t i = 0; i < size; i++) {
+                        if (!CastToDecimal::_from_int<typename FromDataType::FieldType,
+                                                      typename ToDataType::FieldType,
+                                                      multiply_may_overflow, narrow_integral>(
+                                    vec_from_data[i], vec_to_data[i], to_precision, to_scale,
+                                    scale_multiplier, min_result, max_result, params)) {
+                            if (set_nullable) {
+                                null_map_data[i] = 1;
+                            } else {
+                                return params.status;
+                            }
+                        }
+                    }
+                    return Status::OK();
+                },
+                make_bool_variant(multiply_may_overflow), make_bool_variant(narrow_integral)));
+
+        if (narrow_integral) {
             block.get_by_position(result).column =
                     ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
         } else {
@@ -586,7 +774,7 @@ public:
     }
 };
 
-// cast float and double to decimal
+// cast float and double to decimal. ALWAYS nullable result column.
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
     requires(IsDataTypeDecimal<ToDataType> && IsDataTypeFloat<FromDataType>)
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
@@ -595,6 +783,7 @@ public:
                         uint32_t result, size_t input_rows_count,
                         const NullMap::value_type* null_map = nullptr) const override {
         using FromFieldType = typename FromDataType::FieldType;
+        using ToFieldType = typename ToDataType::FieldType;
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
         const auto* col_from =
                 check_and_get_column<typename FromDataType::ColumnType>(named_from.column.get());
@@ -618,14 +807,11 @@ public:
         bool narrow_integral =
                 (to_max_int_digit_count < from_max_int_digit_count) ||
                 (to_max_int_digit_count == from_max_int_digit_count && to_scale < from_scale);
-        bool result_is_nullable = (CastMode == CastModeType::NonStrictMode) && narrow_integral;
+        // only in non-strict mode and may overflow, we set nullable
+        bool set_nullable = (CastMode == CastModeType::NonStrictMode) && narrow_integral;
 
-        ColumnUInt8::MutablePtr col_null_map_to;
-        NullMap::value_type* null_map_data = nullptr;
-        if (result_is_nullable) {
-            col_null_map_to = ColumnUInt8::create(input_rows_count, 0);
-            null_map_data = col_null_map_to->get_data().data();
-        }
+        ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(input_rows_count, 0);
+        NullMap::value_type* null_map_data = col_null_map_to->get_data().data();
 
         auto col_to = ToDataType::ColumnType::create(input_rows_count, to_scale);
         const auto& vec_from = col_from->get_data();
@@ -636,11 +822,18 @@ public:
         CastParameters params;
         params.is_strict = (CastMode == CastModeType::StrictMode);
         size_t size = vec_from.size();
+
+        typename ToFieldType::NativeType scale_multiplier =
+                DataTypeDecimal<ToFieldType::PType>::get_scale_multiplier(to_scale);
+        typename ToFieldType::NativeType max_result =
+                DataTypeDecimal<ToFieldType::PType>::get_max_digits_number(to_precision);
+        typename ToFieldType::NativeType min_result = -max_result;
         for (size_t i = 0; i < size; i++) {
-            if (!CastToDecimal::from_float<typename FromDataType::FieldType,
-                                           typename ToDataType::FieldType>(
-                        vec_from_data[i], vec_to_data[i], to_precision, to_scale, params)) {
-                if (result_is_nullable) {
+            if (!CastToDecimal::_from_float<typename FromDataType::FieldType,
+                                            typename ToDataType::FieldType>(
+                        vec_from_data[i], vec_to_data[i], to_precision, to_scale, scale_multiplier,
+                        min_result, max_result, params)) {
+                if (set_nullable) {
                     null_map_data[i] = 1;
                 } else {
                     return params.status;
@@ -648,12 +841,8 @@ public:
             }
         }
 
-        if (result_is_nullable) {
-            block.get_by_position(result).column =
-                    ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
-        } else {
-            block.get_by_position(result).column = std::move(col_to);
-        }
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
         return Status::OK();
     }
 };
@@ -681,6 +870,8 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count,
                         const NullMap::value_type* null_map = nullptr) const override {
+        using FromFieldType = typename FromDataType::FieldType;
+        using ToFieldType = typename ToDataType::FieldType;
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
         const auto* col_from =
                 check_and_get_column<typename FromDataType::ColumnType>(named_from.column.get());
@@ -707,13 +898,13 @@ public:
         bool narrow_integral = (to_max_int_digit_count < from_max_int_digit_count) ||
                                (to_max_int_digit_count == from_max_int_digit_count &&
                                 to_scale < from_original_scale);
-
-        bool result_is_nullable = (CastMode == CastModeType::NonStrictMode) && narrow_integral;
+        // only in non-strict mode and may overflow, we set nullable
+        bool set_nullable = (CastMode == CastModeType::NonStrictMode) && narrow_integral;
 
         size_t size = col_from->size();
         ColumnUInt8::MutablePtr col_null_map_to;
         NullMap::value_type* null_map_data = nullptr;
-        if (result_is_nullable) {
+        if (narrow_integral) {
             col_null_map_to = ColumnUInt8::create(size, 0);
             null_map_data = col_null_map_to->get_data().data();
         }
@@ -724,18 +915,54 @@ public:
         const auto* vec_from_data = vec_from.data();
         auto& vec_to = col_to->get_data();
         auto* vec_to_data = vec_to.data();
-        for (size_t i = 0; i < size; i++) {
-            if (!CastToDecimal::from_decimalv2(vec_from_data[i], from_precision, from_scale,
-                                               from_original_precision, from_original_scale,
-                                               vec_to_data[i], to_precision, to_scale, params)) {
-                if (result_is_nullable) {
-                    null_map_data[i] = 1;
-                } else {
-                    return params.status;
-                }
-            }
+
+        using MaxFieldType =
+                std::conditional_t<(sizeof(FromFieldType) == sizeof(ToFieldType)) &&
+                                           (std::is_same_v<ToFieldType, Decimal128V3> ||
+                                            std::is_same_v<FromFieldType, Decimal128V3>),
+                                   Decimal128V3,
+                                   std::conditional_t<(sizeof(FromFieldType) > sizeof(ToFieldType)),
+                                                      FromFieldType, ToFieldType>>;
+        using MaxNativeType = typename MaxFieldType::NativeType;
+
+        constexpr UInt32 to_max_digits =
+                NumberTraits::max_ascii_len<typename ToFieldType::NativeType>();
+        bool multiply_may_overflow = false;
+        if (to_scale > from_scale) {
+            multiply_may_overflow = (from_precision + to_scale - from_scale) >= to_max_digits;
         }
-        if (result_is_nullable) {
+
+        typename ToFieldType::NativeType max_result =
+                DataTypeDecimal<ToFieldType::PType>::get_max_digits_number(to_precision);
+        typename ToFieldType::NativeType min_result = -max_result;
+
+        MaxNativeType multiplier {};
+        if (from_scale < to_scale) {
+            multiplier = DataTypeDecimal<MaxFieldType::PType>::get_scale_multiplier(to_scale -
+                                                                                    from_scale);
+        } else if (from_scale > to_scale) {
+            multiplier = DataTypeDecimal<MaxFieldType::PType>::get_scale_multiplier(from_scale -
+                                                                                    to_scale);
+        }
+        RETURN_IF_ERROR(std::visit(
+                [&](auto multiply_may_overflow, auto narrow_integral) {
+                    for (size_t i = 0; i < size; i++) {
+                        if (!CastToDecimal::_from_decimal<FromFieldType, ToFieldType,
+                                                          multiply_may_overflow, narrow_integral>(
+                                    vec_from_data[i], from_precision, from_scale, vec_to_data[i],
+                                    to_precision, to_scale, min_result, max_result, multiplier,
+                                    params)) {
+                            if (set_nullable) {
+                                null_map_data[i] = 1;
+                            } else {
+                                return params.status;
+                            }
+                        }
+                    }
+                    return Status::OK();
+                },
+                make_bool_variant(multiply_may_overflow), make_bool_variant(narrow_integral)));
+        if (narrow_integral) {
             block.get_by_position(result).column =
                     ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
         } else {
@@ -753,6 +980,8 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count,
                         const NullMap::value_type* null_map = nullptr) const override {
+        using FromFieldType = typename FromDataType::FieldType;
+        using ToFieldType = typename ToDataType::FieldType;
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
         const auto* col_from =
                 check_and_get_column<typename FromDataType::ColumnType>(named_from.column.get());
@@ -777,13 +1006,13 @@ public:
         bool narrow_integral =
                 (to_max_int_digit_count < from_max_int_digit_count) ||
                 (to_max_int_digit_count == from_max_int_digit_count && to_scale < from_scale);
-
-        bool result_is_nullable = (CastMode == CastModeType::NonStrictMode) && narrow_integral;
+        // only in non-strict mode and may overflow, we set nullable
+        bool set_nullable = (CastMode == CastModeType::NonStrictMode) && narrow_integral;
 
         size_t size = col_from->size();
         ColumnUInt8::MutablePtr col_null_map_to;
         NullMap::value_type* null_map_data = nullptr;
-        if (result_is_nullable) {
+        if (narrow_integral) {
             col_null_map_to = ColumnUInt8::create(size, 0);
             null_map_data = col_null_map_to->get_data().data();
         }
@@ -794,17 +1023,53 @@ public:
         const auto* vec_from_data = vec_from.data();
         auto& vec_to = col_to->get_data();
         auto* vec_to_data = vec_to.data();
-        for (size_t i = 0; i < size; i++) {
-            if (!CastToDecimal::from_decimalv3(vec_from_data[i], from_precision, from_scale,
-                                               vec_to_data[i], to_precision, to_scale, params)) {
-                if (result_is_nullable) {
-                    null_map_data[i] = 1;
-                } else {
-                    return params.status;
-                }
-            }
+
+        using MaxFieldType =
+                std::conditional_t<(sizeof(FromFieldType) == sizeof(ToFieldType)) &&
+                                           (std::is_same_v<ToFieldType, Decimal128V3> ||
+                                            std::is_same_v<FromFieldType, Decimal128V3>),
+                                   Decimal128V3,
+                                   std::conditional_t<(sizeof(FromFieldType) > sizeof(ToFieldType)),
+                                                      FromFieldType, ToFieldType>>;
+        using MaxNativeType = typename MaxFieldType::NativeType;
+
+        UInt32 to_max_digits = NumberTraits::max_ascii_len<typename ToFieldType::NativeType>();
+        bool multiply_may_overflow = false;
+        if (to_scale > from_scale) {
+            multiply_may_overflow = (from_precision + to_scale - from_scale) >= to_max_digits;
         }
-        if (result_is_nullable) {
+
+        typename ToFieldType::NativeType max_result =
+                DataTypeDecimal<ToFieldType::PType>::get_max_digits_number(to_precision);
+        typename ToFieldType::NativeType min_result = -max_result;
+
+        MaxNativeType multiplier {};
+        if (from_scale < to_scale) {
+            multiplier = DataTypeDecimal<MaxFieldType::PType>::get_scale_multiplier(to_scale -
+                                                                                    from_scale);
+        } else if (from_scale > to_scale) {
+            multiplier = DataTypeDecimal<MaxFieldType::PType>::get_scale_multiplier(from_scale -
+                                                                                    to_scale);
+        }
+        RETURN_IF_ERROR(std::visit(
+                [&](auto multiply_may_overflow, auto narrow_integral) {
+                    for (size_t i = 0; i < size; i++) {
+                        if (!CastToDecimal::_from_decimal<FromFieldType, ToFieldType,
+                                                          multiply_may_overflow, narrow_integral>(
+                                    vec_from_data[i], from_precision, from_scale, vec_to_data[i],
+                                    to_precision, to_scale, min_result, max_result, multiplier,
+                                    params)) {
+                            if (set_nullable) {
+                                null_map_data[i] = 1;
+                            } else {
+                                return params.status;
+                            }
+                        }
+                    }
+                    return Status::OK();
+                },
+                make_bool_variant(multiply_may_overflow), make_bool_variant(narrow_integral)));
+        if (narrow_integral) {
             block.get_by_position(result).column =
                     ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
         } else {

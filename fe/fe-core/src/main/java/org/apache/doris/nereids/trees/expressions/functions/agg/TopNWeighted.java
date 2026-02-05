@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -25,9 +26,7 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.CharType;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
@@ -69,15 +68,11 @@ public class TopNWeighted extends NullableAggregateFunction
             FunctionSignature.ret(ArrayType.of(BooleanType.INSTANCE))
                     .args(BooleanType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(FloatType.INSTANCE))
-                    .args(FloatType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateType.INSTANCE))
-                    .args(DateType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateTimeType.INSTANCE))
-                    .args(DateTimeType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateV2Type.INSTANCE))
+                                    .args(FloatType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
+                            FunctionSignature.ret(ArrayType.of(DateV2Type.INSTANCE))
                     .args(DateV2Type.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT))
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT, BigIntType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(DateTimeV2Type.WILDCARD))
+                    .args(DateTimeV2Type.WILDCARD, BigIntType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(StringType.INSTANCE))
                     .args(StringType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(VarcharType.SYSTEM_DEFAULT))
@@ -106,15 +101,12 @@ public class TopNWeighted extends NullableAggregateFunction
             FunctionSignature.ret(ArrayType.of(BooleanType.INSTANCE))
                     .args(BooleanType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(FloatType.INSTANCE))
-                    .args(FloatType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateType.INSTANCE))
-                    .args(DateType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateTimeType.INSTANCE))
-                    .args(DateTimeType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateV2Type.INSTANCE))
+                                    .args(FloatType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE,
+                                                    IntegerType.INSTANCE),
+                            FunctionSignature.ret(ArrayType.of(DateV2Type.INSTANCE))
                     .args(DateV2Type.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT,
+                    .args(DateTimeV2Type.WILDCARD,
                             BigIntType.INSTANCE,
                             IntegerType.INSTANCE,
                             IntegerType.INSTANCE),
@@ -160,7 +152,12 @@ public class TopNWeighted extends NullableAggregateFunction
 
     public TopNWeighted(boolean distinct, boolean alwaysNullable, Expression arg0, Expression arg1,
             Expression arg2, Expression arg3) {
-        super("topn_weighted", distinct, alwaysNullable, arg0, arg1, arg2);
+        super("topn_weighted", distinct, alwaysNullable, arg0, arg1, arg2, arg3);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private TopNWeighted(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
     }
 
     /**
@@ -168,26 +165,13 @@ public class TopNWeighted extends NullableAggregateFunction
      */
     @Override
     public TopNWeighted withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 3
-                || children.size() == 4);
-        if (children.size() == 3) {
-            return new TopNWeighted(distinct, alwaysNullable, children.get(0), children.get(1),
-                    children.get(2));
-        } else {
-            return new TopNWeighted(distinct, alwaysNullable, children.get(0), children.get(1),
-                    children.get(2), children.get(3));
-        }
+        Preconditions.checkArgument(children.size() == 3 || children.size() == 4);
+        return new TopNWeighted(getFunctionParams(distinct, children));
     }
 
     @Override
-    public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        if (children.size() == 3) {
-            return new TopNWeighted(distinct, alwaysNullable, children.get(0), children.get(1),
-                    children.get(2));
-        } else {
-            return new TopNWeighted(distinct, alwaysNullable, children.get(0), children.get(1),
-                    children.get(2), children.get(3));
-        }
+    public TopNWeighted withAlwaysNullable(boolean alwaysNullable) {
+        return new TopNWeighted(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override
@@ -198,5 +182,19 @@ public class TopNWeighted extends NullableAggregateFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (!getArgument(2).isConstant()) {
+            throw new AnalysisException(
+                    "topn_weighted requires third parameter must be a constant: "
+                            + this.toSql());
+        }
+        if (arity() == 4 && !getArgument(3).isConstant()) {
+            throw new AnalysisException(
+                    "topn_weighted requires fourth parameter must be a constant: "
+                            + this.toSql());
+        }
     }
 }

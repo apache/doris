@@ -50,13 +50,18 @@ public class HllFromBase64 extends ScalarFunction
         super("hll_from_base64", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private HllFromBase64(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public HllFromBase64 withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new HllFromBase64(children.get(0));
+        return new HllFromBase64(getFunctionParams(children));
     }
 
     @Override

@@ -30,17 +30,18 @@ namespace doris::vectorized {
 
 AggregateFunctionPtr create_aggregate_function_count(const std::string& name,
                                                      const DataTypes& argument_types,
+                                                     const DataTypePtr& result_type,
                                                      const bool result_is_nullable,
                                                      const AggregateFunctionAttr& attr) {
-    assert_arity_at_most<1>(name, argument_types);
+    assert_arity_range(name, argument_types, 0, 1);
 
     return std::make_shared<AggregateFunctionCount>(argument_types);
 }
 
 AggregateFunctionPtr create_aggregate_function_count_not_null_unary(
-        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
-        const AggregateFunctionAttr& attr) {
-    assert_arity_at_most<1>(name, argument_types);
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr) {
+    assert_arity_range(name, argument_types, 0, 1);
 
     return std::make_shared<AggregateFunctionCountNotNullUnary>(argument_types);
 }

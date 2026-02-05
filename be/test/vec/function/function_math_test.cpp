@@ -394,17 +394,6 @@ TEST(MathFunctionTest, positive_test) {
     }
 
     {
-        InputTypeSet input_types = {PrimitiveType::TYPE_INT};
-
-        DataSet data_set = {{{(int32_t)3}, (int32_t)3},
-                            {{(int32_t)-3}, (int32_t)-3},
-                            {{(int32_t)0}, (int32_t)0},
-                            {{(int32_t)-60}, (int32_t)-60}};
-
-        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
-    }
-
-    {
         InputTypeSet input_types = {AnyType {Notnull {PrimitiveType::TYPE_DECIMAL64}, 5, 11}};
 
         DataSet data_set = {
@@ -450,31 +439,11 @@ TEST(MathFunctionTest, negative_test) {
 
         static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
-
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_INT};
-
-        DataSet data_set = {{{(int32_t)3}, (int32_t)-3},
-                            {{(int32_t)-3}, (int32_t)3},
-                            {{(int32_t)0}, (int32_t)0},
-                            {{(int32_t)-60}, (int32_t)60}};
-
-        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
-    }
 }
 
 TEST(MathFunctionTest, sign_test) {
     std::string func_name = "sign"; // sign(x) // 1 0 -1
 
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_INT};
-
-        DataSet data_set = {{{(int32_t)30}, (int8_t)1.0},
-                            {{(int32_t)0}, (int8_t)0.0},
-                            {{(int32_t)-10}, (int8_t)-1.0}};
-
-        static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
-    }
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
@@ -640,8 +609,8 @@ TEST(MathFunctionTest, money_format_test) {
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_DECIMALV2};
         DataSet data_set = {{{Null()}, Null()},
-                            {{DECIMALV2(17014116.67)}, VARCHAR("17,014,116.67")},
-                            {{DECIMALV2(-17014116.67)}, VARCHAR("-17,014,116.67")}};
+                            {{DECIMALV2VALUEFROMDOUBLE(17014116.67)}, VARCHAR("17,014,116.67")},
+                            {{DECIMALV2VALUEFROMDOUBLE(-17014116.67)}, VARCHAR("-17,014,116.67")}};
 
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
@@ -697,9 +666,10 @@ TEST(MathFunctionTest, format_round_test) {
     }
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_DECIMALV2, PrimitiveType::TYPE_INT};
-        DataSet data_set = {{{Null(), INT(2)}, Null()},
-                            {{DECIMALV2(17014116.67), INT(2)}, VARCHAR("17,014,116.67")},
-                            {{DECIMALV2(-17014116.67), INT(2)}, VARCHAR("-17,014,116.67")}};
+        DataSet data_set = {
+                {{Null(), INT(2)}, Null()},
+                {{DECIMALV2VALUEFROMDOUBLE(17014116.67), INT(2)}, VARCHAR("17,014,116.67")},
+                {{DECIMALV2VALUEFROMDOUBLE(-17014116.67), INT(2)}, VARCHAR("-17,014,116.67")}};
 
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
@@ -736,15 +706,6 @@ TEST(MathFunctionTest, signbit_test) {
 
         DataSet data_set = {{{1.0}, UInt8(0)},  {{0.9}, UInt8(0)}, {{-1.0}, UInt8(1)},
                             {{-0.9}, UInt8(1)}, {{0.0}, UInt8(0)}, {{Null()}, Null()}};
-
-        static_cast<void>(check_function<DataTypeBool, true>(func_name, input_types, data_set));
-    }
-
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_INT};
-
-        DataSet data_set = {
-                {{(int32_t)1}, UInt8(0)}, {{(int32_t)-1}, UInt8(1)}, {{(int32_t)0}, UInt8(0)}};
 
         static_cast<void>(check_function<DataTypeBool, true>(func_name, input_types, data_set));
     }
@@ -818,14 +779,6 @@ TEST(MathFunctionTest, lcm_test) {
     std::string func_name = "lcm";
 
     {
-        InputTypeSet input_types = {PrimitiveType::TYPE_TINYINT, PrimitiveType::TYPE_TINYINT};
-
-        DataSet data_set = {{{TINYINT(2), TINYINT(4)}, TINYINT(4)}, {{TINYINT(2), Null()}, Null()}};
-
-        static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
-    }
-
-    {
         InputTypeSet input_types = {PrimitiveType::TYPE_SMALLINT, PrimitiveType::TYPE_SMALLINT};
 
         DataSet data_set = {{{SMALLINT(2), SMALLINT(4)}, SMALLINT(4)},
@@ -863,4 +816,88 @@ TEST(MathFunctionTest, lcm_test) {
     }
 }
 
+TEST(MathFunctionTest, isnan_test) {
+    std::string func_name = "isnan";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+        DataSet data_set = {{{Null()}, Null()},
+                            {{DOUBLE(0.0)}, uint8_t {0}},
+                            {{DOUBLE(-1.0)}, uint8_t {0}},
+                            {{DOUBLE(1.0)}, uint8_t {0}},
+                            {{DOUBLE(NAN)}, uint8_t {1}},
+                            {{DOUBLE(INFINITY)}, uint8_t {0}},
+                            {{DOUBLE(-INFINITY)}, uint8_t {0}}};
+        static_cast<void>(check_function<DataTypeBool, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_FLOAT};
+        DataSet data_set = {{{Null()}, Null()},
+                            {{FLOAT(0.0)}, uint8_t {0}},
+                            {{FLOAT(-1.0)}, uint8_t {0}},
+                            {{FLOAT(1.0)}, uint8_t {0}},
+                            {{FLOAT(NAN)}, uint8_t {1}},
+                            {{FLOAT(INFINITY)}, uint8_t {0}},
+                            {{FLOAT(-INFINITY)}, uint8_t {0}}};
+        static_cast<void>(check_function<DataTypeBool, true>(func_name, input_types, data_set));
+    }
+}
+
+TEST(MathFunctionTest, isinf_test) {
+    std::string func_name = "isinf";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+        DataSet data_set = {{{Null()}, Null()},
+                            {{DOUBLE(0.0)}, uint8_t {0}},
+                            {{DOUBLE(-1.0)}, uint8_t {0}},
+                            {{DOUBLE(1.0)}, uint8_t {0}},
+                            {{DOUBLE(NAN)}, uint8_t {0}},
+                            {{DOUBLE(INFINITY)}, uint8_t {1}},
+                            {{DOUBLE(-INFINITY)}, uint8_t {1}}};
+        static_cast<void>(check_function<DataTypeBool, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_FLOAT};
+        DataSet data_set = {{{Null()}, Null()},
+                            {{FLOAT(0.0)}, uint8_t {0}},
+                            {{FLOAT(-1.0)}, uint8_t {0}},
+                            {{FLOAT(1.0)}, uint8_t {0}},
+                            {{FLOAT(NAN)}, uint8_t {0}},
+                            {{FLOAT(INFINITY)}, uint8_t {1}},
+                            {{FLOAT(-INFINITY)}, uint8_t {1}}};
+        static_cast<void>(check_function<DataTypeBool, true>(func_name, input_types, data_set));
+    }
+}
+
+TEST(MathFunctionTest, factorial_test) {
+    std::string func_name = "factorial"; // factorial(x), x ∈ [0, 20]
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT};
+
+        DataSet data_set = {{{BIGINT(0)}, BIGINT(1)},   {{BIGINT(1)}, BIGINT(1)},
+                            {{BIGINT(5)}, BIGINT(120)}, {{BIGINT(20)}, BIGINT(2432902008176640000)},
+                            {{BIGINT(21)}, Null()},     {{BIGINT(-1)}, Null()},
+                            {{Null()}, Null()}};
+
+        static_cast<void>(
+                check_function_all_arg_comb<DataTypeInt64, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {Consted {PrimitiveType::TYPE_BIGINT}};
+
+        DataSet data_set = {{{Null()}, Null()},         {{BIGINT(0)}, BIGINT(1)},
+                            {{BIGINT(5)}, BIGINT(120)}, {{BIGINT(20)}, BIGINT(2432902008176640000)},
+                            {{BIGINT(21)}, Null()},     {{BIGINT(-1)}, Null()}};
+
+        for (const auto& row : data_set) {
+            DataSet one = {row};
+            static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, one));
+        }
+    }
+}
 } // namespace doris::vectorized

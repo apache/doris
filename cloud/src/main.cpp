@@ -27,6 +27,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <thread>
@@ -135,15 +136,17 @@ static void help() {
 
 static std::string build_info() {
     std::stringstream ss;
+// clang-format off
 #if defined(NDEBUG)
     ss << "version:{" DORIS_CLOUD_BUILD_VERSION "-release}"
 #else
     ss << "version:{" DORIS_CLOUD_BUILD_VERSION "-debug}"
 #endif
-       << " code_version:{commit=" DORIS_CLOUD_BUILD_HASH " time=" DORIS_CLOUD_BUILD_VERSION_TIME
-          "}"
+       << " code_version:{commit=" DORIS_CLOUD_BUILD_HASH " time=" DORIS_CLOUD_BUILD_VERSION_TIME "}"
+       << " features:{" DORIS_CLOUD_FEATURE_LIST "}"
        << " build_info:{initiator=" DORIS_CLOUD_BUILD_INITIATOR " build_at=" DORIS_CLOUD_BUILD_TIME
           " build_on=" DORIS_CLOUD_BUILD_OS_VERSION "}\n";
+    // clang-format on
     return ss.str();
 }
 
@@ -279,6 +282,7 @@ int main(int argc, char** argv) {
 
     std::unique_ptr<MetaServer> meta_server; // meta-service
     std::unique_ptr<Recycler> recycler;
+    std::unique_ptr<FdbMetricExporter> fdb_metric_exporter;
     std::thread periodiccally_log_thread;
     std::mutex periodiccally_log_thread_lock;
     std::condition_variable periodiccally_log_thread_cv;
@@ -320,6 +324,7 @@ int main(int argc, char** argv) {
         periodiccally_log_thread = std::thread {periodiccally_log};
         pthread_setname_np(periodiccally_log_thread.native_handle(), "recycler_periodically_log");
     }
+
     // start service
     brpc::ServerOptions options;
     if (config::brpc_idle_timeout_sec != -1) {
@@ -327,6 +332,10 @@ int main(int argc, char** argv) {
     }
     if (config::brpc_num_threads != -1) {
         options.num_threads = config::brpc_num_threads;
+    }
+    int32_t internal_port = config::brpc_internal_listen_port;
+    if (internal_port > 0) {
+        options.internal_port = internal_port;
     }
     int port = config::brpc_listen_port;
     if (server.Start(port, &options) != 0) {
@@ -336,8 +345,18 @@ int main(int argc, char** argv) {
         return -1;
     }
     end = steady_clock::now();
+
+    fdb_metric_exporter = std::make_unique<FdbMetricExporter>(txn_kv);
+    ret = fdb_metric_exporter->start();
+    if (ret != 0) {
+        LOG(WARNING) << "failed to start fdb metric exporter";
+        return -2;
+    }
+
     msg = "successfully started service listening on port=" + std::to_string(port) +
-          " time_elapsed_ms=" + std::to_string(duration_cast<milliseconds>(end - start).count());
+          " time_elapsed_ms=" + std::to_string(duration_cast<milliseconds>(end - start).count()) +
+          (internal_port > 0 ? " internal_port=" + std::to_string(internal_port) : "");
+
     LOG(INFO) << msg;
     std::cout << msg << std::endl;
 
@@ -349,6 +368,7 @@ int main(int argc, char** argv) {
     if (recycler) {
         recycler->stop();
     }
+    fdb_metric_exporter->stop();
 
     if (periodiccally_log_thread.joinable()) {
         {

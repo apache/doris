@@ -25,6 +25,7 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "pipeline/exec/aggregation_source_operator.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/spill_utils.h"
 #include "pipeline/pipeline_task.h"
@@ -44,8 +45,6 @@ Status PartitionedAggLocalState::init(RuntimeState* state, LocalStateInfo& info)
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
-    _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                                  "AggSourceSpillDependency", true);
     return Status::OK();
 }
 
@@ -118,6 +117,25 @@ bool PartitionedAggSourceOperatorX::is_serial_operator() const {
     return _agg_source_operator->is_serial_operator();
 }
 
+void PartitionedAggSourceOperatorX::update_operator(const TPlanNode& tnode,
+                                                    bool followed_by_shuffled_operator,
+                                                    bool require_bucket_distribution) {
+    _agg_source_operator->update_operator(tnode, followed_by_shuffled_operator,
+                                          require_bucket_distribution);
+}
+
+DataDistribution PartitionedAggSourceOperatorX::required_data_distribution(
+        RuntimeState* state) const {
+    return _agg_source_operator->required_data_distribution(state);
+}
+
+bool PartitionedAggSourceOperatorX::is_colocated_operator() const {
+    return _agg_source_operator->is_colocated_operator();
+}
+bool PartitionedAggSourceOperatorX::is_shuffled_operator() const {
+    return _agg_source_operator->is_shuffled_operator();
+}
+
 Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                                 bool* eos) {
     auto& local_state = get_local_state(state);
@@ -181,7 +199,7 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized:
             if (!local_state._shared_state->spill_partitions.empty()) {
                 local_state._current_partition_eos = false;
                 local_state._need_to_merge_data_for_current_partition = true;
-                status = local_state._shared_state->in_mem_shared_state->reset_hash_table();
+                status = _agg_source_operator->reset_hash_table(runtime_state);
                 RETURN_IF_ERROR(status);
                 *eos = false;
             }
@@ -205,8 +223,11 @@ Status PartitionedAggLocalState::setup_in_memory_agg_op(RuntimeState* state) {
     auto& parent = Base::_parent->template cast<Parent>();
 
     DCHECK(Base::_shared_state->in_mem_shared_state);
-    LocalStateInfo state_info {
-            _internal_runtime_profile.get(), {}, Base::_shared_state->in_mem_shared_state, {}, 0};
+    LocalStateInfo state_info {.parent_profile = _internal_runtime_profile.get(),
+                               .scan_ranges = {},
+                               .shared_state = Base::_shared_state->in_mem_shared_state,
+                               .shared_state_map = {},
+                               .task_idx = 0};
 
     RETURN_IF_ERROR(
             parent._agg_source_operator->setup_local_state(_runtime_state.get(), state_info));
@@ -215,6 +236,74 @@ Status PartitionedAggLocalState::setup_in_memory_agg_op(RuntimeState* state) {
             _runtime_state->get_local_state(parent._agg_source_operator->operator_id());
     DCHECK(source_local_state != nullptr);
     return source_local_state->open(state);
+}
+
+Status PartitionedAggLocalState::_recover_spill_data_from_disk(RuntimeState* state,
+                                                               const UniqueId& query_id) {
+    Status status;
+    Defer defer {[&]() {
+        if (!status.ok() || state->is_cancelled()) {
+            if (!status.ok()) {
+                LOG(WARNING) << fmt::format(
+                        "Query:{}, agg probe:{}, task:{}, recover agg data error:{}",
+                        print_id(query_id), _parent->node_id(), state->task_id(), status);
+            }
+            _shared_state->close();
+        }
+    }};
+    bool has_agg_data = false;
+    size_t accumulated_blocks_size = 0;
+    while (!state->is_cancelled() && !has_agg_data && !_shared_state->spill_partitions.empty()) {
+        while (!_shared_state->spill_partitions[0]->spill_streams_.empty() &&
+               !state->is_cancelled() && !has_agg_data) {
+            auto& stream = _shared_state->spill_partitions[0]->spill_streams_[0];
+            stream->set_read_counters(operator_profile());
+            vectorized::Block block;
+            bool eos = false;
+            while (!eos && !state->is_cancelled()) {
+                {
+                    DBUG_EXECUTE_IF("fault_inject::partitioned_agg_source::recover_spill_data", {
+                        status = Status::Error<INTERNAL_ERROR>(
+                                "fault_inject partitioned_agg_source "
+                                "recover_spill_data failed");
+                    });
+                    if (status.ok()) {
+                        status = stream->read_next_block_sync(&block, &eos);
+                    }
+                }
+                RETURN_IF_ERROR(status);
+
+                if (!block.empty()) {
+                    has_agg_data = true;
+                    accumulated_blocks_size += block.allocated_bytes();
+                    _blocks.emplace_back(std::move(block));
+
+                    if (accumulated_blocks_size >=
+                        vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
+                        break;
+                    }
+                }
+            }
+
+            _current_partition_eos = eos;
+
+            if (_current_partition_eos) {
+                ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
+                _shared_state->spill_partitions[0]->spill_streams_.pop_front();
+            }
+        }
+
+        if (_shared_state->spill_partitions[0]->spill_streams_.empty()) {
+            _shared_state->spill_partitions.pop_front();
+        }
+    }
+
+    VLOG_DEBUG << fmt::format(
+            "Query:{}, agg probe:{}, task:{}, recover partitioned finished, partitions "
+            "left:{}, bytes read:{}",
+            print_id(query_id), _parent->node_id(), state->task_id(),
+            _shared_state->spill_partitions.size(), accumulated_blocks_size);
+    return status;
 }
 
 Status PartitionedAggLocalState::recover_blocks_from_disk(RuntimeState* state, bool& has_data) {
@@ -227,86 +316,18 @@ Status PartitionedAggLocalState::recover_blocks_from_disk(RuntimeState* state, b
     }
 
     has_data = true;
-    auto spill_func = [this, state, query_id] {
-        Status status;
-        Defer defer {[&]() {
-            if (!status.ok() || state->is_cancelled()) {
-                if (!status.ok()) {
-                    LOG(WARNING) << fmt::format(
-                            "Query:{}, agg probe:{}, task:{}, recover agg data error:{}",
-                            print_id(query_id), _parent->node_id(), state->task_id(), status);
-                }
-                _shared_state->close();
-            }
-        }};
-        bool has_agg_data = false;
-        size_t accumulated_blocks_size = 0;
-        while (!state->is_cancelled() && !has_agg_data &&
-               !_shared_state->spill_partitions.empty()) {
-            while (!_shared_state->spill_partitions[0]->spill_streams_.empty() &&
-                   !state->is_cancelled() && !has_agg_data) {
-                auto& stream = _shared_state->spill_partitions[0]->spill_streams_[0];
-                stream->set_read_counters(operator_profile());
-                vectorized::Block block;
-                bool eos = false;
-                while (!eos && !state->is_cancelled()) {
-                    {
-                        DBUG_EXECUTE_IF("fault_inject::partitioned_agg_source::recover_spill_data",
-                                        {
-                                            status = Status::Error<INTERNAL_ERROR>(
-                                                    "fault_inject partitioned_agg_source "
-                                                    "recover_spill_data failed");
-                                        });
-                        if (status.ok()) {
-                            status = stream->read_next_block_sync(&block, &eos);
-                        }
-                    }
-                    RETURN_IF_ERROR(status);
-
-                    if (!block.empty()) {
-                        has_agg_data = true;
-                        accumulated_blocks_size += block.allocated_bytes();
-                        _blocks.emplace_back(std::move(block));
-
-                        if (accumulated_blocks_size >=
-                            vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
-                            break;
-                        }
-                    }
-                }
-
-                _current_partition_eos = eos;
-
-                if (_current_partition_eos) {
-                    (void)ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
-                    _shared_state->spill_partitions[0]->spill_streams_.pop_front();
-                }
-            }
-
-            if (_shared_state->spill_partitions[0]->spill_streams_.empty()) {
-                _shared_state->spill_partitions.pop_front();
-            }
-        }
-
-        VLOG_DEBUG << fmt::format(
-                "Query:{}, agg probe:{}, task:{}, recover partitioned finished, partitions "
-                "left:{}, bytes read:{}, spill dep:{}",
-                print_id(query_id), _parent->node_id(), state->task_id(),
-                _shared_state->spill_partitions.size(), accumulated_blocks_size,
-                (void*)(_spill_dependency.get()));
-        return status;
-    };
-
-    auto exception_catch_func = [this, state, spill_func, query_id]() {
+    auto exception_catch_func = [this, state, query_id]() {
         DBUG_EXECUTE_IF("fault_inject::partitioned_agg_source::merge_spill_data_cancel", {
             auto st = Status::InternalError(
                     "fault_inject partitioned_agg_source "
                     "merge spill data canceled");
-            ExecEnv::GetInstance()->fragment_mgr()->cancel_query(query_id, st);
+            state->get_query_ctx()->cancel(st);
             return st;
         });
 
-        auto status = [&]() { RETURN_IF_CATCH_EXCEPTION({ return spill_func(); }); }();
+        auto status = [&]() {
+            RETURN_IF_CATCH_EXCEPTION({ return _recover_spill_data_from_disk(state, query_id); });
+        }();
         LOG_IF(INFO, !status.ok()) << fmt::format(
                 "Query:{}, agg probe:{}, task:{}, recover exception:{}", print_id(query_id),
                 _parent->node_id(), state->task_id(), status.to_string());
@@ -317,17 +338,17 @@ Status PartitionedAggLocalState::recover_blocks_from_disk(RuntimeState* state, b
         return Status::Error<INTERNAL_ERROR>(
                 "fault_inject partitioned_agg_source submit_func failed");
     });
-    _spill_dependency->block();
 
     VLOG_DEBUG << fmt::format(
-            "Query:{}, agg probe:{}, task:{}, begin to recover, partitions left:{}, "
-            "_spill_dependency:{}",
+            "Query:{}, agg probe:{}, task:{}, begin to recover, partitions left:{}, ",
             print_id(query_id), _parent->node_id(), state->task_id(),
-            _shared_state->spill_partitions.size(), (void*)(_spill_dependency.get()));
-    return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
-            std::make_shared<SpillRecoverRunnable>(state, _spill_dependency, operator_profile(),
-                                                   _shared_state->shared_from_this(),
-                                                   exception_catch_func));
+            _shared_state->spill_partitions.size());
+    return SpillRecoverRunnable(state, operator_profile(), exception_catch_func).run();
 }
+
+bool PartitionedAggLocalState::is_blockable() const {
+    return _shared_state->is_spilled;
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

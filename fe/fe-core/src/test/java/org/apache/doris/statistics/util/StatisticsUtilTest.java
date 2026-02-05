@@ -18,6 +18,7 @@
 package org.apache.doris.statistics.util;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
@@ -31,6 +32,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -191,7 +193,8 @@ class StatisticsUtilTest {
         Column column = new Column("testColumn", PrimitiveType.INT);
         List<Column> schema = new ArrayList<>();
         schema.add(column);
-        OlapTable table = new OlapTable(200, "testTable", schema, null, null, null);
+        OlapTable realTable = new OlapTable(200, "testTable", schema, null, null, null);
+        OlapTable table = Mockito.spy(realTable);
         HMSExternalCatalog externalCatalog = new HMSExternalCatalog();
         HMSExternalDatabase externalDatabase = new HMSExternalDatabase(externalCatalog, 1L, "dbName", "dbName");
         // Test olap table auto analyze disabled.
@@ -200,7 +203,12 @@ class StatisticsUtilTest {
         table.setTableProperty(new TableProperty(properties));
         Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
         table.setTableProperty(null);
-
+        InternalCatalog catalog1 = Mockito.mock(InternalCatalog.class);
+        Database db1 = Mockito.mock(Database.class);
+        Mockito.when(db1.getId()).thenReturn(100L);
+        Mockito.when(table.getDatabase()).thenReturn(db1);
+        Mockito.when(db1.getCatalog()).thenReturn(catalog1);
+        Mockito.when(catalog1.getId()).thenReturn(0L);
         new MockUp<HMSExternalTable>() {
             @Mock
             protected synchronized void makeSureInitialized() {
@@ -571,37 +579,29 @@ class StatisticsUtilTest {
 
     @Test
     void testGetHotValues() {
-        String value1 = "1234 :35 ;222 :34";
-        Map<Literal, Float> hotValues = StatisticsUtil.getHotValues(value1, Type.INT);
+        String value1 = "1234 :0.35 ;222 :0.34";
+        Map<Literal, Float> hotValues = StatisticsUtil.getHotValues(value1, Type.INT, 0.01);
         Assertions.assertEquals(2, hotValues.size());
 
         int i = 0;
         for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {
             if (i == 0) {
                 Assertions.assertEquals("1234", entry.getKey().getStringValue());
-                Assertions.assertEquals("35.0", entry.getValue().toString());
+                Assertions.assertEquals("0.35", entry.getValue().toString());
                 i++;
             } else {
                 Assertions.assertEquals("222", entry.getKey().getStringValue());
-                Assertions.assertEquals("34.0", entry.getValue().toString());
+                Assertions.assertEquals("0.34", entry.getValue().toString());
             }
         }
 
-        String value2 = "1234 :34";
-        hotValues = StatisticsUtil.getHotValues(value2, Type.INT);
+        String value2 = "1234 :0.34";
+        hotValues = StatisticsUtil.getHotValues(value2, Type.INT, 0.01);
         Assertions.assertEquals(1, hotValues.size());
 
         for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {
             Assertions.assertEquals("1234", entry.getKey().getStringValue());
-            Assertions.assertEquals("34.0", entry.getValue().toString());
-        }
-
-        String value3 = "aabbcc\\:\\; :34 ; dd :22";
-        hotValues = StatisticsUtil.getHotValues(value3, Type.STRING);
-        Assertions.assertEquals(1, hotValues.size());
-        for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {
-            Assertions.assertEquals("aabbcc:;", entry.getKey().getStringValue());
-            Assertions.assertEquals("34.0", entry.getValue().toString());
+            Assertions.assertEquals("0.34", entry.getValue().toString());
         }
     }
 

@@ -36,7 +36,7 @@ suite("load") {
                   "supplier"]
 
     tables.forEach { tableName ->
-        sql "DROP TABLE IF EXISTS ${tableName}"
+//        sql "DROP TABLE IF EXISTS ${tableName}"
         sql """
                 CREATE TABLE IF NOT EXISTS ${tableName} (
                     k bigint,

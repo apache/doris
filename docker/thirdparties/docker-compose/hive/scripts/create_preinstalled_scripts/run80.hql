@@ -21,3 +21,24 @@ CREATE TABLE `parquet_topn_lazy_mat_table`(
 
 msck repair table orc_topn_lazy_mat_table;
 msck repair table parquet_topn_lazy_mat_table;
+
+
+
+CREATE TABLE `parquet_topn_lazy_complex_table`(
+  id INT,
+  col1 STRING,
+  col2 STRUCT<a: INT, b: ARRAY<INT>>,
+  col3 MAP<INT, ARRAY<STRING>>
+) STORED AS PARQUET LOCATION
+        '/user/doris/preinstalled_data/parquet_table/parquet_topn_lazy_complex_table/';
+
+CREATE TABLE `parquet_topn_lazy_complex_table_multi_pages`(
+  id INT,
+  col1 STRING,
+  col2 STRUCT<a: INT, b: ARRAY<INT>>,
+  col3 MAP<INT, ARRAY<STRING>>
+) STORED AS PARQUET LOCATION
+        '/user/doris/preinstalled_data/parquet_table/parquet_topn_lazy_complex_table_multi_pages/';
+
+msck repair table parquet_topn_lazy_complex_table;
+msck repair table parquet_topn_lazy_complex_table_multi_pages;

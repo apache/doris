@@ -28,22 +28,22 @@ internal	regression_test_view_p0	test_view	select 1,to_base64(AES_ENCRYPT('doris
 17777208882
 
 -- !show_aes --
-test_view_aes	CREATE VIEW `test_view_aes` AS SELECT aes_decrypt(from_base64("EXp7k7M9Zv1mIwPpno28Hg=="), '17IMZrGdwWf2Piy8', 'II2HLtihr5TQpQgR', 'AES_128_CBC');	utf8mb4	utf8mb4_0900_bin
+test_view_aes	CREATE VIEW `test_view_aes`\n(__aes_decrypt_0)\n AS SELECT aes_decrypt(from_base64("EXp7k7M9Zv1mIwPpno28Hg=="), '17IMZrGdwWf2Piy8', 'II2HLtihr5TQpQgR', 'AES_128_CBC');	utf8mb4	utf8mb4_0900_bin
 
 -- !comment0 --
-test_view_table2_view	CREATE VIEW `test_view_table2_view` AS SELECT \n                date_format(`internal`.`regression_test_view_p0`.`test_view_table2`.`c_date`,'%Y-%m-%d') AS `CREATE_DATE`\n            FROM \n                `internal`.`regression_test_view_p0`.`test_view_table2`\n            GROUP BY  \n                date_format(`internal`.`regression_test_view_p0`.`test_view_table2`.`c_date`, '%Y-%m-%d');	utf8mb4	utf8mb4_0900_bin
+test_view_table2_view	CREATE VIEW `test_view_table2_view`\n(CREATE_DATE)\n AS SELECT \n                date_format(`internal`.`regression_test_view_p0`.`test_view_table2`.`c_date`,'%Y-%m-%d') AS `CREATE_DATE`\n            FROM \n                `internal`.`regression_test_view_p0`.`test_view_table2`\n            GROUP BY  \n                date_format(`internal`.`regression_test_view_p0`.`test_view_table2`.`c_date`, '%Y-%m-%d');	utf8mb4	utf8mb4_0900_bin
 
 -- !comment1 --
-test_view_table2_view	CREATE VIEW `test_view_table2_view` COMMENT 'comment1' AS SELECT \n                date_format(`internal`.`regression_test_view_p0`.`test_view_table2`.`c_date`,'%Y-%m-%d') AS `CREATE_DATE`\n            FROM \n                `internal`.`regression_test_view_p0`.`test_view_table2`\n            GROUP BY  \n                date_format(`internal`.`regression_test_view_p0`.`test_view_table2`.`c_date`, '%Y-%m-%d');	utf8mb4	utf8mb4_0900_bin
+test_view_table2_view	CREATE VIEW `test_view_table2_view`\n(CREATE_DATE)\n COMMENT 'comment1' AS SELECT \n                date_format(`internal`.`regression_test_view_p0`.`test_view_table2`.`c_date`,'%Y-%m-%d') AS `CREATE_DATE`\n            FROM \n                `internal`.`regression_test_view_p0`.`test_view_table2`\n            GROUP BY  \n                date_format(`internal`.`regression_test_view_p0`.`test_view_table2`.`c_date`, '%Y-%m-%d');	utf8mb4	utf8mb4_0900_bin
 
 -- !comment2 --
-test_view_table2_view	CREATE VIEW `test_view_table2_view` COMMENT 'comment1' AS SELECT\n                date_format(`internal`.`regression_test_view_p0`.`test_view_table2`.`c_date`,'%Y-%m-%d') AS `CREATE_DATE`\n            FROM\n                `internal`.`regression_test_view_p0`.`test_view_table2`\n            GROUP BY\n                date_format(`internal`.`regression_test_view_p0`.`test_view_table2`.`c_date`, '%Y-%m-%d');	utf8mb4	utf8mb4_0900_bin
+test_view_table2_view	CREATE VIEW `test_view_table2_view`\n(CREATE_DATE)\n COMMENT 'comment1' AS SELECT\n                date_format(`internal`.`regression_test_view_p0`.`test_view_table2`.`c_date`,'%Y-%m-%d') AS `CREATE_DATE`\n            FROM\n                `internal`.`regression_test_view_p0`.`test_view_table2`\n            GROUP BY\n                date_format(`internal`.`regression_test_view_p0`.`test_view_table2`.`c_date`, '%Y-%m-%d');	utf8mb4	utf8mb4_0900_bin
 
 -- !comment4 --
-test_view_table2_view	CREATE VIEW `test_view_table2_view` COMMENT 'comment4' AS SELECT\n                date_format(`internal`.`regression_test_view_p0`.`test_view_table2`.`c_date`,'%Y-%m-%d') AS `CREATE_DATE`\n            FROM\n                `internal`.`regression_test_view_p0`.`test_view_table2`\n            GROUP BY\n                date_format(`internal`.`regression_test_view_p0`.`test_view_table2`.`c_date`, '%Y-%m-%d');	utf8mb4	utf8mb4_0900_bin
+test_view_table2_view	CREATE VIEW `test_view_table2_view`\n(CREATE_DATE)\n COMMENT 'comment4' AS SELECT\n                date_format(`internal`.`regression_test_view_p0`.`test_view_table2`.`c_date`,'%Y-%m-%d') AS `CREATE_DATE`\n            FROM\n                `internal`.`regression_test_view_p0`.`test_view_table2`\n            GROUP BY\n                date_format(`internal`.`regression_test_view_p0`.`test_view_table2`.`c_date`, '%Y-%m-%d');	utf8mb4	utf8mb4_0900_bin
 
 -- !comment_empty --
-test_view_table2_view	CREATE VIEW `test_view_table2_view` AS SELECT\n                date_format(`internal`.`regression_test_view_p0`.`test_view_table2`.`c_date`,'%Y-%m-%d') AS `CREATE_DATE`\n            FROM\n                `internal`.`regression_test_view_p0`.`test_view_table2`\n            GROUP BY\n                date_format(`internal`.`regression_test_view_p0`.`test_view_table2`.`c_date`, '%Y-%m-%d');	utf8mb4	utf8mb4_0900_bin
+test_view_table2_view	CREATE VIEW `test_view_table2_view`\n(CREATE_DATE)\n AS SELECT\n                date_format(`internal`.`regression_test_view_p0`.`test_view_table2`.`c_date`,'%Y-%m-%d') AS `CREATE_DATE`\n            FROM\n                `internal`.`regression_test_view_p0`.`test_view_table2`\n            GROUP BY\n                date_format(`internal`.`regression_test_view_p0`.`test_view_table2`.`c_date`, '%Y-%m-%d');	utf8mb4	utf8mb4_0900_bin
 
 -- !desc_view_1 --
 c_date	varchar(50)	Yes	false	\N	

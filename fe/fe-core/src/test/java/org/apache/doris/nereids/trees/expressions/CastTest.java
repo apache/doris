@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.CharType;
@@ -31,6 +32,7 @@ import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IPv4Type;
 import org.apache.doris.nereids.types.IPv6Type;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
@@ -98,7 +100,7 @@ public class CastTest {
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
         }
     }
@@ -132,7 +134,7 @@ public class CastTest {
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
 
             // To tinyint is always nullable
@@ -170,7 +172,7 @@ public class CastTest {
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
 
             // To tinyint and smallint is always nullable
@@ -210,7 +212,7 @@ public class CastTest {
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
 
             // To tinyint, smallint and int is always nullable
@@ -256,7 +258,7 @@ public class CastTest {
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
 
             // To tinyint, smallint, int and bigint is always nullable
@@ -295,7 +297,7 @@ public class CastTest {
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
 
             // To integral and decimal is always nullable
@@ -338,7 +340,7 @@ public class CastTest {
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
 
             // To integral and decimal is always nullable
@@ -421,7 +423,7 @@ public class CastTest {
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
         }
     }
@@ -449,14 +451,14 @@ public class CastTest {
         try (MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
             // When strict mode is false
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
-            SlotReference child = new SlotReference("slot", TimeV2Type.INSTANCE, false);
+            SlotReference child = new SlotReference("slot", TimeV2Type.SYSTEM_DEFAULT, false);
             Cast cast = new Cast(child, TinyIntType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, SmallIntType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, IntegerType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
         }
     }
@@ -491,7 +493,7 @@ public class CastTest {
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, IPv4Type.INSTANCE);
             Assertions.assertTrue(cast.nullable());
@@ -530,7 +532,7 @@ public class CastTest {
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, IPv4Type.INSTANCE);
             Assertions.assertTrue(cast.nullable());
@@ -569,11 +571,86 @@ public class CastTest {
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, IPv4Type.INSTANCE);
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, IPv6Type.INSTANCE);
+            Assertions.assertTrue(cast.nullable());
+        }
+    }
+
+    @Test
+    public void testCastFromJson() {
+        try (MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
+            // When strict mode is true, always nullable. to Json is PN
+            mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(true);
+            SlotReference child = new SlotReference("slot", JsonType.INSTANCE, false);
+            Cast cast = new Cast(child, BooleanType.INSTANCE);
+            Assertions.assertTrue(cast.nullable());
+            child = new SlotReference("slot", JsonType.INSTANCE, false);
+            cast = new Cast(child, DoubleType.INSTANCE);
+            Assertions.assertTrue(cast.nullable());
+            child = new SlotReference("slot", JsonType.INSTANCE, false);
+            cast = new Cast(child, DecimalV3Type.SYSTEM_DEFAULT);
+            Assertions.assertTrue(cast.nullable());
+            child = new SlotReference("slot", JsonType.INSTANCE, false);
+            cast = new Cast(child, VarcharType.SYSTEM_DEFAULT);
+            Assertions.assertTrue(cast.nullable());
+            child = new SlotReference("slot", JsonType.INSTANCE, false);
+            cast = new Cast(child, StringType.INSTANCE);
+            Assertions.assertTrue(cast.nullable());
+            child = new SlotReference("slot", JsonType.INSTANCE, false);
+            cast = new Cast(child, JsonType.INSTANCE);
+            Assertions.assertFalse(cast.nullable());
+            child = new SlotReference("slot", JsonType.INSTANCE, true);
+            cast = new Cast(child, JsonType.INSTANCE);
+            Assertions.assertTrue(cast.nullable());
+
+            // When strict mode is false, always nullable.  to Json is PN
+            mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
+            child = new SlotReference("slot", JsonType.INSTANCE, false);
+            cast = new Cast(child, BooleanType.INSTANCE);
+            Assertions.assertTrue(cast.nullable());
+            child = new SlotReference("slot", JsonType.INSTANCE, false);
+            cast = new Cast(child, DoubleType.INSTANCE);
+            Assertions.assertTrue(cast.nullable());
+            child = new SlotReference("slot", JsonType.INSTANCE, false);
+            cast = new Cast(child, DecimalV3Type.SYSTEM_DEFAULT);
+            Assertions.assertTrue(cast.nullable());
+            child = new SlotReference("slot", JsonType.INSTANCE, false);
+            cast = new Cast(child, VarcharType.SYSTEM_DEFAULT);
+            Assertions.assertTrue(cast.nullable());
+            child = new SlotReference("slot", JsonType.INSTANCE, false);
+            cast = new Cast(child, StringType.INSTANCE);
+            Assertions.assertTrue(cast.nullable());
+            child = new SlotReference("slot", JsonType.INSTANCE, false);
+            cast = new Cast(child, JsonType.INSTANCE);
+            Assertions.assertFalse(cast.nullable());
+            child = new SlotReference("slot", JsonType.INSTANCE, true);
+            cast = new Cast(child, JsonType.INSTANCE);
+            Assertions.assertTrue(cast.nullable());
+        }
+    }
+
+    @Test
+    public void testCastFromArray() {
+        try (MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
+            mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(true);
+            SlotReference child = new SlotReference("slot", ArrayType.SYSTEM_DEFAULT, false);
+            Cast cast = new Cast(child, ArrayType.SYSTEM_DEFAULT);
+            Assertions.assertFalse(cast.nullable());
+            child = new SlotReference("slot", ArrayType.SYSTEM_DEFAULT, true);
+            cast = new Cast(child, ArrayType.SYSTEM_DEFAULT);
+            Assertions.assertTrue(cast.nullable());
+
+            // When strict mode is false, always nullable.  to Json is PN
+            mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
+            child = new SlotReference("slot", ArrayType.SYSTEM_DEFAULT, false);
+            cast = new Cast(child, ArrayType.SYSTEM_DEFAULT);
+            Assertions.assertFalse(cast.nullable());
+            child = new SlotReference("slot", ArrayType.SYSTEM_DEFAULT, true);
+            cast = new Cast(child, ArrayType.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
         }
     }

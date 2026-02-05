@@ -36,8 +36,8 @@ public class IcebergHMSSource implements IcebergSource {
         this.hmsTable = hmsTable;
         this.desc = desc;
         this.icebergTable =
-                Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache()
-                        .getIcebergTable(hmsTable);
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .getIcebergMetadataCache(hmsTable.getCatalog()).getIcebergTable(hmsTable);
     }
 
     @Override

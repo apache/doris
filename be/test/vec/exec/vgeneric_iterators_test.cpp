@@ -95,9 +95,9 @@ TEST(VGenericIteratorsTest, AutoIncrement) {
     int row_count = 0;
     size_t rows = block.rows();
     for (size_t i = 0; i < rows; ++i) {
-        EXPECT_EQ(row_count, (*c0)[i].get<int>());
-        EXPECT_EQ(row_count + 1, (*c1)[i].get<int>());
-        EXPECT_EQ(row_count + 2, (*c2)[i].get<int>());
+        EXPECT_EQ(row_count, (*c0)[i].get<TYPE_SMALLINT>());
+        EXPECT_EQ(row_count + 1, (*c1)[i].get<TYPE_INT>());
+        EXPECT_EQ(row_count + 2, (*c2)[i].get<TYPE_BIGINT>());
         row_count++;
     }
 }
@@ -138,9 +138,9 @@ TEST(VGenericIteratorsTest, Union) {
             base_value -= 100;
         }
 
-        EXPECT_EQ(base_value, (*c0)[i].get<int>());
-        EXPECT_EQ(base_value + 1, (*c1)[i].get<int>());
-        EXPECT_EQ(base_value + 2, (*c2)[i].get<int>());
+        EXPECT_EQ(base_value, (*c0)[i].get<TYPE_SMALLINT>());
+        EXPECT_EQ(base_value + 1, (*c1)[i].get<TYPE_INT>());
+        EXPECT_EQ(base_value + 2, (*c2)[i].get<TYPE_BIGINT>());
         row_count++;
     }
 }
@@ -160,10 +160,12 @@ TEST(VGenericIteratorsTest, MergeAgg) {
     EXPECT_TRUE(st.ok());
 
     vectorized::Block block;
+    std::vector<bool> row_is_same;
+    BlockWithSameBit block_with_same_bit {.block = &block, .same_bit = row_is_same};
     create_block(schema, block);
 
     do {
-        st = iter->next_batch(&block);
+        st = iter->next_batch(&block_with_same_bit);
     } while (st.ok());
 
     EXPECT_TRUE(st.is<END_OF_FILE>());
@@ -185,9 +187,9 @@ TEST(VGenericIteratorsTest, MergeAgg) {
             base_value = row_count - 300;
         }
 
-        EXPECT_EQ(base_value, (*c0)[i].get<int>());
-        EXPECT_EQ(base_value + 1, (*c1)[i].get<int>());
-        EXPECT_EQ(base_value + 2, (*c2)[i].get<int>());
+        EXPECT_EQ(base_value, (*c0)[i].get<TYPE_SMALLINT>());
+        EXPECT_EQ(base_value + 1, (*c1)[i].get<TYPE_INT>());
+        EXPECT_EQ(base_value + 2, (*c2)[i].get<TYPE_BIGINT>());
         row_count++;
     }
 }
@@ -207,10 +209,12 @@ TEST(VGenericIteratorsTest, MergeUnique) {
     EXPECT_TRUE(st.ok());
 
     vectorized::Block block;
+    std::vector<bool> row_is_same;
+    BlockWithSameBit block_with_same_bit {.block = &block, .same_bit = row_is_same};
     create_block(schema, block);
 
     do {
-        st = iter->next_batch(&block);
+        st = iter->next_batch(&block_with_same_bit);
     } while (st.ok());
 
     EXPECT_TRUE(st.is<END_OF_FILE>());
@@ -224,9 +228,9 @@ TEST(VGenericIteratorsTest, MergeUnique) {
     for (size_t i = 0; i < block.rows(); ++i) {
         size_t base_value = row_count;
 
-        EXPECT_EQ(base_value, (*c0)[i].get<int>());
-        EXPECT_EQ(base_value + 1, (*c1)[i].get<int>());
-        EXPECT_EQ(base_value + 2, (*c2)[i].get<int>());
+        EXPECT_EQ(base_value, (*c0)[i].get<TYPE_SMALLINT>());
+        EXPECT_EQ(base_value + 1, (*c1)[i].get<TYPE_INT>());
+        EXPECT_EQ(base_value + 2, (*c2)[i].get<TYPE_BIGINT>());
         row_count++;
     }
 }
@@ -328,10 +332,12 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     EXPECT_TRUE(st.ok());
 
     vectorized::Block block;
+    std::vector<bool> row_is_same;
+    BlockWithSameBit block_with_same_bit {.block = &block, .same_bit = row_is_same};
     create_block(schema, block);
 
     do {
-        st = iter->next_batch(&block);
+        st = iter->next_batch(&block_with_same_bit);
     } while (st.ok());
 
     EXPECT_TRUE(st.is<END_OF_FILE>());
@@ -340,7 +346,7 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     auto col0 = block.get_by_position(0).column;
     auto col1 = block.get_by_position(1).column;
     auto seq_col = block.get_by_position(seq_column_id).column;
-    size_t actual_value = (*seq_col)[0].get<int>();
+    size_t actual_value = (*seq_col)[0].get<TYPE_BIGINT>();
     EXPECT_EQ(seg_iter_num - 1, actual_value);
 }
 

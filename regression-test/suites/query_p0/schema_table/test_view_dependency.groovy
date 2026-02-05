@@ -97,5 +97,43 @@ suite("test_view_dependency") {
     sql "create view stu_view_5 as select * from (select sid from mv_b) a join grade using(sid);"
 
     qt_sql "select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db' order by view_catalog,view_schema,view_name"
+
+    order_qt_filter_1 "select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db' and VIEW_NAME = 'mv_c'"
+    order_qt_filter_2 "select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db' and VIEW_NAME like 'mv_%'"
+    order_qt_filter_3 "select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db' and VIEW_NAME in('mv_c','mv_a')"
+    order_qt_filter_4 "select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db' and VIEW_TYPE = 'MATERIALIZED_VIEW'"
+    order_qt_filter_5 "select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db' and VIEW_TYPE = 'MATERIALIZED_VIEW' and VIEW_NAME not in('mv_c','mv_a')"
+    order_qt_filter_6 "select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db' and VIEW_TYPE = 'MATERIALIZED_VIEW' or VIEW_NAME = 'stu_view_1'"
+
+    // support eq
+    def explain = sql """explain select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db'"""
+    assertTrue(explain.toString().contains("FRONTEND PREDICATES"))
+    // support in
+    explain = sql """explain select * from information_schema.view_dependency where view_schema in ('test_view_dependency_db','test_view_dependency_db1')"""
+    assertTrue(explain.toString().contains("FRONTEND PREDICATES"))
+    // support not in
+    explain = sql """explain select * from information_schema.view_dependency where view_schema not in ('test_view_dependency_db','test_view_dependency_db1')"""
+    assertTrue(explain.toString().contains("FRONTEND PREDICATES"))
+    // support or
+    explain = sql """explain select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db' or VIEW_NAME='stu_view_5'"""
+    assertTrue(explain.toString().contains("FRONTEND PREDICATES"))
+    // support >
+    explain = sql """explain select * from information_schema.view_dependency where view_schema > 'test_view_dependency_db'"""
+    assertTrue(explain.toString().contains("FRONTEND PREDICATES"))
+    // support >=
+    explain = sql """explain select * from information_schema.view_dependency where view_schema >= 'test_view_dependency_db'"""
+    assertTrue(explain.toString().contains("FRONTEND PREDICATES"))
+    // support <
+    explain = sql """explain select * from information_schema.view_dependency where view_schema < 'test_view_dependency_db'"""
+    assertTrue(explain.toString().contains("FRONTEND PREDICATES"))
+    // support <=
+    explain = sql """explain select * from information_schema.view_dependency where view_schema <= 'test_view_dependency_db'"""
+    assertTrue(explain.toString().contains("FRONTEND PREDICATES"))
+    // not support like
+    explain = sql """explain select * from information_schema.view_dependency where view_schema like '%test_view_dependency_db%'"""
+    assertFalse(explain.toString().contains("FRONTEND PREDICATES"))
+    // support catalog.db.table.column
+    explain = sql """explain select * from information_schema.view_dependency where internal.information_schema.view_dependency.view_schema = 'test_view_dependency_db';"""
+    assertTrue(explain.toString().contains("FRONTEND PREDICATES"))
 }
 

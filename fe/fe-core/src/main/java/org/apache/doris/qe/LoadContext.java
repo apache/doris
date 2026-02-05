@@ -36,6 +36,7 @@ import java.util.stream.Collectors;
 public class LoadContext {
 
     private volatile String trackingUrl;
+    private volatile String firstErrorMsg;
     private volatile long transactionId;
     private volatile String label;
     private final List<String> exportFiles = Lists.newCopyOnWriteArrayList();
@@ -115,6 +116,14 @@ public class LoadContext {
 
     public String getTrackingUrl() {
         return trackingUrl;
+    }
+
+    public void updateFirstErrorMsg(String firstErrorMsg) {
+        this.firstErrorMsg = firstErrorMsg;
+    }
+
+    public String getFirstErrorMsg() {
+        return firstErrorMsg;
     }
 
     public void updateTransactionId(long transactionId) {

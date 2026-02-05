@@ -16,7 +16,7 @@
 // under the License.
 
 suite("inpredicate_with_list") {
-    def tableName = "test_array"
+    def tableName = "test_array_inpredicate"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """

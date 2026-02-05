@@ -39,6 +39,10 @@ import java.util.List;
  */
 public class WidthBucket extends ScalarFunction implements ExplicitlyCastableSignature, PropagateNullable {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(BigIntType.INSTANCE).args(DoubleType.INSTANCE,
+                    DoubleType.INSTANCE, DoubleType.INSTANCE, TinyIntType.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE).args(FloatType.INSTANCE,
+                    FloatType.INSTANCE, FloatType.INSTANCE, TinyIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE,
                     TinyIntType.INSTANCE, TinyIntType.INSTANCE, TinyIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(SmallIntType.INSTANCE,
@@ -46,11 +50,7 @@ public class WidthBucket extends ScalarFunction implements ExplicitlyCastableSig
             FunctionSignature.ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE,
                     IntegerType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE,
-                    BigIntType.INSTANCE, BigIntType.INSTANCE, BigIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(FloatType.INSTANCE,
-                    FloatType.INSTANCE, FloatType.INSTANCE, TinyIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DoubleType.INSTANCE,
-                    DoubleType.INSTANCE, DoubleType.INSTANCE, TinyIntType.INSTANCE)
+                    BigIntType.INSTANCE, BigIntType.INSTANCE, BigIntType.INSTANCE)
             );
 
     /**
@@ -60,13 +60,18 @@ public class WidthBucket extends ScalarFunction implements ExplicitlyCastableSig
         super("width_bucket", arg0, arg1, arg2, arg3);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private WidthBucket(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public WidthBucket withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 4);
-        return new WidthBucket(children.get(0), children.get(1), children.get(2), children.get(3));
+        return new WidthBucket(getFunctionParams(children));
     }
 
     @Override

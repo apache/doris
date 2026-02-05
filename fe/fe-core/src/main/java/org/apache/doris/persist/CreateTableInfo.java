@@ -40,6 +40,8 @@ public class CreateTableInfo implements Writable, GsonPostProcessable {
 
     @SerializedName(value = "ctl")
     private String ctlName;
+    @SerializedName(value = "dbId")
+    private long dbId = -1L;
     @SerializedName(value = "dbName")
     private String dbName;
     @SerializedName(value = "tbl")
@@ -52,8 +54,9 @@ public class CreateTableInfo implements Writable, GsonPostProcessable {
     }
 
     // for internal table
-    public CreateTableInfo(String dbName, Table table) {
+    public CreateTableInfo(String dbName, long dbId, Table table) {
         this.ctlName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        this.dbId = dbId;
         this.dbName = dbName;
         this.tblName = table.getName();
         this.table = table;
@@ -72,6 +75,10 @@ public class CreateTableInfo implements Writable, GsonPostProcessable {
 
     public String getDbName() {
         return dbName;
+    }
+
+    public long getDbId() {
+        return dbId;
     }
 
     public String getTblName() {

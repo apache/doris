@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
@@ -25,6 +26,8 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.hive.HiveUtil;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -39,42 +42,65 @@ import org.apache.doris.thrift.schema.external.TStructField;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.Snapshot;
+import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.data.serializer.InternalRowSerializer;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.DataTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
+import org.apache.paimon.tag.Tag;
 import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.BinaryType;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.VarBinaryType;
 import org.apache.paimon.types.VarCharType;
+import org.apache.paimon.utils.DateTimeUtils;
 import org.apache.paimon.utils.InstantiationUtil;
 import org.apache.paimon.utils.Pair;
 import org.apache.paimon.utils.Projection;
+import org.apache.paimon.utils.RowDataToObjectArrayConverter;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.time.DateTimeException;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 public class PaimonUtil {
     private static final Logger LOG = LogManager.getLogger(PaimonUtil.class);
     private static final Base64.Encoder BASE64_ENCODER = java.util.Base64.getUrlEncoder().withoutPadding();
+    private static final Pattern DIGITAL_REGEX = Pattern.compile("\\d+");
+
+    public static boolean isDigitalString(String value) {
+        return value != null && DIGITAL_REGEX.matcher(value).matches();
+    }
 
     public static List<InternalRow> read(
             Table table, @Nullable int[] projection, @Nullable Predicate predicate,
@@ -116,12 +142,23 @@ public class PaimonUtil {
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
         Map<String, Partition> nameToPartition = Maps.newHashMap();
         PaimonPartitionInfo partitionInfo = new PaimonPartitionInfo(nameToPartitionItem, nameToPartition);
+        List<Type> types = partitionColumns.stream()
+                .map(Column::getType)
+                .collect(Collectors.toList());
+        Map<String, Type> columnNameToType = partitionColumns.stream()
+                .collect(Collectors.toMap(Column::getName, Column::getType));
 
         for (Partition partition : paimonPartitions) {
             Map<String, String> spec = partition.spec();
             StringBuilder sb = new StringBuilder();
             for (Map.Entry<String, String> entry : spec.entrySet()) {
-                sb.append(entry.getKey()).append("=").append(entry.getValue()).append("/");
+                sb.append(entry.getKey()).append("=");
+                // Paimon stores DATE type as days since 1970-01-01 (epoch), so we convert the integer to a date string.
+                if (columnNameToType.getOrDefault(entry.getKey(), Type.NULL).isDateV2()) {
+                    sb.append(DateTimeUtils.formatDate(Integer.parseInt(entry.getValue()))).append("/");
+                } else {
+                    sb.append(entry.getValue()).append("/");
+                }
             }
             if (sb.length() > 0) {
                 sb.deleteCharAt(sb.length() - 1);
@@ -131,7 +168,7 @@ public class PaimonUtil {
             try {
                 // partition values return by paimon api, may have problem,
                 // to avoid affecting the query, we catch exceptions here
-                nameToPartitionItem.put(partitionName, toListPartitionItem(partitionName, partitionColumns));
+                nameToPartitionItem.put(partitionName, toListPartitionItem(partitionName, types));
             } catch (Exception e) {
                 LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionValues: {}",
                         partitionColumns, partition.spec(), e);
@@ -140,11 +177,8 @@ public class PaimonUtil {
         return partitionInfo;
     }
 
-    public static ListPartitionItem toListPartitionItem(String partitionName, List<Column> partitionColumns)
+    public static ListPartitionItem toListPartitionItem(String partitionName, List<Type> types)
             throws AnalysisException {
-        List<Type> types = partitionColumns.stream()
-                .map(Column::getType)
-                .collect(Collectors.toList());
         // Partition name will be in format: nation=cn/city=beijing
         // parse it to get values "cn" and "beijing"
         List<String> partitionValues = HiveUtil.toPartitionValues(partitionName);
@@ -163,7 +197,8 @@ public class PaimonUtil {
         return listPartitionItem;
     }
 
-    private static Type paimonPrimitiveTypeToDorisType(org.apache.paimon.types.DataType dataType) {
+    private static Type paimonPrimitiveTypeToDorisType(org.apache.paimon.types.DataType dataType,
+            boolean enableVarbinaryMapping, boolean enableTimestampTzMapping) {
         int tsScale = 3; // default
         switch (dataType.getTypeRoot()) {
             case BOOLEAN:
@@ -181,12 +216,24 @@ public class PaimonUtil {
             case TINYINT:
                 return Type.TINYINT;
             case VARCHAR:
-                return ScalarType.createVarcharType(((VarCharType) dataType).getLength());
+                int varcharLen = ((VarCharType) dataType).getLength();
+                if (varcharLen > 65533) {
+                    return ScalarType.createStringType();
+                }
+                return ScalarType.createVarcharType(varcharLen);
             case CHAR:
-                return ScalarType.createCharType(((CharType) dataType).getLength());
+                int charLen = ((CharType) dataType).getLength();
+                if (charLen > 255) {
+                    return ScalarType.createStringType();
+                }
+                return ScalarType.createCharType(charLen);
             case BINARY:
+                int binaryLen = ((BinaryType) dataType).getLength();
+                return enableVarbinaryMapping ? ScalarType.createVarbinaryType(binaryLen) : Type.STRING;
             case VARBINARY:
-                return Type.STRING;
+                // Paimon VarBinaryType length is in [1, 2147483647]
+                int varbinaryLen = ((VarBinaryType) dataType).getLength();
+                return enableVarbinaryMapping ? ScalarType.createVarbinaryType(varbinaryLen) : Type.STRING;
             case DECIMAL:
                 DecimalType decimal = (DecimalType) dataType;
                 return ScalarType.createDecimalV3Type(decimal.getPrecision(), decimal.getScale());
@@ -212,21 +259,27 @@ public class PaimonUtil {
                         tsScale = 6;
                     }
                 }
+                if (enableTimestampTzMapping) {
+                    return ScalarType.createTimeStampTzType(tsScale);
+                }
                 return ScalarType.createDatetimeV2Type(tsScale);
             case ARRAY:
                 ArrayType arrayType = (ArrayType) dataType;
-                Type innerType = paimonPrimitiveTypeToDorisType(arrayType.getElementType());
+                Type innerType = paimonPrimitiveTypeToDorisType(arrayType.getElementType(), enableVarbinaryMapping,
+                        enableTimestampTzMapping);
                 return org.apache.doris.catalog.ArrayType.create(innerType, true);
             case MAP:
                 MapType mapType = (MapType) dataType;
                 return new org.apache.doris.catalog.MapType(
-                        paimonTypeToDorisType(mapType.getKeyType()), paimonTypeToDorisType(mapType.getValueType()));
+                        paimonTypeToDorisType(mapType.getKeyType(), enableVarbinaryMapping, enableTimestampTzMapping),
+                        paimonTypeToDorisType(mapType.getValueType(), enableVarbinaryMapping,
+                                enableTimestampTzMapping));
             case ROW:
                 RowType rowType = (RowType) dataType;
                 List<DataField> fields = rowType.getFields();
                 return new org.apache.doris.catalog.StructType(fields.stream()
                         .map(field -> new org.apache.doris.catalog.StructField(field.name(),
-                                paimonTypeToDorisType(field.type())))
+                                paimonTypeToDorisType(field.type(), enableVarbinaryMapping, enableTimestampTzMapping)))
                         .collect(Collectors.toCollection(ArrayList::new)));
             case TIME_WITHOUT_TIME_ZONE:
                 return Type.UNSUPPORTED;
@@ -236,12 +289,16 @@ public class PaimonUtil {
         }
     }
 
-    public static Type paimonTypeToDorisType(org.apache.paimon.types.DataType type) {
-        return paimonPrimitiveTypeToDorisType(type);
+    public static Type paimonTypeToDorisType(org.apache.paimon.types.DataType type, boolean enableVarbinaryMapping,
+            boolean enableTimestampTzMapping) {
+        return paimonPrimitiveTypeToDorisType(type, enableVarbinaryMapping, enableTimestampTzMapping);
     }
 
     public static void updatePaimonColumnUniqueId(Column column, DataType dataType) {
         List<Column> columns = column.getChildren();
+        if (columns == null) {
+            return;
+        }
         switch (dataType.getTypeRoot()) {
             case ARRAY:
                 ArrayType arrayType = (ArrayType) dataType;
@@ -268,7 +325,8 @@ public class PaimonUtil {
         updatePaimonColumnUniqueId(column, field.type());
     }
 
-    public static TField getSchemaInfo(DataType dataType) {
+    public static TField getSchemaInfo(DataType dataType, boolean enableVarbinaryMapping,
+            boolean enableTimestampTzMapping) {
         TField field = new TField();
         field.setIsOptional(dataType.isNullable());
         TNestedField nestedField = new TNestedField();
@@ -277,7 +335,8 @@ public class PaimonUtil {
                 TArrayField listField = new TArrayField();
                 org.apache.paimon.types.ArrayType paimonArrayType = (org.apache.paimon.types.ArrayType) dataType;
                 TFieldPtr fieldPtr = new TFieldPtr();
-                fieldPtr.setFieldPtr(getSchemaInfo(paimonArrayType.getElementType()));
+                fieldPtr.setFieldPtr(getSchemaInfo(paimonArrayType.getElementType(), enableVarbinaryMapping,
+                        enableTimestampTzMapping));
                 listField.setItemField(fieldPtr);
                 nestedField.setArrayField(listField);
                 field.setNestedField(nestedField);
@@ -291,10 +350,12 @@ public class PaimonUtil {
                 TMapField mapField = new TMapField();
                 org.apache.paimon.types.MapType mapType = (org.apache.paimon.types.MapType) dataType;
                 TFieldPtr keyField = new TFieldPtr();
-                keyField.setFieldPtr(getSchemaInfo(mapType.getKeyType()));
+                keyField.setFieldPtr(
+                        getSchemaInfo(mapType.getKeyType(), enableVarbinaryMapping, enableTimestampTzMapping));
                 mapField.setKeyField(keyField);
                 TFieldPtr valueField = new TFieldPtr();
-                valueField.setFieldPtr(getSchemaInfo(mapType.getValueType()));
+                valueField.setFieldPtr(
+                        getSchemaInfo(mapType.getValueType(), enableVarbinaryMapping, enableTimestampTzMapping));
                 mapField.setValueField(valueField);
                 nestedField.setMapField(mapField);
                 field.setNestedField(nestedField);
@@ -306,7 +367,8 @@ public class PaimonUtil {
             }
             case ROW: {
                 RowType rowType = (RowType) dataType;
-                TStructField structField = getSchemaInfo(rowType.getFields());
+                TStructField structField = getSchemaInfo(rowType.getFields(), enableVarbinaryMapping,
+                        enableTimestampTzMapping);
                 nestedField.setStructField(structField);
                 field.setNestedField(nestedField);
 
@@ -316,16 +378,18 @@ public class PaimonUtil {
                 break;
             }
             default:
-                field.setType(paimonPrimitiveTypeToDorisType(dataType).toColumnTypeThrift());
+                field.setType(paimonPrimitiveTypeToDorisType(dataType, enableVarbinaryMapping, enableTimestampTzMapping)
+                        .toColumnTypeThrift());
                 break;
         }
         return field;
     }
 
-    public static TStructField getSchemaInfo(List<DataField> paimonFields) {
+    public static TStructField getSchemaInfo(List<DataField> paimonFields, boolean enableVarbinaryMapping,
+            boolean enableTimestampTzMapping) {
         TStructField structField = new TStructField();
         for (DataField paimonField : paimonFields) {
-            TField childField = getSchemaInfo(paimonField.type());
+            TField childField = getSchemaInfo(paimonField.type(), enableVarbinaryMapping, enableTimestampTzMapping);
             childField.setName(paimonField.name());
             childField.setId(paimonField.id());
             TFieldPtr fieldPtr = new TFieldPtr();
@@ -335,23 +399,27 @@ public class PaimonUtil {
         return structField;
     }
 
-    public static TSchema getSchemaInfo(TableSchema paimonTableSchema) {
+    public static TSchema getSchemaInfo(TableSchema paimonTableSchema, boolean enableVarbinaryMapping,
+            boolean enableTimestampTzMapping) {
         TSchema tSchema = new TSchema();
         tSchema.setSchemaId(paimonTableSchema.id());
-        tSchema.setRootField(getSchemaInfo(paimonTableSchema.fields()));
+        tSchema.setRootField(
+                getSchemaInfo(paimonTableSchema.fields(), enableVarbinaryMapping, enableTimestampTzMapping));
         return tSchema;
     }
 
-    public static List<Column> parseSchema(Table table) {
+    public static List<Column> parseSchema(Table table, boolean enableVarbinaryMapping,
+            boolean enableTimestampTzMapping) {
         List<String> primaryKeys = table.primaryKeys();
-        return parseSchema(table.rowType(), primaryKeys);
+        return parseSchema(table.rowType(), primaryKeys, enableVarbinaryMapping, enableTimestampTzMapping);
     }
 
-    public static List<Column> parseSchema(RowType rowType, List<String> primaryKeys) {
+    public static List<Column> parseSchema(RowType rowType, List<String> primaryKeys, boolean enableVarbinaryMapping,
+            boolean enableTimestampTzMapping) {
         List<Column> resSchema = Lists.newArrayListWithCapacity(rowType.getFields().size());
         rowType.getFields().forEach(field -> {
             resSchema.add(new Column(field.name().toLowerCase(),
-                    PaimonUtil.paimonTypeToDorisType(field.type()),
+                    PaimonUtil.paimonTypeToDorisType(field.type(), enableVarbinaryMapping, enableTimestampTzMapping),
                     primaryKeys.contains(field.name()),
                     null,
                     field.type().isNullable(),
@@ -371,4 +439,159 @@ public class PaimonUtil {
         }
     }
 
+    public static Map<String, String> getPartitionInfoMap(Table table, BinaryRow partitionValues, String timeZone) {
+        Map<String, String> partitionInfoMap = new HashMap<>();
+        List<String> partitionKeys = table.partitionKeys();
+        RowType partitionType = table.rowType().project(partitionKeys);
+        RowDataToObjectArrayConverter toObjectArrayConverter = new RowDataToObjectArrayConverter(
+                partitionType);
+        Object[] partitionValuesArray = toObjectArrayConverter.convert(partitionValues);
+        for (int i = 0; i < partitionKeys.size(); i++) {
+            try {
+                String partitionValue = serializePartitionValue(partitionType.getFields().get(i).type(),
+                        partitionValuesArray[i], timeZone);
+                partitionInfoMap.put(partitionKeys.get(i), partitionValue);
+            } catch (UnsupportedOperationException e) {
+                LOG.warn("Failed to serialize table {} partition value for key {}: {}", table.name(),
+                        partitionKeys.get(i), e.getMessage());
+                return null;
+            }
+        }
+        return partitionInfoMap;
+    }
+
+    private static String serializePartitionValue(org.apache.paimon.types.DataType type, Object value,
+            String timeZone) {
+        switch (type.getTypeRoot()) {
+            case BOOLEAN:
+            case INTEGER:
+            case BIGINT:
+            case SMALLINT:
+            case TINYINT:
+            case DECIMAL:
+            case VARCHAR:
+            case CHAR:
+                if (value == null) {
+                    return null;
+                }
+                return value.toString();
+            // case binary, varbinary should not supported, because if return string with utf8,
+            // the data maybe be corrupted
+            case DATE:
+                if (value == null) {
+                    return null;
+                }
+                // Paimon date is stored as days since epoch
+                LocalDate date = LocalDate.ofEpochDay((Integer) value);
+                return date.format(DateTimeFormatter.ISO_LOCAL_DATE);
+            case TIME_WITHOUT_TIME_ZONE:
+                if (value == null) {
+                    return null;
+                }
+                // Paimon time is stored as microseconds since midnight in utc
+                long micros = (Long) value;
+                LocalTime time = LocalTime.ofNanoOfDay(micros * 1000);
+                return time.format(DateTimeFormatter.ISO_LOCAL_TIME);
+            case TIMESTAMP_WITHOUT_TIME_ZONE:
+                if (value == null) {
+                    return null;
+                }
+                // Paimon timestamp is stored as Timestamp type in utc
+                return ((Timestamp) value).toLocalDateTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                if (value == null) {
+                    return null;
+                }
+                // Paimon timestamp with local time zone is stored as Timestamp type in utc
+                Timestamp timestamp = (Timestamp) value;
+                return timestamp.toLocalDateTime()
+                        .atZone(ZoneId.of("UTC"))
+                        .withZoneSameInstant(ZoneId.of(timeZone))
+                        .toLocalDateTime()
+                        .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            default:
+                throw new UnsupportedOperationException("Unsupported type for serializePartitionValue: " + type);
+        }
+    }
+
+    /**
+     * Extracts the reference name (branch or tag name) from table scan parameters.
+     *
+     * @param scanParams the scan parameters containing reference name information
+     * @return the extracted reference name
+     * @throws IllegalArgumentException if the reference name is not properly specified
+     */
+    public static String extractBranchOrTagName(TableScanParams scanParams) {
+        if (!scanParams.getMapParams().isEmpty()) {
+            if (!scanParams.getMapParams().containsKey(TableScanParams.PARAMS_NAME)) {
+                throw new IllegalArgumentException("must contain key 'name' in params");
+            }
+            return scanParams.getMapParams().get(TableScanParams.PARAMS_NAME);
+        } else {
+            if (scanParams.getListParams().isEmpty() || scanParams.getListParams().get(0) == null) {
+                throw new IllegalArgumentException("must contain a branch/tag name in params");
+            }
+            return scanParams.getListParams().get(0);
+        }
+    }
+
+    static Snapshot getPaimonSnapshotByTimestamp(DataTable table, String timestamp, boolean isDigital)
+            throws UserException {
+        long timestampMillis = 0;
+        if (isDigital) {
+            timestampMillis = Long.parseLong(timestamp);
+        } else {
+            // Supported formats include：yyyy-MM-dd, yyyy-MM-dd HH:mm:ss, yyyy-MM-dd HH:mm:ss.SSS.
+            // use default local time zone.
+            timestampMillis = DateTimeUtils.parseTimestampData(timestamp, 3, TimeUtils.getTimeZone()).getMillisecond();
+            if (timestampMillis < 0) {
+                throw new DateTimeException("can't parse time: " + timestamp);
+            }
+        }
+        Snapshot snapshot = table.snapshotManager().earlierOrEqualTimeMills(timestampMillis);
+        if (snapshot == null) {
+            Snapshot earliestSnapshot = table.snapshotManager().earliestSnapshot();
+            throw new UserException(
+                    String.format(
+                            "There is currently no snapshot earlier than or equal to timestamp [%s], "
+                                    + "the earliest snapshot's timestamp is [%s]",
+                            timestampMillis,
+                            earliestSnapshot == null
+                                    ? "null"
+                                    : String.valueOf(earliestSnapshot.timeMillis())));
+        }
+        return snapshot;
+    }
+
+    static Snapshot getPaimonSnapshotBySnapshotId(DataTable table, String snapshotString)
+            throws UserException {
+        long snapshotId = Long.parseLong(snapshotString);
+        try {
+            Snapshot snapshot = table.snapshotManager().tryGetSnapshot(snapshotId);
+            return snapshot;
+        } catch (FileNotFoundException e) {
+            throw new UserException("can't find snapshot by id: " + snapshotId, e);
+        }
+    }
+
+    static Snapshot getPaimonSnapshotByTag(DataTable table, String tagName)
+            throws UserException {
+        Optional<Tag> tag = table.tagManager().get(tagName);
+        return tag.orElseThrow(() -> new UserException("can't find snapshot by tag: " + tagName));
+    }
+
+
+    public static String resolvePaimonBranch(TableScanParams tableScanParams, Table baseTable)
+            throws UserException {
+        String branchName = extractBranchOrTagName(tableScanParams);
+        if (!(baseTable instanceof FileStoreTable)) {
+            throw new UserException("Table type should be FileStoreTable but got: " + baseTable.getClass().getName());
+        }
+
+        final FileStoreTable fileStoreTable = (FileStoreTable) baseTable;
+        if (!fileStoreTable.branchManager().branchExists(branchName)) {
+            throw new UserException("can't find branch: " + branchName);
+        }
+        return branchName;
+    }
 }

@@ -123,7 +123,7 @@ suite("test_recycler_inverted_index") {
     // recycle data
     do {
         triggerRecycle(token, instanceId)
-        Thread.sleep(10000)
+        Thread.sleep(20000)
         if (checkRecycleTable(token, instanceId, cloudUniqueId, tableName, tabletIdSet)) {
             success = true
             break

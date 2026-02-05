@@ -20,15 +20,19 @@ suite("regression_test_variant_nested", "p0"){
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
+    sql "set default_variant_enable_doc_mode = false"
+    sql "set default_variant_max_subcolumns_count = 0"
+    sql "set default_variant_sparse_hash_shard_count = 0"
+    sql "set default_variant_enable_typed_paths_to_sparse = false"
     try {
 
         def table_name = "var_nested"
         sql "DROP TABLE IF EXISTS ${table_name}"
-        sql "set disable_variant_flatten_nested = false"
+        sql "set enable_variant_flatten_nested = true"
         sql """
                 CREATE TABLE IF NOT EXISTS ${table_name} (
                     k bigint,
-                    v variant
+                    v variant <properties("variant_max_subcolumns_count" = "3")>
                 )
                 DUPLICATE KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS 4
@@ -77,14 +81,14 @@ suite("regression_test_variant_nested", "p0"){
             sql """insert into var_nested values (${i}, '{"nested${i}" : {"nested": [{"yyyxxxx" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}, "not nested" : 1024, "not nested2" : {"llll" : 123}}');"""
         }
 
-        trigger_and_wait_compaction("var_nested", "full")
+        trigger_and_wait_compaction("var_nested", "full", 1800)
 
         qt_sql """
             select * from var_nested order by k limit 101
         """
         sql """INSERT INTO var_nested SELECT *, '{"k1":1, "k2": "some", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]], "nested1" : {"nested2" : [{"a" : 10, "b" : 1.1, "c" : "1111"}]}}' FROM numbers("number" = "1000") where number > 200 limit 100;"""
         sql """INSERT INTO var_nested SELECT *, '{"k2":1, "k3": "nice", "k4" : [1234], "k5" : 1.10000, "k6" : [[123]], "nested2" : {"nested1" : [{"a" : 10, "b" : 1.1, "c" : "1111"}]}}' FROM numbers("number" = "5013") where number >= 400 limit 1024;"""
-        trigger_and_wait_compaction("var_nested", "full")
+        trigger_and_wait_compaction("var_nested", "full", 1800)
 
         qt_sql """select  /*+SET_VAR(batch_size=1024,broker_load_batch_size=16352,disable_streaming_preaggregations=true,enable_distinct_streaming_aggregation=true,parallel_fragment_exec_
 parallel_pipeline_task_num=7,profile_level=1,enable_pipeline_engine=true,enable_parallel_scan=false,parallel_scan_max_scanners_count=16
@@ -101,7 +105,7 @@ parallel_pipeline_task_num=7,profile_level=1,enable_pipeline_engine=true,enable_
         // type change case
         sql """INSERT INTO var_nested SELECT *, '{"k1":"1", "k2": 1.1, "k3" : [1234.0], "k4" : 1.10000, "k5" : [["123"]], "nested1" : {"nested2" : [{"a" : "10", "b" : "1.1", "c" : 1111.111}]}}' FROM numbers("number" = "8000") where number > 7000 limit 100;"""
         qt_sql """select * from var_nested where v['k2'] = 'what'  and array_contains(cast(v['nested1']['nested2']['a'] as array<tinyint>), 10) order by k limit 1;"""
-        trigger_and_wait_compaction("var_nested", "full")
+        trigger_and_wait_compaction("var_nested", "full", 1800)
         qt_sql """select * from var_nested where v['k2'] = 'nested'  and array_contains(cast(v['nested1']['nested2']['a'] as array<tinyint>), 10) order by k limit 1;"""
         sql """select * from var_nested where v['k2'] = 'some' or v['k3'] = 'nice' limit 100;"""
 
@@ -110,14 +114,14 @@ parallel_pipeline_task_num=7,profile_level=1,enable_pipeline_engine=true,enable_
         sql """
                 CREATE TABLE IF NOT EXISTS var_nested2 (
                     k bigint,
-                    v variant
+                    v variant <properties("variant_max_subcolumns_count" = "3")>
                 )
                 UNIQUE KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS 1
                 properties("replication_num" = "1", "disable_auto_compaction" = "false", "enable_unique_key_merge_on_write" = "true", "variant_enable_flatten_nested" = "true");
             """
         sql """insert into var_nested2 select * from var_nested order by k limit 1024"""
-        qt_sql """select  /*+SET_VAR(batch_size=4064,broker_load_batch_size=16352,disable_streaming_preaggregations=true,enable_distinct_streaming_aggregation=true,parallel_pipeline_task_num=1,profile_level=1,enable_pipeline_engine=false,enable_parallel_scan=true,parallel_scan_max_scanners_count=48,parallel_scan_min_rows_per_scanner=16384,enable_fold_constant_by_be=true,enable_rewrite_element_at_to_slot=true,runtime_filter_type=12,enable_parallel_result_sink=false,enable_nereids_planner=true,rewrite_or_to_in_predicate_threshold=2,enable_function_pushdown=true,enable_common_expr_pushdown=false,enable_local_exchange=false,partition_pruning_expand_threshold=10,enable_share_hash_table_for_broadcast_join=false,enable_two_phase_read_opt=true,enable_common_expr_pushdown_for_inverted_index=true,spill_min_revocable_mem=33554432,fetch_remote_schema_timeout_seconds=120,max_fetch_remote_schema_tablet_count=512,enable_spill=false,enable_force_spill=false,data_queue_max_blocks=1,spill_streaming_agg_mem_limit=268435456,spill_aggregation_partition_count=5) */  * from var_nested2 order by k limit 10;"""
+        qt_sql """select  /*+SET_VAR(batch_size=4064,broker_load_batch_size=16352,disable_streaming_preaggregations=true,enable_distinct_streaming_aggregation=true,parallel_pipeline_task_num=1,profile_level=1,enable_parallel_scan=true,parallel_scan_max_scanners_count=48,parallel_scan_min_rows_per_scanner=16384,enable_fold_constant_by_be=true,enable_rewrite_element_at_to_slot=true,runtime_filter_type=12,enable_parallel_result_sink=false,enable_nereids_planner=true,rewrite_or_to_in_predicate_threshold=2,enable_function_pushdown=true,enable_common_expr_pushdown=false,enable_local_exchange=false,partition_pruning_expand_threshold=10,enable_share_hash_table_for_broadcast_join=false,enable_two_phase_read_opt=true,enable_common_expr_pushdown_for_inverted_index=true,spill_min_revocable_mem=33554432,fetch_remote_schema_timeout_seconds=120,max_fetch_remote_schema_tablet_count=512,enable_spill=false,enable_force_spill=false,data_queue_max_blocks=1,spill_streaming_agg_mem_limit=268435456,spill_aggregation_partition_count=5) */  * from var_nested2 order by k limit 10;"""
         qt_sql """select v['nested'] from var_nested2 where k < 10 order by k limit 10;"""
         // 0. nomal explode variant array
         order_qt_explode_sql """select count(),cast(vv['xx'] as int) from var_nested lateral view explode_variant_array(v['nested']) tmp as vv where vv['xx'] = 10 group by cast(vv['xx'] as int)"""
@@ -132,7 +136,7 @@ where phone_numbers['type'] = 'GSM' OR phone_numbers['type'] = 'HOME' and phone_
         sql """
                 CREATE TABLE IF NOT EXISTS var_nested_array_agg(
                     k bigint,
-                    v variant
+                    v variant <properties("variant_max_subcolumns_count" = "3")>
                 )
                 UNIQUE KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -149,7 +153,7 @@ where phone_numbers['type'] = 'GSM' OR phone_numbers['type'] = 'HOME' and phone_
         sql """
                 CREATE TABLE IF NOT EXISTS var_nested_explode_variant_with_abnomal(
                     k bigint,
-                    v variant
+                    v variant <properties("variant_max_subcolumns_count" = "3")>
                 )
                 UNIQUE KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS 1

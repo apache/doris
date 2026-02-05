@@ -21,6 +21,8 @@ import org.apache.doris.nereids.pattern.ExpressionPatternRules;
 import org.apache.doris.nereids.pattern.ExpressionPatternTraverseListeners;
 import org.apache.doris.nereids.pattern.ExpressionPatternTraverseListeners.CombinedListener;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
+import org.apache.doris.qe.AutoCloseSessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
@@ -73,7 +75,15 @@ public class ExpressionBottomUpRewriter implements ExpressionRewriteRule<Express
             Expression afterRewrite = expression;
             try {
                 Expression beforeRewrite;
-                afterRewrite = rewriteChildren(expression, context, currentBatch, rules, listeners);
+                if (expression instanceof SessionVarGuardExpr) {
+                    try (AutoCloseSessionVariable auto = new AutoCloseSessionVariable(
+                            context.cascadesContext.getConnectContext(),
+                            ((SessionVarGuardExpr) expression).getSessionVars())) {
+                        afterRewrite = rewriteChildren(expression, context, currentBatch, rules, listeners);
+                    }
+                } else {
+                    afterRewrite = rewriteChildren(expression, context, currentBatch, rules, listeners);
+                }
                 // use rewriteTimes to avoid dead loop
                 int rewriteTimes = 0;
                 boolean changed;

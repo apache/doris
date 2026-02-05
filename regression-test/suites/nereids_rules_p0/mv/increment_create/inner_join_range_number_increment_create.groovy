@@ -148,6 +148,7 @@ suite("inner_join_range_number_increment_create") {
         def refresh_info = sql """select 
             JobName, Status, RefreshMode, NeedRefreshPartitions, CompletedPartitions, Progress 
             from tasks("type"="mv") where JobName="${cur_job_name}" order by CreateTime desc limit 1;"""
+        logger.info("refresh_info: " + refresh_info)
         assert (refresh_info[0][0] == cur_job_name)
         assert (refresh_info[0][1] == "SUCCESS")
         assert (refresh_info[0][2] == "PARTIAL")
@@ -164,6 +165,7 @@ suite("inner_join_range_number_increment_create") {
         def refresh_info = sql """select 
             JobName, Status, RefreshMode, NeedRefreshPartitions, CompletedPartitions, Progress 
             from tasks("type"="mv") where JobName="${cur_job_name}" order by CreateTime desc limit 1;"""
+        logger.info("refresh_info: " + refresh_info)
         assert (refresh_info[0][0] == cur_job_name)
         assert (refresh_info[0][1] == "SUCCESS")
         assert (refresh_info[0][2] == "COMPLETE")
@@ -179,6 +181,7 @@ suite("inner_join_range_number_increment_create") {
         def refresh_info = sql """select 
             JobName, Status, RefreshMode, NeedRefreshPartitions, CompletedPartitions, Progress 
             from tasks("type"="mv") where JobName="${cur_job_name}" order by CreateTime desc limit 1;"""
+        logger.info("refresh_info: " + refresh_info)
         assert (refresh_info[0][0] == cur_job_name)
         assert (refresh_info[0][1] == "SUCCESS")
         assert (refresh_info[0][2] == "COMPLETE")
@@ -364,10 +367,11 @@ suite("inner_join_range_number_increment_create") {
                         mv_sql_13, mv_sql_14, mv_sql_15, mv_sql_16, mv_sql_17, mv_sql_18]
     def sql_increment_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_8, mv_sql_14]
     def sql_complete_list = []
+    def sql_error_list = []
 
     // change left table data
     // create mv base on left table with partition col
-    def sql_error_list = [mv_sql_7, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12, mv_sql_13, mv_sql_15, mv_sql_16, mv_sql_17, mv_sql_18]
+    sql_error_list = [mv_sql_7, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12, mv_sql_13, mv_sql_15, mv_sql_16, mv_sql_17, mv_sql_18]
     list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
             partition_by_part_col, primary_tb_change, is_complete_change)
 
@@ -380,7 +384,7 @@ suite("inner_join_range_number_increment_create") {
     // create mv base on right table with partition col
     sql_error_list = [mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_12, mv_sql_13, mv_sql_14, mv_sql_15, mv_sql_16, mv_sql_18]
     sql_increment_list = []
-    sql_complete_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_11, mv_sql_17]
+    sql_complete_list = [mv_sql_1, mv_sql_3]
     list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
             partition_by_part_col_right, primary_tb_change, is_complete_change_right)
 
@@ -393,8 +397,8 @@ suite("inner_join_range_number_increment_create") {
     // change right table data
     // create mv base on left table with partition col
     sql_error_list = [mv_sql_7, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12, mv_sql_13, mv_sql_15, mv_sql_16, mv_sql_17, mv_sql_18]
-    sql_increment_list = []
-    sql_complete_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_8, mv_sql_14]
+    sql_increment_list = [mv_sql_4, mv_sql_6, mv_sql_8, mv_sql_14]
+    sql_complete_list = [mv_sql_1, mv_sql_3]
     list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
             partition_by_part_col, slave_tb_change, is_complete_change)
 

@@ -29,26 +29,34 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 TEST(VFieldTest, field_string) {
     Field f;
 
     f = Field::create_field<TYPE_STRING>(String {"Hello, world (1)"});
-    ASSERT_EQ(f.get<String>(), "Hello, world (1)");
+    ASSERT_EQ(f.get<TYPE_STRING>(), "Hello, world (1)");
     f = Field::create_field<TYPE_STRING>(String {"Hello, world (2)"});
-    ASSERT_EQ(f.get<String>(), "Hello, world (2)");
+    ASSERT_EQ(f.get<TYPE_STRING>(), "Hello, world (2)");
     f = Field::create_field<TYPE_ARRAY>(
             Array {Field ::create_field<TYPE_STRING>(String {"Hello, world (3)"})});
-    ASSERT_EQ(f.get<Array>()[0].get<String>(), "Hello, world (3)");
+    ASSERT_EQ(f.get<TYPE_ARRAY>()[0].get<TYPE_STRING>(), "Hello, world (3)");
     f = Field::create_field<TYPE_STRING>(String {"Hello, world (4)"});
-    ASSERT_EQ(f.get<String>(), "Hello, world (4)");
+    ASSERT_EQ(f.get<TYPE_STRING>(), "Hello, world (4)");
     f = Field::create_field<TYPE_ARRAY>(
             Array {Field::create_field<TYPE_STRING>(String {"Hello, world (5)"})});
-    ASSERT_EQ(f.get<Array>()[0].get<String>(), "Hello, world (5)");
+    ASSERT_EQ(f.get<TYPE_ARRAY>()[0].get<TYPE_STRING>(), "Hello, world (5)");
     f = Field::create_field<TYPE_ARRAY>(
             Array {Field::create_field<TYPE_STRING>(String {"Hello, world (6)"})});
-    ASSERT_EQ(f.get<Array>()[0].get<String>(), "Hello, world (6)");
+    ASSERT_EQ(f.get<TYPE_ARRAY>()[0].get<TYPE_STRING>(), "Hello, world (6)");
+}
+
+TEST(VFieldTest, field_timestamptz) {
+    Field f;
+    f = Field::create_field<TYPE_TIMESTAMPTZ>(*(TimestampTzValue*)&MIN_DATETIME_V2);
+    ASSERT_EQ(f.get_type(), TYPE_TIMESTAMPTZ);
+    ASSERT_EQ(f.get<TYPE_TIMESTAMPTZ>().to_date_int_val(), MIN_DATETIME_V2);
 }
 
 TEST(VFieldTest, jsonb_field_unique_ptr) {
@@ -102,10 +110,10 @@ TEST(VFieldTest, jsonb_field_unique_ptr) {
     // Test JsonbField with Field
     Field field_jf = Field::create_field<TYPE_JSONB>(jf1);
     ASSERT_EQ(field_jf.get_type(), TYPE_JSONB);
-    ASSERT_NE(field_jf.get<JsonbField>().get_value(), nullptr);
-    ASSERT_EQ(field_jf.get<JsonbField>().get_size(), test_size);
-    ASSERT_EQ(std::string(field_jf.get<JsonbField>().get_value(),
-                          field_jf.get<JsonbField>().get_size()),
+    ASSERT_NE(field_jf.get<TYPE_JSONB>().get_value(), nullptr);
+    ASSERT_EQ(field_jf.get<TYPE_JSONB>().get_size(), test_size);
+    ASSERT_EQ(std::string(field_jf.get<TYPE_JSONB>().get_value(),
+                          field_jf.get<TYPE_JSONB>().get_size()),
               std::string(test_data));
 }
 
@@ -176,12 +184,100 @@ TEST(VFieldTest, jsonb_field_io) {
             Field f2 = Field::create_field<TYPE_JSONB>(jsonb_from_field);
 
             ASSERT_EQ(f2.get_type(), TYPE_JSONB);
-            ASSERT_NE(f2.get<JsonbField>().get_value(), nullptr);
+            ASSERT_NE(f2.get<TYPE_JSONB>().get_value(), nullptr);
             ASSERT_EQ(
-                    std::string(f2.get<JsonbField>().get_value(), f2.get<JsonbField>().get_size()),
+                    std::string(f2.get<TYPE_JSONB>().get_value(), f2.get<TYPE_JSONB>().get_size()),
                     std::string(test_data));
         }
     }
+}
+
+TEST(VFieldTest, field_create) {
+    Field string_f = Field::create_field<TYPE_STRING>(String {"Hello, world (1)"});
+    Field string_copy = Field::create_field<TYPE_STRING>(String {"Hello, world (1)"});
+
+    string_copy = std::move(string_f);
+    string_copy = string_f;
+
+    Field int_f = Field::create_field<TYPE_INT>(1);
+    Field int_copy = Field::create_field<TYPE_INT>(1);
+    int_copy = std::move(int_f);
+    int_copy = int_f;
+
+    Field jsonb = Field::create_field<TYPE_JSONB>(JsonbField {R"({ "key": "value" })", 13});
+    Field jsonb_copy = Field::create_field<TYPE_JSONB>(JsonbField {R"({ "key": "value" })", 13});
+    jsonb_copy = std::move(jsonb);
+    jsonb_copy = jsonb;
+
+    Field double_f = Field::create_field<TYPE_DOUBLE>(1.0);
+    Field double_copy = Field::create_field<TYPE_DOUBLE>(1.0);
+    double_copy = std::move(double_f);
+    double_copy = double_f;
+
+    Field largeint = Field::create_field<TYPE_LARGEINT>(Int128(1));
+    Field largeint_copy = Field::create_field<TYPE_LARGEINT>(Int128(1));
+    largeint_copy = std::move(largeint);
+    largeint_copy = largeint;
+
+    Field array_f = Field::create_field<TYPE_ARRAY>(Array {int_f});
+    Field array_copy = Field::create_field<TYPE_ARRAY>(Array {int_f});
+    array_copy = std::move(array_f);
+    array_copy = array_f;
+
+    Field map_f = Field::create_field<TYPE_MAP>(Map {int_f, string_f});
+    Field map_copy = Field::create_field<TYPE_MAP>(Map {int_f, string_f});
+    map_copy = std::move(map_f);
+    map_copy = map_f;
+
+    Field ipv4_f = Field::create_field<TYPE_IPV4>(IPv4(1));
+    Field ipv4_copy = Field::create_field<TYPE_IPV4>(IPv4(1));
+    ipv4_copy = std::move(ipv4_f);
+    ipv4_copy = ipv4_f;
+
+    Field ipv6_f = Field::create_field<TYPE_IPV6>(IPv6(1));
+    Field ipv6_copy = Field::create_field<TYPE_IPV6>(IPv6(1));
+    ipv6_copy = std::move(ipv6_f);
+    ipv6_copy = ipv6_f;
+
+    Field decimal32_f = Field::create_field<TYPE_DECIMAL32>(Decimal32(1));
+    Field decimal32_copy = Field::create_field<TYPE_DECIMAL32>(Decimal32(1));
+    decimal32_copy = std::move(decimal32_f);
+    decimal32_copy = decimal32_f;
+
+    Field decimal64_f = Field::create_field<TYPE_DECIMAL64>(Decimal64(1));
+    Field decimal64_copy = Field::create_field<TYPE_DECIMAL64>(Decimal64(1));
+    decimal64_copy = std::move(decimal64_f);
+    decimal64_copy = decimal64_f;
+
+    Field decimal128_f = Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(1));
+    Field decimal128_copy = Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(1));
+    decimal128_copy = std::move(decimal128_f);
+    decimal128_copy = decimal128_f;
+
+    Field decimal256_f = Field::create_field<TYPE_DECIMAL256>(Decimal256(1));
+    Field decimal256_copy = Field::create_field<TYPE_DECIMAL256>(Decimal256(1));
+    decimal256_copy = std::move(decimal256_f);
+    decimal256_copy = decimal256_f;
+
+    Field bitmap_f = Field::create_field<TYPE_BITMAP>(BitmapValue(1));
+    Field bitmap_copy = Field::create_field<TYPE_BITMAP>(BitmapValue(1));
+    bitmap_copy = std::move(bitmap_f);
+    bitmap_copy = bitmap_f;
+
+    Field hll_f = Field::create_field<TYPE_HLL>(HyperLogLog(1));
+    Field hll_copy = Field::create_field<TYPE_HLL>(HyperLogLog(1));
+    hll_copy = std::move(hll_f);
+    hll_copy = hll_f;
+
+    Field quantile_state_f = Field::create_field<TYPE_QUANTILE_STATE>(QuantileState(1));
+    Field quantile_state_copy = Field::create_field<TYPE_QUANTILE_STATE>(QuantileState(1));
+    quantile_state_copy = std::move(quantile_state_f);
+    quantile_state_copy = quantile_state_f;
+
+    Field bitmap_value_f = Field::create_field<TYPE_BITMAP>(BitmapValue(1));
+    Field bitmap_value_copy = Field::create_field<TYPE_BITMAP>(BitmapValue(1));
+    bitmap_value_copy = std::move(bitmap_value_f);
+    bitmap_value_copy = bitmap_value_f;
 }
 
 } // namespace doris::vectorized

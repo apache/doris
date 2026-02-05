@@ -48,6 +48,6 @@ private:
     void calculate_workload_group_metrics_thread();
 
     CountDownLatch _stop_background_threads_latch;
-    std::vector<scoped_refptr<Thread>> _threads;
+    std::vector<std::shared_ptr<Thread>> _threads;
 };
 } // namespace doris

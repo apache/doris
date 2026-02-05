@@ -54,7 +54,7 @@ suite("test_export_table_with_materialized_view", "p0") {
     """
 
     createMV("""
-    CREATE MATERIALIZED VIEW export_table_materialized_view AS SELECT k2, sum(v5) FROM ${table_export_name} GROUP BY k2;
+    CREATE MATERIALIZED VIEW export_table_materialized_view AS SELECT k2 as kx, sum(v5) FROM ${table_export_name} GROUP BY k2;
     """)
 
     StringBuilder sb = new StringBuilder()

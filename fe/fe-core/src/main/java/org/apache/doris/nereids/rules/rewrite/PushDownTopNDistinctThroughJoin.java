@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -98,6 +99,9 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
                 .flatMap(e -> e.getInputSlots().stream()).collect(Collectors.toSet());
         switch (join.getJoinType()) {
             case LEFT_OUTER_JOIN: {
+                if (join.left() instanceof TopN) {
+                    return null;
+                }
                 List<OrderKey> pushedOrderKeys = getPushedOrderKeys(groupBySlots,
                         join.left().getOutputSet(), topN.getOrderKeys());
                 if (!pushedOrderKeys.isEmpty()) {
@@ -109,6 +113,9 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
                 return null;
             }
             case RIGHT_OUTER_JOIN: {
+                if (join.right() instanceof TopN) {
+                    return null;
+                }
                 List<OrderKey> pushedOrderKeys = getPushedOrderKeys(groupBySlots,
                         join.right().getOutputSet(), topN.getOrderKeys());
                 if (!pushedOrderKeys.isEmpty()) {
@@ -124,14 +131,14 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
                 Plan rightChild = join.right();
                 List<OrderKey> leftPushedOrderKeys = getPushedOrderKeys(groupBySlots,
                         join.left().getOutputSet(), topN.getOrderKeys());
-                if (!leftPushedOrderKeys.isEmpty()) {
+                if (!(join.left() instanceof TopN) && !leftPushedOrderKeys.isEmpty()) {
                     leftChild = topN.withLimitOrderKeyAndChild(
                             topN.getLimit() + topN.getOffset(), 0, leftPushedOrderKeys,
                             PlanUtils.distinct(join.left()));
                 }
                 List<OrderKey> rightPushedOrderKeys = getPushedOrderKeys(groupBySlots,
                         join.right().getOutputSet(), topN.getOrderKeys());
-                if (!rightPushedOrderKeys.isEmpty()) {
+                if (!(join.right() instanceof TopN) && !rightPushedOrderKeys.isEmpty()) {
                     rightChild = topN.withLimitOrderKeyAndChild(
                             topN.getLimit() + topN.getOffset(), 0, rightPushedOrderKeys,
                             PlanUtils.distinct(join.right()));

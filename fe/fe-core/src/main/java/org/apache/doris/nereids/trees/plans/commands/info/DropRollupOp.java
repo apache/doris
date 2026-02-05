@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.DropRollupClause;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
@@ -47,11 +45,6 @@ public class DropRollupOp extends AlterTableOp {
         if (Strings.isNullOrEmpty(rollupName)) {
             throw new AnalysisException("No rollup in delete rollup.");
         }
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new DropRollupClause(rollupName, properties);
     }
 
     @Override

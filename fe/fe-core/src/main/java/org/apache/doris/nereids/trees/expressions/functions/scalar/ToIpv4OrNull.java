@@ -46,13 +46,18 @@ public class ToIpv4OrNull extends ScalarFunction
         super("to_ipv4_or_null", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ToIpv4OrNull(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public ToIpv4OrNull withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "to_ipv4_or_null accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new ToIpv4OrNull(children.get(0));
+        return new ToIpv4OrNull(getFunctionParams(children));
     }
 
     @Override

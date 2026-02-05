@@ -21,10 +21,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.BitUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -38,7 +36,6 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -64,12 +61,6 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
         ImmutableList.Builder<NamedExpression> outputBuilder
                 = ImmutableList.builderWithExpectedSize(prunedOutputs.size() + 1);
         outputBuilder.addAll(prunedOutputs);
-        for (NamedExpression output : getOutputExpressions()) {
-            Set<VirtualSlotReference> v = output.collect(VirtualSlotReference.class::isInstance);
-            if (v.stream().anyMatch(slot -> slot.getName().equals(COL_GROUPING_ID))) {
-                outputBuilder.add(output);
-            }
-        }
         // prune groupingSets, if parent operator do not need some exprs in grouping sets, we removed it.
         // this could not lead to wrong result because be repeat other columns by normal.
         ImmutableList.Builder<List<Expression>> groupingSetsBuilder
@@ -89,17 +80,6 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
 
     Repeat<CHILD_PLAN> withGroupSetsAndOutput(List<List<Expression>> groupingSets,
             List<NamedExpression> outputExpressions);
-
-    static VirtualSlotReference generateVirtualGroupingIdSlot() {
-        return new VirtualSlotReference(COL_GROUPING_ID, BigIntType.INSTANCE, Optional.empty(),
-                GroupingSetShapes::computeVirtualGroupingIdValue);
-    }
-
-    static VirtualSlotReference generateVirtualSlotByFunction(GroupingScalarFunction function) {
-        return new VirtualSlotReference(
-                generateVirtualSlotName(function), function.getDataType(), Optional.of(function),
-                function::computeVirtualSlotValue);
-    }
 
     /**
      * get common grouping set expressions.
@@ -121,32 +101,18 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
     }
 
     /**
-     * getSortedVirtualSlots: order by virtual GROUPING_ID slot first.
-     */
-    default Set<VirtualSlotReference> getSortedVirtualSlots() {
-        Set<VirtualSlotReference> virtualSlots =
-                ExpressionUtils.collect(getOutputExpressions(), VirtualSlotReference.class::isInstance);
-
-        VirtualSlotReference virtualGroupingSetIdSlot = virtualSlots.stream()
-                .filter(slot -> slot.getName().equals(COL_GROUPING_ID))
-                .findFirst()
-                .get();
-
-        return ImmutableSet.<VirtualSlotReference>builder()
-                .add(virtualGroupingSetIdSlot)
-                .addAll(Sets.difference(virtualSlots, ImmutableSet.of(virtualGroupingSetIdSlot)))
-                .build();
-    }
-
-    /**
      * computeVirtualSlotValues. backend will fill this long value to the VirtualSlotRef
      */
-    default List<List<Long>> computeVirtualSlotValues(Set<VirtualSlotReference> sortedVirtualSlots) {
+    default List<List<Long>> computeGroupingFunctionsValues() {
         GroupingSetShapes shapes = toShapes();
-
-        return sortedVirtualSlots.stream()
-                .map(virtualSlot -> virtualSlot.getComputeLongValueMethod().apply(shapes))
-                .collect(ImmutableList.toImmutableList());
+        List<GroupingScalarFunction> functions = ExpressionUtils.collectToList(
+                getOutputExpressions(), GroupingScalarFunction.class::isInstance);
+        List<List<Long>> groupingFunctionsValues = Lists.newArrayList();
+        groupingFunctionsValues.add(shapes.computeGroupingIdValue());
+        for (GroupingScalarFunction function : functions) {
+            groupingFunctionsValues.add(function.computeValue(shapes));
+        }
+        return groupingFunctionsValues;
     }
 
     /**
@@ -258,7 +224,7 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
         }
 
         /**compute a long value that backend need to fill to the GROUPING_ID slot*/
-        public List<Long> computeVirtualGroupingIdValue() {
+        public List<Long> computeGroupingIdValue() {
             Set<Long> res = Sets.newLinkedHashSet();
             long k = (long) Math.pow(2, flattenGroupingSetExpression.size());
             for (GroupingSetShape shape : shapes) {

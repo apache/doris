@@ -17,9 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TUniqueId;
@@ -35,9 +33,8 @@ import java.util.Comparator;
 /**
  * This class represents the olap replica related metadata.
  */
-public class Replica {
+public abstract class Replica {
     private static final Logger LOG = LogManager.getLogger(Replica.class);
-    public static final VersionComparator<Replica> VERSION_DESC_COMPARATOR = new VersionComparator<Replica>();
     public static final LastSuccessVersionComparator<Replica> LAST_SUCCESS_VERSION_COMPARATOR =
             new LastSuccessVersionComparator<Replica>();
     public static final IdComparator<Replica> ID_COMPARATOR = new IdComparator<Replica>();
@@ -88,115 +85,25 @@ public class Replica {
 
     @SerializedName(value = "id")
     private long id;
-    @SerializedName(value = "bid", alternate = {"backendId"})
-    private long backendId;
     // the version could be queried
     @SerializedName(value = "v", alternate = {"version"})
-    private volatile long version;
-    @Deprecated
-    @SerializedName(value = "vh", alternate = {"versionHash"})
-    private long versionHash = 0L;
+    protected volatile long version;
     private int schemaHash = -1;
     @SerializedName(value = "ds", alternate = {"dataSize"})
     private volatile long dataSize = 0;
-    @SerializedName(value = "rds", alternate = {"remoteDataSize"})
-    private volatile long remoteDataSize = 0;
     @SerializedName(value = "rc", alternate = {"rowCount"})
     private volatile long rowCount = 0;
     @SerializedName(value = "st", alternate = {"state"})
     private volatile ReplicaState state;
 
-    // the last load failed version
-    @SerializedName(value = "lfv", alternate = {"lastFailedVersion"})
-    private long lastFailedVersion = -1L;
-    @Deprecated
-    @SerializedName(value = "lfvh", alternate = {"lastFailedVersionHash"})
-    private long lastFailedVersionHash = 0L;
-    // not serialized, not very important
-    private long lastFailedTimestamp = 0;
-    // the last load successful version
-    @SerializedName(value = "lsv", alternate = {"lastSuccessVersion"})
-    private long lastSuccessVersion = -1L;
-    @Deprecated
-    @SerializedName(value = "lsvh", alternate = {"lastSuccessVersionHash"})
-    private long lastSuccessVersionHash = 0L;
-
     @Setter
     @Getter
     @SerializedName(value = "lis", alternate = {"localInvertedIndexSize"})
-    private Long localInvertedIndexSize = 0L;
+    private long localInvertedIndexSize = 0L;
     @Setter
     @Getter
     @SerializedName(value = "lss", alternate = {"localSegmentSize"})
-    private Long localSegmentSize = 0L;
-    @Setter
-    @Getter
-    @SerializedName(value = "ris", alternate = {"remoteInvertedIndexSize"})
-    private Long remoteInvertedIndexSize = 0L;
-    @Setter
-    @Getter
-    @SerializedName(value = "rss", alternate = {"remoteSegmentSize"})
-    private Long remoteSegmentSize = 0L;
-
-    private volatile long totalVersionCount = -1;
-    private volatile long visibleVersionCount = -1;
-
-    private long pathHash = -1;
-
-    // bad means this Replica is unrecoverable, and we will delete it
-    private boolean bad = false;
-
-    private TUniqueId cooldownMetaId;
-    private long cooldownTerm = -1;
-
-    // A replica version should increase monotonically,
-    // but backend may missing some versions due to disk failure or bugs.
-    // FE should found these and mark the replica as missing versions.
-    // If backend's report version < fe version, record the backend's report version as `regressiveVersion`,
-    // and if time exceed 5min, fe should mark this replica as missing versions.
-    private long regressiveVersion = -1;
-    private long regressiveVersionTimestamp = 0;
-
-    /*
-     * This can happen when this replica is created by a balance clone task, and
-     * when task finished, the version of this replica is behind the partition's visible version.
-     * So this replica need a further repair.
-     * If we do not do this, this replica will be treated as version stale, and will be removed,
-     * so that the balance task is failed, which is unexpected.
-     *
-     * furtherRepairSetTime and leftFurtherRepairCount are set alone with needFurtherRepair.
-     * This is an insurance, in case that further repair task always fail. If 20 min passed
-     * since we set needFurtherRepair to true, the 'needFurtherRepair' will be set to false.
-     */
-    private long furtherRepairSetTime = -1;
-    private int leftFurtherRepairCount = 0;
-
-    // During full clone, the replica's state is CLONE, it will not load the data.
-    // After full clone finished, even if the replica's version = partition's visible version,
-    //
-    // notice: furtherRepairWatermarkTxnTd is used to clone a replica, protected it from be removed.
-    //
-    private long furtherRepairWatermarkTxnTd = -1;
-
-    /* Decommission a backend B, steps are as follow:
-     * 1. wait peer backends catchup with B;
-     * 2. B change state to DECOMMISSION, set preWatermarkTxnId. B can load data now.
-     * 3. wait txn before preWatermarkTxnId finished, set postWatermarkTxnId. B can't load data now.
-     * 4. wait txn before postWatermarkTxnId finished, delete B.
-     *
-     * notice: preWatermarkTxnId and postWatermarkTxnId are used to delete this replica.
-     *
-     */
-    private long preWatermarkTxnId = -1;
-    private long postWatermarkTxnId = -1;
-    private long segmentCount = 0L;
-    private long rowsetCount = 0L;
-
-    private long userDropTime = -1;
-
-    private long scaleInDropTime = -1;
-
-    private long lastReportVersion = 0;
+    private long localSegmentSize = 0L;
 
     public Replica() {
     }
@@ -221,25 +128,14 @@ public class Replica {
                        long lastFailedVersion,
                        long lastSuccessVersion) {
         this.id = replicaId;
-        this.backendId = backendId;
         this.version = version;
         this.schemaHash = schemaHash;
 
         this.dataSize = dataSize;
-        this.remoteDataSize = remoteDataSize;
         this.rowCount = rowCount;
         this.state = state;
         if (this.state == null) {
             this.state = ReplicaState.NORMAL;
-        }
-        this.lastFailedVersion = lastFailedVersion;
-        if (this.lastFailedVersion > 0) {
-            this.lastFailedTimestamp = System.currentTimeMillis();
-        }
-        if (lastSuccessVersion < this.version) {
-            this.lastSuccessVersion = this.version;
-        } else {
-            this.lastSuccessVersion = lastSuccessVersion;
         }
     }
 
@@ -271,13 +167,16 @@ public class Replica {
         }
     }
 
-    public long getBackendId() throws UserException {
-        return this.backendId;
+    public abstract long getBackendId() throws UserException;
+
+    protected long getBackendIdValue() {
+        return -1L;
     }
 
-    // just for ut
     public void setBackendId(long backendId) {
-        this.backendId = backendId;
+        if (backendId != -1) {
+            throw new UnsupportedOperationException("setBackendId is not supported in Replica");
+        }
     }
 
     public long getDataSize() {
@@ -289,11 +188,33 @@ public class Replica {
     }
 
     public long getRemoteDataSize() {
-        return remoteDataSize;
+        return 0;
     }
 
     public void setRemoteDataSize(long remoteDataSize) {
-        this.remoteDataSize = remoteDataSize;
+        if (remoteDataSize > 0) {
+            throw new UnsupportedOperationException("setRemoteDataSize is not supported in Replica");
+        }
+    }
+
+    public long getRemoteInvertedIndexSize() {
+        return 0L;
+    }
+
+    public void setRemoteInvertedIndexSize(long remoteInvertedIndexSize) {
+        if (remoteInvertedIndexSize > 0) {
+            throw new UnsupportedOperationException("setRemoteInvertedIndexSize is not supported in Replica");
+        }
+    }
+
+    public long getRemoteSegmentSize() {
+        return 0L;
+    }
+
+    public void setRemoteSegmentSize(long remoteSegmentSize) {
+        if (remoteSegmentSize > 0) {
+            throw new UnsupportedOperationException("setRemoteSegmentSize is not supported in Replica");
+        }
     }
 
     public long getRowCount() {
@@ -305,99 +226,100 @@ public class Replica {
     }
 
     public long getSegmentCount() {
-        return segmentCount;
+        return 0;
     }
 
     public void setSegmentCount(long segmentCount) {
-        this.segmentCount = segmentCount;
+        if (segmentCount > 0) {
+            throw new UnsupportedOperationException("setSegmentCount is not supported in Replica");
+        }
     }
 
     public long getRowsetCount() {
-        return rowsetCount;
+        return 0;
     }
 
     public void setRowsetCount(long rowsetCount) {
-        this.rowsetCount = rowsetCount;
+        if (rowsetCount > 0) {
+            throw new UnsupportedOperationException("setRowsetCount is not supported in Replica");
+        }
     }
 
     public long getLastFailedVersion() {
-        return lastFailedVersion;
+        return -1;
     }
 
     public long getLastFailedTimestamp() {
-        return lastFailedTimestamp;
+        return 0;
     }
 
     public long getLastSuccessVersion() {
-        return lastSuccessVersion;
+        return 1;
     }
 
     public long getPathHash() {
-        return pathHash;
+        return -1;
     }
 
     public void setPathHash(long pathHash) {
-        this.pathHash = pathHash;
+        if (pathHash != -1) {
+            throw new UnsupportedOperationException("setPathHash is not supported in Replica");
+        }
     }
 
     public boolean isBad() {
-        return bad;
+        return false;
     }
 
     public boolean setBad(boolean bad) {
-        if (this.bad == bad) {
-            return false;
+        if (bad) {
+            throw new UnsupportedOperationException("setBad is not supported in Replica");
         }
-        this.bad = bad;
-        return true;
+        return false;
     }
 
     public TUniqueId getCooldownMetaId() {
-        return cooldownMetaId;
+        return null;
     }
 
     public void setCooldownMetaId(TUniqueId cooldownMetaId) {
-        this.cooldownMetaId = cooldownMetaId;
+        throw new UnsupportedOperationException("setCooldownMetaId is not supported in Replica");
     }
 
     public long getCooldownTerm() {
-        return cooldownTerm;
+        return -1;
     }
 
     public void setCooldownTerm(long cooldownTerm) {
-        this.cooldownTerm = cooldownTerm;
+        throw new UnsupportedOperationException("setCooldownTerm is not supported in Replica");
     }
 
     public boolean needFurtherRepair() {
-        return leftFurtherRepairCount > 0
-                && System.currentTimeMillis() < furtherRepairSetTime
-                        + Config.tablet_further_repair_timeout_second * 1000;
+        return false;
     }
 
     public void setNeedFurtherRepair(boolean needFurtherRepair) {
         if (needFurtherRepair) {
-            furtherRepairSetTime = System.currentTimeMillis();
-            leftFurtherRepairCount = Config.tablet_further_repair_max_times;
-        } else {
-            leftFurtherRepairCount = 0;
-            furtherRepairSetTime = -1;
+            throw new UnsupportedOperationException("setNeedFurtherRepair is not supported in Replica");
         }
     }
 
     public void incrFurtherRepairCount() {
-        leftFurtherRepairCount--;
+        throw new UnsupportedOperationException("incrFurtherRepairCount is not supported in Replica");
     }
 
     public int getLeftFurtherRepairCount() {
-        return leftFurtherRepairCount;
+        return 0;
     }
 
     public long getFurtherRepairWatermarkTxnTd() {
-        return furtherRepairWatermarkTxnTd;
+        return -1;
     }
 
     public void setFurtherRepairWatermarkTxnTd(long furtherRepairWatermarkTxnTd) {
-        this.furtherRepairWatermarkTxnTd = furtherRepairWatermarkTxnTd;
+        if (furtherRepairWatermarkTxnTd != -1) {
+            throw new UnsupportedOperationException("setFurtherRepairWatermarkTxnTd is not supported in Replica");
+        }
     }
 
     public void updateWithReport(TTabletInfo backendReplica) {
@@ -412,7 +334,7 @@ public class Replica {
     }
 
     public synchronized void updateVersion(long newVersion) {
-        updateReplicaVersion(newVersion, this.lastFailedVersion, this.lastSuccessVersion);
+        updateReplicaVersion(newVersion, getLastFailedVersion(), getLastSuccessVersion());
     }
 
     public synchronized void updateVersionWithFailed(
@@ -422,161 +344,32 @@ public class Replica {
 
     public synchronized void adminUpdateVersionInfo(Long version, Long lastFailedVersion, Long lastSuccessVersion,
             long updateTime) {
-        long oldLastFailedVersion = this.lastFailedVersion;
-        if (version != null) {
-            this.version = version;
-        }
-        if (lastSuccessVersion != null) {
-            this.lastSuccessVersion = lastSuccessVersion;
-        }
-        if (lastFailedVersion != null) {
-            if (this.lastFailedVersion < lastFailedVersion) {
-                this.lastFailedTimestamp = updateTime;
-            }
-            this.lastFailedVersion = lastFailedVersion;
-        }
-        if (this.lastFailedVersion < this.version) {
-            this.lastFailedVersion = -1;
-            this.lastFailedTimestamp  = -1;
-            this.lastFailedVersionHash = 0;
-        }
-        if (this.lastFailedVersion > 0
-                && this.lastSuccessVersion > this.lastFailedVersion) {
-            this.lastSuccessVersion = this.version;
-        }
-        if (this.lastSuccessVersion < this.version) {
-            this.lastSuccessVersion = this.version;
-        }
-        if (oldLastFailedVersion < 0 && this.lastFailedVersion > 0) {
-            LOG.info("change replica last failed version from '< 0' to '> 0', replica {}, old last failed version {}",
-                    this, oldLastFailedVersion);
-        } else if (oldLastFailedVersion > 0 && this.lastFailedVersion < 0) {
-            LOG.info("change replica last failed version from '> 0' to '< 0', replica {}, old last failed version {}",
-                    this, oldLastFailedVersion);
-        }
+        throw new UnsupportedOperationException("adminUpdateVersionInfo is not supported in Replica");
     }
 
-    /* last failed version:  LFV
-     * last success version: LSV
-     * version:              V
-     *
-     * Case 1:
-     *      If LFV > LSV, set LSV back to V, which indicates that version between LSV and LFV is invalid.
-     *      Clone task will clone the version between LSV and LFV
-     *
-     * Case 2:
-     *      LFV changed, set LSV back to V. This is just same as Case 1. Cause LFV must large than LSV.
-     *
-     * Case 3:
-     *      LFV remains unchanged, just update LSV, and then check if it falls into Case 1.
-     *
-     * Case 4:
-     *      V is larger or equal to LFV, reset LFV. And if V is less than LSV, just set V to LSV. This may
-     *      happen when a clone task finished and report version V, but the LSV is already larger than V,
-     *      And we know that version between V and LSV is valid, so move V forward to LSV.
-     *
-     * Case 5:
-     *      This is a bug case, I don't know why, may be some previous version introduce it. It looks like
-     *      the V(hash) equals to LSV(hash), and V equals to LFV, but LFV hash is 0 or some unknown number.
-     *      We just reset the LFV(hash) to recovery this replica.
-     */
-    private void updateReplicaVersion(long newVersion, long lastFailedVersion, long lastSuccessVersion) {
+    protected void updateReplicaVersion(long newVersion, long lastFailedVersion, long lastSuccessVersion) {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("before update: {}", this.toString());
+            LOG.debug("before update: {}, newVersion: {}, lastFailedVersion: {}, lastSuccessVersion: {}",
+                    this.toString(), newVersion, lastFailedVersion, lastSuccessVersion);
         }
 
         if (newVersion < this.version) {
-            // This case means that replica meta version has been updated by ReportHandler before
-            // For example, the publish version daemon has already sent some publish version tasks
-            // to one be to publish version 2, 3, 4, 5, 6, and the be finish all publish version tasks,
-            // the be's replica version is 6 now, but publish version daemon need to wait
-            // for other be to finish most of publish version tasks to update replica version in fe.
-            // At the moment, the replica version in fe is 4, when ReportHandler sync tablet,
-            // it find reported replica version in be is 6 and then set version to 6 for replica in fe.
-            // And then publish version daemon try to finish txn, and use visible version(5)
-            // to update replica. Finally, it find the newer version(5) is lower than replica version(6) in fe.
             if (LOG.isDebugEnabled()) {
                 LOG.debug("replica {} on backend {}'s new version {} is lower than meta version {},"
-                        + "not to continue to update replica", id, backendId, newVersion, this.version);
+                        + "not to continue to update replica", getId(), getBackendIdValue(), newVersion, this.version);
             }
             return;
         }
 
-        long oldLastFailedVersion = this.lastFailedVersion;
-
         this.version = newVersion;
-
-        // just check it
-        if (lastSuccessVersion <= this.version) {
-            lastSuccessVersion = this.version;
-        }
-
-        // case 1:
-        if (this.lastSuccessVersion <= this.lastFailedVersion) {
-            this.lastSuccessVersion = this.version;
-        }
-
-        // TODO: this case is unknown, add log to observe
-        if (this.version > lastFailedVersion && lastFailedVersion > 0) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("current version {} is larger than last failed version {}, "
-                            + "maybe a fatal error or be report version, print a stack here ",
-                        this.version, lastFailedVersion, new Exception());
-            }
-        }
-
-        if (lastFailedVersion != this.lastFailedVersion) {
-            // Case 2:
-            if (lastFailedVersion > this.lastFailedVersion || lastFailedVersion < 0) {
-                this.lastFailedVersion = lastFailedVersion;
-                this.lastFailedTimestamp = lastFailedVersion > 0 ? System.currentTimeMillis() : -1L;
-            }
-
-            this.lastSuccessVersion = this.version;
-        } else {
-            // Case 3:
-            if (lastSuccessVersion >= this.lastSuccessVersion) {
-                this.lastSuccessVersion = lastSuccessVersion;
-            }
-            if (lastFailedVersion >= this.lastSuccessVersion) {
-                this.lastSuccessVersion = this.version;
-            }
-        }
-
-        // Case 4:
-        if (this.version >= this.lastFailedVersion) {
-            this.lastFailedVersion = -1;
-            this.lastFailedVersionHash = 0;
-            this.lastFailedTimestamp = -1;
-            if (this.version < this.lastSuccessVersion) {
-                this.version = this.lastSuccessVersion;
-            }
-        }
-
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("after update {}", this.toString());
-        }
-
-        if (oldLastFailedVersion < 0 && this.lastFailedVersion > 0) {
-            LOG.info("change replica last failed version from '< 0' to '> 0', replica {}, old last failed version {}",
-                    this, oldLastFailedVersion);
-        } else if (oldLastFailedVersion > 0 && this.lastFailedVersion < 0) {
-            LOG.info("change replica last failed version from '> 0' to '< 0', replica {}, old last failed version {}",
-                    this, oldLastFailedVersion);
-        }
     }
 
     public synchronized void updateLastFailedVersion(long lastFailedVersion) {
-        updateReplicaVersion(this.version, lastFailedVersion, this.lastSuccessVersion);
+        updateReplicaVersion(this.version, lastFailedVersion, getLastSuccessVersion());
     }
 
-    /*
-     * If a replica is overwritten by a restore job, we need to reset version and lastSuccessVersion to
-     * the restored replica version
-     */
     public void updateVersionForRestore(long version) {
-        this.version = version;
-        this.lastSuccessVersion = version;
+        throw new UnsupportedOperationException("updateVersionForRestore is not supported in Replica");
     }
 
     /*
@@ -589,25 +382,7 @@ public class Replica {
      *      But if state is ALTER but version larger than PARTITION_INIT_VERSION, which means this replica
      *      is already updated by load process, so we need to consider its version.
      */
-    public boolean checkVersionCatchUp(long expectedVersion, boolean ignoreAlter) {
-        if (ignoreAlter && state == ReplicaState.ALTER && version == Partition.PARTITION_INIT_VERSION) {
-            return true;
-        }
-
-        if (expectedVersion == Partition.PARTITION_INIT_VERSION) {
-            // no data is loaded into this replica, just return true
-            return true;
-        }
-
-        if (this.version < expectedVersion) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("replica version does not catch up with version: {}. replica: {}",
-                          expectedVersion, this);
-            }
-            return false;
-        }
-        return true;
-    }
+    public abstract boolean checkVersionCatchUp(long expectedVersion, boolean ignoreAlter);
 
     public void setState(ReplicaState replicaState) {
         this.state = replicaState;
@@ -622,7 +397,7 @@ public class Replica {
     }
 
     public boolean tooBigVersionCount() {
-        return visibleVersionCount >= Config.min_version_count_indicate_replica_compaction_too_slow;
+        return false;
     }
 
     public boolean isNormal() {
@@ -630,38 +405,27 @@ public class Replica {
     }
 
     public long getTotalVersionCount() {
-        return totalVersionCount;
+        return -1;
     }
 
     public void setTotalVersionCount(long totalVersionCount) {
-        this.totalVersionCount = totalVersionCount;
+        if (totalVersionCount > 0) {
+            throw new UnsupportedOperationException("setTotalVersionCount is not supported in Replica");
+        }
     }
 
     public long getVisibleVersionCount() {
-        return visibleVersionCount;
+        return -1;
     }
 
     public void setVisibleVersionCount(long visibleVersionCount) {
-        this.visibleVersionCount = visibleVersionCount;
+        if (visibleVersionCount > 0) {
+            throw new UnsupportedOperationException("setVisibleVersionCount is not supported in Replica");
+        }
     }
 
     public boolean checkVersionRegressive(long newVersion) {
-        if (newVersion >= version) {
-            regressiveVersion = -1;
-            regressiveVersionTimestamp = -1;
-            return false;
-        }
-
-        if (DebugPointUtil.isEnable("Replica.regressive_version_immediately")) {
-            return true;
-        }
-
-        if (newVersion != regressiveVersion) {
-            regressiveVersion = newVersion;
-            regressiveVersionTimestamp = System.currentTimeMillis();
-        }
-
-        return System.currentTimeMillis() - regressiveVersionTimestamp >= 5 * 60 * 1000L;
+        throw new UnsupportedOperationException("checkVersionRegressive is not supported in Replica");
     }
 
     @Override
@@ -669,7 +433,7 @@ public class Replica {
         StringBuilder strBuffer = new StringBuilder("[replicaId=");
         strBuffer.append(id);
         strBuffer.append(", BackendId=");
-        strBuffer.append(backendId);
+        strBuffer.append(getBackendIdValue());
         strBuffer.append(", version=");
         strBuffer.append(version);
         strBuffer.append(", dataSize=");
@@ -677,11 +441,11 @@ public class Replica {
         strBuffer.append(", rowCount=");
         strBuffer.append(rowCount);
         strBuffer.append(", lastFailedVersion=");
-        strBuffer.append(lastFailedVersion);
+        strBuffer.append(getLastFailedVersion());
         strBuffer.append(", lastSuccessVersion=");
-        strBuffer.append(lastSuccessVersion);
+        strBuffer.append(getLastSuccessVersion());
         strBuffer.append(", lastFailedTimestamp=");
-        strBuffer.append(lastFailedTimestamp);
+        strBuffer.append(getLastFailedTimestamp());
         strBuffer.append(", schemaHash=");
         strBuffer.append(schemaHash);
         strBuffer.append(", state=");
@@ -696,9 +460,9 @@ public class Replica {
         StringBuilder strBuffer = new StringBuilder("[replicaId=");
         strBuffer.append(id);
         strBuffer.append(", backendId=");
-        strBuffer.append(backendId);
+        strBuffer.append(getBackendIdValue());
         if (checkBeAlive) {
-            Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+            Backend backend = Env.getCurrentSystemInfo().getBackend(getBackendIdValue());
             if (backend == null) {
                 strBuffer.append(", backend=null");
             } else {
@@ -711,23 +475,23 @@ public class Replica {
         }
         strBuffer.append(", version=");
         strBuffer.append(version);
-        if (lastFailedVersion > 0) {
+        if (getLastFailedVersion() > 0) {
             strBuffer.append(", lastFailedVersion=");
-            strBuffer.append(lastFailedVersion);
+            strBuffer.append(getLastFailedVersion());
             strBuffer.append(", lastSuccessVersion=");
-            strBuffer.append(lastSuccessVersion);
+            strBuffer.append(getLastSuccessVersion());
             strBuffer.append(", lastFailedTimestamp=");
-            strBuffer.append(lastFailedTimestamp);
+            strBuffer.append(getLastFailedTimestamp());
         }
         if (isBad()) {
             strBuffer.append(", isBad=true");
-            Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
-            if (backend != null && pathHash != -1) {
+            Backend backend = Env.getCurrentSystemInfo().getBackend(getBackendIdValue());
+            if (backend != null && getPathHash() != -1) {
                 DiskInfo diskInfo = backend.getDisks().values().stream()
-                        .filter(disk -> disk.getPathHash() == pathHash)
+                        .filter(disk -> disk.getPathHash() == getPathHash())
                         .findFirst().orElse(null);
                 if (diskInfo == null) {
-                    strBuffer.append(", disk with path hash " + pathHash + " not exists");
+                    strBuffer.append(", disk with path hash " + getPathHash() + " not exists");
                 } else if (diskInfo.getState() == DiskInfo.DiskState.OFFLINE) {
                     strBuffer.append(", disk " + diskInfo.getRootPath() + " is bad");
                 }
@@ -751,29 +515,10 @@ public class Replica {
 
         Replica replica = (Replica) obj;
         return (id == replica.id)
-                && (backendId == replica.backendId)
                 && (version == replica.version)
                 && (dataSize == replica.dataSize)
                 && (rowCount == replica.rowCount)
-                && (state.equals(replica.state))
-                && (lastFailedVersion == replica.lastFailedVersion)
-                && (lastSuccessVersion == replica.lastSuccessVersion);
-    }
-
-    private static class VersionComparator<T extends Replica> implements Comparator<T> {
-        public VersionComparator() {
-        }
-
-        @Override
-        public int compare(T replica1, T replica2) {
-            if (replica1.getVersion() < replica2.getVersion()) {
-                return 1;
-            } else if (replica1.getVersion() == replica2.getVersion()) {
-                return 0;
-            } else {
-                return -1;
-            }
-        }
+                && (state.equals(replica.state));
     }
 
     private static class LastSuccessVersionComparator<T extends Replica> implements Comparator<T> {
@@ -809,51 +554,44 @@ public class Replica {
     }
 
     public void setPreWatermarkTxnId(long preWatermarkTxnId) {
-        this.preWatermarkTxnId = preWatermarkTxnId;
+        if (preWatermarkTxnId != -1) {
+            throw new UnsupportedOperationException("setPreWatermarkTxnId is not supported in Replica");
+        }
     }
 
     public long getPreWatermarkTxnId() {
-        return preWatermarkTxnId;
+        return -1;
     }
 
     public void setPostWatermarkTxnId(long postWatermarkTxnId) {
-        this.postWatermarkTxnId = postWatermarkTxnId;
+        if (postWatermarkTxnId != -1) {
+            throw new UnsupportedOperationException("setPostWatermarkTxnId is not supported in Replica");
+        }
     }
 
     public long getPostWatermarkTxnId() {
-        return postWatermarkTxnId;
+        return -1;
     }
 
     public void setUserDropTime(long userDropTime) {
-        this.userDropTime = userDropTime;
+        if (userDropTime > 0) {
+            throw new UnsupportedOperationException("setUserDropTime is not supported in Replica");
+        }
     }
 
     public boolean isUserDrop() {
-        if (userDropTime > 0) {
-            if (System.currentTimeMillis() - userDropTime < Config.manual_drop_replica_valid_second * 1000L) {
-                return true;
-            }
-            userDropTime = -1;
-        }
-
         return false;
     }
 
     public void setScaleInDropTimeStamp(long scaleInDropTime) {
-        this.scaleInDropTime = scaleInDropTime;
+        if (scaleInDropTime > 0) {
+            throw new UnsupportedOperationException("setScaleInDropTimeStamp is not supported in Replica");
+        }
     }
 
     public boolean isScaleInDrop() {
-        if (this.scaleInDropTime > 0) {
-            if (System.currentTimeMillis() - this.scaleInDropTime
-                    < Config.manual_drop_replica_valid_second * 1000L) {
-                return true;
-            }
-            this.scaleInDropTime = -1;
-        }
         return false;
     }
-
 
     public boolean isAlive() {
         return getState() != ReplicaState.CLONE
@@ -862,15 +600,17 @@ public class Replica {
     }
 
     public boolean isScheduleAvailable() {
-        return Env.getCurrentSystemInfo().checkBackendScheduleAvailable(backendId)
-            && !isUserDrop();
+        return Env.getCurrentSystemInfo().checkBackendScheduleAvailable(getBackendIdValue())
+                && !isUserDrop();
     }
 
     public void setLastReportVersion(long version) {
-        this.lastReportVersion = version;
+        if (version > 0) {
+            throw new UnsupportedOperationException("setLastReportVersion is not supported in Replica");
+        }
     }
 
     public long getLastReportVersion() {
-        return lastReportVersion;
+        return 0;
     }
 }

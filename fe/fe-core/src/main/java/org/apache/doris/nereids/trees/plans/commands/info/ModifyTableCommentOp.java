@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.ModifyTableCommentClause;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -44,11 +42,6 @@ public class ModifyTableCommentOp extends AlterTableOp {
     @Override
     public Map<String, String> getProperties() {
         return Maps.newHashMap();
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new ModifyTableCommentClause(comment);
     }
 
     @Override

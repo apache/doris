@@ -18,9 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.ColumnPosition;
-import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
@@ -75,6 +73,10 @@ public class ModifyColumnOp extends AlterTableOp {
         return rollupName;
     }
 
+    public void setColumn(Column column) {
+        this.column = column;
+    }
+
     @Override
     public void validate(ConnectContext ctx) throws UserException {
         if (columnDef == null) {
@@ -106,10 +108,6 @@ public class ModifyColumnOp extends AlterTableOp {
                     columnDef.setIsKey(originalColumn.isKey());
                 }
                 schemaColumns = olapTable.getFullSchema();
-                if (olapTable.getPartitionColumnNames().contains(colName.toLowerCase())
-                        || olapTable.getDistributionColumnNames().contains(colName.toLowerCase())) {
-                    throw new AnalysisException("Can not modify partition or distribution column : " + colName);
-                }
                 long baseIndexId = olapTable.getBaseIndexId();
                 for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getVisibleIndexIdToMeta().entrySet()) {
                     long indexId = entry.getKey();
@@ -167,9 +165,8 @@ public class ModifyColumnOp extends AlterTableOp {
         }
     }
 
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new ModifyColumnClause(toSql(), column, colPos, rollupName, properties);
+    public ColumnDefinition getColumnDef() {
+        return columnDef;
     }
 
     @Override

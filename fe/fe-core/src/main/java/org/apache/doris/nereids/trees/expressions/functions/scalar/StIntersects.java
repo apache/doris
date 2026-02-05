@@ -51,13 +51,18 @@ public class StIntersects extends ScalarFunction
         super("st_intersects", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StIntersects(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StIntersects withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new StIntersects(children.get(0), children.get(1));
+        return new StIntersects(getFunctionParams(children));
     }
 
     @Override

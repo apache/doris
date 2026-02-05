@@ -128,7 +128,7 @@ public:
 private:
     // clang-format off
     size_t max_jvm_heap_size() const {
-        return JniUtil::get_max_jni_heap_memory_size();
+        return Jni::Util::get_max_jni_heap_memory_size();
     }
     // clang-format on
     [[maybe_unused]] std::size_t cur_memory_comsuption {0};
@@ -146,13 +146,7 @@ HdfsFileWriter::HdfsFileWriter(Path path, std::shared_ptr<HdfsHandler> handler, 
           _fs_name(std::move(fs_name)),
           _sync_file_data(opts ? opts->sync_file_data : true),
           _batch_buffer(MB * config::hdfs_write_batch_buffer_size_mb) {
-    if (config::enable_file_cache && opts != nullptr && opts->write_file_cache) {
-        _cache_builder = std::make_unique<FileCacheAllocatorBuilder>(FileCacheAllocatorBuilder {
-                opts ? opts->is_cold_data : false, opts ? opts->file_cache_expiration : 0,
-                BlockFileCache::hash(_path.filename().native()),
-                FileCacheFactory::instance()->get_by_path(
-                        BlockFileCache::hash(_path.filename().native()))});
-    }
+    init_cache_builder(opts, _path);
     hdfs_file_writer_total << 1;
 
     TEST_SYNC_POINT("HdfsFileWriter");
@@ -330,8 +324,9 @@ void HdfsFileWriter::BatchBuffer::clear() {
 
 // TODO(ByteYue): Refactor Upload Buffer to reduce this duplicate code
 void HdfsFileWriter::_write_into_local_file_cache() {
+    int64_t tablet_id = get_tablet_id(_path.native()).value_or(0);
     auto holder = _cache_builder->allocate_cache_holder(_bytes_appended - _batch_buffer.size(),
-                                                        _batch_buffer.capacity());
+                                                        _batch_buffer.capacity(), tablet_id);
     size_t pos = 0;
     size_t data_remain_size = _batch_buffer.size();
     for (auto& block : holder->file_blocks) {

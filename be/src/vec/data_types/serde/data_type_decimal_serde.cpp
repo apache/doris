@@ -25,8 +25,11 @@
 #include <type_traits>
 
 #include "arrow/type.h"
+#include "common/consts.h"
+#include "olap/tablet_schema.h"
 #include "orc/Int128.hh"
 #include "util/jsonb_document.h"
+#include "util/jsonb_document_cast.h"
 #include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
@@ -34,6 +37,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/functions/cast/cast_to_decimal.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
@@ -103,6 +107,60 @@ Status DataTypeDecimalSerDe<T>::from_string_strict_mode_batch(
 }
 
 template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::from_string(StringRef& str, IColumn& column,
+                                            const FormatOptions& options) const {
+    auto& column_to = assert_cast<ColumnType&>(column);
+    FieldType to;
+
+    CastParameters params;
+    params.is_strict = false;
+
+    auto arg_precision = static_cast<UInt32>(precision);
+    auto arg_scale = static_cast<UInt32>(scale);
+
+    if (!CastToDecimal::from_string(str, to, arg_precision, arg_scale, params)) {
+        return Status::InvalidArgument("parse Decimal fail, string: '{}'", str.to_string());
+    }
+    column_to.insert_value(to);
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::from_string(const std::string& str, Field& field,
+                                            const FormatOptions& options) const {
+    FieldType to;
+    CastParameters params;
+    params.is_strict = false;
+
+    auto arg_precision = static_cast<UInt32>(precision);
+
+    if (!CastToDecimal::from_string(StringRef(str), to, arg_precision, 0, params)) {
+        return Status::InvalidArgument("parse Decimal fail, string: '{}'", str);
+    }
+    field = Field::create_field<T>(std::move(to));
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                        const FormatOptions& options) const {
+    auto& column_to = assert_cast<ColumnType&>(column);
+    FieldType to;
+
+    CastParameters params;
+    params.is_strict = true;
+
+    auto arg_precision = static_cast<UInt32>(precision);
+    auto arg_scale = static_cast<UInt32>(scale);
+
+    if (!CastToDecimal::from_string(str, to, arg_precision, arg_scale, params)) {
+        return Status::InvalidArgument("parse Decimal fail, string: '{}'", str.to_string());
+    }
+    column_to.insert_value(to);
+    return Status::OK();
+}
+
+template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                          int64_t end_idx, BufferWritable& bw,
                                                          FormatOptions& options) const {
@@ -118,15 +176,9 @@ Status DataTypeDecimalSerDe<T>::serialize_one_cell_to_json(const IColumn& column
     row_num = result.second;
 
     auto& col = assert_cast<const ColumnDecimal<T>&>(*ptr);
-    if constexpr (T != TYPE_DECIMALV2) {
-        FieldType value = col.get_element(row_num);
-        auto decimal_str = value.to_string(scale);
-        bw.write(decimal_str.data(), decimal_str.size());
-    } else {
-        char buf[FieldType::max_string_length()];
-        auto length = col.get_element(row_num).to_string(buf, scale, scale_multiplier);
-        bw.write(buf, length);
-    }
+    FieldType value = col.get_element(row_num);
+    auto decimal_str = value.to_string(scale);
+    bw.write(decimal_str.data(), decimal_str.size());
     return Status::OK();
 }
 
@@ -295,8 +347,10 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
     } else if constexpr (T == TYPE_DECIMAL32 || T == TYPE_DECIMAL64 || T == TYPE_DECIMAL128I) {
         const auto* concrete_array = dynamic_cast<const arrow::DecimalArray*>(arrow_array);
         for (auto value_i = start; value_i < end; ++value_i) {
-            column_data.emplace_back(
-                    *reinterpret_cast<const FieldType*>(concrete_array->Value(value_i)));
+            const auto* value = concrete_array->Value(value_i);
+            FieldType decimal_value = FieldType {};
+            memcpy(&decimal_value, value, sizeof(FieldType));
+            column_data.emplace_back(decimal_value);
         }
     } else if constexpr (T == TYPE_DECIMAL256) {
         const auto* concrete_array = dynamic_cast<const arrow::Decimal256Array*>(arrow_array);
@@ -312,11 +366,10 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
 }
 
 template <PrimitiveType T>
-template <bool is_binary_format>
-Status DataTypeDecimalSerDe<T>::_write_column_to_mysql(const IColumn& column,
-                                                       MysqlRowBuffer<is_binary_format>& result,
-                                                       int64_t row_idx, bool col_const,
-                                                       const FormatOptions& options) const {
+Status DataTypeDecimalSerDe<T>::write_column_to_mysql_binary(const IColumn& column,
+                                                             MysqlRowBinaryBuffer& result,
+                                                             int64_t row_idx, bool col_const,
+                                                             const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
     if constexpr (T == TYPE_DECIMALV2) {
@@ -336,27 +389,12 @@ Status DataTypeDecimalSerDe<T>::_write_column_to_mysql(const IColumn& column,
 }
 
 template <PrimitiveType T>
-Status DataTypeDecimalSerDe<T>::write_column_to_mysql(const IColumn& column,
-                                                      MysqlRowBuffer<true>& row_buffer,
-                                                      int64_t row_idx, bool col_const,
-                                                      const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-template <PrimitiveType T>
-Status DataTypeDecimalSerDe<T>::write_column_to_mysql(const IColumn& column,
-                                                      MysqlRowBuffer<false>& row_buffer,
-                                                      int64_t row_idx, bool col_const,
-                                                      const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
                                                     const IColumn& column, const NullMap* null_map,
                                                     orc::ColumnVectorBatch* orc_col_batch,
                                                     int64_t start, int64_t end,
-                                                    vectorized::Arena& arena) const {
+                                                    vectorized::Arena& arena,
+                                                    const FormatOptions& options) const {
     if constexpr (T == TYPE_DECIMAL256) {
         return Status::NotSupported("write_column_to_orc with type " + column.get_name());
     } else {
@@ -368,14 +406,19 @@ Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
                                                 orc::Decimal64VectorBatch>*>(orc_col_batch);
         for (size_t row_id = start; row_id < end; row_id++) {
             if (cur_batch->notNull[row_id] == 1) {
-                const auto& int_value = col_data[row_id].value;
-                if constexpr (use_int128) {
+                const auto& int_value = col_data[row_id];
+                if constexpr (T == TYPE_DECIMALV2) {
                     // orc::Int128 only support construct from two int64_t values
                     // so we need to split the int128 value into two int64_t values
-                    orc::Int128 value(int_value >> 64, (uint64_t)int_value);
+                    orc::Int128 value(int_value.value() >> 64, (uint64_t)int_value.value());
+                    cur_batch->values[row_id] = value;
+                } else if constexpr (use_int128) {
+                    // orc::Int128 only support construct from two int64_t values
+                    // so we need to split the int128 value into two int64_t values
+                    orc::Int128 value(int_value.value >> 64, (uint64_t)int_value.value);
                     cur_batch->values[row_id] = value;
                 } else {
-                    cur_batch->values[row_id] = int_value;
+                    cur_batch->values[row_id] = int_value.value;
                 }
             }
         }
@@ -419,7 +462,8 @@ void DataTypeDecimalSerDe<T>::insert_column_last_value_multiple_times(IColumn& c
 template <PrimitiveType T>
 void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                       Arena& mem_pool, int32_t col_id,
-                                                      int64_t row_num) const {
+                                                      int64_t row_num,
+                                                      const FormatOptions& options) const {
     StringRef data_ref = column.get_data_at(row_num);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     if constexpr (T == TYPE_DECIMALV2) {
@@ -444,6 +488,29 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "write_one_cell_to_jsonb with type " + column.get_name());
+    }
+}
+
+template <PrimitiveType T>
+void DataTypeDecimalSerDe<T>::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                                        const FormatOptions& options) const {
+    auto& data =
+            assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column).get_data();
+    CastToString::push_decimal(data[row_num], scale, bw);
+}
+
+template <PrimitiveType T>
+void DataTypeDecimalSerDe<T>::to_string_batch(const IColumn& column, ColumnString& column_to,
+                                              const FormatOptions& options) const {
+    auto& data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
+    const size_t size = column.size();
+    const auto maybe_reserve_size = CastToString::string_length<T>;
+    column_to.get_chars().reserve(size * maybe_reserve_size);
+    column_to.get_offsets().reserve(size);
+    BufferWriter bw(column_to);
+    for (size_t i = 0; i < size; ++i) {
+        CastToString::push_decimal(data[i], scale, bw);
+        bw.commit();
     }
 }
 
@@ -485,11 +552,68 @@ Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& 
 }
 
 template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::deserialize_column_from_jsonb(IColumn& column,
+                                                              const JsonbValue* jsonb_value,
+                                                              CastParameters& castParms) const {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return Status::NotSupported("DECIMALV2 does not support deserialize_column_from_jsonb");
+    } else {
+        auto& data = assert_cast<ColumnDecimal<T>&>(column).get_data();
+        FieldType to;
+        if (!JsonbCast::cast_from_json_to_decimal(jsonb_value, to, precision, scale, castParms)) {
+            return JsonbCast::report_error(jsonb_value, T);
+        }
+        data.push_back(to);
+        return Status::OK();
+    }
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::deserialize_column_from_jsonb_vector(
+        ColumnNullable& column_to, const ColumnString& col_from_json,
+        CastParameters& castParms) const {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return Status::NotSupported(
+                "DECIMALV2 does not support deserialize_column_from_jsonb_vector");
+    } else {
+        const size_t size = col_from_json.size();
+        const bool is_strict = castParms.is_strict;
+
+        auto& null_map = column_to.get_null_map_data();
+        auto& data = assert_cast<ColumnType&>(column_to.get_nested_column()).get_data();
+
+        null_map.resize_fill(size, false);
+        data.resize(size);
+
+        for (size_t i = 0; i < size; ++i) {
+            const auto& val = col_from_json.get_data_at(i);
+            auto* jsonb_value = handle_jsonb_value(val);
+            if (!jsonb_value) {
+                null_map[i] = true;
+                continue;
+            }
+            FieldType to;
+            if (!JsonbCast::cast_from_json_to_decimal(jsonb_value, to, precision, scale,
+                                                      castParms)) {
+                if (is_strict) {
+                    return JsonbCast::report_error(jsonb_value, T);
+                } else {
+                    null_map[i] = true;
+                    continue;
+                }
+            }
+            data[i] = to;
+        }
+        return Status::OK();
+    }
+}
+
+template <PrimitiveType T>
 void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
                                                        const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnDecimal<T>&>(column);
     if constexpr (T == TYPE_DECIMALV2) {
-        col.insert_value(arg->unpack<JsonbInt128Val>()->val());
+        col.insert_value(DecimalV2Value(arg->unpack<JsonbInt128Val>()->val()));
     } else if constexpr (T == TYPE_DECIMAL128I) {
         col.insert_value(arg->unpack<JsonbInt128Val>()->val());
     } else if constexpr (T == TYPE_DECIMAL32) {
@@ -505,6 +629,93 @@ void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "read_one_cell_from_jsonb with type " + column.get_name());
     }
+}
+
+template <PrimitiveType T>
+void DataTypeDecimalSerDe<T>::write_one_cell_to_binary(const IColumn& src_column,
+                                                       ColumnString::Chars& chars,
+                                                       int64_t row_num) const {
+    const uint8_t type = (const uint8_t)TabletColumn::get_field_type_by_type(T);
+    const auto& data_ref = assert_cast<const ColumnDecimal<T>&>(src_column).get_data_at(row_num);
+    const auto& prec = static_cast<uint8_t>(precision);
+    const auto& sc = static_cast<uint8_t>(scale);
+
+    const size_t old_size = chars.size();
+    // FieldType + precision + scale + value
+    const size_t new_size =
+            old_size + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint8_t) + data_ref.size;
+    chars.resize(new_size);
+
+    // FieldType + precision + scale + value
+    memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t), reinterpret_cast<const char*>(&prec),
+           sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(uint8_t),
+           reinterpret_cast<const char*>(&sc), sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint8_t),
+           data_ref.data, data_ref.size);
+}
+
+template <PrimitiveType T>
+const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_column(const uint8_t* data,
+                                                                     IColumn& column) {
+    auto& col = assert_cast<ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column);
+    data += sizeof(uint8_t);
+    data += sizeof(uint8_t);
+    if constexpr (T == TYPE_DECIMAL32) {
+        col.insert_value(unaligned_load<Int32>(data));
+        data += sizeof(Int32);
+    } else if constexpr (T == TYPE_DECIMAL64) {
+        col.insert_value(unaligned_load<Int64>(data));
+        data += sizeof(Int64);
+    } else if constexpr (T == TYPE_DECIMAL128I) {
+        col.insert_value(unaligned_load<Int128>(data));
+        data += sizeof(Int128);
+    } else if constexpr (T == TYPE_DECIMAL256) {
+        col.insert_value(Decimal256(unaligned_load<wide::Int256>(data)));
+        data += sizeof(wide::Int256);
+    } else {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "deserialize_binary_to_column with type " + column.get_name());
+    }
+    return data;
+}
+
+template <PrimitiveType T>
+const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_field(const uint8_t* data,
+                                                                    Field& field, FieldInfo& info) {
+    const uint8_t precision = *reinterpret_cast<const uint8_t*>(data);
+    data += sizeof(uint8_t);
+    const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
+    data += sizeof(uint8_t);
+    info.precision = static_cast<int>(precision);
+    info.scale = static_cast<int>(scale);
+    if constexpr (T == TYPE_DECIMAL32) {
+        Int32 v = unaligned_load<Int32>(data);
+        field = Field::create_field<TYPE_DECIMAL32>(Decimal32(v));
+        data += sizeof(Int32);
+    } else if constexpr (T == TYPE_DECIMAL64) {
+        Int64 v = unaligned_load<Int64>(data);
+        field = Field::create_field<TYPE_DECIMAL64>(Decimal64(v));
+        data += sizeof(Int64);
+    } else if constexpr (T == TYPE_DECIMAL128I) {
+        // Because __int128 in memory is not aligned, but GCC7 will generate SSE instruction
+        // for __int128 load/store. This will cause segment fault.
+        PackedInt128 pack;
+        // use memcpy to avoid unaligned access
+        memcpy(&pack, data, sizeof(PackedInt128));
+        field = Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(pack.value));
+        data += sizeof(PackedInt128);
+    } else if constexpr (T == TYPE_DECIMAL256) {
+        wide::Int256 v;
+        memcpy(&v, data, sizeof(wide::Int256));
+        field = Field::create_field<TYPE_DECIMAL256>(Decimal256(v));
+        data += sizeof(wide::Int256);
+    } else {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "deserialize_binary_to_field with type " + type_to_string(T));
+    }
+    return data;
 }
 
 template class DataTypeDecimalSerDe<TYPE_DECIMAL32>;

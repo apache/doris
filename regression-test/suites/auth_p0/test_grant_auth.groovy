@@ -24,5 +24,19 @@ suite("test_grant_auth","p0,auth") {
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on `__internal_schema`.* to ${user}"""
 
+    test {
+            sql """
+               grant INSERT_PRIV on *.*.* to ${user}
+                """
+            exception "Unknown privilege type"
+        }
+
+    test {
+            sql """
+               revoke INSERT_PRIV on *.*.* from ${user}
+                """
+            exception "Unknown privilege type"
+        }
+
     try_sql("DROP USER ${user}")
 }

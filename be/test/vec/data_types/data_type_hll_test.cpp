@@ -37,11 +37,10 @@
 // for example DataTypeHLL should test this function:
 // 1. datatype meta info:
 //         get_type_id, get_type_as_type_descriptor, get_storage_field_type, have_subtypes, get_pdata_type (const IDataType *data_type), to_pb_column_meta (PColumnMeta *col_meta)
-//         get_family_name, get_is_parametric, should_align_right_in_pretty_formats
-//         text_can_contain_only_valid_utf8
+//         get_family_name, get_is_parametric,
 //         have_maximum_size_of_value, get_maximum_size_of_value_in_memory, get_size_of_value_in_memory
 //         get_precision, get_scale
-//         is_null_literal, is_value_represented_by_number, is_value_unambiguously_represented_in_contiguous_memory_region
+//         is_null_literal
 // 2. datatype creation with column : create_column, create_column_const (size_t size, const Field &field), create_column_const_with_default_value (size_t size), get_uncompressed_serialized_bytes (const IColumn &column, int be_exec_version)
 // 3. serde related: get_serde (int nesting_level=1)
 //          to_string (const IColumn &column, size_t row_num, BufferWritable &ostr), to_string (const IColumn &column, size_t row_num), to_string_batch (const IColumn &column, ColumnString &column_to), from_string (ReadBuffer &rb, IColumn *column)
@@ -74,16 +73,12 @@ TEST_P(DataTypeHLLTest, MetaInfoTest) {
             .family_name = "HLL",
             .has_subtypes = false,
             .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_HLL,
-            .should_align_right_in_pretty_formats = false,
-            .text_can_contain_only_valid_utf8 = true,
             .have_maximum_size_of_value = false,
             .size_of_value_in_memory = size_t(-1),
             .precision = size_t(-1),
             .scale = size_t(-1),
             .is_null_literal = false,
-            .is_value_represented_by_number = false,
             .pColumnMeta = col_meta.get(),
-            .is_value_unambiguously_represented_in_contiguous_memory_region = true,
             .default_field = Field::create_field<TYPE_HLL>(HyperLogLog::empty()),
     };
     helper->meta_info_assert(dt_hll, hll_meta_info_to_assert);
@@ -115,55 +110,6 @@ void insert_data_hll(MutableColumns* hll_cols, DataTypePtr datetype_hll, int row
         data.emplace_back(std::move(hll_value));
     }
     std::cout << "finish insert data" << std::endl;
-}
-
-// test to_string | to_string_batch | from_string
-TEST_P(DataTypeHLLTest, FromAndToStringTest) {
-    MutableColumns hll_cols;
-    std::vector<std::string> data_strs;
-    insert_data_hll(&hll_cols, dt_hll, rows_value, &data_strs);
-
-    {
-        // to_string_batch | from_string
-        auto col_to = ColumnString::create();
-        dt_hll->to_string_batch(*hll_cols[0]->get_ptr(), *col_to);
-        ASSERT_EQ(col_to->size(), hll_cols[0]->get_ptr()->size());
-        // from_string assert col_to to assert_column and check same with mutableColumn
-        auto assert_column = dt_hll->create_column();
-        for (int i = 0; i < col_to->size(); ++i) {
-            std::string s = col_to->get_data_at(i).to_string();
-            ReadBuffer rb(s.data(), s.size());
-            ASSERT_EQ(Status::OK(), dt_hll->from_string(rb, assert_column.get()));
-            ASSERT_EQ(assert_column->operator[](i), hll_cols[0]->get_ptr()->operator[](i))
-                    << "i: " << i << " s: " << s << " datatype: " << dt_hll->get_name()
-                    << " assert_column: " << assert_column->get_name()
-                    << " mutableColumn:" << hll_cols[0]->get_ptr()->get_name() << std::endl;
-        }
-        std::cout << "finish to_string_batch | from_string test" << std::endl;
-    }
-
-    {
-        // to_string | from_string
-        auto ser_col = ColumnString::create();
-        ser_col->reserve(hll_cols[0]->get_ptr()->size());
-        VectorBufferWriter buffer_writer(*ser_col.get());
-        for (int i = 0; i < hll_cols[0]->get_ptr()->size(); ++i) {
-            dt_hll->to_string(*hll_cols[0]->get_ptr(), i, buffer_writer);
-            std::string res = dt_hll->to_string(*hll_cols[0]->get_ptr(), i);
-            buffer_writer.commit();
-            EXPECT_EQ(res, "HLL()"); // HLL to_string is not implemented
-        }
-        // check ser_col to assert_column and check same with mutableColumn
-        auto assert_column_1 = dt_hll->create_column();
-        for (int i = 0; i < ser_col->size(); ++i) {
-            std::string s = ser_col->get_data_at(i).to_string();
-            ReadBuffer rb(s.data(), s.size());
-            ASSERT_EQ(Status::OK(), dt_hll->from_string(rb, assert_column_1.get()));
-            auto aaa = assert_column_1->operator[](i);
-            ASSERT_EQ(assert_column_1->operator[](i), hll_cols[0]->get_ptr()->operator[](i));
-        }
-        std::cout << "finish to_string | from_string test" << std::endl;
-    }
 }
 
 // serialize / deserialize

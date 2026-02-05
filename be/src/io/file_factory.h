@@ -107,24 +107,31 @@ public:
     static Status create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader,
                                      RuntimeState* runtime_state, bool need_schema);
 
-    static TFileType::type convert_storage_type(TStorageBackendType::type type) {
+    static Result<TFileType::type> convert_storage_type(TStorageBackendType::type type) {
         switch (type) {
         case TStorageBackendType::LOCAL:
             return TFileType::FILE_LOCAL;
         case TStorageBackendType::S3:
+            return TFileType::FILE_S3;
+        case TStorageBackendType::AZURE:
             return TFileType::FILE_S3;
         case TStorageBackendType::BROKER:
             return TFileType::FILE_BROKER;
         case TStorageBackendType::HDFS:
             return TFileType::FILE_HDFS;
         default:
-            throw Exception(Status::FatalError("not match type to convert, from type:{}", type));
+            return ResultError(Status::FatalError("not match type to convert, from type:{}", type));
         }
-        throw Exception(Status::FatalError("__builtin_unreachable"));
     }
 
 private:
     static std::string _get_fs_name(const io::FileDescription& file_description);
+
+    /// Create FileReader without FS
+    static Result<io::FileReaderSPtr> _create_file_reader_internal(
+            const io::FileSystemProperties& system_properties,
+            const io::FileDescription& file_description,
+            const io::FileReaderOptions& reader_options, RuntimeProfile* profile = nullptr);
 };
 
 } // namespace doris

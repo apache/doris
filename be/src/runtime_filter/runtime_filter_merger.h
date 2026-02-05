@@ -73,10 +73,15 @@ public:
     }
 
     void set_expected_producer_num(int num) {
-        DCHECK_EQ(_received_producer_num, 0);
-        DCHECK_EQ(_received_rf_size_num, 0);
+        if (_received_producer_num > 0 || _received_rf_size_num > 0) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "runtime filter merger set expected producer after receive data, {}",
+                            debug_string());
+        }
         _expected_producer_num = num;
     }
+
+    int get_expected_producer_num() const { return _expected_producer_num; }
 
     bool add_rf_size(uint64_t size) {
         _received_rf_size_num++;
@@ -92,6 +97,16 @@ public:
     uint64_t get_received_sum_size() const { return _received_sum_size; }
 
     bool ready() const { return _rf_state == State::READY; }
+
+    void set_wrapper_state_and_ready_to_apply(RuntimeFilterWrapper::State state,
+                                              std::string reason = "") {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
+        if (_rf_state == State::READY) {
+            return;
+        }
+        _wrapper->set_state(state, reason);
+        _rf_state = State::READY;
+    }
 
 private:
     RuntimeFilterMerger(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc)

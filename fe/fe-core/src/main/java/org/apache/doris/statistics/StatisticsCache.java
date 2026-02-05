@@ -40,7 +40,7 @@ import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 
 import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.hudi.common.util.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -93,7 +93,7 @@ public class StatisticsCache {
 
     public ColumnStatistic getColumnStatistics(
             long catalogId, long dbId, long tblId, long idxId, String colName, ConnectContext ctx) {
-        if (ctx != null && ctx.getState().isInternal()) {
+        if (ctx != null && ctx.getState().isPlanWithUnKnownColumnStats()) {
             return ColumnStatistic.UNKNOWN;
         }
         // Need to change base index id to -1 for OlapTable.
@@ -130,7 +130,7 @@ public class StatisticsCache {
 
     public PartitionColumnStatistic getPartitionColumnStatistics(long catalogId, long dbId, long tblId, long idxId,
                                                   String partName, String colName, ConnectContext ctx) {
-        if (ctx != null && ctx.getState().isInternal()) {
+        if (ctx != null && ctx.getState().isPlanWithUnKnownColumnStats()) {
             return PartitionColumnStatistic.UNKNOWN;
         }
         // Need to change base index id to -1 for OlapTable.
@@ -178,7 +178,7 @@ public class StatisticsCache {
 
     private Optional<Histogram> getHistogram(long ctlId, long dbId, long tblId, long idxId, String colName) {
         ConnectContext ctx = ConnectContext.get();
-        if (ctx != null && ctx.getState().isInternal()) {
+        if (ctx != null && ctx.getState().isPlanWithUnKnownColumnStats()) {
             return Optional.empty();
         }
         StatisticsCacheKey k = new StatisticsCacheKey(ctlId, dbId, tblId, idxId, colName);
@@ -398,7 +398,7 @@ public class StatisticsCache {
 
         // this method can avoid compute table and select index id
         public ColumnStatistic getColumnStatistics(String colName, ConnectContext ctx) {
-            if (ctx != null && ctx.getState().isInternal()) {
+            if (ctx != null && ctx.getState().isPlanWithUnKnownColumnStats()) {
                 return ColumnStatistic.UNKNOWN;
             }
             return doGetColumnStatistics(
@@ -408,7 +408,7 @@ public class StatisticsCache {
 
         public PartitionColumnStatistic getPartitionColumnStatistics(
                 String partName, String colName, ConnectContext ctx) {
-            if (ctx != null && ctx.getState().isInternal()) {
+            if (ctx != null && ctx.getState().isPlanWithUnKnownColumnStats()) {
                 return PartitionColumnStatistic.UNKNOWN;
             }
             return doGetPartitionColumnStatistics(

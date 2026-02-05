@@ -23,7 +23,6 @@
 #include <cmath>
 #include <queue>
 
-#include "udf/udf.h"
 #include "vec/common/pod_array.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/io/io_helper.h"
@@ -99,7 +98,8 @@ public:
             double u = (_nums.size() - 1) * quantile;
             auto index = static_cast<uint32_t>(u);
             return _nums[index] +
-                   (u - static_cast<double>(index)) * (_nums[index + 1] - _nums[index]);
+                   (u - static_cast<double>(index)) * (static_cast<double>(_nums[index + 1]) -
+                                                       static_cast<double>(_nums[index]));
         } else {
             DCHECK(_nums.empty());
             size_t rows = 0;
@@ -124,7 +124,9 @@ public:
             if (quantile == 1) {
                 return second_number;
             }
-            return first_number + (u - static_cast<double>(index)) * (second_number - first_number);
+            return first_number +
+                   (u - static_cast<double>(index)) *
+                           (static_cast<double>(second_number) - static_cast<double>(first_number));
         }
     }
 

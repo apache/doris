@@ -119,6 +119,11 @@ public class MockJniScanner extends JniScanner {
         }
 
         @Override
+        public LocalDateTime getTimeStampTz() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public LocalDate getDate() {
             return LocalDate.now();
         }
@@ -205,6 +210,7 @@ public class MockJniScanner extends JniScanner {
             return 0;
         }
         int rows = Math.min(batchSize, mockRows - readRows);
+        long startTime = System.nanoTime();
         for (int i = 0; i < rows; ++i) {
             for (int j = 0; j < types.length; ++j) {
                 if ((i + j) % 16 == 0) {
@@ -215,6 +221,7 @@ public class MockJniScanner extends JniScanner {
                 }
             }
         }
+        appendDataTime += System.nanoTime() - startTime;
         readRows += rows;
         return rows;
     }

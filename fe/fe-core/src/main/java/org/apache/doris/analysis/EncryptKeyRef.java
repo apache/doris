@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
@@ -25,10 +24,10 @@ import org.apache.doris.thrift.TExprNode;
 
 import com.google.gson.annotations.SerializedName;
 
+@Deprecated
 public class EncryptKeyRef extends Expr {
     @SerializedName("ekn")
     private EncryptKeyName encryptKeyName;
-    private EncryptKey encryptKey;
 
     private EncryptKeyRef() {
         // only for serde
@@ -43,7 +42,6 @@ public class EncryptKeyRef extends Expr {
     protected EncryptKeyRef(EncryptKeyRef other) {
         super(other);
         this.encryptKeyName = other.encryptKeyName;
-        this.encryptKey = other.encryptKey;
         this.type = Type.VARCHAR;
     }
 

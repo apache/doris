@@ -196,14 +196,13 @@ private:
         case PrimitiveType::TYPE_DOUBLE:                                                      \
             *dst = _apply_internal<Float64, OP>(src_column, src_offsets, cmp);                \
             break;                                                                            \
-        case PrimitiveType::TYPE_DATETIME:                                                    \
-        case PrimitiveType::TYPE_DATE:                                                        \
-            *dst = _apply_internal<Int64, OP>(src_column, src_offsets, cmp);                  \
-            break;                                                                            \
         case PrimitiveType::TYPE_DATEV2:                                                      \
             *dst = _apply_internal<UInt32, OP>(src_column, src_offsets, cmp);                 \
             break;                                                                            \
         case PrimitiveType::TYPE_DATETIMEV2:                                                  \
+            *dst = _apply_internal<UInt64, OP>(src_column, src_offsets, cmp);                 \
+            break;                                                                            \
+        case PrimitiveType::TYPE_TIMESTAMPTZ:                                                 \
             *dst = _apply_internal<UInt64, OP>(src_column, src_offsets, cmp);                 \
             break;                                                                            \
         case PrimitiveType::TYPE_DECIMAL32:                                                   \

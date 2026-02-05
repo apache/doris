@@ -17,11 +17,11 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogFactory;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -64,22 +64,13 @@ public class CreateIcebergTableTest {
         param.put("warehouse", warehouse);
 
         // create catalog
-        CreateCatalogStmt createCatalogStmt = new CreateCatalogStmt(true, "iceberg", "", param, "comment");
-        icebergCatalog = (IcebergHadoopExternalCatalog) CatalogFactory.createFromStmt(1, createCatalogStmt);
-        if (icebergCatalog.getUseMetaCache().get()) {
-            icebergCatalog.makeSureInitialized();
-        } else {
-            icebergCatalog.setInitializedForTest(true);
-        }
-
+        CreateCatalogCommand createCatalogCommand = new CreateCatalogCommand("iceberg", true, "", "comment", param);
+        icebergCatalog = (IcebergHadoopExternalCatalog) CatalogFactory.createFromCommand(1, createCatalogCommand);
+        icebergCatalog.makeSureInitialized();
         // create db
         ops = new IcebergMetadataOps(icebergCatalog, icebergCatalog.getCatalog());
         ops.createDb(dbName, true, Maps.newHashMap());
-        if (icebergCatalog.getUseMetaCache().get()) {
-            icebergCatalog.makeSureInitialized();
-        } else {
-            icebergCatalog.setInitializedForTest(true);
-        }
+        icebergCatalog.makeSureInitialized();
         IcebergExternalDatabase db = new IcebergExternalDatabase(icebergCatalog, 1L, dbName, dbName);
         icebergCatalog.addDatabaseForTest(db);
 

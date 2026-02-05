@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -38,7 +39,9 @@ public class Sha1 extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(StringType.INSTANCE));
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(StringType.INSTANCE),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarBinaryType.INSTANCE)
+    );
 
     /**
      * constructor with 1 arguments.
@@ -47,13 +50,18 @@ public class Sha1 extends ScalarFunction
         super("sha1", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Sha1(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Sha1 withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Sha1(children.get(0));
+        return new Sha1(getFunctionParams(children));
     }
 
     @Override

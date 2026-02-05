@@ -28,6 +28,7 @@
 #include <utility>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -39,6 +40,7 @@
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
+#include "vec/core/call_on_type_index.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
@@ -253,69 +255,18 @@ private:
                           IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
                           const NullMapType* src_null_map, NullMapType* dest_null_map,
                           DataTypePtr& nested_type) const {
-        switch (nested_type->get_primitive_type()) {
-        case TYPE_BOOLEAN:
-            return _execute_number<ColumnUInt8>(src_column, src_offsets, dest_column, dest_offsets,
-                                                src_null_map, dest_null_map);
-        case TYPE_TINYINT:
-            return _execute_number<ColumnInt8>(src_column, src_offsets, dest_column, dest_offsets,
-                                               src_null_map, dest_null_map);
-        case TYPE_SMALLINT:
-            return _execute_number<ColumnInt16>(src_column, src_offsets, dest_column, dest_offsets,
-                                                src_null_map, dest_null_map);
-        case TYPE_INT:
-            return _execute_number<ColumnInt32>(src_column, src_offsets, dest_column, dest_offsets,
-                                                src_null_map, dest_null_map);
-        case TYPE_BIGINT:
-            return _execute_number<ColumnInt64>(src_column, src_offsets, dest_column, dest_offsets,
-                                                src_null_map, dest_null_map);
-        case TYPE_LARGEINT:
-            return _execute_number<ColumnInt128>(src_column, src_offsets, dest_column, dest_offsets,
-                                                 src_null_map, dest_null_map);
-        case TYPE_FLOAT:
-            return _execute_number<ColumnFloat32>(src_column, src_offsets, dest_column,
-                                                  dest_offsets, src_null_map, dest_null_map);
-        case TYPE_DOUBLE:
-            return _execute_number<ColumnFloat64>(src_column, src_offsets, dest_column,
-                                                  dest_offsets, src_null_map, dest_null_map);
-        case TYPE_DATE:
-            return _execute_number<ColumnDate>(src_column, src_offsets, dest_column, dest_offsets,
-                                               src_null_map, dest_null_map);
-        case TYPE_DATETIME:
-            return _execute_number<ColumnDateTime>(src_column, src_offsets, dest_column,
-                                                   dest_offsets, src_null_map, dest_null_map);
-        case TYPE_DATEV2:
-            return _execute_number<ColumnDateV2>(src_column, src_offsets, dest_column, dest_offsets,
-                                                 src_null_map, dest_null_map);
-        case TYPE_DATETIMEV2:
-            return _execute_number<ColumnDateTimeV2>(src_column, src_offsets, dest_column,
-                                                     dest_offsets, src_null_map, dest_null_map);
-        case TYPE_DECIMAL32:
-            return _execute_number<ColumnDecimal32>(src_column, src_offsets, dest_column,
-                                                    dest_offsets, src_null_map, dest_null_map);
-        case TYPE_DECIMAL64:
-            return _execute_number<ColumnDecimal64>(src_column, src_offsets, dest_column,
-                                                    dest_offsets, src_null_map, dest_null_map);
-        case TYPE_DECIMAL128I:
-            return _execute_number<ColumnDecimal128V3>(src_column, src_offsets, dest_column,
-                                                       dest_offsets, src_null_map, dest_null_map);
-        case TYPE_DECIMALV2:
-            return _execute_number<ColumnDecimal128V2>(src_column, src_offsets, dest_column,
-                                                       dest_offsets, src_null_map, dest_null_map);
-        case TYPE_DECIMAL256:
-            return _execute_number<ColumnDecimal256>(src_column, src_offsets, dest_column,
-                                                     dest_offsets, src_null_map, dest_null_map);
-        case TYPE_STRING:
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
+        if (is_string_type(nested_type->get_primitive_type())) {
             return _execute_string(src_column, src_offsets, dest_column, dest_offsets, src_null_map,
                                    dest_null_map);
-        default:
-            LOG(ERROR) << "Unsupported array's element type: "
-                       << remove_nullable(nested_type)->get_name() << " for function "
-                       << this->get_name();
-            return false;
         }
+        auto call = [&](const auto& type) -> bool {
+            using DispatchType = std::decay_t<decltype(type)>;
+            return _execute_number<typename DispatchType::ColumnType>(src_column, src_offsets,
+                                                                      dest_column, dest_offsets,
+                                                                      src_null_map, dest_null_map);
+        };
+
+        return dispatch_switch_scalar(nested_type->get_primitive_type(), call);
     }
 };
 

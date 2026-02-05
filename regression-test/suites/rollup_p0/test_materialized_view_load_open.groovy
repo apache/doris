@@ -128,10 +128,10 @@ suite("test_materialized_view_load_open", "rollup") {
             );
         """
     
-    createMV("CREATE materialized VIEW test_load_open AS SELECT k1 FROM ${tbName1} GROUP BY k1;")
-    createMV("CREATE materialized VIEW test_load_open_dynamic_partition AS SELECT k1 FROM ${tbName2} GROUP BY k1;")
-    createMV("CREATE materialized VIEW test_load_open_schema_change AS SELECT k1 FROM ${tbName3} GROUP BY k1;")
-    createMV("CREATE materialized VIEW test_load_open_dynamic_partition_schema_change AS SELECT k1 FROM ${tbName4} GROUP BY k1;")
+    createMV("CREATE materialized VIEW test_load_open AS SELECT k1 as a1 FROM ${tbName1} GROUP BY k1;")
+    createMV("CREATE materialized VIEW test_load_open_dynamic_partition AS SELECT k1 as a2 FROM ${tbName2} GROUP BY k1;")
+    createMV("CREATE materialized VIEW test_load_open_schema_change AS SELECT k1 as a3 FROM ${tbName3} GROUP BY k1;")
+    createMV("CREATE materialized VIEW test_load_open_dynamic_partition_schema_change AS SELECT k1 as a4 FROM ${tbName4} GROUP BY k1;")
 
     sql "insert into ${tbName1} values('2000-05-20', 1.5, 'test', 1);"
     sql "insert into ${tbName1} values('2010-05-20', 1.5, 'test', 1);"

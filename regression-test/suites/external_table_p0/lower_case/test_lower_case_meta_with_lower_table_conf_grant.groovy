@@ -22,7 +22,7 @@ suite("test_lower_case_meta_with_lower_table_conf_auth", "p0,external,doris,exte
     String jdbcPassword = context.config.jdbcPassword
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.3.0.jar"
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
 
     String user = "test_catalog_lower_case_auth_user"
     String pwd = 'C123_567p'

@@ -54,7 +54,7 @@ public class GroupExpression {
     private static final EventProducer COST_STATE_TRACER = new EventProducer(CostStateUpdateEvent.class,
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(CostStateUpdateEvent.class,
                     EventChannel.LOG)));
-    private Cost cost;
+    private Cost cost = null;
     private Group ownerGroup;
     private final List<Group> children;
     private final Plan plan;
@@ -359,7 +359,7 @@ public class GroupExpression {
             builder.append("#").append(ownerGroup.getGroupId().asInt());
         }
         if (cost != null) {
-            builder.append(" cost=").append(cost.getValue() + " " + cost);
+            builder.append(" cost=").append(format.format(cost.getValue()) + " " + cost);
         } else {
             builder.append(" cost=null");
         }

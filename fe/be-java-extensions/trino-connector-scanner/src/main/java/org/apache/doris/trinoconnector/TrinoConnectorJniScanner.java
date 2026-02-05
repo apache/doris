@@ -179,6 +179,9 @@ public class TrinoConnectorJniScanner extends JniScanner {
 
     @Override
     public void close() throws IOException {
+        for (long appendDataTimeN : appendDataTimeNs) {
+            appendDataTime += appendDataTimeN;
+        }
         if (source != null) {
             source.close();
         }

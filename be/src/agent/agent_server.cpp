@@ -236,6 +236,10 @@ void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_
             "RELEASE_SNAPSHOT", config::release_snapshot_worker_count,
             [&engine](auto&& task) { return release_snapshot_callback(engine, task); });
 
+    _workers[TTaskType::ALTER_INVERTED_INDEX] = std::make_unique<TaskWorkerPool>(
+            "ALTER_INVERTED_INDEX", config::alter_index_worker_count,
+            [&engine](auto&& task) { return alter_cloud_index_callback(engine, task); });
+
     _report_workers.push_back(std::make_unique<ReportWorker>(
             "REPORT_TASK", _cluster_info, config::report_task_interval_seconds,
             [&cluster_info = _cluster_info] { report_task_callback(cluster_info); }));
@@ -267,8 +271,8 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
 
     // TODO check cluster_info here if it is the same with that of heartbeat rpc
     if (_cluster_info->master_fe_addr.hostname.empty() || _cluster_info->master_fe_addr.port == 0) {
-        Status ret_st = Status::Cancelled("Have not get FE Master heartbeat yet");
-        ret_st.to_thrift(&agent_result.status);
+        Status st = Status::Cancelled("Have not get FE Master heartbeat yet");
+        st.to_thrift(&agent_result.status);
         return;
     }
 

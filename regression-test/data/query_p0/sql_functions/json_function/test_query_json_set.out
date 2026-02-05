@@ -54,6 +54,13 @@ null
 {"data":{"array":["1","2"],"map":null,"struct":{"name":"2","age":1},"json":{"a":"b"}}}
 {"data":{"array":["1","2","3","3"],"map":null,"struct":{"name":"a","age":1},"json":{"a":"b"}}}
 
+-- !sql3 --
+{"data":{"array":null,"map":null,"struct":null,"json":null}}
+{"data":{"array":null,"map":null,"struct":null,"json":null}}
+{"data":{"array":null,"map":null,"struct":null,"json":null}}
+{"data":{"array":null,"map":null,"struct":null,"json":null}}
+{"data":{"array":null,"map":null,"struct":null,"json":null}}
+
 -- !set1 --
 2
 
@@ -74,4 +81,7 @@ null
 
 -- !set7 --
 \N
+
+-- !set8 --
+{"a":100}
 

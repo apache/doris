@@ -59,7 +59,6 @@ public:
 
     bool equals(const IDataType& rhs) const override;
 
-    bool text_can_contain_only_valid_utf8() const override { return true; }
     bool have_maximum_size_of_value() const override { return true; }
     size_t get_size_of_value_in_memory() const override { return 0; }
 
@@ -82,7 +81,6 @@ public:
                                "Unimplemented get_field for Nothing");
     }
 
-    bool have_subtypes() const override { return false; }
     using SerDeType = DataTypeNothingSerde;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<SerDeType>();

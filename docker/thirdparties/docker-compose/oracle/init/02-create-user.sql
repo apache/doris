@@ -17,3 +17,6 @@
 
 create user doris_test identified by 123456;
 grant connect, resource to doris_test;
+
+create user synonym_test_user identified by 123456;
+grant connect, resource to synonym_test_user;

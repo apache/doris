@@ -22,9 +22,9 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -69,5 +69,21 @@ public class RecoverTableCommand extends RecoverCommand {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitRecoverTableCommand(this, context);
+    }
+
+    public String getDbName() {
+        return dbTblName.getDb();
+    }
+
+    public String getTblName() {
+        return dbTblName.getTbl();
+    }
+
+    public long getTableId() {
+        return tableId;
+    }
+
+    public String getNewTableName() {
+        return newTableName;
     }
 }

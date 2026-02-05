@@ -25,7 +25,8 @@ namespace doris::vectorized {
 struct AggregateFunctionAvgTest : public AggregateFunctiontest {};
 
 TEST_F(AggregateFunctionAvgTest, test_int64) {
-    create_agg("avg", false, {std::make_shared<DataTypeInt64>()});
+    create_agg("avg", false, {std::make_shared<DataTypeInt64>()},
+               std::make_shared<DataTypeInt64>());
 
     execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3})}),
             ColumnHelper::create_column_with_name<DataTypeFloat64>({2}));

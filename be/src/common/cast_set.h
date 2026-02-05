@@ -31,24 +31,21 @@ template <typename T, typename U>
 void check_cast_value(U b) {
     if constexpr (IsUnsignedV<U>) {
         if (b > std::numeric_limits<T>::max()) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                   "value {} cast  to type {} out of range [{},{}]", b,
-                                   typeid(T).name(), std::numeric_limits<T>::min(),
-                                   std::numeric_limits<T>::max());
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR, "value {} cast  to type {} out of range [{},{}]", b,
+                    typeid(T).name(), std::numeric_limits<T>::min(), std::numeric_limits<T>::max());
         }
     } else if constexpr (IsUnsignedV<T>) {
         if (b < 0 || b > std::numeric_limits<T>::max()) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                   "value {} cast  to type {} out of range [{},{}]", b,
-                                   typeid(T).name(), std::numeric_limits<T>::min(),
-                                   std::numeric_limits<T>::max());
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR, "value {} cast  to type {} out of range [{},{}]", b,
+                    typeid(T).name(), std::numeric_limits<T>::min(), std::numeric_limits<T>::max());
         }
     } else {
         if (b < std::numeric_limits<T>::min() || b > std::numeric_limits<T>::max()) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                   "value {} cast  to type {} out of range [{},{}]", b,
-                                   typeid(T).name(), std::numeric_limits<T>::min(),
-                                   std::numeric_limits<T>::max());
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR, "value {} cast  to type {} out of range [{},{}]", b,
+                    typeid(T).name(), std::numeric_limits<T>::min(), std::numeric_limits<T>::max());
         }
     }
 }

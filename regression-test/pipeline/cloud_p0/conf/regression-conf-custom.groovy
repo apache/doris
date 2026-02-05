@@ -40,7 +40,6 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_spark_load," +
     "test_index_lowercase_fault_injection," +
     "test_index_compaction_failure_injection," +
-    "test_partial_update_2pc_schema_change," + // mow 2pc
     "test_query_sys_rowsets," + // rowsets sys table
     "test_unique_table_debug_data," + // disable auto compaction
     "test_insert," + // txn insert
@@ -68,12 +67,20 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_recycler_with_truncate_table," +
     "test_recycler_with_txn_label," +
     "test_recycler," +
+    "rec_cte_with_delete_test," +
+    "test_recycler_cleanup_snapshot," +
+    "test_recycler_clone_instance," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "external_table_p0," + // run on external pipeline
     "cloud/multi_cluster," + // run in specific regression pipeline
+    "cloud_p0/multi_cluster," + // run in specific regression pipeline
     "cloud_p0/cache," +
+    "shape_check," + // run only in p0 is enough
+    "nereids_p0/cache," + // run only in p0 is enough
+    "nereids_rules_p0/mv/increment_create," + // run only in p0 is enough
+    "nereids_rules_p0/mv/genera_constant_sql," + // run only in p0 is enough
     "workload_manager_p1," +
     "nereids_rules_p0/subquery," +
     "backup_restore," + // not a case for cloud mode, no need to run
@@ -83,7 +90,10 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "ccr_mow_syncer_p0," +
     "hdfs_vault_p2," +
     "inject_hdfs_vault_p0," +
+    "variant_p0/nested," +
+    "variant_p0/nested/sql," +
     "plsql_p0," + // plsql is not developped any more, add by sk.
+    "restore_p0," + // 
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 max_failure_num = 50

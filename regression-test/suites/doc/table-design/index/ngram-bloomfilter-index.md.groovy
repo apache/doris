@@ -52,7 +52,13 @@ suite("docs/table-design/index/ngram-bloomfilter-index.md") {
             f.delete()
         }
         cmd("wget ${getS3Url()}/regression/doc/amazon_reviews_2010.snappy.parquet")
-        cmd("""curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -T amazon_reviews_2010.snappy.parquet -H "format:parquet" http://${context.config.feHttpAddress}/api/${curDbName}/amazon_reviews/_stream_load""")
+        String tlsInfo = ""
+        String protocol = "http"
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            tlsInfo = " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+            protocol = "https"
+        }
+        cmd("""curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -T amazon_reviews_2010.snappy.parquet -H "format:parquet" ${protocol}://${context.config.feHttpAddress}/api/${curDbName}/amazon_reviews/_stream_load ${tlsInfo}""")
 
         sql " SELECT COUNT() FROM amazon_reviews "
         sql """

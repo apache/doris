@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "common/be_mock_util.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "pipeline/dependency.h"
@@ -50,7 +51,9 @@ class RuntimeState;
 class TDataSink;
 namespace vectorized {
 class AsyncResultWriter;
-}
+class ScoreRuntime;
+class AnnTopNRuntime;
+} // namespace vectorized
 } // namespace doris
 
 namespace doris::pipeline {
@@ -111,6 +114,9 @@ public:
     [[nodiscard]] virtual Status terminate(RuntimeState* state) = 0;
     [[nodiscard]] virtual Status close(RuntimeState* state);
     [[nodiscard]] virtual int node_id() const = 0;
+    [[nodiscard]] virtual int parallelism(RuntimeState* state) const {
+        return _is_serial_operator ? 1 : state->query_parallel_instance_num();
+    }
 
     [[nodiscard]] virtual Status set_child(OperatorPtr child) {
         if (_child && child != nullptr) {
@@ -132,25 +138,64 @@ public:
         return Status::OK();
     }
 
+    /**
+     * Pipeline task is blockable means it will be blocked in the next run. So we should put the
+     * pipeline task into the blocking task scheduler.
+     */
+    virtual bool is_blockable(RuntimeState* state) const = 0;
     virtual void set_low_memory_mode(RuntimeState* state) {}
 
-    [[nodiscard]] virtual bool require_data_distribution() const { return false; }
     OperatorPtr child() { return _child; }
+    virtual Status reset(RuntimeState* state) {
+        return Status::InternalError("Reset is not implemented in operator: {}", get_name());
+    }
+
+    /* -------------- Interfaces to determine the input data properties -------------- */
+    /**
+     * Return True if this operator relies on the bucket distribution (e.g. COLOCATE join, 1-phase AGG).
+     * Data input to this kind of operators must have the same distribution with the table buckets.
+     * It is also means `required_data_distribution` should be `BUCKET_HASH_SHUFFLE`.
+     * @return
+     */
+    [[nodiscard]] virtual bool is_colocated_operator() const { return false; }
+    /**
+     * Return True if this operator relies on the bucket distribution or specific hash data distribution (e.g. SHUFFLED HASH join).
+     * Data input to this kind of operators must be HASH distributed according to some rules.
+     * All colocated operators are also shuffled operators.
+     * It is also means `required_data_distribution` should be `BUCKET_HASH_SHUFFLE` or `HASH_SHUFFLE`.
+     * @return
+     */
+    [[nodiscard]] virtual bool is_shuffled_operator() const { return false; }
+    /**
+     * Return True if this operator is followed by a shuffled operator.
+     * For example, in the plan fragment:
+     *   `UNION` -> `SHUFFLED HASH JOIN`
+     * The `SHUFFLED HASH JOIN` is a shuffled operator so the UNION operator is followed by a shuffled operator.
+     */
     [[nodiscard]] bool followed_by_shuffled_operator() const {
         return _followed_by_shuffled_operator;
     }
-    void set_followed_by_shuffled_operator(bool followed_by_shuffled_operator) {
+    /**
+     * Update the operator properties according to the plan node.
+     * This is called before `prepare`.
+     */
+    virtual void update_operator(const TPlanNode& tnode, bool followed_by_shuffled_operator,
+                                 bool require_bucket_distribution) {
         _followed_by_shuffled_operator = followed_by_shuffled_operator;
+        _require_bucket_distribution = require_bucket_distribution;
     }
-    [[nodiscard]] virtual bool is_shuffled_operator() const { return false; }
-    [[nodiscard]] virtual DataDistribution required_data_distribution() const;
-    [[nodiscard]] virtual bool require_shuffled_data_distribution() const;
+    /**
+     * Return the required data distribution of this operator.
+     */
+    [[nodiscard]] virtual DataDistribution required_data_distribution(
+            RuntimeState* /*state*/) const;
 
 protected:
     OperatorPtr _child = nullptr;
 
     bool _is_closed;
     bool _followed_by_shuffled_operator = false;
+    bool _require_bucket_distribution = false;
     bool _is_serial_operator = false;
 };
 
@@ -207,12 +252,12 @@ public:
     void set_num_rows_returned(int64_t value) { _num_rows_returned = value; }
 
     [[nodiscard]] virtual std::string debug_string(int indentation_level = 0) const = 0;
+    [[nodiscard]] virtual bool is_blockable() const;
 
     virtual std::vector<Dependency*> dependencies() const { return {nullptr}; }
 
     // override in Scan
     virtual Dependency* finishdependency() { return nullptr; }
-    virtual Dependency* spill_dependency() const { return nullptr; }
     //  override in Scan  MultiCastSink
     virtual std::vector<Dependency*> execution_dependencies() { return {}; }
 
@@ -273,6 +318,8 @@ protected:
     RuntimeState* _state = nullptr;
     vectorized::VExprContextSPtrs _conjuncts;
     vectorized::VExprContextSPtrs _projections;
+    std::shared_ptr<vectorized::ScoreRuntime> _score_runtime;
+    std::shared_ptr<segment_v2::AnnTopNRuntime> _ann_topn_runtime;
     // Used in common subexpression elimination to compute intermediate results.
     std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
 
@@ -303,7 +350,6 @@ public:
     std::vector<Dependency*> dependencies() const override {
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
-    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
 
     virtual bool must_set_shared_state() const {
         return !std::is_same_v<SharedStateArg, FakeSharedState>;
@@ -311,7 +357,6 @@ public:
 
 protected:
     Dependency* _dependency = nullptr;
-    std::shared_ptr<Dependency> _spill_dependency;
     SharedStateArg* _shared_state = nullptr;
 };
 
@@ -479,6 +524,7 @@ public:
     virtual Status terminate(RuntimeState* state) = 0;
     virtual Status close(RuntimeState* state, Status exec_status) = 0;
     [[nodiscard]] virtual bool is_finished() const { return false; }
+    [[nodiscard]] virtual bool is_blockable() const { return false; }
 
     [[nodiscard]] virtual std::string debug_string(int indentation_level) const = 0;
 
@@ -515,7 +561,6 @@ public:
 
     // override in exchange sink , AsyncWriterSink
     virtual Dependency* finishdependency() { return nullptr; }
-    virtual Dependency* spill_dependency() const { return nullptr; }
 
     bool low_memory_mode() { return _state->low_memory_mode(); }
 
@@ -569,7 +614,6 @@ public:
     std::vector<Dependency*> dependencies() const override {
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
-    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
 
     virtual bool must_set_shared_state() const {
         return !std::is_same_v<SharedStateArg, FakeSharedState>;
@@ -577,7 +621,6 @@ public:
 
 protected:
     Dependency* _dependency = nullptr;
-    std::shared_ptr<Dependency> _spill_dependency;
     SharedStateType* _shared_state = nullptr;
 };
 
@@ -603,8 +646,10 @@ public:
     // For agg/sort/join sink.
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
 
+    virtual bool reset_to_rerun(RuntimeState* state, OperatorXBase* root) const { return false; }
+
     Status init(const TDataSink& tsink) override;
-    [[nodiscard]] virtual Status init(ExchangeType type, const int num_buckets,
+    [[nodiscard]] virtual Status init(RuntimeState* state, ExchangeType type, const int num_buckets,
                                       const bool use_global_hash_shuffle,
                                       const std::map<int, int>& shuffle_idx_to_instance_idx) {
         return Status::InternalError("init() is only implemented in local exchange!");
@@ -627,6 +672,9 @@ public:
 
     [[nodiscard]] virtual size_t get_reserve_mem_size(RuntimeState* state, bool eos) {
         return state->minimum_operator_memory_required_bytes();
+    }
+    bool is_blockable(RuntimeState* state) const override {
+        return state->get_sink_local_state()->is_blockable();
     }
 
     [[nodiscard]] bool is_spillable() const { return _spillable; }
@@ -828,13 +876,13 @@ public:
               _type(tnode.node_type),
               _pool(pool),
               _tuple_ids(tnode.row_tuples),
-              _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
+              _row_descriptor(descs, tnode.row_tuples),
               _resource_profile(tnode.resource_profile),
               _limit(tnode.limit) {
         if (tnode.__isset.output_tuple_id) {
-            _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}, {true}));
-            _output_row_descriptor = std::make_unique<RowDescriptor>(
-                    descs, std::vector {tnode.output_tuple_id}, std::vector {true});
+            _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}));
+            _output_row_descriptor =
+                    std::make_unique<RowDescriptor>(descs, std::vector {tnode.output_tuple_id});
         }
         if (!tnode.intermediate_output_tuple_id_list.empty()) {
             // common subexpression elimination
@@ -842,7 +890,7 @@ public:
                     tnode.intermediate_output_tuple_id_list.size());
             for (auto output_tuple_id : tnode.intermediate_output_tuple_id_list) {
                 _intermediate_output_row_descriptor.push_back(
-                        RowDescriptor(descs, std::vector {output_tuple_id}, std::vector {true}));
+                        RowDescriptor(descs, std::vector {output_tuple_id}));
             }
         }
     }
@@ -869,6 +917,9 @@ public:
     }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const { return true; }
+    bool is_blockable(RuntimeState* state) const override {
+        return state->get_sink_local_state()->is_blockable() || _blockable;
+    }
 
     Status prepare(RuntimeState* state) override;
 
@@ -931,6 +982,7 @@ public:
     [[nodiscard]] OperatorPtr get_child() { return _child; }
 
     [[nodiscard]] vectorized::VExprContextSPtrs& conjuncts() { return _conjuncts; }
+    [[nodiscard]] vectorized::VExprContextSPtrs& projections() { return _projections; }
     [[nodiscard]] virtual RowDescriptor& row_descriptor() { return _row_descriptor; }
 
     [[nodiscard]] int operator_id() const { return _operator_id; }
@@ -1002,6 +1054,9 @@ protected:
     //_keep_origin is used to avoid copying during projection,
     // currently set to false only in the nestloop join.
     bool _keep_origin = true;
+
+    // _blockable is true if the operator contains expressions that may block execution
+    bool _blockable = false;
 };
 
 template <typename LocalStateType>
@@ -1147,8 +1202,6 @@ public:
                                                        "DummyOperatorDependency", true);
         _filter_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                        "DummyOperatorDependency", true);
-        _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                                      "DummyOperatorDependency", true);
     }
     Dependency* finishdependency() override { return _finish_dependency.get(); }
     ~DummyOperatorLocalState() = default;
@@ -1157,7 +1210,6 @@ public:
     std::vector<Dependency*> execution_dependencies() override {
         return {_filter_dependency.get()};
     }
-    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
 
 private:
     std::shared_ptr<Dependency> _tmp_dependency;
@@ -1205,13 +1257,10 @@ public:
                                                     "DummyOperatorDependency", true);
         _finish_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                        "DummyOperatorDependency", true);
-        _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                                      "DummyOperatorDependency", true);
     }
 
     std::vector<Dependency*> dependencies() const override { return {_tmp_dependency.get()}; }
     Dependency* finishdependency() override { return _finish_dependency.get(); }
-    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
     bool is_finished() const override { return _is_finished; }
 
 private:

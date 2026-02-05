@@ -31,13 +31,16 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+@Execution(ExecutionMode.SAME_THREAD)
 public class SimpleSchedulerTest {
 
     private static Backend be1;
@@ -46,7 +49,7 @@ public class SimpleSchedulerTest {
     private static Backend be4;
     private static Backend be5;
 
-    @BeforeClass
+    @BeforeAll
     public static void setUp() {
         SimpleScheduler.init();
         Config.heartbeat_interval_second = 2;
@@ -55,11 +58,11 @@ public class SimpleSchedulerTest {
         be3 = new Backend(1002L, "192.168.100.2", 9050);
         be4 = new Backend(1003L, "192.168.100.3", 9050);
         be5 = new Backend(1004L, "192.168.100.4", 9050);
-        be1.setAlive(true);
-        be2.setAlive(true);
-        be3.setAlive(true);
-        be4.setAlive(true);
-        be5.setAlive(true);
+
+        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+        for (Backend be : genBackends().values()) {
+            systemInfoService.addBackend(be);
+        }
     }
 
     private static Map<Long, Backend> genBackends() {
@@ -194,6 +197,11 @@ public class SimpleSchedulerTest {
         locations.add(scanRangeLocation5);
 
         for (int i = 0; i <= Config.do_add_backend_black_list_threshold_count; i++) {
+            be1.setAlive(false);
+            be2.setAlive(false);
+            be3.setAlive(false);
+            be4.setAlive(false);
+            be5.setAlive(false);
             SimpleScheduler.addToBlacklist(be1.getId(), "test");
             SimpleScheduler.addToBlacklist(be2.getId(), "test");
             SimpleScheduler.addToBlacklist(be3.getId(), "test");
@@ -208,6 +216,11 @@ public class SimpleSchedulerTest {
             System.out.println(e.getMessage());
         }
 
+        be1.setAlive(true);
+        be2.setAlive(true);
+        be3.setAlive(true);
+        be4.setAlive(true);
+        be5.setAlive(true);
         Thread.sleep((Config.heartbeat_interval_second + 5) * 1000);
         Assert.assertNotNull(SimpleScheduler.getHost(locations.get(0).backend_id, locations, backends, ref));
     }

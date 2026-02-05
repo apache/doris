@@ -23,8 +23,10 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <memory>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/status.h"
@@ -34,8 +36,11 @@
 #include "util/runtime_profile.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
-
+#include "vec/common/custom_allocator.h"
 namespace doris {
+
+#include "common/compile_check_begin.h"
+
 namespace io {
 struct IOContext;
 
@@ -101,7 +106,7 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
 
     // merge small IO
     size_t merge_start = offset + has_read;
-    const size_t merge_end = merge_start + READ_SLICE_SIZE;
+    const size_t merge_end = merge_start + _merged_read_slice_size;
     // <slice_size, is_content>
     std::vector<std::pair<size_t, bool>> merged_slice;
     size_t content_size = 0;
@@ -162,7 +167,7 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
         if (slice.second) {
             content_size += slice.first;
             if (slice.first > 0) {
-                ratio_and_size.emplace_back((double)hollow_size / content_size,
+                ratio_and_size.emplace_back((double)hollow_size / (double)content_size,
                                             content_size + hollow_size);
             }
         } else {
@@ -217,7 +222,7 @@ int MergeRangeFileReader::_search_read_range(size_t start_offset, size_t end_off
     if (_random_access_ranges.empty()) {
         return -1;
     }
-    int left = 0, right = _random_access_ranges.size() - 1;
+    int left = 0, right = cast_set<int>(_random_access_ranges.size()) - 1;
     do {
         int mid = left + (right - left) / 2;
         const PrefetchRange& range = _random_access_ranges[mid];
@@ -310,7 +315,7 @@ void MergeRangeFileReader::_read_in_box(RangeCachedData& cached_data, size_t off
 Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, size_t to_read,
                                        size_t* bytes_read, const IOContext* io_ctx) {
     if (!_read_slice) {
-        _read_slice = std::make_unique<OwnedSlice>(READ_SLICE_SIZE);
+        _read_slice = std::make_unique<OwnedSlice>(_merged_read_slice_size);
     }
 
     *bytes_read = 0;
@@ -336,7 +341,7 @@ Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, siz
         filled_boxes.emplace_back(fill_box_ref, box_usage, copy_start, copy_start + copy_size);
         copy_start += copy_size;
         _last_box_ref = fill_box_ref;
-        _last_box_usage = box_usage + copy_size;
+        _last_box_usage = box_usage + cast_set<int>(copy_size);
         _box_ref[fill_box_ref]++;
         if (box_usage == 0) {
             _remaining -= BOX_SIZE;
@@ -372,7 +377,7 @@ Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, siz
         while (copy_start < range_copy_end && _boxes.size() < NUM_BOX) {
             _boxes.emplace_back(BOX_SIZE);
             _box_ref.emplace_back(0);
-            fill_box(_boxes.size() - 1, 0, range_copy_end);
+            fill_box(cast_set<int16_t>(_boxes.size()) - 1, 0, range_copy_end);
         }
         DCHECK_EQ(copy_start, range_copy_end);
 
@@ -495,7 +500,7 @@ int PrefetchBuffer::search_read_range(size_t off) const {
         return -1;
     }
     const std::vector<PrefetchRange>& random_access_ranges = *_random_access_ranges;
-    int left = 0, right = random_access_ranges.size() - 1;
+    int left = 0, right = cast_set<int>(random_access_ranges.size()) - 1;
     do {
         int mid = left + (right - left) / 2;
         const PrefetchRange& range = random_access_ranges[mid];
@@ -630,16 +635,23 @@ void PrefetchBuffer::_collect_profile_before_close() {
 
 // buffered reader
 PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::FileReaderSPtr reader,
-                                               PrefetchRange file_range, const IOContext* io_ctx,
+                                               PrefetchRange file_range,
+                                               std::shared_ptr<const IOContext> io_ctx,
                                                int64_t buffer_size)
-        : _reader(std::move(reader)), _file_range(file_range), _io_ctx(io_ctx) {
+        : _reader(std::move(reader)), _file_range(file_range), _io_ctx_holder(std::move(io_ctx)) {
+    if (_io_ctx_holder == nullptr) {
+        _io_ctx_holder = std::make_shared<IOContext>();
+    }
+    _io_ctx = _io_ctx_holder.get();
     if (buffer_size == -1L) {
         buffer_size = config::remote_storage_read_buffer_mb * 1024 * 1024;
     }
     _size = _reader->size();
     _whole_pre_buffer_size = buffer_size;
     _file_range.end_offset = std::min(_file_range.end_offset, _size);
-    int buffer_num = buffer_size > s_max_pre_buffer_size ? buffer_size / s_max_pre_buffer_size : 1;
+    int buffer_num = buffer_size > s_max_pre_buffer_size
+                             ? cast_set<int>(buffer_size) / cast_set<int>(s_max_pre_buffer_size)
+                             : 1;
     std::function<void(PrefetchBuffer&)> sync_buffer = nullptr;
     if (profile != nullptr) {
         const char* prefetch_buffered_reader = "PrefetchBufferedReader";
@@ -667,8 +679,8 @@ PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::File
     // to make sure the buffer reader will start to read at right position.
     for (int i = 0; i < buffer_num; i++) {
         _pre_buffers.emplace_back(std::make_shared<PrefetchBuffer>(
-                _file_range, s_max_pre_buffer_size, _whole_pre_buffer_size, _reader.get(), _io_ctx,
-                sync_buffer));
+                _file_range, s_max_pre_buffer_size, _whole_pre_buffer_size, _reader.get(),
+                _io_ctx_holder, sync_buffer));
     }
 }
 
@@ -795,7 +807,7 @@ Status BufferedFileStreamReader::read_bytes(const uint8_t** buf, uint64_t offset
     }
     size_t buf_size = std::max(_max_buf_size, bytes_to_read);
     if (_buf_size < buf_size) {
-        std::unique_ptr<uint8_t[]> new_buf(new uint8_t[buf_size]);
+        auto new_buf = make_unique_buffer<uint8_t>(buf_size);
         if (offset >= _buf_start_offset && offset < _buf_end_offset) {
             memcpy(new_buf.get(), _buf.get() + offset - _buf_start_offset,
                    _buf_end_offset - offset);
@@ -812,12 +824,10 @@ Status BufferedFileStreamReader::read_bytes(const uint8_t** buf, uint64_t offset
     int64_t buf_remaining = _buf_end_offset - _buf_start_offset;
     int64_t to_read = std::min(_buf_size - buf_remaining, _file_end_offset - _buf_end_offset);
     int64_t has_read = 0;
-    SCOPED_RAW_TIMER(&_statistics.read_time);
     while (has_read < to_read) {
         size_t loop_read = 0;
         Slice result(_buf.get() + buf_remaining + has_read, to_read - has_read);
         RETURN_IF_ERROR(_file->read_at(_buf_end_offset + has_read, result, &loop_read, io_ctx));
-        _statistics.read_calls++;
         if (loop_read == 0) {
             break;
         }
@@ -826,7 +836,6 @@ Status BufferedFileStreamReader::read_bytes(const uint8_t** buf, uint64_t offset
     if (has_read != to_read) {
         return Status::Corruption("Try to read {} bytes, but received {} bytes", to_read, has_read);
     }
-    _statistics.read_bytes += to_read;
     _buf_end_offset += to_read;
     *buf = _buf.get();
     return Status::OK();
@@ -841,6 +850,23 @@ Result<io::FileReaderSPtr> DelegateReader::create_file_reader(
         RuntimeProfile* profile, const FileSystemProperties& system_properties,
         const FileDescription& file_description, const io::FileReaderOptions& reader_options,
         AccessMode access_mode, const IOContext* io_ctx, const PrefetchRange file_range) {
+    std::shared_ptr<const IOContext> io_ctx_holder;
+    if (io_ctx != nullptr) {
+        // Old API: best-effort safety by copying the IOContext onto the heap.
+        io_ctx_holder = std::make_shared<IOContext>(*io_ctx);
+    }
+    return create_file_reader(profile, system_properties, file_description, reader_options,
+                              access_mode, std::move(io_ctx_holder), file_range);
+}
+
+Result<io::FileReaderSPtr> DelegateReader::create_file_reader(
+        RuntimeProfile* profile, const FileSystemProperties& system_properties,
+        const FileDescription& file_description, const io::FileReaderOptions& reader_options,
+        AccessMode access_mode, std::shared_ptr<const IOContext> io_ctx,
+        const PrefetchRange file_range) {
+    if (io_ctx == nullptr) {
+        io_ctx = std::make_shared<IOContext>();
+    }
     return FileFactory::create_file_reader(system_properties, file_description, reader_options,
                                            profile)
             .transform([&](auto&& reader) -> io::FileReaderSPtr {
@@ -972,4 +998,7 @@ void RangeCacheFileReader::_collect_profile_before_close() {
 }
 
 } // namespace io
+
+#include "common/compile_check_end.h"
+
 } // namespace doris

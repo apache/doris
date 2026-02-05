@@ -79,9 +79,9 @@ suite("test_broker_load_without_seq", "load_p0") {
     // if 'enableHdfs' in regression-conf.groovy has been set to true,
     // the test will run these case as below.
     if (enableHdfs()) {
-        brokerName = getBrokerName()
-        hdfsUser = getHdfsUser()
-        hdfsPasswd = getHdfsPasswd()
+        def brokerName = getBrokerName()
+        def hdfsUser = getHdfsUser()
+        def hdfsPasswd = getHdfsPasswd()
         def hdfs_csv_file_path = uploadToHdfs "load_p0/broker_load/broker_load_without_seq.csv"
         //def hdfs_csv_file_path = "hdfs://ip:port/testfile"
 

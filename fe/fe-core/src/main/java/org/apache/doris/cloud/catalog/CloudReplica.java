@@ -20,7 +20,6 @@ package org.apache.doris.cloud.catalog;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -29,11 +28,11 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.gson.annotations.SerializedName;
@@ -41,6 +40,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -48,13 +48,15 @@ import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
-public class CloudReplica extends Replica {
+public class CloudReplica extends Replica implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(CloudReplica.class);
 
-    // In the future, a replica may be mapped to multiple BEs in a cluster,
-    // so this value is be list
+    // a replica is mapped to one BE in a cluster, use primaryClusterToBackend instead of primaryClusterToBackends
+    @Deprecated
     @SerializedName(value = "bes")
-    private Map<String, List<Long>> primaryClusterToBackends = new ConcurrentHashMap<String, List<Long>>();
+    private ConcurrentHashMap<String, List<Long>> primaryClusterToBackends = null;
+    @SerializedName(value = "be")
+    private ConcurrentHashMap<String, Long> primaryClusterToBackend = new ConcurrentHashMap<>();
     @SerializedName(value = "dbId")
     private long dbId = -1;
     @SerializedName(value = "tableId")
@@ -66,9 +68,12 @@ public class CloudReplica extends Replica {
     @SerializedName(value = "idx")
     private long idx = -1;
 
-    private Random rand = new Random();
+    private long segmentCount = 0L;
+    private long rowsetCount = 0L;
 
-    private Map<String, List<Long>> memClusterToBackends = new ConcurrentHashMap<String, List<Long>>();
+    private static final Random rand = new Random();
+
+    private Map<String, List<Long>> memClusterToBackends = null;
 
     // clusterId, secondaryBe, changeTimestamp
     private Map<String, Pair<Long, Long>> secondaryClusterToBackends
@@ -101,7 +106,7 @@ public class CloudReplica extends Replica {
     public long getColocatedBeId(String clusterId) throws ComputeGroupException {
         CloudSystemInfoService infoService = ((CloudSystemInfoService) Env.getCurrentSystemInfo());
         List<Backend> bes = infoService.getBackendsByClusterId(clusterId).stream()
-                .filter(be -> !be.isQueryDisabled()).collect(Collectors.toList());
+                .filter(be -> be.isQueryAvailable()).collect(Collectors.toList());
         String clusterName = infoService.getClusterNameByClusterId(clusterId);
         if (bes.isEmpty()) {
             LOG.warn("failed to get available be, cluster: {}-{}", clusterName, clusterId);
@@ -163,12 +168,15 @@ public class CloudReplica extends Replica {
 
     public long getBackendId(String beEndpoint) {
         String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getClusterNameByBeAddr(beEndpoint);
+        String physicalClusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getPhysicalCluster(clusterName);
+
         try {
-            String clusterId = getCloudClusterIdByName(clusterName);
+            String clusterId = getCloudClusterIdByName(physicalClusterName);
             return getBackendIdImpl(clusterId);
         } catch (ComputeGroupException e) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("failed to get compute group name {}", clusterName, e);
+                LOG.debug("failed to get compute group name {}", physicalClusterName, e);
             }
             return -1;
         }
@@ -198,12 +206,7 @@ public class CloudReplica extends Replica {
             }
         }
 
-        List<Long> backendIds = primaryClusterToBackends.get(clusterId);
-        if (backendIds != null && !backendIds.isEmpty()) {
-            return backendIds.get(0);
-        }
-
-        return -1L;
+        return primaryClusterToBackend.getOrDefault(clusterId, -1L);
     }
 
     private String getCurrentClusterId() throws ComputeGroupException {
@@ -212,7 +215,8 @@ public class CloudReplica extends Replica {
         ConnectContext context = ConnectContext.get();
         if (context != null) {
             // TODO(wb) rethinking whether should update err status.
-            cluster = context.getCloudCluster();
+            cluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getPhysicalCluster(context.getCloudCluster());
 
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get compute group by context {}", cluster);
@@ -303,6 +307,7 @@ public class CloudReplica extends Replica {
             int indexRand = rand.nextInt(Config.cloud_replica_num);
             int coldReadRand = rand.nextInt(100);
             boolean allowColdRead = coldReadRand < Config.cloud_cold_read_percent;
+            initMemClusterToBackends();
             boolean replicaEnough = memClusterToBackends.get(clusterId) != null
                     && memClusterToBackends.get(clusterId).size() > indexRand;
 
@@ -311,8 +316,8 @@ public class CloudReplica extends Replica {
                 backendId = memClusterToBackends.get(clusterId).get(indexRand);
             }
 
-            if (!replicaEnough && !allowColdRead && primaryClusterToBackends.containsKey(clusterId)) {
-                backendId = primaryClusterToBackends.get(clusterId).get(0);
+            if (!replicaEnough && !allowColdRead && primaryClusterToBackend.containsKey(clusterId)) {
+                backendId = primaryClusterToBackend.get(clusterId);
             }
 
             if (backendId > 0) {
@@ -337,8 +342,8 @@ public class CloudReplica extends Replica {
             }
         }
 
-        // use primaryClusterToBackends, if find be normal
-        Backend be = getPrimaryBackend(clusterId);
+        // use primaryClusterToBackend, if find be normal
+        Backend be = getPrimaryBackend(clusterId, false);
         if (be != null && be.isQueryAvailable()) {
             return be.getId();
         }
@@ -366,12 +371,24 @@ public class CloudReplica extends Replica {
         return pickBeId;
     }
 
-    public Backend getPrimaryBackend(String clusterId) {
+    public Backend getPrimaryBackend(String clusterId, boolean setIfAbsent) {
         long beId = getClusterPrimaryBackendId(clusterId);
         if (beId != -1L) {
             return Env.getCurrentSystemInfo().getBackend(beId);
         } else {
-            return null;
+            // Load event warmup requires knowing the mapping relationship
+            // between the downstream be and tablet of the shadow index
+            if (setIfAbsent) {
+                try {
+                    beId = getBackendIdImpl(clusterId);
+                    updateClusterToPrimaryBe(clusterId, beId);
+                    return Env.getCurrentSystemInfo().getBackend(beId);
+                } catch (ComputeGroupException e) {
+                    return null;
+                }
+            } else {
+                return null;
+            }
         }
     }
 
@@ -403,11 +420,7 @@ public class CloudReplica extends Replica {
         List<Backend> availableBes = new ArrayList<>();
         List<Backend> decommissionAvailBes = new ArrayList<>();
         for (Backend be : clusterBes) {
-            long lastUpdateMs = be.getLastUpdateMs();
-            long missTimeMs = Math.abs(lastUpdateMs - System.currentTimeMillis());
-            // be core or restart must in heartbeat_interval_second
-            if ((be.isAlive() || missTimeMs <= Config.heartbeat_interval_second * 1000L)
-                    && !be.isSmoothUpgradeSrc()) {
+            if (be.isQueryAvailable() && !be.isSmoothUpgradeSrc()) {
                 if (be.isDecommissioned()) {
                     decommissionAvailBes.add(be);
                 } else {
@@ -439,8 +452,9 @@ public class CloudReplica extends Replica {
             index = getIndexByBeNum(hashCode.asLong() + idx, availableBes.size());
         }
         long pickedBeId = availableBes.get((int) index).getId();
-        LOG.info("picked beId {}, replicaId {}, partitionId {}, beNum {}, replicaIdx {}, picked Index {}, hashVal {}",
-                pickedBeId, getId(), partitionId, availableBes.size(), idx, index,
+        LOG.info("picked clusterName {} beId {}, replicaId {}, partitionId {}, beNum {}, "
+                + "replicaIdx {}, picked Index {}, hashVal {}",
+                clusterName, pickedBeId, getId(), partitionId, availableBes.size(), idx, index,
                 hashCode == null ? -1 : hashCode.asLong());
 
         return pickedBeId;
@@ -453,7 +467,18 @@ public class CloudReplica extends Replica {
         return (hashValue % beNum + beNum) % beNum;
     }
 
-    public List<Long> hashReplicaToBes(String clusterId, boolean isBackGround, int replicaNum)
+    private void initMemClusterToBackends() {
+        // the enable_cloud_multi_replica is not used now
+        if (memClusterToBackends == null) {
+            synchronized (this) {
+                if (memClusterToBackends == null) {
+                    memClusterToBackends = new ConcurrentHashMap<>();
+                }
+            }
+        }
+    }
+
+    private List<Long> hashReplicaToBes(String clusterId, boolean isBackGround, int replicaNum)
             throws ComputeGroupException {
         // TODO(luwei) list should be sorted
         List<Backend> clusterBes = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
@@ -526,16 +551,6 @@ public class CloudReplica extends Replica {
         // ATTN: expectedVersion is not used here, and OlapScanNode.addScanRangeLocations
         // depends this feature to implement snapshot partition version. See comments in
         // OlapScanNode.addScanRangeLocations for details.
-        if (ignoreAlter && getState() == ReplicaState.ALTER
-                && getVersion() == Partition.PARTITION_INIT_VERSION) {
-            return true;
-        }
-
-        if (expectedVersion == Partition.PARTITION_INIT_VERSION) {
-            // no data is loaded into this replica, just return true
-            return true;
-        }
-
         return true;
     }
 
@@ -560,11 +575,16 @@ public class CloudReplica extends Replica {
     }
 
     public void updateClusterToPrimaryBe(String cluster, long beId) {
-        primaryClusterToBackends.put(cluster, Lists.newArrayList(beId));
+        primaryClusterToBackend.put(cluster, beId);
         secondaryClusterToBackends.remove(cluster);
     }
 
-    private void updateClusterToSecondaryBe(String cluster, long beId) {
+    /**
+     * Set secondary BE for the cluster. Used as query fallback when primary is unavailable.
+     * Also used during smooth upgrade: after migrating primary from old BE to new BE,
+     * set old BE as secondary so queries can still use old BE until new BE is alive.
+     */
+    public void updateClusterToSecondaryBe(String cluster, long beId) {
         long changeTimestamp = System.currentTimeMillis();
         if (LOG.isDebugEnabled()) {
             LOG.debug("add to secondary clusterId {}, beId {}, changeTimestamp {}, replica info {}",
@@ -574,7 +594,7 @@ public class CloudReplica extends Replica {
     }
 
     public void clearClusterToBe(String cluster) {
-        primaryClusterToBackends.remove(cluster);
+        primaryClusterToBackend.remove(cluster);
         secondaryClusterToBackends.remove(cluster);
     }
 
@@ -594,6 +614,55 @@ public class CloudReplica extends Replica {
                     clusterId, beId, changeTimestamp, expireTimestamp, this);
             secondaryClusterToBackends.remove(clusterId);
             return;
+        }
+    }
+
+    public List<Backend> getAllPrimaryBes() {
+        List<Backend> result = new ArrayList<Backend>();
+        primaryClusterToBackend.forEach((clusterId, beId) -> {
+            if (beId != -1) {
+                Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+                result.add(backend);
+            }
+        });
+        return result;
+    }
+
+    @Override
+    public long getSegmentCount() {
+        return segmentCount;
+    }
+
+    @Override
+    public void setSegmentCount(long segmentCount) {
+        this.segmentCount = segmentCount;
+    }
+
+    @Override
+    public long getRowsetCount() {
+        return rowsetCount;
+    }
+
+    @Override
+    public void setRowsetCount(long rowsetCount) {
+        this.rowsetCount = rowsetCount;
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("convert CloudReplica: {}, primaryClusterToBackends: {}, primaryClusterToBackend: {}",
+                    this.getId(), this.primaryClusterToBackends, this.primaryClusterToBackend);
+        }
+        if (primaryClusterToBackends != null) {
+            for (Map.Entry<String, List<Long>> entry : primaryClusterToBackends.entrySet()) {
+                String clusterId = entry.getKey();
+                List<Long> beIds = entry.getValue();
+                if (beIds != null && !beIds.isEmpty()) {
+                    primaryClusterToBackend.put(clusterId, beIds.get(0));
+                }
+            }
+            this.primaryClusterToBackends = null;
         }
     }
 }

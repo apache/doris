@@ -112,45 +112,17 @@ TEST(function_array_index_test, array_contains) {
         static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
 
-    // array_contains(Array<Date>, Date)
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATE,
-                                    PrimitiveType::TYPE_DATE};
-
-        TestArray vec = {std::string("2022-01-02"), std::string("2022-07-08")};
-        DataSet data_set = {{{vec, std::string("2022-01-02")}, UInt8(1)},
-                            {{vec, std::string("2022-01-03")}, UInt8(0)},
-                            {{Null(), std::string("2022-01-04")}, Null()},
-                            {{empty_arr, std::string("2022-01-02")}, UInt8(0)}};
-
-        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
-    }
-
-    // array_contains(Array<DateTime>, DateTime)
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATETIME,
-                                    PrimitiveType::TYPE_DATETIME};
-
-        TestArray vec = {std::string("2022-01-02 00:00:00"), std::string("2022-07-08 00:00:00")};
-        DataSet data_set = {{{vec, std::string("2022-01-02 00:00:00")}, UInt8(1)},
-                            {{vec, std::string("2022-01-03 00:00:00")}, UInt8(0)},
-                            {{Null(), std::string("2022-01-04 00:00:00")}, Null()},
-                            {{empty_arr, std::string("2022-01-02 00:00:00")}, UInt8(0)}};
-
-        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
-    }
-
-    // array_contains(Array<Decimal128V2>, Decimal128V2)
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMALV2,
                                     PrimitiveType::TYPE_DECIMALV2};
 
-        TestArray vec = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67),
-                         ut_type::DECIMALV2(0.0)};
-        DataSet data_set = {{{vec, ut_type::DECIMALV2(-17014116.67)}, UInt8(1)},
-                            {{vec, ut_type::DECIMALV2(0)}, UInt8(1)},
-                            {{Null(), ut_type::DECIMALV2(0)}, Null()},
-                            {{empty_arr, ut_type::DECIMALV2(0)}, UInt8(0)}};
+        TestArray vec = {ut_type::DECIMALV2VALUEFROMDOUBLE(17014116.67),
+                         ut_type::DECIMALV2VALUEFROMDOUBLE(-17014116.67),
+                         ut_type::DECIMALV2VALUEFROMDOUBLE(0.0)};
+        DataSet data_set = {{{vec, ut_type::DECIMALV2VALUEFROMDOUBLE(-17014116.67)}, UInt8(1)},
+                            {{vec, ut_type::DECIMALV2VALUEFROMDOUBLE(0)}, UInt8(1)},
+                            {{Null(), ut_type::DECIMALV2VALUEFROMDOUBLE(0)}, Null()},
+                            {{empty_arr, ut_type::DECIMALV2VALUEFROMDOUBLE(0)}, UInt8(0)}};
 
         static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
@@ -217,45 +189,18 @@ TEST(function_array_index_test, array_position) {
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
 
-    // array_position(Array<Date>, Date)
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATE,
-                                    PrimitiveType::TYPE_DATE};
-
-        TestArray vec = {std::string("2022-01-02"), std::string("2022-07-08")};
-        DataSet data_set = {{{vec, std::string("2022-01-02")}, Int64(1)},
-                            {{vec, std::string("2022-01-03")}, Int64(0)},
-                            {{Null(), std::string("2022-01-04")}, Null()},
-                            {{empty_arr, std::string("2022-01-02")}, Int64(0)}};
-
-        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
-    }
-
-    // array_position(Array<DateTime>, DateTime)
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATETIME,
-                                    PrimitiveType::TYPE_DATETIME};
-
-        TestArray vec = {std::string("2022-01-02 00:00:00"), std::string("2022-07-08 00:00:00")};
-        DataSet data_set = {{{vec, std::string("2022-01-02 00:00:00")}, Int64(1)},
-                            {{vec, std::string("2022-01-03 00:00:00")}, Int64(0)},
-                            {{Null(), std::string("2022-01-04 00:00:00")}, Null()},
-                            {{empty_arr, std::string("2022-01-02 00:00:00")}, Int64(0)}};
-
-        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
-    }
-
     // array_position(Array<Decimal128V2>, Decimal128V2)
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMALV2,
                                     PrimitiveType::TYPE_DECIMALV2};
 
-        TestArray vec = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67),
-                         ut_type::DECIMALV2(0)};
-        DataSet data_set = {{{vec, ut_type::DECIMALV2(-17014116.67)}, Int64(2)},
-                            {{vec, ut_type::DECIMALV2(0)}, Int64(3)},
-                            {{Null(), ut_type::DECIMALV2(0)}, Null()},
-                            {{empty_arr, ut_type::DECIMALV2(0)}, Int64(0)}};
+        TestArray vec = {ut_type::DECIMALV2VALUEFROMDOUBLE(17014116.67),
+                         ut_type::DECIMALV2VALUEFROMDOUBLE(-17014116.67),
+                         ut_type::DECIMALV2VALUEFROMDOUBLE(0)};
+        DataSet data_set = {{{vec, ut_type::DECIMALV2VALUEFROMDOUBLE(-17014116.67)}, Int64(2)},
+                            {{vec, ut_type::DECIMALV2VALUEFROMDOUBLE(0)}, Int64(3)},
+                            {{Null(), ut_type::DECIMALV2VALUEFROMDOUBLE(0)}, Null()},
+                            {{empty_arr, ut_type::DECIMALV2VALUEFROMDOUBLE(0)}, Int64(0)}};
 
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }

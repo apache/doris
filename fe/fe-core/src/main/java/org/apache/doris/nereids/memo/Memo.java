@@ -29,17 +29,18 @@ import org.apache.doris.nereids.metrics.event.GroupMergeEvent;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequestPropertyDeriver;
-import org.apache.doris.nereids.properties.RequirePropertiesSupplier;
 import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewRule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
@@ -51,6 +52,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -59,7 +61,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
@@ -74,7 +76,9 @@ public class Memo {
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(GroupMergeEvent.class, EventChannel.LOG)));
     private static long stateId = 0;
     private final ConnectContext connectContext;
-    private final AtomicLong refreshVersion = new AtomicLong(1);
+    // The key is the query tableId, the value is the refresh version when last refresh, this is needed
+    // because struct info refresh base on target tableId.
+    private final Map<Integer, AtomicInteger> refreshVersion = new HashMap<>();
     private final Map<Class<? extends AbstractMaterializedViewRule>, Set<Long>> materializationCheckSuccessMap =
             new LinkedHashMap<>();
     private final Map<Class<? extends AbstractMaterializedViewRule>, Set<Long>> materializationCheckFailMap =
@@ -128,8 +132,28 @@ public class Memo {
         return groupExpressions.size();
     }
 
-    public long getRefreshVersion() {
-        return refreshVersion.get();
+    /** get the refresh version map*/
+    public Map<Integer, AtomicInteger> getRefreshVersion() {
+        return refreshVersion;
+    }
+
+    /** return the incremented refresh version for the given commonTableId*/
+    public long incrementAndGetRefreshVersion(int commonTableId) {
+        return refreshVersion.compute(commonTableId, (k, v) -> {
+            if (v == null) {
+                return new AtomicInteger(1);
+            }
+            v.incrementAndGet();
+            return v;
+        }).get();
+    }
+
+    /** return the incremented refresh version for the given relationId set*/
+    public void incrementAndGetRefreshVersion(BitSet commonTableIdSet) {
+        for (int i = commonTableIdSet.nextSetBit(0); i >= 0;
+                i = commonTableIdSet.nextSetBit(i + 1)) {
+            incrementAndGetRefreshVersion(i);
+        }
     }
 
     /**
@@ -176,12 +200,15 @@ public class Memo {
         return countGroupJoin(root).second;
     }
 
+    public static int countMaxContinuousJoin(Plan plan) {
+        return countLogicalJoin(plan).second;
+    }
+
     /**
      * return the max continuous join operator
      */
-
     public Pair<Integer, Integer> countGroupJoin(Group group) {
-        GroupExpression logicalExpr = group.getLogicalExpression();
+        GroupExpression logicalExpr = group.getFirstLogicalExpression();
         List<Pair<Integer, Integer>> children = new ArrayList<>();
         for (Group child : logicalExpr.children()) {
             children.add(countGroupJoin(child));
@@ -196,13 +223,35 @@ public class Memo {
         for (Pair<Integer, Integer> child : children) {
             maxJoinCount = Math.max(maxJoinCount, child.second);
         }
-        if (group.getLogicalExpression().getPlan() instanceof LogicalJoin) {
+        if (group.getFirstLogicalExpression().getPlan() instanceof LogicalJoin) {
             for (Pair<Integer, Integer> child : children) {
                 continuousJoinCount += child.first;
             }
             continuousJoinCount += 1;
         } else if (group.isProjectGroup()) {
             return children.get(0);
+        }
+        return Pair.of(continuousJoinCount, Math.max(continuousJoinCount, maxJoinCount));
+    }
+
+    private static Pair<Integer, Integer> countLogicalJoin(Plan plan) {
+        List<Pair<Integer, Integer>> children = new ArrayList<>();
+        for (Plan child : plan.children()) {
+            children.add(countLogicalJoin(child));
+        }
+        if (plan instanceof LogicalProject) {
+            return children.get(0);
+        }
+        int maxJoinCount = 0;
+        int continuousJoinCount = 0;
+        for (Pair<Integer, Integer> child : children) {
+            maxJoinCount = Math.max(maxJoinCount, child.second);
+        }
+        if (plan instanceof LogicalJoin) {
+            for (Pair<Integer, Integer> child : children) {
+                continuousJoinCount += child.first;
+            }
+            continuousJoinCount += 1;
         }
         return Pair.of(continuousJoinCount, Math.max(continuousJoinCount, maxJoinCount));
     }
@@ -299,7 +348,7 @@ public class Memo {
      * @return plan
      */
     public Plan copyOut(Group group, boolean includeGroupExpression) {
-        GroupExpression logicalExpression = group.getLogicalExpression();
+        GroupExpression logicalExpression = group.getFirstLogicalExpression();
         return copyOut(logicalExpression, includeGroupExpression);
     }
 
@@ -432,13 +481,14 @@ public class Memo {
                     plan.getLogicalProperties(), targetGroup.getLogicalProperties());
             throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
         }
-        // TODO Support sync materialized view in the future
         if (connectContext != null
                 && connectContext.getSessionVariable().isEnableMaterializedViewNestRewrite()
                 && plan instanceof LogicalCatalogRelation
                 && ((CatalogRelation) plan).getTable() instanceof MTMV
                 && !plan.getGroupExpression().isPresent()) {
-            refreshVersion.incrementAndGet();
+            TableId mvCommonTableId
+                    = this.connectContext.getStatementContext().getTableId(((CatalogRelation) plan).getTable());
+            incrementAndGetRefreshVersion(mvCommonTableId.asInt());
         }
         Optional<GroupExpression> groupExpr = plan.getGroupExpression();
         if (groupExpr.isPresent()) {
@@ -717,7 +767,7 @@ public class Memo {
 
         ImmutableList.Builder<Plan> groupPlanChildren = ImmutableList.builderWithExpectedSize(childrenGroups.size());
         for (Group childrenGroup : childrenGroups) {
-            groupPlanChildren.add(new GroupPlan(childrenGroup));
+            groupPlanChildren.add(childrenGroup.getGroupPlan());
         }
         return plan.withChildren(groupPlanChildren.build());
     }
@@ -983,7 +1033,6 @@ public class Memo {
                 .filter(e -> e.stream().allMatch(PhysicalProperties.ANY::equals))
                 .findAny();
         if (any.isPresent()
-                && !(groupExpression.getPlan() instanceof RequirePropertiesSupplier)
                 && !(groupExpression.getPlan() instanceof SetOperation)) {
             res.clear();
             res.add(any.get());

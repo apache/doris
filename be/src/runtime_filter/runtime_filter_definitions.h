@@ -57,8 +57,6 @@ struct RuntimeFilterParams {
     bool build_bf_by_runtime_size {};
     // Whether an estimated size by NDV is used to build bloom filter
     bool bloom_filter_size_calculated_by_ndv {};
-    // Whether an optimized way to build BF using fixed-length values
-    bool enable_fixed_len_to_uint32_v2 {};
 
     // Bitmap filter
     // Whether a join expression is `not in`

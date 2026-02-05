@@ -139,7 +139,9 @@ struct SampData : BaseData<T> {
 
 template <typename Data>
 class AggregateFunctionSampCovariance
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSampCovariance<Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSampCovariance<Data>>,
+          MultiExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionSampCovariance(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionSampCovariance<Data>>(

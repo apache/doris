@@ -232,7 +232,7 @@ void serialize_and_deserialize_mysql_test() {
                 for (int i = 0; i < row_num; ++i) {
                     VecDateTimeValue value;
                     value.from_date_int64(20210501);
-                    date_data.push_back(*reinterpret_cast<vectorized::Int64*>(&value));
+                    date_data.push_back(value);
                 }
                 vectorized::DataTypePtr date_type(std::make_shared<vectorized::DataTypeDate>());
                 vectorized::ColumnWithTypeAndName test_date(column_vector_date->get_ptr(),
@@ -248,7 +248,7 @@ void serialize_and_deserialize_mysql_test() {
                 for (int i = 0; i < row_num; ++i) {
                     VecDateTimeValue value;
                     value.from_date_int64(20210501080910);
-                    datetime_data.push_back(*reinterpret_cast<vectorized::Int64*>(&value));
+                    datetime_data.push_back(value);
                 }
                 vectorized::DataTypePtr datetime_type(
                         std::make_shared<vectorized::DataTypeDateTime>());
@@ -313,7 +313,7 @@ void serialize_and_deserialize_mysql_test() {
         builder.declare_tuple() << type_desc;
         doris::DescriptorTbl* desc_tbl = builder.build();
         auto tuple_desc = const_cast<doris::TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
-        doris::RowDescriptor row_desc(tuple_desc, false);
+        doris::RowDescriptor row_desc(tuple_desc);
         runtime_stat.set_desc_tbl(desc_tbl);
         st = ctx->prepare(&runtime_stat, row_desc);
         std::cout << st.to_string() << std::endl;
@@ -328,7 +328,7 @@ void serialize_and_deserialize_mysql_test() {
     // mysql_writer init
     MockRuntimeState state;
     auto serializer = std::make_shared<TestBlockSerializer>(&state);
-    vectorized::VMysqlResultWriter<false> mysql_writer(serializer, _output_vexpr_ctxs, nullptr);
+    vectorized::VMysqlResultWriter mysql_writer(serializer, _output_vexpr_ctxs, nullptr, false);
 
     Status st = mysql_writer.write(&runtime_stat, block);
     EXPECT_TRUE(st.ok());

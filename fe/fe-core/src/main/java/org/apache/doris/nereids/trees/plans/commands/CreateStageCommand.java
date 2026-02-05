@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.StageProperties;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -29,6 +28,7 @@ import org.apache.doris.cloud.proto.Cloud.RamUserPB;
 import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageAccessType;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageType;
+import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.cloud.storage.RemoteBase;
 import org.apache.doris.cloud.storage.RemoteBase.ObjectInfo;
 import org.apache.doris.common.AnalysisException;
@@ -40,6 +40,7 @@ import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.StageProperties;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -92,7 +93,7 @@ public class CreateStageCommand extends Command implements ForwardWithSync, Need
         }
         // check stage name
         FeNameFormat.checkResourceName(stageName, ResourceTypeEnum.STAGE);
-        stageProperties.analyze();
+        stageProperties.validate();
         checkObjectStorageInfo();
     }
 
@@ -148,6 +149,7 @@ public class CreateStageCommand extends Command implements ForwardWithSync, Need
             String urlStr = "http://" + endpoint;
             // TODO: Server-Side Request Forgery Check is still need?
             URL url = new URL(urlStr);
+            SecurityChecker.getInstance().startSSRFChecking(urlStr);
             connection = (HttpURLConnection) url.openConnection();
             connection.setConnectTimeout(10000);
             connection.connect();
@@ -164,6 +166,7 @@ public class CreateStageCommand extends Command implements ForwardWithSync, Need
                     LOG.warn("Failed to disconnect connection, endpoint={}", endpoint, e);
                 }
             }
+            SecurityChecker.getInstance().stopSSRFChecking();
         }
     }
 

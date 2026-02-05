@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -26,7 +25,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
-import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
@@ -92,15 +92,16 @@ public class StatisticsAutoCollector extends MasterDaemon {
 
     protected void collect() {
         while (StatisticsUtil.canCollect()) {
-            Pair<Entry<TableName, Set<Pair<String, String>>>, JobPriority> job = getJob();
+            Pair<Entry<TableNameInfo, Set<Pair<String, String>>>, JobPriority> job = getJob();
             if (job == null) {
                 // No more job to process, break and sleep.
                 LOG.info("No auto analyze jobs to process.");
                 break;
             }
             try {
-                TableName tblName = job.first.getKey();
-                TableIf table = StatisticsUtil.findTable(tblName.getCtl(), tblName.getDb(), tblName.getTbl());
+                TableNameInfo tableNameInfo = job.first.getKey();
+                TableIf table = StatisticsUtil.findTable(tableNameInfo.getCtl(), tableNameInfo.getDb(),
+                        tableNameInfo.getTbl());
                 if (!supportAutoAnalyze(table)) {
                     continue;
                 }
@@ -112,9 +113,9 @@ public class StatisticsAutoCollector extends MasterDaemon {
         }
     }
 
-    protected Pair<Entry<TableName, Set<Pair<String, String>>>, JobPriority> getJob() {
+    protected Pair<Entry<TableNameInfo, Set<Pair<String, String>>>, JobPriority> getJob() {
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
-        Optional<Entry<TableName, Set<Pair<String, String>>>> job = fetchJobFromMap(manager.highPriorityJobs);
+        Optional<Entry<TableNameInfo, Set<Pair<String, String>>>> job = fetchJobFromMap(manager.highPriorityJobs);
         if (job.isPresent()) {
             return Pair.of(job.get(), JobPriority.HIGH);
         }
@@ -130,10 +131,11 @@ public class StatisticsAutoCollector extends MasterDaemon {
         return job.map(tableNameSetEntry -> Pair.of(tableNameSetEntry, JobPriority.VERY_LOW)).orElse(null);
     }
 
-    protected Optional<Map.Entry<TableName, Set<Pair<String, String>>>> fetchJobFromMap(
-            Map<TableName, Set<Pair<String, String>>> jobMap) {
+    protected Optional<Map.Entry<TableNameInfo, Set<Pair<String, String>>>> fetchJobFromMap(
+            Map<TableNameInfo, Set<Pair<String, String>>> jobMap) {
         synchronized (jobMap) {
-            Optional<Map.Entry<TableName, Set<Pair<String, String>>>> first = jobMap.entrySet().stream().findFirst();
+            Optional<Map.Entry<TableNameInfo, Set<Pair<String, String>>>> first =
+                    jobMap.entrySet().stream().findFirst();
             first.ifPresent(entry -> jobMap.remove(entry.getKey()));
             return first;
         }
@@ -144,6 +146,9 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 || table.getDataSize(true) >= StatisticsUtil.getHugeTableLowerBoundSizeInBytes())
                 ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
         if (StatisticsUtil.enablePartitionAnalyze() && table.isPartitionedTable()) {
+            analysisMethod = AnalysisMethod.FULL;
+        }
+        if (table instanceof IcebergExternalTable) { // IcebergExternalTable table only support full analyze now
             analysisMethod = AnalysisMethod.FULL;
         }
         boolean isSampleAnalyze = analysisMethod.equals(AnalysisMethod.SAMPLE);
@@ -227,9 +232,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
         if (tableIf == null) {
             return false;
         }
-        return tableIf instanceof OlapTable
-                || tableIf instanceof HMSExternalTable
-                && ((HMSExternalTable) tableIf).getDlaType().equals(HMSExternalTable.DLAType.HIVE);
+        return StatisticsUtil.supportAutoAnalyze(tableIf);
     }
 
     protected AnalysisInfo createAnalyzeJobForTbl(TableIf table, Set<Pair<String, String>> jobColumns,

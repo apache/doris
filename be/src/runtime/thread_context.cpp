@@ -122,19 +122,4 @@ AddThreadMemTrackerConsumer::~AddThreadMemTrackerConsumer() {
     ThreadLocalHandle::del_thread_local_if_count_is_zero();
 }
 
-AddThreadMemTrackerConsumerByHook::AddThreadMemTrackerConsumerByHook(
-        const std::shared_ptr<MemTracker>& mem_tracker)
-        : _mem_tracker(mem_tracker) {
-    ThreadLocalHandle::create_thread_local_if_not_exits();
-    DCHECK(mem_tracker != nullptr);
-    use_mem_hook = true;
-    thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(_mem_tracker.get());
-}
-
-AddThreadMemTrackerConsumerByHook::~AddThreadMemTrackerConsumerByHook() {
-    thread_context()->thread_mem_tracker_mgr->pop_consumer_tracker();
-    use_mem_hook = false;
-    ThreadLocalHandle::del_thread_local_if_count_is_zero();
-}
-
 } // namespace doris

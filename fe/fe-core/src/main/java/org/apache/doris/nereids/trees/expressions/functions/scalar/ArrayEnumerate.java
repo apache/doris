@@ -50,13 +50,18 @@ public class ArrayEnumerate extends ScalarFunction
         super("array_enumerate", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayEnumerate(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayEnumerate withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayEnumerate(children.get(0));
+        return new ArrayEnumerate(getFunctionParams(children));
     }
 
     @Override

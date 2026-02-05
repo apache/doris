@@ -51,9 +51,11 @@ public:
     // try to construct a GeoShape from a WKT. If construct successfully, a GeoShape will
     // be returned, and the client should delete it when don't need it.
     // return nullptr if convert failed, and reason will be set in status
-    static GeoShape* from_wkt(const char* data, size_t size, GeoParseStatus* status);
+    static std::unique_ptr<GeoShape> from_wkt(const char* data, size_t size,
+                                              GeoParseStatus& status);
 
-    static GeoShape* from_wkb(const char* data, size_t size, GeoParseStatus* status);
+    static std::unique_ptr<GeoShape> from_wkb(const char* data, size_t size,
+                                              GeoParseStatus& status);
 
     void encode_to(std::string* buf);
     bool decode_from(const void* data, size_t size);
@@ -141,7 +143,7 @@ public:
     std::string as_wkt() const override;
 
     int numPoint() const;
-    S2Point* getPoint(int i) const;
+    const S2Point* getPoint(int i) const;
 
 protected:
     void encode(std::string* buf) override;
@@ -160,7 +162,7 @@ public:
     ~GeoPolygon() override;
 
     GeoParseStatus from_coords(const GeoCoordinateListList& list);
-    const std::unique_ptr<GeoCoordinateListList> to_coords() const;
+    std::unique_ptr<GeoCoordinateListList> to_coords() const;
 
     GeoShapeType type() const override { return GEO_SHAPE_POLYGON; }
     const S2Polygon* polygon() const { return _polygon.get(); }
@@ -196,7 +198,7 @@ public:
 
     GeoParseStatus check_self_intersection();
     GeoParseStatus from_coords(const std::vector<GeoCoordinateListList>& list);
-    const std::vector<std::unique_ptr<GeoCoordinateListList>> to_coords() const;
+    std::vector<std::unique_ptr<GeoCoordinateListList>> to_coords() const;
 
     GeoShapeType type() const override { return GEO_SHAPE_MULTI_POLYGON; }
     const std::vector<std::unique_ptr<GeoPolygon>>& polygons() const { return _polygons; }

@@ -121,12 +121,10 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, OrExpandsionContext ctx) {
         join = (LogicalJoin<? extends Plan, ? extends Plan>) this.visit(join, ctx);
-        if (join.isMarkJoin() || !JoinUtils.shouldNestedLoopJoin(join)) {
+        if (!needRewriteJoin(join)) {
             return join;
         }
-        if (!supportJoinType.contains(join.getJoinType())) {
-            return join;
-        }
+
         Preconditions.checkArgument(join.getHashJoinConjuncts().isEmpty(),
                 "Only Expansion nest loop join without hashCond");
 
@@ -205,6 +203,16 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
             }
         }
         return null;
+    }
+
+    /**
+     * check whether it need to rewrite the join
+     */
+    public boolean needRewriteJoin(LogicalJoin<? extends Plan, ? extends Plan> join) {
+        if (join.isMarkJoin() || !JoinUtils.shouldNestedLoopJoin(join)) {
+            return false;
+        }
+        return supportJoinType.contains(join.getJoinType());
     }
 
     private Map<Slot, Slot> constructReplaceMap(LogicalCTEConsumer leftConsumer, Map<Slot, Slot> leftCloneToLeft,

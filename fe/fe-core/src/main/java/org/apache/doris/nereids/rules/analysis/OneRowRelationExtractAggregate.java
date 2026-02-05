@@ -19,15 +19,12 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
-
-import java.util.List;
 
 /**
  * OneRowRelationExtractAggregate.
@@ -50,19 +47,13 @@ public class OneRowRelationExtractAggregate extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return RuleType.ONE_ROW_RELATION_EXTRACT_AGGREGATE.build(
-                logicalOneRowRelation().then(relation -> {
-                    List<NamedExpression> outputs = relation.getOutputs();
-                    boolean needGlobalAggregate = outputs
-                            .stream()
-                            .anyMatch(p -> p.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null));
-                    if (needGlobalAggregate) {
-                        LogicalRelation newRelation = new LogicalOneRowRelation(relation.getRelationId(),
-                                ImmutableList.of());
-                        return new LogicalAggregate<>(ImmutableList.of(), relation.getOutputs(), newRelation);
-                    } else {
-                        return relation;
-                    }
-                })
+                logicalOneRowRelation()
+                       .when(relation -> ExpressionUtils.hasNonWindowAggregateFunction(relation.getOutputs()))
+                       .then(relation -> {
+                           LogicalRelation newRelation = new LogicalOneRowRelation(relation.getRelationId(),
+                                   ImmutableList.of());
+                           return new LogicalAggregate<>(ImmutableList.of(), relation.getOutputs(), newRelation);
+                       })
         );
     }
 }

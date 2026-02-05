@@ -19,8 +19,10 @@
 
 #include <bthread/countdown_event.h>
 
+#include <chrono>
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "common/status.h"
@@ -57,10 +59,6 @@ public:
     const Path& path() const override { return _obj_storage_path_opts.path; }
     size_t bytes_appended() const override { return _bytes_appended; }
     State state() const override { return _state; }
-
-    FileCacheAllocatorBuilder* cache_builder() const override {
-        return _cache_builder == nullptr ? nullptr : _cache_builder.get();
-    }
 
     const std::vector<ObjectCompleteMultiPart>& completed_parts() const { return _completed_parts; }
 
@@ -103,8 +101,6 @@ private:
     size_t _bytes_appended = 0;
 
     std::shared_ptr<FileBuffer> _pending_buf;
-    std::unique_ptr<FileCacheAllocatorBuilder>
-            _cache_builder; // nullptr if disable write file cache
 
     // S3 committer will start multipart uploading all files on BE side,
     // and then complete multipart upload these files on FE side.
@@ -117,6 +113,8 @@ private:
     std::unique_ptr<AsyncCloseStatusPack> _async_close_pack;
     State _state {State::OPENED};
     std::shared_ptr<ObjClientHolder> _obj_client;
+    std::optional<std::chrono::steady_clock::time_point> _first_append_timestamp;
+    bool _close_latency_recorded = false;
 };
 
 } // namespace io

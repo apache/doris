@@ -18,6 +18,7 @@
 #include "runtime_filter/runtime_filter_wrapper.h"
 
 #include "exprs/create_predicate_function.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime_filter/runtime_filter_definitions.h"
 
 namespace doris {
@@ -313,6 +314,8 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
         });
         break;
     }
+    case TYPE_TIMESTAMPTZ:
+        [[fallthrough]];
     case TYPE_DATETIMEV2: {
         batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
             auto date_v2_val = column.longval();
@@ -474,6 +477,8 @@ Status RuntimeFilterWrapper::_assign(const PMinMaxFilter& minmax_filter, bool co
         int32_t max_val = minmax_filter.max_val().intval();
         return _minmax_func->assign(&min_val, &max_val);
     }
+    case TYPE_TIMESTAMPTZ:
+        [[fallthrough]];
     case TYPE_DATETIMEV2: {
         int64_t min_val = minmax_filter.min_val().longval();
         int64_t max_val = minmax_filter.max_val().longval();

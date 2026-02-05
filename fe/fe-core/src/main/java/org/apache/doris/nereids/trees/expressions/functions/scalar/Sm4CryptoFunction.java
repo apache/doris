@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 
 import com.google.common.collect.ImmutableSet;
 
-import java.util.List;
 import java.util.Set;
 
 /** Sm4CryptoFunction */
@@ -40,8 +39,9 @@ public abstract class Sm4CryptoFunction extends CryptoFunction {
         super(name, arguments);
     }
 
-    public Sm4CryptoFunction(String name, List<Expression> arguments) {
-        super(name, arguments);
+    /** constructor for withChildren and reuse signature */
+    protected Sm4CryptoFunction(ScalarFunctionParams functionParams) {
+        super(functionParams);
     }
 
     /** getDefaultBlockEncryptionMode */

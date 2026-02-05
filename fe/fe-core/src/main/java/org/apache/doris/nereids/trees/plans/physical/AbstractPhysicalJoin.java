@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.trees.plans.algebra.ShuffleType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -320,7 +321,7 @@ public abstract class AbstractPhysicalJoin<
         return false;
     }
 
-    protected Join.ShuffleType shuffleType() {
+    protected ShuffleType shuffleType() {
         if (left() instanceof PhysicalDistribute) {
             if (right() instanceof PhysicalDistribute) {
                 return ShuffleType.shuffle;

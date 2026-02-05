@@ -59,17 +59,18 @@ public class Floor extends ScalarFunction
         super("floor", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Floor(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Floor withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
-        if (children.size() == 1) {
-            return new Floor(children.get(0));
-        } else {
-            return new Floor(children.get(0), children.get(1));
-        }
+        return new Floor(getFunctionParams(children));
     }
 
     @Override

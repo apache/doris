@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -152,10 +153,10 @@ public class OlapAnalysisTaskTest {
                         + "SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
                         + "COUNT(1) * 4 * ${scaleFactor} AS `data_size`, NOW() FROM cte1), "
                         + "cte3 AS (SELECT GROUP_CONCAT(CONCAT(REPLACE(REPLACE(t.`column_key`, "
-                        + "\":\", \"\\\\:\"), \";\", \"\\\\;\"), \" :\", ROUND(t.`count` * 100.0 / ${rowCount2}, 2)), "
+                        + "\":\", \"\\\\:\"), \";\", \"\\\\;\"), \" :\", ROUND(t.`count` / ${rowCount2}, 2)), "
                         + "\" ;\") as `hot_value` FROM (SELECT ${subStringColName} as `hash_value`, "
                         + "MAX(`null`) as `column_key`, COUNT(1) AS `count` FROM cte1 "
-                        + "WHERE `null` IS NOT NULL GROUP BY `hash_value` ORDER BY `count` DESC LIMIT 3) t) "
+                        + "WHERE `null` IS NOT NULL GROUP BY `hash_value` ORDER BY `count` DESC LIMIT 10) t) "
                         + "SELECT * FROM cte2 CROSS JOIN cte3", sql);
             }
         };
@@ -186,8 +187,8 @@ public class OlapAnalysisTaskTest {
                         + "AS STRING), 1, 1024) AS `min`, SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
                         + "COUNT(1) * 4 * ${scaleFactor} AS `data_size`, NOW() FROM cte1 t1), cte3 AS (SELECT "
                         + "GROUP_CONCAT(CONCAT(REPLACE(REPLACE(t2.`col_value`, \":\", \"\\\\:\"), \";\", \"\\\\;\"), "
-                        + "\" :\", ROUND(t2.`count` * 100.0 / ${rowCount2}, 2)), \" ;\") as `hot_value` FROM (SELECT "
-                        + "`col_value`, `count` FROM cte1 WHERE `col_value` IS NOT NULL ORDER BY `count` DESC LIMIT 3) "
+                        + "\" :\", ROUND(t2.`count` / ${rowCount2}, 2)), \" ;\") as `hot_value` FROM (SELECT "
+                        + "`col_value`, `count` FROM cte1 WHERE `col_value` IS NOT NULL ORDER BY `count` DESC LIMIT 10) "
                         + "t2) SELECT * FROM cte2 CROSS JOIN cte3", sql);
             }
 
@@ -212,7 +213,7 @@ public class OlapAnalysisTaskTest {
             }
 
             @Mock
-            public boolean isPartitionColumn(String columnName) {
+            public boolean isPartitionColumn(Column column) {
                 return true;
             }
         };
@@ -375,6 +376,11 @@ public class OlapAnalysisTaskTest {
         Assertions.assertEquals("", params.get("sampleHints"));
         Assertions.assertEquals("ROUND(NDV(`${colName}`) * ${scaleFactor})", params.get("ndvFunction"));
         Assertions.assertNull(params.get("preAggHint"));
+        Assertions.assertEquals("COUNT(1)", params.get("rowCount"));
+        params.clear();
+
+        task.getSampleParams(params, 10000);
+        Assertions.assertEquals("10000", params.get("rowCount"));
         params.clear();
 
         new MockUp<OlapTable>() {
@@ -647,7 +653,7 @@ public class OlapAnalysisTaskTest {
     }
 
     @Test
-    public void testGetSampleTablets(@Mocked MaterializedIndex index, @Mocked Tablet t) {
+    public void testGetSampleTablets(@Mocked MaterializedIndex index, @Mocked LocalTablet t) {
         OlapAnalysisTask task = new OlapAnalysisTask();
         task.tbl = new OlapTable();
         task.col = new Column("col1", PrimitiveType.STRING);
@@ -668,7 +674,7 @@ public class OlapAnalysisTaskTest {
         };
         new MockUp<OlapTable>() {
             @Mock
-            boolean isPartitionColumn(String columnName) {
+            boolean isPartitionColumn(Column column) {
                 return false;
             }
 
@@ -699,7 +705,7 @@ public class OlapAnalysisTaskTest {
                 return t;
             }
         };
-        new MockUp<Tablet>() {
+        new MockUp<LocalTablet>() {
             @Mock
             public long getMinReplicaRowCount(long version) {
                 return tabletsRowCount[i[0]++];

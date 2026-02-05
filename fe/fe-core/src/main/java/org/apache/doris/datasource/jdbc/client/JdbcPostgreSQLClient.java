@@ -129,14 +129,21 @@ public class JdbcPostgreSQLClient extends JdbcClient {
                 return Type.DOUBLE;
             case "bpchar":
                 return ScalarType.createCharType(fieldSchema.requiredColumnSize());
-            case "timestamp":
-            case "timestamptz": {
+            case "timestamp": {
                 // postgres can support microsecond
                 int scale = fieldSchema.getDecimalDigits().orElse(0);
                 if (scale > 6) {
                     scale = 6;
                 }
                 return ScalarType.createDatetimeV2Type(scale);
+            }
+            case "timestamptz": {
+                int scale = fieldSchema.getDecimalDigits().orElse(0);
+                if (scale > 6) {
+                    scale = 6;
+                }
+                return enableMappingTimestampTz ? ScalarType.createTimeStampTzType(scale)
+                        : ScalarType.createDatetimeV2Type(scale);
             }
             case "date":
                 return ScalarType.createDateV2Type();
@@ -165,10 +172,12 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             case "macaddr":
             case "varbit":
             case "uuid":
-            case "bytea":
             case "json":
             case "jsonb":
                 return ScalarType.createStringType();
+            case "bytea": // https://www.postgresql.org/docs/12/datatype-binary.html#DATATYPE-BINARY-TABLE
+                return enableMappingVarbinary ? ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize())
+                        : ScalarType.createStringType();
             default: {
                 if (fieldSchema.getDataType() == Types.ARRAY && pgType.startsWith("_")) {
                     return convertArrayType(fieldSchema);

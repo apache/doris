@@ -45,11 +45,11 @@ suite("test_backup_restore_mv_write", "backup_restore") {
         );
     """
 
-    sql """
+    createMV( """
             CREATE materialized VIEW ${viewName} AS SELECT
-            DATE_FORMAT( date_add( k2, INTERVAL 1 HOUR ), '%Y-%m-%d %H:00:00' ) AS k2,
-            vin,
-            count( 1 ) AS val 
+            DATE_FORMAT( date_add( k2, INTERVAL 1 HOUR ), '%Y-%m-%d %H:00:00' ) AS a1,
+            vin as a2,
+            count( 1 ) AS a3 
             FROM
             ${tableNamePrefix} 
             WHERE
@@ -57,7 +57,7 @@ suite("test_backup_restore_mv_write", "backup_restore") {
             GROUP BY
             DATE_FORMAT( date_add( k2, INTERVAL 1 HOUR ), '%Y-%m-%d %H:00:00' ),
             vin
-    """
+    """)
 
     def alter_finished = false
     for (int i = 0; i < 60 && !alter_finished; i++) {

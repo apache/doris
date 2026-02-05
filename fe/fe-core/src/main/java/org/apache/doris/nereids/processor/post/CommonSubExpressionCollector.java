@@ -20,11 +20,14 @@ package org.apache.doris.nereids.processor.post;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import java.util.HashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -41,12 +44,22 @@ public class CommonSubExpressionCollector extends ExpressionVisitor<Integer, Boo
 
     @Override
     public Integer visit(Expression expr, Boolean inLambda) {
-        if (expr.children().isEmpty()) {
+        return processExpressionWithChildren(expr.children(), expr, inLambda);
+    }
+
+    @Override
+    public Integer visitSessionVarGuardExpr(SessionVarGuardExpr expr, Boolean inLambda) {
+        // Process SessionVarGuardExpr and its children together, don't process SessionVarGuardExpr child separately.
+        return processExpressionWithChildren(expr.child(0).children(), expr, inLambda);
+    }
+
+    private Integer processExpressionWithChildren(
+            List<Expression> children, Expression expr, Boolean inLambda) {
+        if (children.isEmpty()) {
             return 0;
         }
         return collectCommonExpressionByDepth(
-                expr.children()
-                        .stream()
+                children.stream()
                         .map(child -> child.accept(this, inLambda == null || inLambda || child instanceof Lambda))
                         .reduce(Math::max)
                         .map(m -> m + 1)
@@ -62,6 +75,7 @@ public class CommonSubExpressionCollector extends ExpressionVisitor<Integer, Boo
         // TODO: could not extract common expression when expression contains same lambda expression
         //   because ArrayItemSlot in Lambda are not same.
         if (expressions.contains(expr)
+                && !(expr instanceof WhenClause)
                 && !(inLambda && expr.containsType(ArrayItemSlot.class, ArrayItemReference.class))) {
             Set<Expression> commonExpression = getExpressionsFromDepthMap(depth, commonExprByDepth);
             commonExpression.add(expr);

@@ -29,6 +29,7 @@ suite ("test_dup_mv_schema_change") {
     def waitForJob =  (tbName, timeout) -> {
        Awaitility.await().atMost(timeout, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
             String result = getJobState(tbName)
+            log.info("job state: ${result}")
             if (result == "FINISHED") {
                 return true;
             }
@@ -70,7 +71,7 @@ suite ("test_dup_mv_schema_change") {
             """
 
         //add materialized view
-        create_sync_mv(context.dbName, tableName, "mv1", """select date, user_id, city, age from ${tableName}""")
+        create_sync_mv(context.dbName, tableName, "mv1", """select date as a1, user_id as a2, city as a3, age as a4 from ${tableName}""")
 
         // alter and test light schema change
         if (!isCloudMode()) {
@@ -78,7 +79,7 @@ suite ("test_dup_mv_schema_change") {
         }
 
         //add materialized view
-        create_sync_mv(context.dbName, tableName, "mv2", """select date, user_id, city, age, cost from ${tableName}""")
+        create_sync_mv(context.dbName, tableName, "mv2", """select date as a5, user_id as a6, city as a7, age as a8, cost as a9 from ${tableName}""")
 
         sql """ INSERT INTO ${tableName} VALUES
                 (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 21)

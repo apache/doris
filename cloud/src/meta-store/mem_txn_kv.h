@@ -17,13 +17,13 @@
 
 #pragma once
 
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <list>
 #include <map>
 #include <memory>
 #include <mutex>
-#include <numeric>
 #include <optional>
 #include <set>
 #include <string>
@@ -65,12 +65,27 @@ public:
         return mem_kv_.size();
     }
 
+    void update_commit_version(int64_t version) {
+        std::lock_guard<std::mutex> l(lock_);
+        committed_version_ = std::max(committed_version_, version);
+        read_version_ = std::max(committed_version_, read_version_);
+    }
+
     int64_t get_bytes_ {};
     int64_t put_bytes_ {};
     int64_t del_bytes_ {};
     int64_t get_count_ {};
     int64_t put_count_ {};
     int64_t del_count_ {};
+
+    struct WatchInfo {
+        std::mutex mutex;
+        std::condition_variable cv;
+        bool triggered {false};
+        int64_t watch_version {-1};
+    };
+
+    void register_watch(const std::string& key, std::shared_ptr<WatchInfo> watch_info);
 
 private:
     using OpTuple = std::tuple<memkv::ModifyOpType, std::string, std::string>;
@@ -105,9 +120,12 @@ private:
 
     std::map<std::string, std::list<Version>> mem_kv_;
     std::unordered_map<std::string, std::list<LogItem>> log_kv_;
+    std::unordered_map<std::string, std::vector<std::shared_ptr<WatchInfo>>> watches_;
     mutable std::mutex lock_;
     int64_t committed_version_ = 0;
     int64_t read_version_ = 0;
+
+    void trigger_watches(const std::string& key);
 };
 
 namespace memkv {
@@ -212,6 +230,8 @@ public:
      */
     TxnErrorCode commit() override;
 
+    TxnErrorCode watch_key(std::string_view key) override;
+
     TxnErrorCode get_read_version(int64_t* version) override;
     TxnErrorCode get_committed_version(int64_t* version) override;
 
@@ -221,7 +241,11 @@ public:
                            const std::vector<std::string>& keys,
                            const BatchGetOptions& opts = BatchGetOptions()) override;
 
-    size_t approximate_bytes() const override { return approximate_bytes_; }
+    TxnErrorCode batch_scan(std::vector<std::optional<std::pair<std::string, std::string>>>* res,
+                            const std::vector<std::pair<std::string, std::string>>& ranges,
+                            const BatchGetOptions& opts = BatchGetOptions()) override;
+
+    size_t approximate_bytes(bool = false) const override { return approximate_bytes_; }
 
     size_t num_get_keys() const override { return num_get_keys_; }
 
@@ -234,6 +258,10 @@ public:
     size_t put_bytes() const override { return put_bytes_; }
 
     size_t get_bytes() const override { return get_bytes_; }
+
+    void enable_get_versionstamp() override;
+
+    TxnErrorCode get_versionstamp(Versionstamp* versionstamp) override;
 
 private:
     TxnErrorCode inner_get(const std::string& key, std::string* val, bool snapshot);
@@ -262,6 +290,9 @@ private:
     size_t delete_bytes_ {0};
     size_t put_bytes_ {0};
     size_t get_bytes_ {0};
+
+    bool versionstamp_enabled_ {false};
+    Versionstamp versionstamp_result_;
 };
 
 class RangeGetIterator : public cloud::RangeGetIterator {

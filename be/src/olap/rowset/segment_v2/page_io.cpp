@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/page_io.h"
 
+#include <crc32c/crc32c.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <stdint.h>
 
@@ -41,7 +42,6 @@
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "util/block_compression.h"
 #include "util/coding.h"
-#include "util/crc32c.h"
 #include "util/faststring.h"
 #include "util/runtime_profile.h"
 
@@ -103,7 +103,10 @@ Status PageIO::write_page(io::FileWriter* writer, const std::vector<Slice>& body
 
     // checksum
     uint8_t checksum_buf[sizeof(uint32_t)];
-    uint32_t checksum = crc32c::Value(page);
+    uint32_t checksum = 0;
+    for (const auto& slice : page) {
+        checksum = crc32c::Extend(checksum, (const uint8_t*)slice.data, slice.size);
+    }
     encode_fixed32_le(checksum_buf, checksum);
     page.emplace_back(checksum_buf, sizeof(uint32_t));
 
@@ -175,7 +178,8 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
 
     if (opts.verify_checksum) {
         uint32_t expect = decode_fixed32_le((uint8_t*)page_slice.data + page_slice.size - 4);
-        uint32_t actual = crc32c::Value(page_slice.data, page_slice.size - 4);
+        uint32_t actual = crc32c::Crc32c(page_slice.data, page_slice.size - 4);
+        // here const_cast is used for testing.
         InjectionContext ctx = {&actual, const_cast<PageReadOptions*>(&opts)};
         (void)ctx;
         TEST_INJECTION_POINT_CALLBACK("PageIO::read_and_decompress_page:crc_failure_inj", &ctx);
@@ -224,12 +228,23 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
         page_slice = Slice(page->data(), footer->uncompressed_size() + footer_size + 4);
     }
 
-    if (opts.pre_decode && opts.encoding_info) {
-        auto* pre_decoder = opts.encoding_info->get_data_page_pre_decoder();
-        if (pre_decoder) {
-            RETURN_IF_ERROR(pre_decoder->decode(
-                    &page, &page_slice, footer->data_page_footer().nullmap_size() + footer_size + 4,
-                    opts.use_page_cache, opts.type));
+    if (opts.pre_decode) {
+        const auto* encoding_info = opts.encoding_info;
+        if (opts.is_dict_page) {
+            // for dict page, we need to use encoding_info based on footer->dict_page_footer().encoding()
+            // to get its pre_decoder
+            RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
+                                              footer->dict_page_footer().encoding(), {},
+                                              &encoding_info));
+        }
+        if (encoding_info) {
+            auto* pre_decoder = encoding_info->get_data_page_pre_decoder();
+            if (pre_decoder) {
+                RETURN_IF_ERROR(pre_decoder->decode(
+                        &page, &page_slice,
+                        footer->data_page_footer().nullmap_size() + footer_size + 4,
+                        opts.use_page_cache, opts.type, opts.file_reader->path().native()));
+            }
         }
     }
 

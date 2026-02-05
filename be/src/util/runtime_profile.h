@@ -42,11 +42,11 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "util/binary_cast.hpp"
-#include "util/container_util.hpp"
 #include "util/pretty_printer.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class TRuntimeProfileNode;
 class TRuntimeProfileTree;
 class RuntimeProfileCounterTreeNode;
@@ -395,7 +395,7 @@ public:
                          int64_t level = 2, int64_t condition = 0, int64_t value = 0)
                 : Counter(type, value, level),
                   _condition(condition),
-                  _value(value),
+                  _stored_value(value),
                   _condition_func(condition_func) {}
 
         Counter* clone() const override {
@@ -405,13 +405,13 @@ public:
 
         int64_t value() const override {
             std::lock_guard<std::mutex> l(_mutex);
-            return _value;
+            return _stored_value;
         }
 
         void conditional_update(int64_t c, int64_t v) {
             std::lock_guard<std::mutex> l(_mutex);
             if (_condition_func(_condition, c)) {
-                _value = v;
+                _stored_value = v;
                 _condition = c;
             }
         }
@@ -419,7 +419,7 @@ public:
     private:
         mutable std::mutex _mutex;
         int64_t _condition;
-        int64_t _value;
+        int64_t _stored_value;
         ConditionCounterFunction _condition_func;
     };
 
@@ -504,7 +504,7 @@ public:
     // weren't for locking.
     // Calling this concurrently on two RuntimeProfiles in reverse order results in
     // undefined behavior.
-    void merge(RuntimeProfile* src);
+    void merge(const RuntimeProfile* src);
 
     // Updates this profile w/ the thrift profile: behaves like Merge(), except
     // that existing counters are updated rather than added up.
@@ -600,13 +600,13 @@ public:
 
     RuntimeProfile* get_child(std::string name);
 
-    void get_children(std::vector<RuntimeProfile*>* children);
+    void get_children(std::vector<RuntimeProfile*>* children) const;
 
     // Gets all profiles in tree, including this one.
     void get_all_children(std::vector<RuntimeProfile*>* children);
 
     // Returns the number of counters in this profile
-    int num_counters() const { return _counter_map.size(); }
+    int num_counters() const { return cast_set<int>(_counter_map.size()); }
 
     // Returns name of this profile
     const std::string& name() const { return _name; }
@@ -822,5 +822,5 @@ private:
     T _sw;
     C* _counter = nullptr;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

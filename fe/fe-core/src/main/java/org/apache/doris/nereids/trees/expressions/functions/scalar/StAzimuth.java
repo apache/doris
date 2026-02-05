@@ -48,13 +48,18 @@ public class StAzimuth extends ScalarFunction
         super("st_azimuth", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StAzimuth(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StAzimuth withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new StAzimuth(children.get(0), children.get(1));
+        return new StAzimuth(getFunctionParams(children));
     }
 
     @Override

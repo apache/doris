@@ -43,12 +43,12 @@ addr	varchar(50)	YES	YES	\N
 phone	varchar(50)	YES	YES	\N	
 
 -- !sql22 --
-id	varchar(50)		YES	YES	\N			\N
-name	varchar(50)		YES	YES	\N			\N
-age	int		YES	YES	\N			\N
-gender	varchar(50)		YES	YES	\N			\N
-addr	varchar(50)		YES	YES	\N			\N
-phone	varchar(50)		YES	YES	\N			\N
+id	varchar(50)		YES	YES	\N			
+name	varchar(50)		YES	YES	\N			
+age	int		YES	YES	\N			
+gender	varchar(50)		YES	YES	\N			
+addr	varchar(50)		YES	YES	\N			
+phone	varchar(50)		YES	YES	\N			
 
 -- !sql23 --
 id	varchar	\N	YES		\N			

@@ -62,8 +62,6 @@ public:
         return res;
     }
 
-    std::vector<Dependency*> dependencies() const override;
-
 private:
     friend class MultiCastDataStreamerSourceOperatorX;
     vectorized::VExprContextSPtrs _output_expr_contexts;

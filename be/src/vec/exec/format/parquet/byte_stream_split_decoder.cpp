@@ -51,6 +51,8 @@ Status ByteStreamSplitDecoder::_decode_values(MutableColumnPtr& doris_column,
     size_t scale_size = (select_vector.num_values() - select_vector.num_filtered()) *
                         (_type_length / primitive_length);
     doris_column->resize(doris_column->size() + scale_size);
+    // doris_column is of type MutableColumnPtr, which uses get_raw_data
+    // to return a StringRef, hence the use of const_cast.
     char* raw_data = const_cast<char*>(doris_column->get_raw_data().data);
     ColumnSelectVector::DataReadType read_type;
     DCHECK(_data->get_size() % _type_length == 0);

@@ -35,6 +35,7 @@ namespace doris::vectorized {
 template <template <PrimitiveType> class Impl>
 AggregateFunctionPtr create_aggregate_function_orthogonal(const std::string& name,
                                                           const DataTypes& argument_types,
+                                                          const DataTypePtr& result_type,
                                                           const bool result_is_nullable,
                                                           const AggregateFunctionAttr& attr) {
     if (argument_types.empty()) {
@@ -45,8 +46,10 @@ AggregateFunctionPtr create_aggregate_function_orthogonal(const std::string& nam
                 argument_types, result_is_nullable, attr);
     } else {
         AggregateFunctionPtr res(
-                creator_with_integer_type_with_index<1>::create<AggFunctionOrthBitmapFunc, Impl>(
-                        argument_types, result_is_nullable, attr));
+                creator_with_type_list_base<1, TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT,
+                                            TYPE_LARGEINT>::create<AggFunctionOrthBitmapFunc,
+                                                                   Impl>(argument_types,
+                                                                         result_is_nullable, attr));
         if (res) {
             return res;
         } else if (is_string_type(argument_types[1]->get_primitive_type())) {

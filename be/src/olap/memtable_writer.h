@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <random>
 #include <vector>
 
 #include "common/status.h"
@@ -109,6 +110,7 @@ public:
     }
 
 private:
+    Status _flush_memtable();
     // push a full memtable to flush executor
     Status _flush_memtable_async();
 

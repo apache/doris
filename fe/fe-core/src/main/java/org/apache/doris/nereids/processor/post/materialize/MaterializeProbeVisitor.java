@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.processor.post.materialize;
 
 import org.apache.doris.catalog.HiveTable;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
@@ -27,17 +28,22 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -66,6 +72,24 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
         public ProbeContext(SlotReference slot) {
             this.slot = slot;
         }
+    }
+
+    @Override
+    public Optional<MaterializeSource> visitPhysicalFilter(PhysicalFilter<? extends Plan> filter,
+                                                           ProbeContext context) {
+        if (SessionVariable.getTopNLazyMaterializationUsingIndex() && filter.child() instanceof PhysicalOlapScan) {
+            // agg table do not support lazy materialize
+            OlapTable table = ((PhysicalOlapScan) filter.child()).getTable();
+            if (KeysType.AGG_KEYS.equals(table.getKeysType())) {
+                return Optional.empty();
+            }
+            if (filter.getInputSlots().contains(context.slot)) {
+                return Optional.of(new MaterializeSource((Relation) filter.child(), context.slot));
+            } else {
+                return filter.child().accept(this, context);
+            }
+        }
+        return this.visit(filter, context);
     }
 
     @Override
@@ -101,12 +125,34 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
         return true;
     }
 
+    boolean checkTVFRelationTableSupportedType(PhysicalTVFRelation tvfRelation) {
+        Map<String, String> properties = tvfRelation.getFunction().getTVFProperties().getMap();
+        String functionName = tvfRelation.getFunction().getName();
+
+        if (functionName.equals("local") || functionName.equals("s3") || functionName.equals("hdfs")) {
+            if (properties.containsKey("format")
+                    && (properties.get("format").equalsIgnoreCase("parquet")
+                    || properties.get("format").equalsIgnoreCase("orc"))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     public Optional<MaterializeSource> visitPhysicalOlapScan(PhysicalOlapScan scan, ProbeContext context) {
-        if (scan.getSelectedIndexId() == scan.getTable().getBaseIndexId()) {
-            return visitPhysicalCatalogRelation(scan, context);
+        if (scan.getSelectedIndexId() != scan.getTable().getBaseIndexId()) {
+            return Optional.empty();
         }
-        return Optional.empty();
+        // agg table do not support lazy materialize
+        OlapTable table = scan.getTable();
+        if (KeysType.AGG_KEYS.equals(table.getKeysType())) {
+            return Optional.empty();
+        }
+        if (scan.getOperativeSlots().contains(context.slot)) {
+            return Optional.empty();
+        }
+        return Optional.of(new MaterializeSource(scan, context.slot));
     }
 
     @Override
@@ -122,6 +168,22 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
                 LOG.info("lazy materialize {} failed, because its column is empty", context.slot);
             }
         }
+        return Optional.empty();
+    }
+
+    @Override
+    public Optional<MaterializeSource> visitPhysicalTVFRelation(
+            PhysicalTVFRelation tvfRelation, ProbeContext context) {
+        if (checkTVFRelationTableSupportedType(tvfRelation) && tvfRelation.getOutput().contains(context.slot)
+                && !tvfRelation.getOperativeSlots().contains(context.slot)) {
+            // lazy materialize slot must be a passive slot
+            if (context.slot.getOriginalColumn().isPresent()) {
+                return Optional.of(new MaterializeSource(tvfRelation, context.slot));
+            } else {
+                LOG.info("lazy materialize {} failed, because its column is empty", context.slot);
+            }
+        }
+
         return Optional.empty();
     }
 
@@ -154,7 +216,7 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
         } else {
             // projectExpr is alias
             Alias alias = (Alias) projectExpr;
-            if (alias.child() instanceof SlotReference) {
+            if (alias.child() instanceof SlotReference && !SessionVariable.getTopNLazyMaterializationUsingIndex()) {
                 ProbeContext childContext = new ProbeContext((SlotReference) alias.child());
                 return project.child().accept(this, childContext);
             } else {

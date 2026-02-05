@@ -41,7 +41,7 @@
 #include "vec/core/types.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 #define ROTL(x, b) static_cast<vectorized::UInt64>(((x) << (b)) | ((x) >> (64 - (b))))
 
 #define SIPROUND           \
@@ -81,7 +81,7 @@ private:
 
     ALWAYS_INLINE void finalize() {
         /// In the last free byte, we write the remainder of the division by 256.
-        current_bytes[7] = cnt;
+        current_bytes[7] = uint8_t(cnt);
 
         v3 ^= current_word;
         SIPROUND;
@@ -217,5 +217,5 @@ inline void sip_hash128(const char* data, const size_t size, char* out) {
     hash.update(data, size);
     hash.get128(out);
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

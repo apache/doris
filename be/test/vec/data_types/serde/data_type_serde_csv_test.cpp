@@ -32,7 +32,6 @@
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/data_types/serde_utils.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 // This test aim to make sense for csv serde of data types.

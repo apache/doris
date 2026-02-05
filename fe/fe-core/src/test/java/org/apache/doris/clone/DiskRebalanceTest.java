@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.LocalTabletInvertedIndex;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -74,7 +75,7 @@ public class DiskRebalanceTest {
     private OlapTable olapTable;
 
     private final SystemInfoService systemInfoService = new SystemInfoService();
-    private final TabletInvertedIndex invertedIndex = new TabletInvertedIndex();
+    private final TabletInvertedIndex invertedIndex = new LocalTabletInvertedIndex();
     private Map<Tag, LoadStatisticForTag> statisticMap;
     private Map<Long, PathSlot> backendsWorkingSlots = Maps.newHashMap();
 

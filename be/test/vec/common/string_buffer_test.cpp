@@ -187,7 +187,7 @@ TEST(StringBufferTest, ReadWriteStringRefWithArena) {
     StringRef sr = column->get_data_at(0);
     BufferReadable reader(sr);
 
-    StringRef new_str_ref = read_binary_into(arena, reader);
+    StringRef new_str_ref = reader.read_binary_into(arena);
 
     ASSERT_EQ(original_str_ref.size, new_str_ref.size);
     ASSERT_EQ(original_str_ref.to_string(), new_str_ref.to_string());

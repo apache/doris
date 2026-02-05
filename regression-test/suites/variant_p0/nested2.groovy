@@ -18,13 +18,18 @@
 // this test is used to test the type conflict of nested array
 suite("variant_nested_type_conflict", "p0"){
 
+    sql "set default_variant_enable_doc_mode = false"
+    sql "set default_variant_max_subcolumns_count = 0"
+    sql "set default_variant_sparse_hash_shard_count = 0"
+    sql "set default_variant_enable_typed_paths_to_sparse = false"
     try {
 
         def table_name = "var_nested_type_conflict"
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """set describe_extend_variant_column = true"""
 
-        sql """ set disable_variant_flatten_nested = false """
+        sql """ set enable_variant_flatten_nested = true """
+        sql "set default_variant_max_subcolumns_count = 0"
         sql """
                 CREATE TABLE IF NOT EXISTS ${table_name} (
                     k bigint,
@@ -107,7 +112,7 @@ suite("variant_nested_type_conflict", "p0"){
         sql_test_cast_to_array()
 
         // trigger and wait compaction
-        trigger_and_wait_compaction("${table_name}", "full")
+        trigger_and_wait_compaction("${table_name}", "full", 1800)
 
         // now select for a, b, c
         sql_select_batch()
@@ -147,7 +152,7 @@ suite("variant_nested_type_conflict", "p0"){
         sql_test_cast_to_array()
 
         // trigger and wait compaction
-        trigger_and_wait_compaction("${table_name}", "full")
+        trigger_and_wait_compaction("${table_name}", "full", 1800)
 
         // now select for a, b, c
         sql_select_batch()

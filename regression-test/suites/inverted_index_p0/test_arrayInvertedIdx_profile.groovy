@@ -18,6 +18,7 @@
 import groovy.json.JsonSlurper
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.apache.doris.regression.action.ProfileAction
 
 suite("test_arrayInvertedIdx_profile", "nonConcurrent"){
     // prepare test table
@@ -34,11 +35,10 @@ suite("test_arrayInvertedIdx_profile", "nonConcurrent"){
 
     def checkRowsInvertedIndexFilter = { sql, expectedRowsInvertedIndexFiltered ->
         order_qt_sql sql
-        def profileUrl = '/rest/v1/query_profile/'
-        def profiles = httpGet(profileUrl)
+        def profileAction = new ProfileAction(context)
+        def profiles = profileAction.getProfileList()
         log.debug("profiles:{}", profiles);
-        profiles = new JsonSlurper().parseText(profiles)
-        assertEquals(0, profiles.code)
+        assertTrue(profiles.size() > 0)
 
         def profileId = null;
         for (def profile in profiles["data"]["rows"]) {

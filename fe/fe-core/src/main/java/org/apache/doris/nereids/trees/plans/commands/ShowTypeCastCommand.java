@@ -19,9 +19,6 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -36,11 +33,9 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Lists;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * show typecast command
@@ -75,19 +70,8 @@ public class ShowTypeCastCommand extends ShowCommand {
         analyze(ctx);
 
         Util.prohibitExternalCatalog(ctx.getDefaultCatalog(), this.getClass().getSimpleName());
-        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(dbName);
 
         List<List<String>> resultRowSet = Lists.newArrayList();
-        ImmutableSetMultimap<PrimitiveType, PrimitiveType> castMap = PrimitiveType.getImplicitCastMap();
-        if (db instanceof Database) {
-            resultRowSet = castMap.entries().stream().map(primitiveTypePrimitiveTypeEntry -> {
-                List<String> list = Lists.newArrayList();
-                list.add(primitiveTypePrimitiveTypeEntry.getKey().toString());
-                list.add(primitiveTypePrimitiveTypeEntry.getValue().toString());
-                return list;
-            }).collect(Collectors.toList());
-        }
-
         // Only success
         return new ShowResultSet(getMetaData(), resultRowSet);
     }

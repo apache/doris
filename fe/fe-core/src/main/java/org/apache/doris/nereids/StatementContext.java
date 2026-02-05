@@ -22,10 +22,10 @@ import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
@@ -39,6 +39,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -49,6 +50,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
@@ -103,7 +105,8 @@ public class StatementContext implements Closeable {
      * indicate where the table come from.
      * QUERY: in query sql directly
      * INSERT_TARGET: the insert target table
-     * MTMV: mtmv itself and its related tables witch do not belong to this sql, but maybe used in rewrite by mtmv.
+     * MTMV: mtmv itself and its related tables witch do not belong to this sql, but
+     * maybe used in rewrite by mtmv.
      */
     public enum TableFrom {
         QUERY,
@@ -120,7 +123,8 @@ public class StatementContext implements Closeable {
     private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
 
     private OriginStatement originStatement;
-    // NOTICE: we set the plan parsed by DorisParser to parsedStatement and if the plan is command, create a
+    // NOTICE: we set the plan parsed by DorisParser to parsedStatement and if the
+    // plan is command, create a
     // LogicalPlanAdapter with the logical plan in the command.
     private StatementBase parsedStatement;
     private ColumnAliasGenerator columnAliasGenerator;
@@ -132,10 +136,14 @@ public class StatementContext implements Closeable {
 
     private boolean hasNondeterministic = false;
 
-    // hasUnknownColStats true if any column stats in the tables used by this sql is unknown
-    // the algorithm to derive plan when column stats are unknown is implemented in cascading framework, not in dphyper.
-    // And hence, when column stats are unknown, even if the tables used by a sql is more than
-    // MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER, join reorder should choose cascading framework.
+    // hasUnknownColStats true if any column stats in the tables used by this sql is
+    // unknown
+    // the algorithm to derive plan when column stats are unknown is implemented in
+    // cascading framework, not in dphyper.
+    // And hence, when column stats are unknown, even if the tables used by a sql is
+    // more than
+    // MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER, join reorder should choose
+    // cascading framework.
     // Thus hasUnknownColStats has higher priority than isDpHyp
     private boolean hasUnknownColStats = false;
 
@@ -158,11 +166,13 @@ public class StatementContext implements Closeable {
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
     private final SqlCacheContext sqlCacheContext;
 
-    // generate for next id for prepared statement's placeholders, which is connection level
+    // generate for next id for prepared statement's placeholders, which is
+    // connection level
     private final IdGenerator<PlaceholderId> placeHolderIdGenerator = PlaceholderId.createGenerator();
     // relation id to placeholders for prepared statement, ordered by placeholder id
     private final Map<PlaceholderId, Expression> idToPlaceholderRealExpr = new TreeMap<>();
-    // map placeholder id to comparison slot, which will used to replace conjuncts directly
+    // map placeholder id to comparison slot, which will used to replace conjuncts
+    // directly
     private final Map<PlaceholderId, SlotReference> idToComparisonSlot = new TreeMap<>();
 
     // collect all hash join conditions to compute node connectivity in join graph
@@ -171,7 +181,8 @@ public class StatementContext implements Closeable {
     private final List<Hint> hints = new ArrayList<>();
     private boolean hintForcePreAggOn = false;
 
-    // the columns in Plan.getExpressions(), such as columns in join condition or filter condition, group by expression
+    // the columns in Plan.getExpressions(), such as columns in join condition or
+    // filter condition, group by expression
     private final Set<SlotReference> keySlots = Sets.newHashSet();
     private BitSet disableRules;
 
@@ -186,6 +197,14 @@ public class StatementContext implements Closeable {
 
     // tables in this query directly
     private final Map<List<String>, TableIf> tables = Maps.newHashMap();
+    // onelevel tables in this query directly,
+    // if
+    // create v1 as select * from t1
+    // create v2 as select * from v1
+    // current query is: select * from v2 join t2
+    // oneLevelTables will have two data: v2, t2,
+    // tables will have 4 data: t1, v1, v2, t2
+    private final Map<List<String>, TableIf> oneLevelTables = Maps.newHashMap();
     // tables maybe used by mtmv rewritten in this query,
     // this contains mvs which use table in tables and the tables in mvs
     // such as
@@ -195,28 +214,36 @@ public class StatementContext implements Closeable {
     // if query is: select * from t2 join t5
     // mtmvRelatedTables is mv1, mv2, mv3, t1, t2, t3, t4, t5
     private final Map<List<String>, TableIf> mtmvRelatedTables = Maps.newHashMap();
+    // collected async mvs
     private final Set<MTMV> candidateMTMVs = Sets.newHashSet();
+    // collected sync mvs
+    private final Set<MaterializedIndexMeta> candidateMVs = Sets.newHashSet();
     // insert into target tables
     private final Map<List<String>, TableIf> insertTargetTables = Maps.newHashMap();
     // save view's def and sql mode to avoid them change before lock
-    private final Map<List<String>, Pair<String, Long>> viewInfos = Maps.newHashMap();
+    private final Map<List<String>, Pair<String, Map<String, String>>> viewInfos = Maps.newHashMap();
     // save insert into schema to avoid schema changed between two read locks
     private final List<Column> insertTargetSchema = new ArrayList<>();
 
     // for create view support in nereids
-    // key is the start and end position of the sql substring that needs to be replaced,
+    // key is the start and end position of the sql substring that needs to be
+    // replaced,
     // and value is the new string used for replacement.
-    private final TreeMap<Pair<Integer, Integer>, String> indexInSqlToString
-            = new TreeMap<>(new Pair.PairComparator<>());
-    // Record table id mapping, the key is the hash code of union catalogId, databaseId, tableId
+    private final TreeMap<Pair<Integer, Integer>, String> indexInSqlToString = new TreeMap<>(
+            new Pair.PairComparator<>());
+    // Record table id mapping, the key is the hash code of union catalogId,
+    // databaseId, tableId
     // the value is the auto-increment id in the cascades context
-    private final Map<TableIdentifier, TableId> tableIdMapping = new LinkedHashMap<>();
-    // Record the materialization statistics by id which is used for cost estimation.
-    // Maybe return null, which means the id according statistics should calc normally rather than getting
+    private final Map<List<String>, TableId> tableIdMapping = new LinkedHashMap<>();
+    // Record the materialization statistics by id which is used for cost
+    // estimation.
+    // Maybe return null, which means the id according statistics should calc
+    // normally rather than getting
     // form this map
     private final Map<RelationId, Statistics> relationIdToStatisticsMap = new LinkedHashMap<>();
 
-    // Indicates the query is short-circuited in both plan and execution phase, typically
+    // Indicates the query is short-circuited in both plan and execution phase,
+    // typically
     // for high speed/concurrency point queries
     private boolean isShortCircuitQuery;
 
@@ -224,7 +251,7 @@ public class StatementContext implements Closeable {
 
     private FormatOptions formatOptions = FormatOptions.getDefault();
 
-    private final Set<PlannerHook> plannerHooks = new HashSet<>();
+    private Set<PlannerHook> plannerHooks = new HashSet<>();
 
     private String disableJoinReorderReason;
 
@@ -240,6 +267,8 @@ public class StatementContext implements Closeable {
     // Record used table and it's used partitions
     private final Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap =
             HashMultimap.create();
+    // Record query common table id to relation id mapping, this is used for mv rewrite
+    private final Multimap<Integer, Integer> commonTableIdToRelationIdToMap = HashMultimap.create();
 
     // Record mtmv and valid partitions map because this is time-consuming behavior
     private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
@@ -250,6 +279,41 @@ public class StatementContext implements Closeable {
     private boolean partialLoadDictionary = false; // really used partial load.
 
     private boolean prepareStage = false;
+
+    // this record the tmp plan in RBO for later pre materialized view rewrite
+    private final List<Plan> tmpPlanForMvRewrite = new ArrayList<>();
+    // this record the rewritten plan by mv in RBO phase
+    private final List<Plan> rewrittenPlansByMv = new ArrayList<>();
+    private boolean forceRecordTmpPlan = false;
+    // this record the rule in
+    // PreMaterializedViewRewriter.NEED_PRE_REWRITE_RULE_TYPES if is applied
+    // successfully
+    // or not, if success and in PreRewriteStrategy.FOR_IN_ROB or
+    // PreRewriteStrategy.TRY_IN_ROB, mv
+    // would be written in RBO phase
+    private final BitSet needPreMvRewriteRuleMasks = new BitSet(RuleType.SENTINEL.ordinal());
+    // if needed to rewrite in RBO phase, this would be set true
+    private boolean needPreMvRewrite = false;
+    // mark is rewritten in RBO phase, if rewritten in RBO phase should set true
+    private boolean preMvRewritten = false;
+
+    private final Set<List<String>> materializationRewrittenSuccessSet = new HashSet<>();
+
+    private boolean isInsert = false;
+    private boolean skipPrunePredicate = false;
+
+    private Optional<Map<TableIf, Set<Expression>>> mvRefreshPredicates = Optional.empty();
+
+    // For Iceberg rewrite operations: store file scan tasks to be used by
+    // IcebergScanNode
+    // TODO: better solution?
+    private List<org.apache.iceberg.FileScanTask> icebergRewriteFileScanTasks = null;
+    // For Iceberg rewrite operations: control whether to use GATHER distribution
+    // When true, data will be collected to a single node to avoid generating too many small files
+    private boolean useGatherForIcebergRewrite = false;
+    private boolean hasNestedColumns;
+
+    private final Set<CTEId> mustInlineCTE = new HashSet<>();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -270,13 +334,17 @@ public class StatementContext implements Closeable {
         this.connectContext = connectContext;
         this.originStatement = originStatement;
         exprIdGenerator = ExprId.createGenerator(initialId);
-        if (connectContext != null && connectContext.getSessionVariable() != null
-                && CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
-            // cannot set the queryId here because the queryId for the current query is set in the subsequent steps.
-            this.sqlCacheContext = new SqlCacheContext(
-                    connectContext.getCurrentUserIdentity());
-            if (originStatement != null) {
-                this.sqlCacheContext.setOriginSql(originStatement.originStmt);
+        if (connectContext != null && connectContext.getSessionVariable() != null) {
+            if (CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
+                // cannot set the queryId here because the queryId for the current query is set
+                // in the subsequent steps.
+                this.sqlCacheContext = new SqlCacheContext(
+                        connectContext.getCurrentUserIdentity());
+                if (originStatement != null) {
+                    this.sqlCacheContext.setOriginSql(originStatement.originStmt);
+                }
+            } else {
+                this.sqlCacheContext = null;
             }
         } else {
             this.sqlCacheContext = null;
@@ -299,22 +367,22 @@ public class StatementContext implements Closeable {
      * cache view info to avoid view's def and sql mode changed before lock it.
      *
      * @param qualifiedViewName full qualified name of the view
-     * @param view view need to cache info
+     * @param view              view need to cache info
      *
      * @return view info, first is view's def sql, second is view's sql mode
      */
-    public Pair<String, Long> getAndCacheViewInfo(List<String> qualifiedViewName, View view) {
+    public Pair<String, Map<String, String>> getAndCacheViewInfo(List<String> qualifiedViewName, View view) {
         return viewInfos.computeIfAbsent(qualifiedViewName, k -> {
             String viewDef;
-            long sqlMode;
+            Map<String, String> sessionVariables;
             view.readLock();
             try {
                 viewDef = view.getInlineViewDef();
-                sqlMode = view.getSqlMode();
+                sessionVariables = view.getSessionVariables();
             } finally {
                 view.readUnlock();
             }
-            return Pair.of(viewDef, sqlMode);
+            return Pair.of(viewDef, sessionVariables);
         });
     }
 
@@ -326,12 +394,20 @@ public class StatementContext implements Closeable {
         return mtmvRelatedTables;
     }
 
+    public Map<List<String>, TableIf> getTables() {
+        return tables;
+    }
+
+    public Map<List<String>, TableIf> getOneLevelTables() {
+        return oneLevelTables;
+    }
+
     public Set<MTMV> getCandidateMTMVs() {
         return candidateMTMVs;
     }
 
-    public Map<List<String>, TableIf> getTables() {
-        return tables;
+    public Set<MaterializedIndexMeta> getCandidateMVs() {
+        return candidateMVs;
     }
 
     public List<Column> getInsertTargetSchema() {
@@ -509,8 +585,8 @@ public class StatementContext implements Closeable {
 
     public ColumnAliasGenerator getColumnAliasGenerator() {
         return columnAliasGenerator == null
-            ? columnAliasGenerator = new ColumnAliasGenerator()
-            : columnAliasGenerator;
+                ? columnAliasGenerator = new ColumnAliasGenerator()
+                : columnAliasGenerator;
     }
 
     public String generateColumnName() {
@@ -555,6 +631,91 @@ public class StatementContext implements Closeable {
 
     public Map<CTEId, LogicalPlan> getRewrittenCteConsumer() {
         return rewrittenCteConsumer;
+    }
+
+    /**
+     * Snapshot current CTE-related environment for temporary rewrite/optimization.
+     */
+    public CteEnvironmentSnapshot cacheCteEnvironment() {
+        return new CteEnvironmentSnapshot(
+                copyMapOfSets(cteIdToConsumers),
+                copyMapOfSets(cteIdToOutputIds),
+                new HashMap<>(cteIdToProducerStats),
+                copyMapOfSets(consumerIdToFilters),
+                copyMapOfLists(cteIdToConsumerGroup),
+                new HashMap<>(rewrittenCteProducer),
+                new HashMap<>(rewrittenCteConsumer));
+    }
+
+    /** Restore CTE-related environment from snapshot. */
+    public void restoreCteEnvironment(CteEnvironmentSnapshot snapshot) {
+        cteIdToConsumers.clear();
+        cteIdToConsumers.putAll(snapshot.cteIdToConsumers);
+
+        cteIdToOutputIds.clear();
+        cteIdToOutputIds.putAll(snapshot.cteIdToOutputIds);
+
+        cteIdToProducerStats.clear();
+        cteIdToProducerStats.putAll(snapshot.cteIdToProducerStats);
+
+        consumerIdToFilters.clear();
+        consumerIdToFilters.putAll(snapshot.consumerIdToFilters);
+
+        cteIdToConsumerGroup.clear();
+        cteIdToConsumerGroup.putAll(snapshot.cteIdToConsumerGroup);
+
+        rewrittenCteProducer.clear();
+        rewrittenCteProducer.putAll(snapshot.rewrittenCteProducer);
+
+        rewrittenCteConsumer.clear();
+        rewrittenCteConsumer.putAll(snapshot.rewrittenCteConsumer);
+    }
+
+    private static <K, V> Map<K, Set<V>> copyMapOfSets(Map<K, Set<V>> source) {
+        Map<K, Set<V>> copied = new HashMap<>();
+        for (Map.Entry<K, Set<V>> entry : source.entrySet()) {
+            copied.put(entry.getKey(), new HashSet<>(entry.getValue()));
+        }
+        return copied;
+    }
+
+    private static <K, V> Map<K, List<V>> copyMapOfLists(Map<K, List<V>> source) {
+        Map<K, List<V>> copied = new HashMap<>();
+        for (Map.Entry<K, List<V>> entry : source.entrySet()) {
+            copied.put(entry.getKey(), new ArrayList<>(entry.getValue()));
+        }
+        return copied;
+    }
+
+    /** Holder for cached CTE-related environment. */
+    public static class CteEnvironmentSnapshot {
+        private final Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers;
+        private final Map<CTEId, Set<Slot>> cteIdToOutputIds;
+        private final Map<CTEId, Statistics> cteIdToProducerStats;
+        private final Map<RelationId, Set<Expression>> consumerIdToFilters;
+        private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup;
+        private final Map<CTEId, LogicalPlan> rewrittenCteProducer;
+        private final Map<CTEId, LogicalPlan> rewrittenCteConsumer;
+
+        /**
+         * cte related structures in StatementContext
+         */
+        public CteEnvironmentSnapshot(
+                Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers,
+                Map<CTEId, Set<Slot>> cteIdToOutputIds,
+                Map<CTEId, Statistics> cteIdToProducerStats,
+                Map<RelationId, Set<Expression>> consumerIdToFilters,
+                Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup,
+                Map<CTEId, LogicalPlan> rewrittenCteProducer,
+                Map<CTEId, LogicalPlan> rewrittenCteConsumer) {
+            this.cteIdToConsumers = cteIdToConsumers;
+            this.cteIdToOutputIds = cteIdToOutputIds;
+            this.cteIdToProducerStats = cteIdToProducerStats;
+            this.consumerIdToFilters = consumerIdToFilters;
+            this.cteIdToConsumerGroup = cteIdToConsumerGroup;
+            this.rewrittenCteProducer = rewrittenCteProducer;
+            this.rewrittenCteConsumer = rewrittenCteConsumer;
+        }
     }
 
     public void addViewDdlSql(String ddlSql) {
@@ -605,6 +766,7 @@ public class StatementContext implements Closeable {
 
     /**
      * get used mv hint by hint name
+     *
      * @param useMvName hint name, can either be USE_MV or NO_USE_MV
      * @return optional of useMvHint
      */
@@ -718,21 +880,31 @@ public class StatementContext implements Closeable {
         return plannerHooks;
     }
 
+    /**
+     * Clear materialize hooks by targetHooks to control not rewritten by mv
+     */
+    public void clearMaterializedHooksBy(Set<PlannerHook> targetHooks) {
+        this.plannerHooks = targetHooks;
+    }
+
     public void addPlannerHook(PlannerHook plannerHook) {
         this.plannerHooks.add(plannerHook);
     }
 
     /**
-     * Load snapshot information of mvcc
+     * Load snapshot information of mvcc for a specific table.
+     *
+     * @param specificTable specific table to load snapshot for.
+     * @param tableSnapshot table snapshot info
+     * @param scanParams table scan params (e.g., branch/tag for Iceberg tables)
      */
-    public void loadSnapshots(Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
-        for (TableIf tableIf : tables.values()) {
-            if (tableIf instanceof MvccTable) {
-                MvccTableInfo mvccTableInfo = new MvccTableInfo(tableIf);
-                // may be set by MTMV, we can not load again
-                if (!snapshots.containsKey(mvccTableInfo)) {
-                    snapshots.put(mvccTableInfo, ((MvccTable) tableIf).loadSnapshot(tableSnapshot, scanParams));
-                }
+    public void loadSnapshots(TableIf specificTable, Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams) {
+        if (specificTable instanceof MvccTable) {
+            MvccTableInfo mvccTableInfo = new MvccTableInfo(specificTable);
+            if (!snapshots.containsKey(mvccTableInfo)) {
+                snapshots.put(mvccTableInfo,
+                        ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams));
             }
         }
     }
@@ -755,7 +927,7 @@ public class StatementContext implements Closeable {
      * Obtain snapshot information of mvcc
      *
      * @param mvccTableInfo mvccTableInfo
-     * @param snapshot snapshot
+     * @param snapshot      snapshot
      */
     public void setSnapshot(MvccTableInfo mvccTableInfo, MvccSnapshot snapshot) {
         snapshots.put(mvccTableInfo, snapshot);
@@ -807,13 +979,12 @@ public class StatementContext implements Closeable {
 
     /** Get table id with lazy */
     public TableId getTableId(TableIf tableIf) {
-        TableIdentifier tableIdentifier = new TableIdentifier(tableIf);
-        TableId tableId = this.tableIdMapping.get(tableIdentifier);
+        TableId tableId = this.tableIdMapping.get(tableIf.getFullQualifiers());
         if (tableId != null) {
             return tableId;
         }
         tableId = StatementScopeIdGenerator.newTableId();
-        this.tableIdMapping.put(tableIdentifier, tableId);
+        this.tableIdMapping.put(tableIf.getFullQualifiers(), tableId);
         return tableId;
     }
 
@@ -866,8 +1037,68 @@ public class StatementContext implements Closeable {
         this.partialLoadDictionary = partialLoadDictionary;
     }
 
+    public List<Plan> getTmpPlanForMvRewrite() {
+        return tmpPlanForMvRewrite;
+    }
+
+    public void addTmpPlanForMvRewrite(Plan tmpPlan) {
+        this.tmpPlanForMvRewrite.add(tmpPlan);
+    }
+
+    public List<Plan> getRewrittenPlansByMv() {
+        return rewrittenPlansByMv;
+    }
+
+    public void addRewrittenPlanByMv(Plan rewrittenPlanByMv) {
+        this.rewrittenPlansByMv.add(rewrittenPlanByMv);
+    }
+
+    public boolean isForceRecordTmpPlan() {
+        return forceRecordTmpPlan;
+    }
+
+    public void setForceRecordTmpPlan(boolean forceRecordTmpPlan) {
+        this.forceRecordTmpPlan = forceRecordTmpPlan;
+    }
+
+    public void ruleSetApplied(RuleType ruleType) {
+        needPreMvRewriteRuleMasks.set(ruleType.ordinal());
+    }
+
+    public BitSet getNeedPreMvRewriteRuleMasks() {
+        return needPreMvRewriteRuleMasks;
+    }
+
+    public boolean isNeedPreMvRewrite() {
+        return needPreMvRewrite;
+    }
+
+    public void setNeedPreMvRewrite(boolean needPreMvRewrite) {
+        this.needPreMvRewrite = needPreMvRewrite;
+    }
+
+    public boolean isPreMvRewritten() {
+        return preMvRewritten;
+    }
+
+    public void setPreMvRewritten(boolean preMvRewritten) {
+        this.preMvRewritten = preMvRewritten;
+    }
+
+    public Set<List<String>> getMaterializationRewrittenSuccessSet() {
+        return materializationRewrittenSuccessSet;
+    }
+
+    public void addMaterializationRewrittenSuccess(List<String> materializationQualifier) {
+        this.materializationRewrittenSuccessSet.add(materializationQualifier);
+    }
+
     public Multimap<List<String>, Pair<RelationId, Set<String>>> getTableUsedPartitionNameMap() {
         return tableUsedPartitionNameMap;
+    }
+
+    public Multimap<Integer, Integer> getCommonTableIdToRelationIdMap() {
+        return commonTableIdToRelationIdToMap;
     }
 
     public Map<BaseTableInfo, Collection<Partition>> getMvCanRewritePartitionsMap() {
@@ -888,5 +1119,80 @@ public class StatementContext implements Closeable {
 
     public void setProducerStats(CTEId id, Statistics stats) {
         cteIdToProducerStats.put(id, stats);
+    }
+
+    public void setIsInsert(boolean isInsert) {
+        this.isInsert = isInsert;
+    }
+
+    public boolean isInsert() {
+        return isInsert;
+    }
+
+    public Optional<Map<TableIf, Set<Expression>>> getMvRefreshPredicates() {
+        return mvRefreshPredicates;
+    }
+
+    public void setMvRefreshPredicates(
+            Map<TableIf, Set<Expression>> mvRefreshPredicates) {
+        this.mvRefreshPredicates = Optional.of(mvRefreshPredicates);
+    }
+
+    /**
+     * Set file scan tasks for Iceberg rewrite operations.
+     * This allows IcebergScanNode to use specific file scan tasks instead of
+     * scanning the full table.
+     */
+    public void setIcebergRewriteFileScanTasks(List<org.apache.iceberg.FileScanTask> tasks) {
+        this.icebergRewriteFileScanTasks = tasks;
+    }
+
+    /**
+     * Get and consume file scan tasks for Iceberg rewrite operations.
+     * Returns the tasks and clears the field to prevent reuse.
+     */
+    public List<org.apache.iceberg.FileScanTask> getAndClearIcebergRewriteFileScanTasks() {
+        List<org.apache.iceberg.FileScanTask> tasks = this.icebergRewriteFileScanTasks;
+        this.icebergRewriteFileScanTasks = null;
+        return tasks;
+    }
+
+    /**
+     * Set whether to use GATHER distribution for Iceberg rewrite operations.
+     * When enabled, data will be collected to a single node to minimize output files.
+     */
+    public void setUseGatherForIcebergRewrite(boolean useGather) {
+        this.useGatherForIcebergRewrite = useGather;
+    }
+
+    /**
+     * Check if GATHER distribution should be used for Iceberg rewrite operations.
+     */
+    public boolean isUseGatherForIcebergRewrite() {
+        return this.useGatherForIcebergRewrite;
+    }
+
+    public boolean isSkipPrunePredicate() {
+        return skipPrunePredicate;
+    }
+
+    public void setSkipPrunePredicate(boolean skipPrunePredicate) {
+        this.skipPrunePredicate = skipPrunePredicate;
+    }
+
+    public boolean hasNestedColumns() {
+        return hasNestedColumns;
+    }
+
+    public void setHasNestedColumns(boolean hasNestedColumns) {
+        this.hasNestedColumns = hasNestedColumns;
+    }
+
+    public void addToMustLineCTEs(CTEId cteId) {
+        mustInlineCTE.add(cteId);
+    }
+
+    public Set<CTEId> getMustInlineCTEs() {
+        return mustInlineCTE;
     }
 }

@@ -454,7 +454,7 @@ std::string VHiveTableWriter::_to_partition_value(const DataTypePtr& type_desc,
     case TYPE_BOOLEAN: {
         vectorized::Field field =
                 vectorized::check_and_get_column<const ColumnUInt8>(*column)->operator[](position);
-        return std::to_string(field.get<bool>());
+        return std::to_string(field.get<TYPE_BOOLEAN>());
     }
     case TYPE_TINYINT: {
         return std::to_string(*reinterpret_cast<const Int8*>(item));

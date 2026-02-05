@@ -144,11 +144,11 @@ suite("test_base_replace_mv_multi_level_mtmv","mtmv") {
     sql """
         ALTER MATERIALIZED VIEW ${mvName1} REPLACE WITH MATERIALIZED VIEW ${mvName11} PROPERTIES('swap' = 'true');;
         """
-    order_qt_replace_true_mv_mv1 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName1}'"
-    order_qt_replace_true_mv_mv11 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName11}'"
-    order_qt_replace_true_mv_mv2 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName2}'"
-    order_qt_replace_true_mv_mv3 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
-    order_qt_replace_true_mv_mv4 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
+    order_qt_replace_true_mv_mv1 "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName1}'"
+    order_qt_replace_true_mv_mv11 "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName11}'"
+    order_qt_replace_true_mv_mv2 "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName2}'"
+    order_qt_replace_true_mv_mv3 "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
+    order_qt_replace_true_mv_mv4 "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
     // replace table will rename default partition name, so will change to async
     mv_not_part_in(querySql, mvName1)
     mv_not_part_in(querySql, mvName11)
@@ -174,11 +174,11 @@ suite("test_base_replace_mv_multi_level_mtmv","mtmv") {
     sql """
         ALTER MATERIALIZED VIEW ${mvName1} REPLACE WITH MATERIALIZED VIEW ${mvName11} PROPERTIES('swap' = 'false');;
         """
-    order_qt_replace_false_mv_mv1 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName1}'"
-    order_qt_replace_false_mv_mv11 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName11}'"
-    order_qt_replace_false_mv_mv2 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName2}'"
-    order_qt_replace_false_mv_mv3 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
-    order_qt_replace_false_mv_mv4 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
+    order_qt_replace_false_mv_mv1 "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName1}'"
+    order_qt_replace_false_mv_mv11 "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName11}'"
+    order_qt_replace_false_mv_mv2 "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName2}'"
+    order_qt_replace_false_mv_mv3 "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
+    order_qt_replace_false_mv_mv4 "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
     // replace table will rename default partition name, so will change to async
     mv_not_part_in(querySql, mvName1)
     mv_rewrite_success_without_check_chosen(querySql, mvName2)

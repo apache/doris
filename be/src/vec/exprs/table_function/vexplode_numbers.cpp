@@ -42,7 +42,7 @@ VExplodeNumbersTableFunction::VExplodeNumbersTableFunction() {
 
 Status VExplodeNumbersTableFunction::process_init(Block* block, RuntimeState* state) {
     CHECK(_expr_context->root()->children().size() == 1)
-            << "VExplodeSplitTableFunction must be have 1 children but have "
+            << "VExplodeNumbersTableFunction must be have 1 children but have "
             << _expr_context->root()->children().size();
 
     int value_column_idx = -1;

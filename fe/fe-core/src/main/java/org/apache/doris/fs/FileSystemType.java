@@ -45,5 +45,6 @@ public enum FileSystemType {
     JFS,
     BROKER,
     FILE,
-    AZURE
+    AZURE,
+    HTTP
 }

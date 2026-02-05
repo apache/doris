@@ -51,13 +51,11 @@ public:
 
     ~HudiJniReader() override = default;
 
-    Status init_reader(
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    Status init_reader();
 
 private:
     const TFileScanRangeParams& _scan_params;
     const THudiFileDesc& _hudi_params;
-    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
 };
 
 #include "common/compile_check_end.h"

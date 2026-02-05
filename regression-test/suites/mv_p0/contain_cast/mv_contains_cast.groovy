@@ -20,9 +20,10 @@ suite("mv_contains_cast") {
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
-    // Virtual column will make mv rewrite fail, so we disable the rule
-    sql """set disable_nereids_rules='PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN';"""
 
+
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """
     drop table if exists test;
     """
@@ -99,11 +100,11 @@ suite("mv_contains_cast") {
     CREATE MATERIALIZED VIEW sync_mv
     AS
     SELECT 
-      decision,
-      code, 
-      app_name, 
-      event_id, 
-      event_type, 
+      decision as a1,
+      code as a2, 
+      app_name as a3, 
+      event_id as a4, 
+      event_type as a5, 
       date_trunc(time, 'minute'), 
       DATE_FORMAT(
         `time`, '%Y-%m-%d'

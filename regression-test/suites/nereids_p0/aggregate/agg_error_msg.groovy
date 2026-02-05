@@ -45,21 +45,21 @@ suite("agg_error_msg") {
     """
     test {
         sql """SELECT col_int_undef_signed2   col_alias1, col_int_undef_signed  *  (SELECT  MAX (col_int_undef_signed) FROM table_20_undef_partitions2_keys3_properties4_distributed_by58 where table_20_undef_partitions2_keys3_properties4_distributed_by53.pk = pk)  AS col_alias2 FROM table_20_undef_partitions2_keys3_properties4_distributed_by53  GROUP BY  GROUPING SETS ((col_int_undef_signed2),())  ;"""
-        exception "pk, col_int_undef_signed not in aggregate's output";
+        exception "PROJECT expression 'pk', 'col_int_undef_signed' must appear in the GROUP BY clause or be used in an aggregate function";
     }
 
     test {
         sql """SELECT * from table_20_undef_partitions2_keys3_properties4_distributed_by58 group by 1;"""
-        exception "col_int_undef_signed, col_int_undef_signed2 not in aggregate's output";
+        exception "PROJECT expression 'col_int_undef_signed', 'col_int_undef_signed2' must appear in the GROUP BY clause or be used in an aggregate function";
     }
 
     test {
         sql """SELECT *, pk from table_20_undef_partitions2_keys3_properties4_distributed_by58 group by 1;"""
-        exception "col_int_undef_signed, col_int_undef_signed2 not in aggregate's output";
+        exception "PROJECT expression 'col_int_undef_signed', 'col_int_undef_signed2' must appear in the GROUP BY clause or be used in an aggregate function";
     }
 
     test {
         sql """SELECT *, * from table_20_undef_partitions2_keys3_properties4_distributed_by58 group by 1;"""
-        exception "col_int_undef_signed, col_int_undef_signed2 not in aggregate's output";
+        exception "PROJECT expression 'col_int_undef_signed', 'col_int_undef_signed2' must appear in the GROUP BY clause or be used in an aggregate function";
     }
 }

@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS catalog_returns (
     cr_reversed_charge decimal(7,2),
     cr_store_credit decimal(7,2),
     cr_net_loss decimal(7,2),
-    INDEX cr_returned_date_sk_idx(cr_returned_date_sk) USING BITMAP COMMENT "cr_returned_date_sk index",
+    INDEX cr_returned_date_sk_idx(cr_returned_date_sk) USING INVERTED COMMENT "cr_returned_date_sk index",
     INDEX cr_item_sk_idx(cr_item_sk) USING INVERTED COMMENT "cr_item_sk index"
 )
 DUPLICATE KEY(cr_returned_date_sk, cr_returned_time_sk, cr_item_sk, cr_refunded_customer_sk)

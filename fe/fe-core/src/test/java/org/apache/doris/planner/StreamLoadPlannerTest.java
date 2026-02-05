@@ -17,8 +17,12 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.load.NereidsLoadUtils;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -31,5 +35,14 @@ public class StreamLoadPlannerTest {
         String sql = new String("k1, k2, k3=abc(), k4=default_value()");
         List<Expression> expressions = NereidsLoadUtils.parseExpressionSeq(sql);
         Assert.assertEquals(4, expressions.size());
+    }
+
+    @Test
+    public void testExprIdGenerator() {
+        IdGenerator<ExprId> exprIdGenerator1 = StatementScopeIdGenerator.getExprIdGenerator();
+        CascadesContext context = CascadesContext.initTempContext();
+        IdGenerator<ExprId> exprIdGenerator2 = context.getStatementContext().getExprIdGenerator();
+        // we get different IdGenerator instance
+        Assert.assertTrue(exprIdGenerator1 != exprIdGenerator2);
     }
 }

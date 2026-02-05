@@ -124,10 +124,10 @@ public class TabletStatMgr extends MasterDaemon {
         Pair<String, Long> minTabletSize = Pair.of(/* tablet id= */null, /* byte size= */Long.MAX_VALUE);
         Pair<String, Long> minPartitionSize = Pair.of(/* partition id= */null, /* byte size= */Long.MAX_VALUE);
         Pair<String, Long> minTableSize = Pair.of(/* tablet id= */null, /* byte size= */Long.MAX_VALUE);
-        Long totalTableSize = 0L;
-        Long tabletCount = 0L;
-        Long partitionCount = 0L;
-        Long tableCount = 0L;
+        long totalTableSize = 0L;
+        long tabletCount = 0L;
+        long partitionCount = 0L;
+        long tableCount = 0L;
         List<Long> dbIds = Env.getCurrentInternalCatalog().getDbIds();
         for (Long dbId : dbIds) {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
@@ -143,19 +143,19 @@ public class TabletStatMgr extends MasterDaemon {
                 tableCount++;
                 OlapTable olapTable = (OlapTable) table;
 
-                Long tableDataSize = 0L;
-                Long tableTotalReplicaDataSize = 0L;
+                long tableDataSize = 0L;
+                long tableTotalReplicaDataSize = 0L;
 
-                Long tableTotalLocalIndexSize = 0L;
-                Long tableTotalLocalSegmentSize = 0L;
-                Long tableTotalRemoteIndexSize = 0L;
-                Long tableTotalRemoteSegmentSize = 0L;
+                long tableTotalLocalIndexSize = 0L;
+                long tableTotalLocalSegmentSize = 0L;
+                long tableTotalRemoteIndexSize = 0L;
+                long tableTotalRemoteSegmentSize = 0L;
 
-                Long tableRemoteDataSize = 0L;
+                long tableRemoteDataSize = 0L;
 
-                Long tableReplicaCount = 0L;
+                long tableReplicaCount = 0L;
 
-                Long tableRowCount = 0L;
+                long tableRowCount = 0L;
 
                 if (!table.readLockIfExist()) {
                     continue;
@@ -164,7 +164,7 @@ public class TabletStatMgr extends MasterDaemon {
                     List<Partition> allPartitions = olapTable.getAllPartitions();
                     partitionCount += allPartitions.size();
                     for (Partition partition : allPartitions) {
-                        Long partitionDataSize = 0L;
+                        long partitionDataSize = 0L;
                         long version = partition.getVisibleVersion();
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             long indexRowCount = 0L;
@@ -173,10 +173,10 @@ public class TabletStatMgr extends MasterDaemon {
                             tabletCount += tablets.size();
                             for (Tablet tablet : tablets) {
 
-                                Long tabletDataSize = 0L;
-                                Long tabletRemoteDataSize = 0L;
+                                long tabletDataSize = 0L;
+                                long tabletRemoteDataSize = 0L;
 
-                                Long tabletRowCount = Long.MAX_VALUE;
+                                long tabletRowCount = Long.MAX_VALUE;
 
                                 boolean tabletReported = false;
                                 for (Replica replica : tablet.getReplicas()) {
@@ -275,34 +275,46 @@ public class TabletStatMgr extends MasterDaemon {
                 totalTableSize += tableDataSize;
             }
         }
-        MetricRepo.GAUGE_MAX_TABLE_SIZE_BYTES.setValue(maxTableSize.second);
-        MetricRepo.GAUGE_MAX_PARTITION_SIZE_BYTES.setValue(maxPartitionSize.second);
-        MetricRepo.GAUGE_MAX_TABLET_SIZE_BYTES.setValue(maxTabletSize.second);
-        long minTableSizeTmp = minTableSize.second == Long.MAX_VALUE ? 0 : minTableSize.second;
-        MetricRepo.GAUGE_MIN_TABLE_SIZE_BYTES.setValue(minTableSizeTmp);
-        long minPartitionSizeTmp = minPartitionSize.second == Long.MAX_VALUE ? 0 : minPartitionSize.second;
-        MetricRepo.GAUGE_MIN_PARTITION_SIZE_BYTES.setValue(minPartitionSizeTmp);
-        long minTabletSizeTmp = minTabletSize.second == Long.MAX_VALUE ? 0 : minTabletSize.second;
-        MetricRepo.GAUGE_MIN_TABLET_SIZE_BYTES.setValue(minTabletSizeTmp);
-        long avgTableSize = totalTableSize / Math.max(1, tableCount); // avoid ArithmeticException: / by zero
-        MetricRepo.GAUGE_AVG_TABLE_SIZE_BYTES.setValue(avgTableSize);
-        long avgPartitionSize = totalTableSize / Math.max(1, partitionCount); // avoid ArithmeticException: / by zero
-        MetricRepo.GAUGE_AVG_PARTITION_SIZE_BYTES.setValue(avgPartitionSize);
-        long avgTabletSize = totalTableSize / Math.max(1, tabletCount); // avoid ArithmeticException: / by zero
-        MetricRepo.GAUGE_AVG_TABLET_SIZE_BYTES.setValue(avgTabletSize);
+
+        if (MetricRepo.isInit) {
+            MetricRepo.GAUGE_MAX_TABLE_SIZE_BYTES.setValue(maxTableSize.second);
+            MetricRepo.GAUGE_MAX_PARTITION_SIZE_BYTES.setValue(maxPartitionSize.second);
+            MetricRepo.GAUGE_MAX_TABLET_SIZE_BYTES.setValue(maxTabletSize.second);
+            long minTableSizeTmp = minTableSize.second == Long.MAX_VALUE ? 0 : minTableSize.second;
+            MetricRepo.GAUGE_MIN_TABLE_SIZE_BYTES.setValue(minTableSizeTmp);
+            long minPartitionSizeTmp = minPartitionSize.second == Long.MAX_VALUE ? 0 : minPartitionSize.second;
+            MetricRepo.GAUGE_MIN_PARTITION_SIZE_BYTES.setValue(minPartitionSizeTmp);
+            long minTabletSizeTmp = minTabletSize.second == Long.MAX_VALUE ? 0 : minTabletSize.second;
+            MetricRepo.GAUGE_MIN_TABLET_SIZE_BYTES.setValue(minTabletSizeTmp);
+            // avoid ArithmeticException: / by zero
+            long avgTableSize = totalTableSize / Math.max(1, tableCount);
+            MetricRepo.GAUGE_AVG_TABLE_SIZE_BYTES.setValue(avgTableSize);
+            // avoid ArithmeticException: / by zero
+            long avgPartitionSize = totalTableSize / Math.max(1, partitionCount);
+            MetricRepo.GAUGE_AVG_PARTITION_SIZE_BYTES.setValue(avgPartitionSize);
+            // avoid ArithmeticException: / by zero
+            long avgTabletSize = totalTableSize / Math.max(1, tabletCount);
+            MetricRepo.GAUGE_AVG_TABLET_SIZE_BYTES.setValue(avgTabletSize);
+
+            LOG.info("OlapTable num=" + tableCount
+                    + ", partition num=" + partitionCount + ", tablet num=" + tabletCount
+                    + ", max tablet byte size=" + maxTabletSize.second
+                    + "(tablet_id=" + maxTabletSize.first + ")"
+                    + ", min tablet byte size=" + minTabletSizeTmp
+                    + "(tablet_id=" + minTabletSize.first + ")"
+                    + ", avg tablet byte size=" + avgTabletSize
+                    + ", max partition byte size=" + maxPartitionSize.second
+                    + "(partition_id=" + maxPartitionSize.first + ")"
+                    + ", min partition byte size=" + minPartitionSizeTmp
+                    + "(partition_id=" + minPartitionSize.first + ")"
+                    + ", avg partition byte size=" + avgPartitionSize
+                    + ", max table byte size=" + maxTableSize.second + "(table_id=" + maxTableSize.first + ")"
+                    + ", min table byte size=" + minTableSizeTmp + "(table_id=" + minTableSize.first + ")"
+                    + ", avg table byte size=" + avgTableSize);
+        }
+
         LOG.info("finished to update index row num of all databases. cost: {} ms",
                 (System.currentTimeMillis() - start));
-        LOG.info("Olap table num=" + tableCount + ", partition num=" + partitionCount + ", tablet num=" + tabletCount
-                + ", max tablet byte size=" + maxTabletSize.second + "(tablet_id=" + maxTableSize.first + ")"
-                + ", min tablet byte size=" + minTabletSizeTmp + "(tablet_id=" + minTabletSize.first + ")"
-                + ", avg tablet byte size=" + avgTabletSize
-                + ", max partition byte size=" + maxPartitionSize.second + "(partition_id=" + maxPartitionSize.first
-                + ")"
-                + ", min partition byte size=" + minPartitionSizeTmp + "(partition_id=" + minPartitionSize.first + ")"
-                + ", avg partition byte size=" + avgPartitionSize
-                + ", max table byte size=" + maxTableSize.second + "(table_id=" + maxTableSize.first + ")"
-                + ", min table byte size=" + minTableSizeTmp + "(table_id=" + minTableSize.first + ")"
-                + ", avg table byte size=" + avgTableSize);
     }
 
     public void waitForTabletStatUpdate() {

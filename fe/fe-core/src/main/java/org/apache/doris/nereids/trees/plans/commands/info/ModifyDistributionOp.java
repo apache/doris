@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.ModifyDistributionClause;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -63,11 +61,6 @@ public class ModifyDistributionOp extends AlterTableOp {
     @Override
     public Map<String, String> getProperties() {
         return new HashMap<>();
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new ModifyDistributionClause(distributionDesc.translateToCatalogStyle());
     }
 
     @Override

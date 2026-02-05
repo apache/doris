@@ -100,7 +100,7 @@ suite("test_ranger_access_resource_catalog", "p2,ranger,external") {
 	String jdbcPassword = context.config.jdbcPassword
 	String s3Endpoint = getS3Endpoint()
 	String bucket = getS3BucketName()
-	String driverUrl = "https://${bucket}.${s3Endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+	String driverUrl = "https://${bucket}.${s3Endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
 
 	if (enabled != null && enabled.equalsIgnoreCase("true")) {
 		String catalog1 = 'ranger_test_catalog_1'

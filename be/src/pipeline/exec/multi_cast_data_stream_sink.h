@@ -40,8 +40,6 @@ class MultiCastDataStreamSinkLocalState final
 
     Status open(RuntimeState* state) override;
 
-    std::vector<Dependency*> dependencies() const override;
-
     std::string debug_string(int indentation_level) const override;
 };
 

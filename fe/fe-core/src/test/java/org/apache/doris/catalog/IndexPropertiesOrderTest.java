@@ -17,7 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition.IndexType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -41,11 +41,11 @@ public class IndexPropertiesOrderTest {
         List<String> columns = Arrays.asList("description");
 
         // Create multiple Index objects with the same properties
-        Index index1 = new Index(1L, "test_idx", columns, IndexDef.IndexType.INVERTED,
+        Index index1 = new Index(1L, "test_idx", columns, IndexType.INVERTED,
                                  new HashMap<>(properties), "test comment");
-        Index index2 = new Index(2L, "test_idx", columns, IndexDef.IndexType.INVERTED,
+        Index index2 = new Index(2L, "test_idx", columns, IndexType.INVERTED,
                                  new HashMap<>(properties), "test comment");
-        Index index3 = new Index(3L, "test_idx", columns, IndexDef.IndexType.INVERTED,
+        Index index3 = new Index(3L, "test_idx", columns, IndexType.INVERTED,
                                  new HashMap<>(properties), "test comment");
 
         // The properties part should be consistent across all instances
@@ -68,7 +68,7 @@ public class IndexPropertiesOrderTest {
         properties2.put("support_phrase", "true");
         properties2.put("parser", "english");
         properties2.put("lower_case", "true");
-        Index index4 = new Index(4L, "test_idx", columns, IndexDef.IndexType.INVERTED,
+        Index index4 = new Index(4L, "test_idx", columns, IndexType.INVERTED,
                                  properties2, "test comment");
         String props4 = index4.getPropertiesString();
 
