@@ -146,7 +146,7 @@ public class LdapClient {
         try {
             clientInfo.getLdapTemplateNoPool().authenticate(org.springframework.ldap.query.LdapQueryBuilder.query()
                     .base(LdapConfig.ldap_user_basedn)
-                    .filter(getUserFilter(LdapConfig.ldap_user_filter, userName)), password);
+                    .filter(applyLoginFilter(LdapConfig.ldap_user_filter, userName)), password);
             return true;
         } catch (Exception e) {
             LOG.info("ldap client checkPassword failed, userName: {}", userName, e);
@@ -167,7 +167,7 @@ public class LdapClient {
         List<String> groupDns;
         if (!LdapConfig.ldap_group_filter.isEmpty()) {
             // Support Open Directory implementations
-            String filter = LdapConfig.ldap_group_filter.replace("{login}", userName);
+            String filter = applyLoginFilter(LdapConfig.ldap_group_filter, userName);
             groupDns = getDn(org.springframework.ldap.query.LdapQueryBuilder.query()
                     .attributes("dn")
                     .base(LdapConfig.ldap_group_basedn)
@@ -195,13 +195,13 @@ public class LdapClient {
 
     private String getUserDn(String userName) {
         List<String> userDns = getDn(org.springframework.ldap.query.LdapQueryBuilder.query()
-                .base(LdapConfig.ldap_user_basedn).filter(getUserFilter(LdapConfig.ldap_user_filter, userName)));
+                .base(LdapConfig.ldap_user_basedn).filter(applyLoginFilter(LdapConfig.ldap_user_filter, userName)));
         if (userDns == null || userDns.isEmpty()) {
             return null;
         }
         if (userDns.size() > 1) {
             String msg = String.format("[%s] not unique in LDAP server: [%s]",
-                    getUserFilter(LdapConfig.ldap_user_filter, userName), userDns);
+                    applyLoginFilter(LdapConfig.ldap_user_filter, userName), userDns);
             LOG.error(msg);
             ErrorReport.report(ErrorCode.ERROR_LDAP_USER_NOT_UNIQUE_ERR, userName);
             throw new RuntimeException(msg);
@@ -229,7 +229,41 @@ public class LdapClient {
         }
     }
 
-    private String getUserFilter(String userFilter, String userName) {
-        return userFilter.replaceAll("\\{login}", userName);
+    private String applyLoginFilter(String filter, String userName) {
+        if (filter == null) {
+            return null;
+        }
+        return filter.replace("{login}", escapeLdapFilterValue(userName));
+    }
+
+    @VisibleForTesting
+    static String escapeLdapFilterValue(String value) {
+        if (value == null) {
+            return null;
+        }
+        StringBuilder escaped = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            switch (ch) {
+                case '*':
+                    escaped.append("\\2a");
+                    break;
+                case '(':
+                    escaped.append("\\28");
+                    break;
+                case ')':
+                    escaped.append("\\29");
+                    break;
+                case '\\':
+                    escaped.append("\\5c");
+                    break;
+                case '\0':
+                    escaped.append("\\00");
+                    break;
+                default:
+                    escaped.append(ch);
+            }
+        }
+        return escaped.toString();
     }
 }

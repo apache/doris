@@ -118,6 +118,14 @@ public class LdapClientTest {
                           secureUrl.startsWith("ldaps://"));
     }
 
+    @Test
+    public void testEscapeLdapFilterValue() {
+        String input = "test*()\\\u0000";
+        String expected = "test\\2a\\28\\29\\5c\\00";
+        Assert.assertEquals(expected, LdapClient.escapeLdapFilterValue(input));
+        Assert.assertNull(LdapClient.escapeLdapFilterValue(null));
+    }
+
     @After
     public void tearDown() {
         LdapConfig.ldap_use_ssl = false; // restoring default value for other tests
