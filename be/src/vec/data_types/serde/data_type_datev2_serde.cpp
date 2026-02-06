@@ -229,6 +229,25 @@ Status DataTypeDateV2SerDe::from_string_batch(const ColumnString& col_str, Colum
     return Status::OK();
 }
 
+Status DataTypeDateV2SerDe::from_string(const std::string& str, Field& field,
+                                        const FormatOptions& options) const {
+    CastParameters params {.status = Status::OK(), .is_strict = false};
+
+    DateV2Value<DateV2ValueType> res;
+    tm time_tm;
+    char* tmp = strptime(str.c_str(), "%Y-%m-%d", &time_tm);
+
+    if (nullptr != tmp) {
+        uint32_t value =
+                ((time_tm.tm_year + 1900) << 9) | ((time_tm.tm_mon + 1) << 5) | time_tm.tm_mday;
+        res = DateV2Value<DateV2ValueType>(value);
+    } else {
+        res = DateV2Value<DateV2ValueType>(MIN_DATE_V2);
+    }
+    field = Field::create_field<TYPE_DATEV2>(std::move(res));
+    return Status::OK();
+}
+
 Status DataTypeDateV2SerDe::from_string_strict_mode_batch(
         const ColumnString& col_str, IColumn& col_res, const FormatOptions& options,
         const NullMap::value_type* null_map) const {

@@ -164,7 +164,9 @@ public:
                        : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
     bool is_colocated_operator() const override { return _is_colocate; }
-    bool is_shuffled_operator() const override { return !_partition_exprs.empty(); }
+    bool is_shuffled_operator() const override {
+        return !_partition_exprs.empty() && _needs_finalize;
+    }
     size_t get_revocable_mem_size(RuntimeState* state) const;
 
     AggregatedDataVariants* get_agg_data(RuntimeState* state) {

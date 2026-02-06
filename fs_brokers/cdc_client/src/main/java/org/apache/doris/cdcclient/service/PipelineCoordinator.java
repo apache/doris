@@ -239,7 +239,6 @@ public class PipelineCoordinator {
         SourceReader sourceReader = Env.getCurrentEnv().getReader(writeRecordRequest);
         DorisBatchStreamLoad batchStreamLoad = null;
         long scannedRows = 0L;
-        long scannedBytes = 0L;
         int heartbeatCount = 0;
         SplitReadResult readResult = null;
         try {
@@ -318,9 +317,7 @@ public class PipelineCoordinator {
                         String table = extractTable(element);
                         for (String record : serializedRecords) {
                             scannedRows++;
-                            byte[] dataBytes = record.getBytes();
-                            scannedBytes += dataBytes.length;
-                            batchStreamLoad.writeRecord(database, table, dataBytes);
+                            batchStreamLoad.writeRecord(database, table, record.getBytes());
                         }
                         // Mark last message as data (not heartbeat)
                         lastMessageIsHeartbeat = false;
@@ -349,7 +346,8 @@ public class PipelineCoordinator {
         // The offset must be reset before commitOffset to prevent the next taskId from being create
         // by the fe.
         batchStreamLoad.resetTaskId();
-        batchStreamLoad.commitOffset(currentTaskId, metaResponse, scannedRows, scannedBytes);
+        batchStreamLoad.commitOffset(
+                currentTaskId, metaResponse, scannedRows, batchStreamLoad.getLoadStatistic());
     }
 
     public static boolean isHeartbeatEvent(SourceRecord record) {
@@ -436,6 +434,8 @@ public class PipelineCoordinator {
         batchStreamLoad.setCurrentTaskId(writeRecordRequest.getTaskId());
         batchStreamLoad.setFrontendAddress(writeRecordRequest.getFrontendAddress());
         batchStreamLoad.setToken(writeRecordRequest.getToken());
+        batchStreamLoad.setLoadProps(writeRecordRequest.getStreamLoadProps());
+        batchStreamLoad.getLoadStatistic().clear();
         return batchStreamLoad;
     }
 

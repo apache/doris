@@ -565,16 +565,28 @@ Status ScanLocalState<Derived>::_normalize_function_filters(vectorized::VExprCon
     return Status::OK();
 }
 
+// only one level cast expr could push down for variant type
+// check if expr is cast and it's children is slot
+static bool is_valid_push_down_cast(const vectorized::VExprSPtrs& children) {
+    auto slot_expr = vectorized::VExpr::expr_without_cast(children[0]);
+    return slot_expr->data_type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT &&
+           children[0]->node_type() == TExprNodeType::CAST_EXPR &&
+           children[0]->children().at(0)->is_slot_ref();
+}
+
 template <typename Derived>
 bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(const vectorized::VExprSPtrs& children,
                                                            SlotDescriptor** slot_desc,
                                                            ColumnValueRangeType** range) {
-    if (children.empty() || children[0]->node_type() != TExprNodeType::SLOT_REF) {
+    // children[0] must be slot ref or cast(slot(variant) as type)
+    if (children.empty() || (children[0]->node_type() != TExprNodeType::SLOT_REF &&
+                             !is_valid_push_down_cast(children))) {
         // not a slot ref(column)
         return false;
     }
     std::shared_ptr<vectorized::VSlotRef> slot_ref =
-            std::dynamic_pointer_cast<vectorized::VSlotRef>(children[0]);
+            std::dynamic_pointer_cast<vectorized::VSlotRef>(
+                    vectorized::VExpr::expr_without_cast(children[0]));
     *slot_desc =
             _parent->cast<typename Derived::Parent>()._slot_id_to_slot_desc[slot_ref->slot_id()];
     auto entry = _slot_id_to_predicates.find(slot_ref->slot_id());

@@ -3284,7 +3284,7 @@ public class SessionVariable implements Serializable, Writable {
             checker = "checkDefaultVariantMaxSubcolumnsCount",
             fuzzy = true
     )
-    public int defaultVariantMaxSubcolumnsCount = 0;
+    public int defaultVariantMaxSubcolumnsCount = 2048;
 
     @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
