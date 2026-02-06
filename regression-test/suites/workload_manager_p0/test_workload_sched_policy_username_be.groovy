@@ -23,7 +23,7 @@ suite("test_workload_sched_policy_username_be") {
 
     // 2. Create a workload group
     sql "DROP WORKLOAD GROUP IF EXISTS policy_group_be"
-    sql "CREATE WORKLOAD GROUP policy_group_be PROPERTIES ('cpu_share'='1024')"
+    sql "CREATE WORKLOAD GROUP policy_group_be PROPERTIES ('max_cpu_percent'='100')"
     sql "GRANT USAGE_PRIV ON WORKLOAD GROUP 'policy_group_be' TO 'test_policy_user_be'@'%'"
 
     // 3. Create a policy with both username (FE metric) and query_time (BE metric)
