@@ -29,8 +29,8 @@ import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.After;
-import org.junit.Before;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
