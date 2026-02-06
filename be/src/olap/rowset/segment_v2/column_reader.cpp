@@ -2073,6 +2073,7 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
                 } else {
                     _default_value_field =
                             vectorized::Field::create_field<TYPE_ARRAY>(vectorized::Array {});
+                    return Status::OK();
                 }
             } else if (_type_info->type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
                 return Status::NotSupported("STRUCT default type is unsupported");
