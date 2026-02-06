@@ -92,6 +92,18 @@ public class HyperGraphBuilder {
             JoinType.RIGHT_SEMI_JOIN,
             JoinType.RIGHT_ANTI_JOIN);
 
+//    private ImmutableList<JoinType> fullJoinTypes = ImmutableList.of(
+//            JoinType.INNER_JOIN,
+//            JoinType.LEFT_OUTER_JOIN);
+//
+//    private ImmutableList<JoinType> leftFullJoinTypes = ImmutableList.of(
+//            JoinType.INNER_JOIN,
+//            JoinType.LEFT_OUTER_JOIN);
+//
+//    private ImmutableList<JoinType> rightFullJoinTypes = ImmutableList.of(
+//            JoinType.INNER_JOIN,
+//            JoinType.LEFT_OUTER_JOIN);
+
     // limit the number of CROSS_JOIN nodes to avoid data explosion during tests
     private int crossJoinCount = 0;
     private final int maxCrossJoins = 2;
@@ -603,17 +615,25 @@ public class HyperGraphBuilder {
             }
         }
 
-        // Decide counts: most of the time 1 hash, sometimes 2, occasionally 0 (no hash)
+        // Decide counts: make it very likely to have exactly 1 hash and 1 other condition
         int hashRoll = rand.nextInt(100);
         int hashCount;
-        if (hashRoll < 75) {
-            hashCount = 1; // majority
-        } else if (hashRoll < 95) {
+        if (hashRoll < 90) {
+            hashCount = 1; // most
+        } else if (hashRoll < 98) {
             hashCount = 2; // some
         } else {
-            hashCount = 0; // rare: no hash condition
+            hashCount = 0; // rare
         }
-        int otherCount = rand.nextInt(100) < 80 ? 1 : 2;
+        int otherRoll = rand.nextInt(100);
+        int otherCount;
+        if (otherRoll < 90) {
+            otherCount = 1; // most
+        } else if (otherRoll < 98) {
+            otherCount = 2; // some
+        } else {
+            otherCount = 0; // rare
+        }
         hashCount = Math.min(hashCount, 2);
         otherCount = Math.min(otherCount, 2);
 
