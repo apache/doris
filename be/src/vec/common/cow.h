@@ -397,7 +397,7 @@ public:
 namespace vectorized {
 class IColumn;
 class Field;
-}
+} // namespace vectorized
 template <typename Base, typename Derived>
 class COWHelper : public Base {
 public:
@@ -407,6 +407,7 @@ public:
     using MutablePtr = typename Base::template mutable_ptr<Derived>;
 
 #include "common/compile_check_avoid_begin.h"
+
     //This code uses templates, and errors like the following are likely to occur, mainly due to literal type mismatches:
     // be/src/vec/common/cow.h:409:39: warning: implicit conversion loses integer precision: 'int' to 'value_type' (aka 'unsigned char') [-Wimplicit-int-conversion]
     //   409 |         return MutablePtr(new Derived(std::forward<Args>(args)...));
