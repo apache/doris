@@ -1,3 +1,4 @@
+//
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -40,7 +41,7 @@ public:
         config::file_cache_downloader_thread_num_max = 4;
     }
 
-    void TearDown() override {}
+    void TearDown() override { config::enable_file_cache = false; }
 
     // Helper to wait for inflight tasks to complete with timeout
     bool wait_for_task_done(FileCacheBlockDownloader& downloader, int64_t tablet_id,
