@@ -29,7 +29,9 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskStatus;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
@@ -156,6 +158,17 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_GET_META_FAIL_COUNT;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_TASK_EXECUTE_TIME;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_TASK_EXECUTE_COUNT;
+
+    // Streaming job
+    public static LongCounterMetric COUNTER_STREAMING_JOB_GET_META_LANTENCY;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_GET_META_COUNT;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_GET_META_FAIL_COUNT;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_TASK_EXECUTE_TIME;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_TASK_EXECUTE_COUNT;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_TASK_FAILED_COUNT;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_TOTAL_ROWS;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_FILTER_ROWS;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_LOAD_BYTES;
 
     public static LongCounterMetric COUNTER_HIT_SQL_BLOCK_RULE;
 
@@ -301,6 +314,7 @@ public final class MetricRepo {
         }
 
         initRoutineLoadJobMetrics();
+        initStreamingJobMetrics();
 
         // running alter job
         Alter alter = Env.getCurrentEnv().getAlterInstance();
@@ -637,6 +651,35 @@ public final class MetricRepo {
         COUNTER_ROUTINE_LOAD_TASK_EXECUTE_COUNT = new LongCounterMetric("routine_load_task_execute_count",
                 MetricUnit.NOUNIT, "task execute count of routine load");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_ROUTINE_LOAD_TASK_EXECUTE_COUNT);
+
+        // streaming job metrics
+        COUNTER_STREAMING_JOB_GET_META_LANTENCY = new LongCounterMetric("streaming_job_get_meta_latency",
+                MetricUnit.MILLISECONDS, "get meta lantency of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_GET_META_LANTENCY);
+        COUNTER_STREAMING_JOB_GET_META_COUNT = new LongCounterMetric("streaming_job_get_meta_count",
+                MetricUnit.NOUNIT, "get meta count of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_GET_META_COUNT);
+        COUNTER_STREAMING_JOB_GET_META_FAIL_COUNT = new LongCounterMetric("streaming_job_get_meta_fail_count",
+                MetricUnit.NOUNIT, "get meta fail count of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_GET_META_FAIL_COUNT);
+        COUNTER_STREAMING_JOB_TASK_EXECUTE_TIME = new LongCounterMetric("streaming_job_task_execute_time",
+                MetricUnit.MILLISECONDS, "task execute time of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_TASK_EXECUTE_TIME);
+        COUNTER_STREAMING_JOB_TASK_EXECUTE_COUNT = new LongCounterMetric("streaming_job_task_execute_count",
+                MetricUnit.NOUNIT, "task execute count of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_TASK_EXECUTE_COUNT);
+        COUNTER_STREAMING_JOB_TASK_FAILED_COUNT = new LongCounterMetric("streaming_job_task_failed_count",
+                MetricUnit.NOUNIT, "task failed count of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_TASK_FAILED_COUNT);
+        COUNTER_STREAMING_JOB_TOTAL_ROWS = new LongCounterMetric("streaming_job_total_rows", MetricUnit.ROWS,
+                "total rows of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_TOTAL_ROWS);
+        COUNTER_STREAMING_JOB_FILTER_ROWS = new LongCounterMetric("streaming_job_filter_rows", MetricUnit.ROWS,
+                "filter rows of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_FILTER_ROWS);
+        COUNTER_STREAMING_JOB_LOAD_BYTES = new LongCounterMetric("streaming_job_load_bytes", MetricUnit.BYTES,
+                "load bytes of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_LOAD_BYTES);
 
         COUNTER_HIT_SQL_BLOCK_RULE = new LongCounterMetric("counter_hit_sql_block_rule", MetricUnit.ROWS,
                 "total hit sql block rule query");
@@ -1056,6 +1099,49 @@ public final class MetricRepo {
         };
         gauge.addLabel(new MetricLabel("job", "load"))
                 .addLabel(new MetricLabel("type", "ROUTINE_LOAD"))
+                .addLabel(new MetricLabel("state", stateLabel));
+        DORIS_METRIC_REGISTER.addMetrics(gauge);
+    }
+
+    private static void initStreamingJobMetrics() {
+        // streaming insert jobs
+        for (JobStatus jobStatus : JobStatus.values()) {
+            if (jobStatus == JobStatus.PAUSED) {
+                addStreamingJobStateGaugeMetric(jobStatus, "USER_PAUSED",
+                        job -> job.getFailureReason() != null
+                                && job.getFailureReason().getCode() == InternalErrorCode.MANUAL_PAUSE_ERR);
+                addStreamingJobStateGaugeMetric(jobStatus, "ABNORMAL_PAUSED",
+                        job -> job.getFailureReason() != null
+                                && job.getFailureReason().getCode() != InternalErrorCode.MANUAL_PAUSE_ERR);
+            }
+            addStreamingJobStateGaugeMetric(jobStatus, jobStatus.name(), job -> true);
+        }
+    }
+
+    private static void addStreamingJobStateGaugeMetric(
+            JobStatus jobStatus, String stateLabel, Predicate<StreamingInsertJob> filter) {
+
+        GaugeMetric<Long> gauge = new GaugeMetric<Long>(
+                "job", MetricUnit.NOUNIT, "streaming job statistics") {
+            @Override
+            public Long getValue() {
+                if (!Env.getCurrentEnv().isMaster()) {
+                    return 0L;
+                }
+                List<org.apache.doris.job.base.AbstractJob> jobs =
+                        Env.getCurrentEnv().getJobManager().queryJobs(org.apache.doris.job.common.JobType.INSERT);
+
+                return jobs.stream()
+                        .filter(job -> job instanceof StreamingInsertJob)
+                        .map(job -> (StreamingInsertJob) job)
+                        .filter(job -> job.getJobStatus() == jobStatus)
+                        .filter(filter)
+                        .count();
+            }
+        };
+
+        gauge.addLabel(new MetricLabel("job", "load"))
+                .addLabel(new MetricLabel("type", "STREAMING_JOB"))
                 .addLabel(new MetricLabel("state", stateLabel));
         DORIS_METRIC_REGISTER.addMetrics(gauge);
     }

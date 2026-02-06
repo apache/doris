@@ -111,13 +111,14 @@ suite('test_balance_warm_up_task_abnormal', 'docker') {
 
         // test recover from abnormal
         sql """ALTER COMPUTE GROUP compute_cluster PROPERTIES ('balance_type'='without_warmup')"""
-        sleep(5 * 1000)
 
-        def afterAlterResult = sql_return_maparray """ADMIN SHOW REPLICA DISTRIBUTION FROM $table"""
-        logger.info("after alter balance policy result {}", afterAlterResult)
-        // now mapping is changed to 1 replica in each be
-        assert afterAlterResult.any { row ->
-            Integer.valueOf((String) row.ReplicaNum) == 1
+        awaitUntil(60) {
+            def afterAlterResult = sql_return_maparray """ADMIN SHOW REPLICA DISTRIBUTION FROM $table"""
+            logger.info("after alter balance policy result {}", afterAlterResult)
+            // now mapping is changed to 1 replica in each be
+            afterAlterResult.any { row ->
+                Integer.valueOf((String) row.ReplicaNum) == 1
+            }
         }
     }
 

@@ -140,9 +140,9 @@ suite('test_balance_use_compute_group_properties', 'docker') {
         clusterNameToBeIdx[async_warmup_cluster] = [3, 7]
         clusterNameToBeIdx[sync_warmup_cluster] = [4, 8]
         
-        // sleep 11s, wait balance
+        // sleep 15s, wait balance
         // and sync_warmup cluster task 10s timeout
-        sleep(11 * 1000)
+        sleep(15 * 1000)
 
         def afterBalanceEveryClusterCache = [:]
 
@@ -177,10 +177,11 @@ suite('test_balance_use_compute_group_properties', 'docker') {
         def assertFirstMapKeys = { clusterRet, expectedEqual ->
             def firstMap = clusterRet[0]
             def keys = firstMap.keySet().toList()
+            logger.info("debug: clusterName {} keys {}", clusterName, keys)
             if (expectedEqual) {
-                assert firstMap[keys[0]] == firstMap[keys[1]]
+                assert firstMap[keys[0]] == firstMap[keys[1]], "firstMap[keys[0]] == firstMap[keys[1]]"
             } else {
-                assert firstMap[keys[0]] != firstMap[keys[1]]
+                assert firstMap[keys[0]] != firstMap[keys[1]], "firstMap[keys[0]] != firstMap[keys[1]] expected not equal, but equal"
             }
         }
 
