@@ -382,14 +382,14 @@ public class NereidsCoordinator extends Coordinator {
             LOG.info("getFragmentInstanceFinishedCount {} first loop", queryid);
             for (SingleFragmentPipelineTask singleTask : multiTask.getChildrenTasks().values()) {
                 LOG.info("getFragmentInstanceFinishedCount {}: isDone={}, instanceNum={}", queryid,
-                     singleTask.isDone(), singleTask.getInstanceNum());
+                        singleTask.isDone(), singleTask.getInstanceNum());
                 if (singleTask.isDone()) {
                     finishedInstances += singleTask.getInstanceNum();
                 }
             }
         }
         return finishedInstances;
-    }    
+    }
 
     @Override
     public List<TNetworkAddress> getInvolvedBackends() {
