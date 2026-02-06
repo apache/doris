@@ -321,7 +321,6 @@ public:
 
     void insert_duplicate_fields(const Field& x, const size_t n) override {
         if constexpr (is_string_type(Type)) {
-
             const auto& str = x.get<TYPE_STRING>();
             auto* dst = _arena.alloc(str.size() * n);
             for (size_t i = 0; i < n; i++) {
