@@ -51,15 +51,7 @@ import static java.lang.Math.toIntExact;
 /**
  * Copied from Flink Cdc 3.5.0
  *
- * <p>The {@link ReplicationConnection} created from {@code createReplicationStream} will hang when
- * the wal logs only contain the keepAliveMessage. Support to set an ending Lsn to stop hanging.
- *
- * <p>Line 83, 711~713 : add endingPos and its setter.
- *
- * <p>Line 571~576, 595~600: ReplicationStream from {@code createReplicationStream} will stop when
- * endingPos reached.
- *
- * <p>Line 200~207: add publish_via_partition_root for partition table.
+ * <p>Line 192~199: add publish_via_partition_root for partition table.
  */
 public class PostgresReplicationConnection extends JdbcConnection implements ReplicationConnection {
 
