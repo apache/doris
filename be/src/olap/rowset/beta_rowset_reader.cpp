@@ -220,10 +220,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.target_cast_type_for_variants = _read_context->target_cast_type_for_variants;
     if (_read_context->runtime_state != nullptr) {
         _read_options.io_ctx.query_id = &_read_context->runtime_state->query_id();
-        _read_options.io_ctx.read_file_cache =
-                _read_context->runtime_state->query_options().enable_file_cache;
         _read_options.io_ctx.is_disposable =
-                _read_context->runtime_state->query_options().disable_file_cache;
+                _read_context->runtime_state->query_options().enable_file_cache_olap_tables;
     }
 
     if (_read_context->condition_cache_digest) {

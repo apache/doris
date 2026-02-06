@@ -9135,14 +9135,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         LogicalProject project = new LogicalProject(projectList, filter);
 
-        if (Config.isNotCloudMode() && (!ConnectContext.get().getSessionVariable().isEnableFileCache())) {
+        if (Config.isNotCloudMode() && (!ConnectContext.get().getSessionVariable().isEnableFileCacheOlapTables()
+                && !ConnectContext.get().getSessionVariable().isEnableFileCacheExternalCatalogs())) {
             throw new AnalysisException("WARM UP SELECT requires session variable"
-                    + " enable_file_cache=true");
+                    + " enable_file_cache_olap_tables=true or enable_file_cache_external_catalogs=true");
         }
 
-        if (Config.isCloudMode() && ConnectContext.get().getSessionVariable().isDisableFileCache()) {
+        if (Config.isCloudMode() && !ConnectContext.get().getSessionVariable().isEnableFileCacheOlapTables()) {
             throw new AnalysisException("WARM UP SELECT requires session variable"
-                    + " disable_file_cache=false in cloud mode");
+                    + " enable_file_cache_olap_tables=true in cloud mode");
         }
 
         UnboundBlackholeSink<?> sink = new UnboundBlackholeSink<>(project,

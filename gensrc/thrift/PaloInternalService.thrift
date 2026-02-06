@@ -201,7 +201,7 @@ struct TQueryOptions {
   // deprecated
   60: optional i32 partitioned_hash_agg_rows_threshold = 0 // deprecated
 
-  61: optional bool enable_file_cache = false
+  61: optional bool enable_file_cache_deprecated = false // deprecated
 
   62: optional i32 insert_timeout = 14400
 
@@ -423,14 +423,13 @@ struct TQueryOptions {
   // runtime profiling to choose the most efficient algorithm for the data pattern
   183: optional bool enable_use_hybrid_sort = false;
   184: optional i32 cte_max_recursion_depth;
-
-
   185: optional bool enable_parquet_file_page_cache = true;
-
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
-  1000: optional bool disable_file_cache = false
+  186: optional bool enable_file_cache_olap_tables = true;
+  187: optional bool enable_file_cache_external_catalogs = false;
+
   1001: optional i32 file_cache_query_limit_percent = -1
 }
 

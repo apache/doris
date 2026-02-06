@@ -79,6 +79,7 @@ struct IOContext {
     // FIXME(plat1ko): Seems `is_disposable` can be inferred from the `reader_type`?
     bool is_disposable = false;
     bool is_index_data = false;
+    // have not been used in Doris
     bool read_file_cache = true;
     // TODO(lightman): use following member variables to control file cache
     bool is_persistent = false;

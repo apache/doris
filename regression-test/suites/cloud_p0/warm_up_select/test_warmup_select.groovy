@@ -61,7 +61,7 @@ suite("test_warmup_select") {
 
     def test_basic_warmup = {
         // Enable file cache for warm up functionality
-        sql "set disable_file_cache=false"
+        sql "set enable_file_cache_olap_tables=true"
 
         sql "WARM UP SELECT * FROM lineitem"
 
@@ -72,7 +72,7 @@ suite("test_warmup_select") {
 
     def test_warmup_negative_cases = {
         // Enable file cache for warm up functionality
-        sql "set disable_file_cache=false"
+        sql "set enable_file_cache_olap_tables=true"
 
         // These should fail as warm up select doesn't support these operations
         try {

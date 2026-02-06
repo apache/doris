@@ -130,7 +130,7 @@ public class NereidsCoordinator extends Coordinator {
                 descTable, timezone, loadZeroTolerance, enableProfile
         );
         // same reason in `setForInsert`
-        this.coordinatorContext.queryOptions.setDisableFileCache(true);
+        this.coordinatorContext.queryOptions.setEnableFileCacheOlapTables(false);
         this.needEnqueue = false;
 
         Preconditions.checkState(!fragments.isEmpty()
@@ -490,7 +490,7 @@ public class NereidsCoordinator extends Coordinator {
         JobProcessor jobProc = new LoadProcessor(this.coordinatorContext, jobId);
         this.coordinatorContext.setJobProcessor(jobProc);
         // Set this field to true to avoid data entering the normal cache LRU queue
-        this.coordinatorContext.queryOptions.setDisableFileCache(true);
+        this.coordinatorContext.queryOptions.setEnableFileCacheOlapTables(false);
         this.coordinatorContext.queryOptions.setNewVersionUnixTimestamp(true);
     }
 
