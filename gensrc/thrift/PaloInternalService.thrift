@@ -422,6 +422,7 @@ struct TQueryOptions {
 
   179: optional bool enable_parquet_filter_by_bloom_filter = true;
 
+  195: optional bool enable_left_semi_direct_return_opt;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.

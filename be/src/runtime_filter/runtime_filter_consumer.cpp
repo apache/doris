@@ -83,6 +83,13 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
 
     auto real_filter_type = _wrapper->get_real_type();
     bool null_aware = _wrapper->contain_null();
+
+    // Set sampling frequency based on disable_always_true_logic status
+    int sampling_frequency = _wrapper->disable_always_true_logic()
+                                     ? RuntimeFilterSelectivity::DISABLE_SAMPLING
+                                     : config::runtime_filter_sampling_frequency;
+    probe_ctx->get_runtime_filter_selectivity().set_sampling_frequency(sampling_frequency);
+
     switch (real_filter_type) {
     case RuntimeFilterType::IN_FILTER: {
         TTypeDesc type_desc = create_type_desc(PrimitiveType::TYPE_BOOLEAN);

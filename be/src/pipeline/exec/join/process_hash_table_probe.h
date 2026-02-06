@@ -59,6 +59,11 @@ struct ProcessHashTableProbe {
                    vectorized::MutableBlock& mutable_block, vectorized::Block* output_block,
                    uint32_t probe_rows, bool is_mark_join);
 
+    template <typename HashTableType>
+    void process_direct_return(HashTableType& hash_table_ctx,
+                               vectorized::MutableBlock& mutable_block,
+                               vectorized::Block* output_block, uint32_t probe_rows);
+
     // In the presence of other join conjunct, the process of join become more complicated.
     // each matching join column need to be processed by other join conjunct. so the struct of mutable block
     // and output block may be different
