@@ -2957,6 +2957,11 @@ TEST(RecycleOperationLogTest, RecycleOperationLogsWithStatsEnabled) {
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
+    // Save cumulative baselines before recycling (mBvarIntAdder accumulates across tests)
+    int64_t baseline_drop_partition =
+            g_bvar_recycler_oplog_recycled_drop_partition_num.get({instance_id});
+    int64_t baseline_drop_index = g_bvar_recycler_oplog_recycled_drop_index_num.get({instance_id});
+
     // Recycle the operation logs - stats should be collected
     ASSERT_EQ(recycler.recycle_operation_logs(), 0);
 
@@ -3000,15 +3005,18 @@ TEST(RecycleOperationLogTest, RecycleOperationLogsWithStatsEnabled) {
         EXPECT_EQ(last_round_drop_index, 1) << "Should have recycled 1 drop_index log";
     }
 
-    // Verify per-type cumulative recycled counts
+    // Verify per-type cumulative recycled counts (check delta from baseline)
     {
-        int recycled_drop_partition =
+        int64_t recycled_drop_partition =
                 g_bvar_recycler_oplog_recycled_drop_partition_num.get({instance_id});
-        EXPECT_EQ(recycled_drop_partition, 1) << "Cumulative drop_partition should be 1";
+        EXPECT_EQ(recycled_drop_partition - baseline_drop_partition, 1)
+                << "Cumulative drop_partition delta should be 1";
     }
     {
-        int recycled_drop_index = g_bvar_recycler_oplog_recycled_drop_index_num.get({instance_id});
-        EXPECT_EQ(recycled_drop_index, 1) << "Cumulative drop_index should be 1";
+        int64_t recycled_drop_index =
+                g_bvar_recycler_oplog_recycled_drop_index_num.get({instance_id});
+        EXPECT_EQ(recycled_drop_index - baseline_drop_index, 1)
+                << "Cumulative drop_index delta should be 1";
     }
 }
 
