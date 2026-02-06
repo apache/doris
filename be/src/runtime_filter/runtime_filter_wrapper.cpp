@@ -612,15 +612,13 @@ Status RuntimeFilterWrapper::_assign(const PMinMaxFilter& minmax_filter, bool co
                                                               min_string_val.length(), &result);
         if (result != StringParser::PARSE_SUCCESS) {
             return Status::InternalError(
-                    "Failed to parse IPV6 min value '{}' in minmax filter assign",
-                    min_string_val);
+                    "Failed to parse IPV6 min value '{}' in minmax filter assign", min_string_val);
         }
         auto max_val = StringParser::string_to_int<uint128_t>(max_string_val.c_str(),
                                                               max_string_val.length(), &result);
         if (result != StringParser::PARSE_SUCCESS) {
             return Status::InternalError(
-                    "Failed to parse IPV6 max value '{}' in minmax filter assign",
-                    max_string_val);
+                    "Failed to parse IPV6 max value '{}' in minmax filter assign", max_string_val);
         }
         return _minmax_func->assign(&min_val, &max_val);
     }
@@ -733,8 +731,7 @@ Status RuntimeFilterWrapper::assign(const T& request, butil::IOBufAsZeroCopyInpu
     case PFilterType::BLOOM_FILTER: {
         if (!request.has_bloom_filter()) {
             return Status::InternalError(
-                    "BLOOM_FILTER type but request has no bloom_filter, filter_id: {}",
-                    _filter_id);
+                    "BLOOM_FILTER type but request has no bloom_filter, filter_id: {}", _filter_id);
         }
         _hybrid_set.reset(); // change in_or_bloom filter to bloom filter
         return _assign(request.bloom_filter(), data, request.contain_null());
