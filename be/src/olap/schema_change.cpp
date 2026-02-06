@@ -1516,7 +1516,9 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
 Status SchemaChangeJob::_init_column_mapping(ColumnMapping* column_mapping,
                                              const TabletColumn& column_schema,
                                              const std::string& value) {
-    if (FieldFactory::create(column_schema) == nullptr) {
+    auto t = FieldFactory::create(column_schema);
+    Defer defer([t]() { delete t; });
+    if (t == nullptr) {
         return Status::Uninitialized("Unsupport field creation of {}", column_schema.name());
     }
 

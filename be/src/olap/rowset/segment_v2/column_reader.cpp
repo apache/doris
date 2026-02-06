@@ -2067,8 +2067,13 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
         if (_default_value == "NULL") {
             _default_value_field = vectorized::Field::create_field<TYPE_NULL>(vectorized::Null {});
         } else {
-            if (_type_info->type() == FieldType::OLAP_FIELD_TYPE_ARRAY && _default_value != "[]") {
-                return Status::NotSupported("Array default {} is unsupported", _default_value);
+            if (_type_info->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+                if (_default_value != "[]") {
+                    return Status::NotSupported("Array default {} is unsupported", _default_value);
+                } else {
+                    _default_value_field =
+                            vectorized::Field::create_field<TYPE_ARRAY>(vectorized::Array {});
+                }
             } else if (_type_info->type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
                 return Status::NotSupported("STRUCT default type is unsupported");
             } else if (_type_info->type() == FieldType::OLAP_FIELD_TYPE_MAP) {

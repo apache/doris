@@ -163,7 +163,7 @@ TEST(FromStringTest, ScalaDataTypeFromString) {
                 DateTestField {.type = FieldType::OLAP_FIELD_TYPE_DATETIMEV2,
                                .str = "2020-01-01 12:00:00.666666",
                                .min_str = "0001-01-01 00:00:00",
-                               .max_str = "9999-12-31 23:59:59"},
+                               .max_str = "9999-12-31 23:59:59.000000"},
         };
         for (auto pair : date_scala_field_types) {
             auto type = pair.type;
