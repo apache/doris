@@ -69,7 +69,7 @@ public:
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                     IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override {
-        RETURN_IF_ERROR(_nested->evaluate(name_with_type, iterator, num_rows, bitmap));
+        roaring::Roaring null_rows_in_bitmap;
         if (iterator != nullptr) {
             bool has_null = DORIS_TRY(iterator->has_null());
             if (has_null) {
@@ -77,10 +77,12 @@ public:
                 RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
                 auto null_bitmap = null_bitmap_cache_handle.get_bitmap();
                 if (null_bitmap) {
-                    *bitmap |= *null_bitmap;
+                    null_rows_in_bitmap = *bitmap & *null_bitmap;
                 }
             }
         }
+        RETURN_IF_ERROR(_nested->evaluate(name_with_type, iterator, num_rows, bitmap));
+        *bitmap |= null_rows_in_bitmap;
         return Status::OK();
     }
 
