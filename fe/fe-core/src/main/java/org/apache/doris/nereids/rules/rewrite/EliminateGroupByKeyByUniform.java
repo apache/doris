@@ -64,7 +64,7 @@ public class EliminateGroupByKeyByUniform extends DefaultPlanRewriter<Map<ExprId
             return plan;
         }
         Map<ExprId, ExprId> replaceMap = new HashMap<>();
-        ExprIdRewriter.ReplaceRule replaceRule = new ExprIdRewriter.ReplaceRule(replaceMap);
+        ExprIdRewriter.ReplaceRule replaceRule = new ExprIdRewriter.ReplaceRule(replaceMap, true);
         exprIdReplacer = new ExprIdRewriter(replaceRule, jobContext);
         return plan.accept(this, replaceMap);
     }
