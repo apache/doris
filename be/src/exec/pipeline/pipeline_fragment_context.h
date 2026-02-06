@@ -37,7 +37,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/task_execution_context.h"
 #include "util/stopwatch.hpp"
-
+#include "util/uid_util.h"
 namespace doris {
 struct ReportStatusRequest;
 class ExecEnv;
@@ -94,6 +94,36 @@ public:
     TUniqueId get_query_id() const { return _query_id; }
 
     [[nodiscard]] int get_fragment_id() const { return _fragment_id; }
+
+    [[nodiscard]] int get_total_instances() const { return (int)_tasks.size(); }
+
+    [[nodiscard]] int get_finished_instances() const {
+        int finished_instances = 0;
+        int instance_idx = 0;
+        for (const auto& instance_tasks : _tasks) {
+            bool all_finished = true;
+            for (const auto& task : instance_tasks) {
+                if (!task.first->is_finished()) {
+                    all_finished = false;
+                    LOG(INFO) << "Instance " << instance_idx << " of query " << print_id(_query_id)
+                              << " fragment " << _fragment_id << " is not finished. Task "
+                              << task.first->task_id() << " state: " << task.first->debug_string();
+                    break;
+                }
+            }
+            if (all_finished) {
+                finished_instances++;
+            }
+            instance_idx++;
+        }
+        if (finished_instances < _tasks.size()) {
+            LOG(INFO) << "Query " << print_id(_query_id) << " fragment " << _fragment_id
+                      << " finished instances: " << finished_instances << "/" << _tasks.size();
+        }
+        return finished_instances;
+    }
+
+    RuntimeState* get_runtime_state() { return _runtime_state.get(); }
 
     void decrement_running_task(PipelineId pipeline_id);
 

@@ -112,6 +112,8 @@ import org.apache.doris.thrift.TPlanFragment;
 import org.apache.doris.thrift.TPlanFragmentDestination;
 import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TQueryStatistics;
+import org.apache.doris.thrift.TQueryStatisticsResult;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TResourceLimit;
@@ -293,6 +295,55 @@ public class Coordinator implements CoordInterface {
     // A countdown latch to mark the completion of each fragment. use for pipelineX
     // fragmentid -> backendid
     private MarkedCountDownLatch<Integer, Long> fragmentsDoneLatch = null;
+
+    public long getFragmentInstanceCount() {
+        long countFromWorkloadMgr = getInstancesNumFromWorkloadRuntimeStatusMgr().first;
+        if (countFromWorkloadMgr > 0) {
+            return countFromWorkloadMgr;
+        }
+        if (fragmentsDoneLatch != null) {
+            return fragmentsDoneLatch.getMarkCount();
+        } else if (instancesDoneLatch != null) {
+            return instancesDoneLatch.getMarkCount();
+        }
+        return 0;
+    }
+
+    public long getFragmentInstanceFinishedCount() {
+        long countFromWorkloadMgr = getInstancesNumFromWorkloadRuntimeStatusMgr().second;
+        if (countFromWorkloadMgr > 0) {
+            return countFromWorkloadMgr;
+        }
+        if (fragmentsDoneLatch != null) {
+            return fragmentsDoneLatch.getMarkCount() - fragmentsDoneLatch.getCount();
+        } else if (instancesDoneLatch != null) {
+            return instancesDoneLatch.getMarkCount() - instancesDoneLatch.getCount();
+        }
+        return 0;
+    }
+
+    protected Pair<Long, Long> getInstancesNumFromWorkloadRuntimeStatusMgr() {
+        if (Env.getCurrentEnv() == null || Env.getCurrentEnv().getWorkloadRuntimeStatusMgr() == null) {
+            return Pair.of(0L, 0L);
+        }
+        Map<Long, TQueryStatisticsResult> statsMap =
+                Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().getQueryStatistics(DebugUtil.printId(queryId));
+
+        long total = 0;
+        long finished = 0;
+        for (TQueryStatisticsResult result : statsMap.values()) {
+            if (result.isSetStatistics()) {
+                TQueryStatistics stats = result.getStatistics();
+                if (stats.isSetTotalInstancesNum()) {
+                    total += stats.total_instances_num;
+                }
+                if (stats.isSetFinishedInstancesNum()) {
+                    finished += stats.finished_instances_num;
+                }
+            }
+        }
+        return Pair.of(total, finished);
+    }
 
     public void setGroupCommitBe(Backend backend) {
         this.groupCommitBackend = backend;

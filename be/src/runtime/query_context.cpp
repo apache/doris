@@ -556,4 +556,27 @@ Status QueryContext::reset_global_rf(const google::protobuf::RepeatedField<int32
     return Status::OK();
 }
 
+void QueryContext::get_instance_counts(int* total, int* finished) {
+    *total = 0;
+    *finished = 0;
+    {
+        std::lock_guard<std::mutex> lock(_instance_counts_lock);
+        *total = _finished_instance_counts.total;
+        *finished = _finished_instance_counts.finished;
+    }
+    std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
+    for (auto& [_, fragment_ctx_weak] : _fragment_id_to_pipeline_ctx) {
+        if (auto fragment_ctx = fragment_ctx_weak.lock()) {
+            *total += fragment_ctx->get_total_instances();
+            *finished += fragment_ctx->get_finished_instances();
+        }
+    }
+}
+
+void QueryContext::update_finished_instance_counts(int total, int finished) {
+    std::lock_guard<std::mutex> lock(_instance_counts_lock);
+    _finished_instance_counts.total += total;
+    _finished_instance_counts.finished += finished;
+}
+
 } // namespace doris

@@ -46,6 +46,7 @@ public:
     size_t get_revocable_size() override;
     Status revoke_memory() override;
     std::vector<pipeline::PipelineTask*> get_revocable_tasks() override;
+    std::shared_ptr<QueryContext> get_query_ctx() { return query_ctx_.lock(); }
 
 protected:
     QueryTaskController(const std::shared_ptr<QueryContext>& query_ctx) : query_ctx_(query_ctx) {}

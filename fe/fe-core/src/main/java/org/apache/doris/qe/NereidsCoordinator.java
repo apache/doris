@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ExecutionProfile;
@@ -353,6 +354,42 @@ public class NereidsCoordinator extends Coordinator {
     public List<TErrorTabletInfo> getErrorTabletInfos() {
         return coordinatorContext.asLoadProcessor().loadContext.getErrorTabletInfos();
     }
+
+    @Override
+    public long getFragmentInstanceCount() {
+        Pair<Long, Long> stats = getInstancesNumFromWorkloadRuntimeStatusMgr();
+        if (stats.first > 0) {
+            return stats.first;
+        }
+        return coordinatorContext.instanceNum.get();
+    }
+
+    @Override
+    public long getFragmentInstanceFinishedCount() {
+        Pair<Long, Long> stats = getInstancesNumFromWorkloadRuntimeStatusMgr();
+        if (stats.first > 0) {
+            return stats.second;
+        }
+
+        String queryid = DebugUtil.printId(coordinatorContext.queryId);
+        LOG.info("getFragmentInstanceFinishedCount {} ", queryid);
+
+        if (executionTask == null) {
+            return 0;
+        }
+        long finishedInstances = 0;
+        for (MultiFragmentsPipelineTask multiTask : executionTask.getChildrenTasks().values()) {
+            LOG.info("getFragmentInstanceFinishedCount {} first loop", queryid);
+            for (SingleFragmentPipelineTask singleTask : multiTask.getChildrenTasks().values()) {
+                LOG.info("getFragmentInstanceFinishedCount {}: isDone={}, instanceNum={}", queryid,
+                     singleTask.isDone(), singleTask.getInstanceNum());
+                if (singleTask.isDone()) {
+                    finishedInstances += singleTask.getInstanceNum();
+                }
+            }
+        }
+        return finishedInstances;
+    }    
 
     @Override
     public List<TNetworkAddress> getInvolvedBackends() {

@@ -20,8 +20,10 @@ package org.apache.doris.resource.workloadschedpolicy;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TQueryStatisticsResult;
 import org.apache.doris.thrift.TReportWorkloadRuntimeStatusParams;
@@ -192,17 +194,21 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         Long currentTime = System.currentTimeMillis();
         for (Long beId : currentBeIdSet) {
             BeReportInfo beReportInfo = beToQueryStatsMap.get(beId);
-            if (currentTime - beReportInfo.beLastReportTime > Config.be_report_query_statistics_timeout_ms) {
-                beToQueryStatsMap.remove(beId);
-                continue;
-            }
             Set<String> queryIdSet = beReportInfo.queryStatsMap.keySet();
             for (String queryId : queryIdSet) {
                 Pair<Long, TQueryStatisticsResult> pair = beReportInfo.queryStatsMap.get(queryId);
                 long queryLastReportTime = pair.first;
                 if (currentTime - queryLastReportTime > Config.be_report_query_statistics_timeout_ms) {
-                    beReportInfo.queryStatsMap.remove(queryId);
+                    // If BE report is timeout, we should check if the query is still running in FE.
+                    if (QeProcessorImpl.INSTANCE.getCoordinator(DebugUtil.parseTUniqueIdFromString(queryId)) == null) {
+                        beReportInfo.queryStatsMap.remove(queryId);
+                    }
                 }
+            }
+
+            if (beReportInfo.queryStatsMap.isEmpty()
+                    && currentTime - beReportInfo.beLastReportTime > Config.be_report_query_statistics_timeout_ms) {
+                beToQueryStatsMap.remove(beId);
             }
         }
     }
@@ -260,6 +266,12 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         }
         dst.spill_write_bytes_to_local_storage += srcStats.spill_write_bytes_to_local_storage;
         dst.spill_read_bytes_from_local_storage += srcStats.spill_read_bytes_from_local_storage;
+        if (srcStats.isSetTotalInstancesNum()) {
+            dst.total_instances_num += srcStats.total_instances_num;
+        }
+        if (srcStats.isSetFinishedInstancesNum()) {
+            dst.finished_instances_num += srcStats.finished_instances_num;
+        }
     }
 
     private void queryAuditEventLogWriteLock() {

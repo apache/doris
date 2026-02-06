@@ -101,7 +101,12 @@ public class ShowProcessListCommand extends ShowCommand {
                     try {
                         TShowProcessListResult result = client.showProcessList(request);
                         if (result.process_list != null && result.process_list.size() > 0) {
-                            rowSet.addAll(result.process_list);
+                            for (List<String> row : result.process_list) {
+                                if (row.size() < PROCESSLIST_META_DATA.getColumns().size()) {
+                                    row.add("N/A");
+                                }
+                                rowSet.add(row);
+                            }
                         }
                         isReturnToPool = true;
                     } catch (Exception e) {

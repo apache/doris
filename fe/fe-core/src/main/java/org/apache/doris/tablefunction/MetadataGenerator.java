@@ -890,6 +890,21 @@ public class MetadataGenerator {
             }
 
             trow.addToColumnValue(new TCell().setStringVal(queryInfo.getSql()));
+            if (queryInfo.getCoord() != null) {
+                long total = queryInfo.getCoord().getFragmentInstanceCount();
+                long finished = queryInfo.getCoord().getFragmentInstanceFinishedCount();
+                trow.addToColumnValue(new TCell().setLongVal(total));
+                trow.addToColumnValue(new TCell().setLongVal(finished));
+                if (total > 0) {
+                    trow.addToColumnValue(new TCell().setStringVal((finished * 100 / total) + "%"));
+                } else {
+                    trow.addToColumnValue(new TCell().setStringVal("0%"));
+                }
+            } else {
+                trow.addToColumnValue(new TCell().setLongVal(0));
+                trow.addToColumnValue(new TCell().setLongVal(0));
+                trow.addToColumnValue(new TCell().setStringVal("0%"));
+            }
             dataBatch.add(trow);
         }
 

@@ -116,4 +116,16 @@ public class InsertLoadJob extends LoadJob {
             throw e;
         }
     }
+
+    public void updateProgress(long finishedFragments, long totalFragments) {
+        writeLock();
+        try {
+            if (totalFragments > 0) {
+                this.progress = (int) ((double) finishedFragments / totalFragments * 100);
+            }
+            this.loadingStatus.getCounters().put("Fragment Instances", finishedFragments + "/" + totalFragments);
+        } finally {
+            writeUnlock();
+        }
+    }
 }

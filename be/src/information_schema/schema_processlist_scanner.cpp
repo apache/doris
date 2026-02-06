@@ -47,7 +47,10 @@ std::vector<SchemaScanner::ColumnDesc> SchemaProcessListScanner::_s_processlist_
         {"TraceId", TYPE_VARCHAR, sizeof(StringRef), false},                // 11
         {"Info", TYPE_VARCHAR, sizeof(StringRef), false},                   // 12
         {"FE", TYPE_VARCHAR, sizeof(StringRef), false},                     // 13
-        {"CloudCluster", TYPE_VARCHAR, sizeof(StringRef), false}};          // 14
+        {"CloudCluster", TYPE_VARCHAR, sizeof(StringRef), false},           // 14
+        {"TotalInstances", TYPE_BIGINT, sizeof(int64_t), false},            // 15
+        {"FinishedInstances", TYPE_BIGINT, sizeof(int64_t), false},         // 16
+        {"Progress", TYPE_VARCHAR, sizeof(StringRef), false}};              // 17
 
 SchemaProcessListScanner::SchemaProcessListScanner()
         : SchemaScanner(_s_processlist_columns, TSchemaTableType::SCH_PROCESSLIST) {}
@@ -64,12 +67,15 @@ Status SchemaProcessListScanner::start(RuntimeState* state) {
         RETURN_IF_ERROR(
                 SchemaHelper::show_process_list(fe_addr.hostname, fe_addr.port, request, &tmp_ret));
 
-        // Check and adjust the number of columns in each row to ensure 15 columns
-        // This is compatible with newly added column "trace id". #51400
+        // Check and adjust the number of columns in each row to ensure expected columns
         for (auto& row : tmp_ret.process_list) {
             if (row.size() == 14) {
-                // Insert an empty string at position 11 (index 11) for the TRACE_ID column
                 row.insert(row.begin() + 11, "");
+            }
+            if (row.size() == 15) {
+                row.emplace_back("");
+                row.emplace_back("");
+                row.emplace_back("");
             }
         }
 
@@ -127,6 +133,7 @@ Status SchemaProcessListScanner::_fill_block_impl(vectorized::Block* block) {
             column_value = row[col_idx];
 
             if (_s_processlist_columns[col_idx].type == TYPE_LARGEINT ||
+                _s_processlist_columns[col_idx].type == TYPE_BIGINT ||
                 _s_processlist_columns[col_idx].type == TYPE_INT) {
                 try {
                     int128_t val = !column_value.empty() ? std::stoll(column_value) : 0;

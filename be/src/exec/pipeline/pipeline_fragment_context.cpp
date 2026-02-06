@@ -1848,6 +1848,7 @@ void PipelineFragmentContext::_close_fragment_instance() {
 
     if (!_need_notify_close) {
         // all submitted tasks done
+        _query_ctx->update_finished_instance_counts(get_total_instances(), get_finished_instances());
         _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
     }
 }
