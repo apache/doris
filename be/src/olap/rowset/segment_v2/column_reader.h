@@ -36,7 +36,6 @@
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
 #include "io/io_common.h"
-#include "olap/column_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/index_reader.h"
@@ -63,6 +62,7 @@ class AndBlockColumnPredicate;
 class ColumnPredicate;
 class TabletIndex;
 class StorageReadOptions;
+struct ZoneMapInfo;
 
 namespace io {
 class FileReader;

@@ -519,11 +519,7 @@ Status ColumnReader::prune_predicates_by_zone_map(
 Status ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, ZoneMapInfo& zone_map_info) const {
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
-<<<<<<< HEAD
-=======
         zone_map_info.has_null = false;
-
->>>>>>> fea4f535258 ([refactor](predicate) Refactor zone map (#60393))
         if (zone_map.has_negative_inf()) {
             if (FieldType::OLAP_FIELD_TYPE_FLOAT == _meta_type) {
                 static auto constexpr float_neg_inf = -std::numeric_limits<float>::infinity();
@@ -602,15 +598,7 @@ Status ColumnReader::_parse_zone_map_skip_null(const ZoneMapPB& zone_map,
 bool ColumnReader::_zone_map_match_condition(const ZoneMapPB& zone_map,
                                              const ZoneMapInfo& zone_map_info,
                                              const AndBlockColumnPredicate* col_predicates) const {
-<<<<<<< HEAD
-    if (!zone_map.has_not_null() && !zone_map.has_null()) {
-        return false; // no data in this zone
-    }
-
-    if (zone_map.pass_all() || min_value_container == nullptr || max_value_container == nullptr) {
-=======
     if (zone_map.pass_all()) {
->>>>>>> fea4f535258 ([refactor](predicate) Refactor zone map (#60393))
         return true;
     }
 
