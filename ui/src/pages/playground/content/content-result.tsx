@@ -181,7 +181,7 @@ export function AdhocContentResult(props) {
                                                         className="ant-table-cell"
                                                         key={index+''+tdData}
                                                     >
-                                                        {tdData == '\\N'?'-':tdData}
+                                                        {tdData == '\\N' ? '-' : (tdData === null || tdData === undefined ? '' : String(tdData))}
                                                     </td>
                                                 ))}
                                             </tr>
