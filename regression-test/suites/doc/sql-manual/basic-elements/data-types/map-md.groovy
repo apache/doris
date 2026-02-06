@@ -399,7 +399,29 @@ suite("map-md", "p0") {
     qt_sql """ SELECT {'Alice': 20}['Alice']; """
 
     qt_sql """ SELECT ELEMENT_AT({'Alice': 20}, 'Alice');"""
-    
+
+    // test whether ELEMENT_AT executes normally in short-circuit-evaluation
+    sql """ DROP TABLE IF EXISTS test_map_sc; """
+    sql """ CREATE TABLE test_map_sc (
+                id INT,
+                join_key DATE,
+                col_map MAP<DATEV2, DATEV2>
+            )PROPERTIES ("replication_num" = "1");
+    """
+    sql """INSERT INTO test_map_sc VALUES
+            (1, '2024-01-01', {'2024-01-01': '2024-01-02'}),
+            (2, '2024-01-02', {'2024-01-01': '2024-01-03'});
+    """
+    sql """ SET short_circuit_evaluation = true; """
+    qt_element_at_short_circuit_evaluation_test """ 
+        SELECT
+            CASE
+                WHEN id > 0 THEN 1
+                ELSE element_at(col_map, DATE '2024-01-01')
+            END
+        FROM test_map_sc;
+    """
+    sql """ SET short_circuit_evaluation = false; """
     
     qt_sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
