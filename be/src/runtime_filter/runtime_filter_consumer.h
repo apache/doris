@@ -92,8 +92,10 @@ private:
               _registration_time(MonotonicMillis()),
               _rf_state(State::NOT_READY) {
         // If bitmap filter is not applied, it will cause the query result to be incorrect
+        // local rf must wait until timeout, otherwise it may lead results incorrectness, because LEFT_SEMI_DIRECT_RETURN_OPT
         bool wait_infinitely = state->runtime_filter_wait_infinitely() ||
-                               _runtime_filter_type == RuntimeFilterType::BITMAP_FILTER;
+                               _runtime_filter_type == RuntimeFilterType::BITMAP_FILTER ||
+                               !has_remote_target();
         _rf_wait_time_ms = wait_infinitely ? state->get_query_ctx()->execution_timeout() * 1000
                                            : state->get_query_ctx()->runtime_filter_wait_time_ms();
         DorisMetrics::instance()->runtime_filter_consumer_num->increment(1);

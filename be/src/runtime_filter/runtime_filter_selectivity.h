@@ -19,7 +19,6 @@
 
 #include <cstdint>
 
-#include "common/config.h"
 #include "common/logging.h"
 
 namespace doris {
@@ -34,9 +33,13 @@ class RuntimeFilterSelectivity {
 public:
     RuntimeFilterSelectivity() = default;
 
-    RuntimeFilterSelectivity(const RuntimeFilterSelectivity&) = delete;
+    // If sampling_frequency is less than or equal to 0, the selectivity tracking will be disabled
+    static constexpr int DISABLE_SAMPLING = -1;
+
+    void set_sampling_frequency(int frequency) { _sampling_frequency = frequency; }
+
     void update_judge_counter() {
-        if ((_judge_counter++) >= config::runtime_filter_sampling_frequency) {
+        if ((_judge_counter++) >= _sampling_frequency) {
             reset_judge_selectivity();
         }
     }
@@ -46,8 +49,8 @@ public:
         if (!_always_true) {
             _judge_filter_rows += filter_rows;
             _judge_input_rows += input_rows;
-            judge_selectivity(ignore_thredhold, _judge_filter_rows, _judge_input_rows,
-                              _always_true);
+            _judge_selectivity(ignore_thredhold, _judge_filter_rows, _judge_input_rows,
+                               _always_true);
         }
 
         VLOG_ROW << fmt::format(
@@ -61,23 +64,13 @@ public:
 
     bool maybe_always_true_can_ignore() const {
         /// TODO: maybe we can use session variable to control this behavior ?
-        if (config::runtime_filter_sampling_frequency <= 0) {
+        if (_sampling_frequency <= 0) {
             return false;
         } else {
             return _always_true;
         }
     }
 
-    static void judge_selectivity(double ignore_threshold, int64_t filter_rows, int64_t input_rows,
-                                  bool& always_true) {
-        // if the judged input rows is too small, we think the selectivity is not reliable
-        if (input_rows > min_judge_input_rows) {
-            always_true = (static_cast<double>(filter_rows) / static_cast<double>(input_rows)) <
-                          ignore_threshold;
-        }
-    }
-
-private:
     void reset_judge_selectivity() {
         _always_true = false;
         _judge_counter = 0;
@@ -85,10 +78,21 @@ private:
         _judge_filter_rows = 0;
     }
 
+private:
+    void _judge_selectivity(double ignore_threshold, int64_t filter_rows, int64_t input_rows,
+                            bool& always_true) {
+        // if the judged input rows is too small, we think the selectivity is not reliable
+        if (input_rows > min_judge_input_rows) {
+            always_true = (static_cast<double>(filter_rows) / static_cast<double>(input_rows)) <
+                          ignore_threshold;
+        }
+    }
+
     int64_t _judge_input_rows = 0;
     int64_t _judge_filter_rows = 0;
     int _judge_counter = 0;
     bool _always_true = false;
+    int _sampling_frequency = -1;
 
     constexpr static int64_t min_judge_input_rows = 4096 * 10;
 };

@@ -302,6 +302,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SHARED_SCAN = "enable_shared_scan";
 
+    public static final String ENABLE_LEFT_SEMI_DIRECT_RETURN_OPT = "enable_left_semi_direct_return_opt";
+
     public static final String IGNORE_STORAGE_DATA_DISTRIBUTION = "ignore_storage_data_distribution";
 
     public static final String USE_SERIAL_EXCHANGE = "use_serial_exchange";
@@ -1393,6 +1395,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_CONDITION_CACHE)
     public boolean enableConditionCache = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_LEFT_SEMI_DIRECT_RETURN_OPT)
+    public boolean enableLeftSemiDirectReturnOpt = true;
 
     @VariableMgr.VarAttr(name = FORWARD_TO_MASTER)
     public boolean forwardToMaster = true;
@@ -5102,6 +5107,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setInvertedIndexCompatibleRead(invertedIndexCompatibleRead);
         tResult.setCteMaxRecursionDepth(cteMaxRecursionDepth);
         tResult.setEnableParallelScan(enableParallelScan);
+        tResult.setEnableLeftSemiDirectReturnOpt(enableLeftSemiDirectReturnOpt);
         tResult.setParallelScanMaxScannersCount(parallelScanMaxScannersCount);
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
         tResult.setOptimizeIndexScanParallelism(optimizeIndexScanParallelism);
