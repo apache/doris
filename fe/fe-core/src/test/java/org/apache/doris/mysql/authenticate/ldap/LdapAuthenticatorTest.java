@@ -29,6 +29,7 @@ import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.After;
+import org.junit.Before;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -167,5 +168,10 @@ public class LdapAuthenticatorTest {
     @After
     public void tearDown() {
         LdapConfig.ldap_allow_empty_pass = true; // restoring default value for other tests
+    }
+
+    @Before
+    public void setUp() {
+        LdapConfig.ldap_allow_empty_pass = true; //restoring default value for other tests
     }
 }
