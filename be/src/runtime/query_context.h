@@ -321,7 +321,7 @@ private:
     };
     InstanceCounts _finished_instance_counts;
     std::mutex _instance_counts_lock;
-    
+
     friend class QueryTaskController;
 
     int _timeout_second;
