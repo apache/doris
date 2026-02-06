@@ -23,7 +23,6 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.MysqlDb;
-import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
@@ -134,6 +133,13 @@ public abstract class ExternalCatalog
 
     public static final String TEST_CONNECTION = "test_connection";
     public static final boolean DEFAULT_TEST_CONNECTION = false;
+
+    public static final String INCLUDE_DATABASE_LIST = "include_database_list";
+    public static final String EXCLUDE_DATABASE_LIST = "exclude_database_list";
+    public static final String LOWER_CASE_META_NAMES = "lower_case_meta_names";
+    public static final String META_NAMES_MAPPING = "meta_names_mapping";
+    // db1.tbl1,db2.tbl2,...
+    public static final String INCLUDE_TABLE_LIST = "include_table_list";
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
@@ -1061,16 +1067,16 @@ public abstract class ExternalCatalog
     }
 
     protected Map<String, Boolean> getIncludeDatabaseMap() {
-        return getSpecifiedDatabaseMap(Resource.INCLUDE_DATABASE_LIST);
+        return getSpecifiedDatabaseMap(ExternalCatalog.INCLUDE_DATABASE_LIST);
     }
 
     protected Map<String, Boolean> getExcludeDatabaseMap() {
-        return getSpecifiedDatabaseMap(Resource.EXCLUDE_DATABASE_LIST);
+        return getSpecifiedDatabaseMap(ExternalCatalog.EXCLUDE_DATABASE_LIST);
     }
 
     protected Map<String, List<String>> getIncludeTableMap() {
         Map<String, List<String>> includeTableMap = Maps.newHashMap();
-        String tableList = catalogProperty.getOrDefault(Resource.INCLUDE_TABLE_LIST, "");
+        String tableList = catalogProperty.getOrDefault(ExternalCatalog.INCLUDE_TABLE_LIST, "");
         if (Strings.isNullOrEmpty(tableList)) {
             return includeTableMap;
         }
@@ -1114,7 +1120,7 @@ public abstract class ExternalCatalog
 
 
     public String getLowerCaseMetaNames() {
-        return catalogProperty.getOrDefault(Resource.LOWER_CASE_META_NAMES, "false");
+        return catalogProperty.getOrDefault(LOWER_CASE_META_NAMES, "false");
     }
 
     public int getOnlyTestLowerCaseTableNames() {
@@ -1122,7 +1128,7 @@ public abstract class ExternalCatalog
     }
 
     public String getMetaNamesMapping() {
-        return catalogProperty.getOrDefault(Resource.META_NAMES_MAPPING, "");
+        return catalogProperty.getOrDefault(ExternalCatalog.META_NAMES_MAPPING, "");
     }
 
     public String bindBrokerName() {

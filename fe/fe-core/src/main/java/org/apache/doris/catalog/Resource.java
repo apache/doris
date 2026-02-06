@@ -47,12 +47,6 @@ import java.util.stream.Collectors;
 public abstract class Resource implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(OdbcCatalogResource.class);
     public static final String REFERENCE_SPLIT = "@";
-    public static final String INCLUDE_DATABASE_LIST = "include_database_list";
-    public static final String EXCLUDE_DATABASE_LIST = "exclude_database_list";
-    public static final String LOWER_CASE_META_NAMES = "lower_case_meta_names";
-    public static final String META_NAMES_MAPPING = "meta_names_mapping";
-    // db1.tbl1,db2.tbl2,...
-    public static final String INCLUDE_TABLE_LIST = "include_table_list";
 
     public enum ResourceType {
         UNKNOWN,

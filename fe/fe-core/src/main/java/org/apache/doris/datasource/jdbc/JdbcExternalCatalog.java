@@ -105,7 +105,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         }
 
         JdbcResource.checkBooleanProperty(JdbcResource.ONLY_SPECIFIED_DATABASE, getOnlySpecifiedDatabase());
-        JdbcResource.checkBooleanProperty(JdbcResource.LOWER_CASE_META_NAMES, getLowerCaseMetaNames());
+        JdbcResource.checkBooleanProperty(ExternalCatalog.LOWER_CASE_META_NAMES, getLowerCaseMetaNames());
         JdbcResource.checkBooleanProperty(JdbcResource.CONNECTION_POOL_KEEP_ALIVE,
                 String.valueOf(isConnectionPoolKeepAlive()));
         JdbcResource.checkBooleanProperty(JdbcResource.TEST_CONNECTION, String.valueOf(isTestConnection()));
