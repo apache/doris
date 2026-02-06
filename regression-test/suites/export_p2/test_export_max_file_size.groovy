@@ -22,16 +22,11 @@ suite("test_export_max_file_size", "p2,external") {
         sql """ set enable_nereids_planner=true """
         sql """ set enable_fallback_to_original_planner=false """
 
-        String dfsNameservices=context.config.otherConfigs.get("dfsNameservices")
-        String dfsHaNamenodesHdfsCluster=context.config.otherConfigs.get("dfsHaNamenodesHdfsCluster")
-        String dfsNamenodeRpcAddress1=context.config.otherConfigs.get("dfsNamenodeRpcAddress1")
-        String dfsNamenodeRpcAddress2=context.config.otherConfigs.get("dfsNamenodeRpcAddress2")
-        String dfsNamenodeRpcAddress3=context.config.otherConfigs.get("dfsNamenodeRpcAddress3")
-        String dfsNameservicesPort=context.config.otherConfigs.get("dfsNameservicesPort")
-        String hadoopSecurityAuthentication =context.config.otherConfigs.get("hadoopSecurityAuthentication")
-        String hadoopKerberosKeytabPath =context.config.otherConfigs.get("hadoopKerberosKeytabPath")
-        String hadoopKerberosPrincipal =context.config.otherConfigs.get("hadoopKerberosPrincipal")
-        String hadoopSecurityAutoToLocal =context.config.otherConfigs.get("hadoopSecurityAutoToLocal")
+        String ak = getS3AK()
+        String sk = getS3SK()
+        String s3_endpoint = getS3Endpoint()
+        String region = getS3Region()
+        String bucket = context.config.otherConfigs.get("s3BucketName")
 
         def table_export_name = "test_export_max_file_size"
         // create table and insert
@@ -79,24 +74,24 @@ suite("test_export_max_file_size", "p2,external") {
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
 
-        def load_data_path = "/user/export_test/exp_max_file_size.csv"
         sql """ 
                 insert into ${table_export_name}
-                select * from hdfs(
-                    "uri" = "hdfs://${dfsNameservices}${load_data_path}",
-                    "format" = "csv",
-                    "dfs.data.transfer.protection" = "integrity",
-                    'dfs.nameservices'="${dfsNameservices}",
-                    'dfs.ha.namenodes.hdfs-cluster'="${dfsHaNamenodesHdfsCluster}",
-                    'dfs.namenode.rpc-address.hdfs-cluster.nn1'="${dfsNamenodeRpcAddress1}:${dfsNameservicesPort}",
-                    'dfs.namenode.rpc-address.hdfs-cluster.nn2'="${dfsNamenodeRpcAddress2}:${dfsNameservicesPort}",
-                    'dfs.namenode.rpc-address.hdfs-cluster.nn3'="${dfsNamenodeRpcAddress3}:${dfsNameservicesPort}",
-                    'hadoop.security.authentication'="${hadoopSecurityAuthentication}",
-                    'hadoop.kerberos.keytab'="${hadoopKerberosKeytabPath}",   
-                    'hadoop.kerberos.principal'="${hadoopKerberosPrincipal}",
-                    'hadoop.security.auth_to_local' = "${hadoopSecurityAutoToLocal}",
-                    'dfs.client.failover.proxy.provider.hdfs-cluster'="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
-                );
+                select 
+                    number as user_id,
+                    date_add('2024-01-01', interval cast(rand() * 365 as int) day) as date,
+                    date_add('2024-01-01 00:00:00', interval cast(rand() * 365 * 24 * 3600 as int) second) as datetime,
+                    concat('City_', cast(cast(rand() * 100 as int) as string)) as city,
+                    cast(rand() * 80 + 18 as int) as age,
+                    cast(rand() * 2 as int) as sex,
+                    if(rand() > 0.5, true, false) as bool_col,
+                    cast(rand() * 1000000 as int) as int_col,
+                    cast(rand() * 10000000000 as bigint) as bigint_col,
+                    cast(rand() * 100000000000000 as largeint) as largeint_col,
+                    cast(rand() * 1000 as float) as float_col,
+                    rand() * 10000 as double_col,
+                    concat('char_', cast(cast(rand() * 10000 as int) as string)) as char_col,
+                    cast(rand() * 1000 as decimal(10, 2)) as decimal_col
+                from numbers("number" = "1000000");
             """
 
         
@@ -114,32 +109,26 @@ suite("test_export_max_file_size", "p2,external") {
             }
         }
 
-        def outFilePath = """/user/export_test/test_max_file_size/exp_"""
+        def outFilePath = """${bucket}/export/test_max_file_size/exp_"""
 
         // 1. csv test
         def test_export = {format, file_suffix, isDelete ->
             def uuid = UUID.randomUUID().toString()
             // exec export
             sql """
-                EXPORT TABLE ${table_export_name} TO "hdfs://${dfsNameservices}${outFilePath}"
+                EXPORT TABLE ${table_export_name} TO "s3://${outFilePath}"
                 PROPERTIES(
                     "label" = "${uuid}",
                     "format" = "${format}",
                     "max_file_size" = "5MB",
                     "delete_existing_files"="${isDelete}"
                 )
-                with HDFS (
-                    "dfs.data.transfer.protection" = "integrity",
-                    'dfs.nameservices'="${dfsNameservices}",
-                    'dfs.ha.namenodes.hdfs-cluster'="${dfsHaNamenodesHdfsCluster}",
-                    'dfs.namenode.rpc-address.hdfs-cluster.nn1'="${dfsNamenodeRpcAddress1}:${dfsNameservicesPort}",
-                    'dfs.namenode.rpc-address.hdfs-cluster.nn2'="${dfsNamenodeRpcAddress2}:${dfsNameservicesPort}",
-                    'dfs.namenode.rpc-address.hdfs-cluster.nn3'="${dfsNamenodeRpcAddress3}:${dfsNameservicesPort}",
-                    'hadoop.security.authentication'="${hadoopSecurityAuthentication}",
-                    'hadoop.kerberos.keytab'="${hadoopKerberosKeytabPath}",   
-                    'hadoop.kerberos.principal'="${hadoopKerberosPrincipal}",
-                    'hadoop.security.auth_to_local' = "${hadoopSecurityAutoToLocal}",
-                    'dfs.client.failover.proxy.provider.hdfs-cluster'="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+                WITH s3 (
+                    "s3.endpoint" = "${s3_endpoint}",
+                    "s3.region" = "${region}",
+                    "s3.secret_key"="${sk}",
+                    "s3.access_key" = "${ak}",
+                    "provider" = "${getS3Provider()}"
                 );
             """
 
@@ -151,20 +140,13 @@ suite("test_export_max_file_size", "p2,external") {
 
             for (int j = 0; j < json.fileNumber[0][0].toInteger(); ++j) {
                 def res = sql """ 
-                    select count(*) from hdfs(
-                        "uri" = "${outfile_url}${j}.csv",
+                    select count(*) from s3(
+                        "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length())}${j}.csv",
+                        "ACCESS_KEY"= "${ak}",
+                        "SECRET_KEY" = "${sk}",
                         "format" = "csv",
-                        "dfs.data.transfer.protection" = "integrity",
-                        'dfs.nameservices'="${dfsNameservices}",
-                        'dfs.ha.namenodes.hdfs-cluster'="${dfsHaNamenodesHdfsCluster}",
-                        'dfs.namenode.rpc-address.hdfs-cluster.nn1'="${dfsNamenodeRpcAddress1}:${dfsNameservicesPort}",
-                        'dfs.namenode.rpc-address.hdfs-cluster.nn2'="${dfsNamenodeRpcAddress2}:${dfsNameservicesPort}",
-                        'dfs.namenode.rpc-address.hdfs-cluster.nn3'="${dfsNamenodeRpcAddress3}:${dfsNameservicesPort}",
-                        'hadoop.security.authentication'="${hadoopSecurityAuthentication}",
-                        'hadoop.kerberos.keytab'="${hadoopKerberosKeytabPath}",   
-                        'hadoop.kerberos.principal'="${hadoopKerberosPrincipal}",
-                        'hadoop.security.auth_to_local' = "${hadoopSecurityAutoToLocal}",
-                        'dfs.client.failover.proxy.provider.hdfs-cluster'="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+                        "provider" = "${getS3Provider()}",
+                        "region" = "${region}"
                     );
                 """
                 logger.info("res[0][0] = " + res[0][0]);
@@ -175,20 +157,13 @@ suite("test_export_max_file_size", "p2,external") {
                 // check data correctness
                 sql """ 
                     insert into ${table_load_name}
-                    select * from hdfs(
-                        "uri" = "${outfile_url}${j}.csv",
+                    select * from s3(
+                        "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length())}${j}.csv",
+                        "ACCESS_KEY"= "${ak}",
+                        "SECRET_KEY" = "${sk}",
                         "format" = "csv",
-                        "dfs.data.transfer.protection" = "integrity",
-                        'dfs.nameservices'="${dfsNameservices}",
-                        'dfs.ha.namenodes.hdfs-cluster'="${dfsHaNamenodesHdfsCluster}",
-                        'dfs.namenode.rpc-address.hdfs-cluster.nn1'="${dfsNamenodeRpcAddress1}:${dfsNameservicesPort}",
-                        'dfs.namenode.rpc-address.hdfs-cluster.nn2'="${dfsNamenodeRpcAddress2}:${dfsNameservicesPort}",
-                        'dfs.namenode.rpc-address.hdfs-cluster.nn3'="${dfsNamenodeRpcAddress3}:${dfsNameservicesPort}",
-                        'hadoop.security.authentication'="${hadoopSecurityAuthentication}",
-                        'hadoop.kerberos.keytab'="${hadoopKerberosKeytabPath}",   
-                        'hadoop.kerberos.principal'="${hadoopKerberosPrincipal}",
-                        'hadoop.security.auth_to_local' = "${hadoopSecurityAutoToLocal}",
-                        'dfs.client.failover.proxy.provider.hdfs-cluster'="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+                        "provider" = "${getS3Provider()}",
+                        "region" = "${region}"
                     );
                 """
             }

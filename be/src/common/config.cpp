@@ -1201,6 +1201,11 @@ DEFINE_mDouble(file_cache_keep_base_compaction_output_min_hit_ratio, "0.7");
 // if difference below this threshold, we consider cache's progressive upgrading (2.0->3.0) successful
 DEFINE_mDouble(file_cache_meta_store_vs_file_system_diff_num_threshold, "0.3");
 DEFINE_mDouble(file_cache_keep_schema_change_output_min_hit_ratio, "0.7");
+DEFINE_mDouble(file_cache_leak_fs_to_meta_ratio_threshold, "1.3");
+DEFINE_mInt64(file_cache_leak_scan_interval_seconds, "86400");
+DEFINE_mInt32(file_cache_leak_scan_batch_files, "2048");
+DEFINE_mInt32(file_cache_leak_scan_pause_ms, "500");
+DEFINE_mInt64(file_cache_leak_grace_seconds, "3600");
 
 DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");

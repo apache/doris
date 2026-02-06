@@ -150,6 +150,14 @@ public:
     }
     std::vector<bool>& is_null_safe_eq_join() { return _is_null_safe_eq_join; }
 
+    bool allow_left_semi_direct_return(RuntimeState* state) const {
+        // only single join conjunct and left semi join can direct return
+        return _join_op == TJoinOp::LEFT_SEMI_JOIN && _build_expr_ctxs.size() == 1 &&
+               !_have_other_join_conjunct && !_is_mark_join &&
+               state->query_options().__isset.enable_left_semi_direct_return_opt &&
+               state->query_options().enable_left_semi_direct_return_opt;
+    }
+
 private:
     friend class HashJoinBuildSinkLocalState;
 

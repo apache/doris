@@ -423,7 +423,11 @@ struct TQueryOptions {
   // runtime profiling to choose the most efficient algorithm for the data pattern
   183: optional bool enable_use_hybrid_sort = false;
   184: optional i32 cte_max_recursion_depth;
+
   185: optional bool enable_parquet_file_page_cache = true;
+
+  195: optional bool enable_left_semi_direct_return_opt;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
