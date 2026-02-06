@@ -68,6 +68,7 @@ endif()
 
 # enable glog custom prefix
 add_definitions(-DGLOG_CUSTOM_PREFIX_SUPPORT)
+add_definitions(-DGLOG_USE_GLOG_EXPORT)
 
 # Options
 option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)

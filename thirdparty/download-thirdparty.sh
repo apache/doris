@@ -265,6 +265,13 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " GLOG " ]]; then
             touch "${PATCHED_MARK}"
         fi
         cd -
+    elif [[ "${GLOG_SOURCE}" == "glog-0.7.1" ]]; then
+        cd "${TP_SOURCE_DIR}/${GLOG_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/glog-0.7.1.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
     fi
     echo "Finished patching ${GLOG_SOURCE}"
 fi

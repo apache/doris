@@ -1,0 +1,398 @@
+--- a/src/glog/flags.h
++++ b/src/glog/flags.h
+@@ -111,6 +111,16 @@
+ DECLARE_string(alsologtoemail);
+ DECLARE_string(log_backtrace_at);
+ 
++// Set max log file num
++DECLARE_int32(log_filenum_quota);
++
++// Set max warn log file num
++#define GLOG_HAS_WARN_LOG_FILENUM_QUOTA
++DECLARE_int32(warn_log_filenum_quota);
++
++// Set log file split method
++DECLARE_string(log_split_method);
++
+ // Set whether appending a timestamp to the log file name
+ DECLARE_bool(timestamp_in_logfile_name);
+ 
+--- a/src/flags.cc
++++ b/src/flags.cc
+@@ -111,6 +111,16 @@
+ GLOG_DEFINE_int32(logbufsecs, 30,
+                   "Buffer log messages for at most this many seconds");
+ 
++GLOG_DEFINE_string(log_split_method, "day",
++                   "split log by size, day, hour");
++
++GLOG_DEFINE_int32(log_filenum_quota, 10,
++                  "max log file num in log dir");
++
++GLOG_DEFINE_int32(warn_log_filenum_quota, -1,
++                  "max warn log file num in log dir, -1 means equal to "
++                  "log_filenum_quota");
++
+ GLOG_DEFINE_int32(logcleansecs, 60 * 5,  // every 5 minutes
+                   "Clean overdue logs every this many seconds");
+ 
+--- a/src/logging.cc
++++ b/src/logging.cc
+@@ -38,6 +38,7 @@
+ #include <cstdint>
+ #include <iomanip>
+ #include <iterator>
++#include <list>
+ #include <memory>
+ #include <mutex>
+ #include <shared_mutex>
+@@ -443,6 +444,13 @@
+ 
+ std::unique_ptr<PrefixFormatter> g_prefix_formatter;
+ 
++struct Filetime {
++  std::string name;
++  std::time_t time;
++
++  bool operator<(const Filetime& o) const { return o.time > time; }
++};
++
+ // Encapsulates all file-system related state
+ class LogFileObject : public base::Logger {
+  public:
+@@ -473,6 +481,7 @@
+   // can avoid grabbing a lock.  Usually Flush() calls it after
+   // acquiring lock_.
+   void FlushUnlocked(const std::chrono::system_clock::time_point& now);
++  void CheckFileNumQuota();
+ 
+  private:
+   static const uint32 kRolloverAttemptFrequency = 0x20;
+@@ -491,6 +500,9 @@
+   std::chrono::system_clock::time_point
+       next_flush_time_;  // cycle count at which to flush log
+   std::chrono::system_clock::time_point start_time_;
++  std::list<Filetime> file_list_;
++  bool inited_{false};
++  struct ::tm tm_time_{};
+ 
+   // Actually create a logfile using the value of base_filename_ and the
+   // optional argument time_pid_string
+@@ -707,10 +719,8 @@
+   // all this stuff.
+   std::lock_guard<std::mutex> l{log_mutex};
+   for (int i = min_severity; i < NUM_SEVERITIES; i++) {
+-    LogDestination* log = log_destination(static_cast<LogSeverity>(i));
+-    if (log != nullptr) {
+-      log->logger_->Flush();
+-    }
++    LogDestination* log = log_destinations_[i].get();
++    if (log != nullptr) log->logger_->Flush();
+   }
+ }
+ 
+@@ -903,9 +913,12 @@
+   } else if (FLAGS_logtostderr) {  // global flag: never log to file
+     ColoredWriteToStderr(severity, message, len);
+   } else {
+-    for (int i = severity; i >= 0; --i) {
+-      LogDestination::MaybeLogToLogfile(static_cast<LogSeverity>(i), timestamp,
+-                                        message, len);
++    if (severity >= 1) {
++      LogDestination::MaybeLogToLogfile(GLOG_WARNING, timestamp, message, len);
++      LogDestination::MaybeLogToLogfile(GLOG_INFO, timestamp, message, len);
++    } else if (severity == 0) {
++      LogDestination::MaybeLogToLogfile(GLOG_INFO, timestamp, message, len);
++    } else {
+     }
+   }
+ }
+@@ -1059,11 +1072,11 @@
+   string_filename += filename_extension_;
+   const char* filename = string_filename.c_str();
+   // only write to files, create if non-existant.
+-  int flags = O_WRONLY | O_CREAT;
+-  if (FLAGS_timestamp_in_logfile_name) {
+-    // demand that the file is unique for our timestamp (fail if it exists).
+-    flags = flags | O_EXCL;
+-  }
++  int flags = O_WRONLY | O_CREAT | O_APPEND;
++  // if (FLAGS_timestamp_in_logfile_name) {
++  //   // demand that the file is unique for our timestamp (fail if it exists).
++  //   flags = flags | O_EXCL;
++  // }
+   FileDescriptor fd{
+       open(filename, flags, static_cast<mode_t>(FLAGS_logfile_mode))};
+   if (!fd) return false;
+@@ -1112,6 +1125,9 @@
+     }
+   }
+ #endif
++  Filetime ft;
++  ft.name = string_filename;
++  file_list_.push_back(ft);
+   // We try to create a symlink called <program_name>.<severity>,
+   // which is easier to use.  (Every time we create a new logfile,
+   // we destroy the old symlink and create a new one, so it always
+@@ -1155,6 +1171,58 @@
+   return true;  // Everything worked
+ }
+ 
++void LogFileObject::CheckFileNumQuota() {
++  struct dirent* entry;
++  DIR* dp;
++
++  const vector<string>& log_dirs = GetLoggingDirectories();
++  if (log_dirs.size() < 1) return;
++
++  dp = opendir(log_dirs[0].c_str());
++  if (dp == nullptr) {
++    fprintf(stderr, "open log dir %s fail\n", log_dirs[0].c_str());
++    return;
++  }
++
++  file_list_.clear();
++  while ((entry = readdir(dp)) != nullptr) {
++    if (DT_DIR == entry->d_type || DT_LNK == entry->d_type) {
++      continue;
++    }
++    std::string filename = std::string(entry->d_name);
++
++    if (filename.find(symlink_basename_ + '.' +
++                      LogSeverityNames[severity_]) == 0) {
++      std::string filepath = log_dirs[0] + "/" + filename;
++
++      struct stat fstat;
++      if (::stat(filepath.c_str(), &fstat) < 0) {
++        fprintf(stderr, "state %s fail\n", filepath.c_str());
++        closedir(dp);
++        return;
++      }
++
++      Filetime file_time;
++      file_time.time = fstat.st_mtime;
++      file_time.name = filepath;
++      file_list_.push_back(file_time);
++    }
++  }
++  closedir(dp);
++
++  file_list_.sort();
++
++  auto log_filenum_quota = FLAGS_log_filenum_quota;
++  if (severity_ == GLOG_WARNING && FLAGS_warn_log_filenum_quota > 0) {
++    log_filenum_quota = FLAGS_warn_log_filenum_quota;
++  }
++  while (log_filenum_quota > 0 &&
++         file_list_.size() >= static_cast<size_t>(log_filenum_quota)) {
++    unlink(file_list_.front().name.c_str());
++    file_list_.pop_front();
++  }
++}
++
+ void LogFileObject::Write(
+     bool force_flush, const std::chrono::system_clock::time_point& timestamp,
+     const char* message, size_t message_len) {
+@@ -1175,12 +1243,58 @@
+   // Remove old logs
+   ScopedExit<decltype(cleanupLogs)> cleanupAtEnd{cleanupLogs};
+ 
+-  if (file_length_ >> 20U >= MaxLogSize() || PidHasChanged()) {
++  struct ::tm tm_time;
++  std::time_t t = std::chrono::system_clock::to_time_t(timestamp);
++
++  bool is_split = false;
++  if ("day" == FLAGS_log_split_method) {
++    localtime_r(&t, &tm_time);
++    if (tm_time.tm_year != tm_time_.tm_year ||
++        tm_time.tm_mon != tm_time_.tm_mon ||
++        tm_time.tm_mday != tm_time_.tm_mday) {
++      is_split = true;
++    }
++  } else if ("hour" == FLAGS_log_split_method) {
++    localtime_r(&t, &tm_time);
++    if (tm_time.tm_year != tm_time_.tm_year ||
++        tm_time.tm_mon != tm_time_.tm_mon ||
++        tm_time.tm_mday != tm_time_.tm_mday ||
++        tm_time.tm_hour != tm_time_.tm_hour) {
++      is_split = true;
++    }
++  } else if (file_length_ >> 20U >= MaxLogSize()) {
++    is_split = true;
++  }
++
++  if (is_split) {
+     file_ = nullptr;
+     file_length_ = bytes_since_flush_ = dropped_mem_length_ = 0;
+     rollover_attempt_ = kRolloverAttemptFrequency - 1;
+   }
+ 
++  if ((file_ == nullptr) && (!inited_) && (FLAGS_log_split_method == "size")) {
++    CheckFileNumQuota();
++    if (!file_list_.empty()) {
++      const char* filename = file_list_.back().name.c_str();
++      int fd = open(filename, O_WRONLY | O_CREAT | O_APPEND,
++                    static_cast<mode_t>(FLAGS_logfile_mode));
++      if (fd != -1) {
++#ifdef HAVE_FCNTL
++        fcntl(fd, F_SETFD, FD_CLOEXEC);
++#endif
++        file_.reset(fdopen(fd, "a+"));
++        if (file_ == nullptr) {
++          close(fd);
++        } else {
++          fseek(file_.get(), 0, SEEK_END);
++          file_length_ = bytes_since_flush_ =
++                  static_cast<uint32>(ftell(file_.get()));
++          inited_ = true;
++        }
++      }
++    }
++  }
++
+   // If there's no destination file, make one before outputting
+   if (file_ == nullptr) {
+     // Try to rollover the log file every 32 log messages.  The only time
+@@ -1189,8 +1303,20 @@
+     if (++rollover_attempt_ != kRolloverAttemptFrequency) return;
+     rollover_attempt_ = 0;
+ 
+-    struct ::tm tm_time;
+-    std::time_t t = std::chrono::system_clock::to_time_t(timestamp);
++    if (!inited_) {
++      CheckFileNumQuota();
++      inited_ = true;
++    } else {
++      auto log_filenum_quota = FLAGS_log_filenum_quota;
++      if (severity_ == GLOG_WARNING && FLAGS_warn_log_filenum_quota > 0) {
++        log_filenum_quota = FLAGS_warn_log_filenum_quota;
++      }
++      while (log_filenum_quota > 0 &&
++             file_list_.size() >= static_cast<size_t>(log_filenum_quota)) {
++        unlink(file_list_.front().name.c_str());
++        file_list_.pop_front();
++      }
++    }
+ 
+     if (FLAGS_log_utc_time) {
+       gmtime_r(&t, &tm_time);
+@@ -1198,13 +1324,21 @@
+       localtime_r(&t, &tm_time);
+     }
+ 
+-    // The logfile's filename will have the date/time & pid in it
++    // The logfile's filename will have the date/time in it
+     ostringstream time_pid_stream;
+     time_pid_stream.fill('0');
+     time_pid_stream << 1900 + tm_time.tm_year << setw(2) << 1 + tm_time.tm_mon
+-                    << setw(2) << tm_time.tm_mday << '-' << setw(2)
+-                    << tm_time.tm_hour << setw(2) << tm_time.tm_min << setw(2)
+-                    << tm_time.tm_sec << '.' << GetMainThreadPid();
++                    << setw(2) << tm_time.tm_mday;
++
++    if ("hour" == FLAGS_log_split_method) {
++      time_pid_stream << setw(2) << tm_time.tm_hour;
++    } else if ("day" != FLAGS_log_split_method) {
++      time_pid_stream << '-' << setw(2) << tm_time.tm_hour << setw(2)
++                      << tm_time.tm_min << setw(2) << tm_time.tm_sec;
++    }
++
++    tm_time_ = tm_time;
++
+     const string& time_pid_string = time_pid_stream.str();
+ 
+     if (base_filename_selected_) {
+@@ -1215,31 +1349,10 @@
+         return;
+       }
+     } else {
+-      // If no base filename for logs of this severity has been set, use a
+-      // default base filename of
+-      // "<program name>.<hostname>.<user name>.log.<severity level>.".  So
+-      // logfiles will have names like
+-      // webserver.examplehost.root.log.INFO.19990817-150000.4354, where
+-      // 19990817 is a date (1999 August 17), 150000 is a time (15:00:00),
+-      // and 4354 is the pid of the logging process.  The date & time reflect
+-      // when the file was created for output.
+-      //
+-      // Where does the file get put?  Successively try the directories
+-      // "/tmp", and "."
+       string stripped_filename(
+           glog_internal_namespace_::ProgramInvocationShortName());
+-      string hostname;
+-      GetHostName(&hostname);
+-
+-      string uidname = MyUserName();
+-      // We should not call CHECK() here because this function can be
+-      // called after holding on to log_mutex. We don't want to
+-      // attempt to hold on to the same mutex, and get into a
+-      // deadlock. Simply use a name like invalid-user.
+-      if (uidname.empty()) uidname = "invalid-user";
+-
+-      stripped_filename = stripped_filename + '.' + hostname + '.' + uidname +
+-                          ".log." + LogSeverityNames[severity_] + '.';
++      stripped_filename =
++          stripped_filename + "." + LogSeverityNames[severity_] + ".log.";
+       // We're going to (potentially) try to put logs in several different dirs
+       const vector<string>& log_dirs = GetLoggingDirectories();
+ 
+@@ -1261,42 +1374,6 @@
+         return;
+       }
+     }
+-
+-    // Write a header message into the log file
+-    if (FLAGS_log_file_header) {
+-      ostringstream file_header_stream;
+-      file_header_stream.fill('0');
+-      file_header_stream << "Log file created at: " << 1900 + tm_time.tm_year
+-                         << '/' << setw(2) << 1 + tm_time.tm_mon << '/'
+-                         << setw(2) << tm_time.tm_mday << ' ' << setw(2)
+-                         << tm_time.tm_hour << ':' << setw(2) << tm_time.tm_min
+-                         << ':' << setw(2) << tm_time.tm_sec
+-                         << (FLAGS_log_utc_time ? " UTC\n" : "\n")
+-                         << "Running on machine: " << LogDestination::hostname()
+-                         << '\n';
+-
+-      if (!g_application_fingerprint.empty()) {
+-        file_header_stream << "Application fingerprint: "
+-                           << g_application_fingerprint << '\n';
+-      }
+-      const char* const date_time_format = FLAGS_log_year_in_prefix
+-                                               ? "yyyymmdd hh:mm:ss.uuuuuu"
+-                                               : "mmdd hh:mm:ss.uuuuuu";
+-      file_header_stream
+-          << "Running duration (h:mm:ss): "
+-          << PrettyDuration(
+-                 std::chrono::duration_cast<std::chrono::duration<int>>(
+-                     timestamp - start_time_))
+-          << '\n'
+-          << "Log line format: [IWEF]" << date_time_format << " "
+-          << "threadid file:line] msg" << '\n';
+-      const string& file_header_string = file_header_stream.str();
+-
+-      const size_t header_len = file_header_string.size();
+-      fwrite(file_header_string.data(), 1, header_len, file_.get());
+-      file_length_ += header_len;
+-      bytes_since_flush_ += header_len;
+-    }
+   }
+ 
+   // Write to LOG file
+--- a/src/utilities.cc
++++ b/src/utilities.cc
+@@ -296,6 +296,14 @@
+   g_reason.compare_exchange_strong(expected, r);
+ }
+ 
++#ifdef HAVE_STACKTRACE
++void DumpStackTraceToString(std::string* stacktrace) {
++  if (stacktrace == nullptr) return;
++  stacktrace->clear();
++  DumpStackTrace(1, DebugWriteToString, stacktrace);
++}
++#endif
++
+ void InitGoogleLoggingUtilities(const char* argv0) {
+   CHECK(!IsGoogleLoggingInitialized())
+       << "You called InitGoogleLogging() twice!";
