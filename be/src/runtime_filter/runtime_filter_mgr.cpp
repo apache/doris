@@ -127,8 +127,8 @@ Status RuntimeFilterMgr::get_local_merge_producer_filters(int filter_id,
     }
     *local_merge_filters = &iter->second;
     if (!iter->second.merger) {
-        return Status::InternalError(
-                "local merge context merger is nullptr for filter_id: {}", filter_id);
+        return Status::InternalError("local merge context merger is nullptr for filter_id: {}",
+                                     filter_id);
     }
     return Status::OK();
 }

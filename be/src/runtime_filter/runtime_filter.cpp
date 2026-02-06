@@ -64,8 +64,7 @@ Status RuntimeFilter::_push_to_remote(RuntimeState* state, const TNetworkAddress
     if (len > 0) {
         if (data == nullptr) {
             return Status::InternalError(
-                    "data is nullptr after serialization with len > 0, filter: {}",
-                    debug_string());
+                    "data is nullptr after serialization with len > 0, filter: {}", debug_string());
         }
         merge_filter_callback->cntl_->request_attachment().append(data, len);
     }

@@ -213,8 +213,7 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         break;
     }
     default:
-        return Status::InternalError("unknown runtime filter type: {}",
-                                     int(real_filter_type));
+        return Status::InternalError("unknown runtime filter type: {}", int(real_filter_type));
     }
     return Status::OK();
 }
