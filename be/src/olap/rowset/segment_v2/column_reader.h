@@ -744,9 +744,6 @@ public:
 
     ordinal_t get_current_ordinal() const override { return _current_rowid; }
 
-    static void insert_default_data(const vectorized::Field& field,
-                                    vectorized::MutableColumnPtr& dst, size_t n);
-
 private:
     void _insert_many_default(vectorized::MutableColumnPtr& dst, size_t n);
 

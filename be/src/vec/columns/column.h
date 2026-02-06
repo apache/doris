@@ -516,6 +516,7 @@ public:
     // In fact, this function is just calling insert_from but without the overhead of a virtual function.
 
     virtual void append_data_by_selector(MutablePtr& res, const Selector& selector) const = 0;
+    virtual void insert_duplicate_fields(const Field& x, const size_t n) = 0;
 
     // Here, begin and end represent the range of the Selector.
     virtual void append_data_by_selector(MutablePtr& res, const Selector& selector, size_t begin,
@@ -720,6 +721,12 @@ protected:
     template <typename Derived>
     void append_data_by_selector_impl(MutablePtr& res, const Selector& selector) const {
         append_data_by_selector_impl<Derived>(res, selector, 0, selector.size());
+    }
+    template <typename Derived>
+    void insert_impl(const Field& x, const size_t n) {
+        for (size_t i = 0; i < n; ++i) {
+            static_cast<Derived&>(*this).insert(x);
+        }
     }
     template <typename Derived>
     void append_data_by_selector_impl(MutablePtr& res, const Selector& selector, size_t begin,

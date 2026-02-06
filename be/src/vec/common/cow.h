@@ -396,6 +396,7 @@ public:
   */
 namespace vectorized {
 class IColumn;
+class Field;
 }
 template <typename Base, typename Derived>
 class COWHelper : public Base {
@@ -429,6 +430,9 @@ public:
     void append_data_by_selector(typename Base::MutablePtr& res,
                                  const typename Base::Selector& selector) const override {
         this->template append_data_by_selector_impl<Derived>(res, selector);
+    }
+    void insert_duplicate_fields(const vectorized::Field& x, const size_t n) override {
+        this->template insert_impl<Derived>(x, n);
     }
 
     void append_data_by_selector(typename Base::MutablePtr& res,

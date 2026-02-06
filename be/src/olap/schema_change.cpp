@@ -388,8 +388,8 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
                 DCHECK(column->is_nullable());
                 column->insert_many_defaults(row_num);
             } else {
-                auto type_info = get_type_info(_schema_mapping[idx].new_column);
-                DefaultValueColumnIterator::insert_default_data(value, column, row_num);
+                column = column->convert_to_predicate_column_if_dictionary();
+                column->insert_duplicate_fields(value, row_num);
             }
         } else {
             // same type, just swap column

@@ -2095,14 +2095,6 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
     return Status::OK();
 }
 
-void DefaultValueColumnIterator::insert_default_data(const vectorized::Field& value,
-                                                     vectorized::MutableColumnPtr& dst, size_t n) {
-    dst = dst->convert_to_predicate_column_if_dictionary();
-    for (size_t i = 0; i < n; ++i) {
-        dst->insert(value);
-    }
-}
-
 Status DefaultValueColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
                                               bool* has_null) {
     *has_null = _default_value_field.is_null();
@@ -2120,7 +2112,8 @@ void DefaultValueColumnIterator::_insert_many_default(vectorized::MutableColumnP
     if (_default_value_field.is_null()) {
         dst->insert_many_defaults(n);
     } else {
-        insert_default_data(_default_value_field, dst, n);
+        dst = dst->convert_to_predicate_column_if_dictionary();
+        dst->insert_duplicate_fields(_default_value_field, n);
     }
 }
 
