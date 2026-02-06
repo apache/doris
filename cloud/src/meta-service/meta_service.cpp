@@ -1216,6 +1216,13 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
                 LOG_INFO("overwrite schema kv for disable_auto_compaction update")
                         .tag("key", hex(key))
                         .tag("disable_auto_compaction", tablet_meta_info.disable_auto_compaction());
+                // Remove old blob chunks first to avoid orphaned KVs when
+                // the value format or size changes across versions.
+                ValueBuf old_val;
+                auto get_err = cloud::blob_get(txn.get(), key, &old_val);
+                if (get_err == TxnErrorCode::TXN_OK) {
+                    old_val.remove(txn.get());
+                }
                 uint8_t ver = config::meta_schema_value_version;
                 if (ver > 0) {
                     cloud::blob_put(txn.get(), key, schema_pb, ver);
