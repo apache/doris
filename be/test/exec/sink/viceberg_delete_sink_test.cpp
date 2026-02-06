@@ -243,7 +243,8 @@ TEST_F(VIcebergDeleteSinkTest, TestCollectPositionDeletesByFieldNames) {
     struct_types.push_back(std::make_shared<DataTypeString>());
     struct_types.push_back(std::make_shared<DataTypeInt32>());
 
-    Strings field_names = {"pos", "file_path", "partition_data_json", "spec_id"};
+    // Standard field names are accepted even if order changes.
+    Strings field_names = {"row_position", "file_path", "partition_data", "partition_spec_id"};
     auto struct_type = std::make_shared<DataTypeStruct>(struct_types, field_names);
 
     auto struct_col = ColumnStruct::create(std::move(struct_cols));
@@ -260,6 +261,48 @@ TEST_F(VIcebergDeleteSinkTest, TestCollectPositionDeletesByFieldNames) {
     ASSERT_EQ("[\"p=1\"]", file.partition_data_json);
     ASSERT_EQ(1, file.rows_to_delete.cardinality());
     ASSERT_TRUE(file.rows_to_delete.contains(static_cast<uint64_t>(100)));
+}
+
+TEST_F(VIcebergDeleteSinkTest, TestCollectPositionDeletesRejectNonStandardFieldNames) {
+    VExprContextSPtrs output_exprs;
+    auto sink = std::make_shared<VIcebergDeleteSink>(_t_data_sink, output_exprs, nullptr, nullptr);
+
+    Block block;
+
+    auto row_pos_col = ColumnInt64::create();
+    row_pos_col->insert_value(100);
+
+    auto file_path_col = ColumnString::create();
+    file_path_col->insert_data("file1.parquet", 13);
+
+    auto partition_data_col = ColumnString::create();
+    partition_data_col->insert_data("[\"p=1\"]", 7);
+
+    auto spec_id_col = ColumnInt32::create();
+    spec_id_col->insert_value(3);
+
+    Columns struct_cols;
+    struct_cols.push_back(std::move(row_pos_col));
+    struct_cols.push_back(std::move(file_path_col));
+    struct_cols.push_back(std::move(partition_data_col));
+    struct_cols.push_back(std::move(spec_id_col));
+
+    DataTypes struct_types;
+    struct_types.push_back(std::make_shared<DataTypeInt64>());
+    struct_types.push_back(std::make_shared<DataTypeString>());
+    struct_types.push_back(std::make_shared<DataTypeString>());
+    struct_types.push_back(std::make_shared<DataTypeInt32>());
+
+    Strings field_names = {"pos", "file_path", "partition_data_json", "spec_id"};
+    auto struct_type = std::make_shared<DataTypeStruct>(struct_types, field_names);
+
+    auto struct_col = ColumnStruct::create(std::move(struct_cols));
+    block.insert(ColumnWithTypeAndName(std::move(struct_col), struct_type,
+                                       doris::BeConsts::ICEBERG_ROWID_COL));
+
+    std::map<std::string, IcebergFileDeletion> file_deletions;
+    Status status = sink->_collect_position_deletes(block, file_deletions);
+    ASSERT_FALSE(status.ok());
 }
 
 TEST_F(VIcebergDeleteSinkTest, TestCollectPositionDeletesFallbackPartitionInfo) {

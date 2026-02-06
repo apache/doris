@@ -659,6 +659,16 @@ public class IcebergUtils {
                 return null;
             }
 
+            TypeID partitionTypeId = field.type().typeId();
+            if (partitionTypeId == TypeID.BINARY || partitionTypeId == TypeID.FIXED) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(
+                            "Skip dynamic partition pruning for binary partition field: {}",
+                            field.name());
+                }
+                return null;
+            }
+
             Object value = partitionData.get(i);
             try {
                 String partitionString = serializePartitionValue(field.type(), value, timeZone);

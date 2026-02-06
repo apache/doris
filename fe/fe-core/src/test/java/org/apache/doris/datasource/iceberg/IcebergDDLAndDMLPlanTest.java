@@ -554,7 +554,7 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
     }
 
     @Test
-    public void testIcebergDeleteExchangeUsesRowIdOnly() throws Exception {
+    public void testIcebergDeleteExchangeUsesMergePartitioning() throws Exception {
         useIceberg();
         String sql = "delete from " + tableName + " where id > 1";
         LogicalPlan deletePlan = parseStmt(sql);
@@ -563,14 +563,21 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
 
         PhysicalIcebergDeleteSink<?> sink = getSinglePhysicalSink(physicalPlan, PhysicalIcebergDeleteSink.class);
         ExprId rowIdExprId = findRowIdExprId(sink.child().getOutput());
+        ExprId operationExprId = findOperationExprId(sink.child().getOutput());
         Assertions.assertTrue(sink.child() instanceof PhysicalDistribute,
-                "Missing row_id exchange\n" + physicalPlan.treeString());
+                "Missing merge-partition exchange\n" + physicalPlan.treeString());
         PhysicalDistribute<?> distribute = (PhysicalDistribute<?>) sink.child();
-        Assertions.assertTrue(distribute.getDistributionSpec() instanceof DistributionSpecHash,
-                "Missing row_id hash distribution\n" + physicalPlan.treeString());
-        DistributionSpecHash hash = (DistributionSpecHash) distribute.getDistributionSpec();
-        Assertions.assertEquals(ImmutableList.of(rowIdExprId), hash.getOrderedShuffledColumns());
+        Assertions.assertTrue(distribute.getDistributionSpec() instanceof DistributionSpecMerge,
+                "Missing merge distribution spec\n" + physicalPlan.treeString());
+        DistributionSpecMerge spec = (DistributionSpecMerge) distribute.getDistributionSpec();
+        Assertions.assertEquals(operationExprId, spec.getOperationExprId());
+        Assertions.assertEquals(ImmutableList.of(rowIdExprId), spec.getDeletePartitionExprIds());
+        Assertions.assertTrue(spec.getInsertPartitionExprIds().isEmpty());
+        Assertions.assertTrue(spec.getInsertPartitionFields().isEmpty());
+        Assertions.assertTrue(spec.isInsertRandom());
+        Assertions.assertNull(spec.getPartitionSpecId());
     }
+
 
     @Test
     public void testIcebergUpdateExplainHasExchange() throws Exception {
@@ -613,6 +620,7 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
                 ExplainCommand.ExplainLevel.DISTRIBUTED_PLAN, sql);
         String upper = explain.toUpperCase();
         Assertions.assertTrue(upper.contains("EXCHANGE"), explain);
+        Assertions.assertTrue(upper.contains("MERGE_PARTITIONED"), explain);
         Assertions.assertTrue(upper.contains("ICEBERG DELETE SINK"), explain);
         Assertions.assertTrue(upper.contains(Column.ICEBERG_ROWID_COL.toUpperCase()), explain);
     }

@@ -134,6 +134,7 @@ Status ExchangeTrivialWriter::write(RuntimeState* state, Block* block, bool eos)
         RETURN_IF_ERROR(_partitioner->do_partitioning(state, block));
     }
     {
+        auto rows = block->rows();
         SCOPED_TIMER(_local_state.distribute_rows_into_channels_timer());
         const auto& channel_ids = _partitioner->get_channel_ids();
 

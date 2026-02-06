@@ -221,14 +221,6 @@ Status VIcebergDeleteSink::_collect_position_deletes(
     }
 
     auto normalize = [](const std::string& name) { return doris::to_lower(name); };
-    auto match_any = [](const std::string& name, std::initializer_list<const char*> candidates) {
-        for (const char* candidate : candidates) {
-            if (name == candidate) {
-                return true;
-            }
-        }
-        return false;
-    };
 
     int file_path_idx = -1;
     int row_position_idx = -1;
@@ -237,36 +229,29 @@ Status VIcebergDeleteSink::_collect_position_deletes(
     const auto& field_names = struct_type->get_element_names();
     for (size_t i = 0; i < field_names.size(); ++i) {
         std::string name = normalize(field_names[i]);
-        if (file_path_idx < 0 && match_any(name, {"file_path", "data_file_path", "path"})) {
+        if (file_path_idx < 0 && name == "file_path") {
             file_path_idx = static_cast<int>(i);
-        } else if (row_position_idx < 0 &&
-                   match_any(name, {"row_position", "row_pos", "pos", "position"})) {
+        } else if (row_position_idx < 0 && name == "row_position") {
             row_position_idx = static_cast<int>(i);
-        } else if (spec_id_idx < 0 &&
-                   match_any(name, {"partition_spec_id", "spec_id", "partition_specid"})) {
+        } else if (spec_id_idx < 0 && name == "partition_spec_id") {
             spec_id_idx = static_cast<int>(i);
-        } else if (partition_data_idx < 0 &&
-                   match_any(name, {"partition_data", "partition_data_json"})) {
+        } else if (partition_data_idx < 0 && name == "partition_data") {
             partition_data_idx = static_cast<int>(i);
         }
     }
 
-    if (file_path_idx < 0 && field_count >= 1) {
-        file_path_idx = 0;
-    }
-    if (row_position_idx < 0 && field_count >= 2) {
-        row_position_idx = 1;
-    }
-    if (spec_id_idx < 0 && field_count >= 3) {
-        spec_id_idx = 2;
-    }
-    if (partition_data_idx < 0 && field_count >= 4) {
-        partition_data_idx = 3;
-    }
-
     if (file_path_idx < 0 || row_position_idx < 0) {
         return Status::InternalError(
-                "__DORIS_ICEBERG_ROWID_COL__ missing required fields file_path/row_position");
+                "__DORIS_ICEBERG_ROWID_COL__ must contain standard fields file_path and "
+                "row_position");
+    }
+    if (field_count >= 3 && spec_id_idx < 0) {
+        return Status::InternalError(
+                "__DORIS_ICEBERG_ROWID_COL__ must use standard field name partition_spec_id");
+    }
+    if (field_count >= 4 && partition_data_idx < 0) {
+        return Status::InternalError(
+                "__DORIS_ICEBERG_ROWID_COL__ must use standard field name partition_data");
     }
 
     const auto* file_path_col = check_and_get_column<ColumnString>(

@@ -20,8 +20,10 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.properties.DistributionSpecMerge;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -145,13 +147,26 @@ public class PhysicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends Physical
     @Override
     public PhysicalProperties getRequirePhysicalProperties() {
         ExprId rowIdExprId = null;
+        ExprId operationExprId = null;
         for (Slot slot : child().getOutput()) {
             String name = slot.getName();
+            if (operationExprId == null && IcebergMergeOperation.OPERATION_COLUMN.equalsIgnoreCase(name)) {
+                operationExprId = slot.getExprId();
+            }
             if (rowIdExprId == null && Column.ICEBERG_ROWID_COL.equalsIgnoreCase(name)) {
                 rowIdExprId = slot.getExprId();
             }
         }
 
+        if (rowIdExprId != null && operationExprId != null) {
+            return new PhysicalProperties(new DistributionSpecMerge(
+                    operationExprId,
+                    ImmutableList.of(),
+                    ImmutableList.of(rowIdExprId),
+                    true,
+                    ImmutableList.of(),
+                    null));
+        }
         if (rowIdExprId != null) {
             return PhysicalProperties.createHash(ImmutableList.of(rowIdExprId), ShuffleType.REQUIRE);
         }
