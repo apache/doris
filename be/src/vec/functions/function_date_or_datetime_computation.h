@@ -236,7 +236,7 @@ private:
         // which contains 5 parts
         uint64_t time_part[5] = {0};
         bool is_negative = false;
-        std::memset(&interval, 0, sizeof(interval));
+        interval = TimeInterval {};
 
         auto str_ref = StringRef {delta.data(), delta.length()}.trim();
 
