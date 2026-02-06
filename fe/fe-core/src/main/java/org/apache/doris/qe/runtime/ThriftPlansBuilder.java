@@ -403,7 +403,7 @@ public class ThriftPlansBuilder {
             params.setLocalParams(Lists.newArrayList());
             params.setWorkloadGroups(coordinatorContext.getWorkloadGroups());
 
-           if (connectContext != null && connectContext.getCurrentUserIdentity() != null) {
+            if (connectContext != null && connectContext.getCurrentUserIdentity() != null) {
                 TResourceInfo resourceInfo = new TResourceInfo();
                 resourceInfo.setUser(connectContext.getCurrentUserIdentity().getQualifiedUser());
                 resourceInfo.setGroup("");
