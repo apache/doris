@@ -87,4 +87,8 @@ public class SetOptionsCommand extends Command implements Forward, NeedAuditEncr
             varOp.afterForwardToMaster(ctx);
         }
     }
+
+    public List<SetVarOp> getSetVarOps() {
+        return setVarOpList;
+    }
 }
