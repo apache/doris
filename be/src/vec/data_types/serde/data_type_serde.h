@@ -214,6 +214,7 @@ public:
          * unscaled value.
          */
         bool ignore_scale = false;
+        int char_len = -1;
 
         [[nodiscard]] char get_collection_delimiter(
                 int hive_text_complex_type_delimiter_level) const {

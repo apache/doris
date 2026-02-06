@@ -2082,9 +2082,10 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
             }
             const auto t = _type_info->type();
             const auto serde = vectorized::DataTypeFactory::instance()
-                                       .create_data_type(t, _precision, _scale)
+                                       .create_data_type(t, _precision, _scale, _len)
                                        ->get_serde();
             vectorized::DataTypeSerDe::FormatOptions opt;
+            opt.char_len = _len;
             RETURN_IF_ERROR(serde->from_olap_string(_default_value, _default_value_field, opt));
         }
     } else if (_is_nullable) {

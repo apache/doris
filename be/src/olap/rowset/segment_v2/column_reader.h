@@ -713,13 +713,14 @@ private:
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
     DefaultValueColumnIterator(bool has_default_value, std::string default_value, bool is_nullable,
-                               TypeInfoPtr type_info, int precision, int scale)
+                               TypeInfoPtr type_info, int precision, int scale, int len)
             : _has_default_value(has_default_value),
               _default_value(std::move(default_value)),
               _is_nullable(is_nullable),
               _type_info(std::move(type_info)),
               _precision(precision),
-              _scale(scale) {}
+              _scale(scale),
+              _len(len) {}
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -753,6 +754,7 @@ private:
     TypeInfoPtr _type_info;
     int _precision;
     int _scale;
+    const int _len;
     vectorized::Field _default_value_field;
 
     // current rowid
