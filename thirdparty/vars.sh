@@ -468,6 +468,12 @@ HADOOP_LIBS_NAME="hadoop-3.3.6.5-for-doris.tar.gz"
 HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.5-for-doris"
 HADOOP_LIBS_MD5SUM="c13f90ceb5ef9460b7d736c49d9b79fd"
 
+HADOOP_LIBS_3_4_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.4.2.1-for-doris.tar.gz"
+HADOOP_LIBS_3_4_NAME="hadoop-3.4.2.1-for-doris.tar.gz"
+HADOOP_LIBS_3_4_SOURCE="doris-thirdparty-hadoop-3.4.2.1-for-doris"
+HADOOP_LIBS_3_4_MD5SUM="4ca35773ecfae856962885413f6bbeac"
+
+
 # AvxToNeon
 AVX2NEON_DOWNLOAD="https://github.com/kunpengcompute/AvxToNeon/archive/refs/tags/v1.0.0.tar.gz"
 AVX2NEON_NAME=v1.0.0.tar.gz
@@ -590,6 +596,7 @@ export TP_ARCHIVES=(
     'CONCURRENTQUEUE'
     'FAST_FLOAT'
     'HADOOP_LIBS'
+    'HADOOP_LIBS_3_4'
     'AVX2NEON'
     'LIBDEFLATE'
     'STREAMVBYTE'
