@@ -295,9 +295,29 @@ public abstract class ExternalCatalog
 
     /**
      * @param dbName
-     * @return names of tables in specified database
+     * @return names of tables in specified database, filtered by include_table_list if configured
      */
-    public abstract List<String> listTableNames(SessionContext ctx, String dbName);
+    public final List<String> listTableNames(SessionContext ctx, String dbName) {
+        makeSureInitialized();
+        Map<String, List<String>> includeTableMap = getIncludeTableMap();
+        if (includeTableMap.containsKey(dbName) && !includeTableMap.get(dbName).isEmpty()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get table list from include map. catalog: {}, db: {}, tables: {}",
+                        name, dbName, includeTableMap.get(dbName));
+            }
+            return includeTableMap.get(dbName);
+        }
+        return listTableNamesFromRemote(ctx, dbName);
+    }
+
+    /**
+     * Subclasses implement this method to list table names from the remote data source.
+     *
+     * @param ctx session context
+     * @param dbName database name
+     * @return names of tables in the specified database from the remote source
+     */
+    protected abstract List<String> listTableNamesFromRemote(SessionContext ctx, String dbName);
 
     /**
      * check if the specified table exist.

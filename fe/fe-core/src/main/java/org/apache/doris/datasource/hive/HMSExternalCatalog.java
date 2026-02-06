@@ -176,16 +176,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public List<String> listTableNames(SessionContext ctx, String dbName) {
-        makeSureInitialized();
-        Map<String, List<String>> includeTableMap = getIncludeTableMap();
-        if (includeTableMap.containsKey(dbName) && !includeTableMap.get(dbName).isEmpty()) {
-            LOG.debug("get table list from include map. catalog: {}, db: {}, tables: {}",
-                    name, dbName, includeTableMap.get(dbName));
-            return includeTableMap.get(dbName);
-        } else {
-            return metadataOps.listTableNames(ClusterNamespace.getNameFromFullName(dbName));
-        }
+    protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
+        return metadataOps.listTableNames(ClusterNamespace.getNameFromFullName(dbName));
     }
 
     @Override

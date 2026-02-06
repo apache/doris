@@ -280,8 +280,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public List<String> listTableNames(SessionContext ctx, String dbName) {
-        makeSureInitialized();
+    protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
         return jdbcClient.getTablesNameList(dbName);
     }
 
