@@ -175,6 +175,57 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
         return;
     }
 
+    // Check disable_auto_compaction from tablet schema stored in MetaService.
+    // This catches the case where BE's in-memory cache is stale (up to 30min delay).
+    {
+        bool disable = false;
+        doris::TabletMetaCloudPB tablet_meta;
+        if (is_versioned_read) {
+            CloneChainReader reader(instance_id, resource_mgr);
+            auto err = reader.get_tablet_meta(txn.get(), tablet_id, &tablet_meta, nullptr);
+            if (err == TxnErrorCode::TXN_OK) {
+                if (tablet_meta.has_schema() && tablet_meta.schema().column_size() > 0) {
+                    disable = tablet_meta.schema().disable_auto_compaction();
+                } else if (tablet_meta.has_schema_version()) {
+                    doris::TabletSchemaCloudPB schema;
+                    err = reader.get_tablet_schema(txn.get(), index_id,
+                                                   tablet_meta.schema_version(), &schema);
+                    if (err == TxnErrorCode::TXN_OK) {
+                        disable = schema.disable_auto_compaction();
+                    }
+                }
+            }
+        } else {
+            MetaTabletKeyInfo key_info {instance_id, table_id, index_id, partition_id, tablet_id};
+            std::string tablet_key;
+            meta_tablet_key(key_info, &tablet_key);
+            std::string tablet_val;
+            auto err = txn->get(tablet_key, &tablet_val);
+            if (err == TxnErrorCode::TXN_OK && tablet_meta.ParseFromString(tablet_val)) {
+                if (tablet_meta.has_schema() && tablet_meta.schema().column_size() > 0) {
+                    disable = tablet_meta.schema().disable_auto_compaction();
+                } else if (tablet_meta.has_schema_version()) {
+                    auto schema_key =
+                            meta_schema_key({instance_id, index_id, tablet_meta.schema_version()});
+                    ValueBuf val_buf;
+                    err = cloud::blob_get(txn.get(), schema_key, &val_buf);
+                    if (err == TxnErrorCode::TXN_OK) {
+                        doris::TabletSchemaCloudPB schema;
+                        if (val_buf.to_pb(&schema)) {
+                            disable = schema.disable_auto_compaction();
+                        }
+                    }
+                }
+            }
+        }
+        if (disable) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            SS << "tablet has disable_auto_compaction enabled, tablet_id=" << tablet_id;
+            msg = ss.str();
+            return;
+        }
+    }
+
     auto job_key = job_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
     std::string job_val;
     TabletJobInfoPB job_pb;
