@@ -88,10 +88,6 @@ public:
         return *reinterpret_cast<const char*>(cell(sign_idx).cell_ptr()) > 0;
     }
 
-    // set max/min for key field in _field_array
-    Status build_max_key();
-    Status build_min_key();
-
     char* get_buf() const { return _fixed_buf; }
 
     // this two functions is used in unit test
