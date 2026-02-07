@@ -138,6 +138,7 @@ public:
                                           const uint32_t* indices_end);
 
     void insert(const Field& x) override;
+    void insert_duplicate_fields(const Field& x, const size_t n) override;
     void insert_from(const IColumn& src, size_t n) override;
 
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;

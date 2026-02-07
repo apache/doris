@@ -58,8 +58,8 @@ public:
     Status from_string_batch(const ColumnString& str, ColumnNullable& column,
                              const FormatOptions& options) const override;
 
-    Status from_string(const std::string& str, Field& field,
-                       const FormatOptions& options) const override;
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
 
     Status from_string_strict_mode_batch(
             const ColumnString& str, IColumn& column, const FormatOptions& options,

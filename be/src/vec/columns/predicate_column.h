@@ -319,6 +319,28 @@ public:
         return this->create();
     }
 
+    void insert_duplicate_fields(const Field& x, const size_t n) override {
+        if constexpr (is_string_type(Type)) {
+            const auto& str = x.get<TYPE_STRING>();
+            auto* dst = _arena.alloc(str.size() * n);
+            for (size_t i = 0; i < n; i++) {
+                memcpy(dst, str.data(), str.size());
+                insert_string_value(dst, str.size());
+                dst += i * str.size();
+            }
+        } else if constexpr (Type == TYPE_LARGEINT) {
+            const auto& v = x.get<TYPE_LARGEINT>();
+            for (size_t i = 0; i < n; i++) {
+                insert_in_copy_way(reinterpret_cast<const char*>(&v), sizeof(v));
+            }
+        } else {
+            const auto& v = x.get<Type>();
+            for (size_t i = 0; i < n; i++) {
+                insert_default_type(reinterpret_cast<const char*>(&v), sizeof(v));
+            }
+        }
+    }
+
     void insert(const Field& x) override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "insert not supported in PredicateColumnType");
