@@ -744,6 +744,18 @@ public class Config extends ConfigBase {
             "Txn manager will reject coming txns."})
     public static int max_running_txn_num_per_db = 10000;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否将事务的 edit log 写入移到写锁之外以减少锁竞争。"
+                    + "开启后，edit log 条目在写锁内入队（FIFO 保证顺序），"
+                    + "在写锁外等待持久化完成，从而降低写锁持有时间，提高并发事务吞吐量。"
+                    + "默认开启。关闭后使用传统的锁内同步写入模式。",
+            "Whether to move transaction edit log writes outside the write lock to reduce lock contention. "
+                    + "When enabled, edit log entries are enqueued inside the write lock (FIFO preserves ordering) "
+                    + "and awaited outside the lock, reducing write lock hold time "
+                    + "and improving concurrent transaction throughput. "
+                    + "Default is true. Set to false to use the traditional in-lock synchronous write mode."})
+    public static boolean enable_txn_log_outside_lock = true;
+
     @ConfField(masterOnly = true, description = {"pending load task 执行线程数。这个配置可以限制当前等待的导入作业数。"
             + "并且应小于 `max_running_txn_num_per_db`。",
             "The pending load task executor pool size. "
