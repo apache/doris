@@ -26,8 +26,10 @@
 
 #include "common/cast_set.h"
 #include "olap/rowset/segment_v2/index_reader_helper.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_execute_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
@@ -1121,43 +1123,26 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        const auto& addr_column_with_type_and_name = block.get_by_position(arguments[0]);
-        const ColumnPtr& addr_column = addr_column_with_type_and_name.column;
-        const ColumnString* str_addr_column = nullptr;
-        const NullMap* addr_null_map = nullptr;
-
-        if (addr_column_with_type_and_name.type->is_nullable()) {
-            const auto* addr_column_nullable =
-                    assert_cast<const ColumnNullable*>(addr_column.get());
-            str_addr_column = assert_cast<const ColumnString*>(
-                    addr_column_nullable->get_nested_column_ptr().get());
-            addr_null_map = &addr_column_nullable->get_null_map_data();
-        } else {
-            str_addr_column = assert_cast<const ColumnString*>(addr_column.get());
-        }
-
         auto col_res = ColumnVector<PType>::create(input_rows_count, 0);
         auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto& col_res_data = col_res->get_data();
         auto& res_null_map_data = res_null_map->get_data();
 
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            if (addr_null_map && (*addr_null_map)[i]) {
-                if constexpr (exception_mode == IPConvertExceptionMode::Throw) {
-                    throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                    "The arguments of function {} must be String, not NULL",
-                                    get_name());
-                } else if constexpr (exception_mode == IPConvertExceptionMode::Default) {
-                    col_res_data[i] = 0; // '0.0.0.0' or '::'
-                    continue;
-                } else {
-                    res_null_map_data[i] = 1;
-                    continue;
-                }
+        auto null_func = [&](size_t i) ALWAYS_INLINE {
+            if constexpr (exception_mode == IPConvertExceptionMode::Throw) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "The arguments of function {} must be String, not NULL",
+                                get_name());
+            } else if constexpr (exception_mode == IPConvertExceptionMode::Default) {
+                col_res_data[i] = 0; // '0.0.0.0' or '::'
+            } else {
+                res_null_map_data[i] = 1;
             }
+        };
 
+        auto func = [&](size_t i, StringRef ip_str) ALWAYS_INLINE {
             if constexpr (PType == TYPE_IPV4) {
-                StringRef ipv4_str = str_addr_column->get_data_at(i);
+                StringRef ipv4_str = ip_str;
                 IPv4 ipv4_val = 0;
                 if (IPv4Value::from_string(ipv4_val, ipv4_str.data, ipv4_str.size)) {
                     col_res_data[i] = ipv4_val;
@@ -1172,7 +1157,7 @@ public:
                     }
                 }
             } else {
-                StringRef ipv6_str = str_addr_column->get_data_at(i);
+                StringRef ipv6_str = ip_str;
                 IPv6 ipv6_val = 0;
                 if (IPv6Value::from_string(ipv6_val, ipv6_str.data, ipv6_str.size)) {
                     col_res_data[i] = ipv6_val;
@@ -1187,7 +1172,10 @@ public:
                     }
                 }
             }
-        }
+        };
+
+        ExecuteColumn::execute_unary_compile_time<TYPE_STRING>(
+                block.get_by_position(arguments[0]).column, null_func, func);
 
         if constexpr (exception_mode == IPConvertExceptionMode::Null) {
             block.replace_by_position(
