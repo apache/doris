@@ -80,7 +80,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -92,7 +91,9 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -136,8 +137,10 @@ public class DatabaseTransactionMgr {
     // The "Short" queue is used to store the txns of the expire time
     // controlled by Config.streaming_label_keep_max_second.
     // The "Long" queue is used to store the txns of the expire time controlled by Config.label_keep_max_second.
-    private final ArrayDeque<TransactionState> finalStatusTransactionStateDequeShort = new ArrayDeque<>();
-    private final ArrayDeque<TransactionState> finalStatusTransactionStateDequeLong = new ArrayDeque<>();
+    private final ConcurrentLinkedDeque<TransactionState> finalStatusTransactionStateDequeShort
+            = new ConcurrentLinkedDeque<>();
+    private final ConcurrentLinkedDeque<TransactionState> finalStatusTransactionStateDequeLong
+            = new ConcurrentLinkedDeque<>();
 
     // label -> txn ids
     // this is used for checking if label already used. a label may correspond to multiple txns,
@@ -152,7 +155,7 @@ public class DatabaseTransactionMgr {
     private Long lastCommittedTxnCountUpdateTime = 0L;
 
     // count the number of running txns of database
-    private volatile int runningTxnNums = 0;
+    private final AtomicInteger runningTxnNums = new AtomicInteger(0);
 
     private final Env env;
 
@@ -224,7 +227,7 @@ public class DatabaseTransactionMgr {
     }
 
     protected int getRunningTxnNums() {
-        return runningTxnNums;
+        return runningTxnNums.get();
     }
 
     @VisibleForTesting
@@ -376,6 +379,7 @@ public class DatabaseTransactionMgr {
                     tid, label, requestId, sourceType, coordinator, listenerId, timeoutSecond * 1000);
             transactionState.setPrepareTime(System.currentTimeMillis());
             unprotectUpdateInMemoryState(transactionState, false);
+            updateTxnLabels(transactionState);
             if (Config.enable_txn_log_outside_lock) {
                 logItem = enqueueTransactionState(transactionState);
             } else {
@@ -459,8 +463,7 @@ public class DatabaseTransactionMgr {
                           tableToPartition, totalInvolvedBackends);
 
         EditLog.EditLogItem logItem = null;
-        writeLock();
-        try {
+        synchronized (transactionState) {
             unprotectedPreCommitTransaction2PC(transactionState, errorReplicaIds, tableToPartition,
                     totalInvolvedBackends, db);
             if (Config.enable_txn_log_outside_lock) {
@@ -468,8 +471,6 @@ public class DatabaseTransactionMgr {
             } else {
                 persistTransactionState(transactionState);
             }
-        } finally {
-            writeUnlock();
         }
         awaitTransactionState(logItem, transactionState);
         LOG.info("transaction:[{}] successfully pre-committed", transactionState);
@@ -820,8 +821,7 @@ public class DatabaseTransactionMgr {
         // transaction state transform
         boolean txnOperated = false;
         EditLog.EditLogItem logItem = null;
-        writeLock();
-        try {
+        synchronized (transactionState) {
             if (is2PC) {
                 unprotectedCommitTransaction2PC(transactionState, db);
             } else {
@@ -834,14 +834,12 @@ public class DatabaseTransactionMgr {
                 persistTransactionState(transactionState);
             }
             txnOperated = true;
-        } finally {
-            writeUnlock();
-            // after state transform
-            try {
-                transactionState.afterStateTransform(TransactionStatus.COMMITTED, txnOperated);
-            } catch (Throwable e) {
-                LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
-            }
+        }
+        // after state transform
+        try {
+            transactionState.afterStateTransform(TransactionStatus.COMMITTED, txnOperated);
+        } catch (Throwable e) {
+            LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
         }
         if (txnOperated) {
             awaitTransactionState(logItem, transactionState);
@@ -896,8 +894,7 @@ public class DatabaseTransactionMgr {
         // transaction state transform
         boolean txnOperated = false;
         EditLog.EditLogItem logItem = null;
-        writeLock();
-        try {
+        synchronized (transactionState) {
             unprotectedCommitTransaction(transactionState, errorReplicaIds, subTxnToPartition, totalInvolvedBackends,
                     subTransactionStates, db);
             if (Config.enable_txn_log_outside_lock) {
@@ -906,14 +903,12 @@ public class DatabaseTransactionMgr {
                 persistTransactionState(transactionState);
             }
             txnOperated = true;
-        } finally {
-            writeUnlock();
-            // after state transform
-            try {
-                transactionState.afterStateTransform(TransactionStatus.COMMITTED, txnOperated);
-            } catch (Throwable e) {
-                LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
-            }
+        }
+        // after state transform
+        try {
+            transactionState.afterStateTransform(TransactionStatus.COMMITTED, txnOperated);
+        } catch (Throwable e) {
+            LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
         }
         if (txnOperated) {
             awaitTransactionState(logItem, transactionState);
@@ -965,15 +960,15 @@ public class DatabaseTransactionMgr {
             // here we only delete the oldest element, so if element exist in finalStatusTransactionStateDeque,
             // it must at the front of the finalStatusTransactionStateDeque.
             // check both "short" and "long" queue.
-            if (!finalStatusTransactionStateDequeShort.isEmpty()
-                    && transactionState.getTransactionId()
-                    == finalStatusTransactionStateDequeShort.getFirst().getTransactionId()) {
-                finalStatusTransactionStateDequeShort.pop();
+            TransactionState shortHead = finalStatusTransactionStateDequeShort.peekFirst();
+            TransactionState longHead = finalStatusTransactionStateDequeLong.peekFirst();
+            if (shortHead != null
+                    && transactionState.getTransactionId() == shortHead.getTransactionId()) {
+                finalStatusTransactionStateDequeShort.pollFirst();
                 clearTransactionState(transactionState.getTransactionId());
-            } else if (!finalStatusTransactionStateDequeLong.isEmpty()
-                    && transactionState.getTransactionId()
-                    == finalStatusTransactionStateDequeLong.getFirst().getTransactionId()) {
-                finalStatusTransactionStateDequeLong.pop();
+            } else if (longHead != null
+                    && transactionState.getTransactionId() == longHead.getTransactionId()) {
+                finalStatusTransactionStateDequeLong.pollFirst();
                 clearTransactionState(transactionState.getTransactionId());
             }
         } finally {
@@ -988,13 +983,13 @@ public class DatabaseTransactionMgr {
                 // here we only delete the oldest element, so if element exist in finalStatusTransactionStateDeque,
                 // it must at the front of the finalStatusTransactionStateDeque
                 // check both "short" and "long" queue.
-                if (!finalStatusTransactionStateDequeShort.isEmpty()
-                        && txnId == finalStatusTransactionStateDequeShort.getFirst().getTransactionId()) {
-                    finalStatusTransactionStateDequeShort.pop();
+                TransactionState shortHead = finalStatusTransactionStateDequeShort.peekFirst();
+                TransactionState longHead = finalStatusTransactionStateDequeLong.peekFirst();
+                if (shortHead != null && txnId == shortHead.getTransactionId()) {
+                    finalStatusTransactionStateDequeShort.pollFirst();
                     clearTransactionState(txnId);
-                } else if (!finalStatusTransactionStateDequeLong.isEmpty()
-                        && txnId == finalStatusTransactionStateDequeLong.getFirst().getTransactionId()) {
-                    finalStatusTransactionStateDequeLong.pop();
+                } else if (longHead != null && txnId == longHead.getTransactionId()) {
+                    finalStatusTransactionStateDequeLong.pollFirst();
                     clearTransactionState(txnId);
                 }
             }
@@ -1007,8 +1002,8 @@ public class DatabaseTransactionMgr {
         writeLock();
         try {
             if (operation.getLatestTxnIdForShort() != -1) {
-                while (!finalStatusTransactionStateDequeShort.isEmpty()) {
-                    TransactionState transactionState = finalStatusTransactionStateDequeShort.pop();
+                TransactionState transactionState;
+                while ((transactionState = finalStatusTransactionStateDequeShort.pollFirst()) != null) {
                     clearTransactionState(transactionState.getTransactionId());
                     if (operation.getLatestTxnIdForShort() == transactionState.getTransactionId()) {
                         break;
@@ -1017,8 +1012,8 @@ public class DatabaseTransactionMgr {
             }
 
             if (operation.getLatestTxnIdForLong() != -1) {
-                while (!finalStatusTransactionStateDequeLong.isEmpty()) {
-                    TransactionState transactionState = finalStatusTransactionStateDequeLong.pop();
+                TransactionState transactionState;
+                while ((transactionState = finalStatusTransactionStateDequeLong.pollFirst()) != null) {
                     clearTransactionState(transactionState.getTransactionId());
                     if (operation.getLatestTxnIdForLong() == transactionState.getTransactionId()) {
                         break;
@@ -1205,8 +1200,7 @@ public class DatabaseTransactionMgr {
             }
             boolean txnOperated = false;
             EditLog.EditLogItem logItem = null;
-            writeLock();
-            try {
+            synchronized (transactionState) {
                 transactionState.setErrorReplicas(errorReplicaIds);
                 transactionState.setFinishTime(System.currentTimeMillis());
                 transactionState.clearErrorMsg();
@@ -1226,13 +1220,11 @@ public class DatabaseTransactionMgr {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("after set transaction {} to visible", transactionState);
                 }
-            } finally {
-                writeUnlock();
-                try {
-                    transactionState.afterStateTransform(TransactionStatus.VISIBLE, txnOperated);
-                } catch (Throwable e) {
-                    LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
-                }
+            }
+            try {
+                transactionState.afterStateTransform(TransactionStatus.VISIBLE, txnOperated);
+            } catch (Throwable e) {
+                LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
             }
             if (txnOperated) {
                 awaitTransactionState(logItem, transactionState);
@@ -1745,7 +1737,7 @@ public class DatabaseTransactionMgr {
     protected void unprotectUpdateInMemoryState(TransactionState transactionState, boolean isReplay) {
         if (!transactionState.getTransactionStatus().isFinalStatus()) {
             if (idToRunningTransactionState.put(transactionState.getTransactionId(), transactionState) == null) {
-                runningTxnNums++;
+                runningTxnNums.incrementAndGet();
             }
             if (isReplay && transactionState.getSubTxnIds() != null) {
                 LOG.info("add sub transactions for txn_id={}, status={}, sub_txn_ids={}",
@@ -1757,7 +1749,7 @@ public class DatabaseTransactionMgr {
             }
         } else {
             if (idToRunningTransactionState.remove(transactionState.getTransactionId()) != null) {
-                runningTxnNums--;
+                runningTxnNums.decrementAndGet();
             }
             idToFinalStatusTransactionState.put(transactionState.getTransactionId(), transactionState);
             if (transactionState.isShortTxn()) {
@@ -1771,7 +1763,9 @@ public class DatabaseTransactionMgr {
                 cleanSubTransactions(transactionState.getTransactionId());
             }
         }
-        updateTxnLabels(transactionState);
+        if (isReplay) {
+            updateTxnLabels(transactionState);
+        }
     }
 
     /**
@@ -1831,12 +1825,7 @@ public class DatabaseTransactionMgr {
     }
 
     public int getRunningTxnNumsWithLock() {
-        readLock();
-        try {
-            return runningTxnNums;
-        } finally {
-            readUnlock();
-        }
+        return runningTxnNums.get();
     }
 
     private void updateTxnLabels(TransactionState transactionState) {
@@ -1879,8 +1868,7 @@ public class DatabaseTransactionMgr {
         transactionState.beforeStateTransform(TransactionStatus.ABORTED);
         boolean txnOperated = false;
         EditLog.EditLogItem logItem = null;
-        writeLock();
-        try {
+        synchronized (transactionState) {
             txnOperated = unprotectAbortTransaction(transactionId, reason);
             if (txnOperated) {
                 if (Config.enable_txn_log_outside_lock) {
@@ -1889,10 +1877,8 @@ public class DatabaseTransactionMgr {
                     persistTransactionState(transactionState);
                 }
             }
-        } finally {
-            writeUnlock();
-            transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, reason);
         }
+        transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, reason);
         if (txnOperated) {
             awaitTransactionState(logItem, transactionState);
         }
@@ -1932,8 +1918,7 @@ public class DatabaseTransactionMgr {
         transactionState.beforeStateTransform(TransactionStatus.ABORTED);
         boolean txnOperated = false;
         EditLog.EditLogItem logItem = null;
-        writeLock();
-        try {
+        synchronized (transactionState) {
             txnOperated = unprotectAbortTransaction(transactionId, "User Abort");
             if (txnOperated) {
                 if (Config.enable_txn_log_outside_lock) {
@@ -1942,10 +1927,8 @@ public class DatabaseTransactionMgr {
                     persistTransactionState(transactionState);
                 }
             }
-        } finally {
-            writeUnlock();
-            transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, "User Abort");
         }
+        transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, "User Abort");
         if (txnOperated) {
             awaitTransactionState(logItem, transactionState);
         }
@@ -2116,13 +2099,14 @@ public class DatabaseTransactionMgr {
     }
 
     private Pair<Long, Integer> unprotectedRemoveUselessTxns(long currentMillis,
-            ArrayDeque<TransactionState> finalStatusTransactionStateDeque, int left) {
+            ConcurrentLinkedDeque<TransactionState> finalStatusTransactionStateDeque, int left) {
         long latestTxnId = -1;
         int numOfClearedTransaction = 0;
-        while (!finalStatusTransactionStateDeque.isEmpty() && numOfClearedTransaction < left) {
-            TransactionState transactionState = finalStatusTransactionStateDeque.getFirst();
+        TransactionState transactionState;
+        while ((transactionState = finalStatusTransactionStateDeque.peekFirst()) != null
+                && numOfClearedTransaction < left) {
             if (transactionState.isExpired(currentMillis)) {
-                finalStatusTransactionStateDeque.pop();
+                finalStatusTransactionStateDeque.pollFirst();
                 clearTransactionState(transactionState.getTransactionId());
                 latestTxnId = transactionState.getTransactionId();
                 numOfClearedTransaction++;
@@ -2132,9 +2116,9 @@ public class DatabaseTransactionMgr {
         }
         while ((Config.label_num_threshold > 0 && finalStatusTransactionStateDeque.size() > Config.label_num_threshold)
                 && numOfClearedTransaction < left) {
-            TransactionState transactionState = finalStatusTransactionStateDeque.getFirst();
-            if (transactionState.getFinishTime() != -1) {
-                finalStatusTransactionStateDeque.pop();
+            transactionState = finalStatusTransactionStateDeque.peekFirst();
+            if (transactionState != null && transactionState.getFinishTime() != -1) {
+                finalStatusTransactionStateDeque.pollFirst();
                 clearTransactionState(transactionState.getTransactionId());
                 latestTxnId = transactionState.getTransactionId();
                 numOfClearedTransaction++;
@@ -2246,9 +2230,9 @@ public class DatabaseTransactionMgr {
             throws BeginTransactionException, MetaNotFoundException {
         long txnQuota = env.getInternalCatalog().getDbOrMetaException(dbId).getTransactionQuotaSize();
 
-        if (runningTxnNums >= txnQuota) {
+        if (runningTxnNums.get() >= txnQuota) {
             throw new BeginTransactionException("current running txns on db " + dbId + " is "
-                    + runningTxnNums + ", larger than limit " + txnQuota);
+                    + runningTxnNums.get() + ", larger than limit " + txnQuota);
         }
 
         // Check if committed txn count on any table exceeds the configured limit
@@ -2665,7 +2649,7 @@ public class DatabaseTransactionMgr {
         readLock();
         try {
             infos.add(Lists.newArrayList("running", String.valueOf(
-                    runningTxnNums)));
+                    runningTxnNums.get())));
             long finishedNum = getFinishedTxnNums();
             infos.add(Lists.newArrayList("finished", String.valueOf(finishedNum)));
         } finally {

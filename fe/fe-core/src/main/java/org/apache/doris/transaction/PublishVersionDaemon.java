@@ -61,7 +61,7 @@ public class PublishVersionDaemon extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(PublishVersionDaemon.class);
 
-    private static ArrayList<ExecutorService> dbExecutors = new ArrayList(Config.publish_thread_pool_num);
+    private static ArrayList<ExecutorService> publishExecutors = new ArrayList(Config.publish_thread_pool_num);
 
     private Set<Long> publishingTxnIds = Sets.newConcurrentHashSet();
 
@@ -72,7 +72,7 @@ public class PublishVersionDaemon extends MasterDaemon {
     public PublishVersionDaemon() {
         super("PUBLISH_VERSION", Config.publish_version_interval_ms);
         for (int i = 0; i < Config.publish_thread_pool_num; i++) {
-            dbExecutors.add(ThreadPoolManager.newDaemonFixedThreadPool(1, Config.publish_queue_size,
+            publishExecutors.add(ThreadPoolManager.newDaemonFixedThreadPool(1, Config.publish_queue_size,
                     "PUBLISH_VERSION_EXEC-" + i, true));
         }
     }
@@ -245,7 +245,13 @@ public class PublishVersionDaemon extends MasterDaemon {
         LOG.info("try to finish transaction {}, dbId: {}, txnId: {}",
                 transactionState.getTransactionId(), transactionState.getDbId(), transactionState.getTransactionId());
         try {
-            dbExecutors.get((int) (transactionState.getDbId() % Config.publish_thread_pool_num)).execute(() -> {
+            // When enable_per_txn_publish is true, route by transactionId so different
+            // transactions in the same database can finish in parallel across executor threads.
+            // When false, route by dbId (old behavior) so transactions within a DB are sequential.
+            long routingKey = Config.enable_per_txn_publish
+                    ? transactionState.getTransactionId()
+                    : transactionState.getDbId();
+            publishExecutors.get((int) (routingKey % Config.publish_thread_pool_num)).execute(() -> {
                 try {
                     tryFinishTxnSync(transactionState, globalTransactionMgr);
                 } catch (Throwable e) {
@@ -269,12 +275,12 @@ public class PublishVersionDaemon extends MasterDaemon {
         }
 
         try {
-            partitionVisibleVersions = Maps.newHashMap();
-            backendPartitions = Maps.newHashMap();
+            Map<Long, Long> txnPartitionVersions = Maps.newHashMap();
+            Map<Long, Set<Long>> txnBackendPartitions = Maps.newHashMap();
             // one transaction exception should not affect other transaction
             globalTransactionMgr.finishTransaction(transactionState.getDbId(),
-                    transactionState.getTransactionId(), partitionVisibleVersions, backendPartitions);
-            addBackendVisibleVersions(partitionVisibleVersions, backendPartitions);
+                    transactionState.getTransactionId(), txnPartitionVersions, txnBackendPartitions);
+            addBackendVisibleVersions(txnPartitionVersions, txnBackendPartitions);
         } catch (Exception e) {
             LOG.warn("error happens when finish transaction {}", transactionState.getTransactionId(), e);
         }
