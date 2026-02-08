@@ -817,8 +817,9 @@ public class StmtExecutor {
             syncJournalIfNeeded();
             planner = new NereidsPlanner(statementContext);
             try {
+                checkBlockRulesByRegex(originStmt);
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
-                checkBlockRules();
+                checkBlockRulesByScan(planner);
             } catch (MustFallbackException | DoNotFallbackException e) {
                 LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
                 throw new NereidsException("Command(" + originStmt.originStmt + ") process failed.", e);
@@ -916,6 +917,7 @@ public class StmtExecutor {
         }
 
         try {
+            checkBlockRulesByRegex(originStmt);
             // parsedStmt maybe null here, we parse it. Or the predicate will not work.
             parseByLegacy();
             // set isQuery here because when fallback from Nereids, parsedStmt is null, so the above set will be skipped
@@ -986,7 +988,7 @@ public class StmtExecutor {
             }
 
             // sql/sqlHash block
-            checkBlockRules();
+            checkBlockRulesByScan(planner);
             if (parsedStmt instanceof QueryStmt) {
                 handleQueryWithRetry(queryId);
             } else if (parsedStmt instanceof SetStmt) {
