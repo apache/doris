@@ -55,6 +55,7 @@
 #include "pipeline/exec/iceberg_table_sink_operator.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/jdbc_table_sink_operator.h"
+#include "pipeline/exec/memory_scratch_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_sink.h"
 #include "pipeline/exec/multi_cast_data_stream_source.h"
@@ -449,6 +450,15 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
                     "Jdbc table sink is not enabled, you can change be config "
                     "enable_java_support to true and restart be.");
         }
+        break;
+    }
+    case TDataSinkType::MEMORY_SCRATCH_SINK: {
+        if (!thrift_sink.__isset.memory_scratch_sink) {
+            return Status::InternalError("Missing data buffer sink.");
+        }
+
+        _sink.reset(
+                new MemoryScratchSinkOperatorX(row_desc, next_sink_operator_id(), output_exprs));
         break;
     }
     case TDataSinkType::RESULT_FILE_SINK: {
