@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.routineload.kafka;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
 import org.junit.Assert;
@@ -141,7 +140,7 @@ public class KafkaAwsMskIamAuthTest {
             Assert.assertTrue(e.getMessage().contains("OAUTHBEARER"));
         }
     }
-    
+
     @Test
     public void testMissingRegionWithRoleArn() {
         // Test with role ARN but valid configuration

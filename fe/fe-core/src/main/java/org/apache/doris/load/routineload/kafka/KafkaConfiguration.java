@@ -52,13 +52,13 @@ public enum KafkaConfiguration {
     public static final String SECURITY_PROTOCOL = "security.protocol";
     public static final String SASL_MECHANISM = "sasl.mechanism";
     public static final String SASL_JAAS_CONFIG = "sasl.jaas.config";
-    
+
     // AWS MSK IAM authentication properties
     // For AWS MSK IAM authentication, use:
     // - property.security.protocol = SASL_SSL
     // - property.sasl.mechanism = OAUTHBEARER
     // - property.aws.region = <your-region> (e.g., us-east-1)
-    // 
+    //
     // Credential options (choose one):
     // Option 1: Explicit AK/SK (long-term credentials only, not temporary credentials)
     // - property.aws.access.key = <access-key-id>
