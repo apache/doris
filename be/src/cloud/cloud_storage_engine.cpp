@@ -233,8 +233,6 @@ Status CloudStorageEngine::open() {
     _cloud_snapshot_mgr = std::make_unique<CloudSnapshotMgr>(*this);
 
     _uncommitted_rowset_registry = std::make_unique<UncommittedRowsetRegistry>();
-    RETURN_IF_ERROR(_uncommitted_rowset_registry->init(
-            std::max(1, config::calc_delete_bitmap_max_thread / 2)));
 
     RETURN_NOT_OK_STATUS_WITH_WARN(
             init_stream_load_recorder(ExecEnv::GetInstance()->store_paths()[0].path),

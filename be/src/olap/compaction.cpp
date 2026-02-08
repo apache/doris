@@ -69,7 +69,6 @@
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/storage_engine.h"
-#include "olap/uncommitted_rowset_registry.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
@@ -1361,12 +1360,6 @@ Status CompactionMixin::modify_rowsets() {
             RETURN_IF_ERROR(tablet()->modify_rowsets(output_rowsets, _input_rowsets, true));
         }
 
-        // Notify UncommittedRowsetRegistry that published rowsets changed.
-        // Cross-uncommitted delete bitmaps may reference rows that moved due to
-        // compaction, so they must be re-computed.
-        if (auto* registry = _engine.uncommitted_rowset_registry()) {
-            registry->on_compaction_completed(_tablet->tablet_id());
-        }
     } else {
         std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);

@@ -315,8 +315,6 @@ Status StorageEngine::_open() {
                     : std::max(1, CpuInfo::num_cores() / 2));
 
     _uncommitted_rowset_registry = std::make_unique<UncommittedRowsetRegistry>();
-    RETURN_IF_ERROR(_uncommitted_rowset_registry->init(
-            std::max(1, config::calc_delete_bitmap_max_thread / 2)));
 
     _parse_default_rowset_type();
 

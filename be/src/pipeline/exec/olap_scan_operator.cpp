@@ -22,6 +22,7 @@
 #include <memory>
 #include <numeric>
 #include <optional>
+#include <set>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
@@ -761,10 +762,18 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
                     continue;
                 }
 
-                std::vector<std::shared_ptr<UncommittedRowsetEntry>> ready_entries;
-                registry->get_ready_rowsets(tablet->tablet_id(), &ready_entries);
-                if (ready_entries.empty()) {
+                std::vector<std::shared_ptr<UncommittedRowsetEntry>> entries;
+                registry->get_uncommitted_rowsets(tablet->tablet_id(), &entries);
+                if (entries.empty()) {
                     continue;
+                }
+
+                // Collect committed rowset IDs to avoid double-reading during
+                // the publish window (rowset visible in both committed and
+                // uncommitted paths before unregister_rowset is called)
+                std::set<RowsetId> committed_rowset_ids;
+                for (auto& split : _read_sources[i].rs_splits) {
+                    committed_rowset_ids.insert(split.rs_reader->rowset()->rowset_id());
                 }
 
                 bool bitmap_copied = false;
@@ -781,7 +790,12 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
                     }
                 };
 
-                for (auto& entry : ready_entries) {
+                for (auto& entry : entries) {
+                    // Skip if already visible in committed read path
+                    if (committed_rowset_ids.count(entry->rowset->rowset_id())) {
+                        continue;
+                    }
+
                     RowsetReaderSharedPtr rs_reader;
                     auto st = entry->rowset->create_reader(&rs_reader);
                     if (!st.ok()) {
@@ -793,16 +807,10 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
                     }
                     _read_sources[i].rs_splits.emplace_back(std::move(rs_reader));
 
-                    bool is_mow = entry->unique_key_merge_on_write;
-                    // Merge committed-vs-published bitmap (layer 2)
-                    if (is_mow && entry->committed_delete_bitmap) {
+                    // Merge committed-vs-published delete bitmap (layer 2 only)
+                    if (entry->unique_key_merge_on_write && entry->committed_delete_bitmap) {
                         ensure_bitmap_copy();
                         _read_sources[i].delete_bitmap->merge(*entry->committed_delete_bitmap);
-                    }
-                    // Merge cross-uncommitted bitmap (layer 3)
-                    if (is_mow && entry->cross_delete_bitmap) {
-                        ensure_bitmap_copy();
-                        _read_sources[i].delete_bitmap->merge(*entry->cross_delete_bitmap);
                     }
                 }
             }
