@@ -43,6 +43,9 @@ struct UncommittedRowsetEntry {
     DeleteBitmapPtr committed_delete_bitmap;
     // Delete bitmap computed async against earlier uncommitted rowsets (layer 3)
     DeleteBitmapPtr cross_delete_bitmap;
+    // Published rowset IDs already accounted for in committed_delete_bitmap.
+    // Used for incremental recomputation: only diff against newly-published rowsets.
+    RowsetIdUnorderedSet pre_rowset_ids;
     bool unique_key_merge_on_write;
     int64_t creation_time; // for ordering: later wins in dedup
     std::atomic<bool> dedup_ready {false}; // only serve to queries when true
@@ -104,11 +107,17 @@ private:
     // Get or create the per-tablet dedup mutex (must hold shard write lock)
     std::shared_ptr<std::mutex> _get_tablet_dedup_mutex(Shard& shard, int64_t tablet_id);
 
-    // Submit async dedup task for one entry against earlier uncommitted rowsets
+    // Submit async task to compute only cross-uncommitted delete bitmap (layer 3).
+    // Used during initial registration when committed_delete_bitmap is already fresh.
     void _submit_dedup_task(int64_t tablet_id, std::shared_ptr<UncommittedRowsetEntry> entry);
 
-    // Recompute all cross-delete bitmaps for a tablet (after compaction)
-    void _recompute_all_dedup(int64_t tablet_id);
+    // Submit async task to recompute both committed (layer 2) and cross (layer 3) bitmaps.
+    // Used when published rowset set changes (publish/compaction).
+    void _submit_full_recompute_task(int64_t tablet_id,
+                                     std::shared_ptr<UncommittedRowsetEntry> entry);
+
+    // Invalidate and recompute all bitmaps for a tablet's uncommitted entries
+    void _recompute_all_bitmaps(int64_t tablet_id);
 
     Shard _shards[SHARD_COUNT];
     std::unique_ptr<ThreadPool> _dedup_thread_pool;

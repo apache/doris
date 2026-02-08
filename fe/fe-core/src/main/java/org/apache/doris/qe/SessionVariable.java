@@ -447,8 +447,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKIP_BAD_TABLET = "skip_bad_tablet";
 
-    public static final String READ_UNCOMMITTED = "read_uncommitted";
-
     public static final String ENABLE_PUSH_DOWN_NO_GROUP_AGG = "enable_push_down_no_group_agg";
 
     public static final String ENABLE_CBO_STATISTICS = "enable_cbo_statistics";
@@ -772,8 +770,7 @@ public class SessionVariable implements Serializable, Writable {
             SKIP_STORAGE_ENGINE_MERGE,
             SKIP_MISSING_VERSION,
             SKIP_BAD_TABLET,
-            SHOW_HIDDEN_COLUMNS,
-            READ_UNCOMMITTED
+            SHOW_HIDDEN_COLUMNS
     );
 
     public static final String ENABLE_STATS = "enable_stats";
@@ -1152,9 +1149,16 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = AUTO_COMMIT, convertBoolToLongMethod = "convertBoolToLong")
     public boolean autoCommit = true;
 
-    // this is used to make c3p0 library happy
-    @VariableMgr.VarAttr(name = TX_ISOLATION)
-    public String txIsolation = "REPEATABLE-READ";
+    // Transaction isolation level. Doris supports READ-COMMITTED (default) and READ-UNCOMMITTED.
+    // REPEATABLE-READ and SERIALIZABLE are accepted for MySQL compatibility but behave as READ-COMMITTED.
+    // tx_isolation is the MySQL-compatible alias.
+    @VariableMgr.VarAttr(name = TRANSACTION_ISOLATION, alias = {TX_ISOLATION},
+            needForward = true, checker = "checkTransactionIsolation",
+            description = {"事务隔离级别，支持 READ-COMMITTED 和 READ-UNCOMMITTED",
+                    "Transaction isolation level. Supports READ-COMMITTED and READ-UNCOMMITTED."},
+            options = {"READ-COMMITTED", "READ-UNCOMMITTED", "REPEATABLE-READ", "SERIALIZABLE"},
+            affectQueryResultInPlan = true, affectQueryResultInExecution = true)
+    public String transactionIsolation = "READ-COMMITTED";
 
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = TX_READ_ONLY)
@@ -1163,10 +1167,6 @@ public class SessionVariable implements Serializable, Writable {
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = TRANSACTION_READ_ONLY)
     public boolean transactionReadonly = false;
-
-    // this is used to make mysql client happy
-    @VariableMgr.VarAttr(name = TRANSACTION_ISOLATION)
-    public String transactionIsolation = "REPEATABLE-READ";
 
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = CHARACTER_SET_CLIENT)
@@ -2061,14 +2061,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SKIP_BAD_TABLET,  affectQueryResultInPlan = true,
             affectQueryResultInExecution = true)
     public boolean skipBadTablet = false;
-
-    @VariableMgr.VarAttr(name = READ_UNCOMMITTED, needForward = true,
-            varType = VariableAnnotation.EXPERIMENTAL,
-            description = {"启用 READ UNCOMMITTED 隔离级别，允许查询读取未提交的 rowset 数据（实验特性）",
-                    "Enable READ UNCOMMITTED isolation level to allow queries to read "
-                    + "uncommitted rowset data (experimental)"},
-            affectQueryResultInPlan = true, affectQueryResultInExecution = true)
-    public boolean readUncommitted = false;
 
     // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
     // for nereids, fallback will cause the Doris return the correct result although the syntax is unsupported
@@ -3600,7 +3592,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isInDebugMode() {
         return showHiddenColumns || skipDeleteBitmap || skipDeletePredicate || skipDeleteSign || skipStorageEngineMerge
-                || skipMissingVersion || skipBadTablet || readUncommitted;
+                || skipMissingVersion || skipBadTablet || isReadUncommitted();
     }
 
     public String printDebugModeVariables() {
@@ -3751,7 +3743,11 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public String getTxIsolation() {
-        return txIsolation;
+        return transactionIsolation;
+    }
+
+    public boolean isReadUncommitted() {
+        return "READ-UNCOMMITTED".equalsIgnoreCase(transactionIsolation);
     }
 
     public String getCharsetClient() {
@@ -5078,7 +5074,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setSkipDeleteBitmap(skipDeleteBitmap);
 
-        tResult.setReadUncommitted(readUncommitted);
+        tResult.setReadUncommitted(isReadUncommitted());
 
         tResult.setEnableFileCache(enableFileCache);
 
@@ -5648,6 +5644,20 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getProfileLevel() {
         return this.profileLevel;
+    }
+
+    private static final Set<String> VALID_ISOLATION_LEVELS = new java.util.HashSet<>(
+            java.util.Arrays.asList("READ-COMMITTED", "READ-UNCOMMITTED", "REPEATABLE-READ", "SERIALIZABLE"));
+
+    public void checkTransactionIsolation(String value) {
+        if (StringUtils.isEmpty(value)) {
+            throw new UnsupportedOperationException("transaction_isolation value is empty");
+        }
+        if (!VALID_ISOLATION_LEVELS.contains(value.toUpperCase())) {
+            throw new UnsupportedOperationException(
+                    "Unsupported transaction isolation level: " + value
+                    + ". Supported values: READ-COMMITTED, READ-UNCOMMITTED, REPEATABLE-READ, SERIALIZABLE");
+        }
     }
 
     public void checkSqlDialect(String sqlDialect) {
