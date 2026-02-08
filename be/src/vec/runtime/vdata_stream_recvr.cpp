@@ -182,7 +182,6 @@ Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_num
     COUNTER_UPDATE(_recvr->_deserialize_row_batch_timer, deserialize_time);
     COUNTER_UPDATE(_recvr->_decompress_timer, block->get_decompress_time());
     COUNTER_UPDATE(_recvr->_decompress_bytes, block->get_decompressed_bytes());
-    COUNTER_UPDATE(_recvr->_rows_produced_counter, rows);
     COUNTER_UPDATE(_recvr->_blocks_produced_counter, 1);
 
     _block_queue.emplace_back(std::move(block), block_byte_size);
@@ -231,7 +230,6 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
     if (_is_cancelled) {
         return;
     }
-    COUNTER_UPDATE(_recvr->_rows_produced_counter, rows);
     COUNTER_UPDATE(_recvr->_blocks_produced_counter, 1);
 
     _block_queue.emplace_back(std::move(nblock), block_mem_size);
@@ -386,7 +384,6 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* sta
     _first_batch_wait_total_timer = ADD_TIMER(_profile, "FirstBatchArrivalWaitTime");
     _decompress_timer = ADD_TIMER(_profile, "DecompressTime");
     _decompress_bytes = ADD_COUNTER(_profile, "DecompressBytes", TUnit::BYTES);
-    _rows_produced_counter = ADD_COUNTER(_profile, "RowsProduced", TUnit::UNIT);
     _blocks_produced_counter = ADD_COUNTER(_profile, "BlocksProduced", TUnit::UNIT);
 }
 
