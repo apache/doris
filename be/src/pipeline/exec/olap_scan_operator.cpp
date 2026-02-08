@@ -33,6 +33,7 @@
 #include "olap/rowset/segment_v2/ann_index/ann_topn_runtime.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
+#include "olap/uncommitted_rowset_registry.h"
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/query_cache/query_cache.h"
 #include "runtime/runtime_state.h"
@@ -744,6 +745,70 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
                      print_id(PipelineXLocalState<>::_state->query_id()));
         }
     }
+    // Inject uncommitted rowsets for READ UNCOMMITTED isolation level
+    if (_state->read_uncommitted()) {
+        auto* registry = get_uncommitted_rowset_registry();
+        if (registry) {
+            for (size_t i = 0; i < _scan_ranges.size(); i++) {
+                auto& tablet = _tablets[i].tablet;
+                // Only DUP_KEYS and UNIQUE_KEYS supported
+                if (tablet->keys_type() != DUP_KEYS &&
+                    tablet->keys_type() != UNIQUE_KEYS) {
+                    continue;
+                }
+                // Skip tablets not in RUNNING state
+                if (tablet->tablet_state() != TABLET_RUNNING) {
+                    continue;
+                }
+
+                std::vector<std::shared_ptr<UncommittedRowsetEntry>> ready_entries;
+                registry->get_ready_rowsets(tablet->tablet_id(), &ready_entries);
+                if (ready_entries.empty()) {
+                    continue;
+                }
+
+                bool bitmap_copied = false;
+                auto ensure_bitmap_copy = [&]() {
+                    if (!bitmap_copied) {
+                        if (_read_sources[i].delete_bitmap) {
+                            _read_sources[i].delete_bitmap =
+                                    std::make_shared<DeleteBitmap>(*_read_sources[i].delete_bitmap);
+                        } else {
+                            _read_sources[i].delete_bitmap =
+                                    std::make_shared<DeleteBitmap>(tablet->tablet_id());
+                        }
+                        bitmap_copied = true;
+                    }
+                };
+
+                for (auto& entry : ready_entries) {
+                    RowsetReaderSharedPtr rs_reader;
+                    auto st = entry->rowset->create_reader(&rs_reader);
+                    if (!st.ok()) {
+                        LOG(WARNING) << "Failed to create reader for uncommitted rowset, "
+                                        "tablet_id="
+                                     << tablet->tablet_id()
+                                     << " txn_id=" << entry->transaction_id << ": " << st;
+                        continue;
+                    }
+                    _read_sources[i].rs_splits.emplace_back(std::move(rs_reader));
+
+                    bool is_mow = entry->unique_key_merge_on_write;
+                    // Merge committed-vs-published bitmap (layer 2)
+                    if (is_mow && entry->committed_delete_bitmap) {
+                        ensure_bitmap_copy();
+                        _read_sources[i].delete_bitmap->merge(*entry->committed_delete_bitmap);
+                    }
+                    // Merge cross-uncommitted bitmap (layer 3)
+                    if (is_mow && entry->cross_delete_bitmap) {
+                        ensure_bitmap_copy();
+                        _read_sources[i].delete_bitmap->merge(*entry->cross_delete_bitmap);
+                    }
+                }
+            }
+        }
+    }
+
     timer.stop();
     double cost_secs = static_cast<double>(timer.elapsed_time()) / NANOS_PER_SEC;
     if (cost_secs > 1) {

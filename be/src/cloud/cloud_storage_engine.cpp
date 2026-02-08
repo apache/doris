@@ -58,6 +58,7 @@
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/memtable_flush_executor.h"
 #include "olap/storage_policy.h"
+#include "olap/uncommitted_rowset_registry.h"
 #include "runtime/memory/cache_manager.h"
 #include "util/parse_util.h"
 #include "util/time.h"
@@ -230,6 +231,10 @@ Status CloudStorageEngine::open() {
     _tablet_hotspot = std::make_unique<TabletHotspot>();
 
     _cloud_snapshot_mgr = std::make_unique<CloudSnapshotMgr>(*this);
+
+    _uncommitted_rowset_registry = std::make_unique<UncommittedRowsetRegistry>();
+    RETURN_IF_ERROR(_uncommitted_rowset_registry->init(
+            std::max(1, config::calc_delete_bitmap_max_thread / 2)));
 
     RETURN_NOT_OK_STATUS_WITH_WARN(
             init_stream_load_recorder(ExecEnv::GetInstance()->store_paths()[0].path),

@@ -51,6 +51,7 @@ class CloudWarmUpManager;
 class CloudCompactionStopToken;
 class CloudSnapshotMgr;
 class CloudIndexChangeCompaction;
+class UncommittedRowsetRegistry;
 
 class CloudStorageEngine final : public BaseStorageEngine {
 public:
@@ -91,6 +92,9 @@ public:
     CloudTabletMgr& tablet_mgr() const { return *_tablet_mgr; }
 
     CloudSnapshotMgr& cloud_snapshot_mgr() { return *_cloud_snapshot_mgr; }
+    UncommittedRowsetRegistry* uncommitted_rowset_registry() {
+        return _uncommitted_rowset_registry.get();
+    }
 
     CloudTxnDeleteBitmapCache& txn_delete_bitmap_cache() const { return *_txn_delete_bitmap_cache; }
 
@@ -225,6 +229,7 @@ private:
     std::unique_ptr<ThreadPool> _sync_load_for_tablets_thread_pool;
     std::unique_ptr<ThreadPool> _warmup_cache_async_thread_pool;
     std::unique_ptr<CloudSnapshotMgr> _cloud_snapshot_mgr;
+    std::unique_ptr<UncommittedRowsetRegistry> _uncommitted_rowset_registry;
 
     // FileSystem with latest shared storage info, new data will be written to this fs.
     mutable std::mutex _latest_fs_mtx;

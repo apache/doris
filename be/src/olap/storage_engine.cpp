@@ -71,6 +71,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/txn_manager.h"
+#include "olap/uncommitted_rowset_registry.h"
 #include "runtime/client_cache.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/doris_metrics.h"
@@ -312,6 +313,10 @@ Status StorageEngine::_open() {
             config::calc_delete_bitmap_for_load_max_thread > 0
                     ? config::calc_delete_bitmap_for_load_max_thread
                     : std::max(1, CpuInfo::num_cores() / 2));
+
+    _uncommitted_rowset_registry = std::make_unique<UncommittedRowsetRegistry>();
+    RETURN_IF_ERROR(_uncommitted_rowset_registry->init(
+            std::max(1, config::calc_delete_bitmap_max_thread / 2)));
 
     _parse_default_rowset_type();
 

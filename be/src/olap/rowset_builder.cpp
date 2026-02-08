@@ -34,6 +34,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/calc_delete_bitmap_executor.h"
+#include "olap/uncommitted_rowset_registry.h"
 #include "olap/olap_define.h"
 #include "olap/partial_update_info.h"
 #include "olap/rowset/beta_rowset.h"
@@ -345,6 +346,21 @@ Status RowsetBuilder::commit_txn() {
         _engine.txn_manager()->set_txn_related_delete_bitmap(
                 _req.partition_id, _req.txn_id, tablet()->tablet_id(), tablet()->tablet_uid(), true,
                 _delete_bitmap, *_rowset_ids, _partial_update_info);
+    }
+
+    // Register uncommitted rowset for READ UNCOMMITTED visibility
+    if (auto* registry = _engine.uncommitted_rowset_registry()) {
+        auto entry = std::make_shared<UncommittedRowsetEntry>();
+        entry->rowset = _rowset;
+        entry->transaction_id = _req.txn_id;
+        entry->partition_id = _req.partition_id;
+        entry->tablet_id = tablet()->tablet_id();
+        entry->unique_key_merge_on_write = _tablet->enable_unique_key_merge_on_write();
+        entry->creation_time = _rowset->creation_time();
+        if (entry->unique_key_merge_on_write && _delete_bitmap) {
+            entry->committed_delete_bitmap = std::make_shared<DeleteBitmap>(*_delete_bitmap);
+        }
+        registry->register_rowset(std::move(entry));
     }
 
     _is_committed = true;

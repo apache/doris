@@ -46,6 +46,7 @@
 #include "olap/schema_change.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
+#include "olap/uncommitted_rowset_registry.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
@@ -614,6 +615,12 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     stats->lock_wait_time_us += MonotonicMicros() - t6;
     _remove_txn_tablet_info_unlocked(partition_id, transaction_id, tablet_id, tablet_uid, txn_lock,
                                      wrlock);
+
+    // Unregister from UncommittedRowsetRegistry on publish
+    if (auto* registry = _engine.uncommitted_rowset_registry()) {
+        registry->unregister_rowset(tablet_id, transaction_id);
+    }
+
     VLOG_NOTICE << "publish txn successfully."
                 << " partition_id: " << key.first << ", txn_id: " << key.second
                 << ", tablet_id: " << tablet_info.tablet_id << ", rowsetid: " << rowset->rowset_id()
@@ -736,6 +743,12 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
         g_tablet_txn_info_txn_partitions_count << -1;
         _clear_txn_partition_map_unlocked(transaction_id, partition_id);
     }
+
+    // Unregister from UncommittedRowsetRegistry on delete
+    if (auto* registry = _engine.uncommitted_rowset_registry()) {
+        registry->unregister_rowset(tablet_id, transaction_id);
+    }
+
     return st;
 }
 

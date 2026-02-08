@@ -29,6 +29,7 @@
 #include "olap/olap_common.h"
 #include "olap/tablet_meta.h"
 #include "olap/txn_manager.h"
+#include "olap/uncommitted_rowset_registry.h"
 
 namespace doris {
 
@@ -264,6 +265,10 @@ void CloudTxnDeleteBitmapCache::remove_expired_tablet_txn_info() {
                     .tag("tablet_id", iter->second.tablet_id);
             _empty_rowset_markers.erase(marker_iter);
         }
+        // Unregister from UncommittedRowsetRegistry on expiration
+        if (auto* registry = get_uncommitted_rowset_registry()) {
+            registry->unregister_rowset(iter->second.tablet_id, iter->second.txn_id);
+        }
         _expiration_txn.erase(iter);
     }
 }
@@ -282,6 +287,11 @@ void CloudTxnDeleteBitmapCache::remove_unused_tablet_txn_info(TTransactionId tra
         CacheKey cache_key(key_str);
         erase(cache_key);
         _txn_map.erase(txn_key);
+    }
+
+    // Unregister from UncommittedRowsetRegistry
+    if (auto* registry = get_uncommitted_rowset_registry()) {
+        registry->unregister_rowset(tablet_id, transaction_id);
     }
 }
 

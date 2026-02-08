@@ -48,6 +48,7 @@
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/tablet_fwd.h"
 #include "olap/txn_manager.h"
+#include "olap/uncommitted_rowset_registry.h"
 #include "service/point_query_executor.h"
 #include "util/bvar_helper.h"
 #include "util/debug_points.h"
@@ -169,6 +170,14 @@ Status BaseTablet::set_tablet_state(TabletState state) {
                 "could not change tablet state from shutdown to {}", state);
     }
     _tablet_meta->set_tablet_state(state);
+
+    // Notify UncommittedRowsetRegistry when tablet leaves RUNNING state
+    if (state != TABLET_RUNNING) {
+        if (auto* registry = get_uncommitted_rowset_registry()) {
+            registry->on_tablet_state_change(tablet_id(), state);
+        }
+    }
+
     return Status::OK();
 }
 

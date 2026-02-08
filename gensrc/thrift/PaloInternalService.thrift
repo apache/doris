@@ -426,6 +426,8 @@ struct TQueryOptions {
 
   185: optional bool enable_parquet_file_page_cache = true;
 
+  186: optional bool read_uncommitted = false;
+
   195: optional bool enable_left_semi_direct_return_opt;
 
   // For cloud, to control if the content would be written into file cache

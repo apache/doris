@@ -447,6 +447,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKIP_BAD_TABLET = "skip_bad_tablet";
 
+    public static final String READ_UNCOMMITTED = "read_uncommitted";
+
     public static final String ENABLE_PUSH_DOWN_NO_GROUP_AGG = "enable_push_down_no_group_agg";
 
     public static final String ENABLE_CBO_STATISTICS = "enable_cbo_statistics";
@@ -770,7 +772,8 @@ public class SessionVariable implements Serializable, Writable {
             SKIP_STORAGE_ENGINE_MERGE,
             SKIP_MISSING_VERSION,
             SKIP_BAD_TABLET,
-            SHOW_HIDDEN_COLUMNS
+            SHOW_HIDDEN_COLUMNS,
+            READ_UNCOMMITTED
     );
 
     public static final String ENABLE_STATS = "enable_stats";
@@ -2058,6 +2061,14 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SKIP_BAD_TABLET,  affectQueryResultInPlan = true,
             affectQueryResultInExecution = true)
     public boolean skipBadTablet = false;
+
+    @VariableMgr.VarAttr(name = READ_UNCOMMITTED, needForward = true,
+            varType = VariableAnnotation.EXPERIMENTAL,
+            description = {"启用 READ UNCOMMITTED 隔离级别，允许查询读取未提交的 rowset 数据（实验特性）",
+                    "Enable READ UNCOMMITTED isolation level to allow queries to read "
+                    + "uncommitted rowset data (experimental)"},
+            affectQueryResultInPlan = true, affectQueryResultInExecution = true)
+    public boolean readUncommitted = false;
 
     // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
     // for nereids, fallback will cause the Doris return the correct result although the syntax is unsupported
@@ -3589,7 +3600,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isInDebugMode() {
         return showHiddenColumns || skipDeleteBitmap || skipDeletePredicate || skipDeleteSign || skipStorageEngineMerge
-                || skipMissingVersion || skipBadTablet;
+                || skipMissingVersion || skipBadTablet || readUncommitted;
     }
 
     public String printDebugModeVariables() {
@@ -5066,6 +5077,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSkipDeletePredicate(skipDeletePredicate);
 
         tResult.setSkipDeleteBitmap(skipDeleteBitmap);
+
+        tResult.setReadUncommitted(readUncommitted);
 
         tResult.setEnableFileCache(enableFileCache);
 

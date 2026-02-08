@@ -19,6 +19,7 @@
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
+#include "olap/uncommitted_rowset_registry.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "olap/storage_policy.h"
@@ -157,6 +158,22 @@ Status CloudRowsetBuilder::set_txn_related_delete_bitmap() {
                 _req.txn_id, _tablet->tablet_id(), _delete_bitmap, *_rowset_ids, _rowset,
                 _req.txn_expiration, _partial_update_info);
     }
+
+    // Register uncommitted rowset for READ UNCOMMITTED visibility
+    if (auto* registry = _engine.uncommitted_rowset_registry()) {
+        auto entry = std::make_shared<UncommittedRowsetEntry>();
+        entry->rowset = _rowset;
+        entry->transaction_id = _req.txn_id;
+        entry->partition_id = _req.partition_id;
+        entry->tablet_id = _tablet->tablet_id();
+        entry->unique_key_merge_on_write = _tablet->enable_unique_key_merge_on_write();
+        entry->creation_time = _rowset->creation_time();
+        if (entry->unique_key_merge_on_write && _delete_bitmap) {
+            entry->committed_delete_bitmap = std::make_shared<DeleteBitmap>(*_delete_bitmap);
+        }
+        registry->register_rowset(std::move(entry));
+    }
+
     return Status::OK();
 }
 #include "common/compile_check_end.h"
