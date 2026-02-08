@@ -272,6 +272,10 @@ Mail List is the most recognized form of communication in Apache community. See 
 
 If you meet any questions, feel free to file a 🔗[GitHub Issue](https://github.com/apache/doris/issues) or post it in 🔗[GitHub Discussion](https://github.com/apache/doris/discussions) and fix it by submitting a 🔗[Pull Request](https://github.com/apache/doris/pulls) 
 
+### 🔍 How Did You Discover Doris?
+
+We'd love to hear how you first found Apache Doris! Share your story and help us understand our community better. 🔗[Tell Us](https://github.com/apache/doris/issues/60590)
+
 ### 🍻 How to Contribute
 
 We welcome your suggestions, comments (including criticisms), comments and contributions. See 🔗[How to Contribute](https://doris.apache.org/community/how-to-contribute/) and 🔗[Code Submission Guide](https://doris.apache.org/community/how-to-contribute/pull-request/)
