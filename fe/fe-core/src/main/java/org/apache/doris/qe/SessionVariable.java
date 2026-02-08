@@ -376,6 +376,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HBO_ROW_MATCHING_THRESHOLD = "hbo_row_matching_threshold";
     public static final String HBO_SKEW_RATIO_THRESHOLD = "hbo_skew_ratio_threshold";
     public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
+    public static final String REQUIRED_GROUP_IDS = "required_group_ids";
 
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
     public static final String ENABLE_NEREIDS_DISTRIBUTE_PLANNER = "enable_nereids_distribute_planner";
@@ -1823,6 +1824,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = NTH_OPTIMIZED_PLAN)
     private int nthOptimizedPlan = 1;
 
+    @VariableMgr.VarAttr(name = REQUIRED_GROUP_IDS,
+            description = {"指定优化器必须选择包含这些 Group ID 的物理计划（逗号分隔的整数列表）",
+                    "Force the optimizer to choose a physical plan containing these Group IDs "
+                    + "(comma-separated integer list)"})
+    public String requiredGroupIds = "";
+
     @VariableMgr.VarAttr(name = LIMIT_ROWS_FOR_SINGLE_INSTANCE,
             description = {"当一个 ScanNode 上没有过滤条件，且 limit 值小于这个阈值时，"
                     + "系统会将这个算子的并发度调整为 1，以减少简单查询的扇出",
@@ -2857,6 +2864,33 @@ public class SessionVariable implements Serializable, Writable {
 
             }
             ids.add(res);
+        }
+        return ids;
+    }
+
+    public Set<Integer> getRequiredGroupIds() {
+        Set<Integer> ids = Sets.newLinkedHashSet();
+        if (requiredGroupIds.isEmpty()) {
+            return ImmutableSet.of();
+        }
+        for (String v : requiredGroupIds.split(",[\\s]*")) {
+            if (!v.isEmpty()) {
+                boolean isNumber = true;
+                for (int i = 0; i < v.length(); ++i) {
+                    char c = v.charAt(i);
+                    if (c < '0' || c > '9') {
+                        isNumber = false;
+                        break;
+                    }
+                }
+                if (isNumber) {
+                    try {
+                        ids.add(Integer.parseInt(v));
+                    } catch (Throwable t) {
+                        // ignore
+                    }
+                }
+            }
         }
         return ids;
     }
