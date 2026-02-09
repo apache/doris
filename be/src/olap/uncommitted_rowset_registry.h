@@ -29,13 +29,19 @@
 namespace doris {
 
 // Represents a single uncommitted rowset tracked by the registry.
-// No delete bitmap is computed for uncommitted rowsets — READ UNCOMMITTED may
-// show duplicate or stale keys on MoW UNIQUE_KEYS tablets.
+// For MoW unique key tables, committed_delete_bitmap contains the delete bitmap
+// computed at commit time against published rowsets. No cross-uncommitted dedup
+// is performed — READ UNCOMMITTED may show duplicate keys across concurrent
+// uncommitted transactions on the same MoW tablet.
 struct UncommittedRowsetEntry {
     RowsetSharedPtr rowset;
     int64_t transaction_id;
     int64_t partition_id;
     int64_t tablet_id;
+    // Delete bitmap computed at commit phase against published rowsets.
+    // Already available from the normal MoW write path — no extra computation.
+    DeleteBitmapPtr committed_delete_bitmap;
+    bool unique_key_merge_on_write = false;
 };
 
 // UncommittedRowsetRegistry tracks uncommitted rowsets across all tablets on this BE.

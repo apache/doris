@@ -776,6 +776,20 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
                     committed_rowset_ids.insert(split.rs_reader->rowset()->rowset_id());
                 }
 
+                bool bitmap_copied = false;
+                auto ensure_bitmap_copy = [&]() {
+                    if (!bitmap_copied) {
+                        if (_read_sources[i].delete_bitmap) {
+                            _read_sources[i].delete_bitmap =
+                                    std::make_shared<DeleteBitmap>(*_read_sources[i].delete_bitmap);
+                        } else {
+                            _read_sources[i].delete_bitmap =
+                                    std::make_shared<DeleteBitmap>(tablet->tablet_id());
+                        }
+                        bitmap_copied = true;
+                    }
+                };
+
                 for (auto& entry : entries) {
                     // Skip if already visible in committed read path
                     if (committed_rowset_ids.count(entry->rowset->rowset_id())) {
@@ -792,6 +806,12 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
                         continue;
                     }
                     _read_sources[i].rs_splits.emplace_back(std::move(rs_reader));
+
+                    // Merge the already-computed committed-vs-published delete bitmap
+                    if (entry->unique_key_merge_on_write && entry->committed_delete_bitmap) {
+                        ensure_bitmap_copy();
+                        _read_sources[i].delete_bitmap->merge(*entry->committed_delete_bitmap);
+                    }
                 }
             }
         }
