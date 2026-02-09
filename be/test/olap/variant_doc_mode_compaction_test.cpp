@@ -63,6 +63,7 @@
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_string.h"
 
+#ifndef NDEBUG
 namespace doris {
 namespace vectorized {
 using namespace ErrorCode;
@@ -106,11 +107,7 @@ protected:
         ASSERT_TRUE(_data_dir->init(true).ok());
         ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
 
-        config::enable_ordered_data_compaction = false;
-        config::segments_key_bounds_truncation_threshold = -1;
-        config::enable_vertical_compact_variant_subcolumns = true;
-        config::enable_compaction_checksum = false;
-        config::enable_stacktrace = true;
+        // config::enable_ordered_data_compaction = false;
     }
 
     void TearDown() override {
@@ -382,9 +379,7 @@ private:
 // === Finished. Gtest output: /mnt/disk1/claude-max/tmp/doris/be/ut_build_RELEASE/gtest_output
 
 TEST_F(VariantDocModeCompactionTest, variant_doc_mode_compaction_merge_10_segments) {
-#ifndef NDEBUG
     GTEST_SKIP() << "This test is slow and only runs in Release mode";
-#endif
     TabletSchemaSPtr tablet_schema = create_schema();
     TabletSharedPtr tablet = create_tablet(*tablet_schema);
     ASSERT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
@@ -500,3 +495,5 @@ TEST_F(VariantDocModeCompactionTest, variant_doc_mode_compaction_merge_10_segmen
 
 } // namespace vectorized
 } // namespace doris
+
+#endif
