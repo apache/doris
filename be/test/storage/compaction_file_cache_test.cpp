@@ -34,14 +34,14 @@ class CompactionFileCacheTest : public testing::Test {
 public:
     void SetUp() override {
         // Save original configuration
-        _orig_base_config = config::enable_base_compaction_output_write_index_only;
-        _orig_cumu_config = config::enable_cumu_compaction_output_write_index_only;
+        _orig_base_config = config::enable_file_cache_write_base_compaction_index_only;
+        _orig_cumu_config = config::enable_file_cache_write_cumu_compaction_index_only;
     }
 
     void TearDown() override {
         // Restore original configuration
-        config::enable_base_compaction_output_write_index_only = _orig_base_config;
-        config::enable_cumu_compaction_output_write_index_only = _orig_cumu_config;
+        config::enable_file_cache_write_base_compaction_index_only = _orig_base_config;
+        config::enable_file_cache_write_cumu_compaction_index_only = _orig_cumu_config;
     }
 
 private:
@@ -55,7 +55,7 @@ private:
 
 TEST_F(CompactionFileCacheTest, BaseCompaction_IndexOnly_False_IndexFile) {
     // Setup: Disable index-only mode for base compaction
-    config::enable_base_compaction_output_write_index_only = false;
+    config::enable_file_cache_write_base_compaction_index_only = false;
 
     // Create context
     RowsetWriterContext ctx;
@@ -71,7 +71,7 @@ TEST_F(CompactionFileCacheTest, BaseCompaction_IndexOnly_False_IndexFile) {
 
 TEST_F(CompactionFileCacheTest, BaseCompaction_IndexOnly_False_DataFile) {
     // Setup: Disable index-only mode for base compaction
-    config::enable_base_compaction_output_write_index_only = false;
+    config::enable_file_cache_write_base_compaction_index_only = false;
 
     // Create context
     RowsetWriterContext ctx;
@@ -87,7 +87,7 @@ TEST_F(CompactionFileCacheTest, BaseCompaction_IndexOnly_False_DataFile) {
 
 TEST_F(CompactionFileCacheTest, BaseCompaction_IndexOnly_True_IndexFile) {
     // Setup: Enable index-only mode for base compaction
-    config::enable_base_compaction_output_write_index_only = true;
+    config::enable_file_cache_write_base_compaction_index_only = true;
 
     // Create context
     RowsetWriterContext ctx;
@@ -103,7 +103,7 @@ TEST_F(CompactionFileCacheTest, BaseCompaction_IndexOnly_True_IndexFile) {
 
 TEST_F(CompactionFileCacheTest, BaseCompaction_IndexOnly_True_DataFile) {
     // Setup: Enable index-only mode for base compaction
-    config::enable_base_compaction_output_write_index_only = true;
+    config::enable_file_cache_write_base_compaction_index_only = true;
 
     // Create context
     RowsetWriterContext ctx;
@@ -123,7 +123,7 @@ TEST_F(CompactionFileCacheTest, BaseCompaction_IndexOnly_True_DataFile) {
 
 TEST_F(CompactionFileCacheTest, CumuCompaction_IndexOnly_False_IndexFile) {
     // Setup: Disable index-only mode for cumulative compaction
-    config::enable_cumu_compaction_output_write_index_only = false;
+    config::enable_file_cache_write_cumu_compaction_index_only = false;
 
     // Create context
     RowsetWriterContext ctx;
@@ -139,7 +139,7 @@ TEST_F(CompactionFileCacheTest, CumuCompaction_IndexOnly_False_IndexFile) {
 
 TEST_F(CompactionFileCacheTest, CumuCompaction_IndexOnly_False_DataFile) {
     // Setup: Disable index-only mode for cumulative compaction
-    config::enable_cumu_compaction_output_write_index_only = false;
+    config::enable_file_cache_write_cumu_compaction_index_only = false;
 
     // Create context
     RowsetWriterContext ctx;
@@ -155,7 +155,7 @@ TEST_F(CompactionFileCacheTest, CumuCompaction_IndexOnly_False_DataFile) {
 
 TEST_F(CompactionFileCacheTest, CumuCompaction_IndexOnly_True_IndexFile) {
     // Setup: Enable index-only mode for cumulative compaction
-    config::enable_cumu_compaction_output_write_index_only = true;
+    config::enable_file_cache_write_cumu_compaction_index_only = true;
 
     // Create context
     RowsetWriterContext ctx;
@@ -171,7 +171,7 @@ TEST_F(CompactionFileCacheTest, CumuCompaction_IndexOnly_True_IndexFile) {
 
 TEST_F(CompactionFileCacheTest, CumuCompaction_IndexOnly_True_DataFile) {
     // Setup: Enable index-only mode for cumulative compaction
-    config::enable_cumu_compaction_output_write_index_only = true;
+    config::enable_file_cache_write_cumu_compaction_index_only = true;
 
     // Create context
     RowsetWriterContext ctx;
@@ -191,7 +191,7 @@ TEST_F(CompactionFileCacheTest, CumuCompaction_IndexOnly_True_DataFile) {
 
 TEST_F(CompactionFileCacheTest, BaseCompaction_WriteCacheFalse_IndexOnly_False_IndexFile) {
     // Setup: Disable index-only mode for base compaction
-    config::enable_base_compaction_output_write_index_only = false;
+    config::enable_file_cache_write_base_compaction_index_only = false;
 
     // Create context with write_file_cache = false
     RowsetWriterContext ctx;
@@ -207,7 +207,7 @@ TEST_F(CompactionFileCacheTest, BaseCompaction_WriteCacheFalse_IndexOnly_False_I
 
 TEST_F(CompactionFileCacheTest, BaseCompaction_WriteCacheFalse_IndexOnly_False_DataFile) {
     // Setup: Disable index-only mode for base compaction
-    config::enable_base_compaction_output_write_index_only = false;
+    config::enable_file_cache_write_base_compaction_index_only = false;
 
     // Create context with write_file_cache = false
     RowsetWriterContext ctx;
@@ -223,7 +223,7 @@ TEST_F(CompactionFileCacheTest, BaseCompaction_WriteCacheFalse_IndexOnly_False_D
 
 TEST_F(CompactionFileCacheTest, BaseCompaction_WriteCacheFalse_IndexOnly_True_IndexFile) {
     // Setup: Enable index-only mode for base compaction
-    config::enable_base_compaction_output_write_index_only = true;
+    config::enable_file_cache_write_base_compaction_index_only = true;
 
     // Create context with write_file_cache = false
     RowsetWriterContext ctx;
@@ -239,7 +239,7 @@ TEST_F(CompactionFileCacheTest, BaseCompaction_WriteCacheFalse_IndexOnly_True_In
 
 TEST_F(CompactionFileCacheTest, BaseCompaction_WriteCacheFalse_IndexOnly_True_DataFile) {
     // Setup: Enable index-only mode for base compaction
-    config::enable_base_compaction_output_write_index_only = true;
+    config::enable_file_cache_write_base_compaction_index_only = true;
 
     // Create context with write_file_cache = false
     RowsetWriterContext ctx;
@@ -259,7 +259,7 @@ TEST_F(CompactionFileCacheTest, BaseCompaction_WriteCacheFalse_IndexOnly_True_Da
 
 TEST_F(CompactionFileCacheTest, CumuCompaction_WriteCacheFalse_IndexOnly_False_IndexFile) {
     // Setup: Disable index-only mode for cumulative compaction
-    config::enable_cumu_compaction_output_write_index_only = false;
+    config::enable_file_cache_write_cumu_compaction_index_only = false;
 
     // Create context with write_file_cache = false
     RowsetWriterContext ctx;
@@ -275,7 +275,7 @@ TEST_F(CompactionFileCacheTest, CumuCompaction_WriteCacheFalse_IndexOnly_False_I
 
 TEST_F(CompactionFileCacheTest, CumuCompaction_WriteCacheFalse_IndexOnly_False_DataFile) {
     // Setup: Disable index-only mode for cumulative compaction
-    config::enable_cumu_compaction_output_write_index_only = false;
+    config::enable_file_cache_write_cumu_compaction_index_only = false;
 
     // Create context with write_file_cache = false
     RowsetWriterContext ctx;
@@ -291,7 +291,7 @@ TEST_F(CompactionFileCacheTest, CumuCompaction_WriteCacheFalse_IndexOnly_False_D
 
 TEST_F(CompactionFileCacheTest, CumuCompaction_WriteCacheFalse_IndexOnly_True_IndexFile) {
     // Setup: Enable index-only mode for cumulative compaction
-    config::enable_cumu_compaction_output_write_index_only = true;
+    config::enable_file_cache_write_cumu_compaction_index_only = true;
 
     // Create context with write_file_cache = false
     RowsetWriterContext ctx;
@@ -307,7 +307,7 @@ TEST_F(CompactionFileCacheTest, CumuCompaction_WriteCacheFalse_IndexOnly_True_In
 
 TEST_F(CompactionFileCacheTest, CumuCompaction_WriteCacheFalse_IndexOnly_True_DataFile) {
     // Setup: Enable index-only mode for cumulative compaction
-    config::enable_cumu_compaction_output_write_index_only = true;
+    config::enable_file_cache_write_cumu_compaction_index_only = true;
 
     // Create context with write_file_cache = false
     RowsetWriterContext ctx;
