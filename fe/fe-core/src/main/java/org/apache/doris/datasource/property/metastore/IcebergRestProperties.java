@@ -181,9 +181,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             description = "The credentials provider type for AWS authentication. "
                     + "Options are: DEFAULT, INSTANCE_PROFILE, ENV, SYSTEM_PROPERTIES, "
                     + "WEB_IDENTITY, CONTAINER. "
-                    + "When signing-name is glue or s3tables, if not set, you must provide "
-                    + "either access-key-id/secret-access-key or role_arn.")
-    private String icebergRestCredentialsProviderType = "";
+                    + "If not set, defaults to DEFAULT (provider chain).")
+    private String icebergRestCredentialsProviderType = AwsCredentialsProviderMode.DEFAULT.name();
 
     private AwsCredentialsProviderMode icebergRestCredentialsProviderMode;
 
@@ -225,10 +224,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         validateSecurityType();
-        if (Strings.isNotBlank(icebergRestCredentialsProviderType)) {
-            icebergRestCredentialsProviderMode =
-                    AwsCredentialsProviderMode.fromString(icebergRestCredentialsProviderType);
-        }
+        icebergRestCredentialsProviderMode =
+                AwsCredentialsProviderMode.fromString(icebergRestCredentialsProviderType);
         buildRules().validate();
         initIcebergRestCatalogProperties();
     }
@@ -276,21 +273,6 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         // access-key-id and secret-access-key must be set together when either is set
         rules.requireTogether(new String[]{icebergRestAccessKeyId, icebergRestSecretAccessKey},
                 "iceberg.rest.access-key-id and iceberg.rest.secret-access-key must be set together");
-
-        // When signing-name is glue or s3tables: must have one of:
-        // (access key + secret key) OR iam role OR credentials_provider_type
-        rules.check(() -> {
-            if (!isSigningNameGlueOrS3Tables()) {
-                return false;
-            }
-            boolean hasAccessKeyAndSecret = Strings.isNotBlank(icebergRestAccessKeyId)
-                    && Strings.isNotBlank(icebergRestSecretAccessKey);
-            boolean hasIamRole = Strings.isNotBlank(icebergRestIamRole);
-            boolean hasCredentialsProviderType = Strings.isNotBlank(icebergRestCredentialsProviderType);
-
-            return !hasAccessKeyAndSecret && !hasIamRole && !hasCredentialsProviderType;
-        }, "When signing-name is glue or s3tables, either access-key-id and secret-access-key,"
-                + " or role_arn, or credentials_provider_type must be configured");
 
         return rules;
     }

@@ -507,36 +507,39 @@ public class IcebergRestPropertiesTest {
     }
 
     @Test
-    public void testGlueSigningNameFailsWhenNeitherAccessKeyNorIamRole() {
+    public void testGlueSigningNameWithDefaultCredentialsProvider() {
         Map<String, String> props = new HashMap<>();
         props.put("iceberg.rest.uri", "http://localhost:8080");
         props.put("iceberg.rest.signing-name", "glue");
         props.put("iceberg.rest.signing-region", "us-east-1");
         props.put("iceberg.rest.sigv4-enabled", "true");
-        // Neither access-key/secret-key nor role_arn
+        // Neither access-key/secret-key nor role_arn, should use DEFAULT provider
 
         IcebergRestProperties restProps = new IcebergRestProperties(props);
-        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
-                restProps::initNormalizeAndCheckProps);
-        Assertions.assertTrue(e.getMessage().contains("access-key-id")
-                || e.getMessage().contains("secret-access-key")
-                || e.getMessage().contains("role_arn"));
+        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals(
+                "software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider",
+                catalogProps.get("client.credentials-provider"));
     }
 
     @Test
-    public void testS3TablesSigningNameFailsWhenNeitherAccessKeyNorIamRole() {
+    public void testS3TablesSigningNameWithDefaultCredentialsProvider() {
         Map<String, String> props = new HashMap<>();
         props.put("iceberg.rest.uri", "http://localhost:8080");
         props.put("iceberg.rest.signing-name", "s3tables");
         props.put("iceberg.rest.signing-region", "us-east-1");
         props.put("iceberg.rest.sigv4-enabled", "true");
+        // No credentials, should use DEFAULT provider
 
         IcebergRestProperties restProps = new IcebergRestProperties(props);
-        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
-                restProps::initNormalizeAndCheckProps);
-        Assertions.assertTrue(e.getMessage().contains("role_arn")
-                || e.getMessage().contains("access-key-id")
-                || e.getMessage().contains("secret-access-key"));
+        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals(
+                "software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider",
+                catalogProps.get("client.credentials-provider"));
     }
 
     @Test
@@ -717,6 +720,6 @@ public class IcebergRestPropertiesTest {
 
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
         // Should not have credentials-provider set automatically
-        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
+        Assertions.assertTrue(catalogProps.containsKey("client.credentials-provider"));
     }
 }
