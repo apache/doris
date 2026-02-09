@@ -1991,13 +1991,15 @@ build_paimon_cpp() {
         -G "${GENERATOR}" \
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
-        -DPAIMON_BUILD_SHARD=OFF \
+        -DPAIMON_BUILD_SHARED=OFF \
         -DPAIMON_BUILD_STATIC=ON \
+        -DPAIMON_BUILD_TESTS=OFF \
         -DPAIMON_ENABLE_ORC=ON \
         -DPAIMON_ENABLE_AVRO=OFF \
         -DPAIMON_ENABLE_LANCE=OFF \
         -DPAIMON_ENABLE_JINDO=OFF \
         -DPAIMON_ENABLE_LUMINA=OFF \
+        -DPAIMON_ENABLE_LUCENE=OFF \
         -DCMAKE_EXE_LINKER_FLAGS="-L${TP_LIB_DIR} -lbrotlienc -lbrotlidec -lbrotlicommon -lunwind -llzma" \
         -DCMAKE_SHARED_LINKER_FLAGS="-L${TP_LIB_DIR} -lbrotlienc -lbrotlidec -lbrotlicommon -lunwind -llzma" \
         ..

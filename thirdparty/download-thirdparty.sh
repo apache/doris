@@ -661,6 +661,21 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
     echo "Finished patching ${AZURE_SOURCE}"
 fi
 
+# patch paimon-cpp
+if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
+    cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        if patch -p1 -N --batch --dry-run <"${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch" >/dev/null 2>&1; then
+            patch -p1 -N --batch <"${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch"
+        else
+            echo "Skip paimon-cpp patch: already applied or not applicable for current source"
+        fi
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${PAIMON_CPP_SOURCE}"
+fi
+
 if [[ " ${TP_ARCHIVES[*]} " =~ " CCTZ " ]] ; then
     cd $TP_SOURCE_DIR/$CCTZ_SOURCE
     if [[ ! -f "$PATCHED_MARK" ]] ; then

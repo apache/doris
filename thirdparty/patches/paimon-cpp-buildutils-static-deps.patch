@@ -1,0 +1,26 @@
+diff --git a/cmake_modules/BuildUtils.cmake b/cmake_modules/BuildUtils.cmake
+index 74654a4..4065297 100644
+--- a/cmake_modules/BuildUtils.cmake
++++ b/cmake_modules/BuildUtils.cmake
+@@ -55,12 +55,18 @@ function(add_paimon_lib LIB_NAME)
+     # Necessary to make static linking into other shared libraries work properly
+     set_property(TARGET ${LIB_NAME}_objlib PROPERTY POSITION_INDEPENDENT_CODE 1)
+     if(ARG_DEPENDENCIES)
+-        # Avoid add_dependencies on non-existent targets (e.g. when building static only).
++        # In static-only builds, some dependency names are still declared as
++        # *_shared. Map them to *_static when the shared target is unavailable.
+         set(_paimon_objlib_deps)
+         foreach(_paimon_dep IN LISTS ARG_DEPENDENCIES)
+-            if(TARGET ${_paimon_dep})
+-                list(APPEND _paimon_objlib_deps ${_paimon_dep})
++            set(_paimon_mapped_dep "${_paimon_dep}")
++            if(NOT TARGET ${_paimon_mapped_dep} AND _paimon_dep MATCHES "_shared$")
++                string(REGEX REPLACE "_shared$" "_static" _paimon_mapped_dep "${_paimon_dep}")
+             endif()
++            if(TARGET ${_paimon_mapped_dep})
++                list(APPEND _paimon_objlib_deps ${_paimon_mapped_dep})
++            endif()
++            unset(_paimon_mapped_dep)
+         endforeach()
+         if(_paimon_objlib_deps)
+             add_dependencies(${LIB_NAME}_objlib ${_paimon_objlib_deps})

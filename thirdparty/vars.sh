@@ -563,7 +563,7 @@ PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 # Using git clone since there's no official release yet
 # We'll use a specific commit or tag for reproducibility
 PAIMON_CPP_GIT_URL="https://github.com/alibaba/paimon-cpp.git"
-PAIMON_CPP_GIT_TAG="fa80570a41020852f7c39b27e702d735306a4055"
+PAIMON_CPP_GIT_TAG="0a4f4e2e7967fdb0be180711bbe581a18eeeb2dd"
 PAIMON_CPP_NAME=paimon-cpp
 PAIMON_CPP_SOURCE=paimon-cpp
 
