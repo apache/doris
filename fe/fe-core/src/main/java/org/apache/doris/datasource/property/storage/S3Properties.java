@@ -179,6 +179,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                     + "If not set, it will use the default provider chain of AWS SDK.")
     protected String awsCredentialsProviderType = AwsCredentialsProviderMode.DEFAULT.name();
 
+    @Getter
     private AwsCredentialsProviderMode awsCredentialsProviderMode;
 
     public static S3Properties of(Map<String, String> properties) {

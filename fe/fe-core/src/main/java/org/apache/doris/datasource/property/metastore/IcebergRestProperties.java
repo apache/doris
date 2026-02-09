@@ -20,6 +20,8 @@ package org.apache.doris.datasource.property.metastore;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.ParamRules;
+import org.apache.doris.datasource.property.common.AwsCredentialsProviderFactory;
+import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.datasource.property.common.IcebergAwsAssumeRoleProperties;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
@@ -174,6 +176,17 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             description = "The aws external-id for the iceberg rest catalog service.")
     private String icebergRestExternalId = "";
 
+    @ConnectorProperty(names = {"iceberg.rest.credentials_provider_type"},
+            required = false,
+            description = "The credentials provider type for AWS authentication. "
+                    + "Options are: DEFAULT, INSTANCE_PROFILE, ENV, SYSTEM_PROPERTIES, "
+                    + "WEB_IDENTITY, CONTAINER. "
+                    + "When signing-name is glue or s3tables, if not set, you must provide "
+                    + "either access-key-id/secret-access-key or role_arn.")
+    private String icebergRestCredentialsProviderType = "";
+
+    private AwsCredentialsProviderMode icebergRestCredentialsProviderMode;
+
     @ConnectorProperty(names = {"iceberg.rest.connection-timeout-ms"},
             required = false,
             description = "Connection timeout in milliseconds for the REST catalog HTTP client. Default: 10000 (10s).")
@@ -212,6 +225,10 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         validateSecurityType();
+        if (Strings.isNotBlank(icebergRestCredentialsProviderType)) {
+            icebergRestCredentialsProviderMode =
+                    AwsCredentialsProviderMode.fromString(icebergRestCredentialsProviderType);
+        }
         buildRules().validate();
         initIcebergRestCatalogProperties();
     }
@@ -260,7 +277,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         rules.requireTogether(new String[]{icebergRestAccessKeyId, icebergRestSecretAccessKey},
                 "iceberg.rest.access-key-id and iceberg.rest.secret-access-key must be set together");
 
-        // When signing-name is glue or s3tables: must have (access key + secret key) OR iam role
+        // When signing-name is glue or s3tables: must have one of:
+        // (access key + secret key) OR iam role OR credentials_provider_type
         rules.check(() -> {
             if (!isSigningNameGlueOrS3Tables()) {
                 return false;
@@ -268,9 +286,11 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             boolean hasAccessKeyAndSecret = Strings.isNotBlank(icebergRestAccessKeyId)
                     && Strings.isNotBlank(icebergRestSecretAccessKey);
             boolean hasIamRole = Strings.isNotBlank(icebergRestIamRole);
-            return !hasAccessKeyAndSecret && !hasIamRole;
+            boolean hasCredentialsProviderType = Strings.isNotBlank(icebergRestCredentialsProviderType);
+
+            return !hasAccessKeyAndSecret && !hasIamRole && !hasCredentialsProviderType;
         }, "When signing-name is glue or s3tables, either access-key-id and secret-access-key,"
-                + " or role_arn must be configured");
+                + " or role_arn, or credentials_provider_type must be configured");
 
         return rules;
     }
@@ -348,8 +368,9 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         if (Strings.isNotBlank(icebergRestSigningName)) {
             icebergRestCatalogProperties.put("rest.signing-name", icebergRestSigningName.toLowerCase());
             icebergRestCatalogProperties.put("rest.sigv4-enabled", icebergRestSigV4Enabled);
-
             icebergRestCatalogProperties.put("rest.signing-region", icebergRestSigningRegion);
+
+            // Priority 1: Use explicit credentials (AK/SK)
             boolean hasExplicitCredentials = StringUtils.isNotBlank(icebergRestAccessKeyId)
                     && StringUtils.isNotBlank(icebergRestSecretAccessKey);
             if (hasExplicitCredentials) {
@@ -360,8 +381,20 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
                 }
                 return;
             }
-            IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(icebergRestCatalogProperties,
-                    icebergRestSigningRegion, icebergRestIamRole, icebergRestExternalId);
+
+            // Priority 2: Use IAM Role (AssumeRole)
+            if (StringUtils.isNotBlank(icebergRestIamRole)) {
+                IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(icebergRestCatalogProperties,
+                        icebergRestSigningRegion, icebergRestIamRole, icebergRestExternalId);
+                return;
+            }
+
+            // Priority 3: Use credentials provider chain
+            if (icebergRestCredentialsProviderMode != null) {
+                String providerClassName = AwsCredentialsProviderFactory.getV2ClassName(
+                        icebergRestCredentialsProviderMode);
+                icebergRestCatalogProperties.put(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER, providerClassName);
+            }
         }
     }
 

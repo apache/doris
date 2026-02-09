@@ -177,4 +177,32 @@ public final class AwsCredentialsProviderFactory {
                         "AWS SDK V2 does not support credentials provider mode: " + mode);
         }
     }
+
+    /**
+     * Get the AWS credentials provider class name.
+     * For DEFAULT mode, returns AWS SDK native DefaultCredentialsProvider.
+     * For other modes, returns the specific provider class name.
+     */
+    public static String getV2ClassName(AwsCredentialsProviderMode mode) {
+        switch (mode) {
+            case ENV:
+                return EnvironmentVariableCredentialsProvider.class.getName();
+            case SYSTEM_PROPERTIES:
+                return SystemPropertyCredentialsProvider.class.getName();
+            case WEB_IDENTITY:
+                return WebIdentityTokenFileCredentialsProvider.class.getName();
+            case CONTAINER:
+                return ContainerCredentialsProvider.class.getName();
+            case INSTANCE_PROFILE:
+                return InstanceProfileCredentialsProvider.class.getName();
+            case ANONYMOUS:
+                return AnonymousCredentialsProvider.class.getName();
+            case DEFAULT:
+                // For Iceberg REST, use AWS SDK native DefaultCredentialsProvider
+                return "software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider";
+            default:
+                throw new UnsupportedOperationException(
+                        "AWS SDK V2 does not support credentials provider mode: " + mode);
+        }
+    }
 }
