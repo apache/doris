@@ -2116,6 +2116,122 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
     fi
 fi
 
+# Map a package name to its source directory variable(s) and remove them to free disk space.
+# This is called after each package is built and installed successfully.
+cleanup_package_source() {
+    local pkg="$1"
+    local src_var
+    local src_dir
+
+    # Map package name to the uppercase *_SOURCE variable name
+    case "${pkg}" in
+        libevent)        src_var="LIBEVENT_SOURCE" ;;
+        openssl)         src_var="OPENSSL_SOURCE" ;;
+        thrift)          src_var="THRIFT_SOURCE" ;;
+        protobuf)        src_var="PROTOBUF_SOURCE" ;;
+        gflags)          src_var="GFLAGS_SOURCE" ;;
+        glog)            src_var="GLOG_SOURCE" ;;
+        gtest)           src_var="GTEST_SOURCE" ;;
+        rapidjson)       src_var="RAPIDJSON_SOURCE" ;;
+        snappy)          src_var="SNAPPY_SOURCE" ;;
+        gperftools)      src_var="GPERFTOOLS_SOURCE" ;;
+        zlib)            src_var="ZLIB_SOURCE" ;;
+        crc32c)          src_var="CRC32C_SOURCE" ;;
+        lz4)             src_var="LZ4_SOURCE" ;;
+        bzip)            src_var="BZIP_SOURCE" ;;
+        lzo2)            src_var="LZO2_SOURCE" ;;
+        zstd)            src_var="ZSTD_SOURCE" ;;
+        boost)           src_var="BOOST_SOURCE" ;;
+        abseil)          src_var="ABSEIL_SOURCE" ;;
+        curl)            src_var="CURL_SOURCE" ;;
+        re2)             src_var="RE2_SOURCE" ;;
+        hyperscan)
+            # hyperscan also builds ragel, clean both
+            if [[ -n "${RAGEL_SOURCE}" && -d "${TP_SOURCE_DIR}/${RAGEL_SOURCE}" ]]; then
+                echo "Cleaning up source: ${RAGEL_SOURCE}"
+                rm -rf "${TP_SOURCE_DIR}/${RAGEL_SOURCE}"
+            fi
+            src_var="HYPERSCAN_SOURCE"
+            ;;
+        mysql)           src_var="MYSQL_SOURCE" ;;
+        odbc)            src_var="ODBC_SOURCE" ;;
+        leveldb)         src_var="LEVELDB_SOURCE" ;;
+        brpc)            src_var="BRPC_SOURCE" ;;
+        rocksdb)         src_var="ROCKSDB_SOURCE" ;;
+        cyrus_sasl)      src_var="CYRUS_SASL_SOURCE" ;;
+        librdkafka)      src_var="LIBRDKAFKA_SOURCE" ;;
+        flatbuffers)     src_var="FLATBUFFERS_SOURCE" ;;
+        arrow)           src_var="ARROW_SOURCE" ;;
+        brotli)          src_var="BROTLI_SOURCE" ;;
+        cares)           src_var="CARES_SOURCE" ;;
+        grpc)            src_var="GRPC_SOURCE" ;;
+        s2)              src_var="S2_SOURCE" ;;
+        bitshuffle)      src_var="BITSHUFFLE_SOURCE" ;;
+        croaringbitmap)  src_var="CROARINGBITMAP_SOURCE" ;;
+        fmt)             src_var="FMT_SOURCE" ;;
+        parallel_hashmap) src_var="PARALLEL_HASHMAP_SOURCE" ;;
+        orc)             src_var="ORC_SOURCE" ;;
+        cctz)            src_var="CCTZ_SOURCE" ;;
+        jemalloc_doris)  src_var="JEMALLOC_DORIS_SOURCE" ;;
+        libunwind)       src_var="LIBUNWIND_SOURCE" ;;
+        benchmark)       src_var="BENCHMARK_SOURCE" ;;
+        simdjson)        src_var="SIMDJSON_SOURCE" ;;
+        nlohmann_json)   src_var="NLOHMANN_JSON_SOURCE" ;;
+        libbacktrace)    src_var="LIBBACKTRACE_SOURCE" ;;
+        sse2neon)        src_var="SSE2NEON_SOURCE" ;;
+        xxhash)          src_var="XXHASH_SOURCE" ;;
+        concurrentqueue) src_var="CONCURRENTQUEUE_SOURCE" ;;
+        fast_float)      src_var="FAST_FLOAT_SOURCE" ;;
+        hadoop_libs)     src_var="HADOOP_LIBS_SOURCE" ;;
+        hadoop_libs_3_4) src_var="HADOOP_LIBS_3_4_SOURCE" ;;
+        avx2neon)        src_var="AVX2NEON_SOURCE" ;;
+        libdeflate)      src_var="LIBDEFLATE_SOURCE" ;;
+        streamvbyte)     src_var="STREAMVBYTE_SOURCE" ;;
+        ali_sdk)
+            # ali_sdk internally builds jsoncpp and libuuid, clean all three
+            for dep_var in JSONCPP_SOURCE LIBUUID_SOURCE ALI_SDK_SOURCE; do
+                dep_dir="${!dep_var}"
+                if [[ -n "${dep_dir}" && -d "${TP_SOURCE_DIR}/${dep_dir}" ]]; then
+                    echo "Cleaning up source: ${dep_dir}"
+                    rm -rf "${TP_SOURCE_DIR}/${dep_dir}"
+                fi
+            done
+            return
+            ;;
+        base64)          src_var="BASE64_SOURCE" ;;
+        azure)           src_var="AZURE_SOURCE" ;;
+        dragonbox)       src_var="DRAGONBOX_SOURCE" ;;
+        icu)             src_var="ICU_SOURCE" ;;
+        jindofs)         src_var="JINDOFS_SOURCE" ;;
+        pugixml)         src_var="PUGIXML_SOURCE" ;;
+        paimon_cpp)      src_var="PAIMON_CPP_SOURCE" ;;
+        aws_sdk)         src_var="AWS_SDK_SOURCE" ;;
+        lzma)            src_var="LZMA_SOURCE" ;;
+        xml2)            src_var="XML2_SOURCE" ;;
+        idn)             src_var="IDN_SOURCE" ;;
+        gsasl)           src_var="GSASL_SOURCE" ;;
+        krb5)            src_var="KRB5_SOURCE" ;;
+        hdfs3)           src_var="HDFS3_SOURCE" ;;
+        libdivide)       src_var="LIBDIVIDE_SOURCE" ;;
+        binutils)        src_var="BINUTILS_SOURCE" ;;
+        gettext)         src_var="GETTEXT_SOURCE" ;;
+        # Header-only files, skip cleanup
+        pdqsort|timsort|tsan_header|js_and_css)
+            return
+            ;;
+        *)
+            echo "Warning: no source mapping for package '${pkg}', skipping cleanup"
+            return
+            ;;
+    esac
+
+    src_dir="${!src_var}"
+    if [[ -n "${src_dir}" && -d "${TP_SOURCE_DIR}/${src_dir}" ]]; then
+        echo "Cleaning up source: ${src_dir}"
+        rm -rf "${TP_SOURCE_DIR}/${src_dir}"
+    fi
+}
+
 for package in "${packages[@]}"; do
     if [[ "${package}" == "${start_package}" ]]; then
         PACKAGE_FOUND=1
@@ -2123,6 +2239,8 @@ for package in "${packages[@]}"; do
     if [[ "${CONTINUE}" -eq 0 ]] || [[ "${PACKAGE_FOUND}" -eq 1 ]]; then
         command="build_${package}"
         ${command}
+        cd "${TP_DIR}"
+        cleanup_package_source "${package}"
     fi
 done
 
