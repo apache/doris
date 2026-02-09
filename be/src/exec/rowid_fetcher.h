@@ -23,6 +23,7 @@
 #include <gen_cpp/internal_service.pb.h>
 
 #include <memory>
+#include <semaphore>
 #include <utility>
 #include <vector>
 
