@@ -172,4 +172,13 @@ public class SearchTest {
             Assertions.assertTrue(e.getMessage().contains("Invalid search DSL"));
         }
     }
+
+    @Test
+    public void testBareDslWithoutDefaultFieldIsRejected() {
+        StringLiteral dslLiteral = new StringLiteral("hello");
+        Search searchFunc = new Search(dslLiteral);
+
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, searchFunc::getQsPlan);
+        Assertions.assertTrue(exception.getMessage().contains("No field specified and no default_field configured"));
+    }
 }

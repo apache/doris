@@ -291,6 +291,65 @@ public class SearchDslParserTest {
     }
 
     @Test
+    public void testBareRegexWithDefaultField() {
+        QsPlan plan = SearchDslParser.parseDsl("/(\\d{1,2}:\\d{2} [AP]M)/", "title", null);
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.REGEXP, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        Assertions.assertEquals("(\\d{1,2}:\\d{2} [AP]M)", plan.getRoot().getValue());
+    }
+
+    @Test
+    public void testBareNotRegexWithDefaultFieldInLuceneMode() {
+        String dsl = "Anthony NOT /(\\d{1,2}:\\d{2} [AP]M)/";
+        String options = "{\"default_field\":\"title\",\"default_operator\":\"and\",\"mode\":\"lucene\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+        Assertions.assertNotNull(plan);
+    }
+
+    @Test
+    public void testMixedExplicitFieldAndBareRegex() {
+        String dsl = "content:/[a-z]+/ AND hello";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "title", null);
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
+        Assertions.assertEquals("content", plan.getRoot().getChildren().get(0).getField());
+        Assertions.assertEquals("title", plan.getRoot().getChildren().get(1).getField());
+    }
+
+    @Test
+    public void testBareRangeWithDefaultField() {
+        QsPlan plan = SearchDslParser.parseDsl("[1 TO 10]", "age", null);
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.RANGE, plan.getRoot().getType());
+        Assertions.assertEquals("age", plan.getRoot().getField());
+        Assertions.assertEquals("[1 TO 10]", plan.getRoot().getValue());
+    }
+
+    @Test
+    public void testBareRegexContainingAndKeyword() {
+        String dsl = "/foo AND bar/";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "title", null);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.REGEXP, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        Assertions.assertEquals("foo AND bar", plan.getRoot().getValue());
+    }
+
+    @Test
+    public void testBareRegexContainingSpaceAndColon() {
+        String dsl = "/time: 10:30 AM/";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "title", null);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.REGEXP, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        Assertions.assertEquals("time: 10:30 AM", plan.getRoot().getValue());
+    }
+
+    @Test
     public void testDefaultFieldWithMultiTermAnd() {
         // Test: "foo bar" + field="tags" + operator="and" → "tags:ALL(foo bar)"
         String dsl = "foo bar";
@@ -1020,6 +1079,35 @@ public class SearchDslParserTest {
         for (QsNode child : plan.getRoot().getChildren()) {
             Assertions.assertEquals(QsClauseType.PREFIX, child.getType());
         }
+    }
+
+    @Test
+    public void testMultiFieldWithRegex() {
+        String dsl = "/hello.*/";
+        String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"cross_fields\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
+        for (QsNode child : plan.getRoot().getChildren()) {
+            Assertions.assertEquals(QsClauseType.REGEXP, child.getType());
+        }
+    }
+
+    @Test
+    public void testMultiFieldOperatorWithRegex() {
+        String dsl = "/hello.*/ AND world";
+        String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"cross_fields\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getChildren().get(0).getType());
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getChildren().get(1).getType());
+        Assertions.assertEquals(QsClauseType.REGEXP,
+                plan.getRoot().getChildren().get(0).getChildren().get(0).getType());
     }
 
     @Test
