@@ -340,11 +340,11 @@ Status KafkaDataConsumer::get_partition_meta(std::vector<int32_t>* partition_ids
     // librdkafka's OAUTHBEARER callback is only triggered through consume()/poll()
     // Without this, metadata() will fail because broker is waiting for OAuth token
     LOG(INFO) << "Polling to trigger OAuth token refresh before metadata request";
-    int max_poll_attempts = 10;  // 10 × 500ms = 5 seconds max
+    int max_poll_attempts = 10; // 10 × 500ms = 5 seconds max
     for (int i = 0; i < max_poll_attempts; i++) {
         RdKafka::Message* msg = _k_consumer->consume(500);
         if (msg) {
-            delete msg;  // We don't expect messages before partition assignment
+            delete msg; // We don't expect messages before partition assignment
         }
     }
 

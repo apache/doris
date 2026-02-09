@@ -132,7 +132,7 @@ Status AwsMskIamAuth::generate_token(const std::string& broker_hostname, std::st
     // IMPORTANT: All query parameters must be included in the signature calculation
     // Session Token must be in canonical query string if using temporary credentials
     std::stringstream canonical_query_ss;
-    canonical_query_ss << "Action=kafka-cluster%3AConnect";  // URL-encoded :
+    canonical_query_ss << "Action=kafka-cluster%3AConnect"; // URL-encoded :
 
     // Add Algorithm
     canonical_query_ss << "&X-Amz-Algorithm=AWS4-HMAC-SHA256";
@@ -150,7 +150,7 @@ Status AwsMskIamAuth::generate_token(const std::string& broker_hostname, std::st
     // Add Security Token if present (MUST be before signature calculation)
     if (!credentials.GetSessionToken().empty()) {
         canonical_query_ss << "&X-Amz-Security-Token="
-                          << _url_encode(std::string(credentials.GetSessionToken()));
+                           << _url_encode(std::string(credentials.GetSessionToken()));
     }
 
     // Add SignedHeaders
@@ -333,8 +333,8 @@ std::unique_ptr<AwsMskIamOAuthCallback> AwsMskIamOAuthCallback::create_from_prop
     // Conditions: security.protocol = SASL_SSL and sasl.mechanism = OAUTHBEARER
     bool is_sasl_ssl = security_protocol_it != custom_properties.end() &&
                        security_protocol_it->second == "SASL_SSL";
-    bool is_oauthbearer =
-            sasl_mechanism_it != custom_properties.end() && sasl_mechanism_it->second == "OAUTHBEARER";
+    bool is_oauthbearer = sasl_mechanism_it != custom_properties.end() &&
+                          sasl_mechanism_it->second == "OAUTHBEARER";
 
     if (!is_sasl_ssl || !is_oauthbearer) {
         // Not AWS MSK IAM authentication
@@ -365,7 +365,8 @@ std::unique_ptr<AwsMskIamOAuthCallback> AwsMskIamOAuthCallback::create_from_prop
     if (access_key_it != custom_properties.end() && secret_key_it != custom_properties.end()) {
         auth_config.access_key = access_key_it->second;
         auth_config.secret_key = secret_key_it->second;
-        LOG(INFO) << "AWS MSK IAM: using explicit credentials (region: " << auth_config.region << ")";
+        LOG(INFO) << "AWS MSK IAM: using explicit credentials (region: " << auth_config.region
+                  << ")";
     }
 
     // Check for IAM Role ARN (method 2)
@@ -414,7 +415,8 @@ void AwsMskIamOAuthCallback::oauthbearer_token_refresh_cb(
     // Calculate absolute expiry time (Unix timestamp in milliseconds)
     // librdkafka expects an absolute expiry timestamp, not a relative lifetime
     auto now = std::chrono::system_clock::now();
-    auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+    auto now_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
     int64_t token_expiry_ms = now_ms + token_lifetime_ms;
 
     RdKafka::ErrorCode err = handle->oauthbearer_set_token(token, token_expiry_ms, principal,
