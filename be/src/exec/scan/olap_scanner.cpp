@@ -333,7 +333,10 @@ Status OlapScanner::_init_tablet_reader_params(
     // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
     const bool single_version = _tablet_reader_params.has_single_version();
 
-    if (_state->skip_storage_engine_merge()) {
+    auto* olap_local_state = static_cast<pipeline::OlapScanLocalState*>(_local_state);
+    bool read_mor_as_dup = olap_local_state->olap_scan_node().__isset.read_mor_as_dup &&
+                           olap_local_state->olap_scan_node().read_mor_as_dup;
+    if (_state->skip_storage_engine_merge() || read_mor_as_dup) {
         _tablet_reader_params.direct_mode = true;
         _tablet_reader_params.aggregation = true;
     } else {
