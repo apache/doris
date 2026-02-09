@@ -95,8 +95,6 @@ public:
 
     [[nodiscard]] int get_fragment_id() const { return _fragment_id; }
 
-    RuntimeState* get_runtime_state() { return _runtime_state.get(); }
-
     void decrement_running_task(PipelineId pipeline_id);
 
     Status send_report(bool);
