@@ -40,12 +40,9 @@ AwsMskIamAuth::AwsMskIamAuth(Config config) : _config(std::move(config)) {
 }
 
 std::shared_ptr<Aws::Auth::AWSCredentialsProvider> AwsMskIamAuth::_create_credentials_provider() {
-    // Priority order:
+    // Only two authentication methods are supported:
     // 1. Explicit AK/SK (if access_key and secret_key are provided)
     // 2. Assume Role (if role_arn is specified)
-    // 3. Profile (if profile_name is specified)
-    // 4. Instance Profile (if use_instance_profile is true)
-    // 5. Default credentials chain (environment variables, ~/.aws/credentials, etc.)
 
     // 1. Explicit AK/SK credentials
     if (!_config.access_key.empty() && !_config.secret_key.empty()) {
@@ -60,7 +57,6 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> AwsMskIamAuth::_create_creden
 
     // 2. Assume Role
     if (!_config.role_arn.empty()) {
-        // Use STS Assume Role
         LOG(INFO) << "Using AWS STS Assume Role: " << _config.role_arn;
 
         Aws::Client::ClientConfiguration client_config;
@@ -76,22 +72,11 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> AwsMskIamAuth::_create_creden
                 Aws::Auth::DEFAULT_CREDS_LOAD_FREQ_SECONDS, sts_client);
     }
 
-    // 3. AWS Profile
-    if (!_config.profile_name.empty()) {
-        LOG(INFO) << "Using AWS profile: " << _config.profile_name;
-        return std::make_shared<Aws::Auth::ProfileConfigFileAWSCredentialsProvider>(
-                _config.profile_name.c_str());
-    }
-
-    // 4. Instance Profile
-    if (_config.use_instance_profile) {
-        LOG(INFO) << "Using EC2 Instance Profile credentials";
-        return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
-    }
-
-    // 5. Default credentials chain
-    LOG(INFO) << "Using default AWS credentials provider chain";
-    return std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
+    // No valid credentials configuration found
+    LOG(ERROR) << "AWS MSK IAM authentication requires either: "
+               << "1) region + access_key + secret_key, or "
+               << "2) region + role_arn";
+    return nullptr;
 }
 
 Status AwsMskIamAuth::get_credentials(Aws::Auth::AWSCredentials* credentials) {
@@ -336,7 +321,6 @@ constexpr const char* PROP_AWS_REGION = "aws.region";
 constexpr const char* PROP_AWS_ACCESS_KEY = "aws.access.key";
 constexpr const char* PROP_AWS_SECRET_KEY = "aws.secret.key";
 constexpr const char* PROP_AWS_ROLE_ARN = "aws.msk.iam.role.arn";
-constexpr const char* PROP_AWS_PROFILE = "aws.profile.name";
 } // namespace
 
 std::unique_ptr<AwsMskIamOAuthCallback> AwsMskIamOAuthCallback::create_from_properties(
@@ -371,31 +355,25 @@ std::unique_ptr<AwsMskIamOAuthCallback> AwsMskIamOAuthCallback::create_from_prop
     // Build AWS MSK IAM auth configuration
     AwsMskIamAuth::Config auth_config;
 
-    // Get AWS region (default: us-east-1)
+    // Get AWS region (required, default: us-east-1)
     auto region_it = custom_properties.find(PROP_AWS_REGION);
     auth_config.region = region_it != custom_properties.end() ? region_it->second : "us-east-1";
 
-    // Check for explicit AK/SK credentials (highest priority)
+    // Check for explicit AK/SK credentials (method 1)
     auto access_key_it = custom_properties.find(PROP_AWS_ACCESS_KEY);
     auto secret_key_it = custom_properties.find(PROP_AWS_SECRET_KEY);
     if (access_key_it != custom_properties.end() && secret_key_it != custom_properties.end()) {
         auth_config.access_key = access_key_it->second;
         auth_config.secret_key = secret_key_it->second;
-        LOG(INFO) << "AWS MSK IAM: using explicit credentials";
+        LOG(INFO) << "AWS MSK IAM: using explicit credentials (region: " << auth_config.region << ")";
     }
 
-    // Check for IAM Role ARN (for STS Assume Role)
+    // Check for IAM Role ARN (method 2)
     auto role_arn_it = custom_properties.find(PROP_AWS_ROLE_ARN);
     if (role_arn_it != custom_properties.end()) {
         auth_config.role_arn = role_arn_it->second;
-        LOG(INFO) << "AWS MSK IAM: using role " << auth_config.role_arn;
-    }
-
-    // Check for AWS Profile
-    auto profile_it = custom_properties.find(PROP_AWS_PROFILE);
-    if (profile_it != custom_properties.end()) {
-        auth_config.profile_name = profile_it->second;
-        LOG(INFO) << "AWS MSK IAM: using profile " << auth_config.profile_name;
+        LOG(INFO) << "AWS MSK IAM: using role " << auth_config.role_arn
+                  << " (region: " << auth_config.region << ")";
     }
 
     LOG(INFO) << "Enabling AWS MSK IAM authentication for broker: " << broker_hostname

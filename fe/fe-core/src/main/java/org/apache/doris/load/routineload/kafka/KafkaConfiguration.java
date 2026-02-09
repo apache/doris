@@ -53,12 +53,11 @@ public enum KafkaConfiguration {
     public static final String SASL_MECHANISM = "sasl.mechanism";
     public static final String SASL_JAAS_CONFIG = "sasl.jaas.config";
 
-    // AWS
+    // AWS MSK IAM authentication properties
     public static final String AWS_REGION = "aws.region";
     public static final String AWS_ACCESS_KEY = "aws.access.key";
     public static final String AWS_SECRET_KEY = "aws.secret.key";
     public static final String AWS_MSK_IAM_ROLE_ARN = "aws.msk.iam.role.arn";
-    public static final String AWS_PROFILE_NAME = "aws.profile.name";
     private final String name;
 
     public String getName() {

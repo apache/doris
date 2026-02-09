@@ -260,27 +260,6 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
         validateAwsMskIamConfig();
     }
 
-    /**
-     * Validate AWS MSK IAM authentication configuration.
-     * When using AWS MSK with IAM authentication, the following properties should be configured:
-     * - security.protocol = SASL_SSL
-     * - sasl.mechanism = OAUTHBEARER
-     * - aws.region = <your-aws-region> (optional, defaults to us-east-1)
-     *
-     * Credential options (choose one):
-     * - Option 1: Explicit AK/SK
-     *   - aws.access.key = <access-key-id>
-     *   - aws.secret.key = <secret-access-key>
-     *   - aws.session.token = <session-token> (optional)
-     * - Option 2: IAM Role (Assume Role)
-     *   - aws.msk.iam.role.arn = <role-arn>
-     * - Option 3: AWS Profile
-     *   - aws.profile.name = <profile-name>
-     * - Option 4: EC2 Instance Profile / ECS Task Role (default)
-     * - Option 5: Environment variables
-     *
-     * This method provides helpful error messages for common misconfigurations.
-     */
     private void validateAwsMskIamConfig() throws AnalysisException {
         String securityProtocol = customKafkaProperties.get(KafkaConfiguration.SECURITY_PROTOCOL);
         String saslMechanism = customKafkaProperties.get(KafkaConfiguration.SASL_MECHANISM);
@@ -290,35 +269,35 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
         boolean hasAccessKey = customKafkaProperties.containsKey(KafkaConfiguration.AWS_ACCESS_KEY);
         boolean hasSecretKey = customKafkaProperties.containsKey(KafkaConfiguration.AWS_SECRET_KEY);
         boolean hasRoleArn = customKafkaProperties.containsKey(KafkaConfiguration.AWS_MSK_IAM_ROLE_ARN);
-        boolean hasProfileName = customKafkaProperties.containsKey(KafkaConfiguration.AWS_PROFILE_NAME);
 
-        boolean isAwsMskIam = hasAwsRegion || hasAccessKey || hasSecretKey || hasRoleArn || hasProfileName;
+        boolean isAwsMskIam = hasAwsRegion || hasAccessKey || hasSecretKey || hasRoleArn;
 
         // If AWS-related property is set, validate the complete configuration
         if (isAwsMskIam) {
             // security.protocol should be SASL_SSL for AWS MSK IAM
             if (securityProtocol == null) {
                 throw new AnalysisException("When using AWS MSK IAM authentication, "
-                        + "'property.security.protocol' must be set to 'SASL_SSL'");
+                        + "'property.security.protocol' must be set to 'SASL_SSL' "
+                        + "(SSL encryption + SASL authentication required)");
             }
 
             if (!"SASL_SSL".equalsIgnoreCase(securityProtocol)) {
                 throw new AnalysisException("For AWS MSK IAM authentication, "
-                        + "'property.security.protocol' should be 'SASL_SSL', but got: " + securityProtocol);
+                        + "'property.security.protocol' must be 'SASL_SSL' "
+                        + "(SSL encryption + SASL authentication required), "
+                        + "but got: " + securityProtocol);
             }
 
             // sasl.mechanism should be OAUTHBEARER for AWS MSK IAM
             if (saslMechanism == null) {
                 throw new AnalysisException("When using AWS MSK IAM authentication, "
-                        + "'property.sasl.mechanism' must be set to 'OAUTHBEARER'. "
-                        + "Doris will automatically use AWS SDK to generate IAM tokens.");
+                        + "'property.sasl.mechanism' must be set to 'OAUTHBEARER'");
             }
 
             if (!"OAUTHBEARER".equalsIgnoreCase(saslMechanism)) {
                 throw new AnalysisException("For AWS MSK IAM authentication, "
                         + "'property.sasl.mechanism' must be 'OAUTHBEARER', but got: " + saslMechanism + ". "
-                        + "AWS_MSK_IAM is not directly supported by librdkafka. "
-                        + "Use OAUTHBEARER and Doris will handle AWS IAM token generation.");
+                        + "Other SASL mechanisms are not supported now.");
             }
 
             // Validate explicit AK/SK configuration - both must be provided together
@@ -327,24 +306,23 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
                         + "both 'aws.access.key' and 'aws.secret.key' must be provided together.");
             }
 
-            // Log configuration details
-            if (hasAwsRegion) {
-                LOG.info("AWS MSK IAM authentication configured for region: {}",
-                        customKafkaProperties.get(KafkaConfiguration.AWS_REGION));
-            } else {
-                LOG.info("AWS MSK IAM authentication using default region: us-east-1");
+            // Validate that at least one authentication method is configured
+            boolean hasAkSk = hasAccessKey && hasSecretKey;
+            if (!hasAkSk && !hasRoleArn) {
+                throw new AnalysisException("AWS MSK IAM authentication requires one of the following: "
+                        + "1) 'aws.region' + 'aws.access.key' + 'aws.secret.key', or "
+                        + "2) 'aws.region' + 'aws.msk.iam.role.arn'");
             }
 
-            if (hasAccessKey && hasSecretKey) {
-                LOG.info("AWS MSK IAM using explicit credentials (Access Key ID provided)");
+            // Log configuration details
+            String region = customKafkaProperties.getOrDefault(KafkaConfiguration.AWS_REGION, "us-east-1");
+            LOG.info("AWS MSK IAM authentication configured for region: {}", region);
+
+            if (hasAkSk) {
+                LOG.info("AWS MSK IAM using explicit credentials (Access Key/Secret Key)");
             } else if (hasRoleArn) {
-                LOG.info("AWS MSK IAM role configured: {}",
+                LOG.info("AWS MSK IAM using role: {}",
                         customKafkaProperties.get(KafkaConfiguration.AWS_MSK_IAM_ROLE_ARN));
-            } else if (hasProfileName) {
-                LOG.info("AWS MSK IAM using AWS profile: {}",
-                        customKafkaProperties.get(KafkaConfiguration.AWS_PROFILE_NAME));
-            } else {
-                LOG.info("AWS MSK IAM using default credentials chain (Instance Profile / Environment Variables)");
             }
         }
 
@@ -360,7 +338,8 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
         // For OAUTHBEARER without AWS config, warn user
         if ("OAUTHBEARER".equalsIgnoreCase(saslMechanism) && !isAwsMskIam) {
             LOG.warn("OAUTHBEARER mechanism is configured without AWS MSK IAM settings. "
-                    + "If you're using AWS MSK with IAM authentication, please set 'aws.region'. "
+                    + "If you're using AWS MSK with IAM authentication, please set 'aws.region' and either "
+                    + "('aws.access.key' + 'aws.secret.key') or 'aws.msk.iam.role.arn'. "
                     + "Otherwise, ensure you have configured appropriate SASL OAUTHBEARER settings.");
         }
     }
