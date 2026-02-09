@@ -113,7 +113,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     @Override
     public void run() throws JobException {
         if (getIsCanceled().get()) {
-            log.info("task has been canceled, task id is {}", getTaskId());
+            log.info("streaming task has been canceled, task id is {}", getTaskId());
             return;
         }
         sendWriteRequest();
