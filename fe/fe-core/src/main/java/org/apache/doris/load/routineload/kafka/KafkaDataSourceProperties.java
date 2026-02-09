@@ -55,6 +55,7 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
     private static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
 
     private static final String CUSTOM_KAFKA_PROPERTY_PREFIX = "property.";
+    private static final String AWS_PROPERTY_PREFIX = "aws.";
 
     @Getter
     @Setter
@@ -128,7 +129,8 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
     public void convertAndCheckDataSourceProperties() throws UserException {
         Optional<String> optional = originalDataSourceProperties.keySet()
                 .stream().filter(entity -> !CONFIGURABLE_DATA_SOURCE_PROPERTIES_SET.contains(entity))
-                .filter(entity -> !entity.startsWith(CUSTOM_KAFKA_PROPERTY_PREFIX)).findFirst();
+                .filter(entity -> !entity.startsWith(CUSTOM_KAFKA_PROPERTY_PREFIX))
+                .filter(entity -> !entity.startsWith(AWS_PROPERTY_PREFIX)).findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid kafka property or can not be set");
         }
@@ -237,16 +239,21 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
     private void analyzeCustomProperties() throws AnalysisException {
         this.customKafkaProperties = new HashMap<>();
         for (Map.Entry<String, String> dataSourceProperty : originalDataSourceProperties.entrySet()) {
-            if (dataSourceProperty.getKey().startsWith(CUSTOM_KAFKA_PROPERTY_PREFIX)) {
-                String propertyKey = dataSourceProperty.getKey();
-                String propertyValue = dataSourceProperty.getValue();
+            String propertyKey = dataSourceProperty.getKey();
+            String propertyValue = dataSourceProperty.getValue();
+
+            if (propertyKey.startsWith(CUSTOM_KAFKA_PROPERTY_PREFIX)) {
+                // property.xxx -> xxx (strip "property." prefix)
                 String[] propertyValueArr = propertyKey.split("\\.");
                 if (propertyValueArr.length < 2) {
                     throw new AnalysisException("kafka property value could not be a empty string");
                 }
                 this.customKafkaProperties.put(propertyKey.substring(propertyKey.indexOf(".") + 1), propertyValue);
+            } else if (propertyKey.startsWith(AWS_PROPERTY_PREFIX)) {
+                // aws.xxx -> aws.xxx (keep as-is, no prefix stripping)
+                // AWS properties are Doris-specific and passed directly to BE
+                this.customKafkaProperties.put(propertyKey, propertyValue);
             }
-            // can be extended in the future which other prefix
         }
 
         // Validate AWS MSK IAM authentication configuration if present
@@ -317,7 +324,7 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
             // Validate explicit AK/SK configuration - both must be provided together
             if (hasAccessKey != hasSecretKey) {
                 throw new AnalysisException("When using explicit AWS credentials, "
-                        + "both 'property.aws.access.key' and 'property.aws.secret.key' must be provided together.");
+                        + "both 'aws.access.key' and 'aws.secret.key' must be provided together.");
             }
 
             // Log configuration details
@@ -353,7 +360,7 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
         // For OAUTHBEARER without AWS config, warn user
         if ("OAUTHBEARER".equalsIgnoreCase(saslMechanism) && !isAwsMskIam) {
             LOG.warn("OAUTHBEARER mechanism is configured without AWS MSK IAM settings. "
-                    + "If you're using AWS MSK with IAM authentication, please set 'property.aws.region'. "
+                    + "If you're using AWS MSK with IAM authentication, please set 'aws.region'. "
                     + "Otherwise, ensure you have configured appropriate SASL OAUTHBEARER settings.");
         }
     }

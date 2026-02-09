@@ -328,6 +328,83 @@ std::string AwsMskIamAuth::_get_date_stamp(const std::string& timestamp) {
 
 // AwsMskIamOAuthCallback implementation
 
+namespace {
+// Property keys for AWS MSK IAM authentication
+constexpr const char* PROP_SECURITY_PROTOCOL = "security.protocol";
+constexpr const char* PROP_SASL_MECHANISM = "sasl.mechanism";
+constexpr const char* PROP_AWS_REGION = "aws.region";
+constexpr const char* PROP_AWS_ACCESS_KEY = "aws.access.key";
+constexpr const char* PROP_AWS_SECRET_KEY = "aws.secret.key";
+constexpr const char* PROP_AWS_ROLE_ARN = "aws.msk.iam.role.arn";
+constexpr const char* PROP_AWS_PROFILE = "aws.profile.name";
+} // namespace
+
+std::unique_ptr<AwsMskIamOAuthCallback> AwsMskIamOAuthCallback::create_from_properties(
+        const std::unordered_map<std::string, std::string>& custom_properties,
+        const std::string& brokers) {
+    auto security_protocol_it = custom_properties.find(PROP_SECURITY_PROTOCOL);
+    auto sasl_mechanism_it = custom_properties.find(PROP_SASL_MECHANISM);
+
+    // Check if this is AWS MSK IAM authentication
+    // Conditions: security.protocol = SASL_SSL and sasl.mechanism = OAUTHBEARER
+    bool is_sasl_ssl = security_protocol_it != custom_properties.end() &&
+                       security_protocol_it->second == "SASL_SSL";
+    bool is_oauthbearer =
+            sasl_mechanism_it != custom_properties.end() && sasl_mechanism_it->second == "OAUTHBEARER";
+
+    if (!is_sasl_ssl || !is_oauthbearer) {
+        // Not AWS MSK IAM authentication
+        return nullptr;
+    }
+
+    // Extract broker hostname for token generation
+    std::string broker_hostname = brokers;
+    if (broker_hostname.find(',') != std::string::npos) {
+        // Multiple brokers, use the first one
+        broker_hostname = broker_hostname.substr(0, broker_hostname.find(','));
+    }
+    // Remove port if present
+    if (broker_hostname.find(':') != std::string::npos) {
+        broker_hostname = broker_hostname.substr(0, broker_hostname.find(':'));
+    }
+
+    // Build AWS MSK IAM auth configuration
+    AwsMskIamAuth::Config auth_config;
+
+    // Get AWS region (default: us-east-1)
+    auto region_it = custom_properties.find(PROP_AWS_REGION);
+    auth_config.region = region_it != custom_properties.end() ? region_it->second : "us-east-1";
+
+    // Check for explicit AK/SK credentials (highest priority)
+    auto access_key_it = custom_properties.find(PROP_AWS_ACCESS_KEY);
+    auto secret_key_it = custom_properties.find(PROP_AWS_SECRET_KEY);
+    if (access_key_it != custom_properties.end() && secret_key_it != custom_properties.end()) {
+        auth_config.access_key = access_key_it->second;
+        auth_config.secret_key = secret_key_it->second;
+        LOG(INFO) << "AWS MSK IAM: using explicit credentials";
+    }
+
+    // Check for IAM Role ARN (for STS Assume Role)
+    auto role_arn_it = custom_properties.find(PROP_AWS_ROLE_ARN);
+    if (role_arn_it != custom_properties.end()) {
+        auth_config.role_arn = role_arn_it->second;
+        LOG(INFO) << "AWS MSK IAM: using role " << auth_config.role_arn;
+    }
+
+    // Check for AWS Profile
+    auto profile_it = custom_properties.find(PROP_AWS_PROFILE);
+    if (profile_it != custom_properties.end()) {
+        auth_config.profile_name = profile_it->second;
+        LOG(INFO) << "AWS MSK IAM: using profile " << auth_config.profile_name;
+    }
+
+    LOG(INFO) << "Enabling AWS MSK IAM authentication for broker: " << broker_hostname
+              << ", region: " << auth_config.region;
+
+    auto auth = std::make_shared<AwsMskIamAuth>(auth_config);
+    return std::make_unique<AwsMskIamOAuthCallback>(std::move(auth), std::move(broker_hostname));
+}
+
 AwsMskIamOAuthCallback::AwsMskIamOAuthCallback(std::shared_ptr<AwsMskIamAuth> auth,
                                                std::string broker_hostname)
         : _auth(std::move(auth)), _broker_hostname(std::move(broker_hostname)) {}

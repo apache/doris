@@ -169,8 +169,7 @@ private:
     KafkaEventCb _k_event_cb;
     RdKafka::KafkaConsumer* _k_consumer = nullptr;
 
-    // AWS MSK IAM authentication support
-    std::shared_ptr<AwsMskIamAuth> _aws_msk_iam_auth;
+    // AWS MSK IAM authentication callback (must outlive _k_consumer)
     std::unique_ptr<AwsMskIamOAuthCallback> _aws_msk_oauth_callback;
 };
 

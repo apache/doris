@@ -23,6 +23,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 
 #include "common/status.h"
 
@@ -130,6 +131,21 @@ private:
  */
 class AwsMskIamOAuthCallback : public RdKafka::OAuthBearerTokenRefreshCb {
 public:
+    /**
+     * Create an OAuth callback from Kafka custom properties.
+     * 
+     * This factory method checks if AWS MSK IAM authentication is configured
+     * (security.protocol=SASL_SSL and sasl.mechanism=OAUTHBEARER) and creates
+     * the callback with proper configuration.
+     * 
+     * @param custom_properties Kafka custom properties map
+     * @param brokers Kafka broker list (comma-separated)
+     * @return unique_ptr to callback if IAM auth is configured, nullptr otherwise
+     */
+    static std::unique_ptr<AwsMskIamOAuthCallback> create_from_properties(
+            const std::unordered_map<std::string, std::string>& custom_properties,
+            const std::string& brokers);
+
     explicit AwsMskIamOAuthCallback(std::shared_ptr<AwsMskIamAuth> auth,
                                     std::string broker_hostname);
 
