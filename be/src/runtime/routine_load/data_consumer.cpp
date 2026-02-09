@@ -107,6 +107,24 @@ Status KafkaDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
     }
 
     for (auto& item : ctx->kafka_info->properties) {
+        // AWS MSK IAM custom properties should not be passed to librdkafka
+        // These properties are used by Doris to configure AWS authentication,
+        // but librdkafka doesn't recognize them
+        bool is_aws_property = (item.first == PROP_AWS_REGION ||
+                                item.first == PROP_AWS_ACCESS_KEY ||
+                                item.first == PROP_AWS_SECRET_KEY ||
+                                item.first == PROP_AWS_ROLE_ARN ||
+                                item.first == PROP_AWS_PROFILE);
+
+        // Store in custom_properties for AWS auth configuration
+        _custom_properties.emplace(item.first, item.second);
+
+        // Skip AWS properties when configuring librdkafka
+        if (is_aws_property) {
+            LOG(INFO) << "Skipping AWS custom property for librdkafka: " << item.first;
+            continue;
+        }
+
         if (starts_with(item.second, "FILE:")) {
             // file property should has format: FILE:file_id:md5
             std::vector<std::string> parts =
@@ -126,7 +144,6 @@ Status KafkaDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
         } else {
             RETURN_IF_ERROR(set_conf(item.first, item.second));
         }
-        _custom_properties.emplace(item.first, item.second);
     }
 
     // if not specified group id, generate a random one.
@@ -412,6 +429,18 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
 }
 
 Status KafkaDataConsumer::get_partition_meta(std::vector<int32_t>* partition_ids) {
+    // Trigger OAuth token refresh by polling the event loop
+    // librdkafka's OAUTHBEARER callback is only triggered through consume()/poll()
+    // Without this, metadata() will fail because broker is waiting for OAuth token
+    LOG(INFO) << "Polling to trigger OAuth token refresh before metadata request";
+    int max_poll_attempts = 10;  // 10 × 500ms = 5 seconds max
+    for (int i = 0; i < max_poll_attempts; i++) {
+        RdKafka::Message* msg = _k_consumer->consume(500);
+        if (msg) {
+            delete msg;  // We don't expect messages before partition assignment
+        }
+    }
+
     // create topic conf
     RdKafka::Conf* tconf = RdKafka::Conf::create(RdKafka::Conf::CONF_TOPIC);
     Defer delete_conf {[tconf]() { delete tconf; }};

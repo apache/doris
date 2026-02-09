@@ -133,8 +133,8 @@ Status AwsMskIamAuth::generate_token(const std::string& broker_hostname, std::st
     // AWS MSK IAM token is a base64-encoded presigned URL
     // Reference: https://github.com/aws/aws-msk-iam-sasl-signer-python
 
-    // Token expiry in seconds (3600 seconds = 1 hour, longer validity for routine load)
-    static constexpr int TOKEN_EXPIRY_SECONDS = 3600;
+    // Token expiry in seconds (900 seconds = 15 minutes, matching AWS MSK IAM signer reference)
+    static constexpr int TOKEN_EXPIRY_SECONDS = 900;
 
     // Build the endpoint URL
     std::string endpoint_url = "https://kafka." + _config.region + ".amazonaws.com/";
@@ -144,7 +144,34 @@ Status AwsMskIamAuth::generate_token(const std::string& broker_hostname, std::st
             date_stamp + "/" + _config.region + "/kafka-cluster/aws4_request";
 
     // Build the canonical query string (sorted alphabetically)
-    std::string canonical_query_string = "Action=kafka-cluster%3AConnect"; // URL-encoded :
+    // IMPORTANT: All query parameters must be included in the signature calculation
+    // Session Token must be in canonical query string if using temporary credentials
+    std::stringstream canonical_query_ss;
+    canonical_query_ss << "Action=kafka-cluster%3AConnect";  // URL-encoded :
+
+    // Add Algorithm
+    canonical_query_ss << "&X-Amz-Algorithm=AWS4-HMAC-SHA256";
+
+    // Add Credential
+    std::string credential = std::string(credentials.GetAWSAccessKeyId()) + "/" + credential_scope;
+    canonical_query_ss << "&X-Amz-Credential=" << _url_encode(credential);
+
+    // Add Date
+    canonical_query_ss << "&X-Amz-Date=" << timestamp;
+
+    // Add Expires
+    canonical_query_ss << "&X-Amz-Expires=" << TOKEN_EXPIRY_SECONDS;
+
+    // Add Security Token if present (MUST be before signature calculation)
+    if (!credentials.GetSessionToken().empty()) {
+        canonical_query_ss << "&X-Amz-Security-Token="
+                          << _url_encode(std::string(credentials.GetSessionToken()));
+    }
+
+    // Add SignedHeaders
+    canonical_query_ss << "&X-Amz-SignedHeaders=host";
+
+    std::string canonical_query_string = canonical_query_ss.str();
 
     // Build the canonical headers
     std::string host = "kafka." + _config.region + ".amazonaws.com";
@@ -170,18 +197,12 @@ Status AwsMskIamAuth::generate_token(const std::string& broker_hostname, std::st
                                                      date_stamp, _config.region, "kafka-cluster");
     std::string signature = _hmac_sha256_hex(signing_key, string_to_sign);
 
-    // Build the presigned URL with query parameters
-    // Note: User-Agent should NOT be in the URL, it's an HTTP header
-    // AWS official implementation adds User-Agent as header, not URL parameter
-    std::stringstream url_ss;
-    url_ss << endpoint_url << "?"
-           << "Action=kafka-cluster%3AConnect"
-           << "&X-Amz-Algorithm=" << algorithm << "&X-Amz-Credential="
-           << _url_encode(std::string(credentials.GetAWSAccessKeyId()) + "/" + credential_scope)
-           << "&X-Amz-Date=" << timestamp << "&X-Amz-Expires=" << TOKEN_EXPIRY_SECONDS
-           << "&X-Amz-SignedHeaders=" << signed_headers << "&X-Amz-Signature=" << signature;
-
-    std::string signed_url = url_ss.str();
+    // Build the final presigned URL
+    // All parameters are already in canonical_query_string, just add signature
+    // Then add User-Agent AFTER signature (not part of signed content, matching reference impl)
+    std::string signed_url = endpoint_url + "?" + canonical_query_string +
+                             "&X-Amz-Signature=" + signature +
+                             "&User-Agent=doris-msk-iam-auth%2F1.0";
 
     // Base64url encode the signed URL (without padding)
     *token = _base64url_encode(signed_url);
@@ -189,7 +210,7 @@ Status AwsMskIamAuth::generate_token(const std::string& broker_hostname, std::st
     // Token lifetime in milliseconds
     *token_lifetime_ms = TOKEN_EXPIRY_SECONDS * 1000;
 
-    VLOG_NOTICE << "Generated AWS MSK IAM token for region: " << _config.region;
+    LOG(INFO) << "Generated AWS MSK IAM token, presigned URL: " << signed_url;
 
     return Status::OK();
 }
@@ -335,7 +356,13 @@ void AwsMskIamOAuthCallback::oauthbearer_token_refresh_cb(
     // Error string for oauthbearer_set_token
     std::string set_token_errstr;
 
-    RdKafka::ErrorCode err = handle->oauthbearer_set_token(token, token_lifetime_ms, principal,
+    // Calculate absolute expiry time (Unix timestamp in milliseconds)
+    // librdkafka expects an absolute expiry timestamp, not a relative lifetime
+    auto now = std::chrono::system_clock::now();
+    auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+    int64_t token_expiry_ms = now_ms + token_lifetime_ms;
+
+    RdKafka::ErrorCode err = handle->oauthbearer_set_token(token, token_expiry_ms, principal,
                                                            extensions, set_token_errstr);
 
     if (err != RdKafka::ERR_NO_ERROR) {
