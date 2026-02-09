@@ -154,6 +154,82 @@ suite("ann_range_search_nullable_literal") {
         order by id;
     """
 
+    // ========== Test 8-12: Non-distance function comparisons with nullable literals ==========
+    // These tests ensure that when left child is NOT a distance function,
+    // the nullable literal on right side does not cause any issues.
+    // The query should execute normally without crashing.
+
+    // Test 8: Regular column comparison with nullable subquery (empty table)
+    sql "truncate table ann_nullable_threshold"
+    qt_non_dist_nullable_empty """
+        select id, embedding from ann_nullable_test 
+        where value < (select min(threshold) from ann_nullable_threshold)
+        order by id;
+    """
+
+    // Test 9: Regular column comparison with nullable subquery (all NULL values)
+    sql """
+        INSERT INTO ann_nullable_threshold (id, threshold) VALUES (1, NULL), (2, NULL);
+    """
+    qt_non_dist_nullable_all_null """
+        select id, embedding from ann_nullable_test 
+        where value < (select min(threshold) from ann_nullable_threshold)
+        order by id;
+    """
+
+    // Test 10: Regular column comparison with nullable subquery (has non-NULL values)
+    sql """
+        INSERT INTO ann_nullable_threshold (id, threshold) VALUES (3, 25.0), (4, 35.0);
+    """
+    qt_non_dist_nullable_normal """
+        select id, embedding from ann_nullable_test 
+        where value < (select min(threshold) from ann_nullable_threshold)
+        order by id;
+    """
+
+    // Test 11: Non-distance function (abs, sqrt, etc.) with nullable literal
+    qt_non_dist_func_nullable """
+        select id, embedding from ann_nullable_test 
+        where abs(value) < (select min(threshold) from ann_nullable_threshold where id = 999)
+        order by id;
+    """
+
+    // Test 12: Arithmetic expression with nullable literal
+    qt_arithmetic_nullable """
+        select id, embedding from ann_nullable_test 
+        where (value + 10) < (select min(threshold) from ann_nullable_threshold where id = 999)
+        order by id;
+    """
+
+    // ========== Test 13-15: Mixed scenarios ==========
+    // Test 13: Distance function AND regular comparison, both with nullable
+    sql "truncate table ann_nullable_threshold"
+    qt_mixed_dist_and_regular_nullable """
+        select id, embedding from ann_nullable_test 
+        where l2_distance_approximate(embedding, [1.0, 2.0, 3.0, 4.0]) < (select min(threshold) from ann_nullable_threshold)
+          and value < (select max(threshold) from ann_nullable_threshold)
+        order by id;
+    """
+
+    // Test 14: Distance function with non-nullable, regular with nullable
+    sql """
+        INSERT INTO ann_nullable_threshold (id, threshold) VALUES (1, 5.0);
+    """
+    qt_dist_normal_regular_nullable """
+        select id, embedding from ann_nullable_test 
+        where l2_distance_approximate(embedding, [1.0, 2.0, 3.0, 4.0]) < 5.0
+          and value < (select min(threshold) from ann_nullable_threshold where id = 999)
+        order by id;
+    """
+
+    // Test 15: OR condition with nullable literals
+    qt_or_condition_nullable """
+        select id, embedding from ann_nullable_test 
+        where l2_distance_approximate(embedding, [1.0, 2.0, 3.0, 4.0]) < (select min(threshold) from ann_nullable_threshold where id = 999)
+           or value < (select max(threshold) from ann_nullable_threshold where id = 999)
+        order by id;
+    """
+
     // Cleanup
     sql "drop table if exists ann_nullable_test"
     sql "drop table if exists ann_nullable_threshold"

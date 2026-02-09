@@ -34,3 +34,21 @@
 
 -- !ip_nullable_subquery --
 
+-- !non_dist_nullable_empty --
+
+-- !non_dist_nullable_all_null --
+
+-- !non_dist_nullable_normal --
+0	[1, 2, 3, 4]
+1	[2, 3, 4, 5]
+
+-- !non_dist_func_nullable --
+
+-- !arithmetic_nullable --
+
+-- !mixed_dist_and_regular_nullable --
+
+-- !dist_normal_regular_nullable --
+
+-- !or_condition_nullable --
+
