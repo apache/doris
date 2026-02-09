@@ -187,6 +187,46 @@ BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_rowset_plan_count(
 BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_failures(
         "recycler", "batch_delete_failures");
 
+// Operation Log Recycler BVars
+mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_total_num(
+        "recycler_oplog_last_round_total_num", {"instance_id"});
+mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_not_recycled_num(
+        "recycler_oplog_last_round_not_recycled_num", {"instance_id"});
+mBvarIntAdder g_bvar_recycler_oplog_recycle_failed_num(
+        "recycler_oplog_recycle_failed_num", {"instance_id"});
+mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_commit_partition_num(
+        "recycler_oplog_last_round_recycled_commit_partition_num", {"instance_id"});
+mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_drop_partition_num(
+        "recycler_oplog_last_round_recycled_drop_partition_num", {"instance_id"});
+mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_commit_index_num(
+        "recycler_oplog_last_round_recycled_commit_index_num", {"instance_id"});
+mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_drop_index_num(
+        "recycler_oplog_last_round_recycled_drop_index_num", {"instance_id"});
+mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_update_tablet_num(
+        "recycler_oplog_last_round_recycled_update_tablet_num", {"instance_id"});
+mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_compaction_num(
+        "recycler_oplog_last_round_recycled_compaction_num", {"instance_id"});
+mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_schema_change_num(
+        "recycler_oplog_last_round_recycled_schema_change_num", {"instance_id"});
+mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_commit_txn_num(
+        "recycler_oplog_last_round_recycled_commit_txn_num", {"instance_id"});
+mBvarIntAdder g_bvar_recycler_oplog_recycled_commit_partition_num(
+        "recycler_oplog_recycled_commit_partition_num", {"instance_id"});
+mBvarIntAdder g_bvar_recycler_oplog_recycled_drop_partition_num(
+        "recycler_oplog_recycled_drop_partition_num", {"instance_id"});
+mBvarIntAdder g_bvar_recycler_oplog_recycled_commit_index_num(
+        "recycler_oplog_recycled_commit_index_num", {"instance_id"});
+mBvarIntAdder g_bvar_recycler_oplog_recycled_drop_index_num(
+        "recycler_oplog_recycled_drop_index_num", {"instance_id"});
+mBvarIntAdder g_bvar_recycler_oplog_recycled_update_tablet_num(
+        "recycler_oplog_recycled_update_tablet_num", {"instance_id"});
+mBvarIntAdder g_bvar_recycler_oplog_recycled_compaction_num(
+        "recycler_oplog_recycled_compaction_num", {"instance_id"});
+mBvarIntAdder g_bvar_recycler_oplog_recycled_schema_change_num(
+        "recycler_oplog_recycled_schema_change_num", {"instance_id"});
+mBvarIntAdder g_bvar_recycler_oplog_recycled_commit_txn_num(
+        "recycler_oplog_recycled_commit_txn_num", {"instance_id"});
+
 // txn_kv's bvars
 bvar::LatencyRecorder g_bvar_txn_kv_get("txn_kv", "get");
 bvar::LatencyRecorder g_bvar_txn_kv_range_get("txn_kv", "range_get");
