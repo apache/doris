@@ -46,9 +46,9 @@ void UncommittedRowsetRegistry::unregister_rowset(int64_t tablet_id, int64_t tra
 
     auto& entries = it->second;
     entries.erase(std::remove_if(entries.begin(), entries.end(),
-                                  [transaction_id](const auto& e) {
-                                      return e->transaction_id == transaction_id;
-                                  }),
+                                 [transaction_id](const auto& e) {
+                                     return e->transaction_id == transaction_id;
+                                 }),
                   entries.end());
 
     if (entries.empty()) {
@@ -81,9 +81,9 @@ void UncommittedRowsetRegistry::remove_expired_entries() {
         for (auto it = shard.entries.begin(); it != shard.entries.end();) {
             auto& entries = it->second;
             entries.erase(std::remove_if(entries.begin(), entries.end(),
-                                          [now, expire_ms](const auto& e) {
-                                              return now - e->register_time_ms > expire_ms;
-                                          }),
+                                         [now, expire_ms](const auto& e) {
+                                             return now - e->register_time_ms > expire_ms;
+                                         }),
                           entries.end());
             if (entries.empty()) {
                 it = shard.entries.erase(it);

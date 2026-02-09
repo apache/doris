@@ -34,7 +34,6 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/calc_delete_bitmap_executor.h"
-#include "olap/uncommitted_rowset_registry.h"
 #include "olap/olap_define.h"
 #include "olap/partial_update_info.h"
 #include "olap/rowset/beta_rowset.h"
@@ -50,6 +49,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "olap/txn_manager.h"
+#include "olap/uncommitted_rowset_registry.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"

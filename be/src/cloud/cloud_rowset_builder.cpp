@@ -19,10 +19,10 @@
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
-#include "olap/uncommitted_rowset_registry.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "olap/storage_policy.h"
+#include "olap/uncommitted_rowset_registry.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

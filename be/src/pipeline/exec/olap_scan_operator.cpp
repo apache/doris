@@ -753,8 +753,7 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
             for (size_t i = 0; i < _scan_ranges.size(); i++) {
                 auto& tablet = _tablets[i].tablet;
                 // Only DUP_KEYS and UNIQUE_KEYS supported
-                if (tablet->keys_type() != DUP_KEYS &&
-                    tablet->keys_type() != UNIQUE_KEYS) {
+                if (tablet->keys_type() != DUP_KEYS && tablet->keys_type() != UNIQUE_KEYS) {
                     continue;
                 }
 
@@ -798,8 +797,8 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
                     if (!st.ok()) {
                         LOG(WARNING) << "Failed to create reader for uncommitted rowset, "
                                         "tablet_id="
-                                     << tablet->tablet_id()
-                                     << " txn_id=" << entry->transaction_id << ": " << st;
+                                     << tablet->tablet_id() << " txn_id=" << entry->transaction_id
+                                     << ": " << st;
                         continue;
                     }
                     _read_sources[i].rs_splits.emplace_back(std::move(rs_reader));
