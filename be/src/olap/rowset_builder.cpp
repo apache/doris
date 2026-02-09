@@ -355,10 +355,6 @@ Status RowsetBuilder::commit_txn() {
         entry->transaction_id = _req.txn_id;
         entry->partition_id = _req.partition_id;
         entry->tablet_id = tablet()->tablet_id();
-        entry->unique_key_merge_on_write = _tablet->enable_unique_key_merge_on_write();
-        if (entry->unique_key_merge_on_write && _delete_bitmap) {
-            entry->committed_delete_bitmap = std::make_shared<DeleteBitmap>(*_delete_bitmap);
-        }
         registry->register_rowset(std::move(entry));
     }
 
