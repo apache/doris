@@ -2141,7 +2141,7 @@ cleanup_package_source() {
         bzip)            src_var="BZIP_SOURCE" ;;
         lzo2)            src_var="LZO2_SOURCE" ;;
         zstd)            src_var="ZSTD_SOURCE" ;;
-        boost)           src_var="BOOST_SOURCE" ;;
+        #boost)           src_var="BOOST_SOURCE" ;; // boost is used for mysql later
         abseil)          src_var="ABSEIL_SOURCE" ;;
         curl)            src_var="CURL_SOURCE" ;;
         re2)             src_var="RE2_SOURCE" ;;
