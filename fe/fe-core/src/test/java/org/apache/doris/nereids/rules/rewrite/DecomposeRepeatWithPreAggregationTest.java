@@ -601,9 +601,7 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
         List<Expression> candidates = ImmutableList.of(a, b, c);
 
         // grouping sets: index 0 = max (a,b,c), index 1 = (a,b), index 2 = (a)
-        // non-max: (a,b) and (a). a appears 2, b appears 1, c appears 1.
-        // countToCandidate: 1->[b,c], 2->[a]. TreeMap iterates 1 then 2.
-        // For count 1: chooseByNdv([b,c], stats, total). Need ndv > total to return. b:60, c:80, total=50 -> max ndv 80>50 -> return c.
+        // non-max: (a,b) and (a). a appears 2, b appears 1, c appears 3.
         List<List<Expression>> groupingSets = ImmutableList.of(
                 ImmutableList.of(a, b, c),
                 ImmutableList.of(a, c),
@@ -611,9 +609,9 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
         );
 
         Map<Expression, Double> exprToNdv = new HashMap<>();
-        exprToNdv.put(a, 40.0);
-        exprToNdv.put(b, 60.0);
-        exprToNdv.put(c, 50.0);
+        exprToNdv.put(a, 400.0);
+        exprToNdv.put(b, 6000.0);
+        exprToNdv.put(c, 2000.0);
         Statistics stats = statsWithNdv(exprToNdv);
 
         @SuppressWarnings("unchecked")
@@ -625,19 +623,19 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
         // When no candidate has ndv > totalInstanceNum, return empty
         @SuppressWarnings("unchecked")
         Optional<Expression> empty = (Optional<Expression>) method.invoke(
-                rule, groupingSets, -1, candidates, stats, 1100);
+                rule, groupingSets, -1, candidates, stats, 7000);
         Assertions.assertFalse(empty.isPresent());
 
         @SuppressWarnings("unchecked")
         Optional<Expression> chosen2 = (Optional<Expression>) method.invoke(
-                rule, groupingSets, -1, candidates, stats, 18);
+                rule, groupingSets, -1, candidates, stats, 1000);
         Assertions.assertTrue(chosen2.isPresent());
         Assertions.assertEquals(b, chosen2.get());
 
         // inputStats null -> chooseByNdv returns empty for every group -> empty
         @SuppressWarnings("unchecked")
         Optional<Expression> emptyNullStats = (Optional<Expression>) method.invoke(
-                rule, groupingSets, -1, candidates, null, 18);
+                rule, groupingSets, -1, candidates, null, 1000);
         Assertions.assertFalse(emptyNullStats.isPresent());
     }
 }
