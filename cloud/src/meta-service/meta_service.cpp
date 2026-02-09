@@ -825,7 +825,7 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
     }
     if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
         code = cast_as<ErrCategory::READ>(err);
-        msg = "failed to get tablet key, key=" + hex(key);
+        msg = fmt::format("failed to get tablet key, err={}, key={}", err, hex(key));
         LOG(WARNING) << msg;
         return;
     }
