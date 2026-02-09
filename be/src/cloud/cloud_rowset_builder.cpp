@@ -21,6 +21,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "common/config.h"
 #include "olap/storage_policy.h"
 #include "olap/uncommitted_rowset_registry.h"
 
@@ -163,6 +164,9 @@ Status CloudRowsetBuilder::set_txn_related_delete_bitmap() {
 }
 
 void CloudRowsetBuilder::register_uncommitted_rowset() {
+    if (!config::enable_uncommitted_rowset_registry) {
+        return;
+    }
     auto* registry = _engine.uncommitted_rowset_registry();
     if (!registry || !_rowset) {
         return;
