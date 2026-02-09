@@ -57,7 +57,6 @@
 #include "olap/rowset/segment_v2/zone_map_index.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h" // for TypeInfo
-#include "olap/wrapper_field.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "util/binary_cast.hpp"
@@ -447,32 +446,16 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
     }
     // TODO: this work to get min/max value seems should only do once
     ZoneMapInfo zone_map_info;
-    RETURN_IF_ERROR(_parse_zone_map_skip_null(*_segment_zone_map, zone_map_info));
+    RETURN_IF_ERROR(_parse_zone_map(*_segment_zone_map, zone_map_info));
 
     dst->reserve(*n);
     if (zone_map_info.is_all_null) {
         assert_cast<vectorized::ColumnNullable&>(*dst).insert_many_defaults(*n);
         return Status::OK();
     }
-    FieldType type = _type_info->type();
-    if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
-        auto s = zone_map_info.max_value.template get<TYPE_CHAR>();
-        while (!s.empty() && s.back() == '\0') {
-            s.pop_back();
-        }
-        dst->insert(vectorized::Field::create_field<TYPE_CHAR>(s));
-        for (int i = 1; i < *n; ++i) {
-            s = zone_map_info.min_value.template get<TYPE_CHAR>();
-            while (!s.empty() && s.back() == '\0') {
-                s.pop_back();
-            }
-            dst->insert(vectorized::Field::create_field<TYPE_CHAR>(s));
-        }
-    } else {
-        dst->insert(zone_map_info.max_value);
-        for (int i = 1; i < *n; ++i) {
-            dst->insert(zone_map_info.min_value);
-        }
+    dst->insert(zone_map_info.max_value);
+    for (int i = 1; i < *n; ++i) {
+        dst->insert(zone_map_info.min_value);
     }
     return Status::OK();
 }
@@ -514,10 +497,10 @@ Status ColumnReader::prune_predicates_by_zone_map(
 }
 
 Status ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, ZoneMapInfo& zone_map_info) const {
+    zone_map_info.has_null = zone_map.has_null();
+    zone_map_info.is_all_null = !zone_map.has_not_null();
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
-        zone_map_info.has_null = false;
-
         if (zone_map.has_negative_inf()) {
             if (FieldType::OLAP_FIELD_TYPE_FLOAT == _meta_type) {
                 static auto constexpr float_neg_inf = -std::numeric_limits<float>::infinity();
@@ -532,8 +515,9 @@ Status ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, ZoneMapInfo& zon
             }
         } else {
             vectorized::DataTypeSerDe::FormatOptions opt;
-            RETURN_IF_ERROR(_data_type->get_serde()->from_string(zone_map.min(),
-                                                                 zone_map_info.min_value, opt));
+            opt.ignore_scale = true;
+            RETURN_IF_ERROR(_data_type->get_serde()->from_olap_string(
+                    zone_map.min(), zone_map_info.min_value, opt));
         }
 
         if (zone_map.has_nan()) {
@@ -560,35 +544,10 @@ Status ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, ZoneMapInfo& zon
             }
         } else {
             vectorized::DataTypeSerDe::FormatOptions opt;
-            RETURN_IF_ERROR(_data_type->get_serde()->from_string(zone_map.max(),
-                                                                 zone_map_info.max_value, opt));
+            opt.ignore_scale = true;
+            RETURN_IF_ERROR(_data_type->get_serde()->from_olap_string(
+                    zone_map.max(), zone_map_info.max_value, opt));
         }
-    } else {
-        zone_map_info.is_all_null = true;
-    }
-    // for compatible original Cond eval logic
-    if (zone_map.has_null()) {
-        // for compatible, if exist null, original logic treat null as min
-        zone_map_info.has_null = true;
-        if (!zone_map.has_not_null()) {
-            // for compatible OlapCond's 'is not null'
-            zone_map_info.has_null = true;
-        }
-    }
-    return Status::OK();
-}
-
-Status ColumnReader::_parse_zone_map_skip_null(const ZoneMapPB& zone_map,
-                                               ZoneMapInfo& zone_map_info) const {
-    // min value and max value are valid if has_not_null is true
-    if (zone_map.has_not_null()) {
-        vectorized::DataTypeSerDe::FormatOptions opt;
-        RETURN_IF_ERROR(
-                _data_type->get_serde()->from_string(zone_map.max(), zone_map_info.max_value, opt));
-        RETURN_IF_ERROR(
-                _data_type->get_serde()->from_string(zone_map.min(), zone_map_info.min_value, opt));
-    } else {
-        zone_map_info.is_all_null = true;
     }
     return Status::OK();
 }
@@ -611,11 +570,11 @@ Status ColumnReader::_get_filtered_pages(
 
     const std::vector<ZoneMapPB>& zone_maps = _zone_map_index->page_zone_maps();
     size_t page_size = _zone_map_index->num_pages();
-    ZoneMapInfo zone_map_info;
     for (size_t i = 0; i < page_size; ++i) {
         if (zone_maps[i].pass_all()) {
             page_indexes->push_back(cast_set<uint32_t>(i));
         } else {
+            ZoneMapInfo zone_map_info;
             RETURN_IF_ERROR(_parse_zone_map(zone_maps[i], zone_map_info));
             if (_zone_map_match_condition(zone_maps[i], zone_map_info, col_predicates)) {
                 bool should_read = true;
@@ -2106,41 +2065,30 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
     // "NULL" is a special default value which means the default value is null.
     if (_has_default_value) {
         if (_default_value == "NULL") {
-            _is_default_value_null = true;
+            _default_value_field = vectorized::Field::create_field<TYPE_NULL>(vectorized::Null {});
         } else {
-            _type_size = _type_info->size();
-            _mem_value.resize(_type_size);
-            Status s = Status::OK();
-            // If char length is 10, but default value is 'a' , it's length is 1
-            // not fill 0 to the ending, because segment iterator will shrink the tail 0 char
-            if (_type_info->type() == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
-                _type_info->type() == FieldType::OLAP_FIELD_TYPE_HLL ||
-                _type_info->type() == FieldType::OLAP_FIELD_TYPE_BITMAP ||
-                _type_info->type() == FieldType::OLAP_FIELD_TYPE_STRING ||
-                _type_info->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
-                ((Slice*)_mem_value.data())->size = _default_value.length();
-                ((Slice*)_mem_value.data())->data = _default_value.data();
-            } else if (_type_info->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+            if (_type_info->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
                 if (_default_value != "[]") {
                     return Status::NotSupported("Array default {} is unsupported", _default_value);
                 } else {
-                    ((Slice*)_mem_value.data())->size = _default_value.length();
-                    ((Slice*)_mem_value.data())->data = _default_value.data();
+                    _default_value_field =
+                            vectorized::Field::create_field<TYPE_ARRAY>(vectorized::Array {});
+                    return Status::OK();
                 }
             } else if (_type_info->type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
                 return Status::NotSupported("STRUCT default type is unsupported");
             } else if (_type_info->type() == FieldType::OLAP_FIELD_TYPE_MAP) {
                 return Status::NotSupported("MAP default type is unsupported");
-            } else {
-                s = _type_info->from_string(_mem_value.data(), _default_value, _precision, _scale);
             }
-            if (!s.ok()) {
-                return s;
-            }
+            const auto t = _type_info->type();
+            const auto serde = vectorized::DataTypeFactory::instance()
+                                       .create_data_type(t, _precision, _scale, _len)
+                                       ->get_serde();
+            vectorized::DataTypeSerDe::FormatOptions opt;
+            RETURN_IF_ERROR(serde->from_olap_string(_default_value, _default_value_field, opt));
         }
     } else if (_is_nullable) {
-        // if _has_default_value is false but _is_nullable is true, we should return null as default value.
-        _is_default_value_null = true;
+        _default_value_field = vectorized::Field::create_field<TYPE_NULL>(vectorized::Null {});
     } else {
         return Status::InternalError(
                 "invalid default value column for no default value and not nullable");
@@ -2148,97 +2096,9 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
     return Status::OK();
 }
 
-void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, size_t type_size,
-                                                     void* mem_value,
-                                                     vectorized::MutableColumnPtr& dst, size_t n) {
-    dst = dst->convert_to_predicate_column_if_dictionary();
-
-    switch (type_info->type()) {
-    case FieldType::OLAP_FIELD_TYPE_BITMAP:
-    case FieldType::OLAP_FIELD_TYPE_HLL: {
-        dst->insert_many_defaults(n);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DATE: {
-        vectorized::Int64 int64;
-        char* data_ptr = (char*)&int64;
-        size_t data_len = sizeof(int64);
-
-        assert(type_size ==
-               sizeof(FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::CppType)); //uint24_t
-        std::string str = FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::to_string(mem_value);
-
-        VecDateTimeValue value;
-        value.from_date_str(str.c_str(), str.length());
-        value.cast_to_date();
-
-        int64 = binary_cast<VecDateTimeValue, vectorized::Int64>(value);
-        dst->insert_data_repeatedly(data_ptr, data_len, n);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DATETIME: {
-        vectorized::Int64 int64;
-        char* data_ptr = (char*)&int64;
-        size_t data_len = sizeof(int64);
-
-        assert(type_size ==
-               sizeof(FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME>::CppType)); //int64_t
-        std::string str =
-                FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME>::to_string(mem_value);
-
-        VecDateTimeValue value;
-        value.from_date_str(str.c_str(), str.length());
-        value.to_datetime();
-
-        int64 = binary_cast<VecDateTimeValue, vectorized::Int64>(value);
-        dst->insert_data_repeatedly(data_ptr, data_len, n);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
-        vectorized::Int128 int128;
-        char* data_ptr = (char*)&int128;
-        size_t data_len = sizeof(int128);
-
-        assert(type_size ==
-               sizeof(FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL>::CppType)); //decimal12_t
-        decimal12_t* d = (decimal12_t*)mem_value;
-        int128 = DecimalV2Value(d->integer, d->fraction).value();
-        dst->insert_data_repeatedly(data_ptr, data_len, n);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_STRING:
-    case FieldType::OLAP_FIELD_TYPE_VARCHAR:
-    case FieldType::OLAP_FIELD_TYPE_CHAR:
-    case FieldType::OLAP_FIELD_TYPE_JSONB:
-    case FieldType::OLAP_FIELD_TYPE_AGG_STATE: {
-        char* data_ptr = ((Slice*)mem_value)->data;
-        size_t data_len = ((Slice*)mem_value)->size;
-        dst->insert_data_repeatedly(data_ptr, data_len, n);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-        if (dst->is_nullable()) {
-            static_cast<vectorized::ColumnNullable&>(*dst).insert_not_null_elements(n);
-        } else {
-            dst->insert_many_defaults(n);
-        }
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_VARIANT: {
-        dst->insert_many_defaults(n);
-        break;
-    }
-    default: {
-        char* data_ptr = (char*)mem_value;
-        size_t data_len = type_size;
-        dst->insert_data_repeatedly(data_ptr, data_len, n);
-    }
-    }
-}
-
 Status DefaultValueColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
                                               bool* has_null) {
-    *has_null = _is_default_value_null;
+    *has_null = _default_value_field.is_null();
     _insert_many_default(dst, *n);
     return Status::OK();
 }
@@ -2250,10 +2110,11 @@ Status DefaultValueColumnIterator::read_by_rowids(const rowid_t* rowids, const s
 }
 
 void DefaultValueColumnIterator::_insert_many_default(vectorized::MutableColumnPtr& dst, size_t n) {
-    if (_is_default_value_null) {
+    if (_default_value_field.is_null()) {
         dst->insert_many_defaults(n);
     } else {
-        insert_default_data(_type_info.get(), _type_size, _mem_value.data(), dst, n);
+        dst = dst->convert_to_predicate_column_if_dictionary();
+        dst->insert_duplicate_fields(_default_value_field, n);
     }
 }
 

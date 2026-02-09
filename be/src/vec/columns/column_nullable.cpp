@@ -331,6 +331,16 @@ void ColumnNullable::insert(const Field& x) {
     }
 }
 
+void ColumnNullable::insert_duplicate_fields(const Field& x, const size_t n) {
+    if (x.is_null()) {
+        get_nested_column().insert_many_defaults(n);
+        get_null_map_column().insert_many_vals(1, n);
+    } else {
+        get_nested_column().insert_duplicate_fields(x, n);
+        get_null_map_column().insert_many_vals(0, n);
+    }
+}
+
 void ColumnNullable::insert_from(const IColumn& src, size_t n) {
     const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
     get_nested_column().insert_from(src_concrete.get_nested_column(), n);

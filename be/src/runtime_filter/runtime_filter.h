@@ -112,7 +112,7 @@ protected:
     std::shared_ptr<RuntimeFilterWrapper> _wrapper;
 
     // will apply to remote node
-    bool _has_remote_target = false;
+    const bool _has_remote_target;
 
     // runtime filter type
     RuntimeFilterType _runtime_filter_type = RuntimeFilterType::UNKNOWN_FILTER;

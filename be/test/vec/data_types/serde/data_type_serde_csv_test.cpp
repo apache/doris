@@ -17,7 +17,6 @@
 
 #include "gtest/gtest_pred_impl.h"
 #include "olap/types.h" // for TypeInfo
-#include "olap/wrapper_field.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_string.h"
@@ -35,7 +34,7 @@
 
 namespace doris::vectorized {
 // This test aim to make sense for csv serde of data types.
-//  we use default formatOption and special formatOption to equal serde for wrapperField.
+//  we use default formatOption and special formatOption to test serde behavior.
 TEST(CsvSerde, ScalaDataTypeSerdeCsvTest) {
     // arithmetic scala field types
     {
@@ -275,17 +274,18 @@ TEST(CsvSerde, ScalaDataTypeSerdeCsvTest) {
             std::cout << "========= This type is  " << data_type_ptr->get_name() << ": "
                       << fmt::format("{}", type) << std::endl;
 
-            std::unique_ptr<WrapperField> min_wf(WrapperField::create_by_type(type));
-            std::unique_ptr<WrapperField> max_wf(WrapperField::create_by_type(type));
-            std::unique_ptr<WrapperField> rand_wf(WrapperField::create_by_type(type));
+            // Set min, max values based on type
+            std::string min_s;
+            std::string max_s;
+            std::string rand_ip = pair.second;
 
-            min_wf->set_to_min();
-            max_wf->set_to_max();
-            EXPECT_EQ(rand_wf->from_string(pair.second, 0, 0).ok(), true);
-
-            std::string min_s = min_wf->to_string();
-            std::string max_s = max_wf->to_string();
-            std::string rand_ip = rand_wf->to_string();
+            if (type == FieldType::OLAP_FIELD_TYPE_IPV4) {
+                min_s = "0.0.0.0";
+                max_s = "255.255.255.255";
+            } else if (type == FieldType::OLAP_FIELD_TYPE_IPV6) {
+                min_s = "::";
+                max_s = "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff";
+            }
 
             Slice min_rb(min_s.data(), min_s.size());
             Slice max_rb(max_s.data(), max_s.size());
@@ -293,7 +293,6 @@ TEST(CsvSerde, ScalaDataTypeSerdeCsvTest) {
 
             auto col = data_type_ptr->create_column();
             DataTypeSerDeSPtr serde = data_type_ptr->get_serde();
-            // make use c++ lib equals to wrapper field from_string behavior
             DataTypeSerDe::FormatOptions formatOptions;
 
             Status st = serde->deserialize_one_cell_from_json(*col, min_rb, formatOptions);
@@ -336,10 +335,7 @@ TEST(CsvSerde, ScalaDataTypeSerdeCsvTest) {
         DataTypePtr data_type_ptr = DataTypeFactory::instance().create_data_type(
                 FieldType::OLAP_FIELD_TYPE_STRING, 0, 0);
         DataTypePtr nullable_ptr = std::make_shared<DataTypeNullable>(data_type_ptr);
-        std::unique_ptr<WrapperField> rand_wf(
-                WrapperField::create_by_type(FieldType::OLAP_FIELD_TYPE_STRING));
         std::string test_str = generate(128);
-        EXPECT_EQ(rand_wf->from_string(test_str, 0, 0).ok(), true);
         Field string_field = Field::create_field<TYPE_STRING>(test_str);
         ColumnPtr col = nullable_ptr->create_column_const(0, string_field);
         DataTypeSerDe::FormatOptions default_format_option;
@@ -352,7 +348,7 @@ TEST(CsvSerde, ScalaDataTypeSerdeCsvTest) {
         EXPECT_EQ(st.ok(), true);
         buffer_writer.commit();
         StringRef rand_s_d = ser_col->get_data_at(0);
-        EXPECT_EQ(rand_wf->to_string(), rand_s_d.to_string());
+        EXPECT_EQ(test_str, rand_s_d.to_string());
     }
 }
 
