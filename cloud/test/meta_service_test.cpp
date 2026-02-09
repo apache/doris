@@ -2671,6 +2671,23 @@ TEST(MetaServiceTest, GetCurrentMaxTxnIdTest) {
     ASSERT_GE(max_txn_id_res.current_max_txn_id(), begin_txn_res.txn_id());
 }
 
+TEST(MetaServiceTest, CreateMetaSyncPointTest) {
+    auto meta_service = get_meta_service();
+    const std::string cloud_unique_id = "test_cloud_unique_id";
+
+    brpc::Controller cntl;
+    CreateMetaSyncPointRequest req;
+    CreateMetaSyncPointResponse resp;
+    req.set_cloud_unique_id(cloud_unique_id);
+
+    meta_service->create_meta_sync_point(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &resp, nullptr);
+
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+    ASSERT_GT(resp.committed_version(), 0);
+    ASSERT_EQ(resp.versionstamp().size(), 20);
+}
+
 TEST(MetaServiceTest, AbortTxnWithCoordinatorTest) {
     auto meta_service = get_meta_service();
 

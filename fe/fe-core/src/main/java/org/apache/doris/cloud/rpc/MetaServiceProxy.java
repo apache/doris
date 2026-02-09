@@ -387,6 +387,11 @@ public class MetaServiceProxy {
         return executeWithMetrics("getCurrentMaxTxnId", (client) -> client.getCurrentMaxTxnId(request));
     }
 
+    public Cloud.CreateMetaSyncPointResponse createMetaSyncPoint(Cloud.CreateMetaSyncPointRequest request)
+            throws RpcException {
+        return w.executeRequest((client) -> client.createMetaSyncPoint(request));
+    }
+
     public Cloud.BeginSubTxnResponse beginSubTxn(Cloud.BeginSubTxnRequest request)
             throws RpcException {
         return executeWithMetrics("beginSubTxn", (client) -> client.beginSubTxn(request));

@@ -33,6 +33,7 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.cloud.CloudWarmUpJob;
+import org.apache.doris.cloud.persist.CloudMetaSyncPoint;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cloud.snapshot.SnapshotState;
 import org.apache.doris.cluster.Cluster;
@@ -987,6 +988,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_BEGIN_SNAPSHOT: {
                 data = SnapshotState.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_META_SYNC_POINT: {
+                data = CloudMetaSyncPoint.read(in);
                 isRead = true;
                 break;
             }

@@ -1113,6 +1113,17 @@ message GetCurrentMaxTxnResponse {
     optional int64 current_max_txn_id = 2;
 }
 
+message CreateMetaSyncPointRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional string request_ip = 2;
+}
+
+message CreateMetaSyncPointResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional int64 committed_version = 2;
+    optional string versionstamp = 3;
+}
+
 message AbortTxnWithCoordinatorRequest {
     optional string cloud_unique_id = 1; // For auth
     optional string ip = 2;
@@ -2234,6 +2245,7 @@ service MetaService {
     rpc abort_txn(AbortTxnRequest) returns (AbortTxnResponse);
     rpc get_txn(GetTxnRequest) returns (GetTxnResponse);
     rpc get_current_max_txn_id(GetCurrentMaxTxnRequest) returns (GetCurrentMaxTxnResponse);
+    rpc create_meta_sync_point(CreateMetaSyncPointRequest) returns (CreateMetaSyncPointResponse);
     rpc check_txn_conflict(CheckTxnConflictRequest) returns (CheckTxnConflictResponse);
     rpc clean_txn_label(CleanTxnLabelRequest) returns (CleanTxnLabelResponse);
     rpc get_txn_id(GetTxnIdRequest) returns (GetTxnIdResponse);

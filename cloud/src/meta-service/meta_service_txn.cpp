@@ -46,6 +46,9 @@ using namespace std::chrono;
 
 namespace doris::cloud {
 
+static constexpr std::string_view kMetaSyncPointDummyKey =
+        "__meta_service_sync_point_dummy_key__";
+
 struct TableStats {
     int64_t updated_row_count = 0;
 
@@ -3626,6 +3629,60 @@ void MetaServiceImpl::get_current_max_txn_id(::google::protobuf::RpcController* 
     int64_t current_max_txn_id = read_version << 10;
     VLOG_DEBUG << "read_version=" << read_version << " current_max_txn_id=" << current_max_txn_id;
     response->set_current_max_txn_id(current_max_txn_id);
+}
+
+void MetaServiceImpl::create_meta_sync_point(::google::protobuf::RpcController* controller,
+                                             const CreateMetaSyncPointRequest* request,
+                                             CreateMetaSyncPointResponse* response,
+                                             ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(create_meta_sync_point, del);
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+    RPC_RATE_LIMIT(create_meta_sync_point)
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        msg = "failed to create txn";
+        code = cast_as<ErrCategory::CREATE>(err);
+        return;
+    }
+
+    txn->enable_get_versionstamp();
+    txn->remove(kMetaSyncPointDummyKey);
+
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        ss << "txn->commit() failed, err=" << err;
+        msg = ss.str();
+        return;
+    }
+
+    int64_t committed_version = 0;
+    err = txn->get_committed_version(&committed_version);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        ss << "get committed version failed, err=" << err;
+        msg = ss.str();
+        return;
+    }
+
+    Versionstamp versionstamp;
+    err = txn->get_versionstamp(&versionstamp);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        ss << "get versionstamp failed, err=" << err;
+        msg = ss.str();
+        return;
+    }
+
+    response->set_committed_version(committed_version);
+    response->set_versionstamp(versionstamp.to_string());
 }
 
 /**
