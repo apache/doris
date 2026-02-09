@@ -51,37 +51,32 @@ suite("test_array_distance_functions") {
     }
 
     // abnormal test cases
-    try {
+    test {
         sql "SELECT l2_distance([0, 0], [1])"
-    } catch (Exception ex) {
-        assert("${ex}".contains("function l2_distance have different input element sizes"))
+        exception "function l2_distance have different input element sizes"
     }
 
-    try {
+    test {
         sql "SELECT cosine_distance([NULL], [NULL, NULL])"
-    } catch (Exception ex) {
-        assert("${ex}".contains("function cosine_distance cannot have null"))
+        exception "function cosine_distance cannot have null"
     }
 
     // Test cases for the nullable array offset fix
     // These cases specifically test scenarios where absolute offsets might differ
     // but actual array sizes are the same (should pass) or different (should fail)
-    try {
+    test {
         sql "SELECT l1_distance([1.0, 2.0, 3.0], [4.0, 5.0])"
-    } catch (Exception ex) {
-        assert("${ex}".contains("function l1_distance have different input element sizes"))
+        exception "function l1_distance have different input element sizes"
     }
 
-    try {
+    test {
         sql "SELECT inner_product([1.0], [2.0, 3.0, 4.0])"
-    } catch (Exception ex) {
-        assert("${ex}".contains("function inner_product have different input element sizes"))
+        exception "function inner_product have different input element sizes"
     }
 
-    try {
+    test {
         sql "SELECT l1_distance([1, 2, 3], [0, NULL, 0])"
-    } catch (Exception ex) {
-        assert("${ex}".contains("function l1_distance cannot have null"))
+        exception "function l1_distance cannot have null"
     }
 
     // Edge case: empty arrays should work
@@ -149,29 +144,25 @@ suite("test_array_distance_functions") {
     }
     
     // Test array with NULL element: should throw exception
-    try {
+    test {
         sql "SELECT cosine_similarity([1, NULL, 3], [4, 5, 6])"
-    } catch (Exception ex) {
-        assert("${ex}".contains("function cosine_similarity cannot have null"))
+        exception "function cosine_similarity cannot have null"
     }
     
-    try {
+    test {
         sql "SELECT cosine_similarity([1, 2, 3], [4, NULL, 6])"
-    } catch (Exception ex) {
-        assert("${ex}".contains("function cosine_similarity cannot have null"))
+        exception "function cosine_similarity cannot have null"
     }
     
     // Test different array sizes: should throw exception
-    try {
+    test {
         sql "SELECT cosine_similarity([1, 2], [1, 2, 3])"
-    } catch (Exception ex) {
-        assert("${ex}".contains("function cosine_similarity have different input element sizes"))
+        exception "function cosine_similarity have different input element sizes"
     }
     
-    try {
+    test {
         sql "SELECT cosine_similarity([1, 2, 3, 4], [1, 2])"
-    } catch (Exception ex) {
-        assert("${ex}".contains("function cosine_similarity have different input element sizes"))
+        exception "function cosine_similarity have different input element sizes"
     }
     
     // Test large values
