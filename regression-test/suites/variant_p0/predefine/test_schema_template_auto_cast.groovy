@@ -307,4 +307,69 @@ suite("test_schema_template_auto_cast", "p0") {
         ORDER BY data['int_nested.level1_num_1'] """
 
     sql "DROP TABLE IF EXISTS ${leafTable}"
+
+    // Test 16: backslash escaping in schema template pattern
+    def globWildTable = "test_variant_schema_auto_cast_glob_wild"
+    def globLiteralTable = "test_variant_schema_auto_cast_glob_literal"
+    def globLiteralPattern = "a\\*b" // SQL sees a\*b, glob sees a\*b (literal *)
+
+    sql "DROP TABLE IF EXISTS ${globWildTable}"
+    sql "DROP TABLE IF EXISTS ${globLiteralTable}"
+
+    sql """CREATE TABLE ${globWildTable} (
+        `id` bigint NULL,
+        `data` variant<'a*b': BIGINT> NOT NULL
+    ) ENGINE=OLAP DUPLICATE KEY(`id`)
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
+
+    sql """CREATE TABLE ${globLiteralTable} (
+        `id` bigint NULL,
+        `data` variant<'${globLiteralPattern}': BIGINT> NOT NULL
+    ) ENGINE=OLAP DUPLICATE KEY(`id`)
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
+
+    sql """insert into ${globWildTable} values(1, '{\"a*b\": 1, \"axb\": 2}')"""
+    sql """insert into ${globLiteralTable} values(1, '{\"a*b\": 1, \"axb\": 2}')"""
+
+    // wildcard a*b matches both a*b and axb
+    qt_glob_wild_match """ SELECT data['a*b'] + 1 AS v1, data['axb'] + 1 AS v2
+        FROM ${globWildTable} ORDER BY id """
+
+    // literal a\*b matches only a*b
+    qt_glob_literal_match """ SELECT data['a*b'] + 1 AS v1 FROM ${globLiteralTable} ORDER BY id """
+    test {
+        sql """ SELECT data['axb'] + 1 FROM ${globLiteralTable} """
+        exception "Cannot cast from variant"
+    }
+
+    sql "DROP TABLE IF EXISTS ${globWildTable}"
+    sql "DROP TABLE IF EXISTS ${globLiteralTable}"
+
+
+    // Test 17: non-leaf path auto cast limitation
+    def nonleafTable = "test_variant_schema_auto_cast_nonleaf_limit"
+    sql "DROP TABLE IF EXISTS ${nonleafTable}"
+    sql """CREATE TABLE ${nonleafTable} (
+        `id` int NULL,
+        `data` variant<'int_*': INT> NOT NULL
+    ) ENGINE=OLAP DUPLICATE KEY(`id`)
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
+
+    sql """insert into ${nonleafTable} values(
+        1, '{"int_1": 1, "int_nested": {"level1_num_1": 1011111, "level1_num_2": 102}}')"""
+
+    // auto cast enabled: non-leaf path matches int_* and returns NULL
+    sql "set enable_variant_schema_auto_cast = true"
+    qt_nonleaf_auto_cast_on """ SELECT data['int_nested'] FROM ${nonleafTable} ORDER BY id """
+
+    // auto cast disabled: return original object
+    sql "set enable_variant_schema_auto_cast = false"
+    qt_nonleaf_auto_cast_off """ SELECT data['int_nested'] FROM ${nonleafTable} ORDER BY id """
+
+    // restore default
+    sql "set enable_variant_schema_auto_cast = true"
+    sql "DROP TABLE IF EXISTS ${nonleafTable}"
 }

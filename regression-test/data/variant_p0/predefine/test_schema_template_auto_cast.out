@@ -299,3 +299,16 @@ charlie	50
 -- !leaf_having_mixed --
 3033333	3033333
 4044444	4044444
+
+-- !glob_wild_match --
+2	3
+
+-- !glob_literal_match --
+2
+
+-- !nonleaf_auto_cast_on --
+\\N
+
+-- !nonleaf_auto_cast_off --
+{"level1_num_1":1011111,"level1_num_2":102}
+

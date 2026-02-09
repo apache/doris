@@ -2442,7 +2442,7 @@ public class SessionVariable implements Serializable, Writable {
                     + "因为外表会存在表的 schema 中 char 或者 varchar 列的最大长度和底层 parquet 或者 orc 文件中的 schema 不一致"
                     + "的情况。此时开启改选项，会按照表的 schema 中的最大长度进行截断。",
                     "Whether to truncate char or varchar columns according to the table's schema. "
-                            + "The default is false.\n"
+                            + "The default is true.\n"
                     + "Because the maximum length of the char or varchar column in the schema of the table"
                             + " is inconsistent with the schema in the underlying parquet or orc file."
                     + " At this time, if the option is turned on, it will be truncated according to the maximum length"
@@ -3297,12 +3297,12 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true,
             affectQueryResultInExecution = true,
             description = {
-                    "是否启用基于 schema template 的 variant 自动 cast，默认关闭。",
+                    "是否启用基于 schema template 的 variant 自动 cast，默认开启。",
                     "Whether to enable schema-template-based auto cast for variant expressions. "
-                            + "The default is false."
+                            + "The default is true."
             }
     )
-    public boolean enableVariantSchemaAutoCast = false;
+    public boolean enableVariantSchemaAutoCast = true;
 
     @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,

@@ -136,9 +136,9 @@ struct GlobRegexCacheEntry {
     std::list<std::string>::iterator lru_it;
 };
 
-std::mutex g_glob_regex_cache_mutex;
-std::list<std::string> g_glob_regex_cache_lru;
-std::unordered_map<std::string, GlobRegexCacheEntry> g_glob_regex_cache;
+static std::mutex g_glob_regex_cache_mutex;
+static std::list<std::string> g_glob_regex_cache_lru;
+static std::unordered_map<std::string, GlobRegexCacheEntry> g_glob_regex_cache;
 
 std::shared_ptr<RE2> get_or_build_re2(const std::string& glob_pattern) {
     {
