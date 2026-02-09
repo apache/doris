@@ -74,6 +74,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/task/engine_publish_version_task.h"
 #include "olap/task/index_builder.h"
+#include "olap/uncommitted_rowset_registry.h"
 #include "runtime/client_cache.h"
 #include "runtime/memory/cache_manager.h"
 #include "runtime/memory/global_memory_arbitrator.h"
