@@ -53,6 +53,9 @@ public class TrinoConnectorPluginLoader {
 
         static {
             try {
+                // Initialize log4j2 configuration FIRST to ensure all logging works
+                initializeLog4j2Configuration();
+
                 // Allow self-attachment for Java agents,this is required for certain debugging and monitoring functions
                 System.setProperty("jdk.attach.allowAttachSelf", "true");
                 // Get the operating system name
@@ -61,19 +64,23 @@ public class TrinoConnectorPluginLoader {
                 if (osName.contains("mac") || osName.contains("darwin")) {
                     System.setProperty("jol.skipHotspotSAAttach", "true");
                 }
-                // Trino uses jul as its own log system, so the attributes of JUL are configured here
+
+                // Configure JUL for Trino's internal logging (trino itself uses JUL)
+                // This is separate from our log4j2 configuration
                 System.setProperty("java.util.logging.SimpleFormatter.format",
                         "%1$tY-%1$tm-%1$td %1$tH:%1$tM:%1$tS %4$s: %5$s%6$s%n");
-                java.util.logging.Logger logger = java.util.logging.Logger.getLogger("");
-                logger.setUseParentHandlers(false);
-                Arrays.stream(logger.getHandlers())
+                java.util.logging.Logger julLogger = java.util.logging.Logger.getLogger("");
+                julLogger.setUseParentHandlers(false);
+                Arrays.stream(julLogger.getHandlers())
                         .filter(handler -> handler instanceof ConsoleHandler)
                         .forEach(handler -> handler.setLevel(Level.OFF));
                 FileHandler fileHandler = new FileHandler(EnvUtils.getDorisHome() + "/log/trinoconnector%g.log",
                         500000000, 10, true);
                 fileHandler.setLevel(Level.INFO);
                 fileHandler.setFormatter(new SimpleFormatter());
-                logger.addHandler(fileHandler);
+                julLogger.addHandler(fileHandler);
+
+                LOG.info("TrinoConnectorPluginLoader starting to load plugins...");
 
                 TypeOperators typeOperators = new TypeOperators();
                 featuresConfig = new FeaturesConfig();
@@ -87,9 +94,21 @@ public class TrinoConnectorPluginLoader {
                 trinoConnectorPluginManager = new TrinoConnectorPluginManager(serverPluginsProvider,
                         typeRegistry, handleResolver);
                 trinoConnectorPluginManager.loadPlugins();
+
+                LOG.info("TrinoConnectorPluginLoader successfully loaded plugins from: " + checkAndReturnPluginDir());
             } catch (Exception e) {
                 LOG.warn("Failed load trino-connector plugins from  " + checkAndReturnPluginDir()
                         + ", Exception:" + e.getMessage(), e);
+            }
+        }
+
+        private static void initializeLog4j2Configuration() {
+            // Ensure log4j2 is configured before any logging happens
+            // by forcing ScannerLoader class to load (triggers its static block)
+            try {
+                Class.forName("org.apache.doris.common.classloader.ScannerLoader");
+            } catch (ClassNotFoundException e) {
+                System.err.println("Failed to initialize log4j2: " + e.getMessage());
             }
         }
     }
