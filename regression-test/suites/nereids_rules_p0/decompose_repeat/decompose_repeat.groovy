@@ -117,4 +117,25 @@ suite("decompose_repeat") {
     sql "select a,b,c,d from t_repeat_pick_shuffle_key group by cube(a,b,c,d);"
     sql "select a,b,c,d from t_repeat_pick_shuffle_key group by grouping sets((a,b,c,d),(b,c,d),(c),(c,a));"
 
+    multi_sql """
+         drop table if exists test_repeat_hash_b_ndv100;
+         CREATE TABLE `test_repeat_hash_b_ndv100` (
+          `a` bigint NULL,
+          `b` bigint NULL,
+          `c` bigint NULL,
+          `d` bigint NULL,
+          `e` bigint NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`a`, `b`, `c`)
+        DISTRIBUTED BY HASH(`b`) BUCKETS 32
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+        set disable_nereids_rules='prune_empty_partition';
+        insert into test_repeat_hash_b_ndv100 values(1,2,3,4,5),(1,2,3,45,5);
+        insert into test_repeat_hash_b_ndv100 values(1,3,3,4,5),(1,3,3,45,5);
+    """
+    qt_satisfy_distribute """select count(*) from (select a,b,c,SUM(a), COUNT(b), MIN(c), MAX(a), ANY_VALUE(b) from test_repeat_hash_b_ndv100 group by rollup(a,b,c)) t;"""
+    sql "set decompose_repeat_shuffle_index_in_max_group=0;"
+    qt_satisfy_but_use_other_shuffle_key """select count(*) from (select a,b,c,SUM(a), COUNT(b), MIN(c), MAX(a), ANY_VALUE(b) from test_repeat_hash_b_ndv100 group by rollup(a,b,c)) t;"""
 }
