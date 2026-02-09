@@ -261,11 +261,6 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
         it++;
     }
 
-    // 7. Register uncommitted rowsets for READ UNCOMMITTED visibility
-    for (auto* writer : writers_to_commit) {
-        writer->register_uncommitted_rowset();
-    }
-
     tablet_vec->Reserve(static_cast<int>(writers_to_commit.size()));
     for (auto* writer : writers_to_commit) {
         PTabletInfo* tablet_info = tablet_vec->Add();
