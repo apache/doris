@@ -724,8 +724,6 @@ public:
               _default_value(default_value),
               _is_nullable(is_nullable),
               _type_info(std::move(type_info)),
-              _is_default_value_null(false),
-              _type_size(0),
               _precision(precision),
               _scale(scale),
               _len(len) {}
