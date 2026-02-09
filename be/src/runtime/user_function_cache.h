@@ -62,7 +62,9 @@ public:
     Status get_pypath(int64_t fid, const std::string& url, const std::string& checksum,
                       std::string* libpath);
 
+#ifndef BE_TEST
 private:
+#endif
     Status _load_cached_lib();
     Status _load_entry_from_lib(const std::string& dir, const std::string& file);
     Status _get_cache_entry(int64_t fid, const std::string& url, const std::string& checksum,
