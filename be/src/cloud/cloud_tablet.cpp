@@ -1689,6 +1689,10 @@ void CloudTablet::_add_rowsets_directly(std::vector<RowsetSharedPtr>& rowsets,
 #endif
     for (auto& rs : rowsets) {
         if (warmup_delta_data) {
+            // Pre-set encryption algorithm to avoid re-entrant get_tablet() call
+            // inside RowsetMeta::fs() which causes SingleFlight deadlock when the
+            // tablet is not yet cached (during initial load_tablet).
+            rs->rowset_meta()->set_encryption_algorithm(_tablet_meta->encryption_algorithm());
             bool warm_up_state_updated = false;
             // Warmup rowset data in background
             for (int seg_id = 0; seg_id < rs->num_segments(); ++seg_id) {
