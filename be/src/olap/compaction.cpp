@@ -1749,6 +1749,18 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.write_file_cache = should_cache_compaction_output();
     ctx.file_cache_ttl_sec = _tablet->ttl_seconds();
     ctx.approximate_bytes_to_write = _input_rowsets_total_size;
+
+    // Set fine-grained control: only write index files to cache if configured
+    if (ctx.write_file_cache) {
+        if (compaction_type() == ReaderType::READER_BASE_COMPACTION &&
+            config::enable_base_compaction_output_write_index_only) {
+            ctx.compaction_output_write_index_only = true;
+        } else if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
+                   config::enable_cumu_compaction_output_write_index_only) {
+            ctx.compaction_output_write_index_only = true;
+        }
+    }
+
     ctx.tablet = _tablet;
     ctx.job_id = _uuid;
 
