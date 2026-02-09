@@ -668,6 +668,9 @@ extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_recycle_cost_ms;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_scanned_kv_num;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_corrected_kv_num;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_recycled_object_num;
+
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_rowset_plan_count;
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_failures;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_bytes_object_deleted;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_rowset_scanned_num;
 

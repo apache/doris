@@ -833,7 +833,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         } catch (Exception e) {
             // Verify the error message contains relevant info
             Assertions.assertTrue(e.getMessage().contains("INVERTED index for column (error_msg) "
-                    + "with non-analyzed type already exists"));
+                    + "with analyzer default analyzer already exists"));
         }
         addInvertedIndexStmtStr = "alter table test.sc_dup add index idx_error_msg(error_msg), "
                 + "add index idx_error_msg(error_msg)";

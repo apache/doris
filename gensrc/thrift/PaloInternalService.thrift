@@ -409,6 +409,7 @@ struct TQueryOptions {
   174: optional i64 merge_read_slice_size = 8388608;
 
   175: optional bool enable_fuzzy_blockable_task = false;
+  176: optional list<i32> shuffled_agg_ids;
 
   177: optional bool enable_extended_regex = false;
 
@@ -422,6 +423,7 @@ struct TQueryOptions {
 
   179: optional bool enable_parquet_filter_by_bloom_filter = true;
 
+  195: optional bool enable_left_semi_direct_return_opt;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.

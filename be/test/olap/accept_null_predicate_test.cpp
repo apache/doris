@@ -173,6 +173,7 @@ TEST_F(AcceptNullPredicateTest, EvaluateWithNullRows) {
     MockIndexIterator iterator(true, null_bitmap);
 
     roaring::Roaring bitmap;
+    bitmap.addRange(0, 10);
     vectorized::IndexFieldNameAndTypePair name_with_type = {"test_col", nullptr};
 
     Status status = predicate.evaluate(name_with_type, &iterator, 10, &bitmap);
@@ -212,6 +213,43 @@ TEST_F(AcceptNullPredicateTest, Clone) {
     auto cloned = predicate.clone(1);
     EXPECT_NE(cloned, nullptr);
     EXPECT_EQ(cloned->column_id(), 1);
+}
+
+TEST_F(AcceptNullPredicateTest, EvaluateWithPreFilteredBitmap) {
+    auto nested_result = std::make_shared<roaring::Roaring>();
+    nested_result->add(0);
+    nested_result->add(1);
+    nested_result->add(5);
+
+    auto nested_pred = std::make_shared<MockNestedPredicate>(0, nested_result);
+    AcceptNullPredicate predicate(nested_pred);
+
+    auto null_bitmap = std::make_shared<roaring::Roaring>();
+    null_bitmap->add(2);
+    null_bitmap->add(3);
+    null_bitmap->add(7);
+    MockIndexIterator iterator(true, null_bitmap);
+
+    roaring::Roaring bitmap;
+    bitmap.add(0);
+    bitmap.add(1);
+    bitmap.add(2);
+    bitmap.add(5);
+    bitmap.add(6);
+
+    vectorized::IndexFieldNameAndTypePair name_with_type = {"test_col", nullptr};
+
+    Status status = predicate.evaluate(name_with_type, &iterator, 10, &bitmap);
+
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(bitmap.cardinality(), 4);
+    EXPECT_TRUE(bitmap.contains(0));
+    EXPECT_TRUE(bitmap.contains(1));
+    EXPECT_TRUE(bitmap.contains(2));
+    EXPECT_TRUE(bitmap.contains(5));
+    EXPECT_FALSE(bitmap.contains(3));
+    EXPECT_FALSE(bitmap.contains(6));
+    EXPECT_FALSE(bitmap.contains(7));
 }
 
 } // namespace doris

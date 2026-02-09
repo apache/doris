@@ -2827,12 +2827,26 @@ public class SchemaChangeHandler extends AlterHandler {
                     String columnName = indexDef.getColumns().get(0);
                     Column column = olapTable.getColumn(columnName);
                     if (column != null && (column.getType().isStringType() || column.getType().isVariantType())) {
-                        boolean isExistingIndexAnalyzer = index.isAnalyzedInvertedIndex();
-                        boolean isNewIndexAnalyzer = indexDef.isAnalyzedInvertedIndex();
-                        if (isExistingIndexAnalyzer == isNewIndexAnalyzer) {
-                            throw new DdlException(
-                                indexDef.getIndexType() + " index for column (" + columnName + ") with "
-                                    + (isNewIndexAnalyzer ? "analyzed" : "non-analyzed") + " type already exists.");
+                        if (index.getIndexType() == IndexType.INVERTED) {
+                            String existingIdentity = index.getAnalyzerIdentity();
+                            String newIdentity = indexDef.getAnalyzerIdentity();
+                            if (Objects.equals(existingIdentity, newIdentity)) {
+                                String analyzerDesc = "__default__".equals(newIdentity)
+                                        ? "default analyzer"
+                                        : "analyzer identity '" + newIdentity + "'";
+                                throw new DdlException(indexDef.getIndexType()
+                                        + " index for column (" + columnName + ") with analyzer "
+                                        + analyzerDesc + " already exists.");
+                            }
+                        } else {
+                            boolean isExistingIndexAnalyzer = index.isAnalyzedInvertedIndex();
+                            boolean isNewIndexAnalyzer = indexDef.isAnalyzedInvertedIndex();
+                            if (isExistingIndexAnalyzer == isNewIndexAnalyzer) {
+                                throw new DdlException(
+                                    indexDef.getIndexType() + " index for column (" + columnName + ") with "
+                                        + (isNewIndexAnalyzer ? "analyzed" : "non-analyzed")
+                                        + " type already exists.");
+                            }
                         }
                     } else {
                         throw new DdlException(

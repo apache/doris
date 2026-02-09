@@ -25,6 +25,7 @@
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "pipeline/exec/operator.h"
+#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vslot_ref.h"
 
@@ -618,6 +619,26 @@ StreamingAggOperatorX::StreamingAggOperatorX(ObjectPool* pool, int operator_id,
           _is_first_phase(tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase),
           _have_conjuncts(tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()),
           _agg_fn_output_row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples) {}
+
+void StreamingAggOperatorX::update_operator(const TPlanNode& tnode,
+                                            bool followed_by_shuffled_operator,
+                                            bool require_bucket_distribution) {
+    _followed_by_shuffled_operator = followed_by_shuffled_operator;
+    _require_bucket_distribution = require_bucket_distribution;
+    _partition_exprs =
+            tnode.__isset.distribute_expr_lists &&
+                            (StatefulOperatorX<
+                                     StreamingAggLocalState>::_followed_by_shuffled_operator ||
+                             std::any_of(
+                                     tnode.agg_node.aggregate_functions.begin(),
+                                     tnode.agg_node.aggregate_functions.end(),
+                                     [](const TExpr& texpr) -> bool {
+                                         return texpr.nodes[0].fn.name.function_name.starts_with(
+                                                 vectorized::DISTINCT_FUNCTION_PREFIX);
+                                     }))
+                    ? tnode.distribute_expr_lists[0]
+                    : tnode.agg_node.grouping_exprs;
+}
 
 Status StreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(StatefulOperatorX<StreamingAggLocalState>::init(tnode, state));

@@ -255,14 +255,10 @@ private:
         ~ORCFilterImpl() override = default;
         void filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
                     void* arg) const override {
-            if (_status.ok()) {
-                _status = _orcReader->filter(data, sel, size, arg);
-            }
+            THROW_IF_ERROR(_orcReader->filter(data, sel, size, arg));
         }
-        Status get_status() { return _status; }
 
     private:
-        mutable Status _status = Status::OK();
         OrcReader* _orcReader = nullptr;
     };
 
@@ -274,24 +270,17 @@ private:
         void fillDictFilterColumnNames(
                 std::unique_ptr<orc::StripeInformation> current_strip_information,
                 std::list<std::string>& column_names) const override {
-            if (_status.ok()) {
-                _status = _orc_reader->fill_dict_filter_column_names(
-                        std::move(current_strip_information), column_names);
-            }
+            THROW_IF_ERROR(_orc_reader->fill_dict_filter_column_names(
+                    std::move(current_strip_information), column_names));
         }
         void onStringDictsLoaded(
                 std::unordered_map<std::string, orc::StringDictionary*>& column_name_to_dict_map,
                 bool* is_stripe_filtered) const override {
-            if (_status.ok()) {
-                _status = _orc_reader->on_string_dicts_loaded(column_name_to_dict_map,
-                                                              is_stripe_filtered);
-            }
+            THROW_IF_ERROR(_orc_reader->on_string_dicts_loaded(column_name_to_dict_map,
+                                                               is_stripe_filtered));
         }
 
-        Status get_status() { return _status; }
-
     private:
-        mutable Status _status = Status::OK();
         OrcReader* _orc_reader = nullptr;
     };
 

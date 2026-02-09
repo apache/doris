@@ -110,7 +110,7 @@ public:
     Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                             : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
@@ -118,6 +118,7 @@ public:
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
     bool is_shuffled_operator() const override { return true; }
+    bool is_colocated_operator() const override { return _is_colocate; }
 
 private:
     template <class HashTableContext, bool is_intersected>
@@ -134,7 +135,7 @@ private:
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
     const bool _is_colocate;
-    const std::vector<TExpr> _partition_exprs;
+    std::vector<TExpr> _partition_exprs;
     using OperatorBase::_child;
 
     const std::vector<TRuntimeFilterDesc> _runtime_filter_descs;

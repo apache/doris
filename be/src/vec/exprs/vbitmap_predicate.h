@@ -49,9 +49,11 @@ public:
 
     ~VBitmapPredicate() override = default;
 
-    Status execute_column(VExprContext* context, const Block* block, size_t count,
-                          ColumnPtr& result_column) const override;
-
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override;
+    Status execute_runtime_filter(VExprContext* context, const Block* block,
+                                  const uint8_t* __restrict filter, size_t count,
+                                  ColumnPtr& result_column, ColumnPtr* arg_column) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
 
     Status open(RuntimeState* state, VExprContext* context,
@@ -72,6 +74,8 @@ public:
     }
 
 private:
+    Status _do_execute(VExprContext* context, const Block* block, const uint8_t* __restrict filter,
+                       Selector* selector, size_t count, ColumnPtr& result_column) const;
     std::shared_ptr<BitmapFilterFuncBase> _filter;
     inline static const std::string EXPR_NAME = "bitmap_predicate";
 };

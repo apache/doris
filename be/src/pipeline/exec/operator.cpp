@@ -135,14 +135,10 @@ Status PipelineXSinkLocalState<SharedStateArg>::terminate(RuntimeState* state) {
     return Status::OK();
 }
 
-DataDistribution OperatorBase::required_data_distribution() const {
+DataDistribution OperatorBase::required_data_distribution(RuntimeState* /*state*/) const {
     return _child && _child->is_serial_operator() && !is_source()
                    ? DataDistribution(ExchangeType::PASSTHROUGH)
                    : DataDistribution(ExchangeType::NOOP);
-}
-
-bool OperatorBase::require_shuffled_data_distribution() const {
-    return Pipeline::is_hash_exchange(required_data_distribution().distribution_type);
 }
 
 const RowDescriptor& OperatorBase::row_desc() const {
@@ -562,6 +558,11 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
     _exec_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "ExecTime", 1);
     _memory_used_counter =
             _common_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
+    _common_profile->add_info_string("IsColocate",
+                                     std::to_string(_parent->is_colocated_operator()));
+    _common_profile->add_info_string("IsShuffled", std::to_string(_parent->is_shuffled_operator()));
+    _common_profile->add_info_string("FollowedByShuffledOperator",
+                                     std::to_string(_parent->followed_by_shuffled_operator()));
     return Status::OK();
 }
 
@@ -660,6 +661,11 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
     _exec_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "ExecTime", 1);
     _memory_used_counter =
             _common_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
+    _common_profile->add_info_string("IsColocate",
+                                     std::to_string(_parent->is_colocated_operator()));
+    _common_profile->add_info_string("IsShuffled", std::to_string(_parent->is_shuffled_operator()));
+    _common_profile->add_info_string("FollowedByShuffledOperator",
+                                     std::to_string(_parent->followed_by_shuffled_operator()));
     return Status::OK();
 }
 

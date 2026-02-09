@@ -746,6 +746,11 @@ const Type* check_and_get_column(const IColumn* column) {
 }
 
 template <typename Type>
+Type* check_and_get_column(IColumn* column) {
+    return typeid_cast<Type*>(column);
+}
+
+template <typename Type>
 bool is_column(const IColumn& column) {
     return check_and_get_column<Type>(&column);
 }

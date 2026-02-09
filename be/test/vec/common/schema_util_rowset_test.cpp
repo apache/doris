@@ -152,7 +152,7 @@ static void fill_block_with_test_data(vectorized::Block* block, int size) {
     auto columns = block->mutate_columns();
     // insert key
     for (int i = 0; i < size; i++) {
-        auto field = vectorized::Field::create_field<PrimitiveType::TYPE_BIGINT>(i);
+        auto field = vectorized::Field::create_field<PrimitiveType::TYPE_INT>(i);
         columns[0]->insert(field);
     }
 
@@ -170,7 +170,7 @@ static void fill_block_with_test_data(vectorized::Block* block, int size) {
 
     // insert v4
     for (int i = 0; i < size; i++) {
-        auto v4 = vectorized::Field::create_field<PrimitiveType::TYPE_BIGINT>(i);
+        auto v4 = vectorized::Field::create_field<PrimitiveType::TYPE_INT>(i);
         columns[4]->insert(v4);
     }
 }

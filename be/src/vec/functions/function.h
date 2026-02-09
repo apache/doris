@@ -31,6 +31,7 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "olap/inverted_index_parser.h"
 #include "olap/rowset/segment_v2/inverted_index_iterator.h" // IWYU pragma: keep
 #include "runtime/define_primitive_type.h"
 #include "vec/core/block.h"

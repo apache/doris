@@ -21,6 +21,7 @@
 
 #include <memory>
 #include <numeric>
+#include <optional>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
@@ -85,20 +86,20 @@ Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 
 PushDownType OlapScanLocalState::_should_push_down_binary_predicate(
         vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
-        StringRef* constant_val, const std::set<std::string> fn_name) const {
+        vectorized::Field& constant_val, const std::set<std::string> fn_name) const {
     if (!fn_name.contains(fn_call->fn().name.function_name)) {
         return PushDownType::UNACCEPTABLE;
     }
-    DCHECK(constant_val->data == nullptr) << "constant_val should not have a value";
     const auto& children = fn_call->children();
     DCHECK(children.size() == 2);
-    DCHECK_EQ(children[0]->node_type(), TExprNodeType::SLOT_REF);
+    DCHECK_EQ(vectorized::VExpr::expr_without_cast(children[0])->node_type(),
+              TExprNodeType::SLOT_REF);
     if (children[1]->is_constant()) {
         std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
         THROW_IF_ERROR(children[1]->get_const_col(expr_ctx, &const_col_wrapper));
         const auto* const_column =
                 assert_cast<const vectorized::ColumnConst*>(const_col_wrapper->column_ptr.get());
-        *constant_val = const_column->get_data_at(0);
+        constant_val = const_column->operator[](0);
         return PushDownType::ACCEPTABLE;
     } else {
         // only handle constant value
@@ -877,6 +878,8 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
             DCHECK(_slot_id_to_predicates.count(iter->first) > 0);
             const auto& value_range = iter->second;
 
+            std::optional<int> key_to_erase;
+
             RETURN_IF_ERROR(std::visit(
                     [&](auto&& range) {
                         // make a copy or range and pass to extend_scan_key, keep the range unchanged
@@ -888,7 +891,7 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                                     _scan_keys.extend_scan_key(temp_range, p._max_scan_key_num,
                                                                &exact_range, &eos, &should_break));
                             if (exact_range) {
-                                _slot_id_to_value_range.erase(iter->first);
+                                key_to_erase = iter->first;
                             }
                         } else {
                             // if exceed max_pushdown_conditions_per_column, use whole_value_rang instead
@@ -901,6 +904,24 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                         return Status::OK();
                     },
                     value_range));
+
+            // Perform the erase operation after the visit is complete, still under lock
+            if (key_to_erase.has_value()) {
+                _slot_id_to_value_range.erase(*key_to_erase);
+
+                std::vector<std::shared_ptr<ColumnPredicate>> new_predicates;
+                for (const auto& it : _slot_id_to_predicates[*key_to_erase]) {
+                    if (!it->could_be_erased()) {
+                        new_predicates.push_back(it);
+                    }
+                }
+                if (new_predicates.empty()) {
+                    _slot_id_to_predicates.erase(*key_to_erase);
+                } else {
+                    _slot_id_to_predicates[*key_to_erase] = new_predicates;
+                }
+            }
+            // lock is released here when it goes out of scope
         }
         if (eos) {
             _eos = true;

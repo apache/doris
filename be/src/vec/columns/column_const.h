@@ -163,7 +163,8 @@ public:
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override {
-        if (!is_column_const(src) || compare_at(0, 0, src, 0) != 0) {
+        if (this->s != 0 /*not empty*/ &&
+            (!is_column_const(src) || compare_at(0, 0, src, 0) != 0)) {
             throw Exception(
                     ErrorCode::INTERNAL_ERROR,
                     "ColumnConst::insert_indices_from: src is not const or not equal to dst");

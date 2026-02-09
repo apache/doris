@@ -69,7 +69,7 @@ public:
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                     IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override {
-        RETURN_IF_ERROR(_nested->evaluate(name_with_type, iterator, num_rows, bitmap));
+        roaring::Roaring null_rows_in_bitmap;
         if (iterator != nullptr) {
             bool has_null = DORIS_TRY(iterator->has_null());
             if (has_null) {
@@ -77,10 +77,12 @@ public:
                 RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
                 auto null_bitmap = null_bitmap_cache_handle.get_bitmap();
                 if (null_bitmap) {
-                    *bitmap |= *null_bitmap;
+                    null_rows_in_bitmap = *bitmap & *null_bitmap;
                 }
             }
         }
+        RETURN_IF_ERROR(_nested->evaluate(name_with_type, iterator, num_rows, bitmap));
+        *bitmap |= null_rows_in_bitmap;
         return Status::OK();
     }
 
@@ -106,12 +108,12 @@ public:
         DCHECK(false) << "should not reach here";
     }
 
-    bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+    bool evaluate_and(const ZoneMapInfo& zone_map_info) const override {
         // there is null in range, accept it
-        if (statistic.first->is_null() || statistic.second->is_null()) {
+        if (zone_map_info.has_null) {
             return true;
         }
-        return _nested->evaluate_and(statistic);
+        return _nested->evaluate_and(zone_map_info);
     }
 
     bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
@@ -134,8 +136,8 @@ public:
         return row_ranges->count() > 0;
     }
 
-    bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        return _nested->evaluate_del(statistic);
+    bool evaluate_del(const ZoneMapInfo& zone_map_info) const override {
+        return _nested->evaluate_del(zone_map_info);
     }
 
     bool evaluate_and(const BloomFilter* bf) const override { return _nested->evaluate_and(bf); }

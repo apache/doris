@@ -412,9 +412,12 @@ Status Merger::vertical_compact_one_group(
     return Status::OK();
 }
 
-int64_t estimate_batch_size(int group_index, BaseTabletSPtr tablet, int64_t way_cnt) {
-    std::unique_lock<std::mutex> lock(tablet->sample_info_lock);
-    CompactionSampleInfo info = tablet->sample_infos[group_index];
+int64_t estimate_batch_size(int group_index, BaseTabletSPtr tablet, int64_t way_cnt,
+                            ReaderType reader_type) {
+    auto& sample_info_lock = tablet->get_sample_info_lock(reader_type);
+    auto& sample_infos = tablet->get_sample_infos(reader_type);
+    std::unique_lock<std::mutex> lock(sample_info_lock);
+    CompactionSampleInfo info = sample_infos[group_index];
     if (way_cnt <= 0) {
         LOG(INFO) << "estimate batch size for vertical compaction, tablet id: "
                   << tablet->tablet_id() << " way cnt: " << way_cnt;
@@ -431,12 +434,12 @@ int64_t estimate_batch_size(int group_index, BaseTabletSPtr tablet, int64_t way_
         group_data_size =
                 int64_t((cast_set<double>(info.group_data_size) * (1 - smoothing_factor)) +
                         (cast_set<double>(info.bytes / info.rows) * smoothing_factor));
-        tablet->sample_infos[group_index].group_data_size = group_data_size;
+        sample_infos[group_index].group_data_size = group_data_size;
     } else if (info.group_data_size > 0 && (info.bytes <= 0 || info.rows <= 0)) {
         group_data_size = info.group_data_size;
     } else if (info.group_data_size <= 0 && info.bytes > 0 && info.rows > 0) {
         group_data_size = info.bytes / info.rows;
-        tablet->sample_infos[group_index].group_data_size = group_data_size;
+        sample_infos[group_index].group_data_size = group_data_size;
     } else {
         LOG(INFO) << "estimate batch size for vertical compaction, tablet id: "
                   << tablet->tablet_id() << " group data size: " << info.group_data_size
@@ -450,8 +453,8 @@ int64_t estimate_batch_size(int group_index, BaseTabletSPtr tablet, int64_t way_
         return 4096 - 32;
     }
 
-    tablet->sample_infos[group_index].bytes = 0;
-    tablet->sample_infos[group_index].rows = 0;
+    sample_infos[group_index].bytes = 0;
+    sample_infos[group_index].rows = 0;
 
     int64_t batch_size = block_mem_limit / group_data_size;
     int64_t res = std::max(std::min(batch_size, int64_t(4096 - 32)), int64_t(32L));
@@ -509,9 +512,11 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
     if (stats_output != nullptr) {
         total_stats.rowid_conversion = stats_output->rowid_conversion;
     }
+    auto& sample_info_lock = tablet->get_sample_info_lock(reader_type);
+    auto& sample_infos = tablet->get_sample_infos(reader_type);
     {
-        std::unique_lock<std::mutex> lock(tablet->sample_info_lock);
-        tablet->sample_infos.resize(column_groups.size());
+        std::unique_lock<std::mutex> lock(sample_info_lock);
+        sample_infos.resize(column_groups.size());
     }
     // compact group one by one
     for (auto i = 0; i < column_groups.size(); ++i) {
@@ -519,7 +524,7 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
         bool is_key = (i == 0);
         int64_t batch_size = config::compaction_batch_size != -1
                                      ? config::compaction_batch_size
-                                     : estimate_batch_size(i, tablet, merge_way_num);
+                                     : estimate_batch_size(i, tablet, merge_way_num, reader_type);
         CompactionSampleInfo sample_info;
         Merger::Statistics group_stats;
         group_stats.rowid_conversion = total_stats.rowid_conversion;
@@ -529,8 +534,8 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
                 src_rowset_readers, dst_rowset_writer, max_rows_per_segment, group_stats_ptr,
                 key_group_cluster_key_idxes, batch_size, &sample_info, enable_sparse_optimization);
         {
-            std::unique_lock<std::mutex> lock(tablet->sample_info_lock);
-            tablet->sample_infos[i] = sample_info;
+            std::unique_lock<std::mutex> lock(sample_info_lock);
+            sample_infos[i] = sample_info;
         }
         RETURN_IF_ERROR(st);
         if (stats_output != nullptr) {
@@ -556,9 +561,9 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
     // density = (total_cells - total_null_count) / total_cells
     // Smaller density means more sparse
     {
-        std::unique_lock<std::mutex> lock(tablet->sample_info_lock);
+        std::unique_lock<std::mutex> lock(sample_info_lock);
         int64_t total_null_count = 0;
-        for (const auto& info : tablet->sample_infos) {
+        for (const auto& info : sample_infos) {
             total_null_count += info.null_count;
         }
         int64_t total_cells = total_rows * tablet_schema.num_columns();

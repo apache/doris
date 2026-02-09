@@ -126,7 +126,7 @@ public:
                                               ._should_build_hash_table;
     }
 
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             return {ExchangeType::NOOP};
         } else if (_is_broadcast_join) {
@@ -140,13 +140,23 @@ public:
     }
 
     bool is_shuffled_operator() const override {
-        return _join_distribution == TJoinDistributionType::PARTITIONED;
+        return _join_distribution == TJoinDistributionType::PARTITIONED ||
+               _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
+               _join_distribution == TJoinDistributionType::COLOCATE;
     }
-    bool require_data_distribution() const override {
-        return _join_distribution != TJoinDistributionType::BROADCAST &&
-               _join_distribution != TJoinDistributionType::NONE;
+    bool is_colocated_operator() const override {
+        return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
+               _join_distribution == TJoinDistributionType::COLOCATE;
     }
     std::vector<bool>& is_null_safe_eq_join() { return _is_null_safe_eq_join; }
+
+    bool allow_left_semi_direct_return(RuntimeState* state) const {
+        // only single join conjunct and left semi join can direct return
+        return _join_op == TJoinOp::LEFT_SEMI_JOIN && _build_expr_ctxs.size() == 1 &&
+               !_have_other_join_conjunct && !_is_mark_join &&
+               state->query_options().__isset.enable_left_semi_direct_return_opt &&
+               state->query_options().enable_left_semi_direct_return_opt;
+    }
 
 private:
     friend class HashJoinBuildSinkLocalState;
@@ -161,7 +171,7 @@ private:
     std::vector<bool> _is_null_safe_eq_join;
 
     bool _is_broadcast_join = false;
-    const std::vector<TExpr> _partition_exprs;
+    std::vector<TExpr> _partition_exprs;
 
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _should_keep_column_flags;

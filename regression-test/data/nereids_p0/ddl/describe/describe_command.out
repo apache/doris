@@ -40,6 +40,10 @@ ErrMsg	text	No	false	\N	NONE
 Version	text	No	false	\N	NONE
 Status	text	No	false	\N	NONE
 HeartbeatFailureCounter	int	No	false	\N	NONE
+CpuCores	int	No	false	\N	NONE
+Memory	text	No	false	\N	NONE
+LiveSince	text	No	false	\N	NONE
+RunningTasks	bigint	No	false	\N	NONE
 NodeRole	text	No	false	\N	NONE
 
 -- !cmd --

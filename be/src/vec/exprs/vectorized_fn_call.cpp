@@ -183,13 +183,14 @@ Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
-Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block, size_t count,
-                                     ColumnPtr& result_column, ColumnPtr* arg_column) const {
+Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block, Selector* selector,
+                                     size_t count, ColumnPtr& result_column,
+                                     ColumnPtr* arg_column) const {
     if (is_const_and_have_executed()) { // const have executed in open function
         result_column = get_result_from_const(count);
         return Status::OK();
     }
-    if (fast_execute(context, result_column)) {
+    if (fast_execute(context, selector, count, result_column)) {
         return Status::OK();
     }
     DBUG_EXECUTE_IF("VectorizedFnCall.must_in_slow_path", {
@@ -217,7 +218,8 @@ Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block, 
 
     for (int i = 0; i < _children.size(); ++i) {
         ColumnPtr tmp_arg_column;
-        RETURN_IF_ERROR(_children[i]->execute_column(context, block, count, tmp_arg_column));
+        RETURN_IF_ERROR(
+                _children[i]->execute_column(context, block, selector, count, tmp_arg_column));
         auto arg_type = _children[i]->execute_type(block);
         temp_block.insert({tmp_arg_column, arg_type, _children[i]->expr_name()});
         args[i] = i;
@@ -266,14 +268,16 @@ size_t VectorizedFnCall::estimate_memory(const size_t rows) {
 }
 
 Status VectorizedFnCall::execute_runtime_filter(VExprContext* context, const Block* block,
-                                                size_t count, ColumnPtr& result_column,
+                                                const uint8_t* __restrict filter, size_t count,
+                                                ColumnPtr& result_column,
                                                 ColumnPtr* arg_column) const {
-    return _do_execute(context, block, count, result_column, arg_column);
+    return _do_execute(context, block, nullptr, count, result_column, arg_column);
 }
 
-Status VectorizedFnCall::execute_column(VExprContext* context, const Block* block, size_t count,
+Status VectorizedFnCall::execute_column(VExprContext* context, const Block* block,
+                                        Selector* selector, size_t count,
                                         ColumnPtr& result_column) const {
-    return _do_execute(context, block, count, result_column, nullptr);
+    return _do_execute(context, block, selector, count, result_column, nullptr);
 }
 
 const std::string& VectorizedFnCall::expr_name() const {

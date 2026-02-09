@@ -58,11 +58,11 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 class BlockCompressionCodec;
-class WrapperField;
 class AndBlockColumnPredicate;
 class ColumnPredicate;
 class TabletIndex;
 class StorageReadOptions;
+struct ZoneMapInfo;
 
 namespace io {
 class FileReader;
@@ -252,15 +252,12 @@ private:
     [[nodiscard]] Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory,
                                                   const ColumnIteratorOptions& iter_opts);
 
-    bool _zone_map_match_condition(const ZoneMapPB& zone_map, WrapperField* min_value_container,
-                                   WrapperField* max_value_container,
+    bool _zone_map_match_condition(const ZoneMapPB& zone_map, const ZoneMapInfo& zone_map_info,
                                    const AndBlockColumnPredicate* col_predicates) const;
 
-    Status _parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
-                           WrapperField* max_value_container) const;
+    Status _parse_zone_map(const ZoneMapPB& zone_map, ZoneMapInfo& zone_map_info) const;
 
-    Status _parse_zone_map_skip_null(const ZoneMapPB& zone_map, WrapperField* min_value_container,
-                                     WrapperField* max_value_container) const;
+    Status _parse_zone_map_skip_null(const ZoneMapPB& zone_map, ZoneMapInfo& zone_map_info) const;
 
     Status _get_filtered_pages(
             const AndBlockColumnPredicate* col_predicates,

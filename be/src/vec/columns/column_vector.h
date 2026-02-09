@@ -318,7 +318,7 @@ public:
     // but its type is different from column's data type (int64 vs uint64), so that during column
     // insert method, should use NearestFieldType<T> to get the Field and get it actual
     // uint8 value and then insert into column.
-    void insert(const Field& x) override;
+    void insert(const Field& x) override { data.push_back(x.get<T>()); }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 

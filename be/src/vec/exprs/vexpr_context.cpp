@@ -77,7 +77,7 @@ Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {
 Status VExprContext::execute(const Block* block, ColumnPtr& result_column) {
     Status st;
     RETURN_IF_CATCH_EXCEPTION(
-            { st = _root->execute_column(this, block, block->rows(), result_column); });
+            { st = _root->execute_column(this, block, nullptr, block->rows(), result_column); });
     return st;
 }
 
@@ -85,7 +85,7 @@ Status VExprContext::execute(const Block* block, ColumnWithTypeAndName& result_d
     Status st;
     ColumnPtr result_column;
     RETURN_IF_CATCH_EXCEPTION(
-            { st = _root->execute_column(this, block, block->rows(), result_column); });
+            { st = _root->execute_column(this, block, nullptr, block->rows(), result_column); });
     RETURN_IF_ERROR(st);
     result_data.column = result_column;
     result_data.type = execute_type(block);
@@ -99,7 +99,8 @@ DataTypePtr VExprContext::execute_type(const Block* block) {
 
 Status VExprContext::execute_const_expr(ColumnWithTypeAndName& result) {
     Status st;
-    RETURN_IF_CATCH_EXCEPTION({ st = _root->execute_column(this, nullptr, 1, result.column); });
+    RETURN_IF_CATCH_EXCEPTION(
+            { st = _root->execute_column(this, nullptr, nullptr, 1, result.column); });
     RETURN_IF_ERROR(st);
     result.type = _root->execute_type(nullptr);
     result.name = _root->expr_name();
@@ -221,7 +222,12 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
     return execute_conjuncts(ctxs, filters, false, block, result_filter, can_filter_all);
 }
 
-// TODO: Performance Optimization
+Status VExprContext::execute_filter(const Block* block, uint8_t* __restrict result_filter_data,
+                                    size_t rows, bool accept_null, bool* can_filter_all) {
+    return _root->execute_filter(this, block, result_filter_data, rows, accept_null,
+                                 can_filter_all);
+}
+
 Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                                        const std::vector<IColumn::Filter*>* filters,
                                        bool accept_null, const Block* block,
@@ -231,85 +237,10 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
     *can_filter_all = false;
     auto* __restrict result_filter_data = result_filter->data();
     for (const auto& ctx : ctxs) {
-        // Statistics are only required when an rf wrapper exists in the expr.
-        bool is_rf_wrapper = ctx->root()->is_rf_wrapper();
-        ColumnPtr filter_column;
-        RETURN_IF_ERROR(ctx->execute(block, filter_column));
-        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
-            size_t column_size = nullable_column->size();
-            if (column_size == 0) {
-                *can_filter_all = true;
-                return Status::OK();
-            } else {
-                const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
-                const IColumn::Filter& filter =
-                        assert_cast<const ColumnUInt8&>(*nested_column).get_data();
-                const auto* __restrict filter_data = filter.data();
-                const auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
-
-                size_t input_rows =
-                        rows - (is_rf_wrapper
-                                        ? simd::count_zero_num((int8_t*)result_filter_data, rows)
-                                        : 0);
-
-                if (accept_null) {
-                    for (size_t i = 0; i < rows; ++i) {
-                        result_filter_data[i] &= (null_map_data[i]) || filter_data[i];
-                    }
-                } else {
-                    for (size_t i = 0; i < rows; ++i) {
-                        result_filter_data[i] &= (!null_map_data[i]) & filter_data[i];
-                    }
-                }
-
-                size_t output_rows =
-                        rows - (is_rf_wrapper
-                                        ? simd::count_zero_num((int8_t*)result_filter_data, rows)
-                                        : 0);
-
-                if (is_rf_wrapper) {
-                    ctx->root()->do_judge_selectivity(input_rows - output_rows, input_rows);
-                }
-
-                if ((is_rf_wrapper && output_rows == 0) ||
-                    (!is_rf_wrapper && memchr(result_filter_data, 0x1, rows) == nullptr)) {
-                    *can_filter_all = true;
-                    return Status::OK();
-                }
-            }
-        } else if (const auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
-            // filter all
-            if (!const_column->get_bool(0)) {
-                *can_filter_all = true;
-                memset(result_filter_data, 0, result_filter->size());
-                return Status::OK();
-            }
-        } else {
-            const IColumn::Filter& filter =
-                    assert_cast<const ColumnUInt8&>(*filter_column).get_data();
-            const auto* __restrict filter_data = filter.data();
-
-            size_t input_rows =
-                    rows -
-                    (is_rf_wrapper ? simd::count_zero_num((int8_t*)result_filter_data, rows) : 0);
-
-            for (size_t i = 0; i < rows; ++i) {
-                result_filter_data[i] &= filter_data[i];
-            }
-
-            size_t output_rows =
-                    rows -
-                    (is_rf_wrapper ? simd::count_zero_num((int8_t*)result_filter_data, rows) : 0);
-
-            if (is_rf_wrapper) {
-                ctx->root()->do_judge_selectivity(input_rows - output_rows, input_rows);
-            }
-
-            if ((is_rf_wrapper && output_rows == 0) ||
-                (!is_rf_wrapper && memchr(result_filter_data, 0x1, rows) == nullptr)) {
-                *can_filter_all = true;
-                return Status::OK();
-            }
+        RETURN_IF_ERROR(
+                ctx->execute_filter(block, result_filter_data, rows, accept_null, can_filter_all));
+        if (*can_filter_all) {
+            return Status::OK();
         }
     }
     if (filters != nullptr) {

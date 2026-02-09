@@ -34,6 +34,7 @@
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
+#include "runtime_filter/runtime_filter_selectivity.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -234,6 +235,9 @@ public:
 
     bool all_expr_inverted_index_evaluated();
 
+    Status execute_filter(const Block* block, uint8_t* __restrict result_filter_data, size_t rows,
+                          bool accept_null, bool* can_filter_all);
+
     [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block);
 
     [[nodiscard]] static Status filter_block(const VExprContextSPtrs& expr_contexts, Block* block,
@@ -268,6 +272,13 @@ public:
     int get_last_result_column_id() const {
         DCHECK(_last_result_column_id != -1);
         return _last_result_column_id;
+    }
+
+    RuntimeFilterSelectivity& get_runtime_filter_selectivity() {
+        if (!_rf_selectivity) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "RuntimeFilterSelectivity is null");
+        }
+        return *_rf_selectivity;
     }
 
     FunctionContext::FunctionStateScope get_function_state_scope() const {
@@ -359,5 +370,8 @@ private:
 
     segment_v2::AnnRangeSearchRuntime _ann_range_search_runtime;
     bool _suitable_for_ann_index = true;
+
+    std::unique_ptr<RuntimeFilterSelectivity> _rf_selectivity =
+            std::make_unique<RuntimeFilterSelectivity>();
 };
 } // namespace doris::vectorized

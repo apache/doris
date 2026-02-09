@@ -328,9 +328,26 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
         RETURN_IF_ERROR(_fill_row_id_columns(block, *read_rows, false));
 
+#ifndef NDEBUG
+        for (auto col : *block) {
+            col.column->sanity_check();
+            DCHECK(block->rows() == col.column->size())
+                    << absl::Substitute("block rows = $0 , column rows = $1, col name = $2",
+                                        block->rows(), col.column->size(), col.name);
+        }
+#endif
+
         if (block->rows() == 0) {
             _convert_dict_cols_to_string_cols(block);
             *read_rows = block->rows();
+#ifndef NDEBUG
+            for (auto col : *block) {
+                col.column->sanity_check();
+                DCHECK(block->rows() == col.column->size())
+                        << absl::Substitute("block rows = $0 , column rows = $1, col name = $2",
+                                            block->rows(), col.column->size(), col.name);
+            }
+#endif
             return Status::OK();
         }
         {
@@ -374,6 +391,14 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
             }
             _convert_dict_cols_to_string_cols(block);
         }
+#ifndef NDEBUG
+        for (auto col : *block) {
+            col.column->sanity_check();
+            DCHECK(block->rows() == col.column->size())
+                    << absl::Substitute("block rows = $0 , column rows = $1, col name = $2",
+                                        block->rows(), col.column->size(), col.name);
+        }
+#endif
         *read_rows = block->rows();
         return Status::OK();
     }
@@ -442,6 +467,10 @@ Status RowGroupReader::_read_column_data(Block* block,
             return Status::Corruption("Can't read the same number of rows among parquet columns");
         }
         batch_read_rows = col_read_rows;
+
+#ifndef NDEBUG
+        column_ptr->sanity_check();
+#endif
         if (col_eof) {
             has_eof = true;
         }
@@ -485,6 +514,18 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
         RETURN_IF_ERROR(_fill_row_id_columns(block, pre_read_rows, false));
 
         RETURN_IF_ERROR(_build_pos_delete_filter(pre_read_rows));
+
+#ifndef NDEBUG
+        for (auto col : *block) {
+            if (col.column->size() == 0) { // lazy read column.
+                continue;
+            }
+            col.column->sanity_check();
+            DCHECK(pre_read_rows == col.column->size())
+                    << absl::Substitute("pre_read_rows = $0 , column rows = $1, col name = $2",
+                                        pre_read_rows, col.column->size(), col.name);
+        }
+#endif
 
         bool can_filter_all = false;
         {
@@ -632,6 +673,14 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     *batch_eof = pre_eof;
     RETURN_IF_ERROR(_fill_partition_columns(block, column_size, _lazy_read_ctx.partition_columns));
     RETURN_IF_ERROR(_fill_missing_columns(block, column_size, _lazy_read_ctx.missing_columns));
+#ifndef NDEBUG
+    for (auto col : *block) {
+        col.column->sanity_check();
+        DCHECK(block->rows() == col.column->size())
+                << absl::Substitute("block rows = $0 , column rows = $1, col name = $2",
+                                    block->rows(), col.column->size(), col.name);
+    }
+#endif
     return Status::OK();
 }
 
@@ -903,6 +952,9 @@ Status RowGroupReader::_rewrite_dict_predicates() {
         bool has_dict = false;
         RETURN_IF_ERROR(_column_readers[dict_filter_col_name]->read_dict_values_to_column(
                 dict_value_column, &has_dict));
+#ifndef NDEBUG
+        dict_value_column->sanity_check();
+#endif
         size_t dict_value_column_size = dict_value_column->size();
         DCHECK(has_dict);
         // 2. Build a temp block from the dict string column, then execute conjuncts and filter block.

@@ -54,14 +54,15 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block, size_t count,
-                          ColumnPtr& result_column) const override {
-        return _do_execute(context, block, count, result_column, nullptr);
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override {
+        return _do_execute(context, block, nullptr, selector, count, result_column, nullptr);
     }
 
-    Status execute_runtime_filter(VExprContext* context, const Block* block, size_t count,
+    Status execute_runtime_filter(VExprContext* context, const Block* block,
+                                  const uint8_t* __restrict filter, size_t count,
                                   ColumnPtr& result_column, ColumnPtr* arg_column) const override {
-        return _do_execute(context, block, count, result_column, arg_column);
+        return _do_execute(context, block, filter, nullptr, count, result_column, arg_column);
     }
 
     const std::string& expr_name() const override { return _expr_name; }
@@ -107,12 +108,15 @@ public:
     }
 
 private:
-    Status _do_execute(VExprContext* context, const Block* block, size_t count,
-                       ColumnPtr& result_column, ColumnPtr* arg_column) const {
+    Status _do_execute(VExprContext* context, const Block* block, const uint8_t* __restrict filter,
+                       Selector* selector, size_t count, ColumnPtr& result_column,
+                       ColumnPtr* arg_column) const {
         DCHECK(_open_finished || block == nullptr);
-
+        DCHECK(!(filter != nullptr && selector != nullptr))
+                << "filter and selector can not be both set";
         ColumnPtr argument_column;
-        RETURN_IF_ERROR(_children[0]->execute_column(context, block, count, argument_column));
+        RETURN_IF_ERROR(
+                _children[0]->execute_column(context, block, selector, count, argument_column));
         argument_column = argument_column->convert_to_full_column_if_const();
 
         if (arg_column != nullptr) {
@@ -128,9 +132,10 @@ private:
                                          ->get_nested_column_ptr();
             const auto& null_map =
                     static_cast<const ColumnNullable*>(argument_column.get())->get_null_map_data();
-            _filter->find_batch_nullable(*column_nested, sz, null_map, res_data_column->get_data());
+            _filter->find_batch_nullable(*column_nested, sz, null_map, res_data_column->get_data(),
+                                         filter);
         } else {
-            _filter->find_batch(*argument_column, sz, res_data_column->get_data());
+            _filter->find_batch(*argument_column, sz, res_data_column->get_data(), filter);
         }
 
         DCHECK(!_data_type->is_nullable());

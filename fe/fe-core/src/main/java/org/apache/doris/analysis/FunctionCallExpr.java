@@ -638,6 +638,10 @@ public class FunctionCallExpr extends Expr {
         } else {
             msg.node_type = TExprNodeType.FUNCTION_CALL;
         }
+
+        if (ConnectContext.get() != null) {
+            msg.setShortCircuitEvaluation(ConnectContext.get().getSessionVariable().isShortCircuitEvaluation());
+        }
     }
 
     private static boolean match(String pattern, int pos, String value) {

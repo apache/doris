@@ -289,6 +289,9 @@ public class StatementContext implements Closeable {
     // For Iceberg rewrite operations: store file scan tasks to be used by IcebergScanNode
     // TODO: better solution?
     private List<org.apache.iceberg.FileScanTask> icebergRewriteFileScanTasks = null;
+    // For Iceberg rewrite operations: control whether to use GATHER distribution
+    // When true, data will be collected to a single node to avoid generating too many small files
+    private boolean useGatherForIcebergRewrite = false;
     private boolean hasNestedColumns;
 
     public StatementContext() {
@@ -1043,6 +1046,21 @@ public class StatementContext implements Closeable {
         List<org.apache.iceberg.FileScanTask> tasks = this.icebergRewriteFileScanTasks;
         this.icebergRewriteFileScanTasks = null;
         return tasks;
+    }
+
+    /**
+     * Set whether to use GATHER distribution for Iceberg rewrite operations.
+     * When enabled, data will be collected to a single node to minimize output files.
+     */
+    public void setUseGatherForIcebergRewrite(boolean useGather) {
+        this.useGatherForIcebergRewrite = useGather;
+    }
+
+    /**
+     * Check if GATHER distribution should be used for Iceberg rewrite operations.
+     */
+    public boolean isUseGatherForIcebergRewrite() {
+        return this.useGatherForIcebergRewrite;
     }
 
     public boolean isSkipPrunePredicate() {

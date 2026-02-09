@@ -46,6 +46,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/exprs/short_circuit_evaluation_expr.h"
 #include "vec/exprs/varray_literal.h"
 #include "vec/exprs/vcase_expr.h"
 #include "vec/exprs/vcast_expr.h"
@@ -478,14 +479,29 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         }
         case TExprNodeType::FUNCTION_CALL: {
             if (expr_node.fn.name.function_name == "if") {
-                expr = VectorizedIfExpr::create_shared(expr_node);
+                if (expr_node.__isset.short_circuit_evaluation &&
+                    expr_node.short_circuit_evaluation) {
+                    expr = ShortCircuitIfExpr::create_shared(expr_node);
+                } else {
+                    expr = VectorizedIfExpr::create_shared(expr_node);
+                }
                 break;
             } else if (expr_node.fn.name.function_name == "ifnull" ||
                        expr_node.fn.name.function_name == "nvl") {
-                expr = VectorizedIfNullExpr::create_shared(expr_node);
+                if (expr_node.__isset.short_circuit_evaluation &&
+                    expr_node.short_circuit_evaluation) {
+                    expr = ShortCircuitIfNullExpr::create_shared(expr_node);
+                } else {
+                    expr = VectorizedIfNullExpr::create_shared(expr_node);
+                }
                 break;
             } else if (expr_node.fn.name.function_name == "coalesce") {
-                expr = VectorizedCoalesceExpr::create_shared(expr_node);
+                if (expr_node.__isset.short_circuit_evaluation &&
+                    expr_node.short_circuit_evaluation) {
+                    expr = ShortCircuitCoalesceExpr::create_shared(expr_node);
+                } else {
+                    expr = VectorizedCoalesceExpr::create_shared(expr_node);
+                }
                 break;
             }
             expr = VectorizedFnCall::create_shared(expr_node);
@@ -511,7 +527,11 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
             if (!expr_node.__isset.case_expr) {
                 return Status::InternalError("Case expression not set in thrift node");
             }
-            expr = VCaseExpr::create_shared(expr_node);
+            if (expr_node.__isset.short_circuit_evaluation && expr_node.short_circuit_evaluation) {
+                expr = ShortCircuitCaseExpr::create_shared(expr_node);
+            } else {
+                expr = VCaseExpr::create_shared(expr_node);
+            }
             break;
         }
         case TExprNodeType::INFO_FUNC: {
@@ -738,7 +758,7 @@ Status VExpr::get_const_col(VExprContext* context,
     }
 
     ColumnPtr result;
-    RETURN_IF_ERROR(execute_column(context, nullptr, 1, result));
+    RETURN_IF_ERROR(execute_column(context, nullptr, nullptr, 1, result));
     _constant_col = std::make_shared<ColumnPtrWrapper>(result);
     if (column_wrapper != nullptr) {
         *column_wrapper = _constant_col;
@@ -914,6 +934,7 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
     }
 
     auto result_bitmap = segment_v2::InvertedIndexResultBitmap();
+    // Pass analyzer_key to function (used by match predicates for multi-analyzer index selection)
     auto res = function->evaluate_inverted_index(arguments, data_type_with_names, iterators,
                                                  segment_num_rows, analyzer_ctx, result_bitmap);
     if (!res.ok()) {
@@ -946,11 +967,13 @@ size_t VExpr::estimate_memory(const size_t rows) {
     return estimate_size;
 }
 
-bool VExpr::fast_execute(VExprContext* context, ColumnPtr& result_column) const {
+bool VExpr::fast_execute(VExprContext* context, Selector* selector, size_t count,
+                         ColumnPtr& result_column) const {
     if (context->get_index_context() &&
         context->get_index_context()->get_index_result_column().contains(this)) {
         // prepare a column to save result
-        result_column = context->get_index_context()->get_index_result_column()[this];
+        result_column = filter_column_with_selector(
+                context->get_index_context()->get_index_result_column()[this], selector, count);
         if (_data_type->is_nullable()) {
             result_column = make_nullable(result_column);
         }
@@ -992,6 +1015,61 @@ bool VExpr::ann_range_search_executedd() {
 
 bool VExpr::ann_dist_is_fulfilled() const {
     return _virtual_column_is_fulfilled;
+}
+
+Status VExpr::execute_filter(VExprContext* context, const Block* block,
+                             uint8_t* __restrict result_filter_data, size_t rows, bool accept_null,
+                             bool* can_filter_all) const {
+    ColumnPtr filter_column;
+    RETURN_IF_ERROR(execute_column(context, block, nullptr, rows, filter_column));
+    if (const auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
+        // const(nullable) or const(bool)
+        const bool result = accept_null
+                                    ? (const_column->is_null_at(0) || const_column->get_bool(0))
+                                    : (!const_column->is_null_at(0) && const_column->get_bool(0));
+        if (!result) {
+            // filter all
+            *can_filter_all = true;
+            memset(result_filter_data, 0, rows);
+            return Status::OK();
+        }
+    } else if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
+        // nullable(bool)
+        const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
+        const IColumn::Filter& filter = assert_cast<const ColumnUInt8&>(*nested_column).get_data();
+        const auto* __restrict filter_data = filter.data();
+        const auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
+
+        if (accept_null) {
+            for (size_t i = 0; i < rows; ++i) {
+                result_filter_data[i] &= (null_map_data[i]) || filter_data[i];
+            }
+        } else {
+            for (size_t i = 0; i < rows; ++i) {
+                result_filter_data[i] &= (!null_map_data[i]) & filter_data[i];
+            }
+        }
+
+        if (memchr(result_filter_data, 0x1, rows) == nullptr) {
+            *can_filter_all = true;
+            return Status::OK();
+        }
+    } else {
+        // bool
+        const IColumn::Filter& filter = assert_cast<const ColumnUInt8&>(*filter_column).get_data();
+        const auto* __restrict filter_data = filter.data();
+
+        for (size_t i = 0; i < rows; ++i) {
+            result_filter_data[i] &= filter_data[i];
+        }
+
+        if (memchr(result_filter_data, 0x1, rows) == nullptr) {
+            *can_filter_all = true;
+            return Status::OK();
+        }
+    }
+
+    return Status::OK();
 }
 
 #include "common/compile_check_end.h"

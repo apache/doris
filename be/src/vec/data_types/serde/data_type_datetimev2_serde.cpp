@@ -122,6 +122,20 @@ Status DataTypeDateTimeV2SerDe::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
+Status DataTypeDateTimeV2SerDe::from_string(const std::string& str, Field& field,
+                                            const FormatOptions& options) const {
+    CastParameters params {.status = Status::OK(), .is_strict = false};
+
+    DateV2Value<DateTimeV2ValueType> res;
+    std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
+
+    if (!res.from_date_format_str(date_format.data(), date_format.size(), str.data(), str.size())) {
+        res = DateV2Value<DateTimeV2ValueType>(MIN_DATETIME_V2);
+    }
+    field = Field::create_field<TYPE_DATETIMEV2>(std::move(res));
+    return Status::OK();
+}
+
 Status DataTypeDateTimeV2SerDe::from_string_strict_mode(StringRef& str, IColumn& column,
                                                         const FormatOptions& options) const {
     auto& col_data = assert_cast<ColumnDateTimeV2&>(column);

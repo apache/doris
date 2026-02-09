@@ -142,12 +142,27 @@ public:
 
     ~StreamingAggOperatorX() override = default;
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
+    void update_operator(const TPlanNode& tnode, bool followed_by_shuffled_operator,
+                         bool require_bucket_distribution) override;
     Status prepare(RuntimeState* state) override;
     Status pull(RuntimeState* state, vectorized::Block* block, bool* eos) const override;
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
     bool need_more_input_data(RuntimeState* state) const override;
     void set_low_memory_mode(RuntimeState* state) override {
         _spill_streaming_agg_mem_limit = 1024 * 1024;
+    }
+    DataDistribution required_data_distribution(RuntimeState* state) const override {
+        if (!state->get_query_ctx()->should_be_shuffled_agg(
+                    StatefulOperatorX<StreamingAggLocalState>::node_id())) {
+            return StatefulOperatorX<StreamingAggLocalState>::required_data_distribution(state);
+        }
+        if (_partition_exprs.empty()) {
+            return _needs_finalize
+                           ? DataDistribution(ExchangeType::NOOP)
+                           : StatefulOperatorX<StreamingAggLocalState>::required_data_distribution(
+                                     state);
+        }
+        return DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
 
 private:
@@ -183,6 +198,7 @@ private:
     std::vector<size_t> _make_nullable_keys;
     bool _have_conjuncts;
     RowDescriptor _agg_fn_output_row_descriptor;
+    std::vector<TExpr> _partition_exprs;
 };
 
 } // namespace pipeline

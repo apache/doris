@@ -222,7 +222,7 @@ protected:
     }
     virtual PushDownType _should_push_down_binary_predicate(
             vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
-            StringRef* constant_val, const std::set<std::string> fn_name) const {
+            vectorized::Field& constant_val, const std::set<std::string> fn_name) const {
         return PushDownType::UNACCEPTABLE;
     }
 
@@ -288,8 +288,8 @@ protected:
 
     template <PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
     Status _change_value_range(bool is_equal_op, ColumnValueRange<PrimitiveType>& range,
-                               const void* value, const ChangeFixedValueRangeFunc& func,
-                               const std::string& fn_name);
+                               const vectorized::Field& value,
+                               const ChangeFixedValueRangeFunc& func, const std::string& fn_name);
 
     Status _prepare_scanners();
 
@@ -366,7 +366,7 @@ public:
 
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (OperatorX<LocalStateType>::is_serial_operator()) {
             // `is_serial_operator()` returns true means we ignore the distribution.
             return {ExchangeType::NOOP};

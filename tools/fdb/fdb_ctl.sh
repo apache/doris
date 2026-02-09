@@ -52,6 +52,7 @@ fi
 
 # TODO verify config
 
+FDB_STORAGE_ENGINE=${FDB_STORAGE_ENGINE:-"ssd"}
 FDB_CLUSTER_DESC=${FDB_CLUSTER_DESC:-"doris-fdb"}
 
 # A dir to provide FDB binary pkgs
@@ -432,7 +433,7 @@ function start() {
         echo "Try create database in fdb ${fdb_mode}"
 
         "${FDB_HOME}/fdbcli" -C "${FDB_HOME}/conf/fdb.cluster" \
-            --exec "configure new ${fdb_mode} ssd" ||
+            --exec "configure new ${fdb_mode} ${FDB_STORAGE_ENGINE}" ||
             "${FDB_HOME}/fdbcli" -C "${FDB_HOME}/conf/fdb.cluster" --exec "status" ||
             (echo "failed to start fdb, please check that all nodes have same FDB_CLUSTER_ID" &&
                 exit 1)
