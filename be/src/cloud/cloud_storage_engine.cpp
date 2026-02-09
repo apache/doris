@@ -447,6 +447,9 @@ void CloudStorageEngine::_vacuum_stale_rowsets_thread_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::vacuum_stale_rowsets_interval_s))) {
         _tablet_mgr->vacuum_stale_rowsets(_stop_background_threads_latch);
+        if (_uncommitted_rowset_registry) {
+            _uncommitted_rowset_registry->remove_expired_entries();
+        }
     }
 }
 

@@ -423,6 +423,9 @@ void StorageEngine::_unused_rowset_monitor_thread_callback() {
     int32_t interval = config::unused_rowset_monitor_interval;
     do {
         start_delete_unused_rowset();
+        if (_uncommitted_rowset_registry) {
+            _uncommitted_rowset_registry->remove_expired_entries();
+        }
 
         interval = config::unused_rowset_monitor_interval;
         if (interval <= 0) {

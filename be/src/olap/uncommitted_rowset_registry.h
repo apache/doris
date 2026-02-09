@@ -37,6 +37,7 @@ struct UncommittedRowsetEntry {
     int64_t transaction_id;
     int64_t partition_id;
     int64_t tablet_id;
+    int64_t register_time_ms;
     // Delete bitmap computed at commit phase against published rowsets.
     // Already available from the normal MoW write path — no extra computation.
     DeleteBitmapPtr committed_delete_bitmap;
@@ -53,12 +54,15 @@ public:
     // Register an uncommitted rowset after commit.
     void register_rowset(std::shared_ptr<UncommittedRowsetEntry> entry);
 
-    // Unregister on publish or rollback.
+    // Unregister a specific rowset (e.g. when a query finds it already published).
     void unregister_rowset(int64_t tablet_id, int64_t transaction_id);
 
     // Get all uncommitted rowsets for a tablet.
     void get_uncommitted_rowsets(int64_t tablet_id,
                                  std::vector<std::shared_ptr<UncommittedRowsetEntry>>* result);
+
+    // Remove entries older than uncommitted_rowset_expire_sec.
+    void remove_expired_entries();
 
 private:
     static constexpr int SHARD_COUNT = 16;

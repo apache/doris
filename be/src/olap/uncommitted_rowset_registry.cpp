@@ -21,12 +21,15 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
+#include "common/config.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
+#include "util/time.h"
 
 namespace doris {
 
 void UncommittedRowsetRegistry::register_rowset(std::shared_ptr<UncommittedRowsetEntry> entry) {
+    entry->register_time_ms = MonotonicMillis();
     auto& shard = _get_shard(entry->tablet_id);
     std::lock_guard wlock(shard.lock);
     shard.entries[entry->tablet_id].push_back(std::move(entry));
@@ -65,6 +68,29 @@ void UncommittedRowsetRegistry::get_uncommitted_rowsets(
 
     for (const auto& entry : it->second) {
         result->push_back(entry);
+    }
+}
+
+void UncommittedRowsetRegistry::remove_expired_entries() {
+    int64_t expire_ms = config::uncommitted_rowset_expire_sec * 1000L;
+    int64_t now = MonotonicMillis();
+
+    for (int i = 0; i < SHARD_COUNT; i++) {
+        auto& shard = _shards[i];
+        std::lock_guard wlock(shard.lock);
+        for (auto it = shard.entries.begin(); it != shard.entries.end();) {
+            auto& entries = it->second;
+            entries.erase(std::remove_if(entries.begin(), entries.end(),
+                                          [now, expire_ms](const auto& e) {
+                                              return now - e->register_time_ms > expire_ms;
+                                          }),
+                          entries.end());
+            if (entries.empty()) {
+                it = shard.entries.erase(it);
+            } else {
+                ++it;
+            }
+        }
     }
 }
 

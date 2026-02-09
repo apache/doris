@@ -414,6 +414,8 @@ DECLARE_mInt32(max_percentage_of_error_disk);
 DECLARE_mInt32(default_num_rows_per_column_file_block);
 // pending data policy
 DECLARE_mInt32(pending_data_expire_time_sec);
+// Expiration time for uncommitted rowsets tracked by READ UNCOMMITTED
+DECLARE_mInt32(uncommitted_rowset_expire_sec);
 // inc_rowset snapshot rs sweep time interval
 DECLARE_mInt32(tablet_rowset_stale_sweep_time_sec);
 // tablet stale rowset sweep by threshold size

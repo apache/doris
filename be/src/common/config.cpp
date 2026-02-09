@@ -373,6 +373,8 @@ DEFINE_mInt32(max_percentage_of_error_disk, "100");
 DEFINE_mInt32(default_num_rows_per_column_file_block, "1024");
 // pending data policy
 DEFINE_mInt32(pending_data_expire_time_sec, "1800");
+// Expiration time for uncommitted rowsets tracked by READ UNCOMMITTED
+DEFINE_mInt32(uncommitted_rowset_expire_sec, "30");
 // inc_rowset snapshot rs sweep time interval
 DEFINE_mInt32(tablet_rowset_stale_sweep_time_sec, "600");
 // tablet stale rowset sweep by threshold size

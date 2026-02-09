@@ -787,8 +787,9 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
                 };
 
                 for (auto& entry : entries) {
-                    // Skip if already visible in committed read path
+                    // Already published — remove from registry and skip
                     if (committed_rowset_ids.count(entry->rowset->rowset_id())) {
+                        registry->unregister_rowset(entry->tablet_id, entry->transaction_id);
                         continue;
                     }
 
