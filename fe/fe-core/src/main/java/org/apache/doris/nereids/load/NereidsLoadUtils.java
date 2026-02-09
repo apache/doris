@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToValue;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -393,7 +394,10 @@ public class NereidsLoadUtils {
             super(((expression, context) -> {
                 // Use FoldConstantRuleOnFE to fold EncryptKeyRef to StringLiteral
                 // This rewriter will traverse the expression tree and replace all EncryptKeyRef
-                return expression.accept(FOLD_ENCRYPT_KEY_REF, context);
+                if (expression instanceof EncryptKeyRef) {
+                    return expression.accept(FOLD_ENCRYPT_KEY_REF, context);
+                }
+                return expression;
             }));
         }
     }
