@@ -757,10 +757,6 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
                     tablet->keys_type() != UNIQUE_KEYS) {
                     continue;
                 }
-                // Skip tablets not in RUNNING state
-                if (tablet->tablet_state() != TABLET_RUNNING) {
-                    continue;
-                }
 
                 std::vector<std::shared_ptr<UncommittedRowsetEntry>> entries;
                 registry->get_uncommitted_rowsets(tablet->tablet_id(), &entries);

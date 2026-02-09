@@ -24,7 +24,6 @@
 
 #include "olap/rowset/rowset.h"
 #include "olap/tablet_fwd.h"
-#include "olap/tablet_meta.h"
 
 namespace doris {
 
@@ -60,9 +59,6 @@ public:
     // Get all uncommitted rowsets for a tablet.
     void get_uncommitted_rowsets(int64_t tablet_id,
                                  std::vector<std::shared_ptr<UncommittedRowsetEntry>>* result);
-
-    // Called when a tablet transitions to a non-running state. Clears all entries.
-    void on_tablet_state_change(int64_t tablet_id, TabletState new_state);
 
 private:
     static constexpr int SHARD_COUNT = 16;

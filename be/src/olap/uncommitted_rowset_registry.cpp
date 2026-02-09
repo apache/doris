@@ -68,17 +68,6 @@ void UncommittedRowsetRegistry::get_uncommitted_rowsets(
     }
 }
 
-void UncommittedRowsetRegistry::on_tablet_state_change(int64_t tablet_id,
-                                                        TabletState new_state) {
-    if (new_state == TABLET_RUNNING) {
-        return;
-    }
-
-    auto& shard = _get_shard(tablet_id);
-    std::lock_guard wlock(shard.lock);
-    shard.entries.erase(tablet_id);
-}
-
 UncommittedRowsetRegistry* get_uncommitted_rowset_registry() {
     auto* env = ExecEnv::GetInstance();
     if (!env) {
