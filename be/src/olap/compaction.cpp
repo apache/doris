@@ -1779,8 +1779,8 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     // Set fine-grained control: only write index files to cache if configured
     ctx.compaction_output_write_index_only = should_enable_compaction_cache_index_only(
             ctx.write_file_cache, compaction_type(),
-            config::enable_base_compaction_output_write_index_only,
-            config::enable_cumu_compaction_output_write_index_only);
+            config::enable_file_cache_write_base_compaction_index_only,
+            config::enable_file_cache_write_cumu_compaction_index_only);
 
     ctx.tablet = _tablet;
     ctx.job_id = _uuid;
