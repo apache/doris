@@ -614,7 +614,6 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     stats->lock_wait_time_us += MonotonicMicros() - t6;
     _remove_txn_tablet_info_unlocked(partition_id, transaction_id, tablet_id, tablet_uid, txn_lock,
                                      wrlock);
-
     VLOG_NOTICE << "publish txn successfully."
                 << " partition_id: " << key.first << ", txn_id: " << key.second
                 << ", tablet_id: " << tablet_info.tablet_id << ", rowsetid: " << rowset->rowset_id()
@@ -737,7 +736,6 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
         g_tablet_txn_info_txn_partitions_count << -1;
         _clear_txn_partition_map_unlocked(transaction_id, partition_id);
     }
-
     return st;
 }
 

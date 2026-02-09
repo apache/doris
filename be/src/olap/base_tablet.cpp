@@ -169,7 +169,6 @@ Status BaseTablet::set_tablet_state(TabletState state) {
                 "could not change tablet state from shutdown to {}", state);
     }
     _tablet_meta->set_tablet_state(state);
-
     return Status::OK();
 }
 
