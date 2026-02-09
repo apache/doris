@@ -17,13 +17,16 @@
 
 package org.apache.doris.authentication.handler;
 
-import org.apache.doris.authentication.AuthenticationProfile;
+import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.Identity;
 
 import java.util.Set;
 
 /**
  * Stage for resolving role names from an authenticated identity.
+ *
+ * <p>This interface allows for custom role resolution strategies,
+ * such as mapping external groups to internal roles.
  */
 public interface RoleResolutionStage {
 
@@ -31,8 +34,8 @@ public interface RoleResolutionStage {
      * Resolve internal role names for the identity.
      *
      * @param identity authenticated identity
-     * @param profile authentication profile
+     * @param integration authentication integration
      * @return resolved role names
      */
-    Set<String> resolveRoles(Identity identity, AuthenticationProfile profile);
+    Set<String> resolveRoles(Identity identity, AuthenticationIntegration integration);
 }

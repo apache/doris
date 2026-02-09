@@ -17,9 +17,7 @@
 
 package org.apache.doris.authentication.handler;
 
-import org.apache.doris.authentication.AuthenticationBinding;
-import org.apache.doris.authentication.AuthenticationPluginType;
-import org.apache.doris.authentication.AuthenticationProfile;
+import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationRequest;
 import org.apache.doris.authentication.spi.AuthenticationException;
 
@@ -31,139 +29,112 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Resolver for authentication bindings.
+ * Resolver for authentication integrations.
  *
- * <p>Resolves which AuthenticationProfile should be used for a given user/request.
- * Follows the binding priority:
- * 1. User explicit binding
- * 2. Role binding
- * 3. Default binding
- * 4. System default
+ * <p>Resolves which AuthenticationIntegration should be used for a given user/request.
+ * Follows the resolution priority:
+ * <ol>
+ *   <li>User explicit binding (from BindingRegistry)</li>
+ *   <li>Authentication chain (from IntegrationRegistry)</li>
+ *   <li>Default password integration (fallback)</li>
+ * </ol>
+ *
+ * <p>Design per auth.md: simplified model without role bindings and priority.
  */
 public class BindingResolver {
 
-    private final ProfileRegistry profileRegistry;
+    private final IntegrationRegistry integrationRegistry;
     private final BindingRegistry bindingRegistry;
 
-    public BindingResolver(ProfileRegistry profileRegistry, BindingRegistry bindingRegistry) {
-        this.profileRegistry = Objects.requireNonNull(profileRegistry, "profileRegistry");
+    public BindingResolver(IntegrationRegistry integrationRegistry, BindingRegistry bindingRegistry) {
+        this.integrationRegistry = Objects.requireNonNull(integrationRegistry, "integrationRegistry");
         this.bindingRegistry = Objects.requireNonNull(bindingRegistry, "bindingRegistry");
     }
 
     /**
-     * Resolve AuthenticationProfile for the given username and request.
+     * Resolve AuthenticationIntegration for the given username and request.
      *
      * <p>This returns the first candidate from {@link #resolveCandidates(String, AuthenticationRequest)}.</p>
      *
      * @param username username
      * @param request authentication request
-     * @return resolved AuthenticationProfile
+     * @return resolved AuthenticationIntegration
      * @throws AuthenticationException if resolution fails
      */
-    public AuthenticationProfile resolveProfile(String username,
+    public AuthenticationIntegration resolveIntegration(String username,
             AuthenticationRequest request) throws AuthenticationException {
-        List<AuthenticationProfile> candidates = resolveCandidates(username, request);
+        List<AuthenticationIntegration> candidates = resolveCandidates(username, request);
         if (candidates.isEmpty()) {
             throw new AuthenticationException(
-                    "No authentication profile available for user: " + username);
+                    "No authentication integration available for user: " + username);
         }
         return candidates.get(0);
     }
 
     /**
-     * Resolve candidate profiles in priority order.
+     * Resolve candidate integrations in priority order.
      *
-     * <p>Order: user binding -> explicit requested -> default bindings -> system default.</p>
+     * <p>Order:
+     * <ol>
+     *   <li>User binding - explicit integration bound to user</li>
+     *   <li>Authentication chain - ordered list from IntegrationRegistry</li>
+     *   <li>Default password integration - fallback</li>
+     * </ol>
+     *
+     * @param username the username
+     * @param request the authentication request
+     * @return list of candidate integrations in priority order
      */
-    public List<AuthenticationProfile> resolveCandidates(String username,
-            AuthenticationRequest request) throws AuthenticationException {
-        Map<String, AuthenticationProfile> candidates = new LinkedHashMap<>();
+    public List<AuthenticationIntegration> resolveCandidates(String username,
+            AuthenticationRequest request) {
+        Map<String, AuthenticationIntegration> candidates = new LinkedHashMap<>();
 
-        // 1. User binding
-        Optional<AuthenticationBinding> userBinding = bindingRegistry.getUserBinding(username);
-        if (userBinding.isPresent()) {
-            addCandidate(candidates, resolveProfile(userBinding.get()));
+        // 1. User binding - check if user has explicit binding
+        Optional<String> boundIntegration = bindingRegistry.getIntegrationName(username);
+        if (boundIntegration.isPresent()) {
+            integrationRegistry.get(boundIntegration.get())
+                    .ifPresent(integration -> addCandidate(candidates, integration));
         }
 
-        // 2. Explicitly requested profile (client-provided)
-        Optional<String> requested = AuthenticationRequestBuilder.resolveRequestedProfile(request);
-        if (requested.isPresent()) {
-            if (userBinding.isPresent()) {
-                resolveRequestedProfileOptional(requested.get())
-                        .ifPresent(profile -> addCandidate(candidates, profile));
-            } else {
-                AuthenticationProfile profile = resolveRequestedProfile(requested.get());
-                addCandidate(candidates, profile);
-            }
+        // 2. Authentication chain - try integrations in defined order
+        for (AuthenticationIntegration integration : integrationRegistry.getAuthenticationChain()) {
+            addCandidate(candidates, integration);
         }
 
-        // 3. Default binding
-        List<AuthenticationBinding> defaults = bindingRegistry.getDefaultBindings();
-        for (AuthenticationBinding binding : defaults) {
-            AuthenticationProfile profile = resolveProfile(binding);
-            addCandidate(candidates, profile);
-        }
-
-        // 4. System default (Password plugin as baseline)
-        AuthenticationProfile fallback = profileRegistry.getDefaultPasswordProfile();
-        if (fallback != null) {
-            addCandidate(candidates, fallback);
+        // 3. Default password integration - fallback
+        AuthenticationIntegration defaultIntegration = integrationRegistry.getDefaultPasswordIntegration();
+        if (defaultIntegration != null) {
+            addCandidate(candidates, defaultIntegration);
         }
 
         return new ArrayList<>(candidates.values());
     }
 
-    private AuthenticationProfile resolveProfile(AuthenticationBinding binding) throws AuthenticationException {
-        Optional<AuthenticationProfile> profile = profileRegistry.get(binding.getProfileName());
-        if (!profile.isPresent()) {
-            if (binding.isMandatory()) {
-                throw new AuthenticationException(
-                        "Mandatory authentication profile not found: " + binding.getProfileName());
-            }
-            // fall through to default selection by type to keep login possible
-            return profileRegistry.getDefaultPasswordProfile();
-        }
-        AuthenticationProfile resolved = profile.get();
-        if (!resolved.isEnabled()) {
-            if (binding.isMandatory()) {
-                throw new AuthenticationException("Authentication profile disabled: " + resolved.getName());
-            }
-            if (resolved.getPluginType() == AuthenticationPluginType.PASSWORD) {
-                return profileRegistry.getDefaultPasswordProfile();
-            }
-        }
-        return resolved;
+    /**
+     * Check if a user has an explicit binding.
+     *
+     * @param username the username
+     * @return true if user has binding
+     */
+    public boolean hasUserBinding(String username) {
+        return bindingRegistry.hasBinding(username);
     }
 
-    private AuthenticationProfile resolveRequestedProfile(String profileName) throws AuthenticationException {
-        Optional<AuthenticationProfile> profile = profileRegistry.get(profileName);
-        if (!profile.isPresent()) {
-            throw new AuthenticationException(
-                    "Requested authentication profile not found: " + profileName);
-        }
-        AuthenticationProfile resolved = profile.get();
-        if (!resolved.isEnabled()) {
-            throw new AuthenticationException(
-                    "Requested authentication profile is disabled: " + profileName);
-        }
-        return resolved;
+    /**
+     * Get the integration bound to a user, if any.
+     *
+     * @param username the username
+     * @return the bound integration, or empty
+     */
+    public Optional<AuthenticationIntegration> getUserBoundIntegration(String username) {
+        return bindingRegistry.getIntegrationName(username)
+                .flatMap(integrationRegistry::get);
     }
 
-    private Optional<AuthenticationProfile> resolveRequestedProfileOptional(String profileName) {
-        Optional<AuthenticationProfile> profile = profileRegistry.get(profileName);
-        if (!profile.isPresent()) {
-            return Optional.empty();
-        }
-        AuthenticationProfile resolved = profile.get();
-        if (!resolved.isEnabled()) {
-            return Optional.empty();
-        }
-        return Optional.of(resolved);
-    }
-
-    private void addCandidate(Map<String, AuthenticationProfile> candidates, AuthenticationProfile profile) {
-        if (profile != null) {
-            candidates.putIfAbsent(profile.getName(), profile);
+    private void addCandidate(Map<String, AuthenticationIntegration> candidates,
+            AuthenticationIntegration integration) {
+        if (integration != null) {
+            candidates.putIfAbsent(integration.getName(), integration);
         }
     }
 }

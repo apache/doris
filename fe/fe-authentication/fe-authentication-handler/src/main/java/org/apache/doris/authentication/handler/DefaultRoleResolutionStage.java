@@ -17,7 +17,7 @@
 
 package org.apache.doris.authentication.handler;
 
-import org.apache.doris.authentication.AuthenticationProfile;
+import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.Identity;
 
 import java.util.Collections;
@@ -25,7 +25,9 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Default role resolution stage using profile role mappings.
+ * Default role resolution stage using the role mapper.
+ *
+ * <p>This implementation delegates to RoleMapper for actual mapping.
  */
 public class DefaultRoleResolutionStage implements RoleResolutionStage {
 
@@ -36,10 +38,10 @@ public class DefaultRoleResolutionStage implements RoleResolutionStage {
     }
 
     @Override
-    public Set<String> resolveRoles(Identity identity, AuthenticationProfile profile) {
-        if (identity == null || profile == null) {
+    public Set<String> resolveRoles(Identity identity, AuthenticationIntegration integration) {
+        if (identity == null || integration == null) {
             return Collections.emptySet();
         }
-        return roleMapper.mapRoles(identity, profile);
+        return roleMapper.mapRoles(identity, integration);
     }
 }

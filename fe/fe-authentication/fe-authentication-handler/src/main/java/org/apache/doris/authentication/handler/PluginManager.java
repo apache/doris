@@ -17,8 +17,7 @@
 
 package org.apache.doris.authentication.handler;
 
-import org.apache.doris.authentication.AuthenticationPluginType;
-import org.apache.doris.authentication.AuthenticationProfile;
+import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.spi.AuthenticationException;
 import org.apache.doris.authentication.spi.AuthenticationPlugin;
 import org.apache.doris.authentication.spi.AuthenticationPluginFactory;
@@ -33,6 +32,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.ServiceLoader;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -42,13 +42,28 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>Handles plugin instance lifecycle: creation, caching, health checks, reloading.
  * Uses {@link ServiceLoader} for classpath plugins and {@link PluginLoader}
  * for external plugins.</p>
+ *
+ * <p>Design per auth.md:
+ * <ul>
+ *   <li>Plugins are identified by string name (not enum)</li>
+ *   <li>Plugin instances are cached per integration name</li>
+ *   <li>Factories are discovered via ServiceLoader</li>
+ * </ul>
  */
 public class PluginManager {
 
-    private final Map<AuthenticationPluginType, AuthenticationPluginFactory> factories = new ConcurrentHashMap<>();
-    private final Map<String, AuthenticationPlugin> pluginByProfile = new ConcurrentHashMap<>();
-    private final Map<String, AuthenticationProfile> profileSnapshot = new ConcurrentHashMap<>();
-    private final Map<AuthenticationPluginType, ClassLoader> externalClassLoaders = new ConcurrentHashMap<>();
+    /** Factories by plugin name (e.g., "ldap", "oidc", "password") */
+    private final Map<String, AuthenticationPluginFactory> factories = new ConcurrentHashMap<>();
+
+    /** Plugin instances by integration name */
+    private final Map<String, AuthenticationPlugin> pluginByIntegration = new ConcurrentHashMap<>();
+
+    /** Integration snapshots for reload detection */
+    private final Map<String, AuthenticationIntegration> integrationSnapshot = new ConcurrentHashMap<>();
+
+    /** External classloaders by plugin name */
+    private final Map<String, ClassLoader> externalClassLoaders = new ConcurrentHashMap<>();
+
     private final PluginLoader pluginLoader;
 
     public PluginManager() {
@@ -57,8 +72,9 @@ public class PluginManager {
 
     public PluginManager(PluginLoader pluginLoader) {
         this.pluginLoader = Objects.requireNonNull(pluginLoader, "pluginLoader");
+        // Discover factories via ServiceLoader
         ServiceLoader.load(AuthenticationPluginFactory.class).forEach(factory ->
-                factories.put(factory.pluginType(), factory));
+                factories.put(factory.name(), factory));
     }
 
     private static List<String> defaultParentFirstPackages() {
@@ -67,14 +83,22 @@ public class PluginManager {
         return packages;
     }
 
-    /** Register/override a factory programmatically (useful for tests). */
+    /**
+     * Register/override a factory programmatically (useful for tests).
+     *
+     * @param factory the factory to register
+     */
     public void registerFactory(AuthenticationPluginFactory factory) {
         Objects.requireNonNull(factory, "factory");
-        factories.put(factory.pluginType(), factory);
+        factories.put(factory.name(), factory);
     }
 
     /**
      * Register an external plugin factory by descriptor and classloader.
+     *
+     * @param descriptor plugin descriptor
+     * @param classLoader classloader for the plugin
+     * @throws AuthenticationException if registration fails
      */
     public void registerExternalFactory(PluginDescriptor descriptor,
             ClassLoader classLoader) throws AuthenticationException {
@@ -92,12 +116,17 @@ public class PluginManager {
                     "Factory is not AuthenticationPluginFactory: " + factory.getClass().getName());
         }
         AuthenticationPluginFactory authFactory = (AuthenticationPluginFactory) factory;
-        factories.put(authFactory.pluginType(), authFactory);
-        externalClassLoaders.put(authFactory.pluginType(), classLoader);
+        factories.put(authFactory.name(), authFactory);
+        externalClassLoaders.put(authFactory.name(), classLoader);
     }
 
     /**
      * Convenience method to register external factory using plugin URLs.
+     *
+     * @param descriptor plugin descriptor
+     * @param urls URLs for the plugin classloader
+     * @param parent parent classloader
+     * @throws AuthenticationException if registration fails
      */
     public void registerExternalFactory(PluginDescriptor descriptor, URL[] urls, ClassLoader parent)
             throws AuthenticationException {
@@ -106,11 +135,13 @@ public class PluginManager {
     }
 
     /**
-     * Remove a factory and close its classloader if it is external.
+     * Remove a factory by plugin name and close its classloader if external.
+     *
+     * @param pluginName the plugin name
      */
-    public void removeFactory(AuthenticationPluginType type) {
-        factories.remove(type);
-        ClassLoader classLoader = externalClassLoaders.remove(type);
+    public void removeFactory(String pluginName) {
+        factories.remove(pluginName);
+        ClassLoader classLoader = externalClassLoaders.remove(pluginName);
         if (classLoader instanceof java.net.URLClassLoader) {
             try {
                 ((java.net.URLClassLoader) classLoader).close();
@@ -121,75 +152,122 @@ public class PluginManager {
     }
 
     /**
-     * Get or create plugin instance for the given profile.
+     * Get a factory by plugin name.
      *
-     * @param profile authentication profile
+     * @param pluginName the plugin name
+     * @return the factory, or empty if not found
+     */
+    public Optional<AuthenticationPluginFactory> getFactory(String pluginName) {
+        return Optional.ofNullable(factories.get(pluginName));
+    }
+
+    /**
+     * Check if a factory exists for the given plugin name.
+     *
+     * @param pluginName the plugin name
+     * @return true if factory exists
+     */
+    public boolean hasFactory(String pluginName) {
+        return factories.containsKey(pluginName);
+    }
+
+    /**
+     * Get or create plugin instance for the given integration.
+     *
+     * @param integration authentication integration
      * @return plugin instance
      * @throws AuthenticationException if plugin creation fails
      */
-    public AuthenticationPlugin getPlugin(AuthenticationProfile profile) throws AuthenticationException {
-        Objects.requireNonNull(profile, "profile");
-        AuthenticationPlugin existing = pluginByProfile.get(profile.getName());
+    public AuthenticationPlugin getPlugin(AuthenticationIntegration integration) throws AuthenticationException {
+        Objects.requireNonNull(integration, "integration");
+        AuthenticationPlugin existing = pluginByIntegration.get(integration.getName());
         if (existing != null) {
             return existing;
         }
-        synchronized (pluginByProfile) {
-            AuthenticationPlugin cached = pluginByProfile.get(profile.getName());
+        synchronized (pluginByIntegration) {
+            AuthenticationPlugin cached = pluginByIntegration.get(integration.getName());
             if (cached != null) {
                 return cached;
             }
-            AuthenticationPlugin plugin = createAndInit(profile);
-            pluginByProfile.put(profile.getName(), plugin);
-            profileSnapshot.put(profile.getName(), profile);
+            AuthenticationPlugin plugin = createAndInit(integration);
+            pluginByIntegration.put(integration.getName(), plugin);
+            integrationSnapshot.put(integration.getName(), integration);
             return plugin;
         }
     }
 
-    private AuthenticationPlugin createAndInit(AuthenticationProfile profile) throws AuthenticationException {
-        AuthenticationPluginFactory factory = factories.get(profile.getPluginType());
+    private AuthenticationPlugin createAndInit(AuthenticationIntegration integration) throws AuthenticationException {
+        AuthenticationPluginFactory factory = factories.get(integration.getPluginName());
         if (factory == null) {
             throw new AuthenticationException(
-                    "No AuthenticationPluginFactory found for type: " + profile.getPluginType());
+                    "No AuthenticationPluginFactory found for plugin: " + integration.getPluginName());
         }
         AuthenticationPlugin plugin = factory.create();
-        plugin.validate(profile);
-        plugin.initialize(profile);
+        plugin.validate(integration);
+        plugin.initialize(integration);
         return plugin;
     }
 
     /**
-     * Reload plugin for the given profile.
+     * Reload plugin for the given integration.
      *
-     * @param profile authentication profile
+     * @param integration authentication integration
      * @throws AuthenticationException if reload fails
      */
-    public void reloadPlugin(AuthenticationProfile profile) throws AuthenticationException {
-        removePlugin(profile.getName());
-        getPlugin(profile);
+    public void reloadPlugin(AuthenticationIntegration integration) throws AuthenticationException {
+        removePlugin(integration.getName());
+        getPlugin(integration);
     }
 
     /**
      * Remove plugin instance.
      *
-     * @param profileName profile name
+     * @param integrationName integration name
      */
-    public void removePlugin(String profileName) {
-        AuthenticationPlugin plugin = pluginByProfile.remove(profileName);
+    public void removePlugin(String integrationName) {
+        AuthenticationPlugin plugin = pluginByIntegration.remove(integrationName);
         if (plugin != null) {
             plugin.close();
         }
-        profileSnapshot.remove(profileName);
+        integrationSnapshot.remove(integrationName);
     }
 
     /**
      * Perform health check on all plugins.
      */
     public void healthCheckAll() {
-        pluginByProfile.forEach((profileName, plugin) -> {
-            AuthenticationProfile profile = profileSnapshot.get(profileName);
-            if (profile != null) {
-                plugin.healthCheck(profile);
+        pluginByIntegration.forEach((integrationName, plugin) -> {
+            AuthenticationIntegration integration = integrationSnapshot.get(integrationName);
+            if (integration != null) {
+                plugin.healthCheck(integration);
             }
         });
+    }
+
+    /**
+     * Get all registered plugin names.
+     *
+     * @return list of plugin names
+     */
+    public List<String> getRegisteredPluginNames() {
+        return new ArrayList<>(factories.keySet());
+    }
+
+    /**
+     * Get number of cached plugin instances.
+     *
+     * @return count of cached plugins
+     */
+    public int getCachedPluginCount() {
+        return pluginByIntegration.size();
+    }
+
+    /**
+     * Clear all cached plugins.
+     */
+    public void clearCache() {
+        pluginByIntegration.values().forEach(AuthenticationPlugin::close);
+        pluginByIntegration.clear();
+        integrationSnapshot.clear();
     }
 }

@@ -17,7 +17,6 @@
 
 package org.apache.doris.authentication.spi;
 
-import org.apache.doris.authentication.AuthenticationPluginType;
 import org.apache.doris.extension.spi.PluginDescriptor;
 import org.apache.doris.extension.spi.PluginFactory;
 
@@ -25,27 +24,42 @@ import org.apache.doris.extension.spi.PluginFactory;
  * Factory interface for creating authentication plugins.
  *
  * <p>Factories are discovered via {@link java.util.ServiceLoader} so that
- * plugin implementations can be provided without changing handler code.</p>
+ * plugin implementations can be provided without changing handler code.
+ *
+ * <p>ServiceLoader configuration:
+ * <pre>
+ * # META-INF/services/org.apache.doris.authentication.spi.AuthenticationPluginFactory
+ * org.apache.doris.authentication.plugins.ldap.LdapPluginFactory
+ * org.apache.doris.authentication.plugins.oidc.OidcPluginFactory
+ * org.apache.doris.authentication.plugins.password.PasswordPluginFactory
+ * org.apache.company.custom.CustomAuthPluginFactory  # third-party plugin
+ * </pre>
+ *
+ * <p>Design principles:
+ * <ul>
+ *   <li>Plugin name is a string (not enum) for extensibility</li>
+ *   <li>Factory can return singleton or new instance each time</li>
+ *   <li>Third parties can develop custom plugins without modifying Doris code</li>
+ * </ul>
  */
 public interface AuthenticationPluginFactory extends PluginFactory {
+
     /**
-     * Get the plugin type this factory creates.
+     * Get the plugin name this factory creates.
+     * Must match the plugin's name() method.
      *
-     * @return plugin type
+     * @return plugin name (e.g., "ldap", "oidc", "password")
      */
-    AuthenticationPluginType pluginType();
+    @Override
+    String name();
 
     /**
      * Create a plugin instance.
+     * Can be singleton or new instance each time.
      *
      * @return plugin instance
      */
     AuthenticationPlugin create();
-
-    @Override
-    default String name() {
-        return pluginType().getIdentifier();
-    }
 
     @Override
     default AuthenticationPlugin create(PluginDescriptor descriptor) {

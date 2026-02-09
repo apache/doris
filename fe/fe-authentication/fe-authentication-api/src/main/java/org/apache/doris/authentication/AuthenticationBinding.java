@@ -17,61 +17,126 @@
 
 package org.apache.doris.authentication;
 
+import java.util.Objects;
+
 /**
- * Authentication binding - binding relationship between user/role and AuthenticationProfile.
+ * User binding configuration - specifies which Integration a user should use for authentication.
  *
- * <p>Similar to MySQL's authentication_plugin mechanism,
- * allows specifying which authentication profile to use for a user.
+ * <p>Supports two binding modes:
+ * <ul>
+ *   <li>User-level binding: specific user binds to specific Integration</li>
+ *   <li>Global default: handled via AUTHENTICATION CHAIN, not separate DEFAULT binding</li>
+ * </ul>
+ *
+ * <p>Example SQL:
+ * <pre>{@code
+ * CREATE USER 'alice'@'%' IDENTIFIED WITH corp_ldap;
+ * }</pre>
+ *
+ * <p>Authentication selection logic:
+ * <pre>
+ * 1. User alice logs in
+ *    → Check if AuthenticationBinding(username="alice") exists
+ *    → If yes, use the bound Integration
+ *    → If no, use AUTHENTICATION CHAIN
+ *
+ * 2. User bob logs in (no binding)
+ *    → No AuthenticationBinding
+ *    → Use AUTHENTICATION CHAIN to try each Integration in order
+ * </pre>
  */
 public class AuthenticationBinding {
 
-    /** Binding type */
-    public enum BindingType {
-        USER,      // Bind to user
-        ROLE,      // Bind to role
-        DEFAULT    // Default binding
+    /** Username (null or empty means this is a default Integration) */
+    private final String username;
+
+    /** AuthenticationIntegration name */
+    private final String integrationName;
+
+    /**
+     * Creates a user-level binding.
+     *
+     * @param username the username
+     * @param integrationName the integration name
+     */
+    public AuthenticationBinding(String username, String integrationName) {
+        this.username = username;
+        this.integrationName = Objects.requireNonNull(integrationName, "integrationName is required");
     }
 
-    private final BindingType type;
-
-    /** Binding target name (username/role name) */
-    private final String targetName;
-
-    /** Bound AuthenticationProfile name */
-    private final String profileName;
-
-    /** Priority (when multiple bindings exist for same target) */
-    private final int priority;
-
-    /** Whether mandatory (not allowed to fallback to other Profile) */
-    private final boolean mandatory;
-
-    public AuthenticationBinding(BindingType type, String targetName, String profileName,
-                      int priority, boolean mandatory) {
-        this.type = type;
-        this.targetName = targetName;
-        this.profileName = profileName;
-        this.priority = priority;
-        this.mandatory = mandatory;
+    /**
+     * Creates a binding from username and integration name.
+     *
+     * @param username the username (can be null for default binding)
+     * @param integrationName the integration name
+     * @return new binding instance
+     */
+    public static AuthenticationBinding of(String username, String integrationName) {
+        return new AuthenticationBinding(username, integrationName);
     }
 
-    public BindingType getType() {
-        return type;
+    /**
+     * Creates a user-specific binding.
+     *
+     * @param username the username
+     * @param integrationName the integration name
+     * @return new binding instance
+     */
+    public static AuthenticationBinding forUser(String username, String integrationName) {
+        Objects.requireNonNull(username, "username is required for user binding");
+        return new AuthenticationBinding(username, integrationName);
     }
 
-    public String getTargetName() {
-        return targetName;
+    /**
+     * Returns the username.
+     *
+     * @return username, may be null if this is a default binding
+     */
+    public String getUsername() {
+        return username;
     }
 
-    public String getProfileName() {
-        return profileName;
+    /**
+     * Returns the integration name.
+     *
+     * @return integration name
+     */
+    public String getIntegrationName() {
+        return integrationName;
     }
 
-    public int getPriority() {
-        return priority;
+    /**
+     * Checks if this is a user-level binding.
+     *
+     * @return true if username is non-null and non-empty
+     */
+    public boolean isUserBinding() {
+        return username != null && !username.isEmpty();
     }
 
-    public boolean isMandatory() {
-        return mandatory;
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        AuthenticationBinding that = (AuthenticationBinding) o;
+        return Objects.equals(username, that.username)
+                && Objects.equals(integrationName, that.integrationName);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(username, integrationName);
+    }
+
+    @Override
+    public String toString() {
+        return "AuthenticationBinding{"
+                + "username='" + username + '\''
+                + ", integrationName='" + integrationName + '\''
+                + '}';
     }
 }

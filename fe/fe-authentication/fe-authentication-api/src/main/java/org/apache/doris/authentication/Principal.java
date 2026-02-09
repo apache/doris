@@ -17,6 +17,7 @@
 
 package org.apache.doris.authentication;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -70,7 +71,7 @@ public interface Principal {
      * @return set of external group names, empty set if none
      */
     default Set<String> getExternalGroups() {
-        return Set.of();
+        return Collections.emptySet();
     }
 
     /**
@@ -80,7 +81,7 @@ public interface Principal {
      * @return map of attribute names to values
      */
     default Map<String, String> getAttributes() {
-        return Map.of();
+        return Collections.emptyMap();
     }
 
     /**

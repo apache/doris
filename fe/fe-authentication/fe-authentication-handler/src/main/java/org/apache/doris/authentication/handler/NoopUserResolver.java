@@ -17,16 +17,19 @@
 
 package org.apache.doris.authentication.handler;
 
-import org.apache.doris.authentication.AuthenticationProfile;
+import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.Identity;
 
 /**
  * Default user resolver that does nothing.
+ *
+ * <p>This is used when no custom user resolver is configured.
+ * It simply returns null, indicating no user resolution is performed.
  */
 public class NoopUserResolver implements UserResolver {
 
     @Override
-    public Object resolveUser(Identity identity, AuthenticationProfile profile) {
+    public Object resolveUser(Identity identity, AuthenticationIntegration integration) {
         return null;
     }
 }

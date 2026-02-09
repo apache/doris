@@ -36,7 +36,7 @@ import java.util.Optional;
  * <p>Use the static factory methods to create instances:
  * <pre>{@code
  * // Success
- * return AuthenticationResult.success(identity);
+ * return AuthenticationResult.success(principal);
  *
  * // Need more data (multi-step)
  * return AuthenticationResult.continueWith(state, challengeData);

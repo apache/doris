@@ -33,11 +33,15 @@ import java.util.Set;
  * successful authentication. It contains both the standard principal information
  * and additional metadata like expiration time and authenticator configuration name.
  *
- * <p>Design note: Identity extends the Principal concept with:
+ * <p>Design note per auth.md:
  * <ul>
- *   <li>Expiration time - for session/token management</li>
- *   <li>Authenticator config name - for audit and debugging</li>
- *   <li>Authenticator type - for plugin identification</li>
+ *   <li>username - Doris username</li>
+ *   <li>authenticatorName - Integration name</li>
+ *   <li>authenticatorPluginName - Plugin name (e.g., "ldap", "oidc")</li>
+ *   <li>externalPrincipal - External subject (e.g., LDAP DN)</li>
+ *   <li>externalGroups - External groups (e.g., LDAP groups)</li>
+ *   <li>attributes - Other attributes</li>
+ *   <li>expiresAt - Expiration time (for token-based authentication)</li>
  * </ul>
  *
  * <p>Use the {@link Builder} to construct instances.
@@ -49,8 +53,7 @@ public final class Identity implements Principal {
 
     private final String username;
     private final String authenticatorName;
-    private final AuthenticationPluginType authenticatorType;
-    private final String authenticatorConfigName;
+    private final String authenticatorPluginName;
     private final String externalPrincipal;
     private final Set<String> externalGroups;
     private final Instant expiresAt;
@@ -59,12 +62,15 @@ public final class Identity implements Principal {
     private Identity(Builder builder) {
         this.username = Objects.requireNonNull(builder.username, "username is required");
         this.authenticatorName = Objects.requireNonNull(builder.authenticatorName, "authenticatorName is required");
-        this.authenticatorType = Objects.requireNonNull(builder.authenticatorType, "authenticatorType is required");
-        this.authenticatorConfigName = builder.authenticatorConfigName;
+        this.authenticatorPluginName = builder.authenticatorPluginName;
         this.externalPrincipal = builder.externalPrincipal;
-        this.externalGroups = Collections.unmodifiableSet(new HashSet<>(builder.externalGroups));
+        this.externalGroups = builder.externalGroups != null
+                ? Collections.unmodifiableSet(new HashSet<>(builder.externalGroups))
+                : Collections.emptySet();
         this.expiresAt = builder.expiresAt;
-        this.attributes = Collections.unmodifiableMap(new HashMap<>(builder.attributes));
+        this.attributes = builder.attributes != null
+                ? Collections.unmodifiableMap(new HashMap<>(builder.attributes))
+                : Collections.emptyMap();
     }
 
     // ==================== Principal Interface ====================
@@ -107,22 +113,21 @@ public final class Identity implements Principal {
     }
 
     /**
-     * Returns the authenticator plugin type.
+     * Returns the authenticator name (Integration name).
      *
-     * @return the authenticator type
+     * @return the authenticator name
      */
-    public AuthenticationPluginType getAuthenticatorType() {
-        return authenticatorType;
+    public String getAuthenticatorName() {
+        return authenticatorName;
     }
 
     /**
-     * Returns the authenticator configuration name.
-     * This is the name of the AuthenticatorConfig that was used.
+     * Returns the authenticator plugin name (e.g., "ldap", "oidc", "password").
      *
-     * @return optional authenticator config name
+     * @return the plugin name, may be null
      */
-    public Optional<String> getAuthenticatorConfigName() {
-        return Optional.ofNullable(authenticatorConfigName);
+    public String getAuthenticatorPluginName() {
+        return authenticatorPluginName;
     }
 
     /**
@@ -167,7 +172,7 @@ public final class Identity implements Principal {
         return "Identity{"
                 + "username='" + username + '\''
                 + ", authenticator='" + authenticatorName + '\''
-                + (authenticatorConfigName != null ? ", config='" + authenticatorConfigName + '\'' : "")
+                + (authenticatorPluginName != null ? ", plugin='" + authenticatorPluginName + '\'' : "")
                 + (externalPrincipal != null ? ", externalPrincipal='" + externalPrincipal + '\'' : "")
                 + '}';
     }
@@ -187,8 +192,7 @@ public final class Identity implements Principal {
     public static final class Builder {
         private String username;
         private String authenticatorName;
-        private AuthenticationPluginType authenticatorType;
-        private String authenticatorConfigName;
+        private String authenticatorPluginName;
         private String externalPrincipal;
         private Set<String> externalGroups = new HashSet<>();
         private Instant expiresAt;
@@ -207,13 +211,8 @@ public final class Identity implements Principal {
             return this;
         }
 
-        public Builder authenticatorType(AuthenticationPluginType authenticatorType) {
-            this.authenticatorType = authenticatorType;
-            return this;
-        }
-
-        public Builder authenticatorConfigName(String authenticatorConfigName) {
-            this.authenticatorConfigName = authenticatorConfigName;
+        public Builder authenticatorPluginName(String authenticatorPluginName) {
+            this.authenticatorPluginName = authenticatorPluginName;
             return this;
         }
 
@@ -223,7 +222,7 @@ public final class Identity implements Principal {
         }
 
         public Builder externalGroups(Set<String> externalGroups) {
-            this.externalGroups = externalGroups != null ? externalGroups : new HashSet<>();
+            this.externalGroups = externalGroups != null ? new HashSet<>(externalGroups) : new HashSet<>();
             return this;
         }
 
@@ -238,7 +237,7 @@ public final class Identity implements Principal {
         }
 
         public Builder attributes(Map<String, String> attributes) {
-            this.attributes = attributes != null ? attributes : new HashMap<>();
+            this.attributes = attributes != null ? new HashMap<>(attributes) : new HashMap<>();
             return this;
         }
 

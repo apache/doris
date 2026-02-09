@@ -20,99 +20,134 @@ package org.apache.doris.authentication.handler;
 import org.apache.doris.authentication.AuthenticationBinding;
 
 import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.stream.Collectors;
 
 /**
  * In-memory registry for authentication bindings.
  *
- * <p>Supports user, role, and default bindings with priority ordering. This is
- * intentionally simple so it can be replaced by a persistent implementation in
- * fe-core without changing handler logic.</p>
+ * <p>Stores user-level bindings that map usernames to specific integrations.
+ * This is intentionally simple so it can be replaced by a persistent
+ * implementation in fe-core without changing handler logic.</p>
+ *
+ * <p>Design per auth.md:
+ * <ul>
+ *   <li>User-level binding: specific user binds to specific Integration</li>
+ *   <li>Global default: handled via AUTHENTICATION CHAIN in IntegrationRegistry</li>
+ *   <li>No priority/type/role - simplified model</li>
+ * </ul>
  */
 public class BindingRegistry {
 
-    private final ConcurrentMap<String, List<AuthenticationBinding>> userBindings = new ConcurrentHashMap<>();
-    private final ConcurrentMap<String, List<AuthenticationBinding>> roleBindings = new ConcurrentHashMap<>();
-    private final List<AuthenticationBinding> defaultBindings = new ArrayList<>();
+    /** User bindings: username -> binding */
+    private final ConcurrentMap<String, AuthenticationBinding> userBindings = new ConcurrentHashMap<>();
 
-    /** Register or replace a user binding. */
-    public void putUserBinding(String username, AuthenticationBinding binding) {
-        userBindings.compute(username, (k, v) -> mergeBinding(v, binding));
-    }
-
-    /** Register or replace a role binding. */
-    public void putRoleBinding(String role, AuthenticationBinding binding) {
-        roleBindings.compute(role, (k, v) -> mergeBinding(v, binding));
-    }
-
-    /** Register a default binding. */
-    public void addDefaultBinding(AuthenticationBinding binding) {
-        synchronized (defaultBindings) {
-            List<AuthenticationBinding> merged = mergeBinding(defaultBindings, binding);
-            defaultBindings.clear();
-            defaultBindings.addAll(merged);
+    /**
+     * Register a user binding.
+     * If a binding already exists for the user, it will be replaced.
+     *
+     * @param binding the binding to register
+     * @throws IllegalArgumentException if binding is not a user binding
+     */
+    public void register(AuthenticationBinding binding) {
+        Objects.requireNonNull(binding, "binding");
+        if (!binding.isUserBinding()) {
+            throw new IllegalArgumentException("Only user bindings can be registered");
         }
+        userBindings.put(binding.getUsername(), binding);
+    }
+
+    /**
+     * Register a user binding with explicit username.
+     *
+     * @param username the username
+     * @param integrationName the integration name
+     */
+    public void register(String username, String integrationName) {
+        register(AuthenticationBinding.forUser(username, integrationName));
+    }
+
+    /**
+     * Remove a user binding.
+     *
+     * @param username the username
+     * @return the removed binding, or empty if not found
+     */
+    public Optional<AuthenticationBinding> unregister(String username) {
+        if (username == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(userBindings.remove(username));
     }
 
     /**
      * Get user binding.
      *
-     * @param username username
-     * @return binding if exists
+     * @param username the username
+     * @return the binding if exists
      */
-    public Optional<AuthenticationBinding> getUserBinding(String username) {
-        return Optional.ofNullable(userBindings.get(username))
-            .flatMap(list -> list.stream()
-                .sorted(bindingOrder())
-                .findFirst());
-    }
-
-    /**
-     * Get role bindings.
-     *
-     * @param roles set of role names
-     * @return list of bindings
-     */
-    public List<AuthenticationBinding> getRoleBindings(Set<String> roles) {
-        return roles.stream()
-                .map(roleBindings::get)
-                .filter(list -> list != null && !list.isEmpty())
-                .flatMap(List::stream)
-                .sorted(bindingOrder())
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * Get default bindings.
-     *
-     * @return list of default bindings
-     */
-    public List<AuthenticationBinding> getDefaultBindings() {
-        synchronized (defaultBindings) {
-            return defaultBindings.stream()
-                    .sorted(bindingOrder())
-                    .collect(Collectors.toList());
+    public Optional<AuthenticationBinding> getBinding(String username) {
+        if (username == null) {
+            return Optional.empty();
         }
+        return Optional.ofNullable(userBindings.get(username));
     }
 
-    private Comparator<AuthenticationBinding> bindingOrder() {
-        return Comparator.comparingInt(AuthenticationBinding::getPriority)
-                .thenComparing(AuthenticationBinding::getProfileName);
+    /**
+     * Get the integration name bound to a user.
+     *
+     * @param username the username
+     * @return the integration name if bound
+     */
+    public Optional<String> getIntegrationName(String username) {
+        return getBinding(username).map(AuthenticationBinding::getIntegrationName);
     }
 
-    private List<AuthenticationBinding> mergeBinding(
-            List<AuthenticationBinding> current,
-            AuthenticationBinding binding) {
-        List<AuthenticationBinding> next = current == null ? new ArrayList<>() : new ArrayList<>(current);
-        next.removeIf(b -> b.getType() == binding.getType()
-                && b.getTargetName().equals(binding.getTargetName()));
-        next.add(binding);
-        return next;
+    /**
+     * Check if a user has a binding.
+     *
+     * @param username the username
+     * @return true if bound
+     */
+    public boolean hasBinding(String username) {
+        return username != null && userBindings.containsKey(username);
+    }
+
+    /**
+     * Get all registered bindings.
+     *
+     * @return collection of all bindings
+     */
+    public Collection<AuthenticationBinding> getAllBindings() {
+        return new ArrayList<>(userBindings.values());
+    }
+
+    /**
+     * Get all usernames that have bindings.
+     *
+     * @return list of bound usernames
+     */
+    public List<String> getBoundUsernames() {
+        return new ArrayList<>(userBindings.keySet());
+    }
+
+    /**
+     * Get the number of registered bindings.
+     *
+     * @return count of bindings
+     */
+    public int size() {
+        return userBindings.size();
+    }
+
+    /**
+     * Clear all bindings.
+     */
+    public void clear() {
+        userBindings.clear();
     }
 }

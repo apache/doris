@@ -27,6 +27,9 @@ import java.util.Set;
 
 /**
  * Default SubjectBuilder implementation.
+ *
+ * <p>Builds a Subject from the authentication result, transferring the
+ * remote host from the request to the subject's sourceIp field.
  */
 public class DefaultSubjectBuilder implements SubjectBuilder {
 
@@ -37,7 +40,7 @@ public class DefaultSubjectBuilder implements SubjectBuilder {
                 .principal(principal)
                 .availableRoles(new HashSet<>(roles))
                 .activeRoles(new HashSet<>(roles))
-                .sourceIp(request != null ? request.getSourceIp() : null)
+                .sourceIp(request != null ? request.getRemoteHost() : null)
                 .build();
     }
 }

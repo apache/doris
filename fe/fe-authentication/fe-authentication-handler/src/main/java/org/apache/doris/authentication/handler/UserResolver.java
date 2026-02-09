@@ -17,16 +17,20 @@
 
 package org.apache.doris.authentication.handler;
 
-import org.apache.doris.authentication.AuthenticationProfile;
+import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.Identity;
 
 /**
  * User resolver - resolves user from authenticated identity.
  *
  * <p>Handles:
- * - User lookup
- * - Virtual user (JIT) creation
- * - User validation
+ * <ul>
+ *   <li>User lookup</li>
+ *   <li>Virtual user (JIT) creation</li>
+ *   <li>User validation</li>
+ * </ul>
+ *
+ * <p>This is typically implemented by fe-core to access user storage.
  */
 public interface UserResolver {
 
@@ -34,8 +38,8 @@ public interface UserResolver {
      * Resolve user from identity.
      *
      * @param identity authenticated identity
-     * @param profile authentication profile
+     * @param integration authentication integration
      * @return user object (or create virtual user if JIT enabled)
      */
-    Object resolveUser(Identity identity, AuthenticationProfile profile);
+    Object resolveUser(Identity identity, AuthenticationIntegration integration);
 }

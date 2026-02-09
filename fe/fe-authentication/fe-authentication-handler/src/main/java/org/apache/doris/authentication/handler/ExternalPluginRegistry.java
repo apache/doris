@@ -17,7 +17,6 @@
 
 package org.apache.doris.authentication.handler;
 
-import org.apache.doris.authentication.AuthenticationPluginType;
 import org.apache.doris.authentication.spi.AuthenticationException;
 import org.apache.doris.extension.loader.PluginLoader;
 import org.apache.doris.extension.spi.PluginDescriptor;
@@ -33,10 +32,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>This class stores plugin descriptors and provides a single entry point
  * to register them into {@link PluginManager}. IO and directory scanning are
  * intentionally out of scope.</p>
+ *
+ * <p>Design per auth.md: plugins are identified by string name (not enum).
  */
 public class ExternalPluginRegistry {
 
-    private final Map<AuthenticationPluginType, ExternalPluginEntry> entries = new ConcurrentHashMap<>();
+    private final Map<String, ExternalPluginEntry> entries = new ConcurrentHashMap<>();
     private final PluginManager pluginManager;
     private final PluginLoader pluginLoader;
 
@@ -46,42 +47,62 @@ public class ExternalPluginRegistry {
     }
 
     /**
-     * Register or replace an external plugin for the given type.
+     * Register or replace an external plugin for the given plugin name.
      *
      * <p>Existing plugin (if any) will be removed before the new one is registered.</p>
+     *
+     * @param pluginName the plugin name (e.g., "ldap", "oidc")
+     * @param descriptor plugin descriptor
+     * @param urls URLs for the plugin classloader
+     * @param parent parent classloader
+     * @throws AuthenticationException if registration fails
      */
-    public void register(AuthenticationPluginType type, PluginDescriptor descriptor, URL[] urls, ClassLoader parent)
+    public void register(String pluginName, PluginDescriptor descriptor, URL[] urls, ClassLoader parent)
             throws AuthenticationException {
-        Objects.requireNonNull(type, "type");
+        Objects.requireNonNull(pluginName, "pluginName");
         Objects.requireNonNull(descriptor, "descriptor");
         Objects.requireNonNull(urls, "urls");
 
         synchronized (entries) {
-            ExternalPluginEntry existing = entries.get(type);
+            ExternalPluginEntry existing = entries.get(pluginName);
             if (existing != null) {
-                pluginManager.removeFactory(type);
+                pluginManager.removeFactory(pluginName);
             }
 
             ClassLoader classLoader = pluginLoader.createClassLoader(urls, parent);
             pluginManager.registerExternalFactory(descriptor, classLoader);
-            entries.put(type, new ExternalPluginEntry(descriptor, urls, classLoader));
+            entries.put(pluginName, new ExternalPluginEntry(descriptor, urls, classLoader));
         }
     }
 
-    public void unregister(AuthenticationPluginType type) {
-        if (type == null) {
+    /**
+     * Unregister an external plugin.
+     *
+     * @param pluginName the plugin name to unregister
+     */
+    public void unregister(String pluginName) {
+        if (pluginName == null) {
             return;
         }
         synchronized (entries) {
-            pluginManager.removeFactory(type);
-            entries.remove(type);
+            pluginManager.removeFactory(pluginName);
+            entries.remove(pluginName);
         }
     }
 
-    public ExternalPluginEntry get(AuthenticationPluginType type) {
-        return type == null ? null : entries.get(type);
+    /**
+     * Get an external plugin entry.
+     *
+     * @param pluginName the plugin name
+     * @return the entry, or null if not found
+     */
+    public ExternalPluginEntry get(String pluginName) {
+        return pluginName == null ? null : entries.get(pluginName);
     }
 
+    /**
+     * Entry representing a registered external plugin.
+     */
     public static final class ExternalPluginEntry {
         private final PluginDescriptor descriptor;
         private final URL[] urls;

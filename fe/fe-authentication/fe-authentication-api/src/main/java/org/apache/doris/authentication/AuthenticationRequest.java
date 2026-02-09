@@ -17,7 +17,6 @@
 
 package org.apache.doris.authentication;
 
-import java.security.cert.X509Certificate;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -25,54 +24,57 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Protocol-agnostic authentication request.
+ * Protocol-agnostic, encryption-agnostic authentication request.
  *
- * <p>This class represents an authentication request that has been extracted
- * from protocol-specific packets (MySQL, PostgreSQL, HTTP, etc.) and normalized
+ * <p>This class represents an authentication request that has been constructed
+ * by the Protocol Adapter Layer from protocol-specific data and normalized
  * into a common format.
  *
  * <p>The request contains:
  * <ul>
- *   <li>User identification - username</li>
- *   <li>Credentials - password, token, certificate, etc.</li>
- *   <li>Connection info - source IP, client type</li>
- *   <li>Context - target database, catalog</li>
- *   <li>Authentication state - for multi-step auth flows</li>
+ *   <li>Core fields - username, credential (abstract), source info</li>
+ *   <li>Target info - database, catalog</li>
+ *   <li>Client info - client type</li>
+ *   <li>Extension properties - for business layer extensions</li>
+ * </ul>
+ *
+ * <p>Key design improvements:
+ * <ul>
+ *   <li>Removed protocol-specific fields (challenge, authState) - handled by Protocol Adapter</li>
+ *   <li>Uses Credential interface for type safety instead of byte[] + credentialType</li>
+ *   <li>Simplified extension properties - only for business layer, not protocol details</li>
  * </ul>
  *
  * <p>Use the {@link Builder} to construct instances.
  */
 public final class AuthenticationRequest {
 
+    // === Core fields (required for all authentication) ===
     private final String username;
-    private final String requestedProfile;
     private final CredentialType credentialType;
     private final byte[] credential;
-    private final String sourceIp;
-    private final int sourcePort;
+    private final String remoteHost;
+    private final int remotePort;
+
+    // === Target info ===
     private final String database;
     private final String catalog;
-    private final byte[] challenge;
-    private final X509Certificate[] clientCertificates;
+
+    // === Client info ===
     private final String clientType;
-    private final String protocol;
-    private final Object authState;
-    private final Map<String, String> properties;
+
+    // === Extension properties (business layer, not protocol-specific) ===
+    private final Map<String, Object> properties;
 
     private AuthenticationRequest(Builder builder) {
         this.username = Objects.requireNonNull(builder.username, "username is required");
-        this.requestedProfile = builder.requestedProfile;
         this.credentialType = Objects.requireNonNull(builder.credentialType, "credentialType is required");
         this.credential = builder.credential;
-        this.sourceIp = builder.sourceIp;
-        this.sourcePort = builder.sourcePort;
+        this.remoteHost = builder.remoteHost;
+        this.remotePort = builder.remotePort;
         this.database = builder.database;
         this.catalog = builder.catalog;
-        this.challenge = builder.challenge;
-        this.clientCertificates = builder.clientCertificates;
         this.clientType = builder.clientType;
-        this.protocol = builder.protocol;
-        this.authState = builder.authState;
         this.properties = builder.properties != null
                 ? Collections.unmodifiableMap(new HashMap<>(builder.properties))
                 : Collections.emptyMap();
@@ -85,15 +87,6 @@ public final class AuthenticationRequest {
      */
     public String getUsername() {
         return username;
-    }
-
-    /**
-     * Returns the explicitly requested authentication profile name, if any.
-     *
-     * @return optional profile name
-     */
-    public Optional<String> getRequestedProfile() {
-        return Optional.ofNullable(requestedProfile);
     }
 
     /**
@@ -118,19 +111,19 @@ public final class AuthenticationRequest {
     /**
      * Returns the client IP address.
      *
-     * @return source IP, may be null
+     * @return remote host IP, may be null
      */
-    public String getSourceIp() {
-        return sourceIp;
+    public String getRemoteHost() {
+        return remoteHost;
     }
 
     /**
      * Returns the client port.
      *
-     * @return source port
+     * @return remote port
      */
-    public int getSourcePort() {
-        return sourcePort;
+    public int getRemotePort() {
+        return remotePort;
     }
 
     /**
@@ -152,25 +145,7 @@ public final class AuthenticationRequest {
     }
 
     /**
-     * Returns the challenge data for challenge-response authentication.
-     *
-     * @return optional challenge bytes
-     */
-    public Optional<byte[]> getChallenge() {
-        return Optional.ofNullable(challenge);
-    }
-
-    /**
-     * Returns the client certificate chain for certificate authentication.
-     *
-     * @return optional certificate chain
-     */
-    public Optional<X509Certificate[]> getClientCertificates() {
-        return Optional.ofNullable(clientCertificates);
-    }
-
-    /**
-     * Returns the client type identifier (e.g., "mysql-connector-java").
+     * Returns the client type identifier (e.g., "jdbc", "cli", "odbc", "python").
      *
      * @return client type, may be null
      */
@@ -179,29 +154,11 @@ public final class AuthenticationRequest {
     }
 
     /**
-     * Returns the protocol identifier (e.g., "mysql", "http").
-     *
-     * @return protocol identifier, may be null
-     */
-    public String getProtocol() {
-        return protocol;
-    }
-
-    /**
-     * Returns the authentication state for multi-step authentication.
-     *
-     * @return optional auth state
-     */
-    public Optional<Object> getAuthState() {
-        return Optional.ofNullable(authState);
-    }
-
-    /**
      * Returns additional properties.
      *
      * @return immutable properties map
      */
-    public Map<String, String> getProperties() {
+    public Map<String, Object> getProperties() {
         return properties;
     }
 
@@ -211,18 +168,28 @@ public final class AuthenticationRequest {
      * @param key the property key
      * @return optional property value
      */
-    public Optional<String> getProperty(String key) {
+    public Optional<Object> getProperty(String key) {
         return Optional.ofNullable(properties.get(key));
+    }
+
+    /**
+     * Gets a string property value.
+     *
+     * @param key the property key
+     * @return optional string value
+     */
+    public Optional<String> getStringProperty(String key) {
+        Object value = properties.get(key);
+        return value instanceof String ? Optional.of((String) value) : Optional.empty();
     }
 
     @Override
     public String toString() {
         return "AuthenticationRequest{"
                 + "username='" + username + '\''
-                + (requestedProfile != null ? ", requestedProfile='" + requestedProfile + '\'' : "")
                 + ", credentialType=" + credentialType
-                + ", sourceIp='" + sourceIp + '\''
-                + ", protocol='" + protocol + '\''
+                + ", remoteHost='" + remoteHost + '\''
+                + ", clientType='" + clientType + '\''
                 + '}';
     }
 
@@ -240,30 +207,20 @@ public final class AuthenticationRequest {
      */
     public static final class Builder {
         private String username;
-        private String requestedProfile;
         private CredentialType credentialType;
         private byte[] credential;
-        private String sourceIp;
-        private int sourcePort;
+        private String remoteHost;
+        private int remotePort;
         private String database;
         private String catalog;
-        private byte[] challenge;
-        private X509Certificate[] clientCertificates;
         private String clientType;
-        private String protocol;
-        private Object authState;
-        private Map<String, String> properties;
+        private Map<String, Object> properties;
 
         private Builder() {
         }
 
         public Builder username(String username) {
             this.username = username;
-            return this;
-        }
-
-        public Builder requestedProfile(String requestedProfile) {
-            this.requestedProfile = requestedProfile;
             return this;
         }
 
@@ -277,13 +234,13 @@ public final class AuthenticationRequest {
             return this;
         }
 
-        public Builder sourceIp(String sourceIp) {
-            this.sourceIp = sourceIp;
+        public Builder remoteHost(String remoteHost) {
+            this.remoteHost = remoteHost;
             return this;
         }
 
-        public Builder sourcePort(int sourcePort) {
-            this.sourcePort = sourcePort;
+        public Builder remotePort(int remotePort) {
+            this.remotePort = remotePort;
             return this;
         }
 
@@ -297,37 +254,17 @@ public final class AuthenticationRequest {
             return this;
         }
 
-        public Builder challenge(byte[] challenge) {
-            this.challenge = challenge;
-            return this;
-        }
-
-        public Builder clientCertificates(X509Certificate[] clientCertificates) {
-            this.clientCertificates = clientCertificates;
-            return this;
-        }
-
         public Builder clientType(String clientType) {
             this.clientType = clientType;
             return this;
         }
 
-        public Builder protocol(String protocol) {
-            this.protocol = protocol;
-            return this;
-        }
-
-        public Builder authState(Object authState) {
-            this.authState = authState;
-            return this;
-        }
-
-        public Builder properties(Map<String, String> properties) {
+        public Builder properties(Map<String, Object> properties) {
             this.properties = properties;
             return this;
         }
 
-        public Builder property(String key, String value) {
+        public Builder property(String key, Object value) {
             if (this.properties == null) {
                 this.properties = new HashMap<>();
             }

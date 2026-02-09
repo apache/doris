@@ -17,41 +17,72 @@
 
 package org.apache.doris.authentication.spi;
 
-import org.apache.doris.authentication.AuthenticationPluginType;
-import org.apache.doris.authentication.AuthenticationProfile;
+import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationRequest;
 import org.apache.doris.extension.spi.Plugin;
 
 /**
  * Authentication plugin interface.
- * All authentication plugins must implement this interface.
+ *
+ * <p>All authentication plugins (Password/LDAP/OIDC/Kerberos etc.) must implement this interface.
+ *
+ * <p>Design reference: Trino's PasswordAuthenticator/CertificateAuthenticator
+ * <p>Differences: supports dynamic configuration, multiple instances, lifecycle management
+ *
+ * <p>Key design principles:
+ * <ul>
+ *   <li>Plugin name is a string (not enum) for extensibility</li>
+ *   <li>Plugins are protocol-agnostic and encryption-agnostic</li>
+ *   <li>Configuration is passed via AuthenticationIntegration</li>
+ * </ul>
  */
 public interface AuthenticationPlugin extends Plugin {
 
     // ==================== Basic Information ====================
 
-    /** Plugin name (unique identifier) */
+    /**
+     * Plugin name (globally unique).
+     * Example: "ldap", "oidc", "saml2", "kerberos", "password"
+     *
+     * @return plugin name
+     */
     String name();
 
-    /** Plugin type */
-    AuthenticationPluginType type();
-
-    /** Plugin description */
+    /**
+     * Plugin description.
+     *
+     * @return description
+     */
     default String description() {
         return "Authentication plugin: " + name();
     }
 
     // ==================== Capability Check ====================
 
-    /** Whether this request is supported */
+    /**
+     * Whether this plugin supports the given authentication request.
+     *
+     * @param request authentication request
+     * @return true if supported, false otherwise (will try next plugin)
+     */
     boolean supports(AuthenticationRequest request);
 
-    /** Whether clear password is required */
+    /**
+     * Whether this plugin requires clear text password.
+     * LDAP/Password plugins need clear text, Kerberos/Certificate plugins don't.
+     *
+     * @return true if clear password is required
+     */
     default boolean requiresClearPassword() {
         return false;
     }
 
-    /** Whether multi-step authentication is supported */
+    /**
+     * Whether this plugin supports multi-step authentication (challenge-response).
+     * Kerberos/OIDC may need this, Password/LDAP don't.
+     *
+     * @return true if multi-step auth is supported
+     */
     default boolean supportsMultiStep() {
         return false;
     }
@@ -59,52 +90,61 @@ public interface AuthenticationPlugin extends Plugin {
     // ==================== Authentication Execution ====================
 
     /**
-     * Execute authentication.
+     * Execute authentication (core method).
      *
-     * @param request authentication request
-     * @param profile authentication profile
-     * @return authentication result
+     * @param request authentication request (contains username, credential, source IP, etc.)
+     * @param integration authentication configuration instance (contains plugin configuration)
+     * @return authentication result (contains Principal or error message)
+     * @throws AuthenticationException if authentication process encounters an error
      */
-    AuthenticationResult authenticate(AuthenticationRequest request, AuthenticationProfile profile)
+    AuthenticationResult authenticate(AuthenticationRequest request, AuthenticationIntegration integration)
             throws AuthenticationException;
 
     // ==================== Lifecycle ====================
 
     /**
-     * Validate configuration is valid.
-     * Called when Profile is created/updated.
+     * Validate configuration (called when Integration is created/updated).
+     *
+     * @param integration configuration to validate
+     * @throws AuthenticationException if configuration is invalid
      */
-    default void validate(AuthenticationProfile profile) throws AuthenticationException {
+    default void validate(AuthenticationIntegration integration) throws AuthenticationException {
         // Default: no validation
     }
 
     /**
-     * Initialize plugin.
-     * Called when Profile is first used.
+     * Initialize plugin (called when Integration is first used or on startup).
+     *
+     * @param integration configuration instance
+     * @throws AuthenticationException if initialization fails
      */
-    default void initialize(AuthenticationProfile profile) throws AuthenticationException {
+    default void initialize(AuthenticationIntegration integration) throws AuthenticationException {
         // Default: no initialization
     }
 
     /**
-     * Health check.
-     * Called periodically to check if external dependencies are available.
+     * Health check (called periodically).
+     *
+     * @param integration configuration instance
+     * @return true if healthy, false otherwise
      */
-    default boolean healthCheck(AuthenticationProfile profile) {
+    default boolean healthCheck(AuthenticationIntegration integration) {
         return true;
     }
 
     /**
-     * Reload configuration.
-     * Called when Profile is updated.
+     * Reload configuration (called when Integration is updated via ALTER).
+     *
+     * @param integration new configuration instance
+     * @throws AuthenticationException if reload fails
      */
-    default void reload(AuthenticationProfile profile) throws AuthenticationException {
+    default void reload(AuthenticationIntegration integration) throws AuthenticationException {
         // Default: re-initialize
-        initialize(profile);
+        initialize(integration);
     }
 
     /**
-     * Close plugin, release resources.
+     * Close plugin, release resources (called on shutdown or when Integration is deleted).
      */
     default void close() {
         // Default: no cleanup needed

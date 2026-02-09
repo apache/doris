@@ -24,9 +24,18 @@ import java.util.Optional;
 
 /**
  * Helper utilities for constructing {@link AuthenticationRequest}.
+ *
+ * <p>Design note: Per auth.md, the concept of "requestedProfile" has been replaced
+ * by explicit user bindings to integrations. This class provides utilities for
+ * resolving integration names from request properties when needed for backward
+ * compatibility with legacy clients.
  */
 public final class AuthenticationRequestBuilder {
 
+    public static final String KEY_AUTH_INTEGRATION = "auth_integration";
+    public static final String KEY_REQUESTED_INTEGRATION = "requested_integration";
+
+    // Legacy keys for backward compatibility
     public static final String KEY_AUTH_PROFILE = "auth_profile";
     public static final String KEY_REQUESTED_PROFILE = "requested_profile";
 
@@ -34,57 +43,72 @@ public final class AuthenticationRequestBuilder {
     }
 
     /**
-     * Resolve requested profile from an AuthenticationRequest.
+     * Resolve requested integration name from an AuthenticationRequest's properties.
+     *
+     * <p>This is used when legacy clients pass integration hints via properties.
+     * The preferred approach is explicit user bindings via BindingRegistry.
+     *
+     * @param request the authentication request
+     * @return the integration name if found in properties
      */
-    public static Optional<String> resolveRequestedProfile(AuthenticationRequest request) {
+    public static Optional<String> resolveRequestedIntegration(AuthenticationRequest request) {
         if (request == null) {
             return Optional.empty();
         }
-        Optional<String> direct = request.getRequestedProfile();
-        if (direct.isPresent() && !direct.get().isEmpty()) {
-            return direct;
-        }
-        return resolveRequestedProfile(null, request.getProperties());
+        return resolveFromProperties(request.getProperties());
     }
 
     /**
-     * Resolve requested profile from explicit value and properties map.
+     * Resolve requested integration name from properties map.
+     *
+     * <p>Checks for both new (integration) and legacy (profile) property keys.
+     *
+     * @param properties the properties map
+     * @return the integration name if found
      */
-    public static Optional<String> resolveRequestedProfile(String explicit, Map<String, String> properties) {
-        if (explicit != null && !explicit.isEmpty()) {
-            return Optional.of(explicit);
-        }
+    private static Optional<String> resolveFromProperties(Map<String, Object> properties) {
         if (properties == null || properties.isEmpty()) {
             return Optional.empty();
         }
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            String key = entry.getKey();
-            if (key == null) {
-                continue;
-            }
-            if (key.equalsIgnoreCase(KEY_AUTH_PROFILE) || key.equalsIgnoreCase(KEY_REQUESTED_PROFILE)) {
-                String value = entry.getValue();
-                if (value != null && !value.isEmpty()) {
-                    return Optional.of(value);
+
+        // Check new keys first
+        String[] keysToCheck = {
+            KEY_AUTH_INTEGRATION,
+            KEY_REQUESTED_INTEGRATION,
+            KEY_AUTH_PROFILE,           // Legacy
+            KEY_REQUESTED_PROFILE       // Legacy
+        };
+
+        for (String key : keysToCheck) {
+            Object value = getIgnoreCase(properties, key);
+            if (value instanceof String) {
+                String strValue = (String) value;
+                if (!strValue.isEmpty()) {
+                    return Optional.of(strValue);
                 }
             }
         }
+
         return Optional.empty();
     }
 
     /**
-     * Apply resolved requested profile into an AuthenticationRequest builder.
+     * Get a value from the map with case-insensitive key matching.
      */
-    public static AuthenticationRequest.Builder applyRequestedProfile(AuthenticationRequest.Builder builder,
-                                                            String explicit,
-                                                            Map<String, String> properties) {
-        if (builder == null) {
-            throw new IllegalArgumentException("builder is required");
+    private static Object getIgnoreCase(Map<String, Object> map, String key) {
+        // Try exact match first
+        Object value = map.get(key);
+        if (value != null) {
+            return value;
         }
-        Optional<String> resolved = resolveRequestedProfile(explicit, properties);
-        if (resolved.isPresent()) {
-            builder.requestedProfile(resolved.get());
+
+        // Try case-insensitive match
+        for (Map.Entry<String, Object> entry : map.entrySet()) {
+            if (entry.getKey() != null && entry.getKey().equalsIgnoreCase(key)) {
+                return entry.getValue();
+            }
         }
-        return builder;
+
+        return null;
     }
 }
