@@ -625,7 +625,7 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
         // When no candidate has ndv > totalInstanceNum, return empty
         @SuppressWarnings("unchecked")
         Optional<Expression> empty = (Optional<Expression>) method.invoke(
-                rule, groupingSets, -1, candidates, stats, 1000);
+                rule, groupingSets, -1, candidates, stats, 1100);
         Assertions.assertFalse(empty.isPresent());
 
         @SuppressWarnings("unchecked")
