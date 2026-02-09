@@ -278,7 +278,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             timerDefinition.setStartTimeMs(execConfig.getTimerDefinition().getStartTimeMs());
             execConfig.setTimerDefinition(timerDefinition);
         } catch (AnalysisException ae) {
-            log.warn("parse streaming insert job failed, props: {}", properties, ae);
+            log.warn("parse streaming test insert job failed, props: {}", properties, ae);
             throw new RuntimeException(ae.getMessage());
         }
     }
