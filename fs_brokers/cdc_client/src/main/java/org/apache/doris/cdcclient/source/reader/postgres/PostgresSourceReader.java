@@ -158,16 +158,19 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
 
         String hostname = props.getProperty("PGHOST");
         String port = props.getProperty("PGPORT");
-        String database = props.getProperty("PGDBNAME");
+        String databaseFromUrl = props.getProperty("PGDBNAME");
         Preconditions.checkNotNull(hostname, "host is required");
         Preconditions.checkNotNull(port, "port is required");
-        Preconditions.checkNotNull(database, "database is required");
 
         configFactory.hostname(hostname);
         configFactory.port(Integer.parseInt(port));
         configFactory.username(cdcConfig.get(DataSourceConfigKeys.USER));
         configFactory.password(cdcConfig.get(DataSourceConfigKeys.PASSWORD));
-        configFactory.database(database);
+
+        String database = cdcConfig.get(DataSourceConfigKeys.DATABASE);
+        String finalDatabase = StringUtils.isNotEmpty(database) ? database : databaseFromUrl;
+        Preconditions.checkNotNull(finalDatabase, "database is required");
+        configFactory.database(finalDatabase);
 
         String schema = cdcConfig.get(DataSourceConfigKeys.SCHEMA);
         Preconditions.checkNotNull(schema, "schema is required");
@@ -218,6 +221,9 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         configFactory.decodingPluginName("pgoutput");
         configFactory.heartbeatInterval(
                 Duration.ofMillis(Constants.DEBEZIUM_HEARTBEAT_INTERVAL_MS));
+
+        // support scan partition table
+        configFactory.setIncludePartitionedTables(true);
 
         // subtaskId use pg create slot in snapshot phase, slotname is slot_name_subtaskId
         return configFactory.create(subtaskId);
