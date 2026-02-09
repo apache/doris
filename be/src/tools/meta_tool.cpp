@@ -68,6 +68,10 @@ using doris::Slice;
 using doris::segment_v2::SegmentFooterPB;
 using doris::io::FileReaderSPtr;
 
+using namespace doris::segment_v2;
+using namespace doris::vectorized;
+using namespace doris;
+
 DEFINE_string(root_path, "", "storage root path");
 DEFINE_string(operation, "get_meta",
               "valid operation: get_meta, flag, load_meta, delete_meta, show_meta, "
@@ -436,9 +440,6 @@ std::string get_compression_string(doris::segment_v2::CompressionTypePB compress
 // Helper function to format a single value from a column
 std::string format_column_value(const doris::vectorized::IColumn& column, size_t row,
                                 doris::FieldType field_type) {
-    using namespace doris::vectorized;
-    using namespace doris;
-
     try {
         switch (field_type) {
         case FieldType::OLAP_FIELD_TYPE_BOOL: {
@@ -555,9 +556,6 @@ std::string format_column_value(const doris::vectorized::IColumn& column, size_t
 void print_column_data_values(const doris::segment_v2::ColumnMetaPB& column_meta,
                               const FileReaderSPtr& file_reader, uint64_t num_segment_rows,
                               int indent_level) {
-    using namespace doris::segment_v2;
-    using namespace doris::vectorized;
-
     std::string indent(indent_level * 2, ' ');
 
     doris::FieldType field_type = static_cast<doris::FieldType>(column_meta.type());
