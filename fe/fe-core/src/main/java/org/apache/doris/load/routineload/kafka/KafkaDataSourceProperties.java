@@ -277,7 +277,7 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
             // aws.region is required for AWS MSK IAM authentication
             if (!hasAwsRegion) {
                 throw new AnalysisException("When using AWS MSK IAM authentication, "
-                        + "'aws.region' is required. Please specify the AWS region (e.g., 'us-east-1', 'ap-east-1').");
+                        + "'aws.region' is required. Please specify the AWS region.");
             }
 
             // security.protocol should be SASL_SSL for AWS MSK IAM
