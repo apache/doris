@@ -1204,6 +1204,10 @@ public class OlapScanNode extends ScanNode {
             boolean enabled = ConnectContext.get().getSessionVariable()
                     .isMorValuePredicatePushdownEnabled(dbName, tblName);
             msg.olap_scan_node.setEnableMorValuePredicatePushdown(enabled);
+            if (ConnectContext.get().getSessionVariable()
+                    .isReadMorAsDupEnabled(dbName, tblName)) {
+                msg.olap_scan_node.setReadMorAsDup(true);
+            }
         }
 
         msg.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
