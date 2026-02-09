@@ -156,16 +156,19 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     max_run_time_watch.start();
     scanner->update_wait_worker_timer();
     scanner->start_scan_cpu_timer();
+
+    auto update_scanner_profile = [&]() {
+        if (scanner->has_prepared()) {
+            // Counter update need prepare successfully, or it maybe core. For example, olap scanner
+            // will open tablet reader during prepare, if not prepare successfully, tablet reader == nullptr.
+            scanner->update_scan_cpu_timer();
+            scanner->update_realtime_counters();
+        }
+    };
     Defer defer_scanner(
             [&] { // WorkloadGroup Policy will check cputime realtime, so that should update the counter
                 // as soon as possible, could not update it on close.
-                if (scanner->has_prepared()) {
-                    // Counter update need prepare successfully, or it maybe core. For example, olap scanner
-                    // will open tablet reader during prepare, if not prepare successfully, tablet reader == nullptr.
-                    scanner->update_scan_cpu_timer();
-                    scanner->update_realtime_counters();
-                    scanner->start_wait_worker_timer();
-                }
+                update_scanner_profile();
             });
     Status status = Status::OK();
     bool eos = false;
@@ -325,6 +328,9 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     }
 
     if (eos) {
+        // If eos, scanner will call _collect_profile_before_close to update profile, 
+        // so we need update_scanner_profile here
+        update_scanner_profile();
         scanner->mark_to_need_to_close();
     }
     scan_task->set_eos(eos);
