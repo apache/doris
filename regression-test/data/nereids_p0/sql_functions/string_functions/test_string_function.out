@@ -77,6 +77,27 @@ ac
 -- !sql_ord --
 72
 
+-- !sql_unicode --
+65
+
+-- !sql_unicode --
+97
+
+-- !sql_unicode --
+0
+
+-- !sql_unicode --
+\N
+
+-- !sql_unicode --
+20320
+
+-- !sql_unicode --
+128512
+
+-- !sql_unicode --
+72
+
 -- !sql --
 24
 

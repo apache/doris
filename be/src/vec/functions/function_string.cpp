@@ -1520,6 +1520,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionStringLocatePos::name, "position");
     factory.register_alias(FunctionStringLength::name, "octet_length");
     factory.register_alias(FunctionOverlay::name, "insert");
+    factory.register_alias(FunctionStringOrd::name, "unicode");
 }
 
 } // namespace doris::vectorized

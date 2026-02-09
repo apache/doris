@@ -57,6 +57,15 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql_ord "select ord('你好');"
     qt_sql_ord "select ord('Hello世界');"
 
+    // unicode function tests - alias for ord
+    qt_sql_unicode "select unicode('A');"
+    qt_sql_unicode "select unicode('a');"
+    qt_sql_unicode "select unicode('');"
+    qt_sql_unicode "select unicode(NULL);"
+    qt_sql_unicode "select unicode('你');"
+    qt_sql_unicode "select unicode('😀');"
+    qt_sql_unicode "select unicode('Hello世界');"
+
     qt_sql "select bit_length(\"abc\");"
 
     qt_sql "select char_length(\"abc\");"
