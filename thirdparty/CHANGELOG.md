@@ -2,6 +2,11 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20260202
+
+- Modified: snappy 1.1.8 -> 1.1.10
+- Modified: xxhash 0.8.1 -> 0.8.3
+
 ## 20251127
 
 - Added: crc32c-1.1.2
