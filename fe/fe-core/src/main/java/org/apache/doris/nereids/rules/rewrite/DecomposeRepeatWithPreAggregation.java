@@ -54,12 +54,12 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -407,11 +407,7 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         if (groupingSets.size() <= connectContext.getSessionVariable().decomposeRepeatThreshold) {
             return -1;
         }
-        int maxGroupIndex = findMaxGroupingSetIndex(groupingSets);
-        if (maxGroupIndex < 0) {
-            return -1;
-        }
-        return maxGroupIndex;
+        return findMaxGroupingSetIndex(groupingSets);
     }
 
     /**
@@ -435,6 +431,9 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
                 maxSize = groupingSets.get(i).size();
                 maxGroupIndex = i;
             }
+        }
+        if (groupingSets.get(maxGroupIndex).isEmpty()) {
+            return -1;
         }
         // Second pass: verify that the max-size grouping set contains all other grouping sets
         ImmutableSet<Expression> maxGroup = ImmutableSet.copyOf(groupingSets.get(maxGroupIndex));
@@ -520,14 +519,14 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         switch (repeat.getRepeatType()) {
             case CUBE:
                 // Prefer larger NDV to improve balance
-                chosen = chooseByNdv(maxGroupByList, inputStats, totalInstanceNum);
+                chosen = chooseOneBalancedKey(maxGroupByList, inputStats, totalInstanceNum);
                 break;
             case GROUPING_SETS:
                 chosen = chooseByAppearanceThenNdv(repeat.getGroupingSets(), maxGroupIndex, maxGroupByList,
                         inputStats, totalInstanceNum);
                 break;
             case ROLLUP:
-                chosen = chooseByRollupPrefixThenNdv(maxGroupByList, inputStats, totalInstanceNum);
+                chosen = chooseOneBalancedKey(maxGroupByList, inputStats, totalInstanceNum);
                 break;
             default:
                 chosen = Optional.empty();
@@ -535,17 +534,21 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         return chosen.map(ImmutableList::of);
     }
 
-    private Optional<Expression> chooseByNdv(List<Expression> candidates, Statistics inputStats, int totalInstanceNum) {
+    private Optional<Expression> chooseOneBalancedKey(List<Expression> candidates, Statistics inputStats,
+            int totalInstanceNum) {
         if (inputStats == null) {
             return Optional.empty();
         }
-        Comparator<Expression> cmp = Comparator.comparingDouble(e -> estimateNdv(e, inputStats));
-        Optional<Expression> choose = candidates.stream().max(cmp);
-        if (choose.isPresent() && estimateNdv(choose.get(), inputStats) > totalInstanceNum) {
-            return choose;
-        } else {
-            return Optional.empty();
+        for (Expression candidate : candidates) {
+            ColumnStatistic columnStatistic = inputStats.findColumnStatistics(candidate);
+            if (columnStatistic == null || columnStatistic.isUnKnown()) {
+                continue;
+            }
+            if (StatisticsUtil.isBalanced(columnStatistic, inputStats.getRowCount(), totalInstanceNum)) {
+                return Optional.of(candidate);
+            }
         }
+        return Optional.empty();
     }
 
     /**
@@ -568,42 +571,17 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
                 }
             }
         }
-        Map<Integer, List<Expression>> countToCandidate = new TreeMap<>();
+        TreeMap<Integer, List<Expression>> countToCandidate = new TreeMap<>();
         for (Map.Entry<Expression, Integer> entry : appearCount.entrySet()) {
             countToCandidate.computeIfAbsent(entry.getValue(), v -> new ArrayList<>()).add(entry.getKey());
         }
-        for (Map.Entry<Integer, List<Expression>> entry : countToCandidate.entrySet()) {
-            Optional<Expression> chosen = chooseByNdv(entry.getValue(), inputStats, totalInstanceNum);
+        for (Map.Entry<Integer, List<Expression>> entry : countToCandidate.descendingMap().entrySet()) {
+            Optional<Expression> chosen = chooseOneBalancedKey(entry.getValue(), inputStats, totalInstanceNum);
             if (chosen.isPresent()) {
                 return chosen;
             }
         }
         return Optional.empty();
-
-    }
-
-    /**
-     * ROLLUP: prefer earliest prefix key; if NDV is too low, fallback to next prefix.
-     */
-    private Optional<Expression> chooseByRollupPrefixThenNdv(List<Expression> candidates, Statistics inputStats,
-            int totalInstanceNum) {
-        for (Expression c : candidates) {
-            if (estimateNdv(c, inputStats) >= totalInstanceNum) {
-                return Optional.of(c);
-            }
-        }
-        return Optional.empty();
-    }
-
-    private double estimateNdv(Expression expr, Statistics stats) {
-        if (stats == null) {
-            return -1D;
-        }
-        ColumnStatistic col = stats.findColumnStatistics(expr);
-        if (col == null || col.isUnKnown()) {
-            return -1D;
-        }
-        return col.ndv;
     }
 
     /**
