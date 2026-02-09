@@ -65,6 +65,23 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select ascii('')")
     testFoldConst("select ascii('中')")
 
+    // ord (returns Unicode code point of first character)
+    testFoldConst("select ord('A')")
+    testFoldConst("select ord('a')")
+    testFoldConst("select ord('1')")
+    testFoldConst("select ord('!')")
+    testFoldConst("select ord('')")
+    testFoldConst("select ord('hello')")
+    testFoldConst("select ord('中')")
+    testFoldConst("select ord('你好')")
+    testFoldConst("select ord('こ')")
+    testFoldConst("select ord('😀')")
+
+    // unicode (alias for ord)
+    testFoldConst("select unicode('A')")
+    testFoldConst("select unicode('中')")
+    testFoldConst("select unicode('😀')")
+
     // bin
     testFoldConst("select bin(5)")
     testFoldConst("select bin(-5)")
