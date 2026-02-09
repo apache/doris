@@ -2281,9 +2281,12 @@ Status CloudMetaMgr::get_cluster_status(
     result->clear();
     for (const auto& detail : resp.details()) {
         for (const auto& cluster : detail.clusters()) {
-            // Store cluster status and mtime (mtime is in seconds from MS, convert to ms)
+            // Store cluster status and mtime (mtime is in seconds from MS, convert to ms).
+            // If mtime is not set, use current time as a conservative default
+            // to avoid immediate takeover due to elapsed being huge.
+            int64_t mtime_ms = cluster.has_mtime() ? cluster.mtime() * 1000 : UnixMillis();
             (*result)[cluster.cluster_id()] = {static_cast<int32_t>(cluster.cluster_status()),
-                                               cluster.mtime() * 1000};
+                                               mtime_ms};
         }
     }
 
