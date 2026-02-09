@@ -30,8 +30,8 @@
 #include <sstream>
 #include <string>
 
-#include "common/cpp/private_member_accessor.hpp"
 #include "common/status.h"
+#include "cpp/private_member_accessor.hpp"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "json2pb/pb_to_json.h"
