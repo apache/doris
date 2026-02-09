@@ -272,6 +272,10 @@ public:
         return Status::OK();
     }
 
+    void get_num_segment_rows(std::vector<uint32_t>* num_segment_rows) {
+        _rowset_meta->get_num_segment_rows(num_segment_rows);
+    }
+
     // min key of the first segment
     bool first_key(std::string* min_key) {
         KeyBoundsPB key_bounds;

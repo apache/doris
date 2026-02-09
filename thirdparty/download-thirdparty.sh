@@ -55,8 +55,10 @@ SPEC_ARCHIVES=(
 while [[ $# -gt 0 ]]; do
     GIVEN_LIB=$1
     SPEC_LIB=
+    lc_given_lib=$(echo "${GIVEN_LIB}" | tr '[:upper:]' '[:lower:]')
     for TP_ARCH in "${TP_ARCHIVES[@]}"; do
-        if [[ "${GIVEN_LIB,,}" = "${TP_ARCH,,}" ]]; then
+        lc_tp_arch=$(echo "${TP_ARCH}" | tr '[:upper:]' '[:lower:]')
+        if [[ "${lc_given_lib}" = "${lc_tp_arch}" ]]; then
             SPEC_LIB=${TP_ARCH}
             break
         fi
@@ -265,6 +267,17 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " GLOG " ]]; then
         cd -
     fi
     echo "Finished patching ${GLOG_SOURCE}"
+fi
+
+# snappy patch to fix sign-compare warning
+if [[ " ${TP_ARCHIVES[*]} " =~ " SNAPPY " ]]; then
+    cd "${TP_SOURCE_DIR}/${SNAPPY_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/snappy-1.1.10-sign-compare.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${SNAPPY_SOURCE}"
 fi
 
 # mysql patch

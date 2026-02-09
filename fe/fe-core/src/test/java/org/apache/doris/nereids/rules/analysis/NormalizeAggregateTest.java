@@ -28,6 +28,8 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -35,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.FieldChecker;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -686,6 +689,30 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                             Assertions.assertTrue(sink.getOutput().get(0).nullable());
                             return true;
                         })
+                );
+    }
+
+    @Test
+    public void testUnnestFunction() {
+        NamedExpression key = rStudent.getOutput().get(2).toSlot();
+        List<Expression> arguments = Lists.newArrayList(
+                new ArrayLiteral(Lists.newArrayList(new IntegerLiteral(1))));
+        NamedExpression aggregateFunction = new Alias(new Sum(new Unnest(arguments, false, false)), "sum");
+        List<Expression> groupExpressionList = Lists.newArrayList(key);
+        List<NamedExpression> outputExpressionList = Lists.newArrayList(key, aggregateFunction);
+        Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList, rStudent);
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+                .applyTopDown(new NormalizeAggregate())
+                .matchesFromRoot(
+                        logicalProject(
+                                logicalAggregate(
+                                        logicalProject(
+                                                logicalOlapScan()
+                                        ).when(project -> ExpressionUtils.containsTypes(
+                                                project.getProjects(), Unnest.class))
+                                )
+                        )
                 );
     }
 

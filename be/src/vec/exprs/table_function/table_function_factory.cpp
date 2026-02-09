@@ -24,6 +24,7 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "common/object_pool.h"
+#include "vec/exprs/table_function/python_udtf_function.h"
 #include "vec/exprs/table_function/table_function.h"
 #include "vec/exprs/table_function/udf_table_function.h"
 #include "vec/exprs/table_function/vexplode.h"
@@ -62,6 +63,12 @@ Status TableFunctionFactory::get_fn(const TFunction& t_fn, ObjectPool* pool, Tab
     bool is_outer = match_suffix(t_fn.name.function_name, COMBINATOR_SUFFIX_OUTER);
     if (t_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
         *fn = pool->add(UDFTableFunction::create_unique(t_fn).release());
+        if (is_outer) {
+            (*fn)->set_outer();
+        }
+        return Status::OK();
+    } else if (t_fn.binary_type == TFunctionBinaryType::PYTHON_UDF) {
+        *fn = pool->add(PythonUDTFFunction::create_unique(t_fn).release());
         if (is_outer) {
             (*fn)->set_outer();
         }

@@ -21,6 +21,9 @@
 
 namespace doris {
 
+const TimestampTzValue TimestampTzValue::FIRST_DAY =
+        TimestampTzValue(DateV2Value<DateTimeV2ValueType>::FIRST_DAY.to_date_int_val());
+
 bool TimestampTzValue::from_string(const StringRef& str, const cctz::time_zone* local_time_zone,
                                    vectorized::CastParameters& params, uint32_t to_scale) {
     using namespace vectorized;
@@ -88,7 +91,7 @@ std::string TimestampTzValue::to_string(const cctz::time_zone& tz, int scale) co
 bool TimestampTzValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& origin_dt,
                                      const cctz::time_zone& local_time_zone, int dt_scale,
                                      int tz_scale) {
-    PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnItemType dt_value;
+    PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType dt_value;
 
     PROPAGATE_FALSE(vectorized::transform_date_scale(tz_scale, dt_scale, dt_value,
                                                      origin_dt.to_date_int_val()));
@@ -110,7 +113,7 @@ bool TimestampTzValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& ori
 bool TimestampTzValue::to_datetime(DateV2Value<DateTimeV2ValueType>& dt,
                                    const cctz::time_zone& local_time_zone, int dt_scale,
                                    int tz_scale) const {
-    PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnItemType dt_value;
+    PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType dt_value;
 
     PROPAGATE_FALSE(vectorized::transform_date_scale(dt_scale, tz_scale, dt_value,
                                                      _utc_dt.to_date_int_val()));
@@ -125,6 +128,32 @@ bool TimestampTzValue::to_datetime(DateV2Value<DateTimeV2ValueType>& dt,
                                        (uint8_t)local_cs.day(), (uint8_t)local_cs.hour(),
                                        (uint8_t)local_cs.minute(), (uint8_t)local_cs.second(),
                                        dt.microsecond());
+}
+
+void TimestampTzValue::convert_utc_to_local(const cctz::time_zone& local_time_zone,
+                                            DateV2Value<DateTimeV2ValueType>& dt) const {
+    cctz::civil_second utc_cs(_utc_dt.year(), _utc_dt.month(), _utc_dt.day(), _utc_dt.hour(),
+                              _utc_dt.minute(), _utc_dt.second());
+    cctz::time_point<cctz::seconds> utc_tp = cctz::convert(utc_cs, cctz::utc_time_zone());
+    auto local_cs = cctz::convert(utc_tp, local_time_zone);
+
+    dt.unchecked_set_time((uint16_t)local_cs.year(), (uint8_t)local_cs.month(),
+                          (uint8_t)local_cs.day(), (uint8_t)local_cs.hour(),
+                          (uint8_t)local_cs.minute(), (uint8_t)local_cs.second(),
+                          _utc_dt.microsecond());
+}
+
+void TimestampTzValue::convert_local_to_utc(const cctz::time_zone& local_time_zone,
+                                            const DateV2Value<DateTimeV2ValueType>& dt) {
+    cctz::civil_second local_cs(dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(),
+                                dt.second());
+    cctz::time_point<cctz::seconds> local_tp = cctz::convert(local_cs, local_time_zone);
+    auto utc_cs = cctz::convert(local_tp, cctz::utc_time_zone());
+
+    _utc_dt.unchecked_set_time((uint16_t)utc_cs.year(), (uint8_t)utc_cs.month(),
+                               (uint8_t)utc_cs.day(), (uint8_t)utc_cs.hour(),
+                               (uint8_t)utc_cs.minute(), (uint8_t)utc_cs.second(),
+                               dt.microsecond());
 }
 
 } // namespace doris

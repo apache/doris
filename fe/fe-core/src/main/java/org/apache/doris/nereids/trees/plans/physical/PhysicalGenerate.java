@@ -45,27 +45,19 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
 
     private final List<Function> generators;
     private final List<Slot> generatorOutput;
+    private final List<Expression> conjuncts;
 
-    public PhysicalGenerate(List<Function> generators, List<Slot> generatorOutput,
+    public PhysicalGenerate(List<Function> generators, List<Slot> generatorOutput, List<Expression> conjuncts,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(generators, generatorOutput, Optional.empty(), logicalProperties, child);
+        this(generators, generatorOutput, conjuncts, Optional.empty(), logicalProperties,
+                PhysicalProperties.ANY, null, child);
     }
 
     /**
      * constructor
      */
     public PhysicalGenerate(List<Function> generators, List<Slot> generatorOutput,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_GENERATE, groupExpression, logicalProperties, child);
-        this.generators = ImmutableList.copyOf(Objects.requireNonNull(generators, "predicates can not be null"));
-        this.generatorOutput = ImmutableList.copyOf(Objects.requireNonNull(generatorOutput,
-                "generatorOutput can not be null"));
-    }
-
-    /**
-     * constructor
-     */
-    public PhysicalGenerate(List<Function> generators, List<Slot> generatorOutput,
+            List<Expression> conjuncts,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
             Statistics statistics, CHILD_TYPE child) {
@@ -74,6 +66,7 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
         this.generators = ImmutableList.copyOf(Objects.requireNonNull(generators, "predicates can not be null"));
         this.generatorOutput = ImmutableList.copyOf(Objects.requireNonNull(generatorOutput,
                 "generatorOutput can not be null"));
+        this.conjuncts = ImmutableList.copyOf(Objects.requireNonNull(conjuncts));
     }
 
     @Override
@@ -91,11 +84,16 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
         return generators;
     }
 
+    public List<Expression> getConjuncts() {
+        return conjuncts;
+    }
+
     @Override
     public String toString() {
         return Utils.toSqlString("PhysicalGenerate",
                 "generators", generators,
-                "generatorOutput", generatorOutput
+                "generatorOutput", generatorOutput,
+                "conjuncts", conjuncts
         );
     }
 
@@ -109,7 +107,8 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
         }
         PhysicalGenerate<?> that = (PhysicalGenerate<?>) o;
         return generators.equals(that.generators)
-                && generatorOutput.equals(that.generatorOutput);
+                && generatorOutput.equals(that.generatorOutput)
+                && conjuncts.equals(that.conjuncts);
     }
 
     @Override
@@ -125,28 +124,28 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
     @Override
     public PhysicalGenerate<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalGenerate<>(generators, generatorOutput, groupExpression,
+        return new PhysicalGenerate<>(generators, generatorOutput, conjuncts, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, children.get(0));
     }
 
     @Override
     public PhysicalGenerate<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalGenerate<>(generators, generatorOutput,
-                groupExpression, getLogicalProperties(), child());
+        return new PhysicalGenerate<>(generators, generatorOutput, conjuncts,
+                groupExpression, getLogicalProperties(), PhysicalProperties.ANY, null, child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalGenerate<>(generators, generatorOutput,
-                groupExpression, logicalProperties.get(), children.get(0));
+        return new PhysicalGenerate<>(generators, generatorOutput, conjuncts,
+                groupExpression, logicalProperties.get(), PhysicalProperties.ANY, null, children.get(0));
     }
 
     @Override
     public PhysicalGenerate<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalGenerate<>(generators, generatorOutput,
+        return new PhysicalGenerate<>(generators, generatorOutput, conjuncts,
                 Optional.empty(), getLogicalProperties(), physicalProperties,
                 statistics, child());
     }
@@ -161,7 +160,7 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
 
     @Override
     public PhysicalGenerate<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalGenerate<>(generators, generatorOutput,
+        return new PhysicalGenerate<>(generators, generatorOutput, conjuncts,
                 Optional.empty(), null, physicalProperties,
                 statistics, child());
     }

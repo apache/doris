@@ -31,18 +31,17 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCte;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCteRecursiveChild;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCteScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveUnion;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveUnionAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveUnionProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
-import org.apache.doris.nereids.trees.plans.logical.ProjectProcessor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWorkTableReference;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
@@ -52,7 +51,6 @@ import com.google.common.collect.Sets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -68,6 +66,10 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
     public Rule build() {
         return logicalCTE().thenApply(ctx -> {
             LogicalCTE<Plan> logicalCTE = ctx.root;
+            if (logicalCTE.isRecursive()
+                    && !ctx.connectContext.getSessionVariable().isEnableNereidsDistributePlanner()) {
+                throw new AnalysisException("please set enable_nereids_distribute_planner=true to use RECURSIVE CTE");
+            }
 
             // step 0. check duplicate cte name
             Set<String> uniqueAlias = Sets.newHashSet();
@@ -84,7 +86,7 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
             // step 1. analyzed all cte plan
             Pair<CTEContext, List<LogicalCTEProducer<Plan>>> result = analyzeCte(logicalCTE, ctx.cascadesContext);
             CascadesContext outerCascadesCtx = CascadesContext.newContextWithCteContext(
-                    ctx.cascadesContext, logicalCTE.child(), result.first, Optional.empty(), ImmutableList.of());
+                    ctx.cascadesContext, logicalCTE.child(), result.first, null);
             outerCascadesCtx.withPlanProcess(ctx.cascadesContext.showPlanProcess(), () -> {
                 outerCascadesCtx.newAnalyzer().analyze();
             });
@@ -109,7 +111,9 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
         List<LogicalCTEProducer<Plan>> cteProducerPlans = new ArrayList<>();
         for (LogicalSubQueryAlias<Plan> aliasQuery : aliasQueries) {
             // we should use a chain to ensure visible of cte
-            if (aliasQuery.isRecursiveCte() && logicalCTE.isRecursiveCte()) {
+            if (logicalCTE.isRecursive() && aliasQuery.isRecursiveCte()) {
+                // if we have WITH RECURSIVE keyword, logicalCTE.isRecursive() will be true,
+                // but we still need to check if aliasQuery is a real recursive cte or just normal cte
                 Pair<CTEContext, LogicalCTEProducer<Plan>> result = analyzeRecursiveCte(aliasQuery, outerCteCtx,
                         cascadesContext);
                 outerCteCtx = result.first;
@@ -117,7 +121,7 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
             } else {
                 LogicalPlan parsedCtePlan = (LogicalPlan) aliasQuery.child();
                 CascadesContext innerCascadesCtx = CascadesContext.newContextWithCteContext(
-                        cascadesContext, parsedCtePlan, outerCteCtx, Optional.empty(), ImmutableList.of());
+                        cascadesContext, parsedCtePlan, outerCteCtx, null);
                 innerCascadesCtx.withPlanProcess(cascadesContext.showPlanProcess(), () -> {
                     innerCascadesCtx.newAnalyzer().analyze();
                 });
@@ -139,44 +143,56 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
             CTEContext outerCteCtx, CascadesContext cascadesContext) {
         Preconditions.checkArgument(aliasQuery.isRecursiveCte(), "alias query must be recursive cte");
         LogicalPlan parsedCtePlan = (LogicalPlan) aliasQuery.child();
-        if (!(parsedCtePlan instanceof LogicalUnion) || parsedCtePlan.children().size() != 2) {
+        if (!(parsedCtePlan instanceof LogicalUnion)) {
             throw new AnalysisException(String.format("recursive cte must be union, don't support %s",
                     parsedCtePlan.getClass().getSimpleName()));
         }
-        // analyze anchor child, its output list will be recursive cte temp table's schema
+
+        if (parsedCtePlan.arity() != 2) {
+            throw new AnalysisException(String.format("recursive cte must have 2 children, but it has %d",
+                    parsedCtePlan.arity()));
+        }
+        // analyze anchor child, its output list will be LogicalWorkTableReference's schema
+        // also pass cte name to anchor side to let the relation binding happy. Then we check if the anchor reference
+        // the recursive cte itself and report a user-friendly error message like bellow
         LogicalPlan anchorChild = (LogicalPlan) parsedCtePlan.child(0);
+        CTEContext recursiveCteCtx = new CTEContext(StatementScopeIdGenerator.newCTEId(), aliasQuery.getAlias(), null);
         CascadesContext innerAnchorCascadesCtx = CascadesContext.newContextWithCteContext(
-                cascadesContext, anchorChild, outerCteCtx, Optional.of(aliasQuery.getAlias()), ImmutableList.of());
+                cascadesContext, anchorChild, outerCteCtx, recursiveCteCtx);
         innerAnchorCascadesCtx.withPlanProcess(cascadesContext.showPlanProcess(), () -> {
             innerAnchorCascadesCtx.newAnalyzer().analyze();
         });
         cascadesContext.addPlanProcesses(innerAnchorCascadesCtx.getPlanProcesses());
         LogicalPlan analyzedAnchorChild = (LogicalPlan) innerAnchorCascadesCtx.getRewritePlan();
-        Set<LogicalRecursiveCteScan> recursiveCteScans = analyzedAnchorChild
-                .collect(LogicalRecursiveCteScan.class::isInstance);
-        for (LogicalRecursiveCteScan cteScan : recursiveCteScans) {
-            if (cteScan.getTable().getName().equalsIgnoreCase(aliasQuery.getAlias())) {
+        Set<LogicalWorkTableReference> recursiveCteScans = analyzedAnchorChild
+                .collect(LogicalWorkTableReference.class::isInstance);
+        for (LogicalWorkTableReference cteScan : recursiveCteScans) {
+            if (cteScan.getTableName().equalsIgnoreCase(aliasQuery.getAlias())) {
                 throw new AnalysisException(
                         String.format("recursive reference to query %s must not appear within its non-recursive term",
                                 aliasQuery.getAlias()));
             }
         }
         checkColumnAlias(aliasQuery, analyzedAnchorChild.getOutput());
-        // make all output nullable
+        // make all output nullable, the behavior is same as pg. It's much simpler than complex derivation of nullable
+        // also we change the output same as cte's column aliases if it has. Because recursive part will try to use
+        // column aliases first then the original output slot.
         analyzedAnchorChild = forceOutputNullable(analyzedAnchorChild,
                 aliasQuery.getColumnAliases().orElse(ImmutableList.of()));
-        // analyze recursive child
+        analyzedAnchorChild = new LogicalRecursiveUnionAnchor<>(recursiveCteCtx.getCteId(), analyzedAnchorChild);
+        // analyze recursive child, analyzedAnchorChild.getOutput() will be LogicalWorkTableReference's schema
         LogicalPlan recursiveChild = (LogicalPlan) parsedCtePlan.child(1);
+        recursiveCteCtx.setRecursiveCteOutputs(analyzedAnchorChild.getOutput());
         CascadesContext innerRecursiveCascadesCtx = CascadesContext.newContextWithCteContext(
-                cascadesContext, recursiveChild, outerCteCtx, Optional.of(aliasQuery.getAlias()),
-                analyzedAnchorChild.getOutput());
+                cascadesContext, recursiveChild, outerCteCtx, recursiveCteCtx);
         innerRecursiveCascadesCtx.withPlanProcess(cascadesContext.showPlanProcess(), () -> {
             innerRecursiveCascadesCtx.newAnalyzer().analyze();
         });
         cascadesContext.addPlanProcesses(innerRecursiveCascadesCtx.getPlanProcesses());
         LogicalPlan analyzedRecursiveChild = (LogicalPlan) innerRecursiveCascadesCtx.getRewritePlan();
-        List<LogicalRecursiveCteScan> recursiveCteScanList = analyzedRecursiveChild
-                .collectToList(LogicalRecursiveCteScan.class::isInstance);
+        List<LogicalWorkTableReference> recursiveCteScanList = analyzedRecursiveChild
+                .collectToList(item -> item instanceof LogicalWorkTableReference
+                        && ((LogicalWorkTableReference) item).getCteId().equals(recursiveCteCtx.getCteId()));
         if (recursiveCteScanList.size() > 1) {
             throw new AnalysisException(String.format("recursive reference to query %s must not appear more than once",
                     aliasQuery.getAlias()));
@@ -187,43 +203,34 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
             anchorChildOutputTypes.add(slot.getDataType());
         }
         List<Slot> recursiveChildOutputs = analyzedRecursiveChild.getOutput();
+        // anchor and recursive are union's children, so their output size must be same
+        Preconditions.checkState(anchorChildOutputs.size() == recursiveChildOutputs.size(),
+                "anchor and recursive child's output size must be same");
         for (int i = 0; i < recursiveChildOutputs.size(); ++i) {
-            if (!recursiveChildOutputs.get(i).getDataType().equals(anchorChildOutputTypes.get(i))) {
+            if (!recursiveChildOutputs.get(i).getDataType().equalsForRecursiveCte(anchorChildOutputTypes.get(i))) {
                 throw new AnalysisException(String.format("%s recursive child's %d column's datatype in select list %s "
-                                + "is different from anchor child's output datatype %s, please add cast manually "
-                                + "to get expect datatype", aliasQuery.getAlias(), i + 1,
+                        + "is different from anchor child's output datatype %s, please add cast manually "
+                        + "to get expect datatype", aliasQuery.getAlias(), i + 1,
                         recursiveChildOutputs.get(i).getDataType(), anchorChildOutputTypes.get(i)));
             }
         }
-        analyzedRecursiveChild = new LogicalRecursiveCteRecursiveChild<>(aliasQuery.getAlias(),
+        // make analyzedRecursiveChild's outputs all nullable and keep slot name unchanged
+        analyzedRecursiveChild = new LogicalRecursiveUnionProducer<>(aliasQuery.getAlias(),
                 forceOutputNullable(analyzedRecursiveChild, ImmutableList.of()));
 
-        // create LogicalRecursiveCte
+        // create LogicalRecursiveUnion
         LogicalUnion logicalUnion = (LogicalUnion) parsedCtePlan;
-        LogicalRecursiveCte analyzedCtePlan = new LogicalRecursiveCte(aliasQuery.getAlias(),
-                logicalUnion.getQualifier() == SetOperation.Qualifier.ALL,
-                ImmutableList.of(analyzedAnchorChild, analyzedRecursiveChild));
-        List<List<NamedExpression>> childrenProjections = analyzedCtePlan.collectChildrenProjections();
-        int childrenProjectionSize = childrenProjections.size();
-        ImmutableList.Builder<List<SlotReference>> childrenOutputs = ImmutableList
-                .builderWithExpectedSize(childrenProjectionSize);
-        ImmutableList.Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(childrenProjectionSize);
-        for (int i = 0; i < childrenProjectionSize; i++) {
-            Plan newChild;
-            Plan child = analyzedCtePlan.child(i);
-            if (childrenProjections.get(i).stream().allMatch(SlotReference.class::isInstance)) {
-                newChild = child;
-            } else {
-                List<NamedExpression> parentProject = childrenProjections.get(i);
-                newChild = ProjectProcessor.tryProcessProject(parentProject, child)
-                        .orElseGet(() -> new LogicalProject<>(parentProject, child));
-            }
-            newChildren.add(newChild);
-            childrenOutputs.add((List<SlotReference>) (List) newChild.getOutput());
+        ImmutableList.Builder<NamedExpression> newOutputs = ImmutableList
+                .builderWithExpectedSize(anchorChildOutputs.size());
+        for (Slot slot : anchorChildOutputs) {
+            newOutputs.add(new SlotReference(slot.toSql(), slot.getDataType(), slot.nullable(), ImmutableList.of()));
         }
-        analyzedCtePlan = analyzedCtePlan.withChildrenAndTheirOutputs(newChildren.build(), childrenOutputs.build());
-        List<NamedExpression> newOutputs = analyzedCtePlan.buildNewOutputs();
-        analyzedCtePlan = analyzedCtePlan.withNewOutputs(newOutputs);
+        LogicalRecursiveUnion<? extends Plan, ? extends Plan> analyzedCtePlan = new LogicalRecursiveUnion(
+                aliasQuery.getAlias(),
+                logicalUnion.getQualifier(),
+                newOutputs.build(),
+                ImmutableList.of(analyzedAnchorChild.getOutput(), analyzedRecursiveChild.getOutput()),
+                ImmutableList.of(analyzedAnchorChild, analyzedRecursiveChild));
 
         CTEId cteId = StatementScopeIdGenerator.newCTEId();
         LogicalSubQueryAlias<Plan> logicalSubQueryAlias = aliasQuery.withChildren(ImmutableList.of(analyzedCtePlan));

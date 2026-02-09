@@ -72,7 +72,7 @@ public:
 
     using SerDeType = DataTypeFixedLengthObjectSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<SerDeType>(nesting_level);
+        return std::make_shared<SerDeType>(PType, nesting_level);
     };
 };
 

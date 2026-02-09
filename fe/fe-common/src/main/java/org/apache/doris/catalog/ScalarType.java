@@ -1040,4 +1040,30 @@ public class ScalarType extends Type {
         }
         return 0; // The old variant type had a default value of 0.
     }
+
+    public boolean getVariantEnableDocMode() {
+        // In the past, variant metadata used the ScalarType type.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+        if (this instanceof VariantType) {
+            return ((VariantType) this).getEnableVariantDocMode();
+        }
+        return false; // The old variant type had a default value of false.
+    }
+
+    public long getvariantDocMaterializationMinRows() {
+        // In the past, variant metadata used the ScalarType type.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+        if (this instanceof VariantType) {
+            return ((VariantType) this).getvariantDocMaterializationMinRows();
+        }
+        return 0L; // The old variant type had a default value of 0.
+    }
+
+    public int getVariantDocShardCount() {
+        if (this instanceof VariantType) {
+            return ((VariantType) this).getVariantDocShardCount();
+        }
+        // Backward-compatible default bucket count used by BE doc snapshot writer/reader.
+        return 128;
+    }
 }

@@ -595,10 +595,21 @@ public class HiveMetaStoreCache {
         for (String partitionName : modifiedPartNames) {
             invalidatePartitionCache(table, partitionName);
         }
-
+        // Merge modifiedPartNames and newPartNames
+        // Case:
+        // 1. hive, insert into a new partition p_new
+        // 2. doris-observer, insert into same partition p_new
+        //      1. forward insert command to Master
+        //      2. Master FE will refresh its cache and get p_new into its partition values cache
+        //      3. Insert finished and Master write edit log, but p_new is recorded as MODIFIED not NEW.
+        //          (See refreshAffectedPartitions() methods)
+        //      4. Observer FE receive edit log and refresh cache, if we don't merge them,
+        //          it will miss adding p_new to its partition values cache.
+        List<String> mergedPartNames = Lists.newArrayList(modifiedPartNames);
+        mergedPartNames.addAll(newPartNames);
         // Add new partitions to partition values cache
-        if (!newPartNames.isEmpty()) {
-            addPartitionsCache(table.getOrBuildNameMapping(), newPartNames,
+        if (!mergedPartNames.isEmpty()) {
+            addPartitionsCache(table.getOrBuildNameMapping(), mergedPartNames,
                     table.getPartitionColumnTypes(Optional.empty()));
         }
 

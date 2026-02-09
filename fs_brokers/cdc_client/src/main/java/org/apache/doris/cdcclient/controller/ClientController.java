@@ -27,6 +27,8 @@ import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
 
+import org.apache.commons.lang3.exception.ExceptionUtils;
+
 import java.util.List;
 
 import org.slf4j.Logger;
@@ -44,6 +46,18 @@ public class ClientController {
 
     @Autowired private PipelineCoordinator pipelineCoordinator;
 
+    /** init source reader */
+    @RequestMapping(path = "/api/initReader", method = RequestMethod.POST)
+    public Object initSourceReader(@RequestBody JobBaseConfig jobConfig) {
+        try {
+            SourceReader reader = Env.getCurrentEnv().getReader(jobConfig);
+            return RestResponse.success("Source reader initialized successfully");
+        } catch (Exception ex) {
+            LOG.error("Failed to create reader, jobId={}", jobConfig.getJobId(), ex);
+            return RestResponse.internalError(ExceptionUtils.getRootCauseMessage(ex));
+        }
+    }
+
     /** Fetch source splits for snapshot */
     @RequestMapping(path = "/api/fetchSplits", method = RequestMethod.POST)
     public Object fetchSplits(@RequestBody FetchTableSplitsRequest ftsReq) {
@@ -51,9 +65,9 @@ public class ClientController {
             SourceReader reader = Env.getCurrentEnv().getReader(ftsReq);
             List splits = reader.getSourceSplits(ftsReq);
             return RestResponse.success(splits);
-        } catch (IllegalArgumentException ex) {
+        } catch (Exception ex) {
             LOG.error("Failed to fetch splits, jobId={}", ftsReq.getJobId(), ex);
-            return RestResponse.internalError(ex.getMessage());
+            return RestResponse.internalError(ExceptionUtils.getRootCauseMessage(ex));
         }
     }
 

@@ -105,9 +105,18 @@ public:
                   io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache = nullptr,
                   bool enable_lazy_mat = true);
 
+    ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                  const TFileRangeDesc& range, size_t batch_size, const cctz::time_zone* ctz,
+                  std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state,
+                  FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true);
+
     ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
                   io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache = nullptr,
                   bool enable_lazy_mat = true);
+
+    ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                  std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state,
+                  FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true);
 
     ~ParquetReader() override;
 #ifdef BE_TEST
@@ -166,10 +175,6 @@ public:
 
     bool count_read_rows() override { return true; }
 
-    void set_update_late_rf_func(std::function<Status(bool*, VExprContextSPtrs&)>&& func) {
-        _call_late_rf_func = std::move(func);
-    }
-
 protected:
     void _collect_profile_before_close() override;
 
@@ -199,6 +204,14 @@ private:
         RuntimeProfile::Counter* file_footer_hit_cache = nullptr;
         RuntimeProfile::Counter* decompress_time = nullptr;
         RuntimeProfile::Counter* decompress_cnt = nullptr;
+        RuntimeProfile::Counter* page_read_counter = nullptr;
+        RuntimeProfile::Counter* page_cache_write_counter = nullptr;
+        RuntimeProfile::Counter* page_cache_compressed_write_counter = nullptr;
+        RuntimeProfile::Counter* page_cache_decompressed_write_counter = nullptr;
+        RuntimeProfile::Counter* page_cache_hit_counter = nullptr;
+        RuntimeProfile::Counter* page_cache_missing_counter = nullptr;
+        RuntimeProfile::Counter* page_cache_compressed_hit_counter = nullptr;
+        RuntimeProfile::Counter* page_cache_decompressed_hit_counter = nullptr;
         RuntimeProfile::Counter* decode_header_time = nullptr;
         RuntimeProfile::Counter* read_page_header_time = nullptr;
         RuntimeProfile::Counter* decode_value_time = nullptr;
@@ -261,9 +274,6 @@ private:
 
     bool _exists_in_file(const std::string& expr_name) const;
     bool _type_matches(const int cid) const;
-
-    // update lazy read context when runtime filter changed
-    Status _update_lazy_read_ctx(const VExprContextSPtrs& new_conjuncts);
 
     RuntimeProfile* _profile = nullptr;
     const TFileScanRangeParams& _scan_params;
@@ -329,6 +339,7 @@ private:
     ParquetProfile _parquet_profile;
     bool _closed = false;
     io::IOContext* _io_ctx = nullptr;
+    std::shared_ptr<io::IOContext> _io_ctx_holder;
     RuntimeState* _state = nullptr;
     bool _enable_lazy_mat = true;
     bool _enable_filter_by_min_max = true;
@@ -349,18 +360,8 @@ private:
 
     std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
 
-    // Since the filtering conditions for topn are dynamic, the filtering is delayed until create next row group reader.
     std::vector<std::unique_ptr<MutilColumnBlockPredicate>> _push_down_predicates;
     Arena _arena;
-
-    // when creating a new row group reader, call this function to get the latest runtime filter conjuncts.
-    // The default implementation does nothing, sets 'changed' to false, and returns OK.
-    // This is used when iceberg read position delete file ...
-    static Status default_late_rf_func(bool* changed, VExprContextSPtrs&) {
-        *changed = false;
-        return Status::OK();
-    }
-    std::function<Status(bool*, VExprContextSPtrs&)> _call_late_rf_func = default_late_rf_func;
 };
 #include "common/compile_check_end.h"
 

@@ -18,6 +18,10 @@
 networks:
   ${HUDI_NETWORK}:
     name: ${HUDI_NETWORK}
+    ipam:
+      driver: default
+      config:
+        - subnet: 168.3.0.0/24
 
 services:
   ${CONTAINER_UID}hudi-minio:

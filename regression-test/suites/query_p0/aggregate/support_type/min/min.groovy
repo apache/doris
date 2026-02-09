@@ -97,6 +97,9 @@ suite("min") {
     qt_min_double """select min(col_double) from d_table;"""
 
     qt_min_char """select min(col_char) from d_table;"""
+    // Test length(min(col_char)) with different disable_nereids_rules settings
+    sql "set disable_nereids_rules='';"
+    qt_min_char_length_default """select length(min(col_char)) from d_table;"""
     qt_min_varchar """select min(col_varchar) from d_table;"""
     qt_min_string """select min(col_string) from d_table;"""
 

@@ -35,7 +35,7 @@ public class GroupMatching {
     public static List<Plan> getAllMatchingPlans(Pattern pattern, Group group) {
         List<Plan> matchingPlans = new ArrayList<>();
         if (pattern.isGroup() || pattern.isMultiGroup()) {
-            GroupPlan groupPlan = new GroupPlan(group);
+            GroupPlan groupPlan = group.getGroupPlan();
             if (((Pattern<Plan>) pattern).matchPredicates(groupPlan)) {
                 matchingPlans.add(groupPlan);
             }

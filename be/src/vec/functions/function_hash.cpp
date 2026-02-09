@@ -58,7 +58,7 @@ struct MurmurHash3Impl {
         ColumnVector<ReturnType>& vec_to = assert_cast<ColumnVector<ReturnType>&>(icolumn);
         vec_to.get_data().assign(
                 input_rows_count,
-                static_cast<typename PrimitiveTypeTraits<ReturnType>::ColumnItemType>(emtpy_value));
+                static_cast<typename PrimitiveTypeTraits<ReturnType>::CppType>(emtpy_value));
         return Status::OK();
     }
 
@@ -152,7 +152,7 @@ struct XxHashImpl {
         ColumnVector<ReturnType>& vec_to = assert_cast<ColumnVector<ReturnType>&>(icolumn);
         vec_to.get_data().assign(
                 input_rows_count,
-                static_cast<typename PrimitiveTypeTraits<ReturnType>::ColumnItemType>(emtpy_value));
+                static_cast<typename PrimitiveTypeTraits<ReturnType>::CppType>(emtpy_value));
         return Status::OK();
     }
 

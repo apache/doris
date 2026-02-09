@@ -11,6 +11,12 @@
 -- !hdfs_kerberos --
 11111111	hdfs_db_test
 
+-- !hdfs_new_kerberos --
+11111111	hdfs_db_test
+
+-- !hdfs_new_kerberos --
+11111111	hdfs_db_test
+
 -- !oss --
 11111111	ali_db_test
 11111111	ali_db_test
@@ -109,6 +115,12 @@
 11111111	hdfs_db_test
 
 -- !support_hdfs_kerberos --
+11111111	hdfs_db_test
+
+-- !support_hdfs_new_kerberos --
+11111111	hdfs_db_test
+
+-- !support_hdfs_new_kerberos --
 11111111	hdfs_db_test
 
 -- !support_oss --

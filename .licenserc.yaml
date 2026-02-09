@@ -102,4 +102,5 @@ header:
     - "pytest/deploy/*.conf"
     - "tools/jeprof"
     - "tools/FlameGraph/*"
+    - "fs_brokers/cdc_client/src/main/java/io/debezium/**"
   comment: on-failure

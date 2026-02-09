@@ -200,6 +200,12 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         if (table instanceof IcebergExternalTable) {
             return true;
         } else if (table instanceof HMSExternalTable) {
+            HMSExternalTable hmsTable = (HMSExternalTable) table;
+            if (hmsTable.getDlaType() == HMSExternalTable.DLAType.HUDI) {
+                // Don't prune nested column for HUDI table for now, because HUDI table
+                // may have some issues when pruning nested column.
+                return false;
+            }
             try {
                 ConnectContext connectContext = ConnectContext.get();
                 SessionVariable sessionVariable = connectContext.getSessionVariable();

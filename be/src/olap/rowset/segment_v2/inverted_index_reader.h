@@ -393,7 +393,7 @@ public:
 
         if constexpr (is_string_type(PT)) {
             if constexpr (std::is_same_v<ValueType, doris::vectorized::Field>) {
-                const auto& str = doris::vectorized::get<vectorized::String>(*value);
+                const auto& str = value->template get<PT>();
                 param->set_value(str);
             } else if constexpr (std::is_same_v<ValueType, StringRef>) {
                 param->set_value(value);
@@ -405,7 +405,7 @@ public:
         } else {
             CPP_TYPE cpp_val;
             if constexpr (std::is_same_v<ValueType, doris::vectorized::Field>) {
-                auto field_val = value->template get<typename PrimitiveTypeTraits<PT>::CppType>();
+                auto field_val = value->template get<PT>();
                 cpp_val = static_cast<CPP_TYPE>(field_val);
             } else {
                 cpp_val = static_cast<CPP_TYPE>(*value);

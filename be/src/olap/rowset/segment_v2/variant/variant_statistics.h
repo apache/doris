@@ -20,31 +20,57 @@
 #include <map>
 #include <string>
 
+#include "gen_cpp/segment_v2.pb.h"
+
 namespace doris {
 namespace segment_v2 {
 
 #include "common/compile_check_begin.h"
 
 struct VariantStatistics {
-    // If reached the size of this, we should stop writing statistics for sparse data
-    std::map<std::string, int64_t> subcolumns_non_null_size;
-    std::map<std::string, int64_t> sparse_column_non_null_size;
+    std::map<std::string, uint32_t> subcolumns_non_null_size;
+    // sparse column non-null size for all buckets
+    std::map<std::string, uint32_t> sparse_column_non_null_size;
+
+    // doc snapshot column non-null size for each bucket
+    std::map<std::string, uint32_t> doc_column_non_null_size;
 
     void to_pb(VariantStatisticsPB* stats) const {
+        auto* sparse_map = stats->mutable_sparse_column_non_null_size();
         for (const auto& [path, value] : sparse_column_non_null_size) {
-            stats->mutable_sparse_column_non_null_size()->emplace(path, value);
+            (*sparse_map)[path] = value;
         }
-        LOG(INFO) << "num subcolumns " << subcolumns_non_null_size.size() << ", num sparse columns "
-                  << sparse_column_non_null_size.size();
     }
 
-    void from_pb(const VariantStatisticsPB& stats) {
-        for (const auto& [path, value] : stats.sparse_column_non_null_size()) {
-            sparse_column_non_null_size[path] = value;
+    bool has_doc_column_non_null_size() const { return !doc_column_non_null_size.empty(); }
+
+    bool has_sparse_column_non_null_size() const { return !sparse_column_non_null_size.empty(); }
+
+    bool existed_in_sparse_column(const std::string& relative_path) const {
+        return sparse_column_non_null_size.contains(relative_path);
+    }
+
+    bool existed_in_doc_column(const std::string& relative_path) const {
+        return doc_column_non_null_size.contains(relative_path);
+    }
+
+    bool has_prefix_path_in_sparse_column(const std::string& dot_prefix) const {
+        auto find_sparse = sparse_column_non_null_size.lower_bound(dot_prefix);
+        if (find_sparse != sparse_column_non_null_size.end() &&
+            find_sparse->first.starts_with(dot_prefix)) {
+            return true;
         }
+        return false;
+    }
+
+    bool has_prefix_path_in_doc_column(const std::string& dot_prefix) const {
+        auto find_doc = doc_column_non_null_size.lower_bound(dot_prefix);
+        if (find_doc != doc_column_non_null_size.end() && find_doc->first.starts_with(dot_prefix)) {
+            return true;
+        }
+        return false;
     }
 };
-
 #include "common/compile_check_end.h"
 
 } // namespace segment_v2

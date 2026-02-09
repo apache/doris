@@ -21,11 +21,11 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -45,9 +45,9 @@ public class CloudTabletInvertedIndex extends TabletInvertedIndex {
         long stamp = readLock();
         try {
             if (replicaMetaMap.containsKey(tabletId)) {
-                return Lists.newArrayList(replicaMetaMap.get(tabletId));
+                return Collections.singletonList(replicaMetaMap.get(tabletId));
             }
-            return Lists.newArrayList();
+            return Collections.emptyList();
         } finally {
             readUnlock(stamp);
         }
@@ -118,9 +118,9 @@ public class CloudTabletInvertedIndex extends TabletInvertedIndex {
         long stamp = readLock();
         try {
             if (replicaMetaMap.containsKey(tabletId)) {
-                return Lists.newArrayList(replicaMetaMap.get(tabletId));
+                return Collections.singletonList(replicaMetaMap.get(tabletId));
             }
-            return Lists.newArrayList();
+            return Collections.emptyList();
         } finally {
             readUnlock(stamp);
         }

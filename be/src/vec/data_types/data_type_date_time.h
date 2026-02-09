@@ -64,6 +64,7 @@ class DataTypeDateV2;
 	*/
 class DataTypeDateTime final : public DataTypeNumberBase<PrimitiveType::TYPE_DATETIME> {
 public:
+    static constexpr PrimitiveType PType = TYPE_DATETIME;
     DataTypeDateTime() = default;
 
     const std::string get_family_name() const override { return "DateTime"; }
@@ -78,9 +79,7 @@ public:
 #ifdef BE_TEST
     /// TODO: remove this in the future
     using IDataType::to_string;
-    std::string to_string(Int64 int_val) const {
-        doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
-
+    std::string to_string(VecDateTimeValue value) const {
         char buf[64];
         value.to_string(buf);
         // DateTime to_string the end is /0
@@ -103,7 +102,7 @@ public:
         }
     }
 
-    static void cast_to_date_time(Int64& x);
+    static void cast_to_date_time(VecDateTimeValue& x);
 
     MutableColumnPtr create_column() const override;
 };

@@ -12,7 +12,7 @@
 10	zhangsan1410
 
 -- !select --
-1048576	1048576
+1024	1024
 
 -- !select --
 c1	text	Yes	false	\N	NONE
@@ -31,7 +31,7 @@ c2	text	Yes	false	\N	NONE
 10	zhangsan1410
 
 -- !select --
-1048576	1048576
+1024	1024
 
 -- !select --
 c1	text	Yes	false	\N	NONE
@@ -50,7 +50,7 @@ c2	text	Yes	false	\N	NONE
 10	zhangsan1410
 
 -- !select --
-1048576	1048576
+1024	1024
 
 -- !select --
 c1	text	Yes	false	\N	NONE
@@ -69,7 +69,7 @@ c2	text	Yes	false	\N	NONE
 10	zhangsan1410
 
 -- !select --
-1048576	1048576
+1024	1024
 
 -- !select --
 c1	text	Yes	false	\N	NONE
@@ -88,7 +88,7 @@ c2	text	Yes	false	\N	NONE
 10	zhangsan1410
 
 -- !select --
-1048576	1048576
+1024	1024
 
 -- !select --
 c1	text	Yes	false	\N	NONE
@@ -107,7 +107,7 @@ c2	text	Yes	false	\N	NONE
 10	zhangsan1410
 
 -- !select --
-1048576	1048576
+1024	1024
 
 -- !select --
 c1	text	Yes	false	\N	NONE
@@ -126,7 +126,7 @@ c2	text	Yes	false	\N	NONE
 10	zhangsan1410
 
 -- !select --
-1048576	1048576
+1024	1024
 
 -- !select --
 id	text	Yes	false	\N	NONE
@@ -145,7 +145,7 @@ name	text	Yes	false	\N	NONE
 10	zhangsan1410
 
 -- !select --
-1048576	1048576
+1024	1024
 
 -- !select --
 id	text	Yes	false	\N	NONE
@@ -164,7 +164,7 @@ name	text	Yes	false	\N	NONE
 10	zhangsan1410
 
 -- !select --
-1048576	1048576
+1024	1024
 
 -- !select --
 id	text	Yes	false	\N	NONE
@@ -183,7 +183,7 @@ name	text	Yes	false	\N	NONE
 10	zhangsan1410
 
 -- !select --
-1048576	1048576
+1024	1024
 
 -- !select --
 id	text	Yes	false	\N	NONE
@@ -202,7 +202,7 @@ name	text	Yes	false	\N	NONE
 10	zhangsan1410
 
 -- !select --
-1048576	1048576
+1024	1024
 
 -- !select --
 id	text	Yes	false	\N	NONE
@@ -221,7 +221,7 @@ name	text	Yes	false	\N	NONE
 10	zhangsan1410
 
 -- !select --
-1048576	1048576
+1024	1024
 
 -- !select --
 id	text	Yes	false	\N	NONE
@@ -240,7 +240,7 @@ name	text	Yes	false	\N	NONE
 10	zhangsan1410
 
 -- !select --
-1048576	1048576
+1024	1024
 
 -- !select --
 id	text	Yes	false	\N	NONE
@@ -259,7 +259,7 @@ name	text	Yes	false	\N	NONE
 10	zhangsan1410
 
 -- !select --
-1048576	1048576
+1024	1024
 
 -- !select --
 id	text	Yes	false	\N	NONE
@@ -278,7 +278,7 @@ name	text	Yes	false	\N	NONE
 10	zhangsan1410
 
 -- !select --
-1048576	1048576
+1024	1024
 
 -- !select --
 id	text	Yes	false	\N	NONE
@@ -297,7 +297,7 @@ name	text	Yes	false	\N	NONE
 10	zhangsan1410
 
 -- !select --
-1048576	1048576
+1024	1024
 
 -- !select --
 id	text	Yes	false	\N	NONE
@@ -316,7 +316,7 @@ name	text	Yes	false	\N	NONE
 10	zhangsan1410
 
 -- !select --
-1048576	1048576
+1024	1024
 
 -- !select --
 id	text	Yes	false	\N	NONE
@@ -335,7 +335,7 @@ name	text	Yes	false	\N	NONE
 10	zhangsan1410
 
 -- !select --
-1048576	1048576
+1024	1024
 
 -- !select --
 id	text	Yes	false	\N	NONE

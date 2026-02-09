@@ -63,16 +63,16 @@ public class CTEInlineTest extends TestWithFeService implements MemoPatternMatch
                 ExplainCommand.ExplainLevel.REWRITTEN_PLAN);
         MemoTestUtils.initMemoAndValidState(planner.getCascadesContext());
         PlanChecker.from(planner.getCascadesContext()).matches(
-                logicalRecursiveCte(
+                this.logicalRecursiveUnion(
                         any(
                         ),
-                        logicalRecursiveCteRecursiveChild(
+                        logicalRecursiveUnionProducer(
                                 logicalProject(
                                         logicalJoin(
                                                 any(),
                                                 logicalProject(
                                                         logicalFilter(
-                                                                logicalRecursiveCte().when(cte -> cte.getCteName().equals("xx"))
+                                                                logicalRecursiveUnion().when(cte -> cte.getCteName().equals("xx"))
                                                         )
                                                 )
                                         )

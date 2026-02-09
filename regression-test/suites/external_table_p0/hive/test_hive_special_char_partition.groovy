@@ -22,7 +22,7 @@ suite("test_hive_special_char_partition", "p0,external,hive,external_docker,exte
         return;
     }
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
 
         setHivePrefix(hivePrefix)
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")

@@ -59,3 +59,15 @@ id	int	Yes	true	\N
 3	normal	0x48656C6C6F20576F726C64
 4	insert	0xAB
 
+-- !desc_timestamp_tz --
+ID	text	Yes	true	\N	
+TS_LTZ	timestamptz(6)	Yes	true	\N	
+
+-- !select_timestamp_tz --
+\N	\N
+1	2025-01-01 12:00:00.000000+08:00
+
+-- !select_timestamp_tz6 --
+\N	\N
+1	2025-01-01 04:00:00.000000+00:00
+

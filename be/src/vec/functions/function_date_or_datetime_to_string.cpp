@@ -27,6 +27,7 @@
 #include <utility>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
@@ -53,7 +54,6 @@ class DataTypeString;
 template <typename Transform>
 class FunctionDateOrDateTimeToString : public IFunction {
 public:
-    using NativeType = PrimitiveTypeTraits<Transform::OpArgType>::ColumnItemType;
     using DateType = PrimitiveTypeTraits<Transform::OpArgType>::CppType;
     static constexpr auto name = Transform::name;
     static constexpr bool has_variadic_argument =
@@ -177,7 +177,7 @@ public:
     }
 
 private:
-    static void vector(FunctionContext* context, const PaddedPODArray<NativeType>& ts,
+    static void vector(FunctionContext* context, const PaddedPODArray<DateType>& ts,
                        ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets,
                        const NullMap* null_map = nullptr) {
         const auto len = ts.size();
@@ -200,10 +200,9 @@ private:
                 continue;
             }
 
-            const auto& t = ts[i];
-            const auto date_time_value = binary_cast<NativeType, DateType>(t);
+            const auto& date_time_value = ts[i];
             res_offsets[i] = cast_set<UInt32>(
-                    Transform::execute(date_time_value, res_data, offset, names_ptr));
+                    Transform::execute(date_time_value, res_data, offset, names_ptr, context));
             DCHECK(date_time_value.is_valid_date());
         }
         res_data.resize(res_offsets[res_offsets.size() - 1]);
@@ -215,17 +214,41 @@ using FunctionMonthNameV2 = FunctionDateOrDateTimeToString<MonthNameImpl<TYPE_DA
 
 using FunctionDateTimeV2DayName = FunctionDateOrDateTimeToString<DayNameImpl<TYPE_DATETIMEV2>>;
 using FunctionDateTimeV2MonthName = FunctionDateOrDateTimeToString<MonthNameImpl<TYPE_DATETIMEV2>>;
+using FunctionYearMonth = FunctionDateOrDateTimeToString<YearMonthImpl>;
+using FunctionDayHour = FunctionDateOrDateTimeToString<DayHourImpl>;
+using FunctionDayMinute = FunctionDateOrDateTimeToString<DayMinuteImpl>;
+using FunctionDaySecond = FunctionDateOrDateTimeToString<DaySecondImpl>;
+using FunctionDayMicrosecond = FunctionDateOrDateTimeToString<DayMicrosecondImpl>;
+using FunctionHourMinute = FunctionDateOrDateTimeToString<HourMinuteImpl>;
+using FunctionHourSecond = FunctionDateOrDateTimeToString<HourSecondImpl>;
+using FunctionHourMicrosecond = FunctionDateOrDateTimeToString<HourMicrosecondImpl>;
+using FunctionMinuteSecond = FunctionDateOrDateTimeToString<MinuteSecondImpl>;
+using FunctionMinuteMicrosecond = FunctionDateOrDateTimeToString<MinuteMicrosecondImpl>;
+using FunctionSecondMicrosecond = FunctionDateOrDateTimeToString<SecondMicrosecondImpl>;
 
 using FunctionDateIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<TYPE_DATEV2>>;
 using FunctionDateTimeIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<TYPE_DATETIMEV2>>;
+using FunctionTimestampTzIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<TYPE_TIMESTAMPTZ>>;
 
 void register_function_date_time_to_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDayNameV2>();
     factory.register_function<FunctionMonthNameV2>();
     factory.register_function<FunctionDateTimeV2DayName>();
     factory.register_function<FunctionDateTimeV2MonthName>();
+    factory.register_function<FunctionYearMonth>();
+    factory.register_function<FunctionDayHour>();
+    factory.register_function<FunctionDayMinute>();
+    factory.register_function<FunctionDaySecond>();
+    factory.register_function<FunctionDayMicrosecond>();
+    factory.register_function<FunctionHourMinute>();
+    factory.register_function<FunctionHourSecond>();
+    factory.register_function<FunctionHourMicrosecond>();
+    factory.register_function<FunctionMinuteSecond>();
+    factory.register_function<FunctionMinuteMicrosecond>();
+    factory.register_function<FunctionSecondMicrosecond>();
     factory.register_function<FunctionDateIso8601>();
     factory.register_function<FunctionDateTimeIso8601>();
+    factory.register_function<FunctionTimestampTzIso8601>();
 }
 
 } // namespace doris::vectorized

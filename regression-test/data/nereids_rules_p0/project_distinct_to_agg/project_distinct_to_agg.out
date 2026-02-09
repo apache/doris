@@ -51,3 +51,7 @@ PhysicalResultSink
 -- !agg_result --
 7
 
+-- !select --
+1	1
+1	2
+

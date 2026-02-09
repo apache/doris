@@ -105,11 +105,6 @@ inline constexpr bool IsNumber<Int128> = true;
 template <>
 inline constexpr bool IsNumber<wide::Int256> = true;
 
-using Date = Int64;
-using DateTime = Int64;
-using DateV2 = UInt32;
-using DateTimeV2 = UInt64;
-
 template <typename T>
 inline constexpr T decimal_scale_multiplier(UInt32 scale);
 template <>
@@ -519,6 +514,8 @@ template <typename T>
 constexpr bool IsDecimal128V2 = false;
 template <>
 inline constexpr bool IsDecimal128V2<Decimal128V2> = true;
+template <>
+inline constexpr bool IsDecimal128V2<DecimalV2Value> = true;
 
 template <typename T>
 constexpr bool IsDecimal128V3 = false;
@@ -564,6 +561,10 @@ struct NativeType<Decimal64> {
 };
 template <>
 struct NativeType<Decimal128V2> {
+    using Type = Int128;
+};
+template <>
+struct NativeType<DecimalV2Value> {
     using Type = Int128;
 };
 template <>

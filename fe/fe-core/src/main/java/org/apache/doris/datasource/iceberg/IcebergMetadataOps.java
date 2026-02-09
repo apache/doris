@@ -187,7 +187,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 // but in reality, Iceberg's return includes views. Therefore, we added a filter to exclude views.
                 if (catalog instanceof ViewCatalog) {
                     views = ((ViewCatalog) catalog).listViews(getNamespace(dbName))
-                        .stream().map(TableIdentifier::name).collect(Collectors.toList());
+                            .stream().map(TableIdentifier::name).collect(Collectors.toList());
                 } else {
                     views = Collections.emptyList();
                 }
@@ -195,12 +195,15 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                     return tableIdentifiers.stream().map(TableIdentifier::name).collect(Collectors.toList());
                 } else {
                     return tableIdentifiers.stream()
-                        .map(TableIdentifier::name)
-                        .filter(name -> !views.contains(name)).collect(Collectors.toList());
+                            .map(TableIdentifier::name)
+                            .filter(name -> !views.contains(name)).collect(Collectors.toList());
                 }
             });
+        } catch (RuntimeException e) {
+            // We want to catch real exception like NoSuchNamespaceException and throw it directly
+            throw e;
         } catch (Exception e) {
-            throw new RuntimeException("Failed to list table names, error message is:" + e.getMessage(), e);
+            throw new RuntimeException("Failed to list table names, error message is: " + e.getMessage(), e);
         }
     }
 
@@ -455,6 +458,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                             + ", error message is: {} " + ExceptionUtils.getRootCauseMessage(e), e);
         }
         String branchName = branchInfo.getBranchName();
+
+        if (branchName == null || branchName.trim().isEmpty()) {
+            throw new UserException("Branch name cannot be empty");
+        }
+
         boolean refExists = null != icebergTable.refs().get(branchName);
         boolean create = branchInfo.getCreate();
         boolean replace = branchInfo.getReplace();
@@ -535,6 +543,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
 
         String tagName = tagInfo.getTagName();
+
+        if (tagName == null || tagName.trim().isEmpty()) {
+            throw new UserException("Tag name cannot be empty");
+        }
+
         boolean create = tagInfo.getCreate();
         boolean replace = tagInfo.getReplace();
         boolean ifNotExists = tagInfo.getIfNotExists();
@@ -956,7 +969,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         try {
             return executionAuthenticator.execute(() ->
                     ((ViewCatalog) catalog).listViews(getNamespace(db))
-                    .stream().map(TableIdentifier::name).collect(Collectors.toList()));
+                            .stream().map(TableIdentifier::name).collect(Collectors.toList()));
+        } catch (RuntimeException e) {
+            // We want to catch real exception like NoSuchNamespaceException and throw it directly
+            throw e;
         } catch (Exception e) {
             throw new RuntimeException("Failed to list view names, error message is:" + e.getMessage(), e);
         }

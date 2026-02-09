@@ -44,7 +44,6 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
                                    RULE:[2:\$1@\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\$1@\$0](.*@OTHERREALM.COM)s/@.*//
                                    DEFAULT",
-                "hive.metastore.sasl.enabled " = "true",
                 "hive.metastore.kerberos.principal" = "hive/hadoop-master@LABS.TERADATA.COM"
             );
         """

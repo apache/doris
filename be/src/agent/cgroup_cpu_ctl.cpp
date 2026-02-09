@@ -234,10 +234,11 @@ Status CgroupCpuCtl::write_cg_sys_file(std::string file_path, std::string value,
     auto str = fmt::format("{}\n", value);
     ssize_t ret = write(fd, str.c_str(), str.size());
     if (ret == -1) {
-        LOG(ERROR) << msg << " write sys file failed";
-        return Status::InternalError<false>("{} write sys file failed", msg);
+        LOG(ERROR) << msg << " write sys file failed, file_path=" << file_path;
+        return Status::InternalError<false>("{} write sys file failed, file_path={}", msg,
+                                            file_path);
     }
-    LOG(INFO) << msg << " success";
+    LOG(INFO) << msg << " success, file path: " << file_path;
     return Status::OK();
 }
 

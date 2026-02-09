@@ -72,8 +72,12 @@ public final class AwsCredentialsProviderFactory {
         List<com.amazonaws.auth.AWSCredentialsProvider> providers = new ArrayList<>();
         providers.add(new com.amazonaws.auth.InstanceProfileCredentialsProvider());
         //lazy + env
-        providers.add(com.amazonaws.auth.WebIdentityTokenCredentialsProvider.create());
-        providers.add(new com.amazonaws.auth.EC2ContainerCredentialsProviderWrapper());
+        if (isWebIdentityConfigured()) {
+            providers.add(com.amazonaws.auth.WebIdentityTokenCredentialsProvider.create());
+        }
+        if (isContainerCredentialsConfigured()) {
+            providers.add(new com.amazonaws.auth.EC2ContainerCredentialsProviderWrapper());
+        }
         providers.add(new com.amazonaws.auth.EnvironmentVariableCredentialsProvider());
         providers.add(new com.amazonaws.auth.SystemPropertiesCredentialsProvider());
         return new com.amazonaws.auth.AWSCredentialsProviderChain(
@@ -108,13 +112,27 @@ public final class AwsCredentialsProviderFactory {
         }
     }
 
+    private static boolean isWebIdentityConfigured() {
+        return System.getenv("AWS_ROLE_ARN") != null
+                && System.getenv("AWS_WEB_IDENTITY_TOKEN_FILE") != null;
+    }
+
+    private static boolean isContainerCredentialsConfigured() {
+        return System.getenv("AWS_CONTAINER_CREDENTIALS_FULL_URI") != null
+                || System.getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") != null;
+    }
+
     private static AwsCredentialsProvider createDefaultV2(
             boolean includeAnonymous) {
 
         List<AwsCredentialsProvider> providers = new ArrayList<>();
         providers.add(InstanceProfileCredentialsProvider.create());
-        providers.add(WebIdentityTokenFileCredentialsProvider.create());
-        providers.add(ContainerCredentialsProvider.create());
+        if (isWebIdentityConfigured()) {
+            providers.add(WebIdentityTokenFileCredentialsProvider.create());
+        }
+        if (isContainerCredentialsConfigured()) {
+            providers.add(ContainerCredentialsProvider.create());
+        }
         providers.add(EnvironmentVariableCredentialsProvider.create());
         providers.add(SystemPropertyCredentialsProvider.create());
         if (includeAnonymous) {
@@ -143,9 +161,13 @@ public final class AwsCredentialsProviderFactory {
                 List<String> providers = new ArrayList<>();
                 providers.add(EnvironmentVariableCredentialsProvider.class.getName());
                 providers.add(SystemPropertyCredentialsProvider.class.getName());
-                providers.add(WebIdentityTokenFileCredentialsProvider.class.getName());
-                providers.add(ContainerCredentialsProvider.class.getName());
                 providers.add(InstanceProfileCredentialsProvider.class.getName());
+                if (isWebIdentityConfigured()) {
+                    providers.add(WebIdentityTokenFileCredentialsProvider.class.getName());
+                }
+                if (isContainerCredentialsConfigured()) {
+                    providers.add(ContainerCredentialsProvider.class.getName());
+                }
                 if (includeAnonymousInDefault) {
                     providers.add(AnonymousCredentialsProvider.class.getName());
                 }

@@ -726,6 +726,13 @@ public class SchemaChangeHandler extends AlterHandler {
         Column modColumn = modifyColumnOp.getColumn();
         boolean lightSchemaChange = false;
 
+        // Defensive guard: no type conversions to VARIANT are allowed today, but legacy metadata
+        // may still contain VARIANT columns with light_schema_change disabled.
+        if (modColumn.getType().isVariantType() && !olapTable.getEnableLightSchemaChange()) {
+            throw new DdlException("Variant type rely on light schema change, "
+                    + "please use light_schema_change = true.");
+        }
+
         if (KeysType.AGG_KEYS == olapTable.getKeysType()) {
             if (modColumn.isKey() && null != modColumn.getAggregationType()) {
                 throw new DdlException("Can not assign aggregation method on key column: " + modColumn.getName());
@@ -1115,6 +1122,10 @@ public class SchemaChangeHandler extends AlterHandler {
 
         if (newColumn.isAutoInc()) {
             throw new DdlException("Can not add auto-increment column " + newColumn.getName());
+        }
+        if (newColumn.getType().isVariantType() && !lightSchemaChange) {
+            throw new DdlException("Variant type rely on light schema change, "
+                    + "please use light_schema_change = true.");
         }
 
         // check the validation of aggregation method on column.
@@ -3004,12 +3015,26 @@ public class SchemaChangeHandler extends AlterHandler {
                     String columnName = indexDef.getColumnNames().get(0);
                     Column column = olapTable.getColumn(columnName);
                     if (column != null && (column.getType().isStringType() || column.getType().isVariantType())) {
-                        boolean isExistingIndexAnalyzer = index.isAnalyzedInvertedIndex();
-                        boolean isNewIndexAnalyzer = indexDef.isAnalyzedInvertedIndex();
-                        if (isExistingIndexAnalyzer == isNewIndexAnalyzer) {
-                            throw new DdlException(
-                                indexDef.getIndexType() + " index for column (" + columnName + ") with "
-                                    + (isNewIndexAnalyzer ? "analyzed" : "non-analyzed") + " type already exists.");
+                        if (index.getIndexType() == IndexType.INVERTED) {
+                            String existingIdentity = index.getAnalyzerIdentity();
+                            String newIdentity = indexDef.getAnalyzerIdentity();
+                            if (Objects.equals(existingIdentity, newIdentity)) {
+                                String analyzerDesc = "__default__".equals(newIdentity)
+                                        ? "default analyzer"
+                                        : "analyzer identity '" + newIdentity + "'";
+                                throw new DdlException(indexDef.getIndexType()
+                                        + " index for column (" + columnName + ") with analyzer "
+                                        + analyzerDesc + " already exists.");
+                            }
+                        } else {
+                            boolean isExistingIndexAnalyzer = index.isAnalyzedInvertedIndex();
+                            boolean isNewIndexAnalyzer = indexDef.isAnalyzedInvertedIndex();
+                            if (isExistingIndexAnalyzer == isNewIndexAnalyzer) {
+                                throw new DdlException(
+                                    indexDef.getIndexType() + " index for column (" + columnName + ") with "
+                                        + (isNewIndexAnalyzer ? "analyzed" : "non-analyzed")
+                                        + " type already exists.");
+                            }
                         }
                     } else {
                         throw new DdlException(

@@ -50,7 +50,7 @@
 
 namespace doris::vectorized {
 static auto serde_int32 = std::make_shared<DataTypeNumberSerDe<TYPE_INT>>();
-static auto serde_str = std::make_shared<DataTypeStringSerDe>();
+static auto serde_str = std::make_shared<DataTypeStringSerDe>(TYPE_STRING);
 
 class DataTypeStructSerDeTest : public ::testing::Test {
 protected:

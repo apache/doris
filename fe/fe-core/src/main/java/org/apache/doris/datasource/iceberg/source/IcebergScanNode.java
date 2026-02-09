@@ -278,6 +278,46 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @Override
+    protected List<String> getDeleteFiles(TFileRangeDesc rangeDesc) {
+        List<String> deleteFiles = new ArrayList<>();
+        if (rangeDesc == null || !rangeDesc.isSetTableFormatParams()) {
+            return deleteFiles;
+        }
+        TTableFormatFileDesc tableFormatParams = rangeDesc.getTableFormatParams();
+        if (tableFormatParams == null || !tableFormatParams.isSetIcebergParams()) {
+            return deleteFiles;
+        }
+        TIcebergFileDesc icebergParams = tableFormatParams.getIcebergParams();
+        if (icebergParams == null || !icebergParams.isSetDeleteFiles()) {
+            return deleteFiles;
+        }
+        List<TIcebergDeleteFileDesc> icebergDeleteFiles = icebergParams.getDeleteFiles();
+        if (icebergDeleteFiles == null) {
+            return deleteFiles;
+        }
+        for (TIcebergDeleteFileDesc deleteFile : icebergDeleteFiles) {
+            if (deleteFile != null && deleteFile.isSetPath()) {
+                deleteFiles.add(deleteFile.getPath());
+            }
+        }
+        return deleteFiles;
+    }
+
+    private String getDeleteFileContentType(int content) {
+        // Iceberg file type: 0: data, 1: position delete, 2: equality delete, 3: deletion vector
+        switch (content) {
+            case 1:
+                return "position_delete";
+            case 2:
+                return "equality_delete";
+            case 3:
+                return "deletion_vector";
+            default:
+                return "unknown";
+        }
+    }
+
+    @Override
     public List<Split> getSplits(int numBackends) throws UserException {
         try {
             return preExecutionAuthenticator.execute(() -> doGetSplits(numBackends));
@@ -442,13 +482,17 @@ public class IcebergScanNode extends FileQueryScanNode {
     private long determineTargetFileSplitSize(Iterable<FileScanTask> tasks) {
         long result = sessionVariable.getMaxInitialSplitSize();
         long accumulatedTotalFileSize = 0;
+        boolean exceedInitialThreshold = false;
         for (FileScanTask task : tasks) {
             accumulatedTotalFileSize += ScanTaskUtil.contentSizeInBytes(task.file());
-            if (accumulatedTotalFileSize
+            if (!exceedInitialThreshold && accumulatedTotalFileSize
                     >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
-                result = sessionVariable.getMaxSplitSize();
-                break;
+                exceedInitialThreshold = true;
             }
+        }
+        result = exceedInitialThreshold ? sessionVariable.getMaxSplitSize() : result;
+        if (!isBatchMode()) {
+            result = applyMaxFileSplitNumLimit(result, accumulatedTotalFileSize);
         }
         return result;
     }

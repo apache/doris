@@ -173,7 +173,11 @@ suite("test_streaming_insert_job_offset") {
     log.info("jobInfo: " + jobInfo)
     assert jobInfo.get(0).get(0) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
     assert jobInfo.get(0).get(1) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
-    assert jobInfo.get(0).get(2) == "{\"scannedRows\":10,\"loadBytes\":218,\"fileNumber\":1,\"fileSize\":138}"
+    def loadStat = parseJson(jobInfo.get(0).get(2))
+    assert loadStat.scannedRows == 10
+    assert loadStat.loadBytes == 218
+    assert loadStat.fileNumber == 1
+    assert loadStat.fileSize == 138
     assert jobInfo.get(0).get(3) == "{\"offset\":\"{\\\"fileName\\\":\\\"regression/load/data/example_0.csv\\\"}\"}"
 
     // alter job init offset, Lexicographic order includes example_[0-1]
@@ -211,7 +215,11 @@ suite("test_streaming_insert_job_offset") {
     log.info("jobInfo: " + jobInfo)
     assert jobInfo.get(0).get(0) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
     assert jobInfo.get(0).get(1) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
-    assert jobInfo.get(0).get(2) == "{\"scannedRows\":30,\"loadBytes\":643,\"fileNumber\":3,\"fileSize\":394}"
+    def loadStat2 = parseJson(jobInfo.get(0).get(2))
+    assert loadStat2.scannedRows == 30
+    assert loadStat2.loadBytes == 643
+    assert loadStat2.fileNumber == 3
+    assert loadStat2.fileSize == 394
     assert jobInfo.get(0).get(3) == "{\"offset\":\"{\\\"fileName\\\":\\\"regression/load/data/anoexist1234.csv\\\"}\"}"
 
     // has double example_1.csv and example_0.csv data

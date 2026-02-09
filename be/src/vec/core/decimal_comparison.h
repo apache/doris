@@ -35,18 +35,22 @@ namespace doris::vectorized {
 template <size_t>
 struct ConstructDecInt {
     static constexpr PrimitiveType Type = TYPE_INT;
+    using CompareInt = Int32;
 };
 template <>
 struct ConstructDecInt<8> {
     static constexpr PrimitiveType Type = TYPE_BIGINT;
+    using CompareInt = Int64;
 };
 template <>
 struct ConstructDecInt<16> {
     static constexpr PrimitiveType Type = TYPE_LARGEINT;
+    using CompareInt = Int128;
 };
 template <>
 struct ConstructDecInt<32> {
     static constexpr PrimitiveType Type = TYPE_DECIMAL256;
+    using CompareInt = wide::Int256;
 };
 
 template <PrimitiveType T, PrimitiveType U>
@@ -57,6 +61,11 @@ struct DecCompareInt {
                                        sizeof(typename PrimitiveTypeTraits<U>::CppType))
                     ? sizeof(typename PrimitiveTypeTraits<T>::CppType)
                     : sizeof(typename PrimitiveTypeTraits<U>::CppType) > ::Type;
+    using CompareInt = typename ConstructDecInt<
+            (!is_decimal(U) || sizeof(typename PrimitiveTypeTraits<T>::CppType) >
+                                       sizeof(typename PrimitiveTypeTraits<U>::CppType))
+                    ? sizeof(typename PrimitiveTypeTraits<T>::CppType)
+                    : sizeof(typename PrimitiveTypeTraits<U>::CppType)>::CompareInt;
 };
 
 ///
@@ -65,7 +74,7 @@ template <PrimitiveType A, PrimitiveType B, template <PrimitiveType> typename Op
 class DecimalComparison {
 public:
     static constexpr PrimitiveType CompareIntPType = DecCompareInt<A, B>::Type;
-    using CompareInt = typename PrimitiveTypeTraits<CompareIntPType>::CppNativeType;
+    using CompareInt = typename DecCompareInt<A, B>::CompareInt;
     using Op = Operation<CompareIntPType>;
     using ColVecA = typename PrimitiveTypeTraits<A>::ColumnType;
     using ColVecB = typename PrimitiveTypeTraits<B>::ColumnType;

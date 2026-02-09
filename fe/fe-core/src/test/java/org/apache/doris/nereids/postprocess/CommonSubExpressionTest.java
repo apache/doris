@@ -44,6 +44,7 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -150,4 +151,53 @@ public class CommonSubExpressionTest extends ExpressionRewriteTestHelper {
         }
     }
 
+    @Test
+    public void testCaseWhenSubExprExtracted() {
+        // a+b appears 4 times inside CASE WHEN, should be collected as common sub-expression
+        // WhenClause itself should NOT be collected
+        List<NamedExpression> exprs = parseProjections(
+                "CASE WHEN (a+b > 10) THEN (a+b) WHEN (a+b > 5) THEN (a+b) ELSE 0 END");
+        CommonSubExpressionCollector collector = new CommonSubExpressionCollector();
+        exprs.forEach(expr -> collector.collect(expr));
+
+        // a+b is at depth 1 and appears multiple times → should be in commonExprByDepth
+        Assertions.assertFalse(collector.commonExprByDepth.isEmpty(),
+                "a+b should be collected as common sub-expression");
+        Set<Expression> depth1 = collector.commonExprByDepth.get(1);
+        Assertions.assertNotNull(depth1, "common expressions at depth 1 should exist");
+        Assertions.assertEquals(1, depth1.size());
+        assertExpression(depth1.iterator().next(), "a+b");
+
+        // no WhenClause should appear in commonExprByDepth at any depth
+        for (Set<Expression> exprsAtDepth : collector.commonExprByDepth.values()) {
+            for (Expression e : exprsAtDepth) {
+                Assertions.assertFalse(e instanceof org.apache.doris.nereids.trees.expressions.WhenClause,
+                        "WhenClause should not be collected as common sub-expression");
+            }
+        }
+    }
+
+    @Test
+    public void testEmptyLayerWhenOnlyWhenClauseIsCommon() throws Exception {
+        // two identical WhenClause(false, null), no slot references
+        List<NamedExpression> exprs = parseProjections(
+                "CASE WHEN false THEN null WHEN false THEN null ELSE 1 END");
+        Set<Slot> inputSlots = new HashSet<>();
+
+        CommonSubExpressionOpt opt = new CommonSubExpressionOpt();
+        Method method = CommonSubExpressionOpt.class
+                .getDeclaredMethod("computeMultiLayerProjections", Set.class, List.class);
+        method.setAccessible(true);
+
+        List<List<NamedExpression>> multiLayers =
+                (List<List<NamedExpression>>) method.invoke(opt, inputSlots, exprs);
+
+        // Bug: multiLayers = [[], [CASE...]]  — l0 is empty
+        // Expected: either multiLayers is empty (no useful CSE),
+        //           or every layer is non-empty
+        for (List<NamedExpression> layer : multiLayers) {
+            Assertions.assertFalse(layer.isEmpty(),
+                    "intermediate layer should not be empty");
+        }
+    }
 }

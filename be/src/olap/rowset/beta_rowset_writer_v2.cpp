@@ -48,7 +48,6 @@
 #include "olap/tablet_schema.h"
 #include "util/slice.h"
 #include "util/time.h"
-#include "vec/common/schema_util.h" // LocalSchemaChangeRecorder
 #include "vec/core/block.h"
 #include "vec/sink/load_stream_stub.h"
 

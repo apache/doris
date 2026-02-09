@@ -700,8 +700,7 @@ public class PlanChecker {
     public PlanChecker setMaxInvokeTimesPerRule(int maxInvokeTime) {
         JobContext originJobContext = cascadesContext.getCurrentJobContext();
         cascadesContext.setCurrentJobContext(
-                new JobContext(cascadesContext,
-                        originJobContext.getRequiredProperties(), originJobContext.getCostUpperBound()) {
+                new JobContext(cascadesContext, originJobContext.getRequiredProperties()) {
                     @Override
                     public void onInvokeRule(RuleType ruleType) {
                         // add invoke times

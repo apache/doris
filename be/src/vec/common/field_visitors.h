@@ -43,80 +43,73 @@ template <typename Visitor, typename F>
 typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F&& field) {
     switch (field.get_type()) {
     case PrimitiveType::TYPE_NULL:
-        return visitor.template apply<PrimitiveType::TYPE_NULL>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_NULL>::CppType>());
+        return visitor.template apply<PrimitiveType::TYPE_NULL>(field.template get<TYPE_NULL>());
     case PrimitiveType::TYPE_DATETIMEV2:
         return visitor.template apply<PrimitiveType::TYPE_DATETIMEV2>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType>());
+                field.template get<TYPE_DATETIMEV2>());
     case PrimitiveType::TYPE_TIMESTAMPTZ:
         return visitor.template apply<PrimitiveType::TYPE_TIMESTAMPTZ>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::CppType>());
+                field.template get<TYPE_TIMESTAMPTZ>());
     case PrimitiveType::TYPE_LARGEINT:
         return visitor.template apply<PrimitiveType::TYPE_LARGEINT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_LARGEINT>::CppType>());
+                field.template get<TYPE_LARGEINT>());
     case PrimitiveType::TYPE_DATETIME:
         return visitor.template apply<PrimitiveType::TYPE_DATETIME>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType>());
+                field.template get<TYPE_DATETIME>());
     case PrimitiveType::TYPE_DATE:
-        return visitor.template apply<PrimitiveType::TYPE_DATE>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DATE>::CppType>());
+        return visitor.template apply<PrimitiveType::TYPE_DATE>(field.template get<TYPE_DATE>());
     case PrimitiveType::TYPE_BOOLEAN:
         return visitor.template apply<PrimitiveType::TYPE_BOOLEAN>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType>());
+                field.template get<TYPE_BOOLEAN>());
     case PrimitiveType::TYPE_TINYINT:
         return visitor.template apply<PrimitiveType::TYPE_TINYINT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_TINYINT>::CppType>());
+                field.template get<TYPE_TINYINT>());
     case PrimitiveType::TYPE_SMALLINT:
         return visitor.template apply<PrimitiveType::TYPE_SMALLINT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_SMALLINT>::CppType>());
+                field.template get<TYPE_SMALLINT>());
     case PrimitiveType::TYPE_INT:
-        return visitor.template apply<PrimitiveType::TYPE_INT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_INT>::CppType>());
+        return visitor.template apply<PrimitiveType::TYPE_INT>(field.template get<TYPE_INT>());
     case PrimitiveType::TYPE_BIGINT:
         return visitor.template apply<PrimitiveType::TYPE_BIGINT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_BIGINT>::CppType>());
+                field.template get<TYPE_BIGINT>());
     case PrimitiveType::TYPE_FLOAT:
-        return visitor.template apply<PrimitiveType::TYPE_FLOAT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_FLOAT>::CppType>());
+        return visitor.template apply<PrimitiveType::TYPE_FLOAT>(field.template get<TYPE_FLOAT>());
     case PrimitiveType::TYPE_DOUBLE:
         return visitor.template apply<PrimitiveType::TYPE_DOUBLE>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DOUBLE>::CppType>());
+                field.template get<TYPE_DOUBLE>());
     case PrimitiveType::TYPE_STRING:
         return visitor.template apply<PrimitiveType::TYPE_STRING>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_STRING>::CppType>());
+                field.template get<TYPE_STRING>());
     case PrimitiveType::TYPE_CHAR:
-        return visitor.template apply<PrimitiveType::TYPE_CHAR>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_CHAR>::CppType>());
+        return visitor.template apply<PrimitiveType::TYPE_CHAR>(field.template get<TYPE_CHAR>());
     case PrimitiveType::TYPE_VARCHAR:
         return visitor.template apply<PrimitiveType::TYPE_VARCHAR>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_VARCHAR>::CppType>());
+                field.template get<TYPE_VARCHAR>());
     case PrimitiveType::TYPE_ARRAY:
-        return visitor.template apply<PrimitiveType::TYPE_ARRAY>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_ARRAY>::CppType>());
+        return visitor.template apply<PrimitiveType::TYPE_ARRAY>(field.template get<TYPE_ARRAY>());
     case PrimitiveType::TYPE_STRUCT:
         return visitor.template apply<PrimitiveType::TYPE_STRUCT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_STRUCT>::CppType>());
+                field.template get<TYPE_STRUCT>());
     case PrimitiveType::TYPE_VARIANT:
         return visitor.template apply<PrimitiveType::TYPE_VARIANT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_VARIANT>::CppType>());
+                field.template get<TYPE_VARIANT>());
     case PrimitiveType::TYPE_DECIMAL32:
         return visitor.template apply<PrimitiveType::TYPE_DECIMAL32>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL32>::CppType>());
+                field.template get<TYPE_DECIMAL32>());
     case PrimitiveType::TYPE_DECIMAL64:
         return visitor.template apply<PrimitiveType::TYPE_DECIMAL64>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL64>::CppType>());
+                field.template get<TYPE_DECIMAL64>());
     case PrimitiveType::TYPE_DECIMALV2:
         return visitor.template apply<PrimitiveType::TYPE_DECIMALV2>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType>());
+                field.template get<TYPE_DECIMALV2>());
     case PrimitiveType::TYPE_DECIMAL128I:
         return visitor.template apply<PrimitiveType::TYPE_DECIMAL128I>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::CppType>());
+                field.template get<TYPE_DECIMAL128I>());
     case PrimitiveType::TYPE_DECIMAL256:
         return visitor.template apply<PrimitiveType::TYPE_DECIMAL256>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL256>::CppType>());
+                field.template get<TYPE_DECIMAL256>());
     case PrimitiveType::TYPE_JSONB:
-        return visitor.template apply<PrimitiveType::TYPE_JSONB>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_JSONB>::CppType>());
+        return visitor.template apply<PrimitiveType::TYPE_JSONB>(field.template get<TYPE_JSONB>());
     default:
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Bad type of Field {}",
                                static_cast<int>(field.get_type()));

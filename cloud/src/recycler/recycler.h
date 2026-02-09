@@ -244,6 +244,8 @@ public:
             : RecyclerMetricsContext("global_recycler", "recycle_segment") {}
 };
 
+struct OplogRecycleStats;
+
 class InstanceRecycler {
 public:
     struct PackedFileRecycleStats {
@@ -398,6 +400,8 @@ public:
 
     int scan_and_statistics_restore_jobs();
 
+    void scan_and_statistics_operation_logs();
+
     /**
      * Decode the key of a packed-file metadata record into the persisted object path.
      *
@@ -476,7 +480,8 @@ private:
     //
     // Both `operation_log` and `raw_keys` will be removed in the same transaction, to ensure atomicity.
     int recycle_operation_log(Versionstamp log_version, const std::vector<std::string>& raw_keys,
-                              OperationLogPB operation_log);
+                              OperationLogPB operation_log,
+                              OplogRecycleStats* oplog_stats = nullptr);
 
     // Recycle rowset meta and data, return 0 for success otherwise error
     //
@@ -603,6 +608,24 @@ struct OperationLogReferenceInfo {
     bool referenced_by_instance = false;
     bool referenced_by_snapshot = false;
     Versionstamp referenced_snapshot_timestamp;
+};
+
+struct OplogRecycleStats {
+    // Total oplog count scanned per round
+    std::atomic<int64_t> total_num {0};
+    // Oplogs not recycled this round (per round, written to mBvarStatus)
+    std::atomic<int64_t> not_recycled_num {0};
+    // Recycle failures (per round, accumulated to mBvarIntAdder at end)
+    std::atomic<int64_t> failed_num {0};
+    // Per-oplog-type recycled counts (incremented after successful commit)
+    std::atomic<int64_t> recycled_commit_partition {0};
+    std::atomic<int64_t> recycled_drop_partition {0};
+    std::atomic<int64_t> recycled_commit_index {0};
+    std::atomic<int64_t> recycled_drop_index {0};
+    std::atomic<int64_t> recycled_update_tablet {0};
+    std::atomic<int64_t> recycled_compaction {0};
+    std::atomic<int64_t> recycled_schema_change {0};
+    std::atomic<int64_t> recycled_commit_txn {0};
 };
 
 // Helper class to check if operation logs can be recycled based on snapshots and versionstamps

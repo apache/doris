@@ -37,11 +37,11 @@ private:
     }
     Field operator[](size_t) const override { return {}; }
     void get(size_t, Field& f) const override { f = {}; }
-    void insert(const Field&) override { ++s; }
 
 public:
     std::string get_name() const override { return "Nothing"; }
     MutableColumnPtr clone_dummy(size_t s_) const override { return ColumnNothing::create(s_); }
+    void insert(const Field&) override { ++s; }
 
     bool structure_equals(const IColumn& rhs) const override {
         return typeid(rhs) == typeid(ColumnNothing);

@@ -70,6 +70,7 @@ import org.apache.doris.thrift.TRuntimeFilterInfo;
 import org.apache.doris.thrift.TRuntimeFilterParams;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TTopnFilterDesc;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ArrayListMultimap;
@@ -597,67 +598,143 @@ public class ThriftPlansBuilder {
 
     private static Set<Integer> setParamsForRecursiveCteNode(List<PipelineDistributedPlan> distributedPlans,
             List<RuntimeFilter> runtimeFilters) {
+        /*
+         * Populate and attach recursive-CTE related Thrift structures used by
+         * backends (BE) to coordinate recursive Common Table Expression (CTE)
+         * execution across fragments and fragment instances.
+         *
+         * This method performs the following responsibilities:
+         * - Traverse the provided `distributedPlans` in bottom-up order (this
+         *   ordering is expected by callers) and collect the set of network
+         *   addresses (host + brpcPort) for every fragment. These addresses are
+         *   used to reset and control recursive CTE child fragments from the
+         *   producer side.
+         * - Detect `RecursiveCteScanNode` within fragments and build a
+         *   `TRecCTETarget` for each such scan. A `TRecCTETarget` captures the
+         *   network address and a representative fragment instance id and the
+         *   scan node id that the recursive producer should send data to.
+         *   Exactly one `RecursiveCteScanNode` is expected per fragment that
+         *   contains a scan for a recursive CTE; otherwise an
+         *   IllegalStateException is thrown.
+         * - For every `RecursiveCteNode` (producer/union node), collect its
+         *   child fragments that implement the recursive side. For each child
+         *   fragment, add the corresponding `TRecCTETarget` (if present) to
+         *   the producer's target list and create `TRecCTEResetInfo` entries
+         *   for all instances of that fragment. `TRecCTEResetInfo` entries
+         *   carry the fragment id and addresses to be reset by the producer
+         *   when a new recursion iteration begins.
+         * - Populate the `TRecCTENode` object attached to the
+         *   `RecursiveCteNode`, including: whether it's `UNION ALL`, result
+         *   expression lists (materialized result expressions converted to
+         *   Thrift `TExpr`), list of targets, fragments-to-reset, runtime
+         *   filter ids that must be reset on the recursive side, and a flag
+         *   indicating whether this recursive CTE node is used by other
+         *   recursive CTEs.
+         *
+         * How runtime filters are handled:
+         * - Build `runtimeFiltersToReset` by scanning provided
+         *   `runtimeFilters`. A filter id is added if the filter has remote
+         *   targets and if the recursive side (right child) contains the
+         *   runtime-filter builder node. These filter ids are attached to the
+         *   `TRecCTENode` so BE can reset the corresponding runtime filters
+         *   between recursive iterations.
+         *
+         * Important assumptions and invariants:
+         * - `distributedPlans` must be ordered bottom-up so that child
+         *   fragments (containing `RecursiveCteScanNode`) are visited before
+         *   their producers. The implementation relies on this to pop
+         *   consumed `TRecCTETarget` entries from `fragmentIdToRecCteTargetMap`
+         *   to avoid a parent producer incorrectly picking up grandchild
+         *   scan nodes.
+         * - Each fragment containing a `RecursiveCteScanNode` must have at
+         *   least one assigned job (instance). If not, an
+         *   IllegalStateException is thrown.
+         * - At most one `RecursiveCteScanNode` per fragment is supported; if
+         *   more than one is found an IllegalStateException is thrown.
+         *
+         * @param distributedPlans ordered list of PipelineDistributedPlan in
+         *                         bottom-up traversal order
+         * @param runtimeFilters   list of runtime filters to consider for reset
+         * @return set of fragment ids (as integers) that need to be notified
+         *         to close for recursive CTE handling
+         */
+        // fragments whose child recursive fragments need to be notified to close
         Set<Integer> fragmentToNotifyClose = new HashSet<>();
-        Map<PlanFragmentId, TRecCTETarget> fragmentIdToRecCteTargetMap = new TreeMap<>();
+        // mapping from fragment id -> TRecCTETarget (the scan node target info)
+        Map<PlanFragmentId, List<TRecCTETarget>> fragmentIdToRecCteTargetMap = new TreeMap<>();
+        // mapping from fragment id -> set of network addresses for all instances
         Map<PlanFragmentId, Set<TNetworkAddress>> fragmentIdToNetworkAddressMap = new TreeMap<>();
         // distributedPlans is ordered in bottom up way, so does the fragments
         for (PipelineDistributedPlan plan : distributedPlans) {
+            // collect all assigned instance network addresses for this fragment
             List<AssignedJob> fragmentAssignedJobs = plan.getInstanceJobs();
             Set<TNetworkAddress> networkAddresses = new TreeSet<>();
+            Map<TNetworkAddress, TUniqueId> addressTUniqueIdMap = new TreeMap<>();
             for (AssignedJob assignedJob : fragmentAssignedJobs) {
                 DistributedPlanWorker distributedPlanWorker = assignedJob.getAssignedWorker();
-                networkAddresses.add(new TNetworkAddress(distributedPlanWorker.host(),
-                        distributedPlanWorker.brpcPort()));
+                // use brpc port + host as the address used by BE for control/reset
+                TNetworkAddress networkAddress = new TNetworkAddress(distributedPlanWorker.host(),
+                        distributedPlanWorker.brpcPort());
+                if (networkAddresses.add(networkAddress)) {
+                    addressTUniqueIdMap.put(networkAddress, assignedJob.instanceId());
+                }
             }
             PlanFragment planFragment = plan.getFragmentJob().getFragment();
+            // remember addresses for later when building reset infos
             fragmentIdToNetworkAddressMap.put(planFragment.getFragmentId(), networkAddresses);
 
+            // find RecursiveCteScanNode in this fragment (scan side of recursive CTE)
             List<RecursiveCteScanNode> recursiveCteScanNodes = planFragment.getPlanRoot()
                     .collectInCurrentFragment(RecursiveCteScanNode.class::isInstance);
             if (!recursiveCteScanNodes.isEmpty()) {
+                // validate there is exactly one scan node per fragment
                 if (recursiveCteScanNodes.size() != 1) {
                     throw new IllegalStateException(
                             String.format("one fragment can only have 1 recursive cte scan node, but there is %d",
                                     recursiveCteScanNodes.size()));
                 }
+                // scan fragments must have at least one assigned instance
                 if (fragmentAssignedJobs.isEmpty()) {
                     throw new IllegalStateException(
                             "fragmentAssignedJobs is empty for recursive cte scan node");
                 }
-                TRecCTETarget tRecCTETarget = new TRecCTETarget();
-                DistributedPlanWorker distributedPlanWorker = fragmentAssignedJobs.get(0).getAssignedWorker();
-                tRecCTETarget.setAddr(new TNetworkAddress(distributedPlanWorker.host(),
-                        distributedPlanWorker.brpcPort()));
-                tRecCTETarget.setFragmentInstanceId(fragmentAssignedJobs.get(0).instanceId());
-                tRecCTETarget.setNodeId(recursiveCteScanNodes.get(0).getId().asInt());
-                // find all RecursiveCteScanNode and its fragment id
-                fragmentIdToRecCteTargetMap.put(planFragment.getFragmentId(), tRecCTETarget);
+                // Build a TRecCTETargets
+                List<TRecCTETarget> recCTETargets = new ArrayList<>(addressTUniqueIdMap.size());
+                for (Entry<TNetworkAddress, TUniqueId> entry : addressTUniqueIdMap.entrySet()) {
+                    TRecCTETarget tRecCTETarget = new TRecCTETarget();
+                    tRecCTETarget.setAddr(entry.getKey());
+                    tRecCTETarget.setFragmentInstanceId(entry.getValue());
+                    tRecCTETarget.setNodeId(recursiveCteScanNodes.get(0).getId().asInt());
+                    recCTETargets.add(tRecCTETarget);
+                }
+                // store the target for producers to reference later
+                fragmentIdToRecCteTargetMap.put(planFragment.getFragmentId(), recCTETargets);
             }
 
             List<RecursiveCteNode> recursiveCteNodes = planFragment.getPlanRoot()
                     .collectInCurrentFragment(RecursiveCteNode.class::isInstance);
             for (RecursiveCteNode recursiveCteNode : recursiveCteNodes) {
+                // list of scan targets this producer should send recursive rows to
                 List<TRecCTETarget> targets = new ArrayList<>();
+                // reset infos for all instances of child fragments (used to reset state)
                 List<TRecCTEResetInfo> fragmentsToReset = new ArrayList<>();
-                // recursiveCteNode's right child is recursive part (exchange node)
-                // so we get collect all child fragment from exchange node's child node
+                // The recursive side is under the right child; collect all fragments
                 List<PlanFragment> childFragments = new ArrayList<>();
                 recursiveCteNode.getChild(1).getChild(0).getFragment().collectAll(PlanFragment.class::isInstance,
                         childFragments);
                 for (PlanFragment child : childFragments) {
                     PlanFragmentId childFragmentId = child.getFragmentId();
-                    // the fragment need to be notified to close
+                    // mark this child fragment id so it will be notified to close
                     fragmentToNotifyClose.add(childFragmentId.asInt());
-                    TRecCTETarget tRecCTETarget = fragmentIdToRecCteTargetMap.getOrDefault(childFragmentId, null);
-                    if (tRecCTETarget != null) {
-                        // one RecursiveCteNode can only have one corresponding RecursiveCteScanNode
-                        targets.add(tRecCTETarget);
-                        // because we traverse the fragments in bottom-up way
-                        // we can safely remove accessed RecursiveCteScanNode
-                        // so the parent RecursiveCteNode won't see its grandson RecursiveCteScanNode
-                        // but can only see its child RecursiveCteScanNode
+                    // add target if a matching RecursiveCteScanNode was recorded
+                    List<TRecCTETarget> recCTETargets = fragmentIdToRecCteTargetMap.getOrDefault(childFragmentId, null);
+                    if (recCTETargets != null) {
+                        // each producer can only map to one scan node target per child
+                        targets.addAll(recCTETargets);
+                        // remove the entry so ancestor producers won't reuse a grandchild scan node
                         fragmentIdToRecCteTargetMap.remove(childFragmentId);
                     }
+                    // get all instance addresses for this child fragment and build reset infos
                     Set<TNetworkAddress> tNetworkAddresses = fragmentIdToNetworkAddressMap.get(childFragmentId);
                     if (tNetworkAddresses == null) {
                         throw new IllegalStateException(
@@ -671,26 +748,34 @@ public class ThriftPlansBuilder {
                     }
                 }
 
+                // convert materialized result expression lists to Thrift TExpr lists
                 List<List<Expr>> materializedResultExprLists = recursiveCteNode.getMaterializedResultExprLists();
                 List<List<TExpr>> texprLists = new ArrayList<>(materializedResultExprLists.size());
                 for (List<Expr> exprList : materializedResultExprLists) {
                     texprLists.add(Expr.treesToThrift(exprList));
                 }
                 // the recursive side's rf need to be reset
+                // determine which runtime filters on the recursive side must be reset
                 List<Integer> runtimeFiltersToReset = new ArrayList<>(runtimeFilters.size());
                 for (RuntimeFilter rf : runtimeFilters) {
+                    // only consider filters that have remote targets and whose builder
+                    // node is present in the recursive side (right child)
                     if (rf.hasRemoteTargets()
                             && recursiveCteNode.getChild(1).contains(node -> node == rf.getBuilderNode())) {
                         runtimeFiltersToReset.add(rf.getFilterId().asInt());
                     }
                 }
                 // find recursiveCte used by other recursive cte
+                // detect whether this recursive CTE node is referenced by other
+                // recursive CTEs in the recursive side; needed to correctly
+                // indicate sharing/usage across recursive nodes
                 Set<RecursiveCteNode> recursiveCteNodesInRecursiveSide = new HashSet<>();
                 PlanNode rootPlan = distributedPlans.get(distributedPlans.size() - 1)
                         .getFragmentJob().getFragment().getPlanRoot();
                 collectAllRecursiveCteNodesInRecursiveSide(rootPlan, false, recursiveCteNodesInRecursiveSide);
                 boolean isUsedByOtherRecCte = recursiveCteNodesInRecursiveSide.contains(recursiveCteNode);
 
+                // build the Thrift TRecCTENode and attach it to the RecursiveCteNode
                 TRecCTENode tRecCTENode = new TRecCTENode();
                 tRecCTENode.setIsUnionAll(recursiveCteNode.isUnionAll());
                 tRecCTENode.setTargets(targets);
@@ -698,6 +783,7 @@ public class ThriftPlansBuilder {
                 tRecCTENode.setResultExprLists(texprLists);
                 tRecCTENode.setRecSideRuntimeFilterIds(runtimeFiltersToReset);
                 tRecCTENode.setIsUsedByOtherRecCte(isUsedByOtherRecCte);
+                // attach Thrift node to plan node for BE consumption
                 recursiveCteNode.settRecCTENode(tRecCTENode);
             }
         }

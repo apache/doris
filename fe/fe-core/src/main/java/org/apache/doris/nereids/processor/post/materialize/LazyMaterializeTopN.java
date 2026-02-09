@@ -41,6 +41,8 @@ import org.apache.doris.qe.SessionVariable;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.ImmutableList;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -65,6 +67,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
        when we create materializeNode for the first union child, set hasMaterialized=true
        to avoid generating materializeNode for other union's children
     */
+    private static final Logger LOG = LogManager.getLogger(LazyMaterializeTopN.class);
     private boolean hasMaterialized = false;
 
     @Override
@@ -77,6 +80,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
             }
             return result;
         } catch (Exception e) {
+            LOG.warn("lazy materialize topn failed", e);
             return topN;
         }
     }

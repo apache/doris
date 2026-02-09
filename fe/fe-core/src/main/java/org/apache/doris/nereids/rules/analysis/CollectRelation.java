@@ -107,10 +107,9 @@ public class CollectRelation implements AnalysisRuleFactory {
         for (LogicalSubQueryAlias<Plan> aliasQuery : aliasQueries) {
             // we should use a chain to ensure visible of cte
             LogicalPlan parsedCtePlan = (LogicalPlan) aliasQuery.child();
-            // 看起来需要在CascadesContext中添加当前CTE的name，以便判断自引用
             CascadesContext innerCascadesCtx = CascadesContext.newContextWithCteContext(
                     cascadesContext, parsedCtePlan, outerCteCtx, aliasQuery.isRecursiveCte()
-                            ? Optional.of(aliasQuery.getAlias()) : Optional.empty(), ImmutableList.of());
+                            ? new CTEContext(CTEId.DEFAULT, aliasQuery.getAlias(), null) : null);
             innerCascadesCtx.newTableCollector(true).collect();
             LogicalPlan analyzedCtePlan = (LogicalPlan) innerCascadesCtx.getRewritePlan();
             // cteId is not used in CollectTable stage
@@ -129,8 +128,7 @@ public class CollectRelation implements AnalysisRuleFactory {
                 if (e instanceof SubqueryExpr) {
                     SubqueryExpr subqueryExpr = (SubqueryExpr) e;
                     CascadesContext subqueryContext = CascadesContext.newContextWithCteContext(
-                            ctx.cascadesContext, subqueryExpr.getQueryPlan(), ctx.cteContext, Optional.empty(),
-                            ImmutableList.of());
+                            ctx.cascadesContext, subqueryExpr.getQueryPlan(), ctx.cteContext, null);
                     subqueryContext.keepOrShowPlanProcess(ctx.cascadesContext.showPlanProcess(),
                             () -> subqueryContext.newTableCollector(true).collect());
                     ctx.cascadesContext.addPlanProcesses(subqueryContext.getPlanProcesses());
@@ -182,10 +180,12 @@ public class CollectRelation implements AnalysisRuleFactory {
             List<String> nameParts, TableFrom tableFrom, Optional<UnboundRelation> unboundRelation) {
         if (nameParts.size() == 1) {
             String tableName = nameParts.get(0);
-            if (cascadesContext.getCurrentRecursiveCteName().isPresent()
-                    && tableName.equalsIgnoreCase(cascadesContext.getCurrentRecursiveCteName().get())) {
+            // check if it is a recursive CTE's name
+            if (cascadesContext.getRecursiveCteContext().isPresent()
+                    && cascadesContext.getRecursiveCteContext().get().findCTEContext(tableName).isPresent()) {
                 return;
             }
+
             // check if it is a CTE's name
             CTEContext cteContext = cascadesContext.getCteContext().findCTEContext(tableName).orElse(null);
             if (cteContext != null) {

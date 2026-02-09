@@ -268,4 +268,83 @@ suite ("rec_cte") {
     )
     SELECT * FROM t1 UNION  select * from t2 ORDER BY 1,2;
     """
+
+    qt_sql """
+    WITH RECURSIVE t1(k1, k2) AS (
+        SELECT
+            1,
+            2
+        UNION
+        SELECT
+            3,
+            4
+        FROM
+            t1
+        GROUP BY
+            k1
+    ),
+    t2(k1, k2) AS (
+        SELECT
+            11,
+            22
+        UNION
+        SELECT
+            t2.k2,
+            tx.k1
+        FROM
+            t1,
+            t2,
+            (
+                WITH RECURSIVE t1(k1, k2) AS (
+                    SELECT
+                        1,
+                        2
+                    UNION
+                    SELECT
+                        3,
+                        4
+                    FROM
+                        t1
+                    GROUP BY
+                        k1
+                ),
+                t2(k1, k2) AS (
+                    SELECT
+                        11,
+                        22
+                    UNION
+                    SELECT
+                        t2.k1,
+                        t2.k2
+                    FROM
+                        t1,
+                        t2
+                )
+                SELECT
+                    *
+                FROM
+                    t1
+                UNION
+                select
+                    *
+                from
+                    t2
+                ORDER BY
+                    1,
+                    2
+            ) tx
+    )
+    SELECT
+        *
+    FROM
+        t1
+    UNION
+    select
+        *
+    from
+        t2
+    ORDER BY
+        1,
+        2;
+    """
 }

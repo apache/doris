@@ -17,6 +17,7 @@
 
 package org.apache.doris.cdcclient.source.reader.postgres;
 
+import org.apache.doris.cdcclient.common.Constants;
 import org.apache.doris.cdcclient.exception.CdcClientException;
 import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.cdcclient.source.reader.JdbcIncrementalSourceReader;
@@ -50,6 +51,7 @@ import org.apache.flink.cdc.connectors.postgres.source.utils.PostgresTypeUtils;
 import org.apache.flink.cdc.connectors.postgres.source.utils.TableDiscoveryUtils;
 import org.apache.flink.table.types.DataType;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -84,7 +86,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
 
     @Override
     public void initialize(long jobId, DataSource dataSource, Map<String, String> config) {
-        PostgresSourceConfig sourceConfig = generatePostgresConfig(config, jobId);
+        PostgresSourceConfig sourceConfig = generatePostgresConfig(config, jobId, 0);
         PostgresDialect dialect = new PostgresDialect(sourceConfig);
         LOG.info("Creating slot for job {}, user {}", jobId, sourceConfig.getUsername());
         createSlotForGlobalStreamSplit(dialect);
@@ -107,6 +109,9 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                             postgresDialect.getSlotName(), postgresDialect.getPluginName());
             // skip creating the replication slot when the slot exists.
             if (slotInfo != null) {
+                LOG.info(
+                        "The replication slot {} already exists, skip creating it.",
+                        postgresDialect.getSlotName());
                 return;
             }
             PostgresReplicationConnection replicationConnection =
@@ -128,13 +133,19 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         return generatePostgresConfig(config);
     }
 
+    @Override
+    protected PostgresSourceConfig getSourceConfig(JobBaseConfig config, int subtaskId) {
+        return generatePostgresConfig(config.getConfig(), config.getJobId(), subtaskId);
+    }
+
     /** Generate PostgreSQL source config from JobBaseConfig */
     private PostgresSourceConfig generatePostgresConfig(JobBaseConfig config) {
-        return generatePostgresConfig(config.getConfig(), config.getJobId());
+        return generatePostgresConfig(config.getConfig(), config.getJobId(), 0);
     }
 
     /** Generate PostgreSQL source config from Map config */
-    private PostgresSourceConfig generatePostgresConfig(Map<String, String> cdcConfig, Long jobId) {
+    private PostgresSourceConfig generatePostgresConfig(
+            Map<String, String> cdcConfig, Long jobId, int subtaskId) {
         PostgresSourceConfigFactory configFactory = new PostgresSourceConfigFactory();
 
         // Parse JDBC URL to extract connection info
@@ -147,16 +158,19 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
 
         String hostname = props.getProperty("PGHOST");
         String port = props.getProperty("PGPORT");
-        String database = props.getProperty("PGDBNAME");
+        String databaseFromUrl = props.getProperty("PGDBNAME");
         Preconditions.checkNotNull(hostname, "host is required");
         Preconditions.checkNotNull(port, "port is required");
-        Preconditions.checkNotNull(database, "database is required");
 
         configFactory.hostname(hostname);
         configFactory.port(Integer.parseInt(port));
         configFactory.username(cdcConfig.get(DataSourceConfigKeys.USER));
         configFactory.password(cdcConfig.get(DataSourceConfigKeys.PASSWORD));
-        configFactory.database(database);
+
+        String database = cdcConfig.get(DataSourceConfigKeys.DATABASE);
+        String finalDatabase = StringUtils.isNotEmpty(database) ? database : databaseFromUrl;
+        Preconditions.checkNotNull(finalDatabase, "database is required");
+        configFactory.database(finalDatabase);
 
         String schema = cdcConfig.get(DataSourceConfigKeys.SCHEMA);
         Preconditions.checkNotNull(schema, "schema is required");
@@ -192,12 +206,12 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         }
 
         // Set split size if provided
-        if (cdcConfig.containsKey(DataSourceConfigKeys.SPLIT_SIZE)) {
+        if (cdcConfig.containsKey(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE)) {
             configFactory.splitSize(
-                    Integer.parseInt(cdcConfig.get(DataSourceConfigKeys.SPLIT_SIZE)));
+                    Integer.parseInt(cdcConfig.get(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE)));
         }
 
-        Properties dbzProps = new Properties();
+        Properties dbzProps = ConfigUtil.getDefaultDebeziumProps();
         dbzProps.put("interval.handling.mode", "string");
         configFactory.debeziumProperties(dbzProps);
 
@@ -205,8 +219,14 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                 ConfigUtil.getPostgresServerTimeZoneFromProps(props).toString());
         configFactory.slotName(getSlotName(jobId));
         configFactory.decodingPluginName("pgoutput");
-        // configFactory.heartbeatInterval(Duration.ofMillis(Constants.POLL_SPLIT_RECORDS_TIMEOUTS));
-        return configFactory.create(0);
+        configFactory.heartbeatInterval(
+                Duration.ofMillis(Constants.DEBEZIUM_HEARTBEAT_INTERVAL_MS));
+
+        // support scan partition table
+        configFactory.setIncludePartitionedTables(true);
+
+        // subtaskId use pg create slot in snapshot phase, slotname is slot_name_subtaskId
+        return configFactory.create(subtaskId);
     }
 
     private String getSlotName(Long jobId) {
@@ -214,30 +234,26 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     }
 
     @Override
-    protected IncrementalSourceScanFetcher getSnapshotSplitReader(JobBaseConfig config) {
-        PostgresSourceConfig sourceConfig = getSourceConfig(config);
-        IncrementalSourceScanFetcher snapshotReader = this.getSnapshotReader();
-        if (snapshotReader == null) {
-            PostgresDialect dialect = new PostgresDialect(sourceConfig);
-            PostgresSourceFetchTaskContext taskContext =
-                    new PostgresSourceFetchTaskContext(sourceConfig, dialect);
-            snapshotReader = new IncrementalSourceScanFetcher(taskContext, 0);
-            this.setSnapshotReader(snapshotReader);
-        }
+    protected IncrementalSourceScanFetcher getSnapshotSplitReader(
+            JobBaseConfig config, int subtaskId) {
+        PostgresSourceConfig sourceConfig = getSourceConfig(config, subtaskId);
+        PostgresDialect dialect = new PostgresDialect(sourceConfig);
+        PostgresSourceFetchTaskContext taskContext =
+                new PostgresSourceFetchTaskContext(sourceConfig, dialect);
+        IncrementalSourceScanFetcher snapshotReader =
+                new IncrementalSourceScanFetcher(taskContext, subtaskId);
         return snapshotReader;
     }
 
     @Override
     protected IncrementalSourceStreamFetcher getBinlogSplitReader(JobBaseConfig config) {
         PostgresSourceConfig sourceConfig = getSourceConfig(config);
-        IncrementalSourceStreamFetcher binlogReader = this.getBinlogReader();
-        if (binlogReader == null) {
-            PostgresDialect dialect = new PostgresDialect(sourceConfig);
-            PostgresSourceFetchTaskContext taskContext =
-                    new PostgresSourceFetchTaskContext(sourceConfig, dialect);
-            binlogReader = new IncrementalSourceStreamFetcher(taskContext, 0);
-            this.setBinlogReader(binlogReader);
-        }
+        PostgresDialect dialect = new PostgresDialect(sourceConfig);
+        PostgresSourceFetchTaskContext taskContext =
+                new PostgresSourceFetchTaskContext(sourceConfig, dialect);
+        // subTaskId maybe add jobId?
+        IncrementalSourceStreamFetcher binlogReader =
+                new IncrementalSourceStreamFetcher(taskContext, 0);
         return binlogReader;
     }
 

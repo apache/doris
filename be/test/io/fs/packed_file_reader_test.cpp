@@ -69,6 +69,8 @@ protected:
         return Status::OK();
     }
 
+    int64_t mtime() const override { return 0; }
+
 private:
     Path _path = Path("mock_file");
     std::string _content;

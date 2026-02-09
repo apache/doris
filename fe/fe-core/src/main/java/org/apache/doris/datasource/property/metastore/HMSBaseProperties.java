@@ -176,6 +176,7 @@ public class HMSBaseProperties {
             KerberosAuthenticationConfig authenticationConfig = new KerberosAuthenticationConfig(
                     this.hdfsKerberosPrincipal, this.hdfsKerberosKeytab, hiveConf);
             hiveConf.set("hadoop.security.authentication", "kerberos");
+            hiveConf.set("hive.metastore.sasl.enabled", "true");
             this.hmsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
             return;
         }

@@ -61,6 +61,8 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
+    bool is_trivial() const override { return true; }
+
     void add(AggregateDataPtr __restrict place, const IColumn**, ssize_t, Arena&) const override {
         ++data(place).count;
     }
@@ -206,6 +208,8 @@ public:
     String get_name() const override { return "count"; }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
+
+    bool is_trivial() const override { return true; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
