@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
@@ -180,7 +179,7 @@ public class PushDownFilterThroughAggregationTest implements MemoPatternMatchSup
         Slot name = scan.getOutput().get(2);
         LogicalRepeat repeatPlan = new LogicalRepeat<>(
                 ImmutableList.of(ImmutableList.of(id, gender), ImmutableList.of(id)),
-                ImmutableList.of(id, gender, name), RepeatType.GROUPING_SETS, scan);
+                ImmutableList.of(id, gender, name), scan);
         NamedExpression nameMax = new Alias(new Max(name), "nameMax");
 
         final Expression filterPredicateId = new GreaterThan(id, Literal.of(1));
@@ -207,7 +206,7 @@ public class PushDownFilterThroughAggregationTest implements MemoPatternMatchSup
 
         repeatPlan = new LogicalRepeat<>(
                 ImmutableList.of(ImmutableList.of(id, gender), ImmutableList.of(gender)),
-                ImmutableList.of(id, gender, name), RepeatType.GROUPING_SETS, scan);
+                ImmutableList.of(id, gender, name), scan);
         plan = new LogicalPlanBuilder(repeatPlan)
                 .aggGroupUsingIndexAndSourceRepeat(ImmutableList.of(0, 1), ImmutableList.of(
                         id, gender, nameMax), Optional.of(repeatPlan))

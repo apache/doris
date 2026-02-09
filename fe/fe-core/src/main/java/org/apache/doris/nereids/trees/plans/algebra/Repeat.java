@@ -18,15 +18,16 @@
 package org.apache.doris.nereids.trees.plans.algebra;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.BitUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -116,35 +117,14 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
 
     /**
      * flatten the grouping sets and build to a GroupingSetShapes.
-     * This method ensures that all expressions referenced by grouping functions are included
-     * in the flattenGroupingSetExpression, even if they are not in any grouping set.
-     * This is necessary for optimization scenarios where some expressions may only exist
-     * in the maximum grouping set that was removed during optimization.
      */
     default GroupingSetShapes toShapes() {
-        // Collect all expressions referenced by grouping functions to ensure they are included
-        // in flattenGroupingSetExpression, even if they are not in any grouping set.
-        // This maintains semantic constraints while allowing optimization.
-        List<GroupingScalarFunction> groupingFunctions = ExpressionUtils.collectToList(
-                getOutputExpressions(), GroupingScalarFunction.class::isInstance);
-        Set<Expression> groupingFunctionArgs = Sets.newLinkedHashSet();
-        for (GroupingScalarFunction function : groupingFunctions) {
-            groupingFunctionArgs.addAll(function.getArguments());
-        }
-        // Merge grouping set expressions with grouping function arguments
-        // Use LinkedHashSet to preserve order: grouping sets first, then grouping function args
-        Set<Expression> flattenGroupingSet = Sets.newLinkedHashSet(getGroupByExpressions());
-        for (Expression arg : groupingFunctionArgs) {
-            if (!flattenGroupingSet.contains(arg)) {
-                flattenGroupingSet.add(arg);
-            }
-        }
+        Set<Expression> flattenGroupingSet = ImmutableSet.copyOf(ExpressionUtils.flatExpressions(getGroupingSets()));
         List<GroupingSetShape> shapes = Lists.newArrayList();
         for (List<Expression> groupingSet : getGroupingSets()) {
             List<Boolean> shouldBeErasedToNull = Lists.newArrayListWithCapacity(flattenGroupingSet.size());
-            for (Expression expression : flattenGroupingSet) {
-                // If expression is not in the current grouping set, it should be erased to null
-                shouldBeErasedToNull.add(!groupingSet.contains(expression));
+            for (Expression groupingSetExpression : flattenGroupingSet) {
+                shouldBeErasedToNull.add(!groupingSet.contains(groupingSetExpression));
             }
             shapes.add(new GroupingSetShape(shouldBeErasedToNull));
         }
@@ -160,8 +140,8 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
      *
      * return: [(4, 3), (3)]
      */
-    default List<Set<Integer>> computeRepeatSlotIdList(List<Integer> slotIdList, List<Slot> outputSlots) {
-        List<Set<Integer>> groupingSetsIndexesInOutput = getGroupingSetsIndexesInOutput(outputSlots);
+    default List<Set<Integer>> computeRepeatSlotIdList(List<Integer> slotIdList) {
+        List<Set<Integer>> groupingSetsIndexesInOutput = getGroupingSetsIndexesInOutput();
         List<Set<Integer>> repeatSlotIdList = Lists.newArrayList();
         for (Set<Integer> groupingSetIndex : groupingSetsIndexesInOutput) {
             // keep order
@@ -180,8 +160,8 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
      * e.g. groupingSets=((b, a), (a)), output=[a, b]
      * return ((1, 0), (1))
      */
-    default List<Set<Integer>> getGroupingSetsIndexesInOutput(List<Slot> outputSlots) {
-        Map<Expression, Integer> indexMap = indexesOfOutput(outputSlots);
+    default List<Set<Integer>> getGroupingSetsIndexesInOutput() {
+        Map<Expression, Integer> indexMap = indexesOfOutput();
 
         List<Set<Integer>> groupingSetsIndex = Lists.newArrayList();
         List<List<Expression>> groupingSets = getGroupingSets();
@@ -204,22 +184,23 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
     /**
      * indexesOfOutput: get the indexes which mapping from the expression to the index in the output.
      *
-     * e.g. outputSlots=[a + 1, b + 2, c]
+     * e.g. output=[a + 1, b + 2, c]
      *
      * return the map(
      *   `a + 1`: 0,
      *   `b + 2`: 1,
      *   `c`: 2
      * )
-     *
-     * Use outputSlots in physicalPlanTranslator instead of getOutputExpressions() in this method,
-     * because the outputSlots have same order with slotIdList.
      */
-    static Map<Expression, Integer> indexesOfOutput(List<Slot> outputSlots) {
+    default Map<Expression, Integer> indexesOfOutput() {
         Map<Expression, Integer> indexes = Maps.newLinkedHashMap();
-        for (int i = 0; i < outputSlots.size(); i++) {
-            NamedExpression output = outputSlots.get(i);
+        List<NamedExpression> outputs = getOutputExpressions();
+        for (int i = 0; i < outputs.size(); i++) {
+            NamedExpression output = outputs.get(i);
             indexes.put(output, i);
+            if (output instanceof Alias) {
+                indexes.put(((Alias) output).child(), i);
+            }
         }
         return indexes;
     }
@@ -320,12 +301,5 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
             String shouldBeErasedToNull = StringUtils.join(this.shouldBeErasedToNull, ", ");
             return "GroupingSetShape(shouldBeErasedToNull=" + shouldBeErasedToNull + ")";
         }
-    }
-
-    /** RepeatType */
-    enum RepeatType {
-        ROLLUP,
-        CUBE,
-        GROUPING_SETS
     }
 }
