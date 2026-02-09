@@ -159,22 +159,24 @@ Status CloudRowsetBuilder::set_txn_related_delete_bitmap() {
                 _req.txn_expiration, _partial_update_info);
     }
 
-    // Register uncommitted rowset for READ UNCOMMITTED visibility.
-    // For MoW tablets, capture the already-computed delete bitmap.
-    if (auto* registry = _engine.uncommitted_rowset_registry()) {
-        auto entry = std::make_shared<UncommittedRowsetEntry>();
-        entry->rowset = _rowset;
-        entry->transaction_id = _req.txn_id;
-        entry->partition_id = _req.partition_id;
-        entry->tablet_id = _tablet->tablet_id();
-        entry->unique_key_merge_on_write = _tablet->enable_unique_key_merge_on_write();
-        if (entry->unique_key_merge_on_write && _delete_bitmap) {
-            entry->committed_delete_bitmap = std::make_shared<DeleteBitmap>(*_delete_bitmap);
-        }
-        registry->register_rowset(std::move(entry));
-    }
-
     return Status::OK();
+}
+
+void CloudRowsetBuilder::register_uncommitted_rowset() {
+    auto* registry = _engine.uncommitted_rowset_registry();
+    if (!registry || !_rowset) {
+        return;
+    }
+    auto entry = std::make_shared<UncommittedRowsetEntry>();
+    entry->rowset = _rowset;
+    entry->transaction_id = _req.txn_id;
+    entry->partition_id = _req.partition_id;
+    entry->tablet_id = _tablet->tablet_id();
+    entry->unique_key_merge_on_write = _tablet->enable_unique_key_merge_on_write();
+    if (entry->unique_key_merge_on_write && _delete_bitmap) {
+        entry->committed_delete_bitmap = std::make_shared<DeleteBitmap>(*_delete_bitmap);
+    }
+    registry->register_rowset(std::move(entry));
 }
 #include "common/compile_check_end.h"
 } // namespace doris

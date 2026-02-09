@@ -146,4 +146,8 @@ Status CloudDeltaWriter::set_txn_related_delete_bitmap() {
     return rowset_builder()->set_txn_related_delete_bitmap();
 }
 
+void CloudDeltaWriter::register_uncommitted_rowset() {
+    rowset_builder()->register_uncommitted_rowset();
+}
+
 } // namespace doris
