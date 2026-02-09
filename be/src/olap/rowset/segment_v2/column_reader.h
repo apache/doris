@@ -718,7 +718,8 @@ private:
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
     DefaultValueColumnIterator(bool has_default_value, const std::string& default_value,
-                               bool is_nullable, TypeInfoPtr type_info, int precision, int scale, int len)
+                               bool is_nullable, TypeInfoPtr type_info, int precision, int scale,
+                               int len)
             : _has_default_value(has_default_value),
               _default_value(default_value),
               _is_nullable(is_nullable),
