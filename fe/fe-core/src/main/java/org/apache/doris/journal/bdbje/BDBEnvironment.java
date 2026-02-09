@@ -26,8 +26,11 @@ import org.apache.doris.ha.HAProtocol;
 import org.apache.doris.system.Frontend;
 
 import com.google.common.collect.ImmutableList;
+import com.sleepycat.bind.tuple.TupleBinding;
+import com.sleepycat.je.Cursor;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseConfig;
+import com.sleepycat.je.DatabaseEntry;
 import com.sleepycat.je.DatabaseException;
 import com.sleepycat.je.DatabaseNotFoundException;
 import com.sleepycat.je.Durability;
@@ -35,6 +38,8 @@ import com.sleepycat.je.Durability.ReplicaAckPolicy;
 import com.sleepycat.je.Durability.SyncPolicy;
 import com.sleepycat.je.EnvironmentConfig;
 import com.sleepycat.je.EnvironmentFailureException;
+import com.sleepycat.je.LockMode;
+import com.sleepycat.je.OperationStatus;
 import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
@@ -333,6 +338,73 @@ public class BDBEnvironment {
         } finally {
             lock.writeLock().unlock();
         }
+    }
+
+    // Remove journals whose id is greater than truncateToJournalId.
+    public void truncateJournalsGreaterThan(long truncateToJournalId) {
+        lock.writeLock().lock();
+        try {
+            List<Long> dbNames = getDatabaseNames();
+            if (dbNames == null || dbNames.isEmpty()) {
+                return;
+            }
+
+            Long minJournalId = dbNames.get(0);
+            Long targetDbName = null;
+            for (Long dbName : dbNames) {
+                if (dbName <= truncateToJournalId) {
+                    targetDbName = dbName;
+                } else {
+                    break;
+                }
+            }
+
+            if (targetDbName == null) {
+                throw new IllegalArgumentException("truncate journal id " + truncateToJournalId
+                        + " is smaller than min journal id " + minJournalId);
+            }
+
+            for (Long dbName : dbNames) {
+                if (dbName > truncateToJournalId) {
+                    removeDatabase(dbName.toString());
+                }
+            }
+
+            long deletedCount = truncateTailInDb(targetDbName.toString(), truncateToJournalId);
+            LOG.info("truncate journals greater than {} finished, targetDb {}, deleted {} keys in target db",
+                    truncateToJournalId, targetDbName, deletedCount);
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    private long truncateTailInDb(String dbName, long truncateToJournalId) {
+        Database db = openDatabase(dbName);
+        if (db == null) {
+            throw new IllegalStateException("failed to open target database " + dbName + " for truncate");
+        }
+
+        long deletedCount = 0;
+        TupleBinding<Long> idBinding = TupleBinding.getPrimitiveBinding(Long.class);
+        Cursor cursor = null;
+        try {
+            cursor = db.openCursor(null, null);
+            DatabaseEntry key = new DatabaseEntry();
+            DatabaseEntry value = new DatabaseEntry();
+            while (cursor.getNext(key, value, LockMode.READ_COMMITTED) == OperationStatus.SUCCESS) {
+                long journalId = idBinding.entryToObject(key);
+                if (journalId > truncateToJournalId) {
+                    cursor.delete();
+                    deletedCount++;
+                }
+            }
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+
+        return deletedCount;
     }
 
     // get journal db names and sort the names

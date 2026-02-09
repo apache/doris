@@ -67,4 +67,5 @@ public class FeConstants {
     public static final String INTERNAL_FILE_CACHE_HOTSPOT_TABLE_NAME = "cloud_cache_hotspot";
 
     public static String METADATA_FAILURE_RECOVERY_KEY = "metadata_failure_recovery";
+    public static String RECOVERY_JOURNAL_ID_KEY = "recovery_journal_id";
 }
