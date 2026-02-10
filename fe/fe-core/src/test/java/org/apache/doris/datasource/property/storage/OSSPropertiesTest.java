@@ -246,10 +246,14 @@ public class OSSPropertiesTest {
         ossProps.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
         OSSProperties ossStorageProperties = (OSSProperties) StorageProperties.createPrimary(ossProps);
         Assertions.assertEquals(AnonymousCredentialsProvider.class, ossStorageProperties.getAwsCredentialsProvider().getClass());
+        Map<String, String> backendProps = ossStorageProperties.getBackendConfigProperties();
+        Assertions.assertEquals("ANONYMOUS", backendProps.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
         ossProps.put("oss.access_key", "myAccessKey");
         ossProps.put("oss.secret_key", "mySecretKey");
         ossStorageProperties = (OSSProperties) StorageProperties.createPrimary(ossProps);
         Assertions.assertEquals(StaticCredentialsProvider.class, ossStorageProperties.getAwsCredentialsProvider().getClass());
+        backendProps = ossStorageProperties.getBackendConfigProperties();
+        Assertions.assertNull(backendProps.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
     }
 
     @Test

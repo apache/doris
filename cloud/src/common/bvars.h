@@ -674,6 +674,29 @@ extern BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_failures;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_bytes_object_deleted;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_rowset_scanned_num;
 
+// Operation Log Recycler BVars
+// Note: generic metrics (last_round_to_recycle_num/bytes, last_round_recycled_num/bytes, etc.)
+// are reported by RecyclerMetricsContext with operation_type = "recycle_operation_logs".
+extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_total_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_not_recycled_num;
+extern mBvarIntAdder g_bvar_recycler_oplog_recycle_failed_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_commit_partition_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_drop_partition_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_commit_index_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_drop_index_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_update_tablet_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_compaction_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_schema_change_num;
+extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_recycled_commit_txn_num;
+extern mBvarIntAdder g_bvar_recycler_oplog_recycled_commit_partition_num;
+extern mBvarIntAdder g_bvar_recycler_oplog_recycled_drop_partition_num;
+extern mBvarIntAdder g_bvar_recycler_oplog_recycled_commit_index_num;
+extern mBvarIntAdder g_bvar_recycler_oplog_recycled_drop_index_num;
+extern mBvarIntAdder g_bvar_recycler_oplog_recycled_update_tablet_num;
+extern mBvarIntAdder g_bvar_recycler_oplog_recycled_compaction_num;
+extern mBvarIntAdder g_bvar_recycler_oplog_recycled_schema_change_num;
+extern mBvarIntAdder g_bvar_recycler_oplog_recycled_commit_txn_num;
+
 // txn_kv's bvars
 extern bvar::LatencyRecorder g_bvar_txn_kv_get;
 extern bvar::LatencyRecorder g_bvar_txn_kv_range_get;

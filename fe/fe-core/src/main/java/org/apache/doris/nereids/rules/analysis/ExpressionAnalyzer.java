@@ -84,6 +84,7 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
@@ -99,6 +100,8 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VariantField;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -155,6 +158,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private final boolean enableExactMatch;
     private final boolean bindSlotInOuterScope;
     private final boolean wantToParseSqlFromSqlCache;
+    private int suppressVariantElementAtCastDepth = 0;
 
     /** ExpressionAnalyzer */
     public ExpressionAnalyzer(Plan currentPlan, Scope scope,
@@ -279,6 +283,29 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     }
 
     @Override
+    public Expression visitElementAt(ElementAt elementAt, ExpressionRewriteContext context) {
+        boolean suppressLeftCast = isEnableVariantSchemaAutoCast(context) && elementAt.left() instanceof ElementAt;
+        if (suppressLeftCast) {
+            suppressVariantElementAtCastDepth++;
+        }
+        Expression left;
+        try {
+            left = elementAt.left().accept(this, context);
+        } finally {
+            if (suppressLeftCast) {
+                suppressVariantElementAtCastDepth--;
+            }
+        }
+        Expression right = elementAt.right().accept(this, context);
+        elementAt = (ElementAt) elementAt.withChildren(left, right);
+        Expression coerced = TypeCoercionUtils.processBoundFunction(elementAt);
+        if (isEnableVariantSchemaAutoCast(context)) {
+            return wrapVariantElementAtWithCast(coerced);
+        }
+        return coerced;
+    }
+
+    @Override
     public Expression visitUnboundSlot(UnboundSlot unboundSlot, ExpressionRewriteContext context) {
         Optional<Scope> outerScope = getScope().getOuterScope();
         Optional<List<? extends Expression>> boundedOpt = Optional.of(bindSlotByThisScope(unboundSlot));
@@ -315,6 +342,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     context.cascadesContext.getStatementContext().setHasNestedColumns(true);
                 } else if (firstBound.containsType(ElementAt.class, StructElement.class)) {
                     context.cascadesContext.getStatementContext().setHasNestedColumns(true);
+                }
+                if (firstBound instanceof Alias) {
+                    return maybeCastAliasExpression((Alias) firstBound, context);
                 }
                 return firstBound;
             default:
@@ -698,6 +728,91 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         } else {
             return ExpressionUtils.or(newChildren);
         }
+    }
+
+    private boolean isEnableVariantSchemaAutoCast(ExpressionRewriteContext context) {
+        if (context == null || context.cascadesContext == null) {
+            return false;
+        }
+        SessionVariable sessionVariable = context.cascadesContext.getConnectContext().getSessionVariable();
+        if (sessionVariable == null || !sessionVariable.isEnableVariantSchemaAutoCast()) {
+            return false;
+        }
+        return sessionVariable.isEnableVariantSchemaAutoCast();
+    }
+
+    private Expression wrapVariantElementAtWithCast(Expression expr) {
+        ElementAt elementAt = (ElementAt) expr;
+        if (suppressVariantElementAtCastDepth > 0) {
+            return elementAt;
+        }
+        Optional<VariantElementAtPath> path = resolveVariantElementAtPath(elementAt);
+        if (!path.isPresent()) {
+            return expr;
+        }
+        VariantType variantType = (VariantType) path.get().root.getDataType();
+        Optional<VariantField> matchingField = variantType.findMatchingField(path.get().path);
+        if (!matchingField.isPresent()) {
+            return expr;
+        }
+        DataType targetType = matchingField.get().getDataType();
+        return new Cast(elementAt, targetType);
+    }
+
+    private Optional<VariantElementAtPath> resolveVariantElementAtPath(ElementAt elementAt) {
+        List<String> segments = new ArrayList<>();
+        Expression current = elementAt;
+        Expression root = null;
+        while (current instanceof ElementAt) {
+            ElementAt currentElementAt = (ElementAt) current;
+            Optional<String> key = getVariantPathKey(currentElementAt.right());
+            if (!key.isPresent()) {
+                return Optional.empty();
+            }
+            segments.add(0, key.get());
+            Expression left = currentElementAt.left();
+            if (left instanceof Cast && !((Cast) left).isExplicitType()) {
+                left = ((Cast) left).child();
+            }
+            current = left;
+            root = left;
+        }
+        if (root == null || !(root.getDataType() instanceof VariantType)) {
+            return Optional.empty();
+        }
+        if (segments.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(new VariantElementAtPath(root, String.join(".", segments)));
+    }
+
+    private Optional<String> getVariantPathKey(Expression expr) {
+        if (expr instanceof StringLikeLiteral) {
+            return Optional.of(((StringLikeLiteral) expr).getStringValue());
+        }
+        return Optional.empty();
+    }
+
+    private static final class VariantElementAtPath {
+        private final Expression root;
+        private final String path;
+
+        private VariantElementAtPath(Expression root, String path) {
+            this.root = root;
+            this.path = path;
+        }
+    }
+
+    private Expression maybeCastAliasExpression(Alias alias, ExpressionRewriteContext context) {
+        if (suppressVariantElementAtCastDepth > 0 || !isEnableVariantSchemaAutoCast(context)) {
+            return alias;
+        }
+        Expression child = alias.child();
+        Expression casted = wrapVariantElementAtWithCast(child);
+        if (casted == child) {
+            return alias;
+        }
+        return alias.withChildren(ImmutableList.of(casted));
     }
 
     @Override

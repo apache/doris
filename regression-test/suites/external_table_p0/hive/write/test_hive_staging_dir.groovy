@@ -136,9 +136,6 @@ suite("test_hive_staging_dir", "p0,external,hive,external_docker,external_docker
             try_hive_docker """drop table if exists `${dbName}`.`${tableAbs}`"""
             try_sql """drop catalog if exists ${catalogName}"""
             if (fs != null) {
-                if (stagingDefaultWithUser != null) {
-                    fs.delete(new Path(stagingDefaultWithUser), true)
-                }
                 if (stagingRelPath != null) {
                     fs.delete(new Path(stagingRelPath), true)
                 }

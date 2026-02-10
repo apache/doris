@@ -84,6 +84,8 @@ private:
     bool _closed {false};
     std::mutex _mtx;
     std::condition_variable _cond;
+
+    std::mutex _last_partitions_mtx;
     std::unordered_map<TabletHotspotMapKey, std::unordered_map<int64_t, TabletHotspotMapValue>,
                        MapKeyHash>
             _last_day_hot_partitions;

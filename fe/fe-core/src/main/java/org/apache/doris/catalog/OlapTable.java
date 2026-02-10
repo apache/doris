@@ -41,6 +41,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.GlobRegexUtil;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
@@ -3750,12 +3751,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 String childName = child.getName();
                 if (child.getFieldPatternType() == TPatternType.MATCH_NAME_GLOB) {
                     try {
-                        java.nio.file.PathMatcher matcher = java.nio.file.FileSystems.getDefault()
-                                .getPathMatcher("glob:" + childName);
-                        if (matcher.matches(java.nio.file.Paths.get(subPathString))) {
+                        com.google.re2j.Pattern compiled = GlobRegexUtil.getOrCompilePattern(childName);
+                        if (compiled.matcher(subPathString).matches()) {
                             fieldPattern = childName;
                         }
-                    } catch (Exception e) {
+                    } catch (com.google.re2j.PatternSyntaxException | IllegalArgumentException e) {
                         continue;
                     }
                 } else if (child.getFieldPatternType() == TPatternType.MATCH_NAME) {

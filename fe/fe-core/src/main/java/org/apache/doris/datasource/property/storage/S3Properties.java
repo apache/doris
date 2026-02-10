@@ -291,11 +291,12 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         if (StringUtils.isNotBlank(s3ExternalId)) {
             backendProperties.put("AWS_EXTERNAL_ID", s3ExternalId);
         }
-        // Pass credentials provider type to BE
-        if (awsCredentialsProviderMode != null) {
-            backendProperties.put("AWS_CREDENTIALS_PROVIDER_TYPE", awsCredentialsProviderMode.getMode());
-        }
         return backendProperties;
+    }
+
+    @Override
+    protected String getAwsCredentialsProviderTypeForBackend() {
+        return awsCredentialsProviderMode == null ? null : awsCredentialsProviderMode.getMode();
     }
 
     private void convertGlueToS3EndpointIfNeeded() {
@@ -671,4 +672,3 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     }
 
 }
-

@@ -19,7 +19,6 @@
 
 #include <assert.h>
 #include <fmt/format.h>
-#include <fnmatch.h>
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
@@ -38,6 +37,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <list>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -63,6 +63,7 @@
 #include "olap/tablet.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
+#include "re2/re2.h"
 #include "runtime/client_cache.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/exec_env.h"
@@ -101,6 +102,162 @@
 
 namespace doris::vectorized::variant_util {
 #include "common/compile_check_begin.h"
+
+inline void append_escaped_regex_char(std::string* regex_output, char ch) {
+    switch (ch) {
+    case '.':
+    case '^':
+    case '$':
+    case '+':
+    case '*':
+    case '?':
+    case '(':
+    case ')':
+    case '|':
+    case '{':
+    case '}':
+    case '[':
+    case ']':
+    case '\\':
+        regex_output->push_back('\\');
+        regex_output->push_back(ch);
+        break;
+    default:
+        regex_output->push_back(ch);
+        break;
+    }
+}
+
+// Small LRU to cap compiled glob patterns
+constexpr size_t kGlobRegexCacheCapacity = 256;
+
+struct GlobRegexCacheEntry {
+    std::shared_ptr<RE2> re2;
+    std::list<std::string>::iterator lru_it;
+};
+
+std::mutex g_glob_regex_cache_mutex;
+std::list<std::string> g_glob_regex_cache_lru;
+std::unordered_map<std::string, GlobRegexCacheEntry> g_glob_regex_cache;
+
+std::shared_ptr<RE2> get_or_build_re2(const std::string& glob_pattern) {
+    {
+        std::lock_guard<std::mutex> lock(g_glob_regex_cache_mutex);
+        auto it = g_glob_regex_cache.find(glob_pattern);
+        if (it != g_glob_regex_cache.end()) {
+            g_glob_regex_cache_lru.splice(g_glob_regex_cache_lru.begin(), g_glob_regex_cache_lru,
+                                          it->second.lru_it);
+            return it->second.re2;
+        }
+    }
+    std::string regex_pattern;
+    Status st = glob_to_regex(glob_pattern, &regex_pattern);
+    if (!st.ok()) {
+        return nullptr;
+    }
+    auto compiled = std::make_shared<RE2>(regex_pattern);
+    if (!compiled->ok()) {
+        return nullptr;
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_glob_regex_cache_mutex);
+        auto it = g_glob_regex_cache.find(glob_pattern);
+        if (it != g_glob_regex_cache.end()) {
+            g_glob_regex_cache_lru.splice(g_glob_regex_cache_lru.begin(), g_glob_regex_cache_lru,
+                                          it->second.lru_it);
+            return it->second.re2;
+        }
+        g_glob_regex_cache_lru.push_front(glob_pattern);
+        g_glob_regex_cache.emplace(glob_pattern,
+                                   GlobRegexCacheEntry {compiled, g_glob_regex_cache_lru.begin()});
+        if (g_glob_regex_cache.size() > kGlobRegexCacheCapacity) {
+            const std::string& evict_key = g_glob_regex_cache_lru.back();
+            g_glob_regex_cache.erase(evict_key);
+            g_glob_regex_cache_lru.pop_back();
+        }
+    }
+    return compiled;
+}
+
+// Convert a restricted glob pattern into a regex.
+// Supported: '*', '?', '[...]', '\\' escape. Others are treated as literals.
+Status glob_to_regex(const std::string& glob_pattern, std::string* regex_pattern) {
+    regex_pattern->clear();
+    regex_pattern->append("^");
+    bool is_escaped = false;
+    size_t pattern_length = glob_pattern.size();
+    for (size_t index = 0; index < pattern_length; ++index) {
+        char current_char = glob_pattern[index];
+        if (is_escaped) {
+            append_escaped_regex_char(regex_pattern, current_char);
+            is_escaped = false;
+            continue;
+        }
+        if (current_char == '\\') {
+            is_escaped = true;
+            continue;
+        }
+        if (current_char == '*') {
+            regex_pattern->append(".*");
+            continue;
+        }
+        if (current_char == '?') {
+            regex_pattern->append(".");
+            continue;
+        }
+        if (current_char == '[') {
+            size_t class_index = index + 1;
+            bool class_closed = false;
+            bool is_class_escaped = false;
+            std::string class_buffer;
+            if (class_index < pattern_length &&
+                (glob_pattern[class_index] == '!' || glob_pattern[class_index] == '^')) {
+                class_buffer.push_back('^');
+                ++class_index;
+            }
+            for (; class_index < pattern_length; ++class_index) {
+                char class_char = glob_pattern[class_index];
+                if (is_class_escaped) {
+                    class_buffer.push_back(class_char);
+                    is_class_escaped = false;
+                    continue;
+                }
+                if (class_char == '\\') {
+                    is_class_escaped = true;
+                    continue;
+                }
+                if (class_char == ']') {
+                    class_closed = true;
+                    break;
+                }
+                class_buffer.push_back(class_char);
+            }
+            if (!class_closed) {
+                return Status::InvalidArgument("Unclosed character class in glob pattern: {}",
+                                               glob_pattern);
+            }
+            regex_pattern->append("[");
+            regex_pattern->append(class_buffer);
+            regex_pattern->append("]");
+            index = class_index;
+            continue;
+        }
+        append_escaped_regex_char(regex_pattern, current_char);
+    }
+    if (is_escaped) {
+        append_escaped_regex_char(regex_pattern, '\\');
+    }
+    regex_pattern->append("$");
+    return Status::OK();
+}
+
+bool glob_match_re2(const std::string& glob_pattern, const std::string& candidate_path) {
+    auto compiled = get_or_build_re2(glob_pattern);
+    if (compiled == nullptr) {
+        return false;
+    }
+    return RE2::FullMatch(candidate_path, *compiled);
+}
 
 size_t get_number_of_dimensions(const IDataType& type) {
     if (const auto* type_array = typeid_cast<const DataTypeArray*>(&type)) {
@@ -1307,8 +1464,7 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
             break;
         }
         case PatternTypePB::MATCH_NAME_GLOB: {
-            int result = fnmatch(pattern, path.c_str(), FNM_PATHNAME);
-            if (result == 0) {
+            if (glob_match_re2(pattern, path)) {
                 generate_result_column(*sub_column, &sub_column_info->column);
                 generate_index(sub_column->name());
                 return true;
@@ -1788,8 +1944,6 @@ std::unordered_map<std::string_view, ColumnVariant::Subcolumn> materialize_docs_
     return subcolumns;
 }
 
-namespace {
-
 Status _parse_and_materialize_variant_columns(Block& block,
                                               const std::vector<uint32_t>& variant_pos,
                                               const std::vector<ParseConfig>& configs) {
@@ -1863,8 +2017,6 @@ Status _parse_and_materialize_variant_columns(Block& block,
     }
     return Status::OK();
 }
-
-} // namespace
 
 Status parse_and_materialize_variant_columns(Block& block, const std::vector<uint32_t>& variant_pos,
                                              const std::vector<ParseConfig>& configs) {

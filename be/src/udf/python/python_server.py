@@ -373,6 +373,24 @@ def convert_python_to_arrow_value(value, output_type=None):
         else:
             # Not a struct type, treat as regular tuple and recurse without type
             return tuple(convert_python_to_arrow_value(v, None) for v in value)
+    
+    if isinstance(value, dict):
+        # For map types, convert keys and values recursively
+        if output_type and pa.types.is_map(output_type):
+            key_type = output_type.key_type
+            item_type = output_type.item_type
+            # Convert dict to list of tuples (PyArrow Map format)
+            converted_items = [
+                (convert_python_to_arrow_value(k, key_type),
+                convert_python_to_arrow_value(v, item_type))
+                for k, v in value.items()
+            ]
+            return converted_items
+        else:
+            # No type info, just recurse without type
+            return [(convert_python_to_arrow_value(k, None),
+                    convert_python_to_arrow_value(v, None))
+                    for k, v in value.items()]
 
     if isinstance(value, pd.Series):
         return value.apply(lambda v: convert_python_to_arrow_value(v, output_type))

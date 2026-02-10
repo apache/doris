@@ -125,303 +125,229 @@ ADD_TIME_FUNCTION_IMPL(AddWeeksImpl, weeks_add, WEEK);
 ADD_TIME_FUNCTION_IMPL(AddMonthsImpl, months_add, MONTH);
 ADD_TIME_FUNCTION_IMPL(AddYearsImpl, years_add, YEAR);
 
-template <PrimitiveType PType>
-struct AddDaySecondImpl {
+template <TimeUnit UnionType, PrimitiveType PType>
+class AddUnionTypeImpl {
+    static_assert(UnionType == SECOND_MICROSECOND || UnionType == MINUTE_MICROSECOND ||
+                          UnionType == MINUTE_SECOND || UnionType == HOUR_MICROSECOND ||
+                          UnionType == HOUR_SECOND || UnionType == HOUR_MINUTE ||
+                          UnionType == DAY_MICROSECOND || UnionType == DAY_SECOND ||
+                          UnionType == DAY_MINUTE || UnionType == DAY_HOUR ||
+                          UnionType == YEAR_MONTH,
+                  "Unsupported Union TimeUnit for AddUnionTypeImpl");
+
+public:
     static constexpr PrimitiveType ArgPType = PType;
     static constexpr PrimitiveType ReturnType = PType;
-    static constexpr PrimitiveType IntervalPType = PrimitiveType ::TYPE_STRING;
-    using InputValueType = typename PrimitiveTypeTraits<PType>::DataType ::FieldType;
+    static constexpr PrimitiveType IntervalPType = PrimitiveType::TYPE_STRING;
+    using InputValueType = typename PrimitiveTypeTraits<PType>::DataType::FieldType;
     using ReturnValueType = InputValueType;
-    using IntervalDataType = typename PrimitiveTypeTraits<IntervalPType>::DataType;
-    using IntervalValueType = IntervalDataType::FieldType; // string
-    using ConvertedType = typename PrimitiveTypeTraits<TYPE_BIGINT>::DataType::FieldType;
+    using IntervalValueType = String;
 
-    static constexpr auto name = "day_second_add";
-    static constexpr auto is_nullable = false;
-
-    static inline ReturnValueType execute(const InputValueType& t, IntervalValueType delta) {
-        long seconds = parse_time_string_to_seconds(delta);
-        return date_time_add<TimeUnit::SECOND, PType, ConvertedType>(t, seconds);
-    }
+    static constexpr auto name = get_time_unit_name(UnionType);
 
     static DataTypes get_variadic_argument_types() {
         return {std ::make_shared<typename PrimitiveTypeTraits<PType>::DataType>(),
                 std ::make_shared<typename PrimitiveTypeTraits<IntervalPType>::DataType>()};
     }
 
-    static long parse_time_string_to_seconds(IntervalValueType time_str_ref) {
-        bool is_negative = false;
-        auto time_str = StringRef {time_str_ref.data(), time_str_ref.length()}.trim();
-        // string format: "d h:m:s"
-        size_t space_pos = time_str.find_first_of(' ');
-        if (space_pos == std::string::npos) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "Invalid time format, missing space in '{}'",
-                            std::string_view {time_str.data, time_str.size});
+    static inline ReturnValueType execute(const InputValueType& t, const IntervalValueType& delta) {
+        TimeInterval interval;
+        get_interval_value(delta, interval);
+        InputValueType v = t;
+        if (!v.template date_add_interval<UnionType>(interval)) {
+            throw_out_of_bound_date_string(get_time_unit_name(UnionType), t, delta);
         }
-        // day
-        StringRef days_sub = time_str.substring(0, space_pos).trim();
-        StringParser::ParseResult success;
-        int days = StringParser::string_to_int_internal<int32_t, true>(days_sub.data, days_sub.size,
-                                                                       &success);
-        if (success != StringParser::PARSE_SUCCESS) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid days format in '{}'",
-                            std::string_view {time_str.data, time_str.size});
-        }
-        if (days < 0) {
+        return v;
+    }
+
+#ifdef BE_TEST
+    // Test helper: parse interval string into TimeInterval for assertions in UTs.
+    static TimeInterval test_get_interval_value(const IntervalValueType& delta) {
+        TimeInterval interval;
+        get_interval_value(delta, interval);
+        return interval;
+    }
+
+#endif
+
+private:
+    // Extracts numeric values from interval string
+    // Returns true on error
+    static bool extract_time_values(StringRef str_value, bool& is_negative, uint32_t count,
+                                    uint64_t* time_part, bool transform_msec) {
+        const char* cur = str_value.data;
+        const char* const end = cur + str_value.size;
+
+        bool has_digit = false;
+
+        auto advance_to_digit = [&](const char*& p) {
+            while (p < end && (*p < '0' || *p > '9')) ++p;
+        };
+
+        // Skip leading spaces
+        while (cur < end && (*cur == ' ' || *cur == '\t')) ++cur;
+
+        // Check for negative sign
+        if (cur < end && *cur == '-') {
             is_negative = true;
+            ++cur;
         }
 
-        // hour:minute:second
-        StringRef time_hour_str = time_str.substring(space_pos + 1);
-        size_t colon1 = time_hour_str.find_first_of(':');
-        if (colon1 == std::string::npos) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid time format, missing ':' in '{}'",
-                            std::string_view {time_str.data, time_str.size});
-        }
-        size_t colon2_rel = time_hour_str.substring(colon1 + 1).find_first_of(':');
-        size_t colon2 =
-                (colon2_rel != std::string::npos) ? colon1 + 1 + colon2_rel : std::string::npos;
-        if (colon2 == std::string::npos) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid time format, missing ':' in '{}'",
-                            std::string_view {time_str.data, time_str.size});
-        }
-        StringRef hours_sub = time_hour_str.substring(0, colon1).trim();
-        int hours = StringParser::string_to_int_internal<int32_t, true>(hours_sub.data,
-                                                                        hours_sub.size, &success);
-        if (success != StringParser::PARSE_SUCCESS) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid hours format in '{}'",
-                            std::string_view {time_str.data, time_str.size});
-        }
-        StringRef minutes_sub = time_hour_str.substring(colon1 + 1, colon2 - colon1 - 1).trim();
-        int minutes = StringParser::string_to_int_internal<int32_t, true>(
-                minutes_sub.data, minutes_sub.size, &success);
-        if (success != StringParser::PARSE_SUCCESS) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid minutes format in '{}'",
-                            std::string_view {time_str.data, time_str.size});
-        }
-        StringRef seconds_sub = time_hour_str.substring(colon2 + 1).trim();
-        int seconds = StringParser::string_to_int_internal<int32_t, true>(
-                seconds_sub.data, seconds_sub.size, &success);
-        if (success != StringParser::PARSE_SUCCESS) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid seconds format in '{}'",
-                            std::string_view {time_str.data, time_str.size});
+        advance_to_digit(cur);
+
+        int64_t msec_length = 0;
+        for (uint32_t i = 0; i < count; ++i) {
+            int64_t value = 0;
+            const char* start = cur;
+            for (; cur != end && (*cur >= '0' && *cur <= '9'); ++cur) {
+                // keep same behavior with MySQL
+                if (value > (LLONG_MAX - 10) / 10) {
+                    return true; // overflow
+                }
+                value = value * 10LL + static_cast<int64_t>(*cur - '0');
+                has_digit = true;
+            }
+            msec_length = 6 - (cur - start);
+            time_part[i] = value;
+
+            advance_to_digit(cur);
+
+            // If reached end but haven't filled all time_part, right-align existing time_part
+            if (cur == end && i != count - 1) {
+                ++i;
+                const size_t len = sizeof(*time_part) * i;
+                std::memmove(reinterpret_cast<uint8_t*>(time_part + count) - len,
+                             reinterpret_cast<uint8_t*>(time_part + i) - len, len);
+                std::memset(time_part, 0, sizeof(*time_part) * (count - i));
+                break;
+            }
         }
 
-        long part0 = days * 24 * 3600;
-        // NOTE: Compatible with MySQL
-        long part1 = std::abs(hours) * 3600 + std::abs(minutes) * 60 + std::abs(seconds);
-        if (is_negative) {
-            part1 *= -1;
+        if (transform_msec && msec_length > 0 && msec_length <= 6) {
+            static constexpr uint64_t pow10[] = {1, 10, 100, 1000, 10000, 100000, 1000000};
+            time_part[count - 1] *= pow10[msec_length];
         }
-        return part0 + part1;
+
+        return (cur != end) || !has_digit;
+    }
+
+    static void get_interval_value(const IntervalValueType& delta, TimeInterval& interval) {
+        // the longest expr is 'DAYS HOURS:MINUTES:SECONDS.MICROSECONDS'
+        // which contains 5 parts
+        uint64_t time_part[5] = {0};
+        bool is_negative = false;
+        interval = TimeInterval {};
+
+        auto str_ref = StringRef {delta.data(), delta.length()}.trim();
+
+        if constexpr (UnionType == YEAR_MONTH) {
+            // YEAR-MONTH: "YYYY-MM" format
+            if (extract_time_values(str_ref, is_negative, 2, time_part, false)) {
+                throw_invalid_string(get_time_unit_name(UnionType), str_ref);
+            }
+            interval.year = time_part[0];
+            interval.month = time_part[1];
+        } else if constexpr (UnionType == DAY_HOUR) {
+            // DAY_HOUR: "DD HH" format
+            if (extract_time_values(str_ref, is_negative, 2, time_part, false)) {
+                throw_invalid_string(get_time_unit_name(UnionType), str_ref);
+            }
+            interval.day = time_part[0];
+            interval.hour = time_part[1];
+        } else if constexpr (UnionType == DAY_MINUTE) {
+            // DAY_MINUTE: "DD HH:MM" format
+            if (extract_time_values(str_ref, is_negative, 3, time_part, false)) {
+                throw_invalid_string(get_time_unit_name(UnionType), str_ref);
+            }
+            interval.day = time_part[0];
+            interval.hour = time_part[1];
+            interval.minute = time_part[2];
+        } else if constexpr (UnionType == DAY_SECOND) {
+            // DAY_SECOND: "DD HH:MM:SS" format
+            if (extract_time_values(str_ref, is_negative, 4, time_part, false)) {
+                throw_invalid_string(get_time_unit_name(UnionType), str_ref);
+            }
+            interval.day = time_part[0];
+            interval.hour = time_part[1];
+            interval.minute = time_part[2];
+            interval.second = time_part[3];
+        } else if constexpr (UnionType == DAY_MICROSECOND) {
+            // DAY_MICROSECOND: "DD HH:MM:SS.ssssss" format
+            if (extract_time_values(str_ref, is_negative, 5, time_part, true)) {
+                throw_invalid_string(get_time_unit_name(UnionType), str_ref);
+            }
+            interval.day = time_part[0];
+            interval.hour = time_part[1];
+            interval.minute = time_part[2];
+            interval.second = time_part[3];
+            interval.microsecond = time_part[4];
+        } else if constexpr (UnionType == HOUR_MINUTE) {
+            // HOUR_MINUTE: "HH:MM" format
+            if (extract_time_values(str_ref, is_negative, 2, time_part, false)) {
+                throw_invalid_string(get_time_unit_name(UnionType), str_ref);
+            }
+            interval.hour = time_part[0];
+            interval.minute = time_part[1];
+        } else if constexpr (UnionType == HOUR_SECOND) {
+            // HOUR_SECOND: "HH:MM:SS" format
+            if (extract_time_values(str_ref, is_negative, 3, time_part, false)) {
+                throw_invalid_string(get_time_unit_name(UnionType), str_ref);
+            }
+            interval.hour = time_part[0];
+            interval.minute = time_part[1];
+            interval.second = time_part[2];
+        } else if constexpr (UnionType == HOUR_MICROSECOND) {
+            // HOUR_MICROSECOND: "HH:MM:SS.ssssss" format
+            if (extract_time_values(str_ref, is_negative, 4, time_part, true)) {
+                throw_invalid_string(get_time_unit_name(UnionType), str_ref);
+            }
+            interval.hour = time_part[0];
+            interval.minute = time_part[1];
+            interval.second = time_part[2];
+            interval.microsecond = time_part[3];
+        } else if constexpr (UnionType == MINUTE_SECOND) {
+            // MINUTE_SECOND: "MM:SS" format
+            if (extract_time_values(str_ref, is_negative, 2, time_part, false)) {
+                throw_invalid_string(get_time_unit_name(UnionType), str_ref);
+            }
+            interval.minute = time_part[0];
+            interval.second = time_part[1];
+        } else if constexpr (UnionType == MINUTE_MICROSECOND) {
+            // MINUTE_MICROSECOND: "MM:SS.ssssss" format
+            if (extract_time_values(str_ref, is_negative, 3, time_part, true)) {
+                throw_invalid_string(get_time_unit_name(UnionType), str_ref);
+            }
+            interval.minute = time_part[0];
+            interval.second = time_part[1];
+            interval.microsecond = time_part[2];
+        } else if constexpr (UnionType == SECOND_MICROSECOND) {
+            // SECOND_MICROSECOND: "SS.ssssss" format
+            if (extract_time_values(str_ref, is_negative, 2, time_part, true)) {
+                throw_invalid_string(get_time_unit_name(UnionType), str_ref);
+            }
+            interval.second = time_part[0];
+            interval.microsecond = time_part[1];
+        }
+
+        interval.is_neg = is_negative;
     }
 };
 
-template <PrimitiveType PType>
-struct AddDayHourImpl {
-    static constexpr PrimitiveType ArgPType = PType;
-    static constexpr PrimitiveType ReturnType = PType;
-    static constexpr PrimitiveType IntervalPType = PrimitiveType ::TYPE_STRING;
-    using InputValueType = typename PrimitiveTypeTraits<PType>::DataType ::FieldType;
-    using ReturnValueType = InputValueType;
-    using IntervalDataType = typename PrimitiveTypeTraits<IntervalPType>::DataType;
-    using IntervalValueType = IntervalDataType::FieldType; // string
-    using ConvertedType = typename PrimitiveTypeTraits<TYPE_BIGINT>::DataType::FieldType;
+#define DEFINE_ADD_UNION_TYPE_IMPL(CLASS, UNIT) \
+    template <PrimitiveType PType>              \
+    using CLASS = AddUnionTypeImpl<TimeUnit::UNIT, PType>;
 
-    static constexpr auto name = "day_hour_add";
-    static constexpr auto is_nullable = false;
-
-    static inline ReturnValueType execute(const InputValueType& t, IntervalValueType delta) {
-        long seconds = parse_day_hour_string_to_seconds(delta);
-        return date_time_add<TimeUnit::SECOND, PType, ConvertedType>(t, seconds);
-    }
-
-    static DataTypes get_variadic_argument_types() {
-        return {std ::make_shared<typename PrimitiveTypeTraits<PType>::DataType>(),
-                std ::make_shared<typename PrimitiveTypeTraits<IntervalPType>::DataType>()};
-    }
-
-    static long parse_day_hour_string_to_seconds(IntervalValueType time_str_ref) {
-        bool is_negative = false;
-        auto time_str = StringRef {time_str_ref.data(), time_str_ref.length()}.trim();
-        // string format: "d h"
-        size_t space_pos = time_str.find_first_of(' ');
-        if (space_pos == std::string::npos) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "Invalid time format, missing space in '{}'",
-                            std::string_view {time_str.data, time_str.size});
-        }
-        // day
-        StringRef days_sub = time_str.substring(0, space_pos).trim();
-        StringParser::ParseResult success;
-        int days = StringParser::string_to_int_internal<int32_t, true>(days_sub.data, days_sub.size,
-                                                                       &success);
-        if (success != StringParser::PARSE_SUCCESS) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid days format in '{}'",
-                            std::string_view {time_str.data, time_str.size});
-        }
-        if (days < 0) {
-            is_negative = true;
-        }
-
-        // hour
-        StringRef hours_sub = time_str.substring(space_pos + 1).trim();
-        int hours = StringParser::string_to_int_internal<int32_t, true>(hours_sub.data,
-                                                                        hours_sub.size, &success);
-        if (success != StringParser::PARSE_SUCCESS) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid hours format in '{}'",
-                            std::string_view {time_str.data, time_str.size});
-        }
-
-        long part0 = days * 24 * 3600;
-        // NOTE: Compatible with MySQL
-        long part1 = std::abs(hours) * 3600;
-        if (is_negative) {
-            part1 *= -1;
-        }
-        return part0 + part1;
-    }
-};
-
-template <PrimitiveType PType>
-struct AddMinuteSecondImpl {
-    static constexpr PrimitiveType ArgPType = PType;
-    static constexpr PrimitiveType ReturnType = PType;
-    static constexpr PrimitiveType IntervalPType = PrimitiveType ::TYPE_STRING;
-    using InputValueType = typename PrimitiveTypeTraits<PType>::DataType ::FieldType;
-    using ReturnValueType = InputValueType;
-    using IntervalDataType = typename PrimitiveTypeTraits<IntervalPType>::DataType;
-    using IntervalValueType = IntervalDataType::FieldType; // string
-    using ConvertedType = typename PrimitiveTypeTraits<TYPE_BIGINT>::DataType::FieldType;
-
-    static constexpr auto name = "minute_second_add";
-    static constexpr auto is_nullable = false;
-
-    static inline ReturnValueType execute(const InputValueType& t, IntervalValueType delta) {
-        long seconds = parse_minute_second_string_to_seconds(delta);
-        return date_time_add<TimeUnit::SECOND, PType, ConvertedType>(t, seconds);
-    }
-
-    static DataTypes get_variadic_argument_types() {
-        return {std ::make_shared<typename PrimitiveTypeTraits<PType>::DataType>(),
-                std ::make_shared<typename PrimitiveTypeTraits<IntervalPType>::DataType>()};
-    }
-
-    static long parse_minute_second_string_to_seconds(IntervalValueType time_str_ref) {
-        bool is_negative = false;
-        auto time_str = StringRef {time_str_ref.data(), time_str_ref.length()}.trim();
-        // string format: "m:s"
-        size_t colon_pos = time_str.find_first_of(':');
-        if (colon_pos == std::string::npos) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "Invalid time format, missing colon in '{}'",
-                            std::string_view {time_str.data, time_str.size});
-        }
-        // minute
-        StringRef minutes_sub = time_str.substring(0, colon_pos).trim();
-        StringParser::ParseResult success;
-        int minutes = StringParser::string_to_int_internal<int32_t, true>(
-                minutes_sub.data, minutes_sub.size, &success);
-        if (success != StringParser::PARSE_SUCCESS) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid minutes format in '{}'",
-                            std::string_view {time_str.data, time_str.size});
-        }
-        if (minutes < 0) {
-            is_negative = true;
-        }
-
-        // second
-        StringRef second_sub = time_str.substring(colon_pos + 1).trim();
-        int seconds = StringParser::string_to_int_internal<int32_t, true>(
-                second_sub.data, second_sub.size, &success);
-        if (success != StringParser::PARSE_SUCCESS) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid seconds format in '{}'",
-                            std::string_view {time_str.data, time_str.size});
-        }
-
-        long part0 = minutes * 60;
-        // NOTE: Compatible with MySQL
-        long part1 = std::abs(seconds);
-        if (is_negative) {
-            part1 *= -1;
-        }
-        return part0 + part1;
-    }
-};
-
-template <PrimitiveType PType>
-struct AddSecondMicrosecondImpl {
-    static constexpr PrimitiveType ArgPType = PType;
-    static constexpr PrimitiveType ReturnType = PType;
-    static constexpr PrimitiveType IntervalPType = PrimitiveType ::TYPE_STRING;
-    using InputValueType = typename PrimitiveTypeTraits<PType>::DataType ::FieldType;
-    using ReturnValueType = InputValueType;
-    using IntervalDataType = typename PrimitiveTypeTraits<IntervalPType>::DataType;
-    using IntervalValueType = IntervalDataType::FieldType; // string
-    using ConvertedType = typename PrimitiveTypeTraits<TYPE_BIGINT>::DataType::FieldType;
-
-    static constexpr auto name = "second_microsecond_add";
-    static constexpr auto is_nullable = false;
-
-    static inline ReturnValueType execute(const InputValueType& t, IntervalValueType delta) {
-        long microseconds = parse_second_microsecond_string_to_microseconds(delta);
-        return date_time_add<TimeUnit::MICROSECOND, PType, ConvertedType>(t, microseconds);
-    }
-
-    static DataTypes get_variadic_argument_types() {
-        return {std ::make_shared<typename PrimitiveTypeTraits<PType>::DataType>(),
-                std ::make_shared<typename PrimitiveTypeTraits<IntervalPType>::DataType>()};
-    }
-
-    static long parse_second_microsecond_string_to_microseconds(IntervalValueType time_str_ref) {
-        bool is_negative = false;
-        auto time_str = StringRef {time_str_ref.data(), time_str_ref.length()}.trim();
-        // string format: "s.microsecond"
-        size_t colon_pos = time_str.find_first_of('.');
-        if (colon_pos == std::string::npos) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "Invalid time format, missing colon in '{}'",
-                            std::string_view {time_str.data, time_str.size});
-        }
-        // second
-        StringRef seconds_sub = time_str.substring(0, colon_pos).trim();
-        StringParser::ParseResult success;
-        int seconds = StringParser::string_to_int_internal<int32_t, true>(
-                seconds_sub.data, seconds_sub.size, &success);
-        if (success != StringParser::PARSE_SUCCESS) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid seconds format in '{}'",
-                            std::string_view {time_str.data, time_str.size});
-        }
-        if (seconds < 0) {
-            is_negative = true;
-        }
-
-        // microsecond
-        StringRef microsecond_sub = time_str.substring(colon_pos + 1).trim();
-        auto microseconds = StringParser::string_to_int_internal<int64_t, true>(
-                microsecond_sub.data, microsecond_sub.size, &success);
-        if (success != StringParser::PARSE_SUCCESS) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid microseconds format in '{}'",
-                            std::string_view {time_str.data, time_str.size});
-        }
-
-        long part0 = seconds;
-        // NOTE: Compatible with MySQL
-        int microsecond_len = microsecond_sub.to_string().starts_with("-")
-                                      ? microsecond_sub.size - 1
-                                      : microsecond_sub.size;
-        if (microsecond_len < 6) {
-            microseconds *= pow(10, 6 - microsecond_len);
-        }
-        long part1 = std::abs(microseconds);
-
-        if (is_negative) {
-            part1 *= -1;
-        }
-        return part0 * 1000000 + part1;
-    }
-};
+DEFINE_ADD_UNION_TYPE_IMPL(AddSecondMicrosecondImpl, SECOND_MICROSECOND);
+DEFINE_ADD_UNION_TYPE_IMPL(AddMinuteMicrosecondImpl, MINUTE_MICROSECOND);
+DEFINE_ADD_UNION_TYPE_IMPL(AddMinuteSecondImpl, MINUTE_SECOND);
+DEFINE_ADD_UNION_TYPE_IMPL(AddHourMicrosecondImpl, HOUR_MICROSECOND);
+DEFINE_ADD_UNION_TYPE_IMPL(AddHourSecondImpl, HOUR_SECOND);
+DEFINE_ADD_UNION_TYPE_IMPL(AddHourMinuteImpl, HOUR_MINUTE);
+DEFINE_ADD_UNION_TYPE_IMPL(AddDayMicrosecondImpl, DAY_MICROSECOND);
+DEFINE_ADD_UNION_TYPE_IMPL(AddDaySecondImpl, DAY_SECOND);
+DEFINE_ADD_UNION_TYPE_IMPL(AddDayMinuteImpl, DAY_MINUTE);
+DEFINE_ADD_UNION_TYPE_IMPL(AddDayHourImpl, DAY_HOUR);
+DEFINE_ADD_UNION_TYPE_IMPL(AddYearMonthImpl, YEAR_MONTH);
 
 template <PrimitiveType PType>
 struct AddQuartersImpl {
@@ -517,6 +443,103 @@ template <PrimitiveType DateType>
 struct SubtractYearsImpl : SubtractIntervalImpl<AddYearsImpl<DateType>> {
     static constexpr PrimitiveType IntervalPType = AddYearsImpl<DateType>::IntervalPType;
     static constexpr auto name = "years_sub";
+};
+
+template <typename Transform>
+struct SubtractUnionIntervalImpl {
+    static constexpr PrimitiveType ArgPType = Transform::ArgPType;
+    static constexpr PrimitiveType ReturnType = Transform::ReturnType;
+    using InputValueType = typename Transform::InputValueType;
+    using ReturnValueType = typename Transform::ReturnValueType;
+    static constexpr auto is_nullable = false;
+    static inline ReturnValueType execute(const InputValueType& t, const std::string& delta) {
+        auto str_ref = StringRef {delta.data(), delta.length()}.trim();
+
+        std::string negated_delta;
+        if (!str_ref.empty() && str_ref.data[0] == '-') {
+            negated_delta.assign(str_ref.data + 1, str_ref.size - 1);
+        } else {
+            negated_delta.reserve(str_ref.size + 1);
+            negated_delta = '-';
+            negated_delta.append(str_ref.data, str_ref.size);
+        }
+
+        return Transform::execute(t, std::string {negated_delta.data(), negated_delta.length()});
+    }
+
+    static DataTypes get_variadic_argument_types() {
+        return Transform::get_variadic_argument_types();
+    }
+};
+
+template <PrimitiveType DateType>
+struct SubtractYearMonthImpl : SubtractUnionIntervalImpl<AddYearMonthImpl<DateType>> {
+    static constexpr PrimitiveType IntervalPType = AddYearMonthImpl<DateType>::IntervalPType;
+    static constexpr auto name = "year_month_sub";
+};
+
+template <PrimitiveType DateType>
+struct SubtractDayHourImpl : SubtractUnionIntervalImpl<AddDayHourImpl<DateType>> {
+    static constexpr PrimitiveType IntervalPType = AddDayHourImpl<DateType>::IntervalPType;
+    static constexpr auto name = "day_hour_sub";
+};
+
+template <PrimitiveType DateType>
+struct SubtractDayMinuteImpl : SubtractUnionIntervalImpl<AddDayMinuteImpl<DateType>> {
+    static constexpr PrimitiveType IntervalPType = AddDayMinuteImpl<DateType>::IntervalPType;
+    static constexpr auto name = "day_minute_sub";
+};
+
+template <PrimitiveType DateType>
+struct SubtractDaySecondImpl : SubtractUnionIntervalImpl<AddDaySecondImpl<DateType>> {
+    static constexpr PrimitiveType IntervalPType = AddDaySecondImpl<DateType>::IntervalPType;
+    static constexpr auto name = "day_second_sub";
+};
+
+template <PrimitiveType DateType>
+struct SubtractDayMicrosecondImpl : SubtractUnionIntervalImpl<AddDayMicrosecondImpl<DateType>> {
+    static constexpr PrimitiveType IntervalPType = AddDayMicrosecondImpl<DateType>::IntervalPType;
+    static constexpr auto name = "day_microsecond_sub";
+};
+
+template <PrimitiveType DateType>
+struct SubtractHourMinuteImpl : SubtractUnionIntervalImpl<AddHourMinuteImpl<DateType>> {
+    static constexpr PrimitiveType IntervalPType = AddHourMinuteImpl<DateType>::IntervalPType;
+    static constexpr auto name = "hour_minute_sub";
+};
+
+template <PrimitiveType DateType>
+struct SubtractHourSecondImpl : SubtractUnionIntervalImpl<AddHourSecondImpl<DateType>> {
+    static constexpr PrimitiveType IntervalPType = AddHourSecondImpl<DateType>::IntervalPType;
+    static constexpr auto name = "hour_second_sub";
+};
+
+template <PrimitiveType DateType>
+struct SubtractHourMicrosecondImpl : SubtractUnionIntervalImpl<AddHourMicrosecondImpl<DateType>> {
+    static constexpr PrimitiveType IntervalPType = AddHourMicrosecondImpl<DateType>::IntervalPType;
+    static constexpr auto name = "hour_microsecond_sub";
+};
+
+template <PrimitiveType DateType>
+struct SubtractMinuteSecondImpl : SubtractUnionIntervalImpl<AddMinuteSecondImpl<DateType>> {
+    static constexpr PrimitiveType IntervalPType = AddMinuteSecondImpl<DateType>::IntervalPType;
+    static constexpr auto name = "minute_second_sub";
+};
+
+template <PrimitiveType DateType>
+struct SubtractMinuteMicrosecondImpl
+        : SubtractUnionIntervalImpl<AddMinuteMicrosecondImpl<DateType>> {
+    static constexpr PrimitiveType IntervalPType =
+            AddMinuteMicrosecondImpl<DateType>::IntervalPType;
+    static constexpr auto name = "minute_microsecond_sub";
+};
+
+template <PrimitiveType DateType>
+struct SubtractSecondMicrosecondImpl
+        : SubtractUnionIntervalImpl<AddSecondMicrosecondImpl<DateType>> {
+    static constexpr PrimitiveType IntervalPType =
+            AddSecondMicrosecondImpl<DateType>::IntervalPType;
+    static constexpr auto name = "second_microsecond_sub";
 };
 
 #define DECLARE_DATE_FUNCTIONS(NAME, FN_NAME, RETURN_TYPE, STMT)                              \
@@ -626,19 +649,28 @@ template <PrimitiveType DataType0, PrimitiveType DataType1, typename ToType, typ
 struct DateTimeOp {
     using ValueType0 = typename PrimitiveTypeTraits<DataType0>::CppType;
     using ValueType1 = typename PrimitiveTypeTraits<DataType1>::CppType;
+    using IntervalColumnType = typename PrimitiveTypeTraits<DataType1>::ColumnType;
     // arg1 maybe just delta value(e.g. DataTypeInt32, not datelike type)
     constexpr static bool CastType1 = is_date_type(DataType1);
 
+    // Use for compatibility with TimeUnionType interval(string type)
+    static inline ValueType1 get_element(const IntervalColumnType& data, size_t i) {
+        if constexpr (DataType1 == TYPE_STRING) {
+            return data.get_data_at(i).to_string();
+        } else {
+            return data.get_data()[i];
+        }
+    }
+
     // execute on the null value's nested value may cause false positive exception, so use nullmaps to skip them.
     static void vector_vector(const PaddedPODArray<ValueType0>& vec_from0,
-                              const PaddedPODArray<ValueType1>& vec_from1,
-                              PaddedPODArray<ToType>& vec_to, const NullMap* nullmap0,
-                              const NullMap* nullmap1) {
+                              const IntervalColumnType& vec_from1, PaddedPODArray<ToType>& vec_to,
+                              const NullMap* nullmap0, const NullMap* nullmap1) {
         for (size_t i = 0; i < vec_from0.size(); ++i) {
             if ((nullmap0 && (*nullmap0)[i]) || (nullmap1 && (*nullmap1)[i])) [[unlikely]] {
                 continue;
             }
-            vec_to[i] = Transform::execute(vec_from0[i], vec_from1[i]);
+            vec_to[i] = Transform::execute(vec_from0[i], get_element(vec_from1, i));
         }
     }
 
@@ -658,17 +690,17 @@ struct DateTimeOp {
     }
 
     static void constant_vector(const ValueType0& from, PaddedPODArray<ToType>& vec_to,
-                                const PaddedPODArray<ValueType1>& delta, const NullMap* nullmap0,
+                                const IntervalColumnType& delta, const NullMap* nullmap0,
                                 const NullMap* nullmap1) {
         if (nullmap0 && (*nullmap0)[0]) [[unlikely]] {
             return;
         }
 
-        for (size_t i = 0; i < delta.size(); ++i) {
+        for (size_t i = 0; i < vec_to.size(); ++i) {
             if (nullmap1 && (*nullmap1)[i]) [[unlikely]] {
                 continue;
             }
-            vec_to[i] = Transform::execute(from, delta[i]);
+            vec_to[i] = Transform::execute(from, get_element(delta, i));
         }
     }
 };
@@ -735,12 +767,12 @@ public:
                         assert_cast<const ColumnVector<Transform::ArgPType>&>(
                                 nest_col1_const->get_data_column());
                 Op::vector_constant(sources->get_data(), res_col->get_data(),
-                                    col1_inside_const.get_data()[0], nullmap0, nullmap1);
+                                    Op::get_element(col1_inside_const, 0), nullmap0, nullmap1);
             } else { // vector-vector
                 const auto& concrete_col1 =
                         assert_cast<const ColumnVector<Transform::ArgPType>&>(*nest_col1);
-                Op::vector_vector(sources->get_data(), concrete_col1.get_data(),
-                                  res_col->get_data(), nullmap0, nullmap1);
+                Op::vector_vector(sources->get_data(), concrete_col1, res_col->get_data(), nullmap0,
+                                  nullmap1);
             }
 
             // update result nullmap with inputs
@@ -767,8 +799,8 @@ public:
             const ColumnPtr nested_col1 = remove_nullable(col1);
             const auto& concrete_col1 =
                     assert_cast<const ColumnVector<Transform::ArgPType>&>(*nested_col1);
-            Op::constant_vector(col0_inside_const.get_data()[0], res_col->get_data(),
-                                concrete_col1.get_data(), nullmap0, nullmap1);
+            Op::constant_vector(col0_inside_const.get_data()[0], res_col->get_data(), concrete_col1,
+                                nullmap0, nullmap1);
 
             // update result nullmap with inputs
             if (result_nullable) {
@@ -857,32 +889,14 @@ public:
             // vector-const
             if (const auto* nest_col1_const = check_and_get_column<ColumnConst>(*nest_col1)) {
                 rconst = true;
-                if constexpr (Transform::IntervalPType == TYPE_STRING) {
-                    Op::vector_constant(sources->get_data(), res_col->get_data(),
-                                        nest_col1_const->get_data_at(0).to_string(), nullmap0,
-                                        nullmap1);
-                } else {
-                    const auto& col1_inside_const = assert_cast<const IntervalColumnType&>(
-                            nest_col1_const->get_data_column());
-                    Op::vector_constant(sources->get_data(), res_col->get_data(),
-                                        col1_inside_const.get_data()[0], nullmap0, nullmap1);
-                }
+                const auto& col1_inside_const =
+                        assert_cast<const IntervalColumnType&>(nest_col1_const->get_data_column());
+                Op::vector_constant(sources->get_data(), res_col->get_data(),
+                                    Op::get_element(col1_inside_const, 0), nullmap0, nullmap1);
             } else { // vector-vector
-                if constexpr (Transform::IntervalPType != TYPE_STRING) {
-                    const auto& concrete_col1 = assert_cast<const IntervalColumnType&>(*nest_col1);
-                    Op::vector_vector(sources->get_data(), concrete_col1.get_data(),
-                                      res_col->get_data(), nullmap0, nullmap1);
-                } else {
-                    const auto* nest_col1_string = check_and_get_column<ColumnString>(*nest_col1);
-                    if (nest_col1_string->size() == 1) {
-                        rconst = true;
-                        Op::vector_constant(sources->get_data(), res_col->get_data(),
-                                            nest_col1_string->get_data_at(0).to_string(), nullmap0,
-                                            nullmap1);
-                    } else {
-                        return Status::NotSupported("Do not support vector-vector for string type");
-                    }
-                }
+                const auto& concrete_col1 = assert_cast<const IntervalColumnType&>(*nest_col1);
+                Op::vector_vector(sources->get_data(), concrete_col1, res_col->get_data(), nullmap0,
+                                  nullmap1);
             }
 
             // update result nullmap with inputs
@@ -903,33 +917,28 @@ public:
         } else if (const auto* sources_const =
                            check_and_get_column_const<ColumnVector<Transform::ArgPType>>(
                                    src_nested_col.get())) {
-            if constexpr (Transform::IntervalPType != TYPE_STRING) {
-                // const-vector
-                const auto& col0_inside_const =
-                        assert_cast<const ColumnVector<Transform::ArgPType>&>(
-                                sources_const->get_data_column());
-                const ColumnPtr nested_col1 = remove_nullable(col1);
-                const auto& concrete_col1 = assert_cast<const IntervalColumnType&>(*nested_col1);
-                Op::constant_vector(col0_inside_const.get_data()[0], res_col->get_data(),
-                                    concrete_col1.get_data(), nullmap0, nullmap1);
+            // const-vector
+            const auto& col0_inside_const = assert_cast<const ColumnVector<Transform::ArgPType>&>(
+                    sources_const->get_data_column());
+            const ColumnPtr nested_col1 = remove_nullable(col1);
+            const auto& concrete_col1 = assert_cast<const IntervalColumnType&>(*nested_col1);
+            Op::constant_vector(col0_inside_const.get_data()[0], res_col->get_data(), concrete_col1,
+                                nullmap0, nullmap1);
 
-                // update result nullmap with inputs
-                if (result_nullable) {
-                    auto null_map = ColumnBool::create(input_rows_count, 0);
-                    NullMap& result_null_map = assert_cast<ColumnBool&>(*null_map).get_data();
-                    if (nullmap0) {
-                        VectorizedUtils::update_null_map(result_null_map, *nullmap0, true);
-                    }
-                    if (nullmap1) { // no const-const here. default impl deal it.
-                        VectorizedUtils::update_null_map(result_null_map, *nullmap1);
-                    }
-                    block.get_by_position(result).column =
-                            ColumnNullable::create(std::move(res_col), std::move(null_map));
-                } else {
-                    block.replace_by_position(result, std::move(res_col));
+            // update result nullmap with inputs
+            if (result_nullable) {
+                auto null_map = ColumnBool::create(input_rows_count, 0);
+                NullMap& result_null_map = assert_cast<ColumnBool&>(*null_map).get_data();
+                if (nullmap0) {
+                    VectorizedUtils::update_null_map(result_null_map, *nullmap0, true);
                 }
+                if (nullmap1) { // no const-const here. default impl deal it.
+                    VectorizedUtils::update_null_map(result_null_map, *nullmap1);
+                }
+                block.get_by_position(result).column =
+                        ColumnNullable::create(std::move(res_col), std::move(null_map));
             } else {
-                return Status::NotSupported("Do not support const-vector for string type");
+                block.replace_by_position(result, std::move(res_col));
             }
         } else { // no const-const here. default impl deal it.
             return Status::InternalError(

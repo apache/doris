@@ -34,18 +34,33 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.DateDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayHourAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DayHourSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DayMicrosecondAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DayMicrosecondSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DayMinuteAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DayMinuteSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaySecondAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DaySecondSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HourMicrosecondAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HourMicrosecondSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HourMinuteAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HourMinuteSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HourSecondAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HourSecondSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteMicrosecondAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteMicrosecondSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteSecondAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteSecondSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesSub;
@@ -62,6 +77,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondMicrosecondAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondMicrosecondSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
@@ -72,6 +88,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.YearMonthAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.YearMonthSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
@@ -307,12 +325,26 @@ public class DatetimeFunctionBinder {
                 return new MinutesAdd(timestamp, amount);
             case SECOND:
                 return new SecondsAdd(timestamp, amount);
+            case YEAR_MONTH:
+                return new YearMonthAdd(timestamp, amount);
             case DAY_SECOND:
                 return new DaySecondAdd(timestamp, amount);
             case DAY_HOUR:
                 return new DayHourAdd(timestamp, amount);
+            case DAY_MINUTE:
+                return new DayMinuteAdd(timestamp, amount);
+            case DAY_MICROSECOND:
+                return new DayMicrosecondAdd(timestamp, amount);
+            case HOUR_MINUTE:
+                return new HourMinuteAdd(timestamp, amount);
+            case HOUR_SECOND:
+                return new HourSecondAdd(timestamp, amount);
+            case HOUR_MICROSECOND:
+                return new HourMicrosecondAdd(timestamp, amount);
             case MINUTE_SECOND:
                 return new MinuteSecondAdd(timestamp, amount);
+            case MINUTE_MICROSECOND:
+                return new MinuteMicrosecondAdd(timestamp, amount);
             case SECOND_MICROSECOND:
                 return new SecondMicrosecondAdd(timestamp, amount);
             default:
@@ -339,6 +371,28 @@ public class DatetimeFunctionBinder {
                 return new MinutesSub(timeStamp, amount);
             case SECOND:
                 return new SecondsSub(timeStamp, amount);
+            case YEAR_MONTH:
+                return new YearMonthSub(timeStamp, amount);
+            case DAY_SECOND:
+                return new DaySecondSub(timeStamp, amount);
+            case DAY_HOUR:
+                return new DayHourSub(timeStamp, amount);
+            case DAY_MINUTE:
+                return new DayMinuteSub(timeStamp, amount);
+            case DAY_MICROSECOND:
+                return new DayMicrosecondSub(timeStamp, amount);
+            case HOUR_MINUTE:
+                return new HourMinuteSub(timeStamp, amount);
+            case HOUR_SECOND:
+                return new HourSecondSub(timeStamp, amount);
+            case HOUR_MICROSECOND:
+                return new HourMicrosecondSub(timeStamp, amount);
+            case MINUTE_SECOND:
+                return new MinuteSecondSub(timeStamp, amount);
+            case MINUTE_MICROSECOND:
+                return new MinuteMicrosecondSub(timeStamp, amount);
+            case SECOND_MICROSECOND:
+                return new SecondMicrosecondSub(timeStamp, amount);
             default:
                 throw new AnalysisException("Unsupported time stamp sub time unit: " + unit
                         + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");

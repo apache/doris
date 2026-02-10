@@ -56,13 +56,17 @@ public class FrontendsDisksTableValuedFunction extends MetadataTableValuedFuncti
             new Column("MountOn", ScalarType.createStringType()));
 
     private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
+    private static final ImmutableList<String> TITLE_NAMES;
 
     static {
         ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder();
+        ImmutableList.Builder<String> immutableListBuilder = ImmutableList.builder();
         for (int i = 0; i < SCHEMA.size(); i++) {
             builder.put(SCHEMA.get(i).getName().toLowerCase(), i);
+            immutableListBuilder.add(SCHEMA.get(i).getName());
         }
         COLUMN_TO_INDEX = builder.build();
+        TITLE_NAMES = immutableListBuilder.build();
     }
 
     public static Integer getColumnIndexFromColumnName(String columnName) {
@@ -104,5 +108,12 @@ public class FrontendsDisksTableValuedFunction extends MetadataTableValuedFuncti
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
         return SCHEMA;
+    }
+
+    /**
+     * unify title names for frontends_disks function and show frontends disks command
+     */
+    public static ImmutableList<String> getFrontendsDisksTitleNames() {
+        return TITLE_NAMES;
     }
 }

@@ -209,4 +209,136 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeRejectOnlySubcolumnsConfig) {
     EXPECT_TRUE(st.ok()) << st.to_string();
 }
 
+TEST(VariantUtilTest, GlobToRegex) {
+    struct Case {
+        std::string glob;
+        std::string expected_regex;
+    };
+    const std::vector<Case> cases = {
+            {"*", "^.*$"},
+            {"?", "^.$"},
+            {"a?b", "^a.b$"},
+            {"a*b", "^a.*b$"},
+            {"a**b", "^a.*.*b$"},
+            {"a??b", "^a..b$"},
+            {"?*", "^..*$"},
+            {"*?", "^.*.$"},
+            {"a.b", "^a\\.b$"},
+            {"a+b", "^a\\+b$"},
+            {"a{b}", "^a\\{b\\}$"},
+            {R"(a\*b)", R"(^a\*b$)"},
+            {"a\\?b", "^a\\?b$"},
+            {"a\\[b", "^a\\[b$"},
+            {"abc\\", "^abc\\\\$"},
+            {"a|b", "^a\\|b$"},
+            {"a(b)c", "^a\\(b\\)c$"},
+            {"a^b", "^a\\^b$"},
+            {"a$b", "^a\\$b$"},
+            {"int_[0-9]", "^int_[0-9]$"},
+            {"int_[!0-9]", "^int_[^0-9]$"},
+            {"int_[^0-9]", "^int_[^0-9]$"},
+            {"a[\\-]b", "^a[-]b$"},
+            {"a[b-d]e", "^a[b-d]e$"},
+            {"a[\\]]b", "^a[]]b$"},
+            {"a[\\!]b", "^a[!]b$"},
+            {"", "^$"},
+            {"a[[]b", "^a[[]b$"},
+            {"a[]b", "^a[]b$"},
+            {"[]", "^[]$"},
+            {"[!]", "^[^]$"},
+            {"[^]", "^[^]$"},
+            {"\\", "^\\\\$"},
+            {"\\*", "^\\*$"},
+            {"a\\*b", "^a\\*b$"},
+            {"a[!\\]]b", "^a[^]]b$"},
+    };
+
+    for (const auto& test_case : cases) {
+        std::string regex;
+        Status st = glob_to_regex(test_case.glob, &regex);
+        EXPECT_TRUE(st.ok()) << st.to_string() << " pattern=" << test_case.glob;
+        EXPECT_EQ(regex, test_case.expected_regex) << "pattern=" << test_case.glob;
+    }
+
+    std::string regex;
+    Status st = glob_to_regex("int_[0-9", &regex);
+    EXPECT_FALSE(st.ok());
+
+    st = glob_to_regex("a[\\]b", &regex);
+    EXPECT_FALSE(st.ok());
+}
+
+TEST(VariantUtilTest, GlobMatchRe2) {
+    struct Case {
+        std::string glob;
+        std::string candidate;
+        bool expected;
+    };
+    const std::vector<Case> cases = {
+            {"*", "", true},
+            {"*", "abc", true},
+            {"?", "a", true},
+            {"?", "", false},
+            {"a?b", "acb", true},
+            {"a?b", "ab", false},
+            {"a*b", "ab", true},
+            {"a*b", "axxxb", true},
+            {"a**b", "ab", true},
+            {"a**b", "axxxb", true},
+            {"?*", "", false},
+            {"?*", "a", true},
+            {"*?", "", false},
+            {"*?", "a", true},
+            {"a*b", "a/b", true},
+            {"a.b", "a.b", true},
+            {"a.b", "acb", false},
+            {"a+b", "a+b", true},
+            {"a{b}", "a{b}", true},
+            {"a|b", "a|b", true},
+            {"a|b", "ab", false},
+            {"a(b)c", "a(b)c", true},
+            {"a(b)c", "abc", false},
+            {"a^b", "a^b", true},
+            {"a^b", "ab", false},
+            {"a$b", "a$b", true},
+            {"a$b", "ab", false},
+            {"a[b-d]e", "ace", true},
+            {"a[b-d]e", "aee", false},
+            {"a[\\]]b", "a]b", true},
+            {"a[\\]]b", "a[b", false},
+            {"a[\\!]b", "a!b", true},
+            {"a[\\!]b", "a]b", false},
+            {"[]", "a", false},
+            {"[!]", "]", false},
+            {"\\", "\\", true},
+            {"\\*", "\\abc", false},
+            {"a[!\\]]b", "aXb", true},
+            {"a[!\\]]b", "a]b", false},
+            {"a[]b", "aXb", false},
+            {"a[[]b", "a[b", true},
+            {R"(a\*b)", "a*b", true},
+            {R"(a\?b)", "a?b", true},
+            {R"(a\[b)", "a[b", true},
+            {R"(abc\)", R"(abc\)", true},
+            {"int_[0-9]", "int_1", true},
+            {"int_[0-9]", "int_a", false},
+            {"int_[!0-9]", "int_a", true},
+            {"int_[!0-9]", "int_1", false},
+            {"int_[^0-9]", "int_b", true},
+            {"int_[^0-9]", "int_2", false},
+            {R"(a[\-]b)", "a-b", true},
+            {"", "", true},
+            {"", "a", false},
+    };
+
+    for (const auto& test_case : cases) {
+        bool matched = glob_match_re2(test_case.glob, test_case.candidate);
+        EXPECT_EQ(matched, test_case.expected)
+                << "pattern=" << test_case.glob << " candidate=" << test_case.candidate;
+    }
+
+    EXPECT_FALSE(glob_match_re2("int_[0-9", "int_1"));
+    EXPECT_FALSE(glob_match_re2("a[\\]b", "a]b"));
+}
+
 } // namespace doris::vectorized::variant_util

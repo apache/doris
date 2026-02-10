@@ -107,4 +107,32 @@ suite("test_group_concat") {
                 select * from test_view;
     """
     sql """drop view if exists test_view"""
+
+    // Constant Folding Correctness Test
+    sql """ DROP TABLE IF EXISTS test_group_concat_fold_const_t1 """
+    sql """ DROP TABLE IF EXISTS test_group_concat_fold_const_t2 """
+    sql """ CREATE TABLE test_group_concat_fold_const_t1 (
+                pk INT NOT NULL
+            ) DISTRIBUTED BY HASH(pk) BUCKETS 1
+            PROPERTIES ("replication_num" = "1");
+    """
+    sql """ CREATE TABLE test_group_concat_fold_const_t2 (
+                pk INT NOT NULL,
+                val VARCHAR(100) NOT NULL,
+                filter_col DATETIME NOT NULL
+            ) DISTRIBUTED BY HASH(pk) BUCKETS 1
+            PROPERTIES ("replication_num" = "1");
+    """
+    sql """ INSERT INTO test_group_concat_fold_const_t1 VALUES (1), (2), (3); """
+    sql """ INSERT INTO test_group_concat_fold_const_t2 VALUES
+        (1, 'aaa', '2020-01-01 00:00:00'),
+        (2, 'bbb', '2020-01-01 00:00:00');
+    """
+    // `SELECT group_concat(...) FROM t1 LEFT JOIN t2 ON ... WHERE t2.col = '...';`
+    // In constant folding, LEFT JOIN is rewritten as INNER JOIN. 
+    // If there are no matching rows, GROUP_CONCAT is not executed and returns NULL.
+    // In `debug_skip_fold_constant=true`, normal execution of LEFT OUTER JOIN. 
+    // After being filtered by WHERE, there are no matching rows, test if `add_batch` can correctly handle the case of null values
+    // should return NULL instead of empty values
+    testFoldConst("SELECT group_concat(t2.val ORDER BY t1.pk) AS result FROM test_group_concat_fold_const_t1 AS t1 LEFT JOIN test_group_concat_fold_const_t2 AS t2 ON t1.pk = t2.pk WHERE t2.filter_col = '2077-01-01 00:00:00';")
 }
