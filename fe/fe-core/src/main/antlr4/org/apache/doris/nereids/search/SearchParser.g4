@@ -22,12 +22,16 @@ options { tokenVocab=SearchLexer; }
 search     : clause EOF ;
 clause     : orClause ;
 orClause   : andClause (OR andClause)* ;
-andClause  : notClause (AND notClause)* ;
+// AND is optional - space-separated terms use default_operator
+andClause  : notClause (AND? notClause)* ;
 notClause  : NOT atomClause | atomClause ;
-atomClause : LPAREN clause RPAREN | fieldQuery ;
+atomClause : LPAREN clause RPAREN | fieldQuery | bareQuery ;
 
 // Support for variant subcolumn paths (e.g., field.subcolumn, field.sub1.sub2)
 fieldQuery : fieldPath COLON searchValue ;
+
+// Bare query without field prefix - uses default_field
+bareQuery  : searchValue ;
 fieldPath  : fieldSegment (DOT fieldSegment)* ;
 fieldSegment : TERM | QUOTED ;
 
