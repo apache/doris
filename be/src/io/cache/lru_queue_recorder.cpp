@@ -49,7 +49,7 @@ void LRUQueueRecorder::replay_queue_event(FileCacheType type) {
                 if (it != std::list<LRUQueue::FileKeyAndOffset>::iterator()) {
                     shadow_queue.remove(it, lru_log_lock);
                 } else {
-                    LOG(WARNING) << "REMOVE failed, doesn't exist in shadow queue";
+                    VLOG_DEBUG << "REMOVE failed, doesn't exist in shadow queue";
                 }
                 break;
             }
@@ -58,7 +58,16 @@ void LRUQueueRecorder::replay_queue_event(FileCacheType type) {
                 if (it != std::list<LRUQueue::FileKeyAndOffset>::iterator()) {
                     shadow_queue.move_to_end(it, lru_log_lock);
                 } else {
-                    LOG(WARNING) << "MOVETOBACK failed, doesn't exist in shadow queue";
+                    VLOG_DEBUG << "MOVETOBACK failed, doesn't exist in shadow queue";
+                }
+                break;
+            }
+            case CacheLRULogType::RESIZE: {
+                auto it = shadow_queue.get(log->hash, log->offset, lru_log_lock);
+                if (it != std::list<LRUQueue::FileKeyAndOffset>::iterator()) {
+                    shadow_queue.resize(it, log->size, lru_log_lock);
+                } else {
+                    VLOG_DEBUG << "RESIZE failed, doesn't exist in shadow queue";
                 }
                 break;
             }
