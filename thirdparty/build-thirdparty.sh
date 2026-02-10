@@ -1986,6 +1986,12 @@ build_paimon_cpp() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
+    # Darwin doesn't build GNU libunwind in this script, so don't force -lunwind there.
+    local paimon_linker_flags="-L${TP_LIB_DIR} -lbrotlienc -lbrotlidec -lbrotlicommon -llzma"
+    if [[ "${KERNEL}" != 'Darwin' ]]; then
+        paimon_linker_flags="${paimon_linker_flags} -lunwind"
+    fi
+
     CXXFLAGS="-Wno-nontrivial-memcall" \
     "${CMAKE_CMD}" -C "${TP_DIR}/paimon-cpp-cache.cmake" \
         -G "${GENERATOR}" \
@@ -2000,8 +2006,8 @@ build_paimon_cpp() {
         -DPAIMON_ENABLE_JINDO=OFF \
         -DPAIMON_ENABLE_LUMINA=OFF \
         -DPAIMON_ENABLE_LUCENE=OFF \
-        -DCMAKE_EXE_LINKER_FLAGS="-L${TP_LIB_DIR} -lbrotlienc -lbrotlidec -lbrotlicommon -lunwind -llzma" \
-        -DCMAKE_SHARED_LINKER_FLAGS="-L${TP_LIB_DIR} -lbrotlienc -lbrotlidec -lbrotlicommon -lunwind -llzma" \
+        -DCMAKE_EXE_LINKER_FLAGS="${paimon_linker_flags}" \
+        -DCMAKE_SHARED_LINKER_FLAGS="${paimon_linker_flags}" \
         ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
