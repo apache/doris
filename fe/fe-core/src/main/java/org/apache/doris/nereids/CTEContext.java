@@ -48,14 +48,6 @@ public class CTEContext {
 
     private final Map<String, CTEContext> cteContextMap;
 
-    private static int currentLowerCaseTableNames() {
-        ConnectContext ctx = ConnectContext.get();
-        if (ctx != null && ctx.getCurrentCatalog() != null) {
-            return ctx.getCurrentCatalog().getLowerCaseTableNames();
-        }
-        return GlobalVariable.lowerCaseTableNames;
-    }
-
     /* build head CTEContext */
     public CTEContext() {
         this(CTEId.DEFAULT, null, (CTEContext) null);
@@ -91,6 +83,14 @@ public class CTEContext {
         this.recursiveCteOutputs = recursiveCteOutputs != null ? ImmutableList.copyOf(recursiveCteOutputs)
                 : ImmutableList.of();
         this.cteContextMap = ImmutableMap.of(name, this);
+    }
+
+    private static int currentLowerCaseTableNames() {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getCurrentCatalog() != null) {
+            return ctx.getCurrentCatalog().getLowerCaseTableNames();
+        }
+        return GlobalVariable.lowerCaseTableNames;
     }
 
     public void setRecursiveCteOutputs(List<Slot> recursiveCteOutputs) {
