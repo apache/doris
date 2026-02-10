@@ -112,6 +112,7 @@ std::optional<CombinationMethod> OccurBooleanWeight<ScoreCombinerPtrT>::build_sh
     } else if (adjusted_minimum == 1) {
         return Required {scorer_union(std::move(should_scorers), combiner)};
     } else if (adjusted_minimum == num_of_should_scorers) {
+        // All SHOULD clauses must match - move them to must_scorers (append, not swap)
         for (auto& scorer : should_scorers) {
             must_scorers.push_back(std::move(scorer));
         }

@@ -184,13 +184,15 @@ public:
     Status build_query_recursive(const TSearchClause& clause,
                                  const std::shared_ptr<IndexQueryContext>& context,
                                  FieldReaderResolver& resolver,
-                                 inverted_index::query_v2::QueryPtr* out,
-                                 std::string* binding_key) const;
+                                 inverted_index::query_v2::QueryPtr* out, std::string* binding_key,
+                                 const std::string& default_operator,
+                                 int32_t minimum_should_match) const;
 
     Status build_leaf_query(const TSearchClause& clause,
                             const std::shared_ptr<IndexQueryContext>& context,
                             FieldReaderResolver& resolver, inverted_index::query_v2::QueryPtr* out,
-                            std::string* binding_key) const;
+                            std::string* binding_key, const std::string& default_operator,
+                            int32_t minimum_should_match) const;
 
     Status collect_all_field_nulls(const TSearchClause& clause,
                                    const std::unordered_map<std::string, IndexIterator*>& iterators,

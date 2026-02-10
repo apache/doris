@@ -208,6 +208,16 @@ public class SearchPredicate extends Predicate {
         }
         param.setFieldBindings(bindings);
 
+        // Set default_operator for BE to use when tokenizing TERM queries
+        if (qsPlan.getDefaultOperator() != null) {
+            param.setDefaultOperator(qsPlan.getDefaultOperator());
+        }
+
+        // Set minimum_should_match for BE to use when tokenizing TERM queries in Lucene mode
+        if (qsPlan.getMinimumShouldMatch() != null) {
+            param.setMinimumShouldMatch(qsPlan.getMinimumShouldMatch());
+        }
+
         return param;
     }
 

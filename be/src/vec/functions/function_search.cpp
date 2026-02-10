@@ -49,6 +49,7 @@
 #include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
 #include "olap/rowset/segment_v2/inverted_index_iterator.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "util/string_util.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type_string.h"
@@ -225,10 +226,22 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     FieldReaderResolver resolver(data_type_with_names, iterators, context,
                                  search_param.field_bindings);
 
+    // Extract default_operator from TSearchParam (default: "or")
+    std::string default_operator = "or";
+    if (search_param.__isset.default_operator && !search_param.default_operator.empty()) {
+        default_operator = search_param.default_operator;
+    }
+    // Extract minimum_should_match from TSearchParam (-1 means not set)
+    int32_t minimum_should_match = -1;
+    if (search_param.__isset.minimum_should_match) {
+        minimum_should_match = search_param.minimum_should_match;
+    }
+
     query_v2::QueryPtr root_query;
     std::string root_binding_key;
     RETURN_IF_ERROR(build_query_recursive(search_param.root, context, resolver, &root_query,
-                                          &root_binding_key));
+                                          &root_binding_key, default_operator,
+                                          minimum_should_match));
     if (root_query == nullptr) {
         LOG(INFO) << "search: Query tree resolved to empty query, dsl:"
                   << search_param.original_dsl;
@@ -437,7 +450,9 @@ Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
                                              const std::shared_ptr<IndexQueryContext>& context,
                                              FieldReaderResolver& resolver,
                                              inverted_index::query_v2::QueryPtr* out,
-                                             std::string* binding_key) const {
+                                             std::string* binding_key,
+                                             const std::string& default_operator,
+                                             int32_t minimum_should_match) const {
     DCHECK(out != nullptr);
     *out = nullptr;
     if (binding_key) {
@@ -466,7 +481,8 @@ Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
                 query_v2::QueryPtr child_query;
                 std::string child_binding_key;
                 RETURN_IF_ERROR(build_query_recursive(child_clause, context, resolver, &child_query,
-                                                      &child_binding_key));
+                                                      &child_binding_key, default_operator,
+                                                      minimum_should_match));
 
                 // Determine occur type from child clause
                 query_v2::Occur occur = query_v2::Occur::MUST; // default
@@ -497,7 +513,8 @@ Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
                 query_v2::QueryPtr child_query;
                 std::string child_binding_key;
                 RETURN_IF_ERROR(build_query_recursive(child_clause, context, resolver, &child_query,
-                                                      &child_binding_key));
+                                                      &child_binding_key, default_operator,
+                                                      minimum_should_match));
                 // Add all children including empty BitSetQuery
                 // BooleanQuery will handle the logic:
                 // - AND with empty bitmap → result is empty
@@ -511,14 +528,17 @@ Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
         return Status::OK();
     }
 
-    return build_leaf_query(clause, context, resolver, out, binding_key);
+    return build_leaf_query(clause, context, resolver, out, binding_key, default_operator,
+                            minimum_should_match);
 }
 
 Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                                         const std::shared_ptr<IndexQueryContext>& context,
                                         FieldReaderResolver& resolver,
                                         inverted_index::query_v2::QueryPtr* out,
-                                        std::string* binding_key) const {
+                                        std::string* binding_key,
+                                        const std::string& default_operator,
+                                        int32_t minimum_should_match) const {
     DCHECK(out != nullptr);
     *out = nullptr;
     if (binding_key) {
@@ -590,7 +610,27 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                 return Status::OK();
             }
 
-            auto builder = create_operator_boolean_query_builder(query_v2::OperatorType::OP_OR);
+            // When minimum_should_match is specified, use OccurBooleanQuery
+            // ES behavior: msm only applies to SHOULD clauses
+            if (minimum_should_match > 0) {
+                auto builder =
+                        segment_v2::inverted_index::query_v2::create_occur_boolean_query_builder();
+                builder->set_minimum_number_should_match(minimum_should_match);
+                query_v2::Occur occur = (default_operator == "and") ? query_v2::Occur::MUST
+                                                                    : query_v2::Occur::SHOULD;
+                for (const auto& term_info : term_infos) {
+                    std::wstring term_wstr = StringHelper::to_wstring(term_info.get_single_term());
+                    builder->add(make_term_query(term_wstr), occur);
+                }
+                *out = builder->build();
+                return Status::OK();
+            }
+
+            // Use default_operator to determine how to combine tokenized terms
+            query_v2::OperatorType op_type = (default_operator == "and")
+                                                     ? query_v2::OperatorType::OP_AND
+                                                     : query_v2::OperatorType::OP_OR;
+            auto builder = create_operator_boolean_query_builder(op_type);
             for (const auto& term_info : term_infos) {
                 std::wstring term_wstr = StringHelper::to_wstring(term_info.get_single_term());
                 builder->add(make_term_query(term_wstr), binding.binding_key);
@@ -730,9 +770,19 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
             return Status::OK();
         }
         if (clause_type == "PREFIX") {
-            *out = std::make_shared<query_v2::WildcardQuery>(context, field_wstr, value);
+            // Apply lowercase only if:
+            // 1. There's a parser/analyzer (otherwise lower_case has no effect on indexing)
+            // 2. lower_case is explicitly set to "true"
+            bool has_parser = inverted_index::InvertedIndexAnalyzer::should_analyzer(
+                    binding.index_properties);
+            std::string lowercase_setting =
+                    get_parser_lowercase_from_properties(binding.index_properties);
+            bool should_lowercase = has_parser && (lowercase_setting == INVERTED_INDEX_PARSER_TRUE);
+            std::string pattern = should_lowercase ? to_lower(value) : value;
+            *out = std::make_shared<query_v2::WildcardQuery>(context, field_wstr, pattern);
             VLOG_DEBUG << "search: PREFIX clause processed, field=" << field_name << ", pattern='"
-                       << value << "'";
+                       << pattern << "' (original='" << value << "', has_parser=" << has_parser
+                       << ", lower_case=" << lowercase_setting << ")";
             return Status::OK();
         }
 
@@ -745,17 +795,25 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                            << field_name;
                 return Status::OK();
             }
-            *out = std::make_shared<query_v2::WildcardQuery>(context, field_wstr, value);
+            // Apply lowercase only if:
+            // 1. There's a parser/analyzer (otherwise lower_case has no effect on indexing)
+            // 2. lower_case is explicitly set to "true"
+            bool has_parser = inverted_index::InvertedIndexAnalyzer::should_analyzer(
+                    binding.index_properties);
+            std::string lowercase_setting =
+                    get_parser_lowercase_from_properties(binding.index_properties);
+            bool should_lowercase = has_parser && (lowercase_setting == INVERTED_INDEX_PARSER_TRUE);
+            std::string pattern = should_lowercase ? to_lower(value) : value;
+            *out = std::make_shared<query_v2::WildcardQuery>(context, field_wstr, pattern);
             VLOG_DEBUG << "search: WILDCARD clause processed, field=" << field_name << ", pattern='"
-                       << value << "'";
+                       << pattern << "' (original='" << value << "', has_parser=" << has_parser
+                       << ", lower_case=" << lowercase_setting << ")";
             return Status::OK();
         }
 
         if (clause_type == "REGEXP") {
-            // REGEXP patterns are NOT lowercased, matching Elasticsearch query_string behavior.
-            // ES regex queries match directly against the term dictionary without normalization.
-            // Users must write lowercase regex patterns (e.g., /ab.*/) to match lowercased terms.
-            // This is consistent with match_regexp behavior.
+            // ES-compatible: regex patterns are NOT lowercased (case-sensitive matching)
+            // This matches ES query_string behavior where regex patterns bypass analysis
             *out = std::make_shared<query_v2::RegexpQuery>(context, field_wstr, value);
             VLOG_DEBUG << "search: REGEXP clause processed, field=" << field_name << ", pattern='"
                        << value << "'";

@@ -268,6 +268,8 @@ struct TSearchParam {
   1: required string original_dsl         // Original DSL string for debugging
   2: required TSearchClause root     // Parsed AST root
   3: required list<TSearchFieldBinding> field_bindings  // Field to slot mappings
+  4: optional string default_operator     // "and" or "or" for TERM tokenization (default: "or")
+  5: optional i32 minimum_should_match    // Minimum number of SHOULD clauses that must match (for Lucene mode TERM tokenization)
 }
 
 // This is essentially a union over the subclasses of Expr.
