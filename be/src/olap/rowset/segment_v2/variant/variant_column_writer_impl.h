@@ -20,6 +20,7 @@
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <unordered_map>
+#include <vector>
 
 #include "common/status.h"
 #include "olap/rowset/segment_v2/column_writer.h"
@@ -234,6 +235,25 @@ public:
     Status finalize();
 
 private:
+    Status _write_materialized_subcolumn(const TabletColumn& parent_column, std::string_view path,
+                                         vectorized::ColumnVariant::Subcolumn& subcolumn,
+                                         size_t num_rows,
+                                         vectorized::OlapBlockDataConvertor* converter,
+                                         int& column_id, const std::vector<uint32_t>* rowids);
+
+    Status _prepare_subcolumn_writer(const TabletColumn& parent_column, std::string_view path,
+                                     const vectorized::ColumnVariant::Subcolumn& subcolumn,
+                                     vectorized::ColumnPtr& current_column,
+                                     vectorized::DataTypePtr& current_type,
+                                     int64_t none_null_value_size, int current_column_id,
+                                     size_t num_rows, TabletColumn* out_tablet_column);
+
+    bool _is_invalid_array_type(const vectorized::DataTypePtr& type) const;
+    Status _write_doc_value_column(const TabletColumn& parent_column,
+                                   vectorized::ColumnVariant* variant_column,
+                                   vectorized::OlapBlockDataConvertor* converter, int column_id,
+                                   size_t num_rows);
+
     ordinal_t _next_rowid = 0;
     vectorized::MutableColumnPtr _column;
     const TabletColumn* _tablet_column = nullptr;

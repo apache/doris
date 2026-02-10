@@ -18,6 +18,7 @@
 #include <atomic>
 #include <thread>
 
+#include "common/config.h"
 #include "gtest/gtest.h"
 #include "olap/rowset/segment_v2/column_meta_accessor.h"
 #include "olap/rowset/segment_v2/column_reader.h"
@@ -1314,6 +1315,116 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_compact_writer_and_read_doc
         assert_cast<ColumnVariant*>(dst.get())->serialize_one_row_to_string(i, &value, options);
         EXPECT_EQ(value, expected_bucket_json[i]);
     }
+
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+}
+
+TEST_F(VariantColumnWriterReaderTest, test_doc_compact_sparse_write_array_gap) {
+    constexpr int kRows = 2;
+    constexpr int kDocBuckets = 1;
+    constexpr int kBucket = 0;
+
+    struct ConfigGuard {
+        bool old_value;
+        ~ConfigGuard() { config::enable_variant_doc_compaction_sparse_write = old_value; }
+    };
+    ConfigGuard guard {config::enable_variant_doc_compaction_sparse_write};
+    config::enable_variant_doc_compaction_sparse_write = true;
+
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "V1", 3, false, false,
+                     /*variant_sparse_hash_shard_count=*/0,
+                     /*variant_enable_doc_mode=*/true,
+                     /*variant_doc_materialization_min_rows=*/0,
+                     /*variant_doc_hash_shard_count=*/kDocBuckets);
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(schema_pb);
+
+    TabletColumn parent_column = _tablet_schema->column(0);
+    TabletColumn extracted_doc_bucket =
+            vectorized::variant_util::create_doc_value_column(parent_column, kBucket);
+    extracted_doc_bucket.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    extracted_doc_bucket.set_is_nullable(false);
+    _tablet_schema->append_column(extracted_doc_bucket);
+
+    TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    _tablet_schema->set_external_segment_meta_used_default(false);
+    tablet_meta->_tablet_id = 33001;
+    _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
+    EXPECT_TRUE(_tablet->init().ok());
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+
+    io::FileWriterPtr file_writer;
+    auto file_path = local_segment_path(_tablet->tablet_path(), "0", 0);
+    auto st = io::global_local_filesystem()->create_file(file_path, &file_writer);
+    EXPECT_TRUE(st.ok()) << st.msg();
+
+    SegmentFooterPB footer;
+    RowsetWriterContext rowset_ctx;
+    rowset_ctx.write_type = DataWriteType::TYPE_DIRECT;
+    rowset_ctx.tablet_schema = _tablet_schema;
+
+    TabletColumn extracted_doc_bucket_col = _tablet_schema->column(1);
+    ColumnWriterOptions doc_compact_opts;
+    doc_compact_opts.meta = footer.add_columns();
+    doc_compact_opts.compression_type = CompressionTypePB::LZ4;
+    doc_compact_opts.file_writer = file_writer.get();
+    doc_compact_opts.footer = &footer;
+    doc_compact_opts.rowset_ctx = &rowset_ctx;
+    _init_column_meta(doc_compact_opts.meta, 0, extracted_doc_bucket_col, CompressionTypePB::LZ4);
+
+    std::unique_ptr<ColumnWriter> doc_compact_writer;
+    EXPECT_TRUE(ColumnWriter::create(doc_compact_opts, &extracted_doc_bucket_col, file_writer.get(),
+                                     &doc_compact_writer)
+                        .ok());
+    EXPECT_TRUE(doc_compact_writer->init().ok());
+
+    auto type_string = std::make_shared<vectorized::DataTypeString>();
+    auto json_column = type_string->create_column();
+    auto* strings = assert_cast<vectorized::ColumnString*>(json_column.get());
+    const std::string row0 = R"({"arr":[1,2]})";
+    const std::string row1 = R"({})";
+    strings->insert_data(row0.data(), row0.size());
+    strings->insert_data(row1.data(), row1.size());
+
+    vectorized::ParseConfig parse_cfg;
+    parse_cfg.enable_flatten_nested = false;
+    parse_cfg.parse_to = vectorized::ParseConfig::ParseTo::OnlyDocValueColumn;
+
+    vectorized::MutableColumnPtr bucket_variant =
+            vectorized::ColumnVariant::create(parent_column.variant_max_subcolumns_count(), false);
+    variant_util::parse_json_to_variant(*bucket_variant, *strings, parse_cfg);
+
+    auto bucket_data = std::make_unique<vectorized::VariantColumnData>();
+    bucket_data->column_data = bucket_variant.get();
+    bucket_data->row_pos = 0;
+    const auto* data = reinterpret_cast<const uint8_t*>(bucket_data.get());
+    EXPECT_TRUE(doc_compact_writer->append_data(&data, kRows).ok());
+
+    EXPECT_TRUE(doc_compact_writer->finish().ok());
+    EXPECT_TRUE(doc_compact_writer->write_data().ok());
+    EXPECT_TRUE(doc_compact_writer->write_ordinal_index().ok());
+    EXPECT_TRUE(file_writer->close().ok());
+    footer.set_num_rows(kRows);
+
+    bool found_arr = false;
+    for (int i = 0; i < footer.columns_size(); ++i) {
+        const auto& col = footer.columns(i);
+        if (!col.has_column_path_info()) {
+            continue;
+        }
+        vectorized::PathInData path;
+        path.from_protobuf(col.column_path_info());
+        if (path.copy_pop_front().get_path() == "arr") {
+            EXPECT_EQ(col.type(), (int)FieldType::OLAP_FIELD_TYPE_ARRAY);
+            EXPECT_TRUE(col.is_nullable());
+            found_arr = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(found_arr);
 
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
 }

@@ -95,6 +95,81 @@ TEST(VariantUtilTest, ParseDocValueToSubcolumns_FillsDefaultsAndValues) {
     EXPECT_EQ(fb.field.get_type(), PrimitiveType::TYPE_NULL); // missing
 }
 
+TEST(VariantUtilTest, ParseOnlyDocValueColumn_SerializesMixedTypes) {
+    const std::vector<std::string_view> jsons = {
+            R"({"b":true,"d":1.5,"u":18446744073709551615,"arr":[1,2,3],"arr2":[[1],[2]],"s":"x"})",
+            R"({"b":false,"arr":[4],"s":"y"})",
+    };
+
+    auto variant = vectorized::ColumnVariant::create(0);
+    auto json_col = _make_json_column(jsons);
+
+    vectorized::ParseConfig cfg;
+    cfg.enable_flatten_nested = false;
+    cfg.parse_to = vectorized::ParseConfig::ParseTo::OnlyDocValueColumn;
+    parse_json_to_variant(*variant, *json_col, cfg);
+
+    EXPECT_TRUE(variant->is_doc_mode());
+
+    auto subcolumns = materialize_docs_to_subcolumns_map(*variant);
+    ASSERT_TRUE(subcolumns.contains("b"));
+    ASSERT_TRUE(subcolumns.contains("d"));
+    ASSERT_TRUE(subcolumns.contains("u"));
+    ASSERT_TRUE(subcolumns.contains("arr"));
+    ASSERT_TRUE(subcolumns.contains("arr2"));
+    ASSERT_TRUE(subcolumns.contains("s"));
+
+    auto& b = subcolumns.at("b");
+    auto& d = subcolumns.at("d");
+    auto& u = subcolumns.at("u");
+    auto& arr = subcolumns.at("arr");
+    auto& arr2 = subcolumns.at("arr2");
+    auto& s = subcolumns.at("s");
+    b.finalize();
+    d.finalize();
+    u.finalize();
+    arr.finalize();
+    arr2.finalize();
+    s.finalize();
+
+    vectorized::FieldWithDataType f;
+    b.get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BOOLEAN);
+    EXPECT_EQ(f.field.get<TYPE_BOOLEAN>(), true);
+    b.get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BOOLEAN);
+    EXPECT_EQ(f.field.get<TYPE_BOOLEAN>(), false);
+
+    d.get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_DOUBLE);
+    EXPECT_EQ(f.field.get<TYPE_DOUBLE>(), 1.5);
+    d.get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_NULL);
+
+    u.get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_LARGEINT);
+    EXPECT_EQ(f.field.get<TYPE_LARGEINT>(), static_cast<int128_t>(18446744073709551615ULL));
+    u.get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_NULL);
+
+    arr.get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_ARRAY);
+    arr.get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_ARRAY);
+
+    arr2.get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_JSONB);
+    arr2.get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_NULL);
+
+    s.get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(f.field.get<TYPE_STRING>(), "x");
+    s.get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(f.field.get<TYPE_STRING>(), "y");
+}
+
 TEST(VariantUtilTest, ParseVariantColumns_ScalarJsonStringToSubcolumns) {
     TabletSchemaPB schema_pb;
     schema_pb.set_keys_type(KeysType::DUP_KEYS);
