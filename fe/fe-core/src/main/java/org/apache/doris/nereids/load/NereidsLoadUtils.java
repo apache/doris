@@ -392,12 +392,14 @@ public class NereidsLoadUtils {
 
         public RewriteEncryptKeyRef() {
             super(((expression, context) -> {
-                // Use FoldConstantRuleOnFE to fold EncryptKeyRef to StringLiteral
-                // This rewriter will traverse the expression tree and replace all EncryptKeyRef
-                if (expression instanceof EncryptKeyRef) {
-                    return expression.accept(FOLD_ENCRYPT_KEY_REF, context);
-                }
-                return expression;
+                // Use rewriteUp to traverse the expression tree bottom-up and only fold
+                // EncryptKeyRef nodes to StringLiteral, leaving all other expressions unchanged.
+                return expression.rewriteUp(e -> {
+                    if (e instanceof EncryptKeyRef) {
+                        return e.accept(FOLD_ENCRYPT_KEY_REF, context);
+                    }
+                    return e;
+                });
             }));
         }
     }
