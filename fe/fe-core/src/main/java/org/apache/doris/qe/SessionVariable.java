@@ -4689,18 +4689,11 @@ public class SessionVariable implements Serializable, Writable {
     /** canUseNereidsDistributePlanner */
     public static boolean canUseNereidsDistributePlanner() {
         ConnectContext connectContext = ConnectContext.get();
-        if (connectContext == null) {
+        if (connectContext != null) {
+            return canUseNereidsDistributePlanner(connectContext);
+        } else {
             return true;
         }
-        SessionVariable sessionVariable = connectContext.getSessionVariable();
-        StatementContext statementContext = connectContext.getStatementContext();
-        if (statementContext != null) {
-            StatementBase parsedStatement = statementContext.getParsedStatement();
-            if (!(parsedStatement instanceof LogicalPlanAdapter)) {
-                return false;
-            }
-        }
-        return sessionVariable.enableNereidsDistributePlanner;
     }
 
     /** canUseNereidsDistributePlanner */
