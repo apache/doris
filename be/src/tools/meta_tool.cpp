@@ -764,12 +764,11 @@ void print_column_meta(const doris::segment_v2::ColumnMetaPB& column_meta,
 }
 
 // Register hijacked accessors
-ACCESS_PRIVATE_FIELD(ExecEnv_encoding_info_resolver, ExecEnv,
-                     segment_v2::EncodingInfoResolver*, _encoding_info_resolver);
-ACCESS_PRIVATE_FIELD(ExecEnv_orphan_mem_tracker, ExecEnv,
-                     std::shared_ptr<MemTrackerLimiter>, _orphan_mem_tracker);
-ACCESS_PRIVATE_STATIC_FIELD(ExecEnv_tracking_memory, ExecEnv, std::atomic_bool,
-                            _s_tracking_memory);
+ACCESS_PRIVATE_FIELD(ExecEnv_encoding_info_resolver, ExecEnv, segment_v2::EncodingInfoResolver*,
+                     _encoding_info_resolver);
+ACCESS_PRIVATE_FIELD(ExecEnv_orphan_mem_tracker, ExecEnv, std::shared_ptr<MemTrackerLimiter>,
+                     _orphan_mem_tracker);
+ACCESS_PRIVATE_STATIC_FIELD(ExecEnv_tracking_memory, ExecEnv, std::atomic_bool, _s_tracking_memory);
 
 void show_segment_data(const std::string& file_name) {
     // Initialize ExecEnv components needed for ColumnReader
