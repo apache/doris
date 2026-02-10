@@ -764,11 +764,11 @@ void print_column_meta(const doris::segment_v2::ColumnMetaPB& column_meta,
 }
 
 // Register hijacked accessors
-ACCESS_PRIVATE_FIELD(ExecEnv_encoding_info_resolver, ExecEnv, EncodingInfoResolver,
-                     _encoding_info_resolver);
-ACCESS_PRIVATE_FIELD(ExecEnv_orphan_mem_tracker, ExecEnv, EncodingInfoResolver,
-                     _orphan_mem_tracker);
-ACCESS_PRIVATE_STATIC_FIELD(ExecEnv_tracking_memory, ExecEnv, EncodingInfoResolver,
+ACCESS_PRIVATE_FIELD(ExecEnv_encoding_info_resolver, ExecEnv,
+                     segment_v2::EncodingInfoResolver*, _encoding_info_resolver);
+ACCESS_PRIVATE_FIELD(ExecEnv_orphan_mem_tracker, ExecEnv,
+                     std::shared_ptr<MemTrackerLimiter>, _orphan_mem_tracker);
+ACCESS_PRIVATE_STATIC_FIELD(ExecEnv_tracking_memory, ExecEnv, std::atomic_bool,
                             _s_tracking_memory);
 
 void show_segment_data(const std::string& file_name) {
@@ -780,15 +780,15 @@ void show_segment_data(const std::string& file_name) {
     auto mem_tracker = GET_PRIVATE_FIELD(ExecEnv_orphan_mem_tracker);
     auto tracking_memory = GET_PRIVATE_STATIC_FIELD(ExecEnv_tracking_memory);
     // Initialize encoding info resolver for ColumnReader
-    if (exec_env.*resolver == nullptr) {
-        exec_env.*resolver = new doris::segment_v2::EncodingInfoResolver();
+    if (exec_env->*resolver == nullptr) {
+        exec_env->*resolver = new doris::segment_v2::EncodingInfoResolver();
     }
     // Initialize mem tracker limiter pool and orphan mem tracker for ThreadMemTrackerMgr
     if (exec_env->mem_tracker_limiter_pool.empty()) {
         exec_env->mem_tracker_limiter_pool.resize(doris::MEM_TRACKER_GROUP_NUM,
                                                   doris::TrackerLimiterGroup());
-        tracking->store(true, std::memory_order_release);
-        exec_env.*mem_tracker = doris::MemTrackerLimiter::create_shared(
+        (*tracking_memory).store(true, std::memory_order_release);
+        exec_env->*mem_tracker = doris::MemTrackerLimiter::create_shared(
                 doris::MemTrackerLimiter::Type::GLOBAL, "Orphan");
     }
 
