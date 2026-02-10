@@ -64,11 +64,12 @@ public:
               _iterators(iterators),
               _context(std::move(context)),
               _field_bindings(field_bindings) {
-        // Build a lookup map for quick variant subcolumn checks
+        // Build lookup maps for quick access
         for (const auto& binding : _field_bindings) {
             if (binding.__isset.is_variant_subcolumn && binding.is_variant_subcolumn) {
                 _variant_subcolumn_fields.insert(binding.field_name);
             }
+            _field_binding_map[binding.field_name] = &binding;
         }
     }
 
@@ -114,6 +115,7 @@ private:
     const std::unordered_map<std::string, IndexIterator*>& _iterators;
     std::shared_ptr<IndexQueryContext> _context;
     std::vector<TSearchFieldBinding> _field_bindings;
+    std::unordered_map<std::string, const TSearchFieldBinding*> _field_binding_map;
     std::unordered_set<std::string> _variant_subcolumn_fields;
     std::unordered_map<std::string, FieldReaderBinding> _cache;
     std::vector<std::shared_ptr<lucene::index::IndexReader>> _readers;

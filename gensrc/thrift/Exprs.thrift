@@ -261,6 +261,7 @@ struct TSearchFieldBinding {
   3: optional string parent_field_name    // Parent field name for variant subcolumns
   4: optional string subcolumn_path       // Subcolumn path for variant fields (e.g., "subcolumn" or "sub1.sub2")
   5: optional bool is_variant_subcolumn   // True if this is a variant subcolumn access
+  6: optional map<string, string> index_properties  // Index properties (parser, lower_case, etc.) from FE Index lookup
 }
 
 struct TSearchParam {
