@@ -100,7 +100,6 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.qe.VariableVarConverters;
@@ -1001,12 +1000,17 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         }
     }
 
+    /**
+     * Always use case-insensitive comparison for table names.
+     */
     public static boolean sameTableName(String boundSlot, String unboundSlot) {
-        if (GlobalVariable.lowerCaseTableNames != 1) {
-            return boundSlot.equals(unboundSlot);
-        } else {
-            return boundSlot.equalsIgnoreCase(unboundSlot);
-        }
+        // Always use case-insensitive comparison for table names.
+        // This is necessary because:
+        // 1. External tables (Hive, Iceberg, etc.) store table names in lowercase in their metastore,
+        //    but users may reference them with original case in SQL.
+        // 2. Internal tables also typically use lowercase names.
+        // 3. This is consistent with how catalog and database names are compared (case-insensitive).
+        return boundSlot.equalsIgnoreCase(unboundSlot);
     }
 
     private boolean shouldBindSlotBy(int namePartSize, Slot boundSlot) {
