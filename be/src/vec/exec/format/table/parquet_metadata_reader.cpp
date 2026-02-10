@@ -619,9 +619,9 @@ public:
             std::optional<bool> excludes;
             if (column_chunk.__isset.meta_data &&
                 column_chunk.meta_data.__isset.bloom_filter_offset) {
-                ParquetPredicate::ColumnStat stat;
+                BloomFilterInfo stat;
                 auto st = ParquetPredicate::read_bloom_filter(column_chunk.meta_data, file_reader,
-                                                              &io_ctx, &stat);
+                                                              &io_ctx, stat.bloom_filter);
                 if (st.ok() && stat.bloom_filter) {
                     bool might_contain = stat.bloom_filter->test_bytes(encoded_literal.data(),
                                                                        encoded_literal.size());

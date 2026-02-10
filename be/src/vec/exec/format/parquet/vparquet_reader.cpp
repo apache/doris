@@ -1162,38 +1162,35 @@ Status ParquetReader::_process_column_stat_filter(
 
     // Cache bloom filters for each column to avoid reading the same bloom filter multiple times
     // when there are multiple predicates on the same column
-    std::unordered_map<int, std::unique_ptr<vectorized::ParquetBlockSplitBloomFilter>>
-            bloom_filter_cache;
+    std::unordered_map<int, std::unique_ptr<segment_v2::BloomFilter>> bloom_filter_cache;
 
     // Initialize output parameters
     *filtered_by_min_max = false;
     *filtered_by_bloom_filter = false;
 
     for (const auto& predicate : _push_down_predicates) {
-        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
-                [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-                    // Check if min-max filter is enabled
-                    if (!_enable_filter_by_min_max) {
-                        return false;
-                    }
-                    auto* slot = _tuple_descriptor->slots()[cid];
-                    if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
-                        return false;
-                    }
-                    const auto& file_col_name =
-                            _table_info_node_ptr->children_file_column_name(slot->col_name());
-                    const FieldSchema* col_schema =
-                            _file_metadata->schema().get_column(file_col_name);
-                    int parquet_col_id = col_schema->physical_column_index;
-                    auto meta_data = row_group.columns[parquet_col_id].meta_data;
-                    stat->col_schema = col_schema;
-                    return ParquetPredicate::read_column_stats(col_schema, meta_data,
-                                                               &_ignored_stats,
-                                                               _t_metadata->created_by, stat)
-                            .ok();
-                };
-        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
-                [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+        std::function<bool(ZoneMapInfo*, const int)> get_stat_func = [&](ZoneMapInfo* stat,
+                                                                         const int cid) {
+            // Check if min-max filter is enabled
+            if (!_enable_filter_by_min_max) {
+                return false;
+            }
+            auto* slot = _tuple_descriptor->slots()[cid];
+            if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
+                return false;
+            }
+            const auto& file_col_name =
+                    _table_info_node_ptr->children_file_column_name(slot->col_name());
+            const FieldSchema* col_schema = _file_metadata->schema().get_column(file_col_name);
+            int parquet_col_id = col_schema->physical_column_index;
+            auto meta_data = row_group.columns[parquet_col_id].meta_data;
+            stat->col_schema = col_schema;
+            return ParquetPredicate::read_column_stats(col_schema, meta_data, &_ignored_stats,
+                                                       _t_metadata->created_by, stat)
+                    .ok();
+        };
+        std::function<bool(std::unique_ptr<segment_v2::BloomFilter>&, int)> get_bloom_filter_func =
+                [&](std::unique_ptr<segment_v2::BloomFilter>& bloom_filter, const int cid) {
                     auto* slot = _tuple_descriptor->slots()[cid];
                     if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
                         return false;
@@ -1222,48 +1219,45 @@ Status ParquetReader::_process_column_stat_filter(
                     auto cache_iter = bloom_filter_cache.find(parquet_col_id);
                     if (cache_iter != bloom_filter_cache.end()) {
                         // Bloom filter already loaded for this column, reuse it
-                        stat->bloom_filter = std::move(cache_iter->second);
+                        bloom_filter = std::move(cache_iter->second);
                         bloom_filter_cache.erase(cache_iter);
-                        return stat->bloom_filter != nullptr;
+                        return bloom_filter != nullptr;
                     }
 
-                    if (!stat->bloom_filter) {
+                    if (!bloom_filter) {
                         SCOPED_RAW_TIMER(&_reader_statistics.bloom_filter_read_time);
                         auto st = ParquetPredicate::read_bloom_filter(
-                                meta_data, _tracing_file_reader, _io_ctx, stat);
+                                meta_data, _tracing_file_reader, _io_ctx, bloom_filter);
                         if (!st.ok()) {
                             LOG(WARNING) << "Failed to read bloom filter for column "
                                          << col_schema->name << " in file " << _scan_range.path
                                          << ", status: " << st.to_string();
-                            stat->bloom_filter.reset();
+                            bloom_filter.reset();
                             return false;
                         }
                     }
-                    return stat->bloom_filter != nullptr;
+                    return bloom_filter != nullptr;
                 };
-        ParquetPredicate::ColumnStat stat;
-        stat.ctz = _ctz;
-        stat.get_stat_func = &get_stat_func;
-        stat.get_bloom_filter_func = &get_bloom_filter_func;
+        ZoneMapInfo info;
+        info.ctz = _ctz;
+        info.get_stat_func = &get_stat_func;
 
-        if (!predicate->evaluate_and(&stat)) {
+        BloomFilterInfo bloom_filter_info;
+        bloom_filter_info.get_bloom_filter_func = &get_bloom_filter_func;
+        bloom_filter_info.is_parquet = true;
+
+        if (!predicate->evaluate_and(info)) {
             *filter_group = true;
-
-            // Track which filter was used for filtering
-            // If bloom filter was loaded, it means bloom filter was used
-            if (stat.bloom_filter) {
-                *filtered_by_bloom_filter = true;
-            }
-            // If col_schema was set but no bloom filter, it means min-max stats were used
-            if (stat.col_schema && !stat.bloom_filter) {
-                *filtered_by_min_max = true;
-            }
-
+            *filtered_by_min_max = true;
+            return Status::OK();
+        } else if (!predicate->evaluate_and(bloom_filter_info)) {
+            *filter_group = true;
+            *filtered_by_bloom_filter = true;
             return Status::OK();
         }
 
         // After evaluating, if the bloom filter was used, cache it for subsequent predicates
-        if (stat.bloom_filter) {
+        if (bloom_filter_info.bloom_filter) {
             // Find the column id for caching
             for (auto* slot : _tuple_descriptor->slots()) {
                 if (_table_info_node_ptr->children_column_exists(slot->col_name())) {
@@ -1272,8 +1266,9 @@ Status ParquetReader::_process_column_stat_filter(
                     const FieldSchema* col_schema =
                             _file_metadata->schema().get_column(file_col_name);
                     int parquet_col_id = col_schema->physical_column_index;
-                    if (stat.col_schema == col_schema) {
-                        bloom_filter_cache[parquet_col_id] = std::move(stat.bloom_filter);
+                    if (info.col_schema == col_schema) {
+                        bloom_filter_cache[parquet_col_id] =
+                                std::move(bloom_filter_info.bloom_filter);
                         break;
                     }
                 }

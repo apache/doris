@@ -139,11 +139,13 @@ public:
         _evaluate_bit<true>(column, sel, size, flags);
     }
 
-    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override {
+    bool evaluate_and(segment_v2::ZoneMap& zone_map) const override {
+        if (!(*zone_map.get_stat_func)(&zone_map, column_id())) {
+            return true;
+        }
         if (!zone_map.has_not_null) {
             return false;
         }
-
         if constexpr (PT == PredicateType::EQ) {
             return _operator(
                     Compare::less_equal(zone_map.min_value.template get<Type>(), _value) &&
@@ -188,36 +190,6 @@ public:
         }
     }
 
-    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
-        bool result = true;
-        if ((*statistic->get_stat_func)(statistic, column_id())) {
-            vectorized::Field min_field;
-            vectorized::Field max_field;
-            if (statistic->is_all_null) {
-                result = false;
-            } else if (!vectorized::ParquetPredicate::parse_min_max_value(
-                                statistic->col_schema, statistic->encoded_min_value,
-                                statistic->encoded_max_value, *statistic->ctz, &min_field,
-                                &max_field)
-                                .ok()) [[unlikely]] {
-                result = true;
-            } else {
-                result = camp_field(min_field, max_field);
-            }
-        }
-
-        if constexpr (PT == PredicateType::EQ) {
-            if (result && statistic->get_bloom_filter_func != nullptr &&
-                (*statistic->get_bloom_filter_func)(statistic, column_id())) {
-                if (!statistic->bloom_filter) {
-                    return result;
-                }
-                return evaluate_and(statistic->bloom_filter.get());
-            }
-        }
-        return result;
-    }
-
     bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
                       RowRanges* row_ranges) const override {
         vectorized::ParquetPredicate::PageIndexStat* stat = nullptr;
@@ -249,7 +221,10 @@ public:
         return row_ranges->count() > 0;
     }
 
-    bool is_always_true(const segment_v2::ZoneMap& zone_map) const override {
+    bool is_always_true(segment_v2::ZoneMap& zone_map) const override {
+        if (!(*zone_map.get_stat_func)(&zone_map, column_id())) {
+            return false;
+        }
         if (zone_map.has_null) {
             return false;
         }
@@ -267,7 +242,10 @@ public:
         return false;
     }
 
-    bool evaluate_del(const segment_v2::ZoneMap& zone_map) const override {
+    bool evaluate_del(segment_v2::ZoneMap& zone_map) const override {
+        if (!(*zone_map.get_stat_func)(&zone_map, column_id())) {
+            return false;
+        }
         if (zone_map.has_null) {
             return false;
         }
@@ -285,37 +263,91 @@ public:
         }
     }
 
-    bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
+    bool evaluate_and(BloomFilterInfo& bloom_filter_info) const override {
         if constexpr (PT == PredicateType::EQ) {
-            // EQ predicate can not use ngram bf, just return true to accept
-            if (bf->is_ngram_bf()) {
+            if ((*bloom_filter_info.get_bloom_filter_func)(bloom_filter_info.bloom_filter,
+                                                           column_id())) {
+                if (!bloom_filter_info.bloom_filter) {
+                    // Read bloom filter failed, return true to accept this page.
+                    return true;
+                }
+            } else {
+                // Read bloom filter failed, return true to accept this page.
                 return true;
             }
-            if constexpr (is_string_type(Type)) {
-                return bf->test_bytes(_value.data(), _value.size());
-            } else {
-                // DecimalV2 using decimal12_t in bloom filter, should convert value to decimal12_t
-                if constexpr (Type == PrimitiveType::TYPE_DECIMALV2) {
-                    decimal12_t decimal12_t_val(_value.int_value(), _value.frac_value());
-                    return bf->test_bytes(reinterpret_cast<const char*>(&decimal12_t_val),
-                                          sizeof(decimal12_t));
-                    // Datev1 using uint24_t in bloom filter
-                } else if constexpr (Type == PrimitiveType::TYPE_DATE) {
-                    uint24_t date_value(uint32_t(_value.to_olap_date()));
-                    return bf->test_bytes(reinterpret_cast<const char*>(&date_value),
-                                          sizeof(uint24_t));
-                    // DatetimeV1 using int64_t in bloom filter
-                } else if constexpr (Type == PrimitiveType::TYPE_DATETIME) {
-                    int64_t datetime_value(_value.to_olap_datetime());
-                    return bf->test_bytes(reinterpret_cast<const char*>(&datetime_value),
-                                          sizeof(int64_t));
+        } else {
+            return true;
+        }
+        if (bloom_filter_info.is_parquet) {
+            if constexpr (PT == PredicateType::EQ) {
+                auto* bf = assert_cast<vectorized::ParquetBlockSplitBloomFilter*>(
+                        bloom_filter_info.bloom_filter.get());
+                auto test_bytes = [&]<typename V>(const V& value) {
+                    return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&value)),
+                                          sizeof(V));
+                };
+
+                // Only support Parquet native types where physical == logical representation
+                // BOOLEAN -> hash as int32 (Parquet bool stored as int32)
+                if constexpr (Type == PrimitiveType::TYPE_BOOLEAN) {
+                    int32_t int32_value = static_cast<int32_t>(_value);
+                    return test_bytes(int32_value);
+                } else if constexpr (Type == PrimitiveType::TYPE_INT) {
+                    // INT -> hash as int32
+                    return test_bytes(_value);
+                } else if constexpr (Type == PrimitiveType::TYPE_BIGINT) {
+                    // BIGINT -> hash as int64
+                    return test_bytes(_value);
+                } else if constexpr (Type == PrimitiveType::TYPE_FLOAT) {
+                    // FLOAT -> hash as float
+                    return test_bytes(_value);
+                } else if constexpr (Type == PrimitiveType::TYPE_DOUBLE) {
+                    // DOUBLE -> hash as double
+                    return test_bytes(_value);
+                } else if constexpr (is_string_type(Type)) {
+                    // VARCHAR/STRING -> hash bytes
+                    return bf->test_bytes(_value.data(), _value.size());
                 } else {
-                    return bf->test_bytes(reinterpret_cast<const char*>(&_value), sizeof(T));
+                    // Unsupported types: return true (accept)
+                    return true;
                 }
+            } else {
+                LOG(FATAL) << "Bloom filter is not supported by predicate type.";
+                return true;
             }
         } else {
-            LOG(FATAL) << "Bloom filter is not supported by predicate type.";
-            return true;
+            auto* bf = bloom_filter_info.bloom_filter.get();
+            if constexpr (PT == PredicateType::EQ) {
+                // EQ predicate can not use ngram bf, just return true to accept
+                if (bf->is_ngram_bf()) {
+                    return true;
+                }
+                if constexpr (is_string_type(Type)) {
+                    return bf->test_bytes(_value.data(), _value.size());
+                } else {
+                    // DecimalV2 using decimal12_t in bloom filter, should convert value to decimal12_t
+                    if constexpr (Type == PrimitiveType::TYPE_DECIMALV2) {
+                        decimal12_t decimal12_t_val(_value.int_value(), _value.frac_value());
+                        return bf->test_bytes(reinterpret_cast<const char*>(&decimal12_t_val),
+                                              sizeof(decimal12_t));
+                        // Datev1 using uint24_t in bloom filter
+                    } else if constexpr (Type == PrimitiveType::TYPE_DATE) {
+                        uint24_t date_value(uint32_t(_value.to_olap_date()));
+                        return bf->test_bytes(reinterpret_cast<const char*>(&date_value),
+                                              sizeof(uint24_t));
+                        // DatetimeV1 using int64_t in bloom filter
+                    } else if constexpr (Type == PrimitiveType::TYPE_DATETIME) {
+                        int64_t datetime_value(_value.to_olap_datetime());
+                        return bf->test_bytes(reinterpret_cast<const char*>(&datetime_value),
+                                              sizeof(int64_t));
+                    } else {
+                        return bf->test_bytes(reinterpret_cast<const char*>(&_value), sizeof(T));
+                    }
+                }
+            } else {
+                LOG(FATAL) << "Bloom filter is not supported by predicate type.";
+                return true;
+            }
         }
     }
 
@@ -334,43 +366,6 @@ public:
 
     bool can_do_bloom_filter(bool ngram) const override {
         return PT == PredicateType::EQ && !ngram;
-    }
-
-    bool evaluate_and(const vectorized::ParquetBlockSplitBloomFilter* bf) const override {
-        if constexpr (PT == PredicateType::EQ) {
-            auto test_bytes = [&]<typename V>(const V& value) {
-                return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&value)),
-                                      sizeof(V));
-            };
-
-            // Only support Parquet native types where physical == logical representation
-            // BOOLEAN -> hash as int32 (Parquet bool stored as int32)
-            if constexpr (Type == PrimitiveType::TYPE_BOOLEAN) {
-                int32_t int32_value = static_cast<int32_t>(_value);
-                return test_bytes(int32_value);
-            } else if constexpr (Type == PrimitiveType::TYPE_INT) {
-                // INT -> hash as int32
-                return test_bytes(_value);
-            } else if constexpr (Type == PrimitiveType::TYPE_BIGINT) {
-                // BIGINT -> hash as int64
-                return test_bytes(_value);
-            } else if constexpr (Type == PrimitiveType::TYPE_FLOAT) {
-                // FLOAT -> hash as float
-                return test_bytes(_value);
-            } else if constexpr (Type == PrimitiveType::TYPE_DOUBLE) {
-                // DOUBLE -> hash as double
-                return test_bytes(_value);
-            } else if constexpr (is_string_type(Type)) {
-                // VARCHAR/STRING -> hash bytes
-                return bf->test_bytes(_value.data(), _value.size());
-            } else {
-                // Unsupported types: return true (accept)
-                return true;
-            }
-        } else {
-            LOG(FATAL) << "Bloom filter is not supported by predicate type.";
-            return true;
-        }
     }
 
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,

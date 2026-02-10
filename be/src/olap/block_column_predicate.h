@@ -74,11 +74,7 @@ public:
 
     virtual bool support_zonemap() const { return true; }
 
-    virtual bool evaluate_and(const segment_v2::ZoneMap& zone_map) const {
-        throw Exception(Status::FatalError("should not reach here"));
-    }
-
-    virtual bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const {
+    virtual bool evaluate_and(segment_v2::ZoneMap& zone_map) const {
         throw Exception(Status::FatalError("should not reach here"));
     }
 
@@ -94,7 +90,7 @@ public:
         throw Exception(Status::FatalError("should not reach here"));
     }
 
-    virtual bool evaluate_and(const segment_v2::BloomFilter* bf) const {
+    virtual bool evaluate_and(BloomFilterInfo& bloom_filter_info) const {
         throw Exception(Status::FatalError("should not reach here"));
     }
 
@@ -133,16 +129,13 @@ public:
     void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                       bool* flags) const override;
     bool support_zonemap() const override { return _predicate->support_zonemap(); }
-    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override;
-    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
-        return _predicate->evaluate_and(statistic);
-    }
+    bool evaluate_and(segment_v2::ZoneMap& zone_map) const override;
 
     bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
                       RowRanges* row_ranges) const override {
         return _predicate->evaluate_and(statistic, row_ranges);
     }
-    bool evaluate_and(const segment_v2::BloomFilter* bf) const override;
+    bool evaluate_and(BloomFilterInfo& bloom_filter_info) const override;
     bool evaluate_and(const StringRef* dict_words, const size_t dict_num) const override;
     void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                      bool* flags) const override;
@@ -206,7 +199,7 @@ public:
                       bool* flags) const override;
     void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                      bool* flags) const override;
-    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+    bool evaluate_and(ZoneMapInfo& statistic) const override {
         if (num_of_column_predicate() == 1) {
             return _block_column_predicate_vec[0]->evaluate_and(statistic);
         } else {
@@ -218,6 +211,8 @@ public:
             return false;
         }
     }
+
+    bool evaluate_and(BloomFilterInfo& bloom_filter_info) const override;
 
     bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
                       RowRanges* row_ranges) const override;
@@ -238,20 +233,11 @@ public:
 
     void evaluate_vec(vectorized::MutableColumns& block, uint16_t size, bool* flags) const override;
 
-    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override;
+    bool evaluate_and(segment_v2::ZoneMap& zone_map) const override;
 
-    bool evaluate_and(const segment_v2::BloomFilter* bf) const override;
+    bool evaluate_and(BloomFilterInfo& bloom_filter_info) const override;
 
     bool evaluate_and(const StringRef* dict_words, const size_t dict_num) const override;
-
-    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
-        for (auto& block_column_predicate : _block_column_predicate_vec) {
-            if (!block_column_predicate->evaluate_and(statistic)) {
-                return false;
-            }
-        }
-        return true;
-    }
 
     bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
                       RowRanges* row_ranges) const override;

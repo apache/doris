@@ -107,16 +107,12 @@ public:
         DCHECK(false) << "should not reach here";
     }
 
-    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override {
-        // there is null in range, accept it
-        if (zone_map.has_null) {
+    bool evaluate_and(segment_v2::ZoneMap& zone_map) const override {
+        if (!(*zone_map.get_stat_func)(&zone_map, column_id())) {
             return true;
         }
-        return _nested->evaluate_and(zone_map);
-    }
-
-    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
-        return _nested->evaluate_and(statistic) || statistic->has_null;
+        // there is null in range, accept it
+        return zone_map.has_null || _nested->evaluate_and(zone_map);
     }
 
     bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
@@ -135,11 +131,11 @@ public:
         return row_ranges->count() > 0;
     }
 
-    bool evaluate_del(const segment_v2::ZoneMap& zone_map) const override {
+    bool evaluate_del(segment_v2::ZoneMap& zone_map) const override {
         return _nested->evaluate_del(zone_map);
     }
 
-    bool evaluate_and(const BloomFilter* bf) const override { return _nested->evaluate_and(bf); }
+    bool evaluate_and(BloomFilterInfo& bf) const override { return _nested->evaluate_and(bf); }
 
     bool can_do_bloom_filter(bool ngram) const override {
         return _nested->can_do_bloom_filter(ngram);
