@@ -133,6 +133,9 @@ suite("test_streaming_postgres_job_partition", "p0,external,pg,external_docker,e
 
             sql """INSERT INTO ${pgSchema}.${table1} (id, user_id, order_date)
                    VALUES (4, 1004, DATE '2024-03-15');"""
+
+            def xminResult1 = sql """SELECT xmin, xmax , * FROM ${pgSchema}.${table1} WHERE id = 4"""
+            log.info("xminResult1: " + xminResult1)
         }
 
         // wait for all incremental data 
