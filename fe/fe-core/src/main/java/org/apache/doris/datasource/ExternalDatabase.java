@@ -595,15 +595,11 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     private boolean isStoredTableNamesLowerCase() {
-        // Because we have added a test configuration item,
-        // it needs to be judged together with Env.isStoredTableNamesLowerCase()
-        return Env.isStoredTableNamesLowerCase() || extCatalog.getOnlyTestLowerCaseTableNames() == 1;
+        return extCatalog.getLowerCaseTableNames() == 1;
     }
 
     private boolean isTableNamesCaseInsensitive() {
-        // Because we have added a test configuration item,
-        // it needs to be judged together with Env.isTableNamesCaseInsensitive()
-        return Env.isTableNamesCaseInsensitive() || extCatalog.getOnlyTestLowerCaseTableNames() == 2;
+        return extCatalog.getLowerCaseTableNames() == 2;
     }
 
     @Override

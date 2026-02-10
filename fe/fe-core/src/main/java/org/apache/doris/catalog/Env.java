@@ -7089,6 +7089,22 @@ public class Env {
         return GlobalVariable.lowerCaseTableNames == 0;
     }
 
+    public static int getLowerCaseTableNames(String catalogName) {
+        if (catalogName == null) {
+            return GlobalVariable.lowerCaseTableNames;
+        }
+        CatalogIf<?> catalog = getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+        return catalog != null ? catalog.getLowerCaseTableNames() : GlobalVariable.lowerCaseTableNames;
+    }
+
+    public static int getLowerCaseDatabaseNames(String catalogName) {
+        if (catalogName == null) {
+            return 0;  // InternalCatalog default: case-sensitive
+        }
+        CatalogIf<?> catalog = getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+        return catalog != null ? catalog.getLowerCaseDatabaseNames() : 0;
+    }
+
     private static void getTableMeta(OlapTable olapTable, TGetMetaDBMeta dbMeta) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("get table meta. table: {}", olapTable.getName());

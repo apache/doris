@@ -66,6 +66,7 @@ import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.TableBranchOrTagInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.transaction.TransactionManager;
 
 import com.google.common.base.Objects;
@@ -1169,14 +1170,15 @@ public abstract class ExternalCatalog
         return specifiedDatabaseMap;
     }
 
-
     public String getLowerCaseMetaNames() {
         return catalogProperty.getOrDefault(LOWER_CASE_META_NAMES, "false");
     }
 
-    public int getOnlyTestLowerCaseTableNames() {
+    @Override
+    public int getLowerCaseTableNames() {
         return Integer.parseInt(catalogProperty.getOrDefault(LOWER_CASE_TABLE_NAMES,
-                catalogProperty.getOrDefault(ONLY_TEST_LOWER_CASE_TABLE_NAMES, "0")));
+                catalogProperty.getOrDefault(ONLY_TEST_LOWER_CASE_TABLE_NAMES,
+                        String.valueOf(GlobalVariable.lowerCaseTableNames))));
     }
 
     /**
@@ -1186,6 +1188,7 @@ public abstract class ExternalCatalog
      * - 1: Database names are stored as lowercase
      * - 2: Database name comparison is case-insensitive
      */
+    @Override
     public int getLowerCaseDatabaseNames() {
         return Integer.parseInt(catalogProperty.getOrDefault(LOWER_CASE_DATABASE_NAMES, "0"));
     }
