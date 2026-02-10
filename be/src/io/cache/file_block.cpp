@@ -119,7 +119,7 @@ Status FileBlock::set_downloaded(std::lock_guard<std::mutex>& /* block_lock */) 
         return Status::InternalError("Try to set empty block {} as downloaded",
                                      _block_range.to_string());
     }
-    Status status = _mgr->_storage->finalize(_key, this->_block_range.size());
+    Status status = _mgr->_storage->finalize(_key);
     if (status.ok()) [[likely]] {
         _download_state = State::DOWNLOADED;
     } else {
