@@ -19,6 +19,7 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
+import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.MetricLabel;
@@ -48,14 +49,14 @@ public class ExternalSchemaCache {
     }
 
     private void init(ExecutorService executor) {
-        ExternalCatalog.CacheTtlSpec ttlSpec = ExternalCatalog.resolveCacheTtlSpec(
+        CacheSpec cacheSpec = CacheSpec.fromTtlValue(
                 catalog.getProperties().get(ExternalCatalog.SCHEMA_CACHE_TTL_SECOND),
                 Config.external_cache_expire_time_seconds_after_access,
                 Config.max_external_schema_cache_num);
         CacheFactory schemaCacheFactory = new CacheFactory(
-                ttlSpec.getExpireAfterAccessSeconds(),
+                CacheSpec.toExpireAfterAccess(cacheSpec.getTtlSecond()),
                 OptionalLong.of(Config.external_cache_refresh_time_minutes * 60),
-                ttlSpec.getMaxSize(),
+                cacheSpec.getCapacity(),
                 false,
                 null);
         schemaCache = schemaCacheFactory.buildCache(this::loadSchema, executor);

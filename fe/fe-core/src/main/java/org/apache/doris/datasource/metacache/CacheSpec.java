@@ -35,6 +35,9 @@ import java.util.OptionalLong;
  * </ul>
  */
 public final class CacheSpec {
+    public static final long CACHE_NO_TTL = -1L;
+    public static final long CACHE_TTL_DISABLE_CACHE = 0L;
+
     private final boolean enable;
     private final long ttlSecond;
     private final long capacity;
@@ -56,6 +59,28 @@ public final class CacheSpec {
             capacity = 0;
         }
         return new CacheSpec(enable, ttlSecond, capacity);
+    }
+
+    /**
+     * Build a cache spec from a ttl property value and fixed capacity.
+     *
+     * <p>Semantics are compatible with legacy schema cache behavior:
+     * <ul>
+     *   <li>ttlValue is null: use default ttl</li>
+     *   <li>ttl=-1: no expiration</li>
+     *   <li>ttl=0: disable cache by forcing capacity=0</li>
+     *   <li>ttl parse failure: fallback to -1 (no expiration)</li>
+     * </ul>
+     * TODO: Refactor schema cache and its parameters to the unified enable/ttl/capacity model,
+     * then remove this ttl-only adapter.
+     */
+    public static CacheSpec fromTtlValue(String ttlValue, long defaultTtlSecond, long defaultCapacity) {
+        long ttlSecond = ttlValue == null ? defaultTtlSecond : NumberUtils.toLong(ttlValue, CACHE_NO_TTL);
+        long capacity = defaultCapacity;
+        if (!isCacheEnabled(true, ttlSecond, capacity)) {
+            capacity = 0;
+        }
+        return new CacheSpec(true, ttlSecond, capacity);
     }
 
     public static void checkBooleanProperty(String value, String key) throws DdlException {
@@ -91,10 +116,10 @@ public final class CacheSpec {
      * ttlSecond=-1 means no expiration; ttlSecond=0 disables cache.
      */
     public static OptionalLong toExpireAfterAccess(long ttlSecond) {
-        if (ttlSecond == -1) {
+        if (ttlSecond == CACHE_NO_TTL) {
             return OptionalLong.empty();
         }
-        return OptionalLong.of(Math.max(ttlSecond, 0));
+        return OptionalLong.of(Math.max(ttlSecond, CACHE_TTL_DISABLE_CACHE));
     }
 
     private static boolean getBooleanProperty(Map<String, String> properties, String key, boolean defaultValue) {
