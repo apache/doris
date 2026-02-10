@@ -312,3 +312,31 @@ charlie	50
 -- !nonleaf_auto_cast_off --
 {"level1_num_1":1011111,"level1_num_2":102}
 
+-- !explicit_cast_chain_select_2 --
+10
+30
+50
+15
+
+-- !explicit_cast_chain_where_3 --
+2
+3
+
+-- !explicit_cast_chain_order_by_4 --
+3
+2
+4
+1
+
+-- !explicit_cast_chain_group_having_4 --
+15	1
+30	1
+50	1
+
+-- !explicit_cast_chain_match_2 --
+1
+4
+
+-- !explicit_cast_chain_match_4 --
+1
+4

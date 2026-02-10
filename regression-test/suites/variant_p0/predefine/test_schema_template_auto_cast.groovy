@@ -372,4 +372,42 @@ suite("test_schema_template_auto_cast", "p0") {
     // restore default
     sql "set enable_variant_schema_auto_cast = true"
     sql "DROP TABLE IF EXISTS ${nonleafTable}"
+
+
+    // Test 18: multi-layer explicit cast chain (2~4), including MATCH clause
+    def castChainTable = "test_variant_schema_auto_cast_cast_chain"
+    sql "DROP TABLE IF EXISTS ${castChainTable}"
+    sql """CREATE TABLE ${castChainTable} (
+        `id` bigint NULL,
+        `data` variant<'num_*': BIGINT, 'str_*': STRING> NOT NULL,
+        INDEX idx_str_name (data) USING INVERTED PROPERTIES("field_pattern"="str_name", "parser"="unicode", "support_phrase"="true") COMMENT ''
+    ) ENGINE=OLAP DUPLICATE KEY(`id`)
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
+
+    sql """insert into ${castChainTable} values(1, '{\"num_a\": 10, \"num_b\": 20, \"str_name\": \"alice\"}')"""
+    sql """insert into ${castChainTable} values(2, '{\"num_a\": 30, \"num_b\": 40, \"str_name\": \"bob\"}')"""
+    sql """insert into ${castChainTable} values(3, '{\"num_a\": 50, \"num_b\": 60, \"str_name\": \"charlie\"}')"""
+    sql """insert into ${castChainTable} values(4, '{\"num_a\": 15, \"num_b\": 25, \"str_name\": \"alice\"}')"""
+
+    qt_explicit_cast_chain_select_2 """ SELECT CAST(CAST(data['num_a'] AS BIGINT) AS BIGINT)
+        FROM ${castChainTable} ORDER BY id """
+    qt_explicit_cast_chain_where_3 """ SELECT id FROM ${castChainTable}
+        WHERE CAST(CAST(CAST(data['num_a'] AS BIGINT) AS BIGINT) AS BIGINT) > 20 ORDER BY id """
+    qt_explicit_cast_chain_order_by_4 """ SELECT id FROM ${castChainTable}
+        ORDER BY CAST(CAST(CAST(CAST(data['num_b'] AS BIGINT) AS BIGINT) AS BIGINT) AS BIGINT) DESC, id """
+    qt_explicit_cast_chain_group_having_4 """ SELECT
+        CAST(CAST(CAST(CAST(data['num_a'] AS BIGINT) AS BIGINT) AS BIGINT) AS BIGINT) AS v, COUNT(*)
+        FROM ${castChainTable}
+        GROUP BY CAST(CAST(CAST(CAST(data['num_a'] AS BIGINT) AS BIGINT) AS BIGINT) AS BIGINT)
+        HAVING CAST(CAST(CAST(CAST(data['num_a'] AS BIGINT) AS BIGINT) AS BIGINT) AS BIGINT) >= 15
+        ORDER BY v """
+
+    qt_explicit_cast_chain_match_2 """ SELECT id FROM ${castChainTable}
+        WHERE CAST(CAST(data['str_name'] AS STRING) AS VARCHAR) MATCH 'alice' ORDER BY id """
+    qt_explicit_cast_chain_match_4 """ SELECT id FROM ${castChainTable}
+        WHERE CAST(CAST(CAST(CAST(data['str_name'] AS STRING) AS VARCHAR) AS STRING) AS VARCHAR) MATCH 'alice' ORDER BY id """
+
+    sql "DROP TABLE IF EXISTS ${castChainTable}"
+
 }
