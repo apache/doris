@@ -525,12 +525,15 @@ public abstract class ExternalCatalog
             int dbNameMode = getLowerCaseDatabaseNames();
             if (dbNameMode == 1) {
                 localDbName = localDbName.toLowerCase();
+            } else if (dbNameMode == 2) {
+                // Mode 2: preserve original remote case for display
+                localDbName = remoteDbName;
             }
             remoteToLocalPairs.add(Pair.of(remoteDbName, localDbName));
         }
 
-        // Check for conflicts when lower_case_meta_names = true
-        if (Boolean.parseBoolean(getLowerCaseMetaNames())) {
+        // Check for conflicts when lower_case_meta_names = true or lower_case_database_names = 2
+        if (Boolean.parseBoolean(getLowerCaseMetaNames()) || getLowerCaseDatabaseNames() == 2) {
             // Map to track lowercase local names and their corresponding remote names
             Map<String, List<String>> lowerCaseToRemoteNames = Maps.newHashMap();
 

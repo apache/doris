@@ -1246,7 +1246,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     }
 
     public static boolean sameTableName(String boundSlot, String unboundSlot, int lowerCaseTableNames) {
-        if (lowerCaseTableNames != 1) {
+        if (lowerCaseTableNames == 0) {
             return boundSlot.equals(unboundSlot);
         } else {
             return boundSlot.equalsIgnoreCase(unboundSlot);

@@ -199,6 +199,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 String localTableName = extCatalog.fromRemoteTableName(remoteName, tableName);
                 if (this.isStoredTableNamesLowerCase()) {
                     localTableName = localTableName.toLowerCase();
+                } else if (this.isTableNamesCaseInsensitive()) {
+                    // Mode 2: preserve original remote case for display
+                    localTableName = tableName;
                 }
                 lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
                 return Pair.of(tableName, localTableName);
@@ -512,10 +515,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     return null;
                 }
             }
-        }
-        if (extCatalog.getLowerCaseMetaNames().equalsIgnoreCase("true")
-                && (this.isTableNamesCaseInsensitive())) {
-            finalName = tableName.toLowerCase();
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("get table {} from database: {}.{}, final name is: {}, catalog id: {}",
