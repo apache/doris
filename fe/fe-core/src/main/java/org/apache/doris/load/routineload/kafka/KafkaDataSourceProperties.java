@@ -269,8 +269,11 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
         boolean hasAccessKey = customKafkaProperties.containsKey(KafkaConfiguration.AWS_ACCESS_KEY);
         boolean hasSecretKey = customKafkaProperties.containsKey(KafkaConfiguration.AWS_SECRET_KEY);
         boolean hasRoleArn = customKafkaProperties.containsKey(KafkaConfiguration.AWS_MSK_IAM_ROLE_ARN);
+        boolean hasProfileName = customKafkaProperties.containsKey(KafkaConfiguration.AWS_PROFILE_NAME);
+        boolean hasCredentialsProvider = customKafkaProperties.containsKey(KafkaConfiguration.AWS_CREDENTIALS_PROVIDER);
 
-        boolean isAwsMskIam = hasAwsRegion || hasAccessKey || hasSecretKey || hasRoleArn;
+        boolean isAwsMskIam = hasAwsRegion || hasAccessKey || hasSecretKey || hasRoleArn
+                || hasProfileName || hasCredentialsProvider;
 
         // If AWS-related property is set, validate the complete configuration
         if (isAwsMskIam) {

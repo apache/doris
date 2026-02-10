@@ -58,6 +58,8 @@ public enum KafkaConfiguration {
     public static final String AWS_ACCESS_KEY = "aws.access.key";
     public static final String AWS_SECRET_KEY = "aws.secret.key";
     public static final String AWS_MSK_IAM_ROLE_ARN = "aws.msk.iam.role.arn";
+    public static final String AWS_PROFILE_NAME = "aws.profile.name";
+    public static final String AWS_CREDENTIALS_PROVIDER = "aws.credentials.provider";
     private final String name;
 
     public String getName() {
