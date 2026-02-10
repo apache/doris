@@ -37,6 +37,7 @@
 #include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query_helper.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/all_query/all_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/bit_set_query/bit_set_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/boolean_query_builder.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/operator.h"
@@ -445,6 +446,12 @@ Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
 
     const std::string& clause_type = clause.clause_type;
 
+    // Handle MATCH_ALL_DOCS - matches all documents in the segment
+    if (clause_type == "MATCH_ALL_DOCS") {
+        *out = std::make_shared<query_v2::AllQuery>();
+        return Status::OK();
+    }
+
     // Handle OCCUR_BOOLEAN - Lucene-style boolean query with MUST/SHOULD/MUST_NOT
     if (clause_type == "OCCUR_BOOLEAN") {
         auto builder = segment_v2::inverted_index::query_v2::create_occur_boolean_query_builder();
@@ -730,6 +737,14 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
         }
 
         if (clause_type == "WILDCARD") {
+            // Standalone wildcard "*" matches all non-null values for this field
+            // Consistent with ES query_string behavior where field:* becomes FieldExistsQuery
+            if (value == "*") {
+                *out = std::make_shared<query_v2::AllQuery>(field_wstr, true);
+                VLOG_DEBUG << "search: WILDCARD '*' converted to AllQuery(nullable=true), field="
+                           << field_name;
+                return Status::OK();
+            }
             *out = std::make_shared<query_v2::WildcardQuery>(context, field_wstr, value);
             VLOG_DEBUG << "search: WILDCARD clause processed, field=" << field_name << ", pattern='"
                        << value << "'";

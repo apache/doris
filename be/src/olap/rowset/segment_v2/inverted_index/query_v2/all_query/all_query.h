@@ -19,7 +19,9 @@
 
 #include <algorithm>
 #include <memory>
+#include <string>
 
+#include "olap/rowset/segment_v2/inverted_index/query_v2/nullable_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/weight.h"
@@ -83,30 +85,52 @@ private:
 
 class AllWeight : public Weight {
 public:
-    explicit AllWeight(uint32_t max_doc) : _max_doc(max_doc) {}
+    AllWeight() = default;
+    explicit AllWeight(uint32_t max_doc) : _max_doc(max_doc), _use_fixed_max_doc(true) {}
+    AllWeight(std::wstring field, bool nullable) : _field(std::move(field)), _nullable(nullable) {}
 
     ~AllWeight() override = default;
 
     ScorerPtr scorer(const QueryExecutionContext& context) override {
-        return std::make_shared<AllScorer>(_max_doc);
+        uint32_t max_doc = _use_fixed_max_doc ? _max_doc : context.segment_num_rows;
+        auto inner = std::make_shared<AllScorer>(max_doc);
+        if (_nullable && context.null_resolver != nullptr) {
+            std::string logical = logical_field_or_fallback(context, "", _field);
+            return make_nullable_scorer(std::move(inner), logical, context.null_resolver);
+        }
+        return inner;
     }
 
 private:
     uint32_t _max_doc = 0;
+    bool _use_fixed_max_doc = false;
+    std::wstring _field;
+    bool _nullable = false;
 };
 
 class AllQuery : public Query {
 public:
-    explicit AllQuery(uint32_t max_doc) : _max_doc(max_doc) {}
+    AllQuery() = default;
+    explicit AllQuery(uint32_t max_doc) : _max_doc(max_doc), _use_fixed_max_doc(true) {}
+    AllQuery(std::wstring field, bool nullable) : _field(std::move(field)), _nullable(nullable) {}
 
     ~AllQuery() override = default;
 
     WeightPtr weight(bool /*enable_scoring*/) override {
-        return std::make_shared<AllWeight>(_max_doc);
+        if (_use_fixed_max_doc) {
+            return std::make_shared<AllWeight>(_max_doc);
+        }
+        if (!_field.empty()) {
+            return std::make_shared<AllWeight>(_field, _nullable);
+        }
+        return std::make_shared<AllWeight>();
     }
 
 private:
     uint32_t _max_doc = 0;
+    bool _use_fixed_max_doc = false;
+    std::wstring _field;
+    bool _nullable = false;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2
