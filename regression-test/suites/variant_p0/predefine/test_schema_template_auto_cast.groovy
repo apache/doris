@@ -379,8 +379,7 @@ suite("test_schema_template_auto_cast", "p0") {
     sql "DROP TABLE IF EXISTS ${castChainTable}"
     sql """CREATE TABLE ${castChainTable} (
         `id` bigint NULL,
-        `data` variant<'num_*': BIGINT, 'str_*': STRING> NOT NULL,
-        INDEX idx_str_name (data) USING INVERTED PROPERTIES("field_pattern"="str_name", "parser"="unicode", "support_phrase"="true") COMMENT ''
+        `data` variant<'num_*': BIGINT, 'str_*': STRING> NOT NULL
     ) ENGINE=OLAP DUPLICATE KEY(`id`)
     DISTRIBUTED BY HASH(`id`) BUCKETS 1
     PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
@@ -403,10 +402,12 @@ suite("test_schema_template_auto_cast", "p0") {
         HAVING CAST(CAST(CAST(CAST(data['num_a'] AS BIGINT) AS BIGINT) AS BIGINT) AS BIGINT) >= 15
         ORDER BY v """
 
+    sql """ set enable_match_without_inverted_index = true """
     qt_explicit_cast_chain_match_2 """ SELECT id FROM ${castChainTable}
         WHERE CAST(CAST(data['str_name'] AS STRING) AS VARCHAR) MATCH 'alice' ORDER BY id """
     qt_explicit_cast_chain_match_4 """ SELECT id FROM ${castChainTable}
         WHERE CAST(CAST(CAST(CAST(data['str_name'] AS STRING) AS VARCHAR) AS STRING) AS VARCHAR) MATCH 'alice' ORDER BY id """
+    sql """ set enable_match_without_inverted_index = false """
 
     sql "DROP TABLE IF EXISTS ${castChainTable}"
 
