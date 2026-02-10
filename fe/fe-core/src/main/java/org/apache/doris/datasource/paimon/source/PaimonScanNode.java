@@ -323,6 +323,19 @@ public class PaimonScanNode extends FileQueryScanNode {
         Map<BinaryRow, Map<String, String>> partitionInfoMaps = new HashMap<>();
         // if applyCountPushdown is true, we can't split the DataSplit
         long realFileSplitSize = getRealFileSplitSize(applyCountPushdown ? Long.MAX_VALUE : 0);
+        if (!applyCountPushdown && sessionVariable.getMaxFileSplitNum() > 0) {
+            long totalFileSize = 0;
+            for (DataSplit dataSplit : dataSplits) {
+                Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
+                if (!supportNativeReader(optRawFiles)) {
+                    continue;
+                }
+                for (RawFile rawFile : optRawFiles.get()) {
+                    totalFileSize += rawFile.length();
+                }
+            }
+            realFileSplitSize = applyMaxFileSplitNumLimit(realFileSplitSize, totalFileSize);
+        }
         for (DataSplit dataSplit : dataSplits) {
             SplitStat splitStat = new SplitStat();
             splitStat.setRowCount(dataSplit.rowCount());

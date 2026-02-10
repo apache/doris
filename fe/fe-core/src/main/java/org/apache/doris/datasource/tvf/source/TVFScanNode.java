@@ -147,10 +147,21 @@ public class TVFScanNode extends FileQueryScanNode {
             needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);
         }
 
+        long totalFileSize = 0;
+        long maxBlockSize = 0;
+        if (needSplit && sessionVariable.getMaxFileSplitNum() > 0) {
+            for (TBrokerFileStatus fileStatus : fileStatuses) {
+                totalFileSize += fileStatus.getSize();
+                maxBlockSize = Math.max(maxBlockSize, fileStatus.getBlockSize());
+            }
+        }
+        long adjustedSplitSize = applyMaxFileSplitNumLimit(getRealFileSplitSize(maxBlockSize), totalFileSize);
+
         for (TBrokerFileStatus fileStatus : fileStatuses) {
             try {
+                long splitSize = needSplit ? adjustedSplitSize : Long.MAX_VALUE;
                 splits.addAll(FileSplitter.splitFile(LocationPath.of(fileStatus.getPath()),
-                        getRealFileSplitSize(needSplit ? fileStatus.getBlockSize() : Long.MAX_VALUE),
+                        splitSize,
                         null, fileStatus.getSize(),
                         fileStatus.getModificationTime(), fileStatus.isSplitable, null,
                         FileSplitCreator.DEFAULT));

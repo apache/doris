@@ -516,6 +516,9 @@ public class SessionVariable implements Serializable, Writable {
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
     public static final String FILE_SPLIT_SIZE = "file_split_size";
 
+    // In non-batch mode, the maximum number of splits allowed per table scan to avoid OOM.
+    public static final String MAX_FILE_SPLIT_NUM = "max_file_split_num";
+
     // Target file size in bytes for Iceberg write operations
     public static final String ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES = "iceberg_write_target_file_size_bytes";
 
@@ -2188,6 +2191,13 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
     public long fileSplitSize = 0;
+
+    @VariableMgr.VarAttr(
+            name = MAX_FILE_SPLIT_NUM,
+            description = {"在非 batch 模式下，每个 table scan 最大允许的 split 数量，防止产生过多 split 导致 OOM。",
+                    "In non-batch mode, the maximum number of splits allowed per table scan to avoid OOM."},
+            needForward = true)
+    public int maxFileSplitNum = 100000;
 
     // Target file size for Iceberg write operations
     // Default 0 means use config::iceberg_sink_max_file_size
@@ -4246,6 +4256,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setFileSplitSize(long fileSplitSize) {
         this.fileSplitSize = fileSplitSize;
+    }
+
+    public int getMaxFileSplitNum() {
+        return maxFileSplitNum;
+    }
+
+    public void setMaxFileSplitNum(int maxFileSplitNum) {
+        this.maxFileSplitNum = maxFileSplitNum;
     }
 
     public long getIcebergWriteTargetFileSizeBytes() {

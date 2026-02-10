@@ -320,13 +320,32 @@ public class HiveScanNode extends FileQueryScanNode {
             int parallelNum = sessionVariable.getParallelExecInstanceNum();
             needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);
         }
+        long totalFileSize = 0;
+        long maxBlockSize = 0;
+        if (needSplit && !isBatchMode() && sessionVariable.getMaxFileSplitNum() > 0) {
+            for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
+                if (fileCacheValue.getFiles() == null) {
+                    continue;
+                }
+                for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
+                    totalFileSize += status.getLength();
+                    maxBlockSize = Math.max(maxBlockSize, status.getBlockSize());
+                }
+            }
+        }
+        long adjustedSplitSize = applyMaxFileSplitNumLimit(getRealFileSplitSize(maxBlockSize), totalFileSize);
+        boolean batchMode = isBatchMode();
+
         for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
             if (fileCacheValue.getFiles() != null) {
                 boolean isSplittable = fileCacheValue.isSplittable();
                 for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
+                    long splitSize = needSplit
+                            ? (batchMode ? getRealFileSplitSize(status.getBlockSize()) : adjustedSplitSize)
+                            : Long.MAX_VALUE;
                     allFiles.addAll(FileSplitter.splitFile(status.getPath(),
                             // set block size to Long.MAX_VALUE to avoid splitting the file.
-                            getRealFileSplitSize(needSplit ? status.getBlockSize() : Long.MAX_VALUE),
+                            splitSize,
                             status.getBlockLocations(), status.getLength(), status.getModificationTime(),
                             isSplittable, fileCacheValue.getPartitionValues(),
                             new HiveSplitCreator(fileCacheValue.getAcidInfo())));

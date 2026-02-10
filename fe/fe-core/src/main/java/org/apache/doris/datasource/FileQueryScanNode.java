@@ -662,4 +662,18 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
         return realSplitSize;
     }
+
+    /**
+     * Enforce a maximum split count by raising the target split size when needed.
+     *
+     * <p>minSplitSizeForMaxNum = ceil(totalFileSize / maxFileSplitNum)
+     */
+    protected long applyMaxFileSplitNumLimit(long targetSplitSize, long totalFileSize) {
+        int maxFileSplitNum = sessionVariable.getMaxFileSplitNum();
+        if (maxFileSplitNum <= 0 || totalFileSize <= 0) {
+            return targetSplitSize;
+        }
+        long minSplitSizeForMaxNum = (totalFileSize + maxFileSplitNum - 1L) / (long) maxFileSplitNum;
+        return Math.max(targetSplitSize, minSplitSizeForMaxNum);
+    }
 }

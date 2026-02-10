@@ -433,16 +433,46 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     private CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
         if (!IcebergUtils.isManifestCacheEnabled(source.getCatalog())) {
-            long targetSplitSize = getRealFileSplitSize(0);
-            return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
+            try (CloseableIterable<FileScanTask> planned = scan.planFiles()) {
+                List<FileScanTask> tasks = new ArrayList<>();
+                long totalFileSize = 0;
+                for (FileScanTask t : planned) {
+                    tasks.add(t);
+                    totalFileSize += t.file().fileSizeInBytes();
+                }
+                long targetSplitSize = getRealFileSplitSize(0);
+                if (!isBatchMode()) {
+                    targetSplitSize = applyMaxFileSplitNumLimit(targetSplitSize, totalFileSize);
+                }
+                return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(tasks), targetSplitSize);
+            } catch (Exception e) {
+                LOG.warn("Plan file scan task failed, fallback to original scan: " + e.getMessage(), e);
+                long targetSplitSize = getRealFileSplitSize(0);
+                return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
+            }
         }
         try {
             return planFileScanTaskWithManifestCache(scan);
         } catch (Exception e) {
             manifestCacheFailures++;
             LOG.warn("Plan with manifest cache failed, fallback to original scan: " + e.getMessage(), e);
-            long targetSplitSize = getRealFileSplitSize(0);
-            return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
+            try (CloseableIterable<FileScanTask> planned = scan.planFiles()) {
+                List<FileScanTask> tasks = new ArrayList<>();
+                long totalFileSize = 0;
+                for (FileScanTask t : planned) {
+                    tasks.add(t);
+                    totalFileSize += t.file().fileSizeInBytes();
+                }
+                long targetSplitSize = getRealFileSplitSize(0);
+                if (!isBatchMode()) {
+                    targetSplitSize = applyMaxFileSplitNumLimit(targetSplitSize, totalFileSize);
+                }
+                return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(tasks), targetSplitSize);
+            } catch (Exception ex) {
+                LOG.warn("Split files failed, fallback to original split: " + ex.getMessage(), ex);
+                long targetSplitSize = getRealFileSplitSize(0);
+                return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
+            }
         }
     }
 
@@ -560,7 +590,14 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         // Split tasks into smaller chunks based on target split size for parallel processing
+        long totalFileSize = 0;
+        for (FileScanTask t : tasks) {
+            totalFileSize += t.file().fileSizeInBytes();
+        }
         long targetSplitSize = getRealFileSplitSize(0);
+        if (!isBatchMode()) {
+            targetSplitSize = applyMaxFileSplitNumLimit(targetSplitSize, totalFileSize);
+        }
         return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(tasks), targetSplitSize);
     }
 
