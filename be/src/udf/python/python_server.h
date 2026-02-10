@@ -23,11 +23,11 @@
 #include <thread>
 
 #include "common/status.h"
+#include "runtime/memory/mem_tracker.h"
 #include "udf/python/python_udf_meta.h"
 #include "udf/python/python_udf_runtime.h"
 
 namespace doris {
-
 class PythonServerManager {
 public:
     PythonServerManager() = default;
@@ -59,6 +59,22 @@ private:
      */
     void _start_health_check_thread();
 
+    /**
+     * Start memory monitor background thread
+     * Thread periodically reads /proc/{pid}/statm for each Python process
+     */
+    void _start_memory_monitor_thread();
+
+    /**
+     * Read memory information for a single process from /proc/{pid}/statm
+     */
+    Status _read_process_memory(pid_t pid, size_t* rss_bytes, size_t* vms_bytes);
+
+    /**
+     * Refresh memory statistics for all Python processes
+     */
+    void _refresh_memory_stats();
+
     std::unordered_map<PythonVersion, std::vector<ProcessPtr>> _process_pools;
     // Protects _process_pools access
     std::mutex _pools_mutex;
@@ -69,6 +85,12 @@ private:
     std::atomic<bool> _shutdown_flag {false};
     std::condition_variable _health_check_cv;
     std::mutex _health_check_mutex;
+
+    // Memory monitoring
+    std::unique_ptr<std::thread> _memory_monitor_thread;
+    std::condition_variable _memory_monitor_cv;
+    std::mutex _memory_monitor_mutex;
+    MemTracker _mem_tracker {"PythonUDFProcesses"};
 };
 
 } // namespace doris
