@@ -200,25 +200,30 @@ public class SearchDslParser {
 
         } catch (SearchDslSyntaxException e) {
             // Syntax error in DSL - user input issue
-            LOG.error("Failed to parse search DSL: '{}'", dsl, e);
+            LOG.error("Failed to parse search DSL: '{}' (defaultField={}, defaultOperator={})",
+                    dsl, defaultField, defaultOperator, e);
             throw new SearchDslSyntaxException("Invalid search DSL: " + dsl + ". " + e.getMessage(), e);
         } catch (IllegalArgumentException e) {
             // Invalid argument - user input issue
-            LOG.error("Invalid argument in search DSL: '{}'", dsl, e);
+            LOG.error("Invalid argument in search DSL: '{}' (defaultField={}, defaultOperator={})",
+                    dsl, defaultField, defaultOperator, e);
             throw new IllegalArgumentException("Invalid search DSL argument: " + dsl + ". " + e.getMessage(), e);
         } catch (NullPointerException e) {
             // Internal error - programming bug
-            LOG.error("Internal error (NPE) while parsing search DSL: '{}'", dsl, e);
+            LOG.error("Internal error (NPE) while parsing search DSL: '{}' (defaultField={}, defaultOperator={})",
+                    dsl, defaultField, defaultOperator, e);
             throw new RuntimeException("Internal error while parsing search DSL: " + dsl
                     + ". This may be a bug. Details: " + e.getMessage(), e);
         } catch (IndexOutOfBoundsException e) {
             // Internal error - programming bug
-            LOG.error("Internal error (IOOB) while parsing search DSL: '{}'", dsl, e);
+            LOG.error("Internal error (IOOB) while parsing search DSL: '{}' (defaultField={}, defaultOperator={})",
+                    dsl, defaultField, defaultOperator, e);
             throw new RuntimeException("Internal error while parsing search DSL: " + dsl
                     + ". This may be a bug. Details: " + e.getMessage(), e);
         } catch (RuntimeException e) {
             // Other runtime errors
-            LOG.error("Unexpected error while parsing search DSL: '{}'", dsl, e);
+            LOG.error("Unexpected error while parsing search DSL: '{}' (defaultField={}, defaultOperator={})",
+                    dsl, defaultField, defaultOperator, e);
             throw new RuntimeException("Unexpected error parsing search DSL: " + dsl + ". " + e.getMessage(), e);
         }
     }
@@ -500,17 +505,10 @@ public class SearchDslParser {
                 throw new SearchDslSyntaxException("Invalid search DSL syntax: parsing returned null");
             }
 
-            // Temporarily set defaultField to first field for parsing bare queries
-            // This will be expanded to all fields in post-processing
-            String originalDefaultField = options.getDefaultField();
-            options.setDefaultField(fields.get(0));
-
-            // Build AST using Lucene-mode visitor with first field as placeholder
-            QsLuceneModeAstBuilder visitor = new QsLuceneModeAstBuilder(options);
+            // Build AST using Lucene-mode visitor with first field as placeholder for bare queries
+            // Use constructor with override to avoid mutating shared options object (thread-safety)
+            QsLuceneModeAstBuilder visitor = new QsLuceneModeAstBuilder(options, fields.get(0));
             QsNode root = visitor.visit(tree);
-
-            // Restore original defaultField
-            options.setDefaultField(originalDefaultField);
 
             // Apply multi-field expansion based on type
             // Pass luceneMode=true since this is Lucene mode parsing
@@ -618,10 +616,22 @@ public class SearchDslParser {
          * Creates a QsAstBuilder with default field and default operator.
          * @param defaultField The field to use for queries without explicit field prefix
          * @param defaultOperator The operator to use for implicit conjunction ("AND" or "OR")
+         * @throws IllegalArgumentException if defaultOperator is not null and not "and" or "or"
          */
         public QsAstBuilder(String defaultField, String defaultOperator) {
             this.defaultField = defaultField;
-            this.defaultOperator = defaultOperator != null ? defaultOperator.toUpperCase() : "OR";
+            // Validate default operator
+            if (defaultOperator != null && !defaultOperator.trim().isEmpty()) {
+                String normalized = defaultOperator.trim().toUpperCase();
+                if (!"AND".equals(normalized) && !"OR".equals(normalized)) {
+                    throw new IllegalArgumentException(
+                            "Invalid default operator: '" + defaultOperator
+                            + "'. Must be 'and' or 'or'");
+                }
+                this.defaultOperator = normalized;
+            } else {
+                this.defaultOperator = "OR";  // Default to OR
+            }
         }
 
         public Set<String> getFieldNames() {
@@ -1314,6 +1324,9 @@ public class SearchDslParser {
 
         /**
          * Expand AST using best_fields strategy with optional Lucene mode.
+         * @param root The AST root node
+         * @param fields List of fields to expand across
+         * @param luceneMode If true, use Lucene-style OCCUR_BOOLEAN; if false, use standard OR
          */
         public static QsNode expandBestFields(QsNode root, List<String> fields, boolean luceneMode) {
             if (fields == null || fields.isEmpty()) {
@@ -1324,9 +1337,8 @@ public class SearchDslParser {
                 return setFieldOnLeaves(root, fields.get(0), fields);
             }
 
-            // Check if we're in Lucene mode
-            boolean isLuceneMode = luceneMode || root.getType() == QsClauseType.OCCUR_BOOLEAN
-                    || root.getOccur() != null;
+            // Use the explicit luceneMode parameter only - don't infer from node properties
+            boolean isLuceneMode = luceneMode;
 
             // Create a copy of the entire AST for each field
             List<QsNode> fieldTrees = new ArrayList<>();
@@ -1356,36 +1368,44 @@ public class SearchDslParser {
 
         /**
          * Recursively expand a node using cross_fields strategy.
+         * Always returns a new copy or new node structure, never the original node.
          */
         private static QsNode expandNodeCrossFields(QsNode node, List<String> fields, boolean luceneMode) {
-            // Check if this is a leaf node (has value, no children or empty children)
+            // Check if this is a leaf node (no children)
             if (isLeafNode(node)) {
                 // Check if the node has an explicit field that's NOT in the fields list
-                // If so, preserve it as-is (don't expand)
+                // If so, don't expand but still return a copy
                 String nodeField = node.getField();
                 if (nodeField != null && !nodeField.isEmpty() && !fields.contains(nodeField)) {
-                    // Explicit field not in expansion list - preserve as-is
-                    return node;
+                    // Explicit field not in expansion list - return a copy preserving all fields
+                    return new QsNode(
+                            node.getType(),
+                            node.getField(),
+                            node.getValue(),
+                            null,
+                            node.getOccur(),
+                            node.getMinimumShouldMatch()
+                    );
                 }
-
-                // Check if we're in Lucene mode (explicitly set or node has occur)
-                boolean isLucene = luceneMode || node.getOccur() != null;
 
                 // Expand leaf node across all fields
                 List<QsNode> expandedNodes = new ArrayList<>();
                 for (String field : fields) {
-                    QsNode copy = new QsNode(node.getType(), field, node.getValue());
-                    // In Lucene mode, set SHOULD on children
-                    // Any field match satisfies the term
-                    if (isLucene) {
-                        copy.setOccur(QsOccur.SHOULD);
-                    }
+                    // Create complete copy with new field
+                    QsNode copy = new QsNode(
+                            node.getType(),
+                            field,
+                            node.getValue(),
+                            null,
+                            luceneMode ? QsOccur.SHOULD : null,  // In Lucene mode, set SHOULD
+                            node.getMinimumShouldMatch()
+                    );
                     expandedNodes.add(copy);
                 }
 
                 // In Lucene mode, create OCCUR_BOOLEAN with parent occur
                 // Otherwise create OR node
-                if (isLucene) {
+                if (luceneMode) {
                     QsNode result = new QsNode(QsClauseType.OCCUR_BOOLEAN, expandedNodes, null);
                     if (node.getOccur() != null) {
                         result.setOccur(node.getOccur());
@@ -1397,123 +1417,128 @@ public class SearchDslParser {
             }
 
             // Compound node - recursively expand children
-            if (node.getChildren() != null && !node.getChildren().isEmpty()) {
-                List<QsNode> expandedChildren = new ArrayList<>();
+            List<QsNode> expandedChildren = new ArrayList<>();
+            if (node.getChildren() != null) {
                 for (QsNode child : node.getChildren()) {
                     expandedChildren.add(expandNodeCrossFields(child, fields, luceneMode));
                 }
-
-                // Create new compound node with expanded children
-                QsNode result;
-                if (node.getType() == QsClauseType.OCCUR_BOOLEAN) {
-                    result = new QsNode(node.getType(), expandedChildren, node.getMinimumShouldMatch());
-                } else {
-                    result = new QsNode(node.getType(), expandedChildren);
-                }
-                if (node.getOccur() != null) {
-                    result.setOccur(node.getOccur());
-                }
-                return result;
             }
 
-            // Node with no children and no value - return as-is
-            return node;
+            // Create new compound node with expanded children (always a copy)
+            QsNode result = new QsNode(
+                    node.getType(),
+                    node.getField(),
+                    node.getValue(),
+                    expandedChildren,
+                    node.getOccur(),
+                    node.getMinimumShouldMatch()
+            );
+            return result;
         }
 
         /**
-         * Check if a node is a leaf node (has value, representing a term/phrase/etc.)
+         * Check if a node is a leaf node (no children, representing a term/phrase/etc.)
+         * A leaf node has no children or empty children list, regardless of whether it has a value.
          */
         private static boolean isLeafNode(QsNode node) {
-            return node.getValue() != null && !node.getValue().isEmpty();
+            return node.getChildren() == null || node.getChildren().isEmpty();
         }
 
         /**
          * Deep copy an AST node and set the field on leaf nodes.
          * Preserves explicit fields that are not in the fields list.
+         * Always returns a new copy, never the original node.
          */
         private static QsNode deepCopyWithField(QsNode node, String field, List<String> fields) {
             if (isLeafNode(node)) {
                 // Check if the node has an explicit field that's NOT in the fields list
                 String nodeField = node.getField();
+                String targetField;
                 if (nodeField != null && !nodeField.isEmpty() && !fields.contains(nodeField)) {
-                    // Explicit field not in expansion list - preserve as-is (just copy)
-                    QsNode copy = new QsNode(node.getType(), nodeField, node.getValue());
-                    if (node.getOccur() != null) {
-                        copy.setOccur(node.getOccur());
-                    }
-                    return copy;
+                    // Explicit field not in expansion list - preserve original field
+                    targetField = nodeField;
+                } else {
+                    // Use new field
+                    targetField = field;
                 }
 
-                // Leaf node - create copy with new field
-                QsNode copy = new QsNode(node.getType(), field, node.getValue());
-                if (node.getOccur() != null) {
-                    copy.setOccur(node.getOccur());
-                }
+                // Create a complete copy of the leaf node
+                QsNode copy = new QsNode(
+                        node.getType(),
+                        targetField,
+                        node.getValue(),
+                        null,  // children
+                        node.getOccur(),
+                        node.getMinimumShouldMatch()
+                );
                 return copy;
             }
 
             // Compound node - recursively copy children
-            if (node.getChildren() != null && !node.getChildren().isEmpty()) {
-                List<QsNode> copiedChildren = new ArrayList<>();
+            List<QsNode> copiedChildren = new ArrayList<>();
+            if (node.getChildren() != null) {
                 for (QsNode child : node.getChildren()) {
                     copiedChildren.add(deepCopyWithField(child, field, fields));
                 }
-
-                QsNode result;
-                if (node.getType() == QsClauseType.OCCUR_BOOLEAN) {
-                    result = new QsNode(node.getType(), copiedChildren, node.getMinimumShouldMatch());
-                } else {
-                    result = new QsNode(node.getType(), copiedChildren);
-                }
-                if (node.getOccur() != null) {
-                    result.setOccur(node.getOccur());
-                }
-                return result;
             }
 
-            // Node with no children and no value - return as-is
-            return node;
+            // Create a complete copy of the compound node
+            QsNode result = new QsNode(
+                    node.getType(),
+                    node.getField(),
+                    node.getValue(),
+                    copiedChildren,
+                    node.getOccur(),
+                    node.getMinimumShouldMatch()
+            );
+            return result;
         }
 
         /**
          * Set field on leaf nodes (for single-field case).
          * Preserves explicit fields that are different from the target field.
+         * Always returns a new copy, never the original node.
          */
         private static QsNode setFieldOnLeaves(QsNode node, String field, List<String> fields) {
             if (isLeafNode(node)) {
                 // Check if the node has an explicit field that's NOT in the fields list
                 String nodeField = node.getField();
+                String targetField;
                 if (nodeField != null && !nodeField.isEmpty() && !fields.contains(nodeField)) {
-                    // Explicit field not in expansion list - preserve as-is
-                    return node;
+                    // Explicit field not in expansion list - preserve original field
+                    targetField = nodeField;
+                } else {
+                    targetField = field;
                 }
 
-                QsNode copy = new QsNode(node.getType(), field, node.getValue());
-                if (node.getOccur() != null) {
-                    copy.setOccur(node.getOccur());
-                }
-                return copy;
+                // Create complete copy
+                return new QsNode(
+                        node.getType(),
+                        targetField,
+                        node.getValue(),
+                        null,
+                        node.getOccur(),
+                        node.getMinimumShouldMatch()
+                );
             }
 
-            if (node.getChildren() != null && !node.getChildren().isEmpty()) {
-                List<QsNode> updatedChildren = new ArrayList<>();
+            // Compound node - recursively process children
+            List<QsNode> updatedChildren = new ArrayList<>();
+            if (node.getChildren() != null) {
                 for (QsNode child : node.getChildren()) {
                     updatedChildren.add(setFieldOnLeaves(child, field, fields));
                 }
-
-                QsNode result;
-                if (node.getType() == QsClauseType.OCCUR_BOOLEAN) {
-                    result = new QsNode(node.getType(), updatedChildren, node.getMinimumShouldMatch());
-                } else {
-                    result = new QsNode(node.getType(), updatedChildren);
-                }
-                if (node.getOccur() != null) {
-                    result.setOccur(node.getOccur());
-                }
-                return result;
             }
 
-            return node;
+            // Create complete copy
+            return new QsNode(
+                    node.getType(),
+                    node.getField(),
+                    node.getValue(),
+                    updatedChildren,
+                    node.getOccur(),
+                    node.getMinimumShouldMatch()
+            );
         }
     }
 
@@ -1804,9 +1829,33 @@ public class SearchDslParser {
         private final Set<String> fieldNames = new LinkedHashSet<>();
         private final SearchOptions options;
         private String currentFieldName = null;
+        // Override for default field - used in multi-field mode to avoid mutating options
+        private final String overrideDefaultField;
 
         public QsLuceneModeAstBuilder(SearchOptions options) {
             this.options = options;
+            this.overrideDefaultField = null;
+        }
+
+        /**
+         * Constructor with override default field for multi-field mode.
+         * This avoids mutating the shared SearchOptions object.
+         * @param options Search options
+         * @param overrideDefaultField Field to use as default instead of options.getDefaultField()
+         */
+        public QsLuceneModeAstBuilder(SearchOptions options, String overrideDefaultField) {
+            this.options = options;
+            this.overrideDefaultField = overrideDefaultField;
+        }
+
+        /**
+         * Get the effective default field, considering override.
+         */
+        private String getEffectiveDefaultField() {
+            if (overrideDefaultField != null && !overrideDefaultField.isEmpty()) {
+                return overrideDefaultField;
+            }
+            return options != null ? options.getDefaultField() : null;
         }
 
         public Set<String> getFieldNames() {
@@ -1923,31 +1972,17 @@ public class SearchDslParser {
         private void collectTermsFromAndClause(SearchParser.AndClauseContext ctx, List<TermWithOccur> terms,
                 QsOccur defaultOccur, boolean introducedByOr) {
             List<SearchParser.NotClauseContext> notClauses = ctx.notClause();
-            List<org.antlr.v4.runtime.tree.TerminalNode> andTokens = ctx.AND();
-            int numExplicitAnds = andTokens != null ? andTokens.size() : 0;
 
             // Determine how to handle implicit operators
-            // If there are fewer explicit ANDs than required (n-1 for n terms),
-            // then some operators are implicit and should use default_operator
             String defaultOperator = options.getDefaultOperator();
             boolean useAndForImplicit = "AND".equalsIgnoreCase(defaultOperator);
 
             for (int i = 0; i < notClauses.size(); i++) {
-                // For terms after the first, check if there's an explicit AND before this term
-                // If there are explicit ANDs, they apply to the first (numExplicitAnds) gaps
                 boolean introducedByAnd;
                 if (i > 0) {
-                    // Check if this gap has an explicit AND
-                    // With grammar: notClause (AND? notClause)*
-                    // The AND tokens are at positions between notClauses
-                    boolean hasExplicitAndBeforeThis = (i - 1) < numExplicitAnds;
-                    if (hasExplicitAndBeforeThis) {
-                        // Explicit AND at this position
-                        introducedByAnd = true;
-                    } else {
-                        // Implicit conjunction - use default_operator
-                        introducedByAnd = useAndForImplicit;
-                    }
+                    // Check if there's an explicit AND before this notClause
+                    // by walking ctx.children and finding the token immediately before this notClause
+                    introducedByAnd = hasExplicitAndBefore(ctx, notClauses.get(i), useAndForImplicit);
                 } else {
                     introducedByAnd = false;
                 }
@@ -1956,6 +1991,32 @@ public class SearchDslParser {
                 // After first term, all subsequent in same AND chain are introducedByOr=false
                 introducedByOr = false;
             }
+        }
+
+        /**
+         * Check if there's an explicit AND token before the target notClause.
+         * Walks ctx.children to find the position of target and checks the preceding token.
+         * @param ctx The AndClauseContext containing the children
+         * @param target The target NotClauseContext to check
+         * @param implicitDefault Value to return if no explicit AND (use default_operator)
+         * @return true if explicit AND before target, implicitDefault if no explicit AND
+         */
+        private boolean hasExplicitAndBefore(SearchParser.AndClauseContext ctx,
+                SearchParser.NotClauseContext target, boolean implicitDefault) {
+            for (int j = 0; j < ctx.getChildCount(); j++) {
+                if (ctx.getChild(j) == target) {
+                    // Found the target - check if the preceding sibling is an AND token
+                    if (j > 0 && ctx.getChild(j - 1) instanceof org.antlr.v4.runtime.tree.TerminalNode) {
+                        org.antlr.v4.runtime.tree.TerminalNode terminal =
+                                (org.antlr.v4.runtime.tree.TerminalNode) ctx.getChild(j - 1);
+                        return terminal.getSymbol().getType() == SearchParser.AND;
+                    }
+                    // No explicit AND before this term - use default
+                    return implicitDefault;
+                }
+            }
+            // Target not found (should not happen) - use default
+            return implicitDefault;
         }
 
         private void collectTermsFromNotClause(SearchParser.NotClauseContext ctx, List<TermWithOccur> terms,
@@ -2104,8 +2165,8 @@ public class SearchDslParser {
 
         @Override
         public QsNode visitBareQuery(SearchParser.BareQueryContext ctx) {
-            // Bare query - uses default field from options
-            String defaultField = options != null ? options.getDefaultField() : null;
+            // Bare query - uses effective default field (considering override)
+            String defaultField = getEffectiveDefaultField();
             if (defaultField == null || defaultField.isEmpty()) {
                 throw new SearchDslSyntaxException(
                     "No field specified and no default_field configured. "
@@ -2167,8 +2228,8 @@ public class SearchDslParser {
         public QsNode visitSearchValue(SearchParser.SearchValueContext ctx) {
             String fieldName = currentFieldName;
             if (fieldName == null) {
-                // Fall back to default field from options
-                String defaultField = options != null ? options.getDefaultField() : null;
+                // Fall back to effective default field (considering override)
+                String defaultField = getEffectiveDefaultField();
                 if (defaultField != null && !defaultField.isEmpty()) {
                     fieldName = defaultField;
                 } else {

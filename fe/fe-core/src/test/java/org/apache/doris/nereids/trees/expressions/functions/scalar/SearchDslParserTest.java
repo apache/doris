@@ -480,15 +480,25 @@ public class SearchDslParserTest {
 
     @Test
     public void testInvalidDefaultOperator() {
-        // Test: invalid operator should default to OR (no exception thrown)
-        // With single-phase parsing, invalid operator defaults to OR
+        // Test: invalid operator should throw IllegalArgumentException
         String dsl = "foo bar";
 
-        // No exception should be thrown - invalid defaults to OR
-        QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "invalid");
+        // Invalid operator should throw exception
+        Assertions.assertThrows(IllegalArgumentException.class, () -> {
+            SearchDslParser.parseDsl(dsl, "tags", "invalid");
+        });
+    }
+
+    @Test
+    public void testDefaultFieldWithInFunction() {
+        // Test: "IN(value1 value2)" + field="tags" → "tags:IN(value1 value2)"
+        String dsl = "IN(value1 value2)";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", null);
+
         Assertions.assertNotNull(plan);
-        // Invalid operator defaults to OR
-        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
+        Assertions.assertEquals(QsClauseType.LIST, plan.getRoot().getType());
+        Assertions.assertEquals("tags", plan.getRoot().getField());
+        Assertions.assertEquals("IN(value1 value2)", plan.getRoot().getValue());
     }
 
     @Test

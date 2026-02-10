@@ -25,6 +25,8 @@ orClause   : andClause (OR andClause)* ;
 // AND is optional - space-separated terms use default_operator
 andClause  : notClause (AND? notClause)* ;
 notClause  : NOT atomClause | atomClause ;
+// Note: fieldQuery is listed before bareQuery so ANTLR prioritizes field:value over bare value.
+// This ensures "field:term" is parsed as fieldQuery, not bareQuery with "field" as term.
 atomClause : LPAREN clause RPAREN | fieldQuery | bareQuery ;
 
 // Support for variant subcolumn paths (e.g., field.subcolumn, field.sub1.sub2)
