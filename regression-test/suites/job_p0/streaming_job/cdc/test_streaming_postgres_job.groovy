@@ -28,7 +28,7 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
     def pgDB = "postgres"
     def pgSchema = "cdc_test"
     def pgUser = "postgres"
-    def pgPassword = "test_123.."
+    def pgPassword = "123456"
 
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
     sql """drop table if exists ${currentDb}.${table1} force"""
@@ -137,12 +137,11 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
             sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} (name,age) VALUES ('Doris',18);"""
 	    def xminResult = sql """SELECT xmin, xmax , * FROM ${pgSchema}.${table1} WHERE name = 'Doris'; """
             log.info("xminResult: " + xminResult)
-
             sql """UPDATE ${pgDB}.${pgSchema}.${table1} SET age = 10 WHERE name = 'B1';"""
             sql """DELETE FROM ${pgDB}.${pgSchema}.${table1} WHERE name = 'A1';"""
         }
 
-        sleep(30000); // wait for cdc incremental data
+        sleep(60000); // wait for cdc incremental data
 
         // check incremental data
         qt_select_binlog_table1 """ SELECT * FROM ${table1} order by name asc """
@@ -163,7 +162,7 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
             log.info("xminResult1: " + xminResult1)
         }
 
-        sleep(30000); // wait for cdc incremental data
+        sleep(60000); // wait for cdc incremental data
 
         // check incremental data
         qt_select_next_binlog_table1 """ SELECT * FROM ${table1} order by name asc """
