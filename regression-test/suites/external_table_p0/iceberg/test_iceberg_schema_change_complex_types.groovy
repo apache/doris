@@ -154,6 +154,26 @@ suite("test_iceberg_schema_change_complex_types", "p0,external,doris,external_do
         sn_arr: ARRAY<BIGINT> COMMENT 'new array'
     > NULL COMMENT 'new struct'"""
 
+    // Insert new data after schema change and keep old data readable
+    sql """
+    INSERT INTO ${table_name} VALUES (
+        2,
+        ARRAY(10, 20, 30),
+        ARRAY(CAST(2.2 AS DOUBLE)),
+        MAP(2, 200),
+        MAP(2, CAST(2.2 AS DOUBLE)),
+        STRUCT(
+            2,
+            CAST(2.2 AS DOUBLE),
+            'xyz',
+            MAP(2, 200),
+            ARRAY(10, 20),
+            'new field value',
+            MAP(3, 300),
+            ARRAY(30, 40)
+        )
+    )"""
+
     def descRows = sql """DESC ${table_name}"""
     def normalizeType = { String s -> s.toLowerCase().replaceAll("\\s+", "") }
     def typeOf = { String name ->
@@ -184,12 +204,21 @@ suite("test_iceberg_schema_change_complex_types", "p0,external,doris,external_do
     // Reorder columns should still work after complex type changes
     sql """ALTER TABLE ${table_name} ORDER BY (id, arr_i, mp_i, st, arr_f, mp_f)"""
 
-    def queryRes = sql """SELECT id, STRUCT_ELEMENT(st, 'si') AS si, ARRAY_SIZE(arr_i) AS arr_sz
+    def queryRes = sql """SELECT id,
+                                 STRUCT_ELEMENT(st, 'si') AS si,
+                                 STRUCT_ELEMENT(st, 'sn') AS sn,
+                                 ARRAY_SIZE(arr_i) AS arr_sz
                          FROM ${table_name} ORDER BY id"""
-    assertTrue(queryRes.size() == 1, queryRes.toString())
+    assertTrue(queryRes.size() == 2, queryRes.toString())
     assertTrue(queryRes[0][0].toString() == "1", queryRes.toString())
     assertTrue(queryRes[0][1].toString() == "1", queryRes.toString())
-    assertTrue(queryRes[0][2].toString() == "2", queryRes.toString())
+    assertTrue(queryRes[0][2] == null, queryRes.toString())
+    assertTrue(queryRes[0][3].toString() == "2", queryRes.toString())
+
+    assertTrue(queryRes[1][0].toString() == "2", queryRes.toString())
+    assertTrue(queryRes[1][1].toString() == "2", queryRes.toString())
+    assertTrue(queryRes[1][2].toString() == "new field value", queryRes.toString())
+    assertTrue(queryRes[1][3].toString() == "3", queryRes.toString())
 
     sql """drop table if exists ${table_name}"""
     sql """drop database if exists ${db_name} force"""
