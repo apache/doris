@@ -63,6 +63,9 @@ Status DataConsumerPool::get_consumer(std::shared_ptr<StreamLoadContext> ctx,
     case TLoadSourceType::KAFKA:
         consumer = std::make_shared<KafkaDataConsumer>(ctx);
         break;
+    case TLoadSourceType::KINESIS:
+        consumer = std::make_shared<KinesisDataConsumer>(ctx);
+        break;
     default:
         return Status::InternalError("PAUSE: unknown routine load task type: {}", ctx->load_type);
     }

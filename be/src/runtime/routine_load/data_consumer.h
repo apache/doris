@@ -34,6 +34,14 @@
 #include "runtime/stream_load/stream_load_context.h"
 #include "util/uid_util.h"
 
+// AWS Kinesis SDK includes
+#include <aws/kinesis/KinesisClient.h>
+#include <aws/kinesis/model/GetRecordsRequest.h>
+#include <aws/kinesis/model/GetRecordsResult.h>
+#include <aws/kinesis/model/GetShardIteratorRequest.h>
+#include <aws/kinesis/model/ListShardsRequest.h>
+#include <aws/kinesis/model/Record.h>
+
 namespace doris {
 
 template <typename T>
@@ -167,6 +175,70 @@ private:
 
     KafkaEventCb _k_event_cb;
     RdKafka::KafkaConsumer* _k_consumer = nullptr;
+};
+
+// AWS Kinesis Data Consumer
+// Consumes data from AWS Kinesis Data Streams for routine load jobs.
+// Kinesis is similar to Kafka but uses shards instead of partitions
+// and sequence numbers (strings) instead of offsets (integers).
+class KinesisDataConsumer : public DataConsumer {
+public:
+    KinesisDataConsumer(std::shared_ptr<StreamLoadContext> ctx);
+    virtual ~KinesisDataConsumer();
+
+    // DataConsumer interface implementation
+    Status init(std::shared_ptr<StreamLoadContext> ctx) override;
+    Status consume(std::shared_ptr<StreamLoadContext> ctx) override { return Status::OK(); }
+    Status cancel(std::shared_ptr<StreamLoadContext> ctx) override;
+    Status reset() override;
+    bool match(std::shared_ptr<StreamLoadContext> ctx) override;
+
+    // Kinesis-specific methods
+    // Assign shards with their starting sequence numbers
+    Status assign_shards(const std::map<std::string, std::string>& shard_sequence_numbers,
+                        const std::string& stream_name,
+                        std::shared_ptr<StreamLoadContext> ctx);
+
+    // Main consumption loop - pulls records from all assigned shards
+    Status group_consume(BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
+                        int64_t max_running_time_ms);
+
+    // Get list of shard IDs for the stream
+    Status get_shard_list(std::vector<std::string>* shard_ids);
+
+private:
+    // Configuration
+    std::string _region;
+    std::string _stream;
+    std::string _endpoint; // Optional custom endpoint (e.g., LocalStack)
+    std::unordered_map<std::string, std::string> _custom_properties;
+
+    // Active shards being consumed
+    std::set<std::string> _consuming_shard_ids;
+
+    // AWS Kinesis client
+    std::shared_ptr<Aws::Kinesis::KinesisClient> _kinesis_client;
+
+    // Shard iterator management
+    // Kinesis requires shard iterators to consume records
+    // shard_id -> current shard iterator
+    std::map<std::string, std::string> _shard_iterators;
+
+    // Helper methods
+    // Create and configure AWS Kinesis client with credentials
+    Status _create_kinesis_client(std::shared_ptr<StreamLoadContext> ctx);
+
+    // Get shard iterator for a shard at a specific sequence number position
+    Status _get_shard_iterator(const std::string& shard_id, const std::string& sequence_number,
+                               std::string* iterator);
+
+    // Process records from GetRecords result and add to queue
+    Status _process_records(const Aws::Kinesis::Model::GetRecordsResult& result,
+                           BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
+                           int64_t* received_rows, int64_t* put_rows);
+
+    // Check if an AWS error is retriable (throttling, network, etc.)
+    bool _is_retriable_error(const Aws::Client::AWSError<Aws::Kinesis::KinesisErrors>& error);
 };
 
 } // end namespace doris

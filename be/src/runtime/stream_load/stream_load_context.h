@@ -89,6 +89,48 @@ public:
     std::map<std::string, std::string> properties;
 };
 
+// AWS Kinesis related info
+class KinesisLoadInfo {
+public:
+    KinesisLoadInfo(const TKinesisLoadInfo& t_info)
+            : region(t_info.region),
+              stream(t_info.stream),
+              endpoint(t_info.__isset.endpoint ? t_info.endpoint : ""),
+              begin_sequence_number(t_info.shard_begin_sequence_number),
+              properties(t_info.__isset.properties ? t_info.properties
+                                                   : std::map<std::string, std::string>()) {
+        // Initialize committed sequence numbers with begin sequence numbers
+        for (auto& p : t_info.shard_begin_sequence_number) {
+            cmt_sequence_number[p.first] = p.second;
+        }
+    }
+
+    void reset_sequence_numbers() {
+        // Reset committed sequence numbers to begin sequence numbers
+        for (auto& p : begin_sequence_number) {
+            cmt_sequence_number[p.first] = p.second;
+        }
+    }
+
+public:
+    std::string region;
+    std::string stream;
+    std::string endpoint; // Optional custom endpoint (for LocalStack/VPC)
+
+    // The following members control the max progress of a consuming process
+    // If any of them reach, the consuming will finish.
+    int64_t max_interval_s = 5;
+    int64_t max_batch_rows = 1024;
+    int64_t max_batch_size = 100 * 1024 * 1024; // 100MB
+
+    // shard_id -> begin sequence number, inclusive
+    std::map<std::string, std::string> begin_sequence_number;
+    // shard_id -> committed sequence number (last consumed)
+    std::map<std::string, std::string> cmt_sequence_number;
+    // AWS credentials and custom Kinesis properties
+    std::map<std::string, std::string> properties;
+};
+
 class MessageBodySink;
 
 class StreamLoadContext {
@@ -234,6 +276,7 @@ public:
     std::string existing_job_status = "";
 
     std::unique_ptr<KafkaLoadInfo> kafka_info;
+    std::unique_ptr<KinesisLoadInfo> kinesis_info;
 
     // consumer_id is used for data consumer cache key.
     // to identified a specified data consumer.

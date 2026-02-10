@@ -39,6 +39,7 @@
 #include "common/status.h"
 #include "common/utils.h"
 #include "io/fs/kafka_consumer_pipe.h"
+#include "io/fs/kinesis_consumer_pipe.h"
 #include "io/fs/multi_table_pipe.h"
 #include "io/fs/stream_load_pipe.h"
 #include "runtime/exec_env.h"
@@ -315,6 +316,9 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     case TLoadSourceType::KAFKA:
         ctx->kafka_info.reset(new KafkaLoadInfo(task.kafka_load_info));
         break;
+    case TLoadSourceType::KINESIS:
+        ctx->kinesis_info.reset(new KinesisLoadInfo(task.kinesis_load_info));
+        break;
     default:
         LOG(WARNING) << "unknown load source type: " << task.type;
         return Status::InternalError("unknown load source type");
@@ -407,6 +411,34 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
         }
         Status st = std::static_pointer_cast<KafkaDataConsumerGroup>(consumer_grp)
                             ->assign_topic_partitions(ctx);
+        if (!st.ok()) {
+            err_handler(ctx, st, st.to_string());
+            cb(ctx);
+            return;
+        }
+        break;
+    }
+    case TLoadSourceType::KINESIS: {
+        // Kinesis doesn't support multi-table yet
+        pipe = std::make_shared<io::KinesisConsumerPipe>();
+
+        // For Kinesis, we use a simplified approach without DataConsumerGroup
+        // Get the first (and only) consumer from the group
+        if (consumer_grp->consumers().empty()) {
+            err_handler(ctx, Status::InternalError("No Kinesis consumer available"),
+                       "No Kinesis consumer available");
+            cb(ctx);
+            return;
+        }
+
+        auto kinesis_consumer = std::static_pointer_cast<KinesisDataConsumer>(
+            consumer_grp->consumers()[0]);
+
+        // Assign shards to the consumer
+        Status st = kinesis_consumer->assign_shards(
+            ctx->kinesis_info->begin_sequence_number,
+            ctx->kinesis_info->stream,
+            ctx);
         if (!st.ok()) {
             err_handler(ctx, st, st.to_string());
             cb(ctx);
@@ -514,6 +546,15 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
             std::for_each(topic_partitions.begin(), topic_partitions.end(),
                           [](RdKafka::TopicPartition* tp1) { delete tp1; });
         }};
+        break;
+    }
+    case TLoadSourceType::KINESIS: {
+        // For Kinesis, sequence numbers are already tracked in ctx->kinesis_info->cmt_sequence_number
+        // They will be sent back to FE via TRLTaskTxnCommitAttachment for progress tracking
+        // Kinesis doesn't require explicit commit like Kafka (no consumer group coordination)
+        LOG(INFO) << "Kinesis routine load task completed. Committed sequence numbers for "
+                  << ctx->kinesis_info->cmt_sequence_number.size() << " shards. Task: "
+                  << ctx->brief();
         break;
     }
     default:
