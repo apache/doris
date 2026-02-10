@@ -25,6 +25,8 @@
 #include <type_traits>
 #include <vector>
 
+#include "common/exception.h"
+
 namespace doris {
 #include "common/compile_check_begin.h"
 
@@ -314,9 +316,19 @@ protected:
 public:
     MutablePtr mutate() const&& { return shallow_mutate(); }
 
-    MutablePtr assume_mutable() const { return const_cast<COW*>(this)->get_ptr(); }
+    MutablePtr assume_mutable() const {
+        if (this->use_count() > 1) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "COW::assume_mutable: use_count() > 1");
+        }
+        return const_cast<COW*>(this)->get_ptr();
+    }
 
-    Derived& assume_mutable_ref() const { return const_cast<Derived&>(*derived()); }
+    Derived& assume_mutable_ref() const {
+        if (this->use_count() > 1) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "COW::assume_mutable: use_count() > 1");
+        }
+        return const_cast<Derived&>(*derived());
+    }
 
 protected:
     /// It works as immutable_ptr if it is const and as mutable_ptr if it is non const.
