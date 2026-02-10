@@ -310,6 +310,15 @@ MaxComputeTableDescriptor::MaxComputeTableDescriptor(const TTableDescriptor& tde
         _init_status =
                 Status::InvalidArgument("fail to init MaxComputeTableDescriptor, missing quota.");
     }
+
+    if (tdesc.mcTable.__isset.properties) [[likely]] {
+        _props = tdesc.mcTable.properties;
+    } else {
+        static const std::string MC_ACCESS_KEY = "mc.access_key";
+        static const std::string MC_SECRET_KEY = "mc.secret_key";
+        _props.insert({MC_ACCESS_KEY, _access_key});
+        _props.insert({MC_SECRET_KEY, _secret_key});
+    }
 }
 
 MaxComputeTableDescriptor::~MaxComputeTableDescriptor() = default;
