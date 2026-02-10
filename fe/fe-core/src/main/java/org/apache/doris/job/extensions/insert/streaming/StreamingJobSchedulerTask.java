@@ -66,14 +66,28 @@ public class StreamingJobSchedulerTask extends AbstractTask {
             }
         }
         streamingInsertJob.replayOffsetProviderIfNeed();
+        // For Kafka jobs: fetch remote metadata to initialize partition offsets
+        // before creating the first batch of tasks
+        if (streamingInsertJob.isKafkaStreamingJob()) {
+            streamingInsertJob.fetchMeta();
+        }
+        
         streamingInsertJob.createStreamingTask();
         streamingInsertJob.updateJobStatus(JobStatus.RUNNING);
         streamingInsertJob.setAutoResumeCount(0);
     }
 
     private void handleRunningState() throws JobException {
+        // 1. Process timeout tasks (for StreamingMultiTblTask)
         streamingInsertJob.processTimeoutTasks();
+        
+        // 2. Fetch remote metadata (updates latest offsets for all partitions)
         streamingInsertJob.fetchMeta();
+        
+        // 3. For Kafka jobs: restart idle partitions that now have new data
+        if (streamingInsertJob.isKafkaStreamingJob()) {
+            streamingInsertJob.restartIdleKafkaPartitions();
+        }
     }
 
     private void autoResumeHandler() throws JobException {

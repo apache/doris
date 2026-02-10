@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.trinoconnector;
 
+import com.google.common.base.Preconditions;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -79,6 +80,7 @@ import io.trino.util.EmbedVersion;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -112,6 +114,19 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
         super(catalogId, name, Type.TRINO_CONNECTOR, comment);
         Objects.requireNonNull(name, "catalogName is null");
         catalogProperty = new CatalogProperty(resource, props);
+        initCatalogName();
+    }
+
+    private void initCatalogName() {
+        String connectorNameString = catalogProperty.getProperties().get("trino.connector.name");
+        Objects.requireNonNull(connectorNameString, "connectorName is null");
+        if (connectorNameString.indexOf('-') >= 0) {
+            String deprecatedConnectorName = connectorNameString;
+            connectorNameString = connectorNameString.replace('-', '_');
+            LOG.warn("You are using the deprecated connector name '{}'. The correct connector name is '{}'",
+                   deprecatedConnectorName, connectorNameString);
+        }
+        this.connectorName = new ConnectorName(connectorNameString);
     }
 
     @Override
@@ -199,17 +214,11 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
         }
         Map<String, String> trinoConnectorProperties = new HashMap<>();
         trinoConnectorProperties.putAll(trinoProperties);
+        // remove connector.name, which is not part of trino property
         String connectorNameString = trinoConnectorProperties.remove("connector.name");
         Objects.requireNonNull(connectorNameString, "connectorName is null");
-        if (connectorNameString.indexOf('-') >= 0) {
-            String deprecatedConnectorName = connectorNameString;
-            connectorNameString = connectorNameString.replace('-', '_');
-            LOG.warn("You are using the deprecated connector name '{}'. The correct connector name is '{}'",
-                    deprecatedConnectorName, connectorNameString);
-        }
-
-        this.connectorName = new ConnectorName(connectorNameString);
-
+        // connectorName is already init in constructor
+        Preconditions.checkNotNull(this.connectorName);
         // 2. create CatalogFactory
         LazyCatalogFactory catalogFactory = new LazyCatalogFactory();
         NoOpTransactionManager noOpTransactionManager = new NoOpTransactionManager();
@@ -326,5 +335,11 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
 
     public Session getTrinoSession() {
         return trinoSession;
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        initCatalogName();
     }
 }
