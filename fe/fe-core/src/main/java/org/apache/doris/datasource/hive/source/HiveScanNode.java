@@ -215,45 +215,64 @@ public class HiveScanNode extends FileQueryScanNode {
         Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
         AtomicInteger numFinishedPartitions = new AtomicInteger(0);
+        // Capture ConnectContext from the current thread to pass to async threads
+        ConnectContext parentConnectContext = ConnectContext.get();
         CompletableFuture.runAsync(() -> {
-            for (HivePartition partition : prunedPartitions) {
-                if (batchException.get() != null || splitAssignment.isStop()) {
-                    break;
-                }
-                try {
-                    splittersOnFlight.acquire();
-                    CompletableFuture.runAsync(() -> {
-                        try {
-                            List<Split> allFiles = Lists.newArrayList();
-                            getFileSplitByPartitions(
-                                    cache, Collections.singletonList(partition), allFiles, bindBrokerName,
-                                    numBackends, true);
-                            if (allFiles.size() > numSplitsPerPartition.get()) {
-                                numSplitsPerPartition.set(allFiles.size());
-                            }
-                            if (splitAssignment.needMoreSplit()) {
-                                splitAssignment.addToQueue(allFiles);
-                            }
-                        } catch (Exception e) {
-                            batchException.set(new UserException(e.getMessage(), e));
-                        } finally {
-                            splittersOnFlight.release();
-                            if (batchException.get() != null) {
-                                splitAssignment.setException(batchException.get());
-                            }
-                            if (numFinishedPartitions.incrementAndGet() == prunedPartitions.size()) {
-                                splitAssignment.finishSchedule();
-                            }
-                        }
-                    }, scheduleExecutor);
-                } catch (Exception e) {
-                    // When submitting a task, an exception will be thrown if the task pool(scheduleExecutor) is full
-                    batchException.set(new UserException(e.getMessage(), e));
-                    break;
-                }
+            // Set ConnectContext for the outer async thread to avoid NPE when accessing session variables.
+            // Must be cleaned up in finally block to prevent ThreadLocal leaks in pooled threads.
+            if (parentConnectContext != null) {
+                parentConnectContext.setThreadLocalInfo();
             }
-            if (batchException.get() != null) {
-                splitAssignment.setException(batchException.get());
+            try {
+                for (HivePartition partition : prunedPartitions) {
+                    if (batchException.get() != null || splitAssignment.isStop()) {
+                        break;
+                    }
+                    try {
+                        splittersOnFlight.acquire();
+                        CompletableFuture.runAsync(() -> {
+                            // Set ConnectContext for the inner async thread
+                            if (parentConnectContext != null) {
+                                parentConnectContext.setThreadLocalInfo();
+                            }
+                            try {
+                                List<Split> allFiles = Lists.newArrayList();
+                                getFileSplitByPartitions(
+                                        cache, Collections.singletonList(partition), allFiles, bindBrokerName,
+                                        numBackends, true);
+                                if (allFiles.size() > numSplitsPerPartition.get()) {
+                                    numSplitsPerPartition.set(allFiles.size());
+                                }
+                                if (splitAssignment.needMoreSplit()) {
+                                    splitAssignment.addToQueue(allFiles);
+                                }
+                            } catch (Exception e) {
+                                batchException.set(new UserException(e.getMessage(), e));
+                            } finally {
+                                // Clean up ThreadLocal to prevent leaks in pooled threads
+                                ConnectContext.remove();
+                                splittersOnFlight.release();
+                                if (batchException.get() != null) {
+                                    splitAssignment.setException(batchException.get());
+                                }
+                                if (numFinishedPartitions.incrementAndGet() == prunedPartitions.size()) {
+                                    splitAssignment.finishSchedule();
+                                }
+                            }
+                        }, scheduleExecutor);
+                    } catch (Exception e) {
+                        // When submitting a task, an exception will be thrown if the task pool(scheduleExecutor)
+                        // is full
+                        batchException.set(new UserException(e.getMessage(), e));
+                        break;
+                    }
+                }
+                if (batchException.get() != null) {
+                    splitAssignment.setException(batchException.get());
+                }
+            } finally {
+                // Clean up ThreadLocal to prevent leaks in pooled threads
+                ConnectContext.remove();
             }
         });
     }

@@ -572,6 +572,23 @@ public class CloudSystemInfoServiceTest {
         }
     }
 
+    // Test for error handling when ConnectContext.get() returns null (no ConnectContext at all)
+    // This tests the fix for NPE in async threads where ConnectContext is not propagated
+    @Test
+    public void testGetMinPipelineExecutorSizeWithNullConnectContext() {
+        infoService = new CloudSystemInfoService();
+
+        // Ensure ConnectContext is null (not set in ThreadLocal)
+        ConnectContext.remove();
+
+        // Verify ConnectContext.get() returns null
+        Assert.assertNull(ConnectContext.get());
+
+        // Should return 1 when ConnectContext.get() returns null, instead of throwing NPE
+        int result = infoService.getMinPipelineExecutorSize();
+        Assert.assertEquals(1, result);
+    }
+
     @Test
     public void testGetMinPipelineExecutorSizeWithMixedValidInvalidBackends() {
         infoService = new CloudSystemInfoService();
