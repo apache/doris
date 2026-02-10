@@ -42,8 +42,17 @@ public:
      * Configuration for AWS MSK IAM authentication
      *
      * Supported authentication methods:
-     * 1. Region + AK/SK (if access_key and secret_key are provided)
-     * 2. Region + Role ARN (if role_arn is specified)
+     * 1. Direct Access: region + access_key + secret_key
+     *    - For accessing MSK in the same AWS account
+     *
+     * 2. Assume Role (same-account): region + role_arn
+     *    - Uses EC2 instance profile to assume the role
+     *    - For accessing MSK within AWS environment
+     *
+     * 3. Cross-Account Assume Role: region + role_arn + access_key + secret_key
+     *    - Account B's credentials (access_key + secret_key) are used to assume
+     *      Account A's role (role_arn) to access Account A's MSK cluster
+     *    - This is the primary use case for cross-account access from outside AWS
      */
     struct Config {
         std::string region;     // AWS region (e.g., "us-east-1"), required

@@ -40,24 +40,48 @@ AwsMskIamAuth::AwsMskIamAuth(Config config) : _config(std::move(config)) {
 }
 
 std::shared_ptr<Aws::Auth::AWSCredentialsProvider> AwsMskIamAuth::_create_credentials_provider() {
-    // Only two authentication methods are supported:
-    // 1. Explicit AK/SK (if access_key and secret_key are provided)
-    // 2. Assume Role (if role_arn is specified)
+    // Three authentication methods are supported:
+    // 1. Explicit AK/SK (if access_key and secret_key are provided, no role_arn)
+    // 2. Assume Role with Instance Profile (if only role_arn is specified, AWS internal)
+    // 3. Cross-account Assume Role with AK/SK (if role_arn + access_key + secret_key, AWS external)
 
-    // 1. Explicit AK/SK credentials
+    // 3. Cross-account Assume Role with AK/SK (for cross-account access from outside AWS)
+    // This is the most specific case, so check it first
+    if (!_config.role_arn.empty() && !_config.access_key.empty() && !_config.secret_key.empty()) {
+        LOG(INFO) << "Using AWS STS Assume Role with explicit credentials (cross-account): "
+                  << _config.role_arn << " (Access Key ID: " << _config.access_key.substr(0, 4)
+                  << "****)";
+
+        Aws::Client::ClientConfiguration client_config;
+        if (!_config.region.empty()) {
+            client_config.region = _config.region;
+        }
+
+        // Use explicit AK/SK as base credentials to assume the role
+        Aws::Auth::AWSCredentials base_credentials(_config.access_key, _config.secret_key);
+        auto base_provider =
+                std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(base_credentials);
+
+        auto sts_client = std::make_shared<Aws::STS::STSClient>(base_provider, client_config);
+
+        return std::make_shared<Aws::Auth::STSAssumeRoleCredentialsProvider>(
+                _config.role_arn, Aws::String(), /* external_id */ Aws::String(),
+                Aws::Auth::DEFAULT_CREDS_LOAD_FREQ_SECONDS, sts_client);
+    }
+
+    // 1. Explicit AK/SK credentials (direct access)
     if (!_config.access_key.empty() && !_config.secret_key.empty()) {
         LOG(INFO) << "Using explicit AWS credentials (Access Key ID: "
                   << _config.access_key.substr(0, 4) << "****)";
 
-        Aws::Auth::AWSCredentials credentials(_config.access_key.c_str(),
-                                              _config.secret_key.c_str());
+        Aws::Auth::AWSCredentials credentials(_config.access_key, _config.secret_key);
 
         return std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(credentials);
     }
 
-    // 2. Assume Role
+    // 2. Assume Role with Instance Profile (for same-account access from within AWS)
     if (!_config.role_arn.empty()) {
-        LOG(INFO) << "Using AWS STS Assume Role: " << _config.role_arn;
+        LOG(INFO) << "Using AWS STS Assume Role with Instance Profile: " << _config.role_arn;
 
         Aws::Client::ClientConfiguration client_config;
         if (!_config.region.empty()) {
@@ -72,10 +96,6 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> AwsMskIamAuth::_create_creden
                 Aws::Auth::DEFAULT_CREDS_LOAD_FREQ_SECONDS, sts_client);
     }
 
-    // No valid credentials configuration found
-    LOG(ERROR) << "AWS MSK IAM authentication requires either: "
-               << "1) region + access_key + secret_key, or "
-               << "2) region + role_arn";
     return nullptr;
 }
 
@@ -321,6 +341,9 @@ constexpr const char* PROP_AWS_REGION = "aws.region";
 constexpr const char* PROP_AWS_ACCESS_KEY = "aws.access.key";
 constexpr const char* PROP_AWS_SECRET_KEY = "aws.secret.key";
 constexpr const char* PROP_AWS_ROLE_ARN = "aws.msk.iam.role.arn";
+// TODO: Support aws.profile.name and aws.credentials.provider in the future
+// constexpr const char* PROP_AWS_PROFILE_NAME = "aws.profile.name";
+// constexpr const char* PROP_AWS_CREDENTIALS_PROVIDER = "aws.credentials.provider";
 } // namespace
 
 std::unique_ptr<AwsMskIamOAuthCallback> AwsMskIamOAuthCallback::create_from_properties(
@@ -328,23 +351,19 @@ std::unique_ptr<AwsMskIamOAuthCallback> AwsMskIamOAuthCallback::create_from_prop
         const std::string& brokers) {
     auto security_protocol_it = custom_properties.find(PROP_SECURITY_PROTOCOL);
     auto sasl_mechanism_it = custom_properties.find(PROP_SASL_MECHANISM);
-
-    // Check if this is AWS MSK IAM authentication
-    // Conditions: security.protocol = SASL_SSL and sasl.mechanism = OAUTHBEARER
     bool is_sasl_ssl = security_protocol_it != custom_properties.end() &&
                        security_protocol_it->second == "SASL_SSL";
     bool is_oauthbearer = sasl_mechanism_it != custom_properties.end() &&
                           sasl_mechanism_it->second == "OAUTHBEARER";
 
     if (!is_sasl_ssl || !is_oauthbearer) {
-        // Not AWS MSK IAM authentication
         return nullptr;
     }
 
-    // Extract broker hostname for token generation
+    // Extract broker hostname for token generation.
     std::string broker_hostname = brokers;
+    // If there are multiple brokers, we use the first one (Refrain : is this ok?) 
     if (broker_hostname.find(',') != std::string::npos) {
-        // Multiple brokers, use the first one
         broker_hostname = broker_hostname.substr(0, broker_hostname.find(','));
     }
     // Remove port if present
@@ -352,14 +371,13 @@ std::unique_ptr<AwsMskIamOAuthCallback> AwsMskIamOAuthCallback::create_from_prop
         broker_hostname = broker_hostname.substr(0, broker_hostname.find(':'));
     }
 
-    // Build AWS MSK IAM auth configuration
     AwsMskIamAuth::Config auth_config;
 
-    // Get AWS region (required, default: us-east-1)
     auto region_it = custom_properties.find(PROP_AWS_REGION);
-    auth_config.region = region_it != custom_properties.end() ? region_it->second : "us-east-1";
+    if (region_it != custom_properties.end()) {
+        auth_config.region = region_it->second;
+    }
 
-    // Check for explicit AK/SK credentials (method 1)
     auto access_key_it = custom_properties.find(PROP_AWS_ACCESS_KEY);
     auto secret_key_it = custom_properties.find(PROP_AWS_SECRET_KEY);
     if (access_key_it != custom_properties.end() && secret_key_it != custom_properties.end()) {
@@ -369,7 +387,6 @@ std::unique_ptr<AwsMskIamOAuthCallback> AwsMskIamOAuthCallback::create_from_prop
                   << ")";
     }
 
-    // Check for IAM Role ARN (method 2)
     auto role_arn_it = custom_properties.find(PROP_AWS_ROLE_ARN);
     if (role_arn_it != custom_properties.end()) {
         auth_config.role_arn = role_arn_it->second;
