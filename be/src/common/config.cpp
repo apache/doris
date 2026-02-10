@@ -1039,6 +1039,9 @@ DEFINE_mInt64(small_column_size_buffer, "100");
 
 // Perform the always_true check at intervals determined by runtime_filter_sampling_frequency
 DEFINE_mInt32(runtime_filter_sampling_frequency, "32");
+DEFINE_mInt64(in_set_to_bitset_max_size, "1048576");
+DEFINE_mInt64(in_set_to_bitset_max_range, "1048576");
+
 DEFINE_mInt32(execution_max_rpc_timeout_sec, "3600");
 DEFINE_mBool(execution_ignore_eovercrowded, "true");
 // cooldown task configs
