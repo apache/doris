@@ -716,6 +716,10 @@ bool MemTable::need_flush() const {
 
     // If rows_of_segment is set in table properties, prioritize row-based flush
     if (_rows_of_segment > 0 && _stat.raw_rows.load() >= _rows_of_segment) {
+        LOG_INFO("Flush memtable because rows_of_segment is reached")
+                .tag("tablet_id", _tablet_id)
+                .tag("rows_of_segment", _rows_of_segment)
+                .tag("current_rows", _stat.raw_rows.load());
         return true;
     } else {
         LOG_INFO("Do not flush memtable because rows_of_segment is not set or not reached")

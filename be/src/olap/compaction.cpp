@@ -297,6 +297,12 @@ int64_t Compaction::get_avg_segment_rows() {
     // final size after codec and compress, so expect dest segment file size
     // in disk is config::vertical_compaction_max_segment_size
     const auto& meta = _tablet->tablet_meta();
+
+    // If rows_of_segment is set in tablet meta, use it as the segment row limit
+    if (meta->rows_of_segment() > 0) {
+        return std::min(static_cast<int64_t>(meta->rows_of_segment()), _input_row_num + 1);
+    }
+
     if (meta->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY) {
         int64_t compaction_goal_size_mbytes = meta->time_series_compaction_goal_size_mbytes();
         // The output segment rows should be less than total input rows

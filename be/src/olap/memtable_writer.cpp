@@ -171,7 +171,8 @@ Status MemTableWriter::_flush_memtable_async() {
         memtable->update_mem_type(MemType::WRITE_FINISHED);
         _freezed_mem_tables.push_back(memtable);
     }
-    LOG_INFO("Create a memtbl flush token and submit");
+    LOG_INFO("Create a memtbl flush token and submit, tablet id {}, memtable rows: {}",
+             _req.tablet_id, memtable->raw_rows());
     return _flush_token->submit(memtable);
 }
 

@@ -417,8 +417,13 @@ Status SegmentCreator::flush_single_block(const vectorized::Block* block, int32_
         LOG(INFO) << "Block rows (" << block_rows << ") exceeds max_rows_per_segment (" << max_rows
                   << "), splitting into multiple segments";
 
+        int segment_count = 0;
         while (row_offset < block_rows) {
             size_t rows_to_write = std::min(static_cast<size_t>(max_rows), block_rows - row_offset);
+
+            LOG(INFO) << "Splitting block: segment_index=" << segment_count
+                      << ", row_offset=" << row_offset << ", rows_to_write=" << rows_to_write
+                      << ", remaining_rows=" << (block_rows - row_offset);
 
             // Create a sub-block with the specified row range
             vectorized::Block sub_block = block->clone_empty();
@@ -427,16 +432,30 @@ Status SegmentCreator::flush_single_block(const vectorized::Block* block, int32_
                 sub_block.get_by_position(i).column = std::move(column);
             }
 
+            LOG(INFO) << "Created sub_block: rows=" << sub_block.rows()
+                      << ", columns=" << sub_block.columns() << ", bytes=" << sub_block.bytes();
+
             // Use the provided segment_id for first segment, allocate new ones for subsequent segments
             int32_t current_segment_id = (row_offset == 0) ? segment_id : allocate_segment_id();
+
+            LOG(INFO) << "Flushing sub_block to segment: segment_id=" << current_segment_id
+                      << ", is_first_segment=" << (row_offset == 0);
 
             int64_t sub_flush_size = 0;
             RETURN_IF_ERROR(_segment_flusher.flush_single_block(&sub_block, current_segment_id,
                                                                 &sub_flush_size));
             total_flush_size += sub_flush_size;
 
+            LOG(INFO) << "Sub_block flushed: segment_id=" << current_segment_id
+                      << ", flush_size=" << sub_flush_size
+                      << ", total_flush_size=" << total_flush_size;
+
             row_offset += rows_to_write;
+            segment_count++;
         }
+
+        LOG(INFO) << "Block split completed: total_segments=" << segment_count
+                  << ", total_rows=" << block_rows << ", total_flush_size=" << total_flush_size;
 
         if (flush_size) {
             *flush_size = total_flush_size;
