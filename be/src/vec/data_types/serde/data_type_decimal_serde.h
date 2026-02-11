@@ -42,7 +42,7 @@ template <PrimitiveType T>
 class DataTypeDecimalSerDe : public DataTypeSerDe {
     static_assert(is_decimal(T));
     using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
-    using FieldType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using FieldType = typename PrimitiveTypeTraits<T>::CppType;
 
 public:
     static constexpr PrimitiveType get_primitive_type() { return T; }
@@ -57,6 +57,9 @@ public:
 
     Status from_string_batch(const ColumnString& str, ColumnNullable& column,
                              const FormatOptions& options) const override;
+
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
 
     Status from_string_strict_mode_batch(
             const ColumnString& str, IColumn& column, const FormatOptions& options,

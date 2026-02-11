@@ -25,7 +25,10 @@ suite("test_show_columns_command", "nereids_p0") {
             CREATE TABLE IF NOT EXISTS ${dbName}.${tableName} (
                 id INT,
                 name STRING,
-                score FLOAT
+                score FLOAT,
+                event_date DATE,
+                event_time DATETIME,
+                decimal_col DECIMAL(10, 2)
             )
             DISTRIBUTED BY HASH(id) BUCKETS 3
             PROPERTIES ("replication_num" = "1");

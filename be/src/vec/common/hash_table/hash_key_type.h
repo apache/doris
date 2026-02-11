@@ -80,6 +80,10 @@ inline HashKeyType get_hash_key_type_with_fixed(size_t size) {
 }
 
 inline HashKeyType get_hash_key_type_fixed(const std::vector<vectorized::DataTypePtr>& data_types) {
+    if (data_types.size() >= vectorized::BITSIZE) {
+        return HashKeyType::serialized;
+    }
+
     bool has_null = false;
     size_t key_byte_size = 0;
 
@@ -94,8 +98,7 @@ inline HashKeyType get_hash_key_type_fixed(const std::vector<vectorized::DataTyp
         }
     }
 
-    size_t bitmap_size = has_null ? vectorized::get_bitmap_size(data_types.size()) : 0;
-    return get_hash_key_type_with_fixed(bitmap_size + key_byte_size);
+    return get_hash_key_type_with_fixed(has_null + key_byte_size);
 }
 
 inline HashKeyType get_hash_key_type(const std::vector<vectorized::DataTypePtr>& data_types) {

@@ -21,10 +21,10 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
-#include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exprs/function_context.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/functions/function.h"
 
@@ -48,8 +48,8 @@ public:
 #endif
     VCastExpr(const TExprNode& node) : VExpr(node) {}
     ~VCastExpr() override = default;
-    Status execute_column(VExprContext* context, const Block* block, size_t count,
-                          ColumnPtr& result_column) const override;
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
@@ -59,6 +59,15 @@ public:
     const DataTypePtr& get_target_type() const;
 
     virtual std::string cast_name() const { return "CAST"; }
+
+    uint64_t get_digest(uint64_t seed) const override {
+        auto res = VExpr::get_digest(seed);
+        if (res) {
+            return HashUtil::hash64(_target_data_type_name.data(), _target_data_type_name.size(),
+                                    res);
+        }
+        return 0;
+    }
 
 protected:
     FunctionBasePtr _function;
@@ -83,8 +92,8 @@ public:
 
     TryCastExpr(const TExprNode& node)
             : VCastExpr(node), _original_cast_return_is_nullable(node.is_cast_nullable) {}
-    Status execute_column(VExprContext* context, const Block* block, size_t count,
-                          ColumnPtr& result_column) const override;
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override;
     ~TryCastExpr() override = default;
     std::string cast_name() const override { return "TRY CAST"; }
 

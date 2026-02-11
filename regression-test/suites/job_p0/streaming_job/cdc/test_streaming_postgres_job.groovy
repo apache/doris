@@ -20,7 +20,7 @@ import org.awaitility.Awaitility
 
 import static java.util.concurrent.TimeUnit.SECONDS
 
-suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_docker_pg") {
+suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_docker_pg,nondatalake") {
     def jobName = "test_streaming_postgres_job_name"
     def currentDb = (sql "select database()")[0][0]
     def table1 = "user_info_pg_normal1"
@@ -135,11 +135,13 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
         // mock incremental into
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} (name,age) VALUES ('Doris',18);"""
+            def xminResult = sql """SELECT xmin, xmax , * FROM ${pgSchema}.${table1} WHERE name = 'Doris'; """
+            log.info("xminResult: " + xminResult)
             sql """UPDATE ${pgDB}.${pgSchema}.${table1} SET age = 10 WHERE name = 'B1';"""
             sql """DELETE FROM ${pgDB}.${pgSchema}.${table1} WHERE name = 'A1';"""
         }
 
-        sleep(30000); // wait for cdc incremental data
+        sleep(60000); // wait for cdc incremental data
 
         // check incremental data
         qt_select_binlog_table1 """ SELECT * FROM ${table1} order by name asc """
@@ -148,15 +150,19 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
         select loadStatistic, status from jobs("type"="insert") where Name='${jobName}'
         """
         log.info("jobInfo: " + jobInfo)
-        assert jobInfo.get(0).get(0) == "{\"scannedRows\":7,\"loadBytes\":337,\"fileNumber\":0,\"fileSize\":0}"
+        def loadStat = parseJson(jobInfo.get(0).get(0))
+        assert loadStat.scannedRows == 7
+        assert loadStat.loadBytes == 341
         assert jobInfo.get(0).get(1) == "RUNNING"
 
         // mock incremental into again
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} (name,age) VALUES ('Apache',40);"""
+	    def xminResult1 = sql """SELECT xmin, xmax , * FROM ${pgSchema}.${table1} WHERE name = 'Apache'; """
+            log.info("xminResult1: " + xminResult1)
         }
 
-        sleep(30000); // wait for cdc incremental data
+        sleep(60000); // wait for cdc incremental data
 
         // check incremental data
         qt_select_next_binlog_table1 """ SELECT * FROM ${table1} order by name asc """

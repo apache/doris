@@ -30,6 +30,7 @@ namespace doris {
 std::vector<SchemaScanner::ColumnDesc> SchemaFileCacheInfoScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
         {"HASH", TYPE_STRING, sizeof(StringRef), true},
+        {"OFFSET", TYPE_BIGINT, sizeof(int64_t), true},
         {"TABLET_ID", TYPE_BIGINT, sizeof(int64_t), true},
         {"SIZE", TYPE_BIGINT, sizeof(int64_t), true},
         {"TYPE", TYPE_STRING, sizeof(StringRef), true},
@@ -68,7 +69,7 @@ Status SchemaFileCacheInfoScanner::_fill_block_impl(vectorized::Block* block) {
     }
 
     // Collect all cache entries from all file cache instances
-    std::vector<std::tuple<std::string, int64_t, int64_t, int, std::string>> cache_entries;
+    std::vector<std::tuple<std::string, int64_t, int64_t, int64_t, int, std::string>> cache_entries;
 
     // Get all cache instances using the public getter
     const auto& caches = file_cache_factory->get_caches();
@@ -116,7 +117,8 @@ Status SchemaFileCacheInfoScanner::_fill_block_impl(vectorized::Block* block) {
             std::string hash_str = key.hash.to_string();
 
             // Add to cache entries
-            cache_entries.emplace_back(hash_str, key.tablet_id, value.size, value.type, cache_path);
+            cache_entries.emplace_back(hash_str, static_cast<int64_t>(key.offset), key.tablet_id,
+                                       static_cast<int64_t>(value.size), value.type, cache_path);
 
             iterator->next();
         }
@@ -137,21 +139,21 @@ Status SchemaFileCacheInfoScanner::_fill_block_impl(vectorized::Block* block) {
 
         for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
             const auto& entry = cache_entries[row_idx];
-            const auto& [hash, tablet_id, size, type, cache_path] = entry;
+            const auto& [hash, offset, tablet_id, size, type, cache_path] = entry;
 
             if (col_desc.type == TYPE_STRING) {
                 switch (col_idx) {
                 case 0: // HASH
                     column_values[row_idx] = hash;
                     break;
-                case 3: // TYPE
+                case 4: // TYPE
                     column_values[row_idx] = doris::io::cache_type_to_string(
                             static_cast<doris::io::FileCacheType>(type));
                     break;
-                case 4:                          // REMOTE_PATH
+                case 5:                          // REMOTE_PATH
                     column_values[row_idx] = ""; // TODO: Implement remote path retrieval
                     break;
-                case 5: // CACHE_PATH
+                case 6: // CACHE_PATH
                     column_values[row_idx] = cache_path;
                     break;
                 default:
@@ -163,13 +165,16 @@ Status SchemaFileCacheInfoScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[row_idx] = &str_refs[row_idx];
             } else if (col_desc.type == TYPE_BIGINT) {
                 switch (col_idx) {
-                case 1: // TABLET_ID
+                case 1: // OFFSET
+                    int64_vals[row_idx] = offset;
+                    break;
+                case 2: // TABLET_ID
                     int64_vals[row_idx] = tablet_id;
                     break;
-                case 2: // SIZE
+                case 3: // SIZE
                     int64_vals[row_idx] = size;
                     break;
-                case 6: // BE_ID
+                case 7: // BE_ID
                     int64_vals[row_idx] = ExecEnv::GetInstance()->cluster_info()->backend_id;
                     break;
                 default:

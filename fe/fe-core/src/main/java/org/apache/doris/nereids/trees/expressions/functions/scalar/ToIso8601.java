@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -40,7 +41,9 @@ public class ToIso8601 extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(StringType.INSTANCE).args(DateTimeV2Type.WILDCARD),
-            FunctionSignature.ret(StringType.INSTANCE).args(DateV2Type.INSTANCE));
+            FunctionSignature.ret(StringType.INSTANCE).args(DateV2Type.INSTANCE),
+            FunctionSignature.ret(StringType.INSTANCE).args(TimeStampTzType.WILDCARD)
+    );
 
     /**
      * constructor with 1 argument.

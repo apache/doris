@@ -66,7 +66,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -200,7 +199,7 @@ public class PartitionIncrementMaintainer {
                 for (Set<Slot> equalSlotSet : shuttledEqualSlotSet) {
                     if (equalSlotSet.contains(consumerSlot)) {
                         Expression shuttledSlot = ExpressionUtils.shuttleExpressionWithLineage(
-                                producerSlot, producerPlan, new BitSet());
+                                producerSlot, producerPlan);
                         if (shuttledSlot instanceof Slot) {
                             equalSlotSet.add((Slot) shuttledSlot);
                         }
@@ -537,9 +536,9 @@ public class PartitionIncrementMaintainer {
                 Optional<Expression> partitionExpressionOpt = partitionTableColumnInfo.getPartitionExpression();
                 Expression partitionExpressionActual = partitionExpressionOpt
                         .map(expr -> ExpressionUtils.shuttleExpressionWithLineage(expr,
-                                context.getOriginalPlan(), new BitSet()))
+                                context.getOriginalPlan()))
                         .orElseGet(() -> ExpressionUtils.shuttleExpressionWithLineage(partitionNamedExpression,
-                                context.getOriginalPlan(), new BitSet()));
+                                context.getOriginalPlan()));
                 // merge date_trunc
                 partitionExpressionActual = new ExpressionNormalization().rewrite(partitionExpressionActual,
                         new ExpressionRewriteContext(context.getCascadesContext()));
@@ -547,7 +546,7 @@ public class PartitionIncrementMaintainer {
                 for (Expression projectSlotToCheck : expressionsToCheck) {
                     Expression expressionShuttledToCheck =
                             ExpressionUtils.shuttleExpressionWithLineage(projectSlotToCheck,
-                                    context.getOriginalPlan(), new BitSet());
+                                    context.getOriginalPlan());
                     // merge date_trunc
                     expressionShuttledToCheck = new ExpressionNormalization().rewrite(expressionShuttledToCheck,
                             new ExpressionRewriteContext(context.getCascadesContext()));
@@ -831,7 +830,7 @@ public class PartitionIncrementMaintainer {
         List<Expression> extendedPartitionEqualSlotSet = new ArrayList<>(partitionEqualSlotSet);
         extendedPartitionEqualSlotSet.add(slot);
         List<? extends Expression> shuttledEqualExpressions = ExpressionUtils.shuttleExpressionWithLineage(
-                extendedPartitionEqualSlotSet, join, new BitSet());
+                extendedPartitionEqualSlotSet, join);
         for (Expression shuttledEqualExpression : shuttledEqualExpressions) {
             Set<Slot> objects = shuttledEqualExpression.collectToSet(expr -> expr instanceof SlotReference);
             if (objects.size() != 1 || !(shuttledEqualExpression instanceof SlotReference)) {

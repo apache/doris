@@ -73,7 +73,7 @@ conment_to_context=(
     ['cloud_p0']='cloud_p0 (Doris Cloud Regression)'
     ['cloud_p1']='cloud_p1 (Doris Cloud Regression)'
     ['vault_p0']='vault_p0 (Doris Cloud Regression)'
-    ['nonConcurrent']='NonConcurrent Regression (Doris Regression)'
+    ['nonConcurrent']='NonConcurrent Regression (nonConcurrent)'
     ['check_coverage']='check_coverage (Coverage)'
 )
 

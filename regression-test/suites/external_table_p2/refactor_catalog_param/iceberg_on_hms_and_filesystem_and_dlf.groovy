@@ -19,8 +19,188 @@ import java.util.concurrent.ThreadLocalRandom
 
 import static groovy.test.GroovyAssert.shouldFail;
 suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property") {
+    
+    def hmsTestQueryAndInsert = { String catalogProperties, String prefix ->
+
+        def catalog_name = "${prefix}_catalog"
+        sql """
+            DROP CATALOG IF EXISTS ${catalog_name};
+        """
+        sql """
+            CREATE CATALOG IF NOT EXISTS ${catalog_name} PROPERTIES (
+                 'type'='iceberg',
+                 'iceberg.catalog.type'='hms',
+                ${catalogProperties}
+            );
+        """
+        def hms_catalog_name="${prefix}_catalog_hms"
+        sql """
+            DROP CATALOG IF EXISTS ${hms_catalog_name};
+        """
+        sql """
+            CREATE CATALOG IF NOT EXISTS ${hms_catalog_name} PROPERTIES (
+                'type'='hms',
+                ${catalogProperties}
+            );
+        """
+        sql """
+            switch ${catalog_name};
+        """
+
+        def db_name = prefix + "_db"+ ThreadLocalRandom.current().nextInt(100);
+        // Check if database exists
+        sql """
+            DROP DATABASE IF EXISTS ${db_name} FORCE;
+        """
+        sql """
+            CREATE DATABASE IF NOT EXISTS ${db_name};
+        """
+
+        def dbResult = sql """
+            show databases  like "${db_name}";
+        """
+        assert dbResult.size() == 1
+
+        sql """
+            use ${db_name};
+        """
+        def table_name = prefix + "_table"
+        sql """
+            CREATE TABLE ${table_name} (
+            user_id            BIGINT       NOT NULL COMMENT "user id",
+            name               VARCHAR(20)           COMMENT "name",
+            age                INT                   COMMENT "age"
+        );
+        """
+        sql """
+            insert into ${table_name} values (1, 'a', 10);
+        """
+        // query
+        def queryResult = sql """
+            SELECT * FROM ${table_name};
+        """
+        assert queryResult.size() == 1
+
+        
+        queryResult = sql """
+            SELECT * FROM ${hms_catalog_name}.${db_name}.${table_name};
+        """
+        assert queryResult.size() == 1
+        def branch_name = prefix + "_branch"
+        def tag_name = prefix + "_tag"
+        sql """
+            ALTER TABLE ${table_name} CREATE BRANCH ${branch_name};
+        """
+        sql """
+            ALTER TABLE ${table_name} CREATE TAG ${tag_name};
+        """
+        sql """
+            INSERT OVERWRITE  TABLE ${table_name} VALUES (1, 'a', 10),(2, 'b', 20), (3, 'c', 30)
+        """
+        def originalQueryResult = sql """
+            SELECT * FROM ${table_name};
+        """
+        assert originalQueryResult.size() == 3
+        sql """
+            insert into ${table_name}@branch(${branch_name}) values (4, 'd', 40)
+        """
+        def branchQueryResult = sql """
+            SELECT * FROM ${table_name}@branch(${branch_name});
+        """
+        assert branchQueryResult.size() == 2
 
 
+        def tagQueryResult = sql """
+            SELECT * FROM ${table_name}@tag(${tag_name});
+        """
+        assert tagQueryResult.size() == 1
+        sql """
+            ALTER TABLE ${table_name} drop branch ${branch_name};
+        """
+        sql """
+            ALTER TABLE ${table_name} drop tag ${tag_name};
+        """
+        try {
+            def sys_query_result = sql """
+            SELECT * FROM ${table_name}\$files;
+        """
+            println sys_query_result
+            println "iceberg_meta_result SUCCESS" + catalog_name
+
+            def iceberg_meta_result = sql """
+        SELECT snapshot_id FROM iceberg_meta(
+                'table' = '${catalog_name}.${db_name}.${table_name}',
+                'query_type' = 'snapshots'
+        ) order by committed_at desc;
+        
+        """
+            def first_snapshot_id = iceberg_meta_result.get(0).get(0);
+            def time_travel =sql """
+            SELECT * FROM ${table_name} FOR VERSION AS OF ${first_snapshot_id};
+        """
+            println time_travel
+
+            println "iceberg_time_travel SUCCESS" + catalog_name
+        }catch (Exception e) {
+            println catalog_name + "system info error"
+        }
+
+
+        sql """
+            DROP TABLE ${table_name};
+        """
+        //partition table
+        table_name = prefix + "_partition_table"
+        sql """
+            CREATE TABLE ${table_name} (
+              `ts` DATETIME COMMENT 'ts',
+              `col1` BOOLEAN COMMENT 'col1',
+              `col2` INT COMMENT 'col2',
+              `col3` BIGINT COMMENT 'col3',
+              `col4` FLOAT COMMENT 'col4',
+              `col5` DOUBLE COMMENT 'col5',
+              `col6` DECIMAL(9,4) COMMENT 'col6',
+              `col7` STRING COMMENT 'col7',
+              `col8` DATE COMMENT 'col8',
+              `col9` DATETIME COMMENT 'col9',
+              `pt1` STRING COMMENT 'pt1',
+              `pt2` STRING COMMENT 'pt2'
+            )
+            PARTITION BY LIST (day(ts), pt1, pt2) ()
+            PROPERTIES (
+              'write-format'='orc',
+              'compression-codec'='zlib'
+            );
+        """
+
+        sql """
+            INSERT OVERWRITE  TABLE ${table_name} values 
+            ('2023-01-01 00:00:00', true, 1, 1, 1.0, 1.0, 1.0000, '1', '2023-01-01', '2023-01-01 00:00:00', 'a', '1'),
+            ('2023-01-02 00:00:00', false, 2, 2, 2.0, 2.0, 2.0000, '2', '2023-01-02', '2023-01-02 00:00:00', 'b', '2'),
+            ('2023-01-03 00:00:00', true, 3, 3, 3.0, 3.0, 3.0000, '3', '2023-01-03', '2023-01-03 00:00:00', 'c', '3');
+        """
+        def partitionQueryResult = sql """
+            SELECT * FROM ${table_name} WHERE pt1='a' and pt2='1';
+        """
+        assert partitionQueryResult.size() == 1
+        
+        partitionQueryResult = sql """
+            SELECT * FROM ${hms_catalog_name}.${db_name}.${table_name} WHERE pt1='a' and pt2='1';
+        """
+        assert partitionQueryResult.size() == 1                
+
+        sql """
+            DROP TABLE ${table_name};
+        """
+        sql """
+            DROP DATABASE ${db_name} FORCE;
+        """
+
+        def dropResult = sql """
+            show databases  like "${db_name}";
+        """
+        assert dropResult.size() == 0
+    }
     def testQueryAndInsert = { String catalogProperties, String prefix ->
 
         def catalog_name = "${prefix}_catalog"
@@ -235,6 +415,7 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
     String oss_endpoint = context.config.otherConfigs.get("aliYunEndpoint")
     String oss_bucket = context.config.otherConfigs.get("aliYunBucket")
     String oss_parent_path = "${oss_bucket}/refactor-test"
+    String oss_bucket_endpoint_parent_path="${oss_bucket}.${oss_endpoint}/refactor-test"
     String oss_region = context.config.otherConfigs.get("aliYunRegion")
     String oss_region_param = """
               'oss.region' = '${oss_region}',
@@ -308,6 +489,15 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
                 "hadoop.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab"
     """
 
+    String hdfs_new_kerberos_properties = """
+                "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+                "io-impl" = "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO",          
+                "hdfs.authentication.type" = "kerberos",
+                "hdfs.authentication.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
+                "hdfs.authentication.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab"
+    """
+    
+
     String hms_prop = """
               'hive.metastore.uris' = 'thrift://${externalEnvIp}:9383',
     """
@@ -355,59 +545,63 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
                   'warehouse' = 'oss://${oss_parent_path}/iceberg-hms-warehouse',
     """
     // has endpoint not region
-    testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + oss_storage_properties, "iceberg_hms_on_oss")
+    hmsTestQueryAndInsert(hms_prop + warehouse + oss_storage_properties, "iceberg_hms_on_oss")
 
-    testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + oss_region_param + oss_storage_properties, "iceberg_hms_on_oss")
+    hmsTestQueryAndInsert(hms_prop + warehouse + oss_region_param + oss_storage_properties, "iceberg_hms_on_oss")
 
     //old kerberos
-    testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_old_prop + warehouse + oss_storage_properties, "iceberg_hms_on_oss_kerberos_old")
+    hmsTestQueryAndInsert(hms_kerberos_old_prop + warehouse + oss_storage_properties, "iceberg_hms_on_oss_kerberos_old")
     //new kerberos
-    testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_new_prop + warehouse + oss_storage_properties, "iceberg_hms_on_oss_kerberos_new")
+    hmsTestQueryAndInsert(hms_kerberos_new_prop + warehouse + oss_storage_properties, "iceberg_hms_on_oss_kerberos_new")
+    warehouse  """
+                  'warehouse' = 'oss://${oss_bucket_endpoint_parent_path}/iceberg-hms-warehouse',
+    """
+    testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + oss_region_param + oss_storage_properties, "iceberg_hms_on_oss")
 
     /*--------HMS on OBS-----------*/
     warehouse = """
                    'warehouse' = 'obs://${obs_parent_path}/iceberg-hms-obs-warehouse',
     """
-    testQueryAndInsert(iceberg_hms_type_prop + hms_prop
+    hmsTestQueryAndInsert(hms_prop
             + warehouse + obs_storage_properties, "iceberg_hms_on_obs")
-    testQueryAndInsert(iceberg_hms_type_prop + hms_prop+
+    hmsTestQueryAndInsert(hms_prop+
             warehouse + obs_region_param + obs_storage_properties, "iceberg_hms_on_obs")
     //old kerberos
-    testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_old_prop + warehouse + obs_storage_properties, "iceberg_hms_on_obs_kerberos_old")
+    hmsTestQueryAndInsert(hms_kerberos_old_prop + warehouse + obs_storage_properties, "iceberg_hms_on_obs_kerberos_old")
     //new kerberos
-    testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_new_prop + warehouse + obs_storage_properties, "iceberg_hms_on_obs_kerberos_new")
+    hmsTestQueryAndInsert(hms_kerberos_new_prop + warehouse + obs_storage_properties, "iceberg_hms_on_obs_kerberos_new")
 
     /*--------HMS on GCS-----------*/
     if(context.config.otherConfigs.get("enableGCS")){
         warehouse = """
                    'warehouse' = 'gs://${gcs_parent_path}/gcs/iceberg-hms-gcs-warehouse',
     """
-        testQueryAndInsert(iceberg_hms_type_prop + hms_prop
+        hmsTestQueryAndInsert(hms_prop
                 + warehouse + gcs_storage_old_properties, "iceberg_hms_on_gcs_old")
-        testQueryAndInsert(iceberg_hms_type_prop + hms_prop+
+        hmsTestQueryAndInsert(hms_prop+
                 warehouse + gcs_storage_new_properties, "iceberg_hms_on_gcs_new")
 
         //new kerberos
-        testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_new_prop + warehouse + gcs_storage_new_properties, "iceberg_hms_on_gcs_kerberos_new")
+        hmsTestQueryAndInsert(hms_kerberos_new_prop + warehouse + gcs_storage_new_properties, "iceberg_hms_on_gcs_kerberos_new")
         //old kerberos
-        testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_old_prop + warehouse + gcs_storage_new_properties, "iceberg_hms_on_gcs_kerberos_old")
+        hmsTestQueryAndInsert(hms_kerberos_old_prop + warehouse + gcs_storage_new_properties, "iceberg_hms_on_gcs_kerberos_old")
     }
    
     /*--------HMS on COS-----------*/
     warehouse = """
                    'warehouse' = 'cosn://${cos_parent_path}/iceberg-hms-cos-warehouse',
     """
-    testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + cos_storage_properties, "iceberg_hms_on_cos")
+    hmsTestQueryAndInsert(hms_prop + warehouse + cos_storage_properties, "iceberg_hms_on_cos")
 
-    testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + cos_region_param + cos_storage_properties, "iceberg_hms_on_cos")
+    hmsTestQueryAndInsert(hms_prop + warehouse + cos_region_param + cos_storage_properties, "iceberg_hms_on_cos")
 
     warehouse = """
      'warehouse' = 'cos://${cos_parent_path}/iceberg-hms-cos-warehouse',
     """
-    testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + cos_storage_properties, "iceberg_hms_on_cos")
+    hmsTestQueryAndInsert(hms_prop + warehouse + cos_storage_properties, "iceberg_hms_on_cos")
     //kerberos
-    testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_old_prop + warehouse + cos_storage_properties, "iceberg_hms_on_cos_kerberos_old")
-    testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_new_prop + warehouse + cos_storage_properties, "iceberg_hms_on_cos_kerberos_new")
+    hmsTestQueryAndInsert(hms_kerberos_old_prop + warehouse + cos_storage_properties, "iceberg_hms_on_cos_kerberos_old")
+    hmsTestQueryAndInsert(hms_kerberos_new_prop + warehouse + cos_storage_properties, "iceberg_hms_on_cos_kerberos_new")
 
 
     /*--------HMS on S3-----------*/
@@ -415,28 +609,30 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
     warehouse = """
        'warehouse' = 's3a://${s3_parent_path}/iceberg-hms-s3-warehouse',
       """
-    testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + s3_storage_properties, "iceberg_hms_on_s3")
-    testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + s3_region_param + s3_storage_properties, "iceberg_hms_on_s3")
+    hmsTestQueryAndInsert(hms_prop + warehouse + s3_storage_properties, "iceberg_hms_on_s3")
+    hmsTestQueryAndInsert(hms_prop + warehouse + s3_region_param + s3_storage_properties, "iceberg_hms_on_s3")
     //kerberos Docker HMS c
-    // testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_old_prop+ warehouse + s3_storage_properties, "iceberg_hms_on_s3_kerberos_old")
-    // testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_new_prop + warehouse + s3_storage_properties, "iceberg_hms_on_s3_kerberos_new")
+    // testQueryAndInsert(hms_kerberos_old_prop+ warehouse + s3_storage_properties, "iceberg_hms_on_s3_kerberos_old")
+    // testQueryAndInsert(hms_kerberos_new_prop + warehouse + s3_storage_properties, "iceberg_hms_on_s3_kerberos_new")
     warehouse = """
        'warehouse' = 's3://${s3_parent_path}/iceberg-hms-s3-warehouse',
       """
-    testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + s3_storage_properties, "iceberg_hms_on_s3")
+    hmsTestQueryAndInsert(hms_prop + warehouse + s3_storage_properties, "iceberg_hms_on_s3")
 
     /*--------HMS on HDFS-----------*/
     warehouse = """
      'warehouse' = '${hdfs_parent_path}/iceberg-hms-hdfs-warehouse',
     """
-    testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + hdfs_properties, "iceberg_hms_on_hdfs")
+    hmsTestQueryAndInsert(hms_prop + warehouse + hdfs_properties, "iceberg_hms_on_hdfs")
     warehouse = """
      'warehouse' = 'hdfs://${externalEnvIp}:8520/iceberg-hms-hdfs-warehouse',
     """
     //old kerberos
-    testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_old_prop_not_include_kerberos_prop + warehouse + hdfs_kerberos_properties, "iceberg_hms_on_hdfs_kerberos_old")
+    hmsTestQueryAndInsert(hms_kerberos_old_prop_not_include_kerberos_prop + warehouse + hdfs_kerberos_properties, "iceberg_hms_on_hdfs_kerberos_old")
     //new  kerberos
-    testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_new_prop + warehouse + hdfs_kerberos_properties, "iceberg_hms_on_hdfs_kerberos_hdfs")
+    hmsTestQueryAndInsert(hms_kerberos_new_prop + warehouse + hdfs_kerberos_properties, "iceberg_hms_on_hdfs_kerberos_hdfs")
+    //new hdfs kerberos
+    hmsTestQueryAndInsert(hms_kerberos_new_prop + warehouse + hdfs_new_kerberos_properties, "iceberg_hms_on_hdfs_kerberos_hdfs")
 
 
     /*--------HMS END-----------*/
@@ -490,6 +686,12 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
         """
     testQueryAndInsert(iceberg_file_system_catalog_properties + warehouse + oss_storage_properties, "iceberg_fs_on_oss")
     testQueryAndInsert(iceberg_file_system_catalog_properties + warehouse + oss_region_param + oss_storage_properties, "iceberg_fs_on_oss_region")
+
+    warehouse = """
+        'warehouse' = 'oss://${oss_bucket_endpoint_parent_path}/iceberg-fs-oss-warehouse',
+        """
+    testQueryAndInsert(iceberg_file_system_catalog_properties + warehouse + oss_region_param + oss_storage_properties, "iceberg_fs_on_oss_region")
+
     /**  HDFS **/
     warehouse = """
         'warehouse' = '${hdfs_parent_path}/iceberg-fs-hdfs-warehouse',
@@ -500,6 +702,7 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
         'warehouse' = 'hdfs://${externalEnvIp}:8520/iceberg-fs-hdfs-warehouse',
     """
     testQueryAndInsert(iceberg_file_system_catalog_properties + warehouse + hdfs_kerberos_properties, "iceberg_fs_on_hdfs_kerberos")
+    testQueryAndInsert(iceberg_file_system_catalog_properties + warehouse + hdfs_new_kerberos_properties, "iceberg_fs_on_hdfs_new_kerberos")
 
 
     /*  *//**  S3   **/

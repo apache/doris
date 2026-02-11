@@ -34,7 +34,7 @@ struct DecimalScaleParams {
     int64_t scale_factor = 1;
 
     template <PrimitiveType DecimalPrimitiveType>
-    static inline constexpr typename PrimitiveTypeTraits<DecimalPrimitiveType>::CppNativeType
+    static inline constexpr typename PrimitiveTypeTraits<DecimalPrimitiveType>::CppType::NativeType
     get_scale_factor(int32_t n) {
         if constexpr (DecimalPrimitiveType == TYPE_DECIMAL32) {
             return common::exp10_i32(n);
@@ -47,9 +47,8 @@ struct DecimalScaleParams {
         } else if constexpr (DecimalPrimitiveType == TYPE_DECIMAL256) {
             return common::exp10_i256(n);
         } else {
-            static_assert(
-                    !sizeof(typename PrimitiveTypeTraits<DecimalPrimitiveType>::CppNativeType),
-                    "All types must be matched with if constexpr.");
+            static_assert(!sizeof(typename PrimitiveTypeTraits<DecimalPrimitiveType>::CppType),
+                          "All types must be matched with if constexpr.");
         }
     }
 };

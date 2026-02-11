@@ -168,8 +168,8 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
                 _range_between_expr_ctxs[i]->root()->data_type()->create_column();
     }
 
-    _fn_place_ptr = _agg_arena_pool.aligned_alloc(p._total_size_of_aggregate_states,
-                                                  p._align_aggregate_states);
+    _fn_place_ptr = _shared_state->agg_arena_pool.aligned_alloc(p._total_size_of_aggregate_states,
+                                                                p._align_aggregate_states);
     _create_agg_status();
     return Status::OK();
 }
@@ -388,13 +388,14 @@ void AnalyticSinkLocalState::_execute_for_function(int64_t partition_start, int6
             _agg_functions[i]->function()->execute_function_with_incremental(
                     partition_start, partition_end, frame_start, frame_end,
                     _fn_place_ptr + _offsets_of_aggregate_states[i], agg_columns.data(),
-                    _agg_arena_pool, false, false, false, &_use_null_result[i],
+                    _shared_state->agg_arena_pool, false, false, false, &_use_null_result[i],
                     &_could_use_previous_result[i]);
         } else {
             _agg_functions[i]->function()->add_range_single_place(
                     partition_start, partition_end, frame_start, frame_end,
                     _fn_place_ptr + _offsets_of_aggregate_states[i], agg_columns.data(),
-                    _agg_arena_pool, &(_use_null_result[i]), &_could_use_previous_result[i]);
+                    _shared_state->agg_arena_pool, &(_use_null_result[i]),
+                    &_could_use_previous_result[i]);
         }
     }
 }
@@ -631,8 +632,7 @@ int64_t AnalyticSinkLocalState::find_first_not_equal(vectorized::IColumn* refere
 }
 
 AnalyticSinkOperatorX::AnalyticSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
-                                             const TPlanNode& tnode, const DescriptorTbl& descs,
-                                             bool require_bucket_distribution)
+                                             const TPlanNode& tnode, const DescriptorTbl& descs)
         : DataSinkOperatorX(operator_id, tnode, dest_id),
           _pool(pool),
           _intermediate_tuple_id(tnode.analytic_node.intermediate_tuple_id),
@@ -641,10 +641,6 @@ AnalyticSinkOperatorX::AnalyticSinkOperatorX(ObjectPool* pool, int operator_id, 
                                      ? tnode.analytic_node.buffered_tuple_id
                                      : 0),
           _is_colocate(tnode.analytic_node.__isset.is_colocate && tnode.analytic_node.is_colocate),
-          _require_bucket_distribution(require_bucket_distribution),
-          _partition_exprs(tnode.__isset.distribute_expr_lists && require_bucket_distribution
-                                   ? tnode.distribute_expr_lists[0]
-                                   : tnode.analytic_node.partition_exprs),
           _window(tnode.analytic_node.window),
           _has_window(tnode.analytic_node.__isset.window),
           _has_range_window(tnode.analytic_node.window.type == TAnalyticWindowType::RANGE),

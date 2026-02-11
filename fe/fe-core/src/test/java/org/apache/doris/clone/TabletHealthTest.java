@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -333,7 +334,7 @@ public class TabletHealthTest extends TestWithFeService {
         // temporary delete replica 1
         tablet.deleteReplica(tablet.getReplicas().get(1));
         Assertions.assertFalse(tablet.getBackendIds().contains(deleteBeId));
-        Replica replica = new Replica(1234567890L, deleteBeId, Replica.ReplicaState.NORMAL, 8L, 0);
+        Replica replica = new LocalReplica(1234567890L, deleteBeId, Replica.ReplicaState.NORMAL, 8L, 0);
         // add a `error` replica on other backend
         tablet.addReplica(replica);
         // colocate don't relocate because no be dead

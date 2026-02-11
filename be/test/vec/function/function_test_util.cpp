@@ -26,6 +26,7 @@
 #include "runtime/jsonb_value.h"
 #include "runtime/runtime_state.h"
 #include "util/bitmap_value.h"
+#include "util/quantile_state.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_struct.h"
@@ -44,6 +45,7 @@
 #include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_quantilestate.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time.h"
@@ -104,6 +106,10 @@ static size_t type_index_to_data_type(const std::vector<AnyType>& input_types, s
         return 1;
     case PrimitiveType::TYPE_HLL:
         type = std::make_shared<DataTypeHLL>();
+        desc = type;
+        return 1;
+    case PrimitiveType::TYPE_QUANTILE_STATE:
+        type = std::make_shared<DataTypeQuantileState>();
         desc = type;
         return 1;
     case PrimitiveType::TYPE_IPV4:
@@ -407,6 +413,11 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
             column->insert_data((char*)hll, sizeof(HyperLogLog));
             break;
         }
+        case PrimitiveType::TYPE_QUANTILE_STATE: {
+            auto* quantile_state = any_cast<QuantileState*>(cell);
+            column->insert_data((char*)quantile_state, sizeof(QuantileState));
+            break;
+        }
         case PrimitiveType::TYPE_IPV4: {
             auto value = any_cast<ut_type::IPV4>(cell);
             column->insert_data(reinterpret_cast<char*>(&value), 0);
@@ -473,7 +484,7 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
             break;
         }
         case PrimitiveType::TYPE_DECIMALV2: {
-            auto value = any_cast<Decimal128V2>(cell);
+            auto value = any_cast<DecimalV2Value>(cell);
             column->insert_data(reinterpret_cast<char*>(&value), 0);
             break;
         }

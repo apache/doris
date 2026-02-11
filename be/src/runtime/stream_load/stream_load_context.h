@@ -24,6 +24,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <condition_variable>
 #include <future>
 #include <map>
 #include <memory>
@@ -204,8 +205,8 @@ public:
 
     std::vector<TTabletCommitInfo> commit_infos;
 
-    std::promise<Status> promise;
-    std::future<Status> future = promise.get_future();
+    std::promise<Status> load_status_promise;
+    std::future<Status> load_status_future = load_status_promise.get_future();
 
     Status status;
 
@@ -255,6 +256,15 @@ public:
     // use for cloud cluster mode
     std::string qualified_user;
     std::string cloud_cluster;
+
+    // 1. _can_send_reply: Ensure `send_reply` is invoked only after on_header/handle complete,
+    //    avoid client errors (e.g., broken pipe).
+    // 2. _finish_send_reply: Prevent duplicate reply sending; skip reply if HTTP request is canceled
+    //    due to long import execution time.
+    std::mutex _send_reply_lock;
+    std::condition_variable _can_send_reply_cv;
+    bool _can_send_reply = false;
+    bool _finish_send_reply = false;
 
 public:
     ExecEnv* exec_env() { return _exec_env; }

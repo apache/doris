@@ -21,7 +21,6 @@
 #pragma once
 
 #include "common/status.h"
-#include "util/binary_cast.hpp"
 #include "vec/data_types/data_type_date.h"
 #include "vec/functions/date_time_transforms.h"
 #include "vec/functions/function.h"
@@ -30,8 +29,8 @@ namespace doris::vectorized {
 
 template <PrimitiveType FromPType, PrimitiveType ToPType, typename Transform>
 struct Transformer {
-    using FromType = typename PrimitiveTypeTraits<FromPType>::ColumnItemType;
-    using ToType = typename PrimitiveTypeTraits<ToPType>::ColumnItemType;
+    using FromType = typename PrimitiveTypeTraits<FromPType>::CppType;
+    using ToType = typename PrimitiveTypeTraits<ToPType>::CppType;
     using CppType = typename PrimitiveTypeTraits<FromPType>::CppType;
     static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to) {
         size_t size = vec_from.size();
@@ -39,21 +38,27 @@ struct Transformer {
 
         for (size_t i = 0; i < size; ++i) {
             //FIXME: seems external table still generates invalid date/datetime. but where?
-            if (!binary_cast<FromType, CppType>(vec_from[i]).is_valid_date()) [[unlikely]] {
+            if (!vec_from[i].is_valid_date()) [[unlikely]] {
+                char buf[64];
+                vec_from[i].to_string(buf);
                 throw Exception(ErrorCode::INVALID_ARGUMENT, "Operation {} meets invalid data: {}",
-                                Transform::name, vec_from[i]);
+                                Transform::name, buf);
             }
             auto res = Transform::execute(vec_from[i]);
-            using RESULT_TYPE = std::decay_t<decltype(res)>;
-            vec_to[i] = cast_set<ToType, RESULT_TYPE, false>(res);
+            if constexpr (is_date_type(ToPType) || ToPType == TYPE_TIMESTAMPTZ) {
+                vec_to[i] = res;
+            } else {
+                using RESULT_TYPE = std::decay_t<decltype(res)>;
+                vec_to[i] = cast_set<ToType, RESULT_TYPE, false>(res);
+            }
         }
     }
 };
 
 template <PrimitiveType FromPType, PrimitiveType ToPType, template <PrimitiveType> typename Impl>
 struct TransformerYear {
-    using FromType = typename PrimitiveTypeTraits<FromPType>::ColumnItemType;
-    using ToType = typename PrimitiveTypeTraits<ToPType>::ColumnItemType;
+    using FromType = typename PrimitiveTypeTraits<FromPType>::CppType;
+    using ToType = typename PrimitiveTypeTraits<ToPType>::CppType;
 
     static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to) {
         size_t size = vec_from.size();

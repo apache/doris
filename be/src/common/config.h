@@ -432,6 +432,12 @@ DECLARE_mInt32(trash_file_expire_time_sec);
 // modify them upon necessity
 DECLARE_Int32(min_file_descriptor_number);
 DECLARE_mBool(disable_segment_cache);
+// Enable checking segment rows consistency between rowset meta and segment footer
+DECLARE_mBool(enable_segment_rows_consistency_check);
+DECLARE_mBool(enable_segment_rows_check_core);
+// ATTENTION: For test only. In test environment, there are no historical data,
+// so all rowset meta should have segment rows info.
+DECLARE_mBool(fail_when_segment_rows_not_in_rowset_meta);
 DECLARE_String(row_cache_mem_limit);
 
 // Cache for storage page size
@@ -447,6 +453,12 @@ DECLARE_Int32(index_page_cache_percentage);
 DECLARE_Bool(disable_storage_page_cache);
 // whether to disable row cache feature in storage
 DECLARE_mBool(disable_storage_row_cache);
+// Parquet page cache: threshold ratio for caching decompressed vs compressed pages
+// If uncompressed_size / compressed_size <= threshold, cache decompressed;
+// otherwise cache compressed if enable_parquet_cache_compressed_pages = true
+DECLARE_Double(parquet_page_cache_decompress_threshold);
+// Parquet page cache: whether to enable caching compressed pages (when ratio exceeds threshold)
+DECLARE_Bool(enable_parquet_cache_compressed_pages);
 // whether to disable pk page cache feature in storage
 DECLARE_Bool(disable_pk_storage_page_cache);
 
@@ -480,6 +492,15 @@ DECLARE_mInt32(vertical_compaction_num_columns_per_group);
 DECLARE_Int32(vertical_compaction_max_row_source_memory_mb);
 // In vertical compaction, max dest segment file size
 DECLARE_mInt64(vertical_compaction_max_segment_size);
+// Threshold for sparse column compaction optimization (average bytes per row)
+// Density threshold for sparse column compaction optimization
+// density = (total_cells - null_cells) / total_cells, smaller means more sparse
+// When density <= threshold, enable sparse optimization
+// 0 = disable optimization, 1 = always enable
+// Default 1 means always enable sparse optimization
+DECLARE_mDouble(sparse_column_compaction_threshold_percent);
+// Enable RLE batch Put optimization for compaction
+DECLARE_mBool(enable_rle_batch_put_optimization);
 
 // If enabled, segments will be flushed column by column
 DECLARE_mBool(enable_vertical_segment_writer);
@@ -610,6 +631,13 @@ DECLARE_String(ssl_private_key_path);
 DECLARE_Bool(enable_all_http_auth);
 // Number of webserver workers
 DECLARE_Int32(webserver_num_workers);
+
+// Async replies: stream load only now
+// reply wait timeout only happens if:
+// 1. Stream load fragment execution times out
+//    HTTP request freed → stream load canceled
+// 2. Client disconnects
+DECLARE_mInt32(async_reply_timeout_s);
 
 DECLARE_Bool(enable_single_replica_load);
 // Number of download workers for single replica load
@@ -823,12 +851,12 @@ DECLARE_mInt32(storage_flood_stage_usage_percent); // 90%
 // The min bytes that should be left of a data dir
 DECLARE_mInt64(storage_flood_stage_left_capacity_bytes); // 1GB
 // number of thread for flushing memtable per store
-DECLARE_Int32(flush_thread_num_per_store);
+DECLARE_mInt32(flush_thread_num_per_store);
 // number of thread for flushing memtable per store, for high priority load task
-DECLARE_Int32(high_priority_flush_thread_num_per_store);
+DECLARE_mInt32(high_priority_flush_thread_num_per_store);
 // number of threads = min(flush_thread_num_per_store * num_store,
 //                         max_flush_thread_num_per_cpu * num_cpu)
-DECLARE_Int32(max_flush_thread_num_per_cpu);
+DECLARE_mInt32(max_flush_thread_num_per_cpu);
 
 // config for tablet meta checkpoint
 DECLARE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num);
@@ -1131,6 +1159,19 @@ DECLARE_mInt32(segcompaction_num_threads);
 // enable java udf and jdbc scannode
 DECLARE_Bool(enable_java_support);
 
+// enable python udf
+DECLARE_Bool(enable_python_udf_support);
+// python env mode, options: conda, venv
+DECLARE_String(python_env_mode);
+// root path of conda runtime, python_env_mode should be conda
+DECLARE_String(python_conda_root_path);
+// root path of venv runtime, python_env_mode should be venv
+DECLARE_String(python_venv_root_path);
+// python interpreter paths used by venv, e.g. /usr/bin/python3.7:/usr/bin/python3.6
+DECLARE_String(python_venv_interpreter_paths);
+// max python processes in global shared pool, each version can have up to this many processes
+DECLARE_mInt32(max_python_process_num);
+
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);
 
@@ -1159,7 +1200,7 @@ DECLARE_Bool(enable_file_cache);
 DECLARE_String(file_cache_path);
 DECLARE_Int64(file_cache_each_block_size);
 DECLARE_Bool(clear_file_cache);
-DECLARE_Bool(enable_file_cache_query_limit);
+DECLARE_mBool(enable_file_cache_query_limit);
 DECLARE_Int32(file_cache_enter_disk_resource_limit_mode_percent);
 DECLARE_Int32(file_cache_exit_disk_resource_limit_mode_percent);
 DECLARE_mBool(enable_evict_file_cache_in_advance);
@@ -1189,6 +1230,11 @@ DECLARE_mBool(enable_file_cache_adaptive_write);
 DECLARE_mDouble(file_cache_keep_base_compaction_output_min_hit_ratio);
 DECLARE_mDouble(file_cache_meta_store_vs_file_system_diff_num_threshold);
 DECLARE_mDouble(file_cache_keep_schema_change_output_min_hit_ratio);
+DECLARE_mDouble(file_cache_leak_fs_to_meta_ratio_threshold);
+DECLARE_mInt64(file_cache_leak_scan_interval_seconds);
+DECLARE_mInt32(file_cache_leak_scan_batch_files);
+DECLARE_mInt32(file_cache_leak_scan_pause_ms);
+DECLARE_mInt64(file_cache_leak_grace_seconds);
 DECLARE_mInt64(file_cache_remove_block_qps_limit);
 DECLARE_mInt64(file_cache_background_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_block_lru_update_interval_ms);
@@ -1208,6 +1254,8 @@ DECLARE_mInt64(file_cache_background_lru_dump_update_cnt_threshold);
 DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
 DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
 DECLARE_mBool(enable_evaluate_shadow_queue_diff);
+
+DECLARE_mBool(file_cache_enable_only_warm_up_idx);
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1339,10 +1387,13 @@ DECLARE_mBool(variant_use_cloud_schema_dict_cache);
 // Threshold to estimate a column is sparsed
 // Notice: TEST ONLY
 DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
+// Max json key length in bytes when parsing json into variant subcolumns/jsonb.
+DECLARE_mInt32(variant_max_json_key_length);
 // Treat invalid json format str as string, instead of throwing exception if false
 DECLARE_mBool(variant_throw_exeception_on_invalid_json);
 // Enable vertical compact subcolumns of variant column
 DECLARE_mBool(enable_vertical_compact_variant_subcolumns);
+DECLARE_mBool(enable_variant_doc_compaction_sparse_write);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 // USED FOR DEBUGING

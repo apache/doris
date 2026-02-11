@@ -17,9 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -201,21 +199,6 @@ public class JdbcResourceTest {
     }
 
     @Test
-    public void testJdbcDriverPath() {
-        String driverPath = "postgresql-42.5.0.jar";
-        Config.jdbc_driver_secure_path = "";
-        Config.jdbc_drivers_dir = EnvUtils.getDorisHome() + "/plugins/jdbc_drivers";
-        String fullPath = JdbcResource.getFullDriverUrl(driverPath);
-        Assert.assertEquals("file://" + EnvUtils.getDorisHome() + "/jdbc_drivers/" + driverPath, fullPath);
-        Config.jdbc_driver_secure_path = "file:///jdbc/;http://jdbc";
-        String driverPath2 = "file:///postgresql-42.5.0.jar";
-        Exception exception = Assert.assertThrows(IllegalArgumentException.class, () -> {
-            JdbcResource.getFullDriverUrl(driverPath2);
-        });
-        Assert.assertEquals("Driver URL does not match any allowed paths: file:///postgresql-42.5.0.jar", exception.getMessage());
-    }
-
-    @Test
     public void testValidDriverUrls() {
         String fileUrl = "file://path/to/driver.jar";
         Assertions.assertDoesNotThrow(() -> {
@@ -236,9 +219,8 @@ public class JdbcResourceTest {
         });
 
         String jarFile = "driver.jar";
-        Assertions.assertDoesNotThrow(() -> {
-            String result = JdbcResource.getFullDriverUrl(jarFile);
-            Assert.assertTrue(result.startsWith("file://"));
+        Assertions.assertThrows(RuntimeException.class, () -> {
+            JdbcResource.getFullDriverUrl(jarFile);
         });
     }
 

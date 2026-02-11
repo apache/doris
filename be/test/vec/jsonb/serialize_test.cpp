@@ -478,8 +478,7 @@ TEST(BlockSerializeTest, JsonbBlock) {
         auto column_nullable_vector = vectorized::make_nullable(std::move(column_vector_int32));
         auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
         for (int i = 0; i < 1024; i++) {
-            mutable_nullable_vector->insert(
-                    Field::create_field<TYPE_INT>(vectorized::cast_to_nearest_field_type(i)));
+            mutable_nullable_vector->insert(Field::create_field<TYPE_INT>(i));
         }
         auto data_type = vectorized::make_nullable(std::make_shared<vectorized::DataTypeInt32>());
         vectorized::ColumnWithTypeAndName type_and_name(mutable_nullable_vector->get_ptr(),

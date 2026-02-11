@@ -22,7 +22,7 @@
 #include "common/logging.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/variant_util.h"
 
 namespace doris::segment_v2 {
 
@@ -92,7 +92,7 @@ void VariantStatsCaculator::_calculate_sparse_column_stats(const vectorized::ICo
     VariantStatisticsPB* stats = column_meta->mutable_variant_statistics();
 
     // Use the same logic as the original calculate_variant_stats function
-    vectorized::schema_util::VariantCompactionUtil::calculate_variant_stats(
+    vectorized::variant_util::VariantCompactionUtil::calculate_variant_stats(
             column, stats, max_sparse_column_statistics_size, row_pos, num_rows);
 
     VLOG_DEBUG << "Sparse column stats updated, non-null size count: "

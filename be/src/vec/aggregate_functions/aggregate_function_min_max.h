@@ -69,19 +69,19 @@ private:
 
     bool has_value =
             false; /// We need to remember if at least one value has been passed. This is necessary for AggregateFunctionIf.
-    typename PrimitiveTypeTraits<T>::ColumnItemType value;
+    typename PrimitiveTypeTraits<T>::CppType value;
 
 public:
     SingleValueDataFixed() = default;
-    SingleValueDataFixed(bool has_value_, typename PrimitiveTypeTraits<T>::ColumnItemType value_)
+    SingleValueDataFixed(bool has_value_, typename PrimitiveTypeTraits<T>::CppType value_)
             : has_value(has_value_), value(value_) {}
     bool has() const { return has_value; }
 
     constexpr static bool IsFixedLength = true;
 
     void set_to_min_max(bool max) {
-        value = max ? Compare::max_value<typename PrimitiveTypeTraits<T>::ColumnItemType>()
-                    : Compare::min_value<typename PrimitiveTypeTraits<T>::ColumnItemType>();
+        value = max ? Compare::max_value<typename PrimitiveTypeTraits<T>::CppType>()
+                    : Compare::min_value<typename PrimitiveTypeTraits<T>::CppType>();
     }
 
     void change_if(const IColumn& column, size_t row_num, bool less) {
@@ -212,19 +212,19 @@ private:
 
     bool has_value =
             false; /// We need to remember if at least one value has been passed. This is necessary for AggregateFunctionIf.
-    typename PrimitiveTypeTraits<T>::ColumnItemType value;
+    typename PrimitiveTypeTraits<T>::CppType value;
 
 public:
     SingleValueDataDecimal() = default;
-    SingleValueDataDecimal(bool has_value_, typename PrimitiveTypeTraits<T>::ColumnItemType value_)
+    SingleValueDataDecimal(bool has_value_, typename PrimitiveTypeTraits<T>::CppType value_)
             : has_value(has_value_), value(value_) {}
     bool has() const { return has_value; }
 
     constexpr static bool IsFixedLength = true;
 
     void set_to_min_max(bool max) {
-        value = max ? Compare::max_value<typename PrimitiveTypeTraits<T>::ColumnItemType>()
-                    : Compare::min_value<typename PrimitiveTypeTraits<T>::ColumnItemType>();
+        value = max ? Compare::max_value<typename PrimitiveTypeTraits<T>::CppType>()
+                    : Compare::min_value<typename PrimitiveTypeTraits<T>::CppType>();
     }
 
     void change_if(const IColumn& column, size_t row_num, bool less) {

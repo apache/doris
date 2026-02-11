@@ -124,10 +124,10 @@ public class TabletStatMgr extends MasterDaemon {
         Pair<String, Long> minTabletSize = Pair.of(/* tablet id= */null, /* byte size= */Long.MAX_VALUE);
         Pair<String, Long> minPartitionSize = Pair.of(/* partition id= */null, /* byte size= */Long.MAX_VALUE);
         Pair<String, Long> minTableSize = Pair.of(/* tablet id= */null, /* byte size= */Long.MAX_VALUE);
-        Long totalTableSize = 0L;
-        Long tabletCount = 0L;
-        Long partitionCount = 0L;
-        Long tableCount = 0L;
+        long totalTableSize = 0L;
+        long tabletCount = 0L;
+        long partitionCount = 0L;
+        long tableCount = 0L;
         List<Long> dbIds = Env.getCurrentInternalCatalog().getDbIds();
         for (Long dbId : dbIds) {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
@@ -143,19 +143,19 @@ public class TabletStatMgr extends MasterDaemon {
                 tableCount++;
                 OlapTable olapTable = (OlapTable) table;
 
-                Long tableDataSize = 0L;
-                Long tableTotalReplicaDataSize = 0L;
+                long tableDataSize = 0L;
+                long tableTotalReplicaDataSize = 0L;
 
-                Long tableTotalLocalIndexSize = 0L;
-                Long tableTotalLocalSegmentSize = 0L;
-                Long tableTotalRemoteIndexSize = 0L;
-                Long tableTotalRemoteSegmentSize = 0L;
+                long tableTotalLocalIndexSize = 0L;
+                long tableTotalLocalSegmentSize = 0L;
+                long tableTotalRemoteIndexSize = 0L;
+                long tableTotalRemoteSegmentSize = 0L;
 
-                Long tableRemoteDataSize = 0L;
+                long tableRemoteDataSize = 0L;
 
-                Long tableReplicaCount = 0L;
+                long tableReplicaCount = 0L;
 
-                Long tableRowCount = 0L;
+                long tableRowCount = 0L;
 
                 if (!table.readLockIfExist()) {
                     continue;
@@ -164,7 +164,7 @@ public class TabletStatMgr extends MasterDaemon {
                     List<Partition> allPartitions = olapTable.getAllPartitions();
                     partitionCount += allPartitions.size();
                     for (Partition partition : allPartitions) {
-                        Long partitionDataSize = 0L;
+                        long partitionDataSize = 0L;
                         long version = partition.getVisibleVersion();
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             long indexRowCount = 0L;
@@ -173,10 +173,10 @@ public class TabletStatMgr extends MasterDaemon {
                             tabletCount += tablets.size();
                             for (Tablet tablet : tablets) {
 
-                                Long tabletDataSize = 0L;
-                                Long tabletRemoteDataSize = 0L;
+                                long tabletDataSize = 0L;
+                                long tabletRemoteDataSize = 0L;
 
-                                Long tabletRowCount = Long.MAX_VALUE;
+                                long tabletRowCount = Long.MAX_VALUE;
 
                                 boolean tabletReported = false;
                                 for (Replica replica : tablet.getReplicas()) {

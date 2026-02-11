@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.mv;
 
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable;
@@ -111,6 +112,14 @@ public class OptimizeGetAvailableMvsTest extends SqlTestBase {
                 return Lists.newArrayList(1L);
             }
         };
+
+        new MockUp<MTMV>() {
+            @Mock
+            public boolean canBeCandidate() {
+                return true;
+            }
+        };
+        connectContext.getState().setIsQuery(true);
 
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;

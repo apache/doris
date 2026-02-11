@@ -134,6 +134,130 @@ private:
         }
         return path.substr(prefix.size() + 1);
     }
+
+    // Extract and populate sparse column data with given path prefix
+    // Copies data from source sparse column, extracting only the sub-paths that match the prefix
+    static void _extract_sparse_column_from_source(ColumnVariant* src_ptr, const PathInData& path,
+                                                   ColumnVariant::MutablePtr& target_ptr) {
+        ColumnVariant::Subcolumn root {0, true, true};
+        // no root, no sparse column
+        const auto& sparse_data_map = assert_cast<const ColumnMap&>(*src_ptr->get_sparse_column());
+        const auto& src_sparse_data_offsets = sparse_data_map.get_offsets();
+        const auto& src_sparse_data_paths =
+                assert_cast<const ColumnString&>(sparse_data_map.get_keys());
+        const auto& src_sparse_data_values =
+                assert_cast<const ColumnString&>(sparse_data_map.get_values());
+        auto& sparse_data_offsets =
+                assert_cast<ColumnMap&>(*target_ptr->get_sparse_column()->assume_mutable())
+                        .get_offsets();
+        auto [sparse_data_paths, sparse_data_values] =
+                target_ptr->get_sparse_data_paths_and_values();
+        StringRef prefix_ref(path.get_path());
+        std::string_view path_prefix(prefix_ref.data, prefix_ref.size);
+        for (size_t i = 0; i != src_sparse_data_offsets.size(); ++i) {
+            size_t start = src_sparse_data_offsets[ssize_t(i) - 1];
+            size_t end = src_sparse_data_offsets[ssize_t(i)];
+            size_t lower_bound_index =
+                    vectorized::ColumnVariant::find_path_lower_bound_in_sparse_data(
+                            prefix_ref, src_sparse_data_paths, start, end);
+            for (; lower_bound_index != end; ++lower_bound_index) {
+                auto path_ref = src_sparse_data_paths.get_data_at(lower_bound_index);
+                std::string_view nested_path(path_ref.data, path_ref.size);
+                if (!nested_path.starts_with(path_prefix)) {
+                    break;
+                }
+                // Don't include path that is equal to the prefix.
+                if (nested_path.size() != path_prefix.size()) {
+                    auto sub_path_optional = get_sub_path(nested_path, path_prefix);
+                    if (!sub_path_optional.has_value()) {
+                        continue;
+                    }
+                    std::string_view sub_path = *sub_path_optional;
+                    sparse_data_paths->insert_data(sub_path.data(), sub_path.size());
+                    sparse_data_values->insert_from(src_sparse_data_values, lower_bound_index);
+                } else {
+                    // insert into root column, example:  access v['b'] and b is in sparse column
+                    // data example:
+                    // {"b" : 123}
+                    // {"b" : {"c" : 456}}
+                    // b maybe in sparse column, and b.c is in subolumn, put `b` into root column to distinguish
+                    // from "" which is empty path and root
+                    root.deserialize_from_binary_column(&src_sparse_data_values, lower_bound_index);
+                }
+            }
+            if (root.size() == sparse_data_offsets.size()) {
+                root.insert_default();
+            }
+            sparse_data_offsets.push_back(sparse_data_paths->size());
+        }
+        target_ptr->get_subcolumns().create_root(root);
+        target_ptr->get_doc_value_column()->assume_mutable()->resize(src_ptr->size());
+        target_ptr->set_num_rows(src_ptr->size());
+    }
+
+    // Extract and populate sparse column data from doc_value column with given path prefix
+    // Copies data from source doc_value column, extracting only the sub-paths that match the prefix
+    static void _extract_doc_value_column_from_source(ColumnVariant* src_ptr,
+                                                      const PathInData& path,
+                                                      ColumnVariant::MutablePtr& target_ptr) {
+        ColumnVariant::Subcolumn root {0, true, true};
+        // no root, no sparse column
+        const auto& doc_value_data_map =
+                assert_cast<const ColumnMap&>(*src_ptr->get_doc_value_column());
+        const auto& src_doc_value_data_offsets = doc_value_data_map.get_offsets();
+        const auto& src_doc_value_data_paths =
+                assert_cast<const ColumnString&>(doc_value_data_map.get_keys());
+        const auto& src_doc_value_data_values =
+                assert_cast<const ColumnString&>(doc_value_data_map.get_values());
+        auto& sparse_data_offsets =
+                assert_cast<ColumnMap&>(*target_ptr->get_sparse_column()->assume_mutable())
+                        .get_offsets();
+        auto [sparse_data_paths, sparse_data_values] =
+                target_ptr->get_sparse_data_paths_and_values();
+        StringRef prefix_ref(path.get_path());
+        std::string_view path_prefix(prefix_ref.data, prefix_ref.size);
+        for (size_t i = 0; i != src_doc_value_data_offsets.size(); ++i) {
+            size_t start = src_doc_value_data_offsets[ssize_t(i) - 1];
+            size_t end = src_doc_value_data_offsets[ssize_t(i)];
+            size_t lower_bound_index =
+                    vectorized::ColumnVariant::find_path_lower_bound_in_sparse_data(
+                            prefix_ref, src_doc_value_data_paths, start, end);
+            for (; lower_bound_index != end; ++lower_bound_index) {
+                auto path_ref = src_doc_value_data_paths.get_data_at(lower_bound_index);
+                std::string_view nested_path(path_ref.data, path_ref.size);
+                if (!nested_path.starts_with(path_prefix)) {
+                    break;
+                }
+                // Don't include path that is equal to the prefix.
+                if (nested_path.size() != path_prefix.size()) {
+                    auto sub_path_optional = get_sub_path(nested_path, path_prefix);
+                    if (!sub_path_optional.has_value()) {
+                        continue;
+                    }
+                    std::string_view sub_path = *sub_path_optional;
+                    sparse_data_paths->insert_data(sub_path.data(), sub_path.size());
+                    sparse_data_values->insert_from(src_doc_value_data_values, lower_bound_index);
+                } else {
+                    // insert into root column, example:  access v['b'] and b is in sparse column
+                    // data example:
+                    // {"b" : 123}
+                    // {"b" : {"c" : 456}}
+                    // b maybe in sparse column, and b.c is in subolumn, put `b` into root column to distinguish
+                    // from "" which is empty path and root
+                    root.deserialize_from_binary_column(&src_doc_value_data_values,
+                                                        lower_bound_index);
+                }
+            }
+            if (root.size() == sparse_data_offsets.size()) {
+                root.insert_default();
+            }
+            sparse_data_offsets.push_back(sparse_data_paths->size());
+        }
+        target_ptr->get_subcolumns().create_root(root);
+        target_ptr->get_doc_value_column()->assume_mutable()->resize(src_ptr->size());
+        target_ptr->set_num_rows(src_ptr->size());
+    }
+
     static Status get_element_column(const ColumnVariant& src, const ColumnPtr& index_column,
                                      ColumnPtr* result) {
         std::string field_name = index_column->get_data_at(0).to_string();
@@ -178,65 +302,6 @@ private:
             MutableColumnPtr result_col = ColumnVariant::create(src.max_subcolumns_count());
             ColumnVariant::Subcolumns new_subcolumns;
 
-            auto extract_from_sparse_column = [&](auto& container) {
-                ColumnVariant::Subcolumn root {0, true, true};
-                // no root, no sparse column
-                const auto& sparse_data_map =
-                        assert_cast<const ColumnMap&>(*mutable_ptr->get_sparse_column());
-                const auto& src_sparse_data_offsets = sparse_data_map.get_offsets();
-                const auto& src_sparse_data_paths =
-                        assert_cast<const ColumnString&>(sparse_data_map.get_keys());
-                const auto& src_sparse_data_values =
-                        assert_cast<const ColumnString&>(sparse_data_map.get_values());
-                auto& sparse_data_offsets =
-                        assert_cast<ColumnMap&>(*container->get_sparse_column()->assume_mutable())
-                                .get_offsets();
-                auto [sparse_data_paths, sparse_data_values] =
-                        container->get_sparse_data_paths_and_values();
-                StringRef prefix_ref(path.get_path());
-                std::string_view path_prefix(prefix_ref.data, prefix_ref.size);
-                for (size_t i = 0; i != src_sparse_data_offsets.size(); ++i) {
-                    size_t start = src_sparse_data_offsets[ssize_t(i) - 1];
-                    size_t end = src_sparse_data_offsets[ssize_t(i)];
-                    size_t lower_bound_index =
-                            vectorized::ColumnVariant::find_path_lower_bound_in_sparse_data(
-                                    prefix_ref, src_sparse_data_paths, start, end);
-                    for (; lower_bound_index != end; ++lower_bound_index) {
-                        auto path_ref = src_sparse_data_paths.get_data_at(lower_bound_index);
-                        std::string_view nested_path(path_ref.data, path_ref.size);
-                        if (!nested_path.starts_with(path_prefix)) {
-                            break;
-                        }
-                        // Don't include path that is equal to the prefix.
-                        if (nested_path.size() != path_prefix.size()) {
-                            auto sub_path_optional = get_sub_path(nested_path, path_prefix);
-                            if (!sub_path_optional.has_value()) {
-                                continue;
-                            }
-                            std::string_view sub_path = *sub_path_optional;
-                            sparse_data_paths->insert_data(sub_path.data(), sub_path.size());
-                            sparse_data_values->insert_from(src_sparse_data_values,
-                                                            lower_bound_index);
-                        } else {
-                            // insert into root column, example:  access v['b'] and b is in sparse column
-                            // data example:
-                            // {"b" : 123}
-                            // {"b" : {"c" : 456}}
-                            // b maybe in sparse column, and b.c is in subolumn, put `b` into root column to distinguish
-                            // from "" which is empty path and root
-                            root.deserialize_from_sparse_column(&src_sparse_data_values,
-                                                                lower_bound_index);
-                        }
-                    }
-                    if (root.size() == sparse_data_offsets.size()) {
-                        root.insert_default();
-                    }
-                    sparse_data_offsets.push_back(sparse_data_paths->size());
-                }
-                container->get_subcolumns().create_root(root);
-                container->set_num_rows(mutable_ptr->size());
-            };
-
             if (node != nullptr) {
                 std::vector<decltype(node)> nodes;
                 PathsInData paths;
@@ -266,13 +331,18 @@ private:
                     auto container = ColumnVariant::create(src.max_subcolumns_count(),
                                                            std::move(new_subcolumns));
                     container->clear_sparse_column();
-                    extract_from_sparse_column(container);
+                    _extract_sparse_column_from_source(mutable_ptr, path, container);
                     result_col->insert_range_from(*container, 0, container->size());
                 }
             } else {
                 auto container = ColumnVariant::create(src.max_subcolumns_count(),
                                                        std::move(new_subcolumns));
-                extract_from_sparse_column(container);
+                const auto& sparse_offsets = mutable_ptr->serialized_sparse_column_offsets();
+                if (sparse_offsets.back() == sparse_offsets[-1]) {
+                    _extract_doc_value_column_from_source(mutable_ptr, path, container);
+                } else {
+                    _extract_sparse_column_from_source(mutable_ptr, path, container);
+                }
                 result_col->insert_range_from(*container, 0, container->size());
             }
             *result = result_col->get_ptr();

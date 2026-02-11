@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
@@ -53,7 +54,8 @@ public class TimestampTzLiteral extends DateTimeLiteral {
     }
 
     public TimestampTzLiteral(long year, long month, long day, long hour, long minute, long second, long microSecond) {
-        super(TimeStampTzType.SYSTEM_DEFAULT, year, month, day, hour, minute, second, microSecond);
+        super(TimeStampTzType.forTypeFromMicroSeconds(microSecond),
+                year, month, day, hour, minute, second, microSecond);
     }
 
     public TimestampTzLiteral(TimeStampTzType dateType,
@@ -183,6 +185,44 @@ public class TimestampTzLiteral extends DateTimeLiteral {
     }
 
     /**
+     * plusDayHour
+     */
+    public Expression plusDayHour(VarcharLiteral dayHour) {
+        String stringValue = dayHour.getStringValue().trim();
+
+        if (!stringValue.matches("[0-9\\-\\s]+")) {
+            throw new NotSupportedException("Invalid time format");
+        }
+
+        String[] split = stringValue.split("\\s+");
+        if (split.length != 2) {
+            throw new NotSupportedException("Invalid time format");
+        }
+
+        String day = split[0];
+        String hour = split[1];
+
+        try {
+            long days = Long.parseLong(day);
+            boolean dayPositive = days >= 0;
+
+            long hours = Long.parseLong(hour);
+
+            if (dayPositive) {
+                hours = Math.abs(hours);
+            } else {
+                hours = -Math.abs(hours);
+            }
+
+            return fromJavaDateType(toJavaDateType()
+                .plusDays(days)
+                .plusHours(hours), getDataType().getScale());
+        } catch (NumberFormatException e) {
+            return new NullLiteral(dataType);
+        }
+    }
+
+    /**
      * plusDaySecond
      */
     public Expression plusDaySecond(VarcharLiteral daySecond) {
@@ -227,6 +267,86 @@ public class TimestampTzLiteral extends DateTimeLiteral {
                 .plusHours(hours)
                 .plusMinutes(minutes)
                 .plusSeconds(seconds), getDataType().getScale());
+        } catch (NumberFormatException e) {
+            return new NullLiteral(dataType);
+        }
+    }
+
+    /**
+     * plusMinuteSecond
+     */
+    public Expression plusMinuteSecond(VarcharLiteral minuteSecond) {
+        String stringValue = minuteSecond.getStringValue().trim();
+
+        if (!stringValue.matches("[0-9\\-:\\s]+")) {
+            return new NullLiteral(dataType);
+        }
+
+        String[] split = stringValue.split(":");
+        if (split.length != 2) {
+            return new NullLiteral(dataType);
+        }
+
+        String minute = split[0].trim();
+        String second = split[1].trim();
+
+        try {
+            long minutes = Long.parseLong(minute);
+            boolean minutePositive = minutes >= 0;
+
+            long seconds = Long.parseLong(second);
+
+            if (minutePositive) {
+                seconds = Math.abs(seconds);
+            } else {
+                seconds = -Math.abs(seconds);
+            }
+
+            return fromJavaDateType(toJavaDateType()
+                .plusMinutes(minutes)
+                .plusSeconds(seconds), getDataType().getScale());
+        } catch (NumberFormatException e) {
+            return new NullLiteral(dataType);
+        }
+    }
+
+    /**
+     * plusSecondMicrosecond
+     */
+    public Expression plusSecondMicrosecond(VarcharLiteral secondMicrosecond) {
+        String stringValue = secondMicrosecond.getStringValue().trim();
+
+        if (!stringValue.matches("[0-9\\-\\.\\s]+")) {
+            return new NullLiteral(dataType);
+        }
+
+        String[] split = stringValue.split("\\.");
+        if (split.length != 2) {
+            return new NullLiteral(dataType);
+        }
+
+        String second = split[0].trim();
+        String microsecond = split[1].trim();
+
+        try {
+            long seconds = Long.parseLong(second);
+            boolean secondPositive = seconds >= 0;
+
+            long microseconds = Long.parseLong(microsecond);
+            int microsecondLen = microsecond.startsWith("-") ? microsecond.length() - 1 : microsecond.length();
+            if (microsecondLen < 6) {
+                microseconds *= Math.pow(10, 6 - microsecondLen);
+            }
+
+            if (secondPositive) {
+                microseconds = Math.abs(microseconds);
+            } else {
+                microseconds = -Math.abs(microseconds);
+            }
+
+            return fromJavaDateType(toJavaDateType()
+                .plusSeconds(seconds)
+                .plusNanos(Math.multiplyExact(microseconds, 1000L)), getDataType().getScale());
         } catch (NumberFormatException e) {
             return new NullLiteral(dataType);
         }

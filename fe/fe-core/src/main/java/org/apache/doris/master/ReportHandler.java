@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -1573,7 +1574,7 @@ public class ReportHandler extends Daemon {
                 }
 
                 // use replicaId reported by BE to maintain replica meta consistent between FE and BE
-                Replica replica = new Replica(replicaId, backendId, version, schemaHash,
+                Replica replica = new LocalReplica(replicaId, backendId, version, schemaHash,
                         dataSize, remoteDataSize, rowCount, ReplicaState.NORMAL,
                         lastFailedVersion, version);
                 tablet.addReplica(replica);

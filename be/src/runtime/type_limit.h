@@ -37,6 +37,18 @@ struct type_limit<StringRef> {
 };
 
 template <>
+struct type_limit<std::string> {
+    static std::string min() { return std::string((char*)(&StringRef::MIN_CHAR), 0); }
+    static std::string max() { return std::string((char*)(&StringRef::MAX_CHAR), 1); }
+};
+
+template <>
+struct type_limit<uint8_t> {
+    static uint8_t min() { return 0; }
+    static uint8_t max() { return 1; }
+};
+
+template <>
 struct type_limit<DecimalV2Value> {
     static DecimalV2Value min() { return DecimalV2Value::get_min_decimal(); }
     static DecimalV2Value max() { return DecimalV2Value::get_max_decimal(); }

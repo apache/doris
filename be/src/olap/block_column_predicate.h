@@ -40,8 +40,6 @@ class Roaring;
 } // namespace roaring
 
 namespace doris {
-class WrapperField;
-
 namespace segment_v2 {
 class BloomFilter;
 class InvertedIndexIterator;
@@ -76,7 +74,7 @@ public:
 
     virtual bool support_zonemap() const { return true; }
 
-    virtual bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const {
+    virtual bool evaluate_and(const ZoneMapInfo& zone_map_info) const {
         throw Exception(Status::FatalError("should not reach here"));
     }
 
@@ -135,7 +133,7 @@ public:
     void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                       bool* flags) const override;
     bool support_zonemap() const override { return _predicate->support_zonemap(); }
-    bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override;
+    bool evaluate_and(const ZoneMapInfo& zone_map_info) const override;
     bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
         return _predicate->evaluate_and(statistic);
     }
@@ -240,7 +238,7 @@ public:
 
     void evaluate_vec(vectorized::MutableColumns& block, uint16_t size, bool* flags) const override;
 
-    bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override;
+    bool evaluate_and(const ZoneMapInfo& zone_map_info) const override;
 
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override;
 

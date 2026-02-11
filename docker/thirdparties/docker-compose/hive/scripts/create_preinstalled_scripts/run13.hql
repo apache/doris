@@ -29,3 +29,10 @@ LOCATION
 
 msck repair table orc_all_types;
 
+
+drop table if exists hive_orc_next_batch_test;
+CREATE TABLE hive_orc_next_batch_test (id  INT, data STRING) STORED AS ORC;
+INSERT INTO hive_orc_next_batch_test VALUES
+  (1, '{"age":25,"city":"beijing","score":88}'),
+  (2,   '{"age":30,"city":"shanghai","score":92}');
+

@@ -99,7 +99,7 @@ private:
     }
     PushDownType _should_push_down_binary_predicate(
             vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
-            StringRef* constant_val, const std::set<std::string> fn_name) const override;
+            vectorized::Field& constant_val, const std::set<std::string> fn_name) const override;
 
     bool _should_push_down_common_expr() override;
 
@@ -304,6 +304,8 @@ private:
     RuntimeProfile::Counter* _variant_subtree_hierarchical_iter_count = nullptr;
     // Variant subtree: times selecting sparse iterator (iterate over sparse subcolumn)
     RuntimeProfile::Counter* _variant_subtree_sparse_iter_count = nullptr;
+    // Variant subtree: times selecting doc snapshot all iterator (merge doc snapshot into root)
+    RuntimeProfile::Counter* _variant_doc_value_column_iter_count = nullptr;
 
     std::vector<TabletWithVersion> _tablets;
     std::vector<TabletReadSource> _read_sources;

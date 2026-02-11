@@ -32,7 +32,6 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/jsonb_value.h"
 #include "runtime/primitive_type.h"
-#include "udf/udf.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_stream.h"
 #include "util/jsonb_utils.h"
@@ -57,6 +56,7 @@
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/function.h"
 #include "vec/functions/like.h"
 #include "vec/functions/simple_function_factory.h"
@@ -727,8 +727,7 @@ public:
                 VectorizedUtils::update_null_map(*result_null_map, *path_null_map, path_const);
             }
 
-            if (0 == simd::count_zero_num(reinterpret_cast<const int8_t*>(result_null_map->data()),
-                                          input_rows_count)) {
+            if (!simd::contain_zero(result_null_map->data(), input_rows_count)) {
                 return create_all_null_result();
             }
         }

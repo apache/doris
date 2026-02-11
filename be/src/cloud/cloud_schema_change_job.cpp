@@ -326,6 +326,7 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         context.tablet_schema = _new_tablet->tablet_schema();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
         context.storage_resource = _cloud_storage_engine.get_storage_resource(sc_params.vault_id);
+        context.job_id = _job_id;
         context.write_file_cache = sc_params.output_to_file_cache;
         context.tablet = _new_tablet;
         if (!context.storage_resource) {

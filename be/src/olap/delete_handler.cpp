@@ -57,7 +57,7 @@ Status convert(const vectorized::DataTypePtr& data_type, const std::string& str,
     if constexpr (PType == TYPE_TINYINT || PType == TYPE_SMALLINT || PType == TYPE_INT ||
                   PType == TYPE_BIGINT || PType == TYPE_LARGEINT) {
         vectorized::CastParameters parameters;
-        if (!vectorized::CastToInt::from_string({str.data(), str.size()}, res, parameters)) {
+        if (!vectorized::CastToInt::from_string<false>({str.data(), str.size()}, res, parameters)) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
                     str);
@@ -248,32 +248,31 @@ Status convert(const vectorized::DataTypePtr& data_type, const std::list<std::st
     case PType: {                                                                                 \
         typename PrimitiveTypeTraits<PType>::CppType tmp;                                         \
         RETURN_IF_ERROR(convert<PType>(type, res.value_str.front(), arena, tmp));                 \
-        v.data = reinterpret_cast<const char*>(&tmp);                                             \
-        v.size = sizeof(tmp);                                                                     \
+        v = vectorized::Field::create_field<PType>(tmp);                                          \
         switch (res.condition_op) {                                                               \
         case PredicateType::EQ:                                                                   \
-            predicate = create_comparison_predicate0<PredicateType::EQ>(index, col_name, type, v, \
-                                                                        true, arena);             \
+            predicate = create_comparison_predicate<PredicateType::EQ>(index, col_name, type, v,  \
+                                                                       true);                     \
             return Status::OK();                                                                  \
         case PredicateType::NE:                                                                   \
-            predicate = create_comparison_predicate0<PredicateType::NE>(index, col_name, type, v, \
-                                                                        true, arena);             \
+            predicate = create_comparison_predicate<PredicateType::NE>(index, col_name, type, v,  \
+                                                                       true);                     \
             return Status::OK();                                                                  \
         case PredicateType::GT:                                                                   \
-            predicate = create_comparison_predicate0<PredicateType::GT>(index, col_name, type, v, \
-                                                                        true, arena);             \
+            predicate = create_comparison_predicate<PredicateType::GT>(index, col_name, type, v,  \
+                                                                       true);                     \
             return Status::OK();                                                                  \
         case PredicateType::GE:                                                                   \
-            predicate = create_comparison_predicate0<PredicateType::GE>(index, col_name, type, v, \
-                                                                        true, arena);             \
+            predicate = create_comparison_predicate<PredicateType::GE>(index, col_name, type, v,  \
+                                                                       true);                     \
             return Status::OK();                                                                  \
         case PredicateType::LT:                                                                   \
-            predicate = create_comparison_predicate0<PredicateType::LT>(index, col_name, type, v, \
-                                                                        true, arena);             \
+            predicate = create_comparison_predicate<PredicateType::LT>(index, col_name, type, v,  \
+                                                                       true);                     \
             return Status::OK();                                                                  \
         case PredicateType::LE:                                                                   \
-            predicate = create_comparison_predicate0<PredicateType::LE>(index, col_name, type, v, \
-                                                                        true, arena);             \
+            predicate = create_comparison_predicate<PredicateType::LE>(index, col_name, type, v,  \
+                                                                       true);                     \
             return Status::OK();                                                                  \
         default:                                                                                  \
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(                                    \
@@ -292,7 +291,7 @@ Status parse_to_predicate(const uint32_t index, const std::string col_name,
                                                  type->get_primitive_type());
         return Status::OK();
     }
-    StringRef v;
+    vectorized::Field v;
     switch (type->get_primitive_type()) {
         CONVERT_CASE(TYPE_TINYINT);
         CONVERT_CASE(TYPE_SMALLINT);
@@ -317,31 +316,31 @@ Status parse_to_predicate(const uint32_t index, const std::string col_name,
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING: {
-        RETURN_IF_ERROR(convert<TYPE_STRING>(type, res.value_str.front(), arena, v));
+        v = vectorized::Field::create_field<TYPE_STRING>(res.value_str.front());
         switch (res.condition_op) {
         case PredicateType::EQ:
-            predicate = create_comparison_predicate0<PredicateType::EQ>(index, col_name, type, v,
-                                                                        true, arena);
+            predicate =
+                    create_comparison_predicate<PredicateType::EQ>(index, col_name, type, v, true);
             return Status::OK();
         case PredicateType::NE:
-            predicate = create_comparison_predicate0<PredicateType::NE>(index, col_name, type, v,
-                                                                        true, arena);
+            predicate =
+                    create_comparison_predicate<PredicateType::NE>(index, col_name, type, v, true);
             return Status::OK();
         case PredicateType::GT:
-            predicate = create_comparison_predicate0<PredicateType::GT>(index, col_name, type, v,
-                                                                        true, arena);
+            predicate =
+                    create_comparison_predicate<PredicateType::GT>(index, col_name, type, v, true);
             return Status::OK();
         case PredicateType::GE:
-            predicate = create_comparison_predicate0<PredicateType::GE>(index, col_name, type, v,
-                                                                        true, arena);
+            predicate =
+                    create_comparison_predicate<PredicateType::GE>(index, col_name, type, v, true);
             return Status::OK();
         case PredicateType::LT:
-            predicate = create_comparison_predicate0<PredicateType::LT>(index, col_name, type, v,
-                                                                        true, arena);
+            predicate =
+                    create_comparison_predicate<PredicateType::LT>(index, col_name, type, v, true);
             return Status::OK();
         case PredicateType::LE:
-            predicate = create_comparison_predicate0<PredicateType::LE>(index, col_name, type, v,
-                                                                        true, arena);
+            predicate =
+                    create_comparison_predicate<PredicateType::LE>(index, col_name, type, v, true);
             return Status::OK();
         default:
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(

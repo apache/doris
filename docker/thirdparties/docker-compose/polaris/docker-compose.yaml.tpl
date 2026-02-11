@@ -119,3 +119,6 @@ services:
 networks:
   ${CONTAINER_UID}polaris:
     name: ${CONTAINER_UID}polaris
+    ipam:
+      config:
+        - subnet: 168.5.0.0/24

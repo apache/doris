@@ -327,6 +327,47 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     }
 
     @Test
+    public void testAddVariantColumnWithLightSchemaChangeDisabled() throws Exception {
+        String tableName = "sc_variant_no_lsc";
+        dropTable("test." + tableName, false);
+        String createTableStmt = "CREATE TABLE test." + tableName + " (\n"
+                + "id INT,\n"
+                + "name VARCHAR(10)\n"
+                + ") DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'false');";
+        createTable(createTableStmt);
+
+        String alterStmt = "ALTER TABLE test." + tableName + " ADD COLUMN v VARIANT";
+        expectException(alterStmt, "Variant type rely on light schema change");
+    }
+
+    @Test
+    public void testModifyColumnToVariantWithLightSchemaChangeDisabled() throws Exception {
+        String tableName = "sc_variant_modify_no_lsc";
+        dropTable("test." + tableName, false);
+        String createTableStmt = "CREATE TABLE test." + tableName + " (\n"
+                + "id INT,\n"
+                + "v VARIANT\n"
+                + ") DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');";
+        createTable(createTableStmt);
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        tbl.writeLock();
+        try {
+            tbl.setEnableLightSchemaChange(false);
+        } finally {
+            tbl.writeUnlock();
+        }
+
+        String alterStmt = "ALTER TABLE test." + tableName + " MODIFY COLUMN v VARIANT";
+        expectException(alterStmt, "Variant type rely on light schema change");
+    }
+
+    @Test
     public void testAggAddOrDropColumn() throws Exception {
         LOG.info("dbName: {}", Env.getCurrentInternalCatalog().getDbNames());
 
@@ -799,7 +840,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         } catch (Exception e) {
             // Verify the error message contains relevant info
             Assertions.assertTrue(e.getMessage().contains("INVERTED index for column (error_msg) "
-                    + "with non-analyzed type already exists"));
+                    + "with analyzer default analyzer already exists"));
         }
         addInvertedIndexStmtStr = "alter table test.sc_dup add index idx_error_msg(error_msg), "
                 + "add index idx_error_msg(error_msg)";

@@ -62,12 +62,13 @@ PhysicalResultSink
 --------------------------------------PhysicalDistribute[DistributionSpecExecutionAny]
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF6
---------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((web_returns.wr_item_sk = web_sales.ws_item_sk) and (web_returns.wr_order_number = web_sales.ws_order_number)) otherCondition=() build RFs:RF4 wr_item_sk->[ws_item_sk];RF5 wr_order_number->[ws_order_number]
-------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF4 RF5
-------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF6
+--------------------------------------PhysicalDistribute[DistributionSpecExecutionAny]
+----------------------------------------PhysicalProject
+------------------------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((web_returns.wr_item_sk = web_sales.ws_item_sk) and (web_returns.wr_order_number = web_sales.ws_order_number)) otherCondition=() build RFs:RF4 wr_item_sk->[ws_item_sk];RF5 wr_order_number->[ws_order_number]
+--------------------------------------------PhysicalProject
+----------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF4 RF5
+--------------------------------------------PhysicalProject
+----------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF6
 ------------------------------------PhysicalProject
 --------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
 ----------------------------------------PhysicalOlapScan[date_dim]

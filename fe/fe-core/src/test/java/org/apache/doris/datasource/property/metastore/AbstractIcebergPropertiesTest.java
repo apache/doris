@@ -48,8 +48,8 @@ public class AbstractIcebergPropertiesTest {
 
         @Override
         protected Catalog initCatalog(String catalogName,
-                                      Map<String, String> catalogProps,
-                                      List<StorageProperties> storagePropertiesList) {
+                                                   Map<String, String> catalogProps,
+                                                   List<StorageProperties> storagePropertiesList) {
             // Capture the catalogProps for verification
             this.capturedCatalogProps = new HashMap<>(catalogProps);
             return catalogToReturn;

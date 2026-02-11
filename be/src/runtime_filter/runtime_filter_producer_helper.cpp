@@ -74,7 +74,10 @@ Status RuntimeFilterProducerHelper::_insert(const vectorized::Block* block, size
     for (int i = 0; i < _producers.size(); i++) {
         auto filter = _producers[i];
         int result_column_id = _filter_expr_contexts[i]->get_last_result_column_id();
-        DCHECK_NE(result_column_id, -1);
+        if (result_column_id == -1) {
+            return Status::InternalError(
+                    "runtime filter producer _insert got invalid result_column_id -1");
+        }
         const auto& column = block->get_by_position(result_column_id).column;
         RETURN_IF_ERROR(filter->insert(column, start));
     }
@@ -108,12 +111,25 @@ Status RuntimeFilterProducerHelper::build(
 
     for (const auto& filter : _producers) {
         if (use_shared_table) {
-            DCHECK(_is_broadcast_join);
+            if (!_is_broadcast_join) {
+                return Status::InternalError(
+                        "use_shared_table is true but _is_broadcast_join is false");
+            }
             if (_should_build_hash_table) {
-                DCHECK(!runtime_filters.contains(filter->wrapper()->filter_id()));
+                if (runtime_filters.contains(filter->wrapper()->filter_id())) {
+                    return Status::InternalError(
+                            "runtime_filters already contains filter_id {} when building hash "
+                            "table",
+                            filter->wrapper()->filter_id());
+                }
                 runtime_filters[filter->wrapper()->filter_id()] = filter->wrapper();
             } else {
-                DCHECK(runtime_filters.contains(filter->wrapper()->filter_id()));
+                if (!runtime_filters.contains(filter->wrapper()->filter_id())) {
+                    return Status::InternalError(
+                            "runtime_filters does not contain filter_id {} when not building "
+                            "hash table",
+                            filter->wrapper()->filter_id());
+                }
                 filter->set_wrapper(runtime_filters[filter->wrapper()->filter_id()]);
             }
         }
@@ -147,8 +163,9 @@ Status RuntimeFilterProducerHelper::skip_process(RuntimeState* state) {
 
 void RuntimeFilterProducerHelper::collect_realtime_profile(
         RuntimeProfile* parent_operator_profile) {
-    DCHECK(parent_operator_profile != nullptr);
     if (parent_operator_profile == nullptr) {
+        LOG(WARNING) << "parent_operator_profile is nullptr in "
+                        "RuntimeFilterProducerHelper::collect_realtime_profile";
         return;
     }
 
@@ -162,6 +179,18 @@ void RuntimeFilterProducerHelper::collect_realtime_profile(
             "SkipProcess", _skip_runtime_filters_process ? "True" : "False", "RuntimeFilterInfo");
     publish_timer->set(_publish_runtime_filter_timer->value());
     build_timer->set(_runtime_filter_compute_timer->value());
+}
+
+std::shared_ptr<RuntimeFilterWrapper> RuntimeFilterProducerHelper::detect_local_in_filter(
+        RuntimeState* state) {
+    // If any runtime filter is local in filter, return true.
+    // Local in filter is used to LEFT_SEMI_DIRECT_RETURN_OPT
+    for (const auto& filter : _producers) {
+        if (auto wrapper = filter->detect_in_filter(); wrapper != nullptr) {
+            return wrapper;
+        }
+    }
+    return nullptr;
 }
 
 } // namespace doris

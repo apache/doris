@@ -86,8 +86,7 @@ Status SortSinkLocalState::open(RuntimeState* state) {
 }
 
 SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
-                                     const TPlanNode& tnode, const DescriptorTbl& descs,
-                                     const bool require_bucket_distribution)
+                                     const TPlanNode& tnode, const DescriptorTbl& descs)
         : DataSinkOperatorX(operator_id, tnode, dest_id),
           _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0),
           _pool(pool),
@@ -95,7 +94,6 @@ SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, int dest
           _row_descriptor(descs, tnode.row_tuples),
           _merge_by_exchange(tnode.sort_node.merge_by_exchange),
           _is_colocate(tnode.sort_node.__isset.is_colocate && tnode.sort_node.is_colocate),
-          _require_bucket_distribution(require_bucket_distribution),
           _is_analytic_sort(tnode.sort_node.__isset.is_analytic_sort
                                     ? tnode.sort_node.is_analytic_sort
                                     : false),
@@ -189,9 +187,10 @@ Status SortSinkOperatorX::merge_sort_read_for_spill(RuntimeState* state,
     return local_state._shared_state->sorter->merge_sort_read_for_spill(state, block, batch_size,
                                                                         eos);
 }
-void SortSinkOperatorX::reset(RuntimeState* state) {
+Status SortSinkOperatorX::reset(RuntimeState* state) {
     auto& local_state = get_local_state(state);
     local_state._shared_state->sorter->reset();
+    return Status::OK();
 }
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

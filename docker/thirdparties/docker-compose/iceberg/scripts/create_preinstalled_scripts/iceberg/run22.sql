@@ -89,3 +89,14 @@ TBLPROPERTIES(
     'write.format.default' = 'parquet',
     'format-version' = '1'
 );
+
+CREATE TABLE binary_partitioned_table (
+  id BIGINT,
+  name STRING,
+  partition_bin BINARY
+)
+USING iceberg
+PARTITIONED BY (partition_bin);
+
+insert into binary_partitioned_table values
+(1, 'a', X"0FF102FDFEFF");

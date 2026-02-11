@@ -43,7 +43,7 @@ Status VStructLiteral::prepare(RuntimeState* state, const RowDescriptor& row_des
         Field item;
         auto child_literal = std::dynamic_pointer_cast<const VLiteral>(child);
         child_literal->get_column_ptr()->get(0, item);
-        struct_field.get<Tuple>().push_back(item);
+        struct_field.get<TYPE_STRUCT>().push_back(item);
     }
     _column_ptr = _data_type->create_column_const(1, struct_field);
     return Status::OK();

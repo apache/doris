@@ -73,6 +73,9 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
     (2, 'Bob', 30, 87.2),
     (3, 'Charlie', 22, 92.8)
     """
+    def result = sql """select UPDATE_TIME from  information_schema.tables where TABLE_SCHEMA="iceberg_schema_change_ddl_db" and TABLE_NAME='${table_name}'"""
+    def update_time1 = result[0][0];
+    sleep(1000)
         
     // Verify initial state
     qt_init_1 """ DESC ${table_name} """
@@ -104,6 +107,10 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
         
     // Test 3: ADD complex type column
     sql """ ALTER TABLE ${table_name} ADD COLUMN address STRUCT<city: STRING, country: STRING> """
+    result = sql """select UPDATE_TIME from  information_schema.tables where TABLE_SCHEMA="iceberg_schema_change_ddl_db" and TABLE_NAME='${table_name}'"""
+    def update_time2 = result[0][0];
+    logger.info("get update times " + update_time1 + " vs. " + update_time2)
+    assertTrue(update_time2 > update_time1);
         
     qt_add_multi_1 """ DESC ${table_name} """
     

@@ -54,6 +54,7 @@ namespace doris::vectorized {
  */
 class DataTypeDateV2 final : public DataTypeNumberBase<PrimitiveType::TYPE_DATEV2> {
 public:
+    static constexpr PrimitiveType PType = TYPE_DATEV2;
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_DATEV2; }
 
     doris::FieldType get_storage_field_type() const override {
@@ -71,7 +72,7 @@ public:
         DateV2Value<DateV2ValueType> value;
         if (value.from_date_str(node.date_literal.value.c_str(),
                                 cast_set<Int32>(node.date_literal.value.size()))) {
-            return Field::create_field<TYPE_DATEV2>(value.to_date_int_val());
+            return Field::create_field<TYPE_DATEV2>(std::move(value));
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                    "Invalid value: {} for type DateV2", node.date_literal.value);
@@ -82,10 +83,7 @@ public:
 #ifdef BE_TEST
     /// TODO: remove this in the future
     using IDataType::to_string;
-    std::string to_string(UInt32 int_val) const {
-        DateV2Value<DateV2ValueType> val =
-                binary_cast<UInt32, DateV2Value<DateV2ValueType>>(int_val);
-
+    std::string to_string(DateV2Value<DateV2ValueType> val) const {
         char buf[64];
         val.to_string(buf); // DateTime to_string the end is /0
         return std::string {buf};
@@ -94,11 +92,12 @@ public:
 
     MutableColumnPtr create_column() const override;
 
-    static void cast_to_date(const UInt32 from, Int64& to);
-    static void cast_to_date_time(const UInt32 from, Int64& to);
-    static void cast_to_date_time_v2(const UInt32 from, UInt64& to);
-    static void cast_from_date(const Int64 from, UInt32& to);
-    static void cast_from_date_time(const Int64 from, UInt32& to);
+    static void cast_to_date(const DateV2Value<DateV2ValueType> from, VecDateTimeValue& to);
+    static void cast_to_date_time(const DateV2Value<DateV2ValueType> from, VecDateTimeValue& to);
+    static void cast_to_date_time_v2(const DateV2Value<DateV2ValueType> from,
+                                     DateV2Value<DateTimeV2ValueType>& to);
+    static void cast_from_date(const VecDateTimeValue from, DateV2Value<DateV2ValueType>& to);
+    static void cast_from_date_time(const VecDateTimeValue from, DateV2Value<DateV2ValueType>& to);
 };
 
 /**
@@ -109,6 +108,7 @@ public:
  */
 class DataTypeDateTimeV2 final : public DataTypeNumberBase<PrimitiveType::TYPE_DATETIMEV2> {
 public:
+    static constexpr PrimitiveType PType = TYPE_DATETIMEV2;
     static constexpr bool is_parametric = true;
 
     DataTypeDateTimeV2(UInt32 scale = 0) : _scale(scale) {
@@ -138,10 +138,7 @@ public:
 #ifdef BE_TEST
     /// TODO: remove this in the future
     using IDataType::to_string;
-    std::string to_string(UInt64 int_val) const {
-        DateV2Value<DateTimeV2ValueType> val =
-                binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
-
+    std::string to_string(DateV2Value<DateTimeV2ValueType> val) const {
         char buf[64];
         val.to_string(buf, _scale);
         return buf; // DateTime to_string the end is /0
@@ -158,7 +155,7 @@ public:
                 node.type.types.empty() ? -1 : node.type.types.front().scalar_type.scale;
         if (value.from_date_str(node.date_literal.value.c_str(),
                                 cast_set<int32_t>(node.date_literal.value.size()), scale)) {
-            return Field::create_field<TYPE_DATETIMEV2>(value.to_date_int_val());
+            return Field::create_field<TYPE_DATETIMEV2>(std::move(value));
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                    "Invalid value: {} for type DateTimeV2({})",
@@ -174,11 +171,14 @@ public:
     FieldWithDataType get_field_with_data_type(const IColumn& column,
                                                size_t row_num) const override;
 
-    static void cast_to_date(const UInt64 from, Int64& to);
-    static void cast_to_date_time(const UInt64 from, Int64& to);
-    static void cast_to_date_v2(const UInt64 from, UInt32& to);
-    static void cast_from_date(const Int64 from, UInt64& to);
-    static void cast_from_date_time(const Int64 from, UInt64& to);
+    static void cast_to_date(const DateV2Value<DateTimeV2ValueType> from, VecDateTimeValue& to);
+    static void cast_to_date_time(const DateV2Value<DateTimeV2ValueType> from,
+                                  VecDateTimeValue& to);
+    static void cast_to_date_v2(const DateV2Value<DateTimeV2ValueType> from,
+                                DateV2Value<DateV2ValueType>& to);
+    static void cast_from_date(const VecDateTimeValue from, DateV2Value<DateTimeV2ValueType>& to);
+    static void cast_from_date_time(const VecDateTimeValue from,
+                                    DateV2Value<DateTimeV2ValueType>& to);
 
 private:
     UInt32 _scale;

@@ -233,7 +233,7 @@ TEST_F(DataTypeStringTest, ser_deser) {
             }
         }
     };
-    test_func(dt_str, *column_str32, USE_CONST_SERDE);
+    test_func(dt_str, *column_str32, BeExecVersionManager::max_be_exec_version);
 }
 TEST_F(DataTypeStringTest, simple_func_test) {
     auto test_func = [](auto& dt) {

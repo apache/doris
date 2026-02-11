@@ -156,6 +156,154 @@ struct yyyyMMImpl {
     }
 };
 
+struct dd_HHImpl {
+    constexpr static size_t row_size = 5;
+    template <typename DateType>
+    size_t static date_to_str(const DateType& date_value, char* buf) {
+        int i = 0;
+        put_two_digits(date_value.day(), buf, i);
+        buf[i++] = ' ';
+        put_two_digits(date_value.hour(), buf, i);
+        return i;
+    }
+};
+
+struct dd_HH_mmImpl {
+    constexpr static size_t row_size = 8;
+    template <typename DateType>
+    size_t static date_to_str(const DateType& date_value, char* buf) {
+        int i = 0;
+        put_two_digits(date_value.day(), buf, i);
+        buf[i++] = ' ';
+        put_two_digits(date_value.hour(), buf, i);
+        buf[i++] = ':';
+        put_two_digits(date_value.minute(), buf, i);
+        return i;
+    }
+};
+
+struct dd_HH_mm_ssImpl {
+    constexpr static size_t row_size = 11;
+    template <typename DateType>
+    size_t static date_to_str(const DateType& date_value, char* buf) {
+        int i = 0;
+        put_two_digits(date_value.day(), buf, i);
+        buf[i++] = ' ';
+        put_two_digits(date_value.hour(), buf, i);
+        buf[i++] = ':';
+        put_two_digits(date_value.minute(), buf, i);
+        buf[i++] = ':';
+        put_two_digits(date_value.second(), buf, i);
+        return i;
+    }
+};
+
+struct dd_HH_mm_ss_SSSSSSImpl {
+    constexpr static size_t row_size = 18;
+    template <typename DateType>
+    size_t static date_to_str(const DateType& date_value, char* buf) {
+        int i = 0;
+        put_two_digits(date_value.day(), buf, i);
+        buf[i++] = ' ';
+        put_two_digits(date_value.hour(), buf, i);
+        buf[i++] = ':';
+        put_two_digits(date_value.minute(), buf, i);
+        buf[i++] = ':';
+        put_two_digits(date_value.second(), buf, i);
+        buf[i++] = '.';
+        int length = common::count_digits_fast(date_value.microsecond());
+        std::fill(buf + i, buf + i + 6 - length, '0');
+        std::to_chars(buf + i + 6 - length, buf + i + 6, date_value.microsecond());
+        return i + 6;
+    }
+};
+
+struct HH_mmImpl {
+    constexpr static size_t row_size = 5;
+    template <typename DateType>
+    size_t static date_to_str(const DateType& date_value, char* buf) {
+        int i = 0;
+        put_two_digits(date_value.hour(), buf, i);
+        buf[i++] = ':';
+        put_two_digits(date_value.minute(), buf, i);
+        return i;
+    }
+};
+
+struct HH_mm_ssImpl {
+    constexpr static size_t row_size = 8;
+    template <typename DateType>
+    size_t static date_to_str(const DateType& date_value, char* buf) {
+        int i = 0;
+        put_two_digits(date_value.hour(), buf, i);
+        buf[i++] = ':';
+        put_two_digits(date_value.minute(), buf, i);
+        buf[i++] = ':';
+        put_two_digits(date_value.second(), buf, i);
+        return i;
+    }
+};
+
+struct HH_mm_ss_SSSSSSImpl {
+    constexpr static size_t row_size = 15;
+    template <typename DateType>
+    size_t static date_to_str(const DateType& date_value, char* buf) {
+        int i = 0;
+        put_two_digits(date_value.hour(), buf, i);
+        buf[i++] = ':';
+        put_two_digits(date_value.minute(), buf, i);
+        buf[i++] = ':';
+        put_two_digits(date_value.second(), buf, i);
+        buf[i++] = '.';
+        int length = common::count_digits_fast(date_value.microsecond());
+        std::fill(buf + i, buf + i + 6 - length, '0');
+        std::to_chars(buf + i + 6 - length, buf + i + 6, date_value.microsecond());
+        return i + 6;
+    }
+};
+
+struct mm_ssImpl {
+    constexpr static size_t row_size = 5;
+    template <typename DateType>
+    size_t static date_to_str(const DateType& date_value, char* buf) {
+        int i = 0;
+        put_two_digits(date_value.minute(), buf, i);
+        buf[i++] = ':';
+        put_two_digits(date_value.second(), buf, i);
+        return i;
+    }
+};
+
+struct mm_ss_SSSSSSImpl {
+    constexpr static size_t row_size = 12;
+    template <typename DateType>
+    size_t static date_to_str(const DateType& date_value, char* buf) {
+        int i = 0;
+        put_two_digits(date_value.minute(), buf, i);
+        buf[i++] = ':';
+        put_two_digits(date_value.second(), buf, i);
+        buf[i++] = '.';
+        int length = common::count_digits_fast(date_value.microsecond());
+        std::fill(buf + i, buf + i + 6 - length, '0');
+        std::to_chars(buf + i + 6 - length, buf + i + 6, date_value.microsecond());
+        return i + 6;
+    }
+};
+
+struct ss_SSSSSSImpl {
+    constexpr static size_t row_size = 9;
+    template <typename DateType>
+    size_t static date_to_str(const DateType& date_value, char* buf) {
+        int i = 0;
+        put_two_digits(date_value.second(), buf, i);
+        buf[i++] = '.';
+        int length = common::count_digits_fast(date_value.microsecond());
+        std::fill(buf + i, buf + i + 6 - length, '0');
+        std::to_chars(buf + i + 6 - length, buf + i + 6, date_value.microsecond());
+        return i + 6;
+    }
+};
+
 struct yyyyImpl {
     constexpr static size_t row_size = 4;
     template <typename DateType>

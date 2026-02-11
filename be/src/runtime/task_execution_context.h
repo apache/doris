@@ -17,9 +17,15 @@
 
 #pragma once
 
+#include <atomic>
+#include <condition_variable>
 #include <memory>
 
+#include "runtime/runtime_state.h"
+
 namespace doris {
+
+class RuntimeState;
 
 // This class act as a super class of all context like things such as
 // plan fragment executor or pipelinefragmentcontext or pipelinexfragmentcontext
@@ -27,6 +33,16 @@ class TaskExecutionContext : public std::enable_shared_from_this<TaskExecutionCo
 public:
     TaskExecutionContext() = default;
     virtual ~TaskExecutionContext() = default;
+
+    void ref_task_execution_ctx();
+
+    void unref_task_execution_ctx();
+
+    int has_task_execution_ctx_ref_count() const { return _has_task_execution_ctx_ref_count; }
+
+protected:
+    std::atomic<int> _has_task_execution_ctx_ref_count = 0;
+    std::condition_variable _notify_cv;
 };
 
 using TaskExecutionContextSPtr = std::shared_ptr<TaskExecutionContext>;
@@ -38,14 +54,9 @@ using TaskExecutionContextSPtr = std::shared_ptr<TaskExecutionContext>;
 struct HasTaskExecutionCtx {
     using Weak = typename TaskExecutionContextSPtr::weak_type;
 
-    HasTaskExecutionCtx(TaskExecutionContextSPtr task_exec_ctx) : task_exec_ctx_(task_exec_ctx) {}
+    HasTaskExecutionCtx(RuntimeState* state);
 
-    // Init task ctx from state, the state has to own a method named get_task_execution_context()
-    // like runtime state
-    template <typename T>
-    HasTaskExecutionCtx(T* state) : task_exec_ctx_(state->get_task_execution_context()) {}
-
-    virtual ~HasTaskExecutionCtx() = default;
+    virtual ~HasTaskExecutionCtx();
 
 public:
     inline TaskExecutionContextSPtr task_exec_ctx() const { return task_exec_ctx_.lock(); }

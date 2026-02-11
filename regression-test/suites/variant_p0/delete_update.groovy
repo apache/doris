@@ -25,7 +25,7 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant
+            v variant<properties("variant_enable_doc_mode" = "false")>
         )
         UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 3

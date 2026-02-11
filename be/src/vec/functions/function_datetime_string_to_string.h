@@ -226,8 +226,18 @@ public:
                                     pod_array[i], format, res_data, offset,
                                     context->state()->timezone_obj());
                             if (invalid) [[unlikely]] {
-                                throw_invalid_strings(name, std::to_string(pod_array[i]),
-                                                      format_state->format_str);
+                                if constexpr (std::is_same_v<ColumnType, ColumnDate> ||
+                                              std::is_same_v<ColumnType, ColumnDateV2> ||
+                                              std::is_same_v<ColumnType, ColumnDateTime> ||
+                                              std::is_same_v<ColumnType, ColumnDateTimeV2> ||
+                                              std::is_same_v<ColumnType, ColumnTimeStampTz>) {
+                                    char buf[64];
+                                    pod_array[i].to_string(buf);
+                                    throw_invalid_strings(name, buf, format_state->format_str);
+                                } else {
+                                    throw_invalid_strings(name, std::to_string(pod_array[i]),
+                                                          format_state->format_str);
+                                }
                             }
                             res_offsets[i] = cast_set<uint32_t>(offset);
                         }

@@ -46,6 +46,7 @@
 #include "runtime/type_limit.h"
 #include "util/runtime_profile.h"
 #include "vec/core/types.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 #include "vec/runtime/ipv4_value.h"
 #include "vec/runtime/ipv6_value.h"
@@ -85,6 +86,8 @@ std::string cast_to_string(T value, int scale) {
         return IPv4Value::to_string(value);
     } else if constexpr (primitive_type == TYPE_IPV6) {
         return IPv6Value::to_string(value);
+    } else if constexpr (primitive_type == TYPE_BOOLEAN) {
+        return vectorized::CastToString::from_number(value);
     } else {
         return boost::lexical_cast<std::string>(value);
     }
@@ -211,19 +214,22 @@ public:
 
     int scale() const { return _scale; }
 
-    static void add_fixed_value_range(ColumnValueRange<primitive_type>& range,
-                                      const CppType* value) {
-        static_cast<void>(range.add_fixed_value(*value));
+    static void add_fixed_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
+                                      const CppType& value) {
+        static_cast<void>(range.add_fixed_value(value));
     }
 
-    static void remove_fixed_value_range(ColumnValueRange<primitive_type>& range,
-                                         const CppType* value) {
-        range.remove_fixed_value(*value);
+    static void remove_fixed_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
+                                         const CppType& value) {
+        range.remove_fixed_value(value);
     }
+
+    static void empty_function(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
+                               const CppType& value) {}
 
     static void add_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
-                                const CppType* value) {
-        static_cast<void>(range.add_range(op, *value));
+                                const CppType& value) {
+        static_cast<void>(range.add_range(op, value));
     }
 
     static ColumnValueRange<primitive_type> create_empty_column_value_range(bool is_nullable_col,

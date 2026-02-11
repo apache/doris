@@ -80,8 +80,8 @@ TEST_F(SpillSortSinkOperatorTest, Basic) {
             _helper.runtime_state.get());
     ASSERT_EQ(data_distribution.distribution_type, inner_data_distribution.distribution_type);
 
-    ASSERT_EQ(sink_operator->require_data_distribution(),
-              sink_operator->_sort_sink_operator->require_data_distribution());
+    ASSERT_EQ(sink_operator->is_colocated_operator(),
+              sink_operator->_sort_sink_operator->is_colocated_operator());
 
     st = sink_local_state->close(_helper.runtime_state.get(), st);
     ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();

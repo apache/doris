@@ -146,7 +146,7 @@
 //         sql_test_cast_to_array(table_name_1)
 //         sql_test_cast_to_scalar(table_name_1)
 //         // trigger and wait compaction
-//         trigger_and_wait_compaction("${table_name_1}", "full")
+//         trigger_and_wait_compaction("${table_name_1}", "full", 1800)
 //         sql_select_batch(table_name_1)
 //         sql_test_cast_to_array(table_name_1)    
 //         sql_test_cast_to_scalar(table_name_1)
@@ -188,7 +188,7 @@
 //         sql_test_cast_to_array(table_name_1)
 //         sql_test_cast_to_scalar(table_name_1)
 //         // trigger and wait compaction
-//         trigger_and_wait_compaction("${table_name_1}", "full")
+//         trigger_and_wait_compaction("${table_name_1}", "full", 1800)
 //         sql_select_batch(table_name_1)
 //         sql_test_cast_to_array(table_name_1)    
 //         sql_test_cast_to_scalar(table_name_1)

@@ -68,7 +68,7 @@ suite("test_compaction_extract_root", "p1") {
     def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
     // trigger compactions for all tablets in ${tableName}
-    trigger_and_wait_compaction(tableName, "cumulative")
+    trigger_and_wait_compaction(tableName, "cumulative", 1800)
 
     // fix cast to string tobe {}
     qt_select_b_3 """ SELECT count(cast(v['b'] as string)) FROM test_t where cast(v['b'] as string) != '{}' """

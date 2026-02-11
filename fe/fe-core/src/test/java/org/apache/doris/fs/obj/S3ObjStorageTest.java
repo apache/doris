@@ -344,7 +344,7 @@ public class S3ObjStorageTest {
 
         Status status = storage.listFiles("s3://test-bucket/folder/", false, result);
 
-        Assertions.assertEquals(Status.ErrCode.NOT_FOUND, status.getErrCode());
+        Assertions.assertEquals(Status.ErrCode.OK, status.getErrCode());
     }
 
     @Test

@@ -205,13 +205,18 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     public static List<Partition> getHistoricalPartitions(OlapTable table, String nowPartitionName) {
-        RangePartitionInfo info = (RangePartitionInfo) (table.getPartitionInfo());
-        List<Map.Entry<Long, PartitionItem>> idToItems = new ArrayList<>(info.getIdToItem(false).entrySet());
-        idToItems.sort(Comparator.comparing(o -> ((RangePartitionItem) o.getValue()).getItems().upperEndpoint()));
-        return idToItems.stream()
-                .map(entry -> table.getPartition(entry.getKey()))
-                .filter(partition -> partition != null && !partition.getName().equals(nowPartitionName))
-                .collect(Collectors.toList());
+        table.readLock();
+        try {
+            RangePartitionInfo info = (RangePartitionInfo) (table.getPartitionInfo());
+            List<Map.Entry<Long, PartitionItem>> idToItems = new ArrayList<>(info.getIdToItem(false).entrySet());
+            idToItems.sort(Comparator.comparing(o -> ((RangePartitionItem) o.getValue()).getItems().upperEndpoint()));
+            return idToItems.stream()
+                    .map(entry -> table.getPartition(entry.getKey()))
+                    .filter(partition -> partition != null && !partition.getName().equals(nowPartitionName))
+                    .collect(Collectors.toList());
+        } finally {
+            table.readUnlock();
+        }
     }
 
     public static List<Partition> filterDataPartitions(List<Partition> partitions, List<Long> visibleVersions) {

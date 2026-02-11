@@ -27,6 +27,13 @@ namespace doris {
 
 const std::unordered_set<std::string> IndexPolicyMgr::BUILTIN_NORMALIZERS = {"lowercase"};
 
+std::string IndexPolicyMgr::normalize_name(const std::string& name) {
+    std::string result = name;
+    boost::algorithm::trim(result);
+    boost::algorithm::to_lower(result);
+    return result;
+}
+
 void IndexPolicyMgr::apply_policy_changes(const std::vector<TIndexPolicy>& policys_to_update,
                                           const std::vector<int64_t>& policys_to_delete) {
     LOG(INFO) << "Starting policy changes - "
@@ -43,7 +50,8 @@ void IndexPolicyMgr::apply_policy_changes(const std::vector<TIndexPolicy>& polic
                       << "ID: " << id << ", "
                       << "Name: " << it->second.name;
 
-            _name_to_id.erase(it->second.name);
+            // Use normalized name for deletion
+            _name_to_id.erase(normalize_name(it->second.name));
             _policys.erase(it);
             success_deletes++;
         } else {
@@ -59,15 +67,18 @@ void IndexPolicyMgr::apply_policy_changes(const std::vector<TIndexPolicy>& polic
             continue;
         }
 
-        if (_name_to_id.contains(policy.name)) {
+        // Use normalized name for case-insensitive lookup
+        std::string normalized_name = normalize_name(policy.name);
+        if (_name_to_id.contains(normalized_name)) {
             LOG(ERROR) << "Reject update - Duplicate policy name: " << policy.name
-                       << " | Existing ID: " << _name_to_id[policy.name]
+                       << " | Existing ID: " << _name_to_id[normalized_name]
                        << " | New ID: " << policy.id;
             continue;
         }
 
         _policys.emplace(policy.id, policy);
-        _name_to_id.emplace(policy.name, policy.id);
+        // Store with normalized key for case-insensitive lookup
+        _name_to_id.emplace(normalized_name, policy.id);
         success_updates++;
 
         LOG(INFO) << "Successfully applied policy - "
@@ -82,18 +93,24 @@ void IndexPolicyMgr::apply_policy_changes(const std::vector<TIndexPolicy>& polic
               << "Total policies: " << _policys.size();
 }
 
-const Policys& IndexPolicyMgr::get_index_policys() {
+Policys IndexPolicyMgr::get_index_policys() {
     std::shared_lock<std::shared_mutex> r_lock(_mutex);
-    return _policys;
+    return _policys; // Return copy to ensure thread safety after lock release
 }
 
-// TODO: Potential high-concurrency bottleneck
+// NOTE: This function holds a shared_lock while calling build_analyzer_from_policy/
+// build_normalizer_from_policy, which also access _name_to_id and _policys.
+// This is safe because std::shared_mutex allows the same thread to hold multiple
+// shared_locks (read locks are reentrant). The lock is held throughout to ensure
+// consistency when resolving nested policy references (e.g., tokenizer policies).
 AnalyzerPtr IndexPolicyMgr::get_policy_by_name(const std::string& name) {
     std::shared_lock lock(_mutex);
 
-    auto name_it = _name_to_id.find(name);
+    // Use normalized name for case-insensitive lookup
+    std::string normalized_name = normalize_name(name);
+    auto name_it = _name_to_id.find(normalized_name);
     if (name_it == _name_to_id.end()) {
-        if (is_builtin_normalizer(name)) {
+        if (is_builtin_normalizer(normalized_name)) {
             return build_builtin_normalizer(name);
         }
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with name: " + name);
@@ -125,8 +142,10 @@ AnalyzerPtr IndexPolicyMgr::build_analyzer_from_policy(const TIndexPolicy& index
     }
 
     const auto& tokenizer_name = tokenizer_it->second;
-    if (_name_to_id.contains(tokenizer_name)) {
-        const auto& tokenizer_policy = _policys[_name_to_id[tokenizer_name]];
+    // Use normalized name for case-insensitive lookup
+    std::string normalized_tokenizer_name = normalize_name(tokenizer_name);
+    if (_name_to_id.contains(normalized_tokenizer_name)) {
+        const auto& tokenizer_policy = _policys[_name_to_id[normalized_tokenizer_name]];
         auto type_it = tokenizer_policy.properties.find(PROP_TYPE);
         if (type_it == tokenizer_policy.properties.end()) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
@@ -201,9 +220,11 @@ void IndexPolicyMgr::process_filter_configs(
             continue;
         }
 
-        if (_name_to_id.contains(filter_name)) {
+        // Use normalized name for case-insensitive lookup
+        std::string normalized_filter_name = normalize_name(filter_name);
+        if (_name_to_id.contains(normalized_filter_name)) {
             // Nested filter policy
-            const auto& filter_policy = _policys[_name_to_id[filter_name]];
+            const auto& filter_policy = _policys[_name_to_id[normalized_filter_name]];
             auto type_it = filter_policy.properties.find(PROP_TYPE);
             if (type_it == filter_policy.properties.end()) {
                 throw Exception(

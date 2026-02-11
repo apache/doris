@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -156,7 +157,10 @@ public class CheckAnalysis implements AnalysisRuleFactory {
             }
             expr.foreachUp(e -> {
                 for (Class<? extends Expression> type : unexpectedExpressionTypes) {
-                    if (type.isInstance(e)) {
+                    // PushDownUnnestInProject will push down Unnest in Project list in rewrite phase
+                    // it relays on many rules like normalizeXXX to separate Unnest into LogicalProject first
+                    // here, we allow Unnest in analysis phase and deal with it in rewrite phase
+                    if (type.isInstance(e) && !(e instanceof Unnest)) {
                         throw new AnalysisException(plan.getType() + " can not contains "
                                 + type.getSimpleName() + " expression: " + ((Expression) e).toSql());
                     }

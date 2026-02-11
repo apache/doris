@@ -39,7 +39,7 @@ TEST(ToStringMethodTest, DataTypeToStringTest) {
     // prepare field
     DataTypeTestCases cases;
     DataTypes data_types;
-    std::vector<PrimitiveType> type_ids = {PrimitiveType::TYPE_SMALLINT, PrimitiveType::TYPE_STRING,
+    std::vector<PrimitiveType> type_ids = {PrimitiveType::TYPE_BIGINT, PrimitiveType::TYPE_STRING,
                                            PrimitiveType::TYPE_DECIMAL32};
     Array a1, a2;
     a1.push_back(Field::create_field<TYPE_BIGINT>(Int64(123)));
@@ -59,14 +59,13 @@ TEST(ToStringMethodTest, DataTypeToStringTest) {
     t.push_back(Field::create_field<TYPE_STRING>(String("amory cute")));
     t.push_back(Field::create_field<TYPE_BIGINT>(Int64(0)));
 
-    cases.field_values = {
-            Field::create_field<TYPE_BIGINT>(Int64(12)),
-            Field::create_field<TYPE_STRING>(String(" hello amory , cute amory ")),
-            Field::create_field<TYPE_DECIMAL32>(DecimalField<Decimal32>(-12345678, 0)),
-            Field::create_field<TYPE_ARRAY>(a1),
-            Field::create_field<TYPE_ARRAY>(a2),
-            Field::create_field<TYPE_STRUCT>(t),
-            Field::create_field<TYPE_MAP>(m)};
+    cases.field_values = {Field::create_field<TYPE_BIGINT>(Int64(12)),
+                          Field::create_field<TYPE_STRING>(String(" hello amory , cute amory ")),
+                          Field::create_field<TYPE_DECIMAL32>(Decimal32(-12345678)),
+                          Field::create_field<TYPE_ARRAY>(a1),
+                          Field::create_field<TYPE_ARRAY>(a2),
+                          Field::create_field<TYPE_STRUCT>(t),
+                          Field::create_field<TYPE_MAP>(m)};
     cases.expect_values = {"12",
                            " hello amory , cute amory ",
                            "-12345678",
