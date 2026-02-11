@@ -185,6 +185,6 @@ suite("test_upgrade_downgrade_prepare_auth","p0,auth,restart_fe") {
     sql """GRANT USAGE_PRIV ON RESOURCE ${rg1} TO ${user1};"""
     connect(user1, "${pwd}", context.config.jdbcUrl) {
         def res = sql """SHOW RESOURCES;"""
-        assertTrue(res.size == 10)
+        assertTrue(res.size() == 10)
     }
 }
