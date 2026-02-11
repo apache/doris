@@ -21,11 +21,11 @@ import groovy.json.JsonSlurper
 /*
 Test Description:
 
-1. When enable_file_cache_olap_tables = false, it is expected that the S3 TVF load (import phase) will NOT enter the cache, while the query
+1. When enable_file_cache_olap_table = false, it is expected that the S3 TVF load (import phase) will NOT enter the cache, while the query
    phase will enter the Disposable queue.
    Specifically: Normal queue size should be 0, Disposable queue size should be 91163 bytes.
-2. When enable_file_cache_olap_tables = true, it is expected that the S3 TVF load (import phase) will enter the Normal queue, and the query
-   phase will still enter the Disposable queue.
+2. When enable_file_cache_olap_table = true, it is expected that the S3 TVF load (import phase) will enter the Normal queue, and the query
+   phase will enter the Normal queue.
    Specifically: Normal queue size should be 236988 bytes, Disposable queue size should still be 91163 bytes.
 
 Explanation: The query phase caches the compressed file, so the Disposable queue size is checked for an exact value; for the import phase cache, since future
@@ -173,14 +173,14 @@ suite('test_load_cache', 'docker') {
         def s3_tvf_uri = "s3://${s3_bucket}/regression/tpch/sf0.01/customer.csv.gz"
 
         // ============================================================================
-        // SCENARIO 1: enable_file_cache_olap_tables = false
+        // SCENARIO 1: enable_file_cache_olap_table = false
         // ============================================================================
 
         // Clear file cache before test
         clearFileCacheOnAllBackends()
 
         // Set session variables for Scenario 1
-        sql "set enable_file_cache_olap_tables = false;"
+        sql "set enable_file_cache_olap_table = false;"
 
         // Create test table
         sql """DROP TABLE IF EXISTS load_test_table"""
@@ -263,14 +263,14 @@ suite('test_load_cache', 'docker') {
         sleep(3000)
 
         // ============================================================================
-        // SCENARIO 2: enable_file_cache_olap_tables = true
+        // SCENARIO 2: enable_file_cache_olap_table = true
         // ============================================================================
 
         // Clear file cache before test
         clearFileCacheOnAllBackends()
 
         // Set session variables for Scenario 2
-        sql "set enable_file_cache_olap_tables = true;"
+        sql "set enable_file_cache_olap_table = true;"
 
         // Create test table
         sql """DROP TABLE IF EXISTS load_test_table"""

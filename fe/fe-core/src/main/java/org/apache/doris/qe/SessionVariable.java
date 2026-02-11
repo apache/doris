@@ -4909,7 +4909,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isEnableFileCacheExternalCatalog() {
-        return enableFileCache;
+        return enableFileCacheExternalCatalog;
     }
 
     public void setEnableFileCacheExternalCatalog(boolean enableFileCacheExternalCatalog) {
