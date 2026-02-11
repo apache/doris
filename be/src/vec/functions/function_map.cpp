@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -36,6 +37,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_variant.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
@@ -88,7 +90,6 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         DCHECK(arguments.size() % 2 == 0)
                 << "function: " << get_name() << ", arguments should not be even number";
-
         size_t num_element = arguments.size();
 
         auto result_col = block.get_by_position(result).type->create_column();
@@ -792,6 +793,78 @@ public:
 private:
 };
 
+class FunctionMapConcat : public IFunction {
+public:
+    static constexpr auto name = "map_concat";
+    static FunctionPtr create() { return std::make_shared<FunctionMapConcat>(); }
+    String get_name() const override { return name; }
+    bool is_variadic() const override { return true; }
+    size_t get_number_of_arguments() const override { return 0; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        if (arguments.empty()) {
+            return std::make_shared<DataTypeMap>(
+                    make_nullable(std::make_shared<DataTypeNothing>()),
+                    make_nullable(std::make_shared<DataTypeNothing>()));
+        }
+        DCHECK(arguments.size() > 0)
+                << "function: " << get_name() << ", arguments should not be empty";
+        return arguments[0];
+    }
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        const uint32_t result, size_t input_rows_count) const override {
+        auto result_col = block.get_by_position(result).type->create_column();
+        ColumnMap* result_map_column = nullptr;
+        ColumnNullable* result_nullable_column = nullptr;
+        if (result_col->is_nullable()) {
+            result_nullable_column = assert_cast<ColumnNullable*>(result_col.get());
+            result_map_column =
+                    assert_cast<ColumnMap*>(result_nullable_column->get_nested_column_ptr().get());
+        } else {
+            result_map_column = assert_cast<ColumnMap*>(result_col.get());
+        }
+        auto& result_col_map_keys_data = result_map_column->get_keys();
+        auto& result_col_map_vals_data = result_map_column->get_values();
+        ColumnArray::Offsets64& column_offsets = result_map_column->get_offsets();
+        column_offsets.resize(input_rows_count);
+
+        if (result_nullable_column) {
+            auto& null_map_data = result_nullable_column->get_null_map_data();
+            null_map_data.resize_fill(input_rows_count, 0);
+        }
+
+        size_t off = 0;
+        for (size_t row = 0; row < input_rows_count; row++) {
+            for (size_t col : arguments) {
+                const ColumnMap* map_column = nullptr;
+                auto src_column =
+                        block.get_by_position(col).column->convert_to_full_column_if_const();
+                if (src_column->is_nullable()) {
+                    auto nullable_column = assert_cast<const ColumnNullable*>(src_column.get());
+                    map_column = assert_cast<const ColumnMap*>(
+                            nullable_column->get_nested_column_ptr().get());
+                } else {
+                    map_column = assert_cast<const ColumnMap*>(src_column.get());
+                }
+                if (!map_column) {
+                    return Status::RuntimeError("unsupported types for function {}({})", get_name(),
+                                                block.get_by_position(col).type->get_name());
+                }
+                const auto& src_column_offsets = map_column->get_offsets();
+                const size_t length = src_column_offsets[row] - src_column_offsets[row - 1];
+                off += length;
+                for (size_t i = src_column_offsets[row - 1]; i < src_column_offsets[row]; i++) {
+                    result_col_map_keys_data.insert_from(map_column->get_keys(), i);
+                    result_col_map_vals_data.insert_from(map_column->get_values(), i);
+                }
+            }
+            column_offsets[row] = off;
+        }
+        RETURN_IF_ERROR(result_map_column->deduplicate_keys());
+        block.replace_by_position(result, std::move(result_col));
+        return Status::OK();
+    }
+};
+
 void register_function_map(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMap>();
     factory.register_function<FunctionMapContains<true>>();
@@ -801,6 +874,7 @@ void register_function_map(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMapEntries>();
     factory.register_function<FunctionStrToMap>();
     factory.register_function<FunctionMapContainsEntry>();
+    factory.register_function<FunctionMapConcat>();
     factory.register_function<FunctionDeduplicateMap>();
 }
 
