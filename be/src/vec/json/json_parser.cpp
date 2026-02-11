@@ -30,6 +30,7 @@
 #include "common/cast_set.h"
 // IWYU pragma: keep
 #include "common/status.h"
+#include "vec/common/variant_util.h"
 #include "vec/json/path_in_data.h"
 #include "vec/json/simd_json_parser.h"
 
@@ -48,6 +49,7 @@ std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, 
     // NestedGroup expansion is now handled at storage layer
     context.enable_flatten_nested = config.enable_flatten_nested;
     context.is_top_array = document.isArray();
+    context.skip_patterns = config.skip_patterns;
     traverse(document, context);
     ParseResult result;
     result.values = std::move(context.values);
@@ -99,9 +101,26 @@ void JSONDataParser<ParserImpl>::traverseObject(const JSONObject& object, ParseC
                     fmt::format("Key length exceeds maximum allowed size of {} bytes.",
                                 max_key_length));
         }
-        ctx.builder.append(key, false);
-        traverse(value, ctx);
-        ctx.builder.pop_back();
+        // Check skip patterns: build the dot-separated path and test against patterns
+        if (ctx.skip_patterns != nullptr && !ctx.skip_patterns->empty()) {
+            std::string saved_path = ctx.current_path;
+            if (!ctx.current_path.empty()) {
+                ctx.current_path.push_back('.');
+            }
+            ctx.current_path.append(key.data(), key.size());
+            if (variant_util::should_skip_path(*ctx.skip_patterns, ctx.current_path)) {
+                ctx.current_path = std::move(saved_path);
+                continue; // skip this key and its entire subtree
+            }
+            ctx.builder.append(key, false);
+            traverse(value, ctx);
+            ctx.builder.pop_back();
+            ctx.current_path = std::move(saved_path);
+        } else {
+            ctx.builder.append(key, false);
+            traverse(value, ctx);
+            ctx.builder.pop_back();
+        }
     }
 }
 
@@ -206,7 +225,7 @@ void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
     element_ctx.has_nested_in_flatten = ctx.has_nested_in_flatten;
     element_ctx.is_top_array = ctx.is_top_array;
     traverse(element, element_ctx);
-    auto& [_, paths, values, flatten_nested, __, is_top_array] = element_ctx;
+    auto& [_, paths, values, flatten_nested, __, is_top_array, ___, ____] = element_ctx;
 
     if (element_ctx.has_nested_in_flatten && is_top_array) {
         checkAmbiguousStructure(ctx, paths);

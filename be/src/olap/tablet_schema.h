@@ -80,6 +80,9 @@ public:
         bool enable_doc_mode = false;
         int64_t doc_materialization_min_rows = 0;
         int32_t doc_hash_shard_count = 64;
+
+        // skip patterns for variant column
+        std::vector<std::pair<std::string, PatternTypePB>> skip_patterns;
     };
 
     TabletColumn();

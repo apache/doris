@@ -486,7 +486,11 @@ public abstract class DataType {
                         .map(cf -> new VariantField(cf.getPattern(), fromCatalogType(cf.getType()),
                                 cf.getComment() == null ? "" : cf.getComment(), cf.getPatternType().toString()))
                         .collect(ImmutableList.toImmutableList());
-                return new VariantType(variantFields,
+                List<VariantSkipPattern> variantSkipPatterns = ((org.apache.doris.catalog.VariantType) type)
+                        .getSkipPatterns().stream()
+                        .map(sp -> new VariantSkipPattern(sp.getPattern(), sp.getPatternType().name()))
+                        .collect(ImmutableList.toImmutableList());
+                return new VariantType(variantFields, variantSkipPatterns,
                         ((org.apache.doris.catalog.VariantType) type).getVariantMaxSubcolumnsCount(),
                         ((org.apache.doris.catalog.VariantType) type).getEnableTypedPathsToSparse(),
                         ((org.apache.doris.catalog.VariantType) type).getVariantMaxSparseColumnStatisticsSize(),

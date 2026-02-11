@@ -2161,6 +2161,10 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
             return Status::InternalError("column is not variant type, column name: {}",
                                          column.name());
         }
+        // set skip patterns if any
+        if (!column.variant_params().skip_patterns.empty()) {
+            configs[i].skip_patterns = &column.variant_params().skip_patterns;
+        }
         // if doc mode is not enabled, no need to parse to doc value column
         if (!column.variant_enable_doc_mode()) {
             configs[i].parse_to = ParseConfig::ParseTo::OnlySubcolumns;

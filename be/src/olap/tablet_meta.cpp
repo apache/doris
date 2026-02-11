@@ -562,6 +562,24 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     if (tcolumn.__isset.variant_doc_hash_shard_count) {
         column->set_variant_doc_hash_shard_count(tcolumn.variant_doc_hash_shard_count);
     }
+    if (tcolumn.__isset.skip_patterns) {
+        for (const auto& tsp : tcolumn.skip_patterns) {
+            auto* sp = column->add_skip_patterns();
+            if (tsp.__isset.pattern) {
+                sp->set_pattern(tsp.pattern);
+            }
+            if (tsp.__isset.pattern_type) {
+                switch (tsp.pattern_type) {
+                case TPatternType::MATCH_NAME:
+                    sp->set_pattern_type(PatternTypePB::MATCH_NAME);
+                    break;
+                case TPatternType::MATCH_NAME_GLOB:
+                    sp->set_pattern_type(PatternTypePB::MATCH_NAME_GLOB);
+                    break;
+                }
+            }
+        }
+    }
 }
 
 void TabletMeta::remove_rowset_delete_bitmap(const RowsetId& rowset_id, const Version& version) {

@@ -396,12 +396,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             int maxSubcolumns = typeNode.getVariantMaxSubcolumnsCount();
             // Currently no predefined fields are carried in PTypeNode for VARIANT, so use empty list and default
             // values for other properties.
-            type = new VariantType(new ArrayList<>(), maxSubcolumns,
+            type = new VariantType(new ArrayList<>(), new ArrayList<>(), maxSubcolumns,
                     /*enableTypedPathsToSparse*/ false,
                     /*variantMaxSparseColumnStatisticsSize*/ 10000,
                     /*variantSparseHashShardCount*/ 0,
                     /*variantEnableDocMode*/ false,
-                    /*variantDocMaterializationMinRows*/ 0,
+                    /*variantDocMaterializationMinRows*/ 0L,
                     /*variantDocShardCount*/ 0);
             parsedNodes = 1;
         } else {

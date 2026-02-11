@@ -28,6 +28,7 @@
 #include <utility>
 #include <vector>
 
+#include "gen_cpp/olap_file.pb.h"
 #include "runtime/primitive_type.h"
 #include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
@@ -106,6 +107,8 @@ struct ParseConfig {
         OnlyDocValueColumn = 1,
     };
     ParseTo parse_to = ParseTo::OnlySubcolumns;
+    // skip patterns for variant column (pointer to avoid copy; nullptr means no skip)
+    const std::vector<std::pair<std::string, PatternTypePB>>* skip_patterns = nullptr;
 };
 /// Result of parsing of a document.
 /// Contains all paths extracted from document
@@ -130,6 +133,10 @@ private:
         bool enable_flatten_nested = false;
         bool has_nested_in_flatten = false;
         bool is_top_array = false;
+        // skip patterns pointer (nullptr means no skip)
+        const std::vector<std::pair<std::string, PatternTypePB>>* skip_patterns = nullptr;
+        // incrementally maintained dot-separated path for skip matching
+        std::string current_path;
     };
     using PathPartsWithArray = std::pair<PathInData::Parts, Array>;
     using PathToArray = phmap::flat_hash_map<UInt128, PathPartsWithArray, UInt128TrivialHash>;

@@ -71,6 +71,26 @@ Status glob_to_regex(const std::string& glob_pattern, std::string* regex_pattern
 // Match a glob pattern against a path using RE2.
 bool glob_match_re2(const std::string& glob_pattern, const std::string& candidate_path);
 
+// Check if a dot-separated path should be skipped based on skip patterns.
+// For MATCH_NAME_GLOB, uses glob matching; for MATCH_NAME, uses exact string comparison.
+inline bool should_skip_path(
+        const std::vector<std::pair<std::string, PatternTypePB>>& skip_patterns,
+        const std::string& path) {
+    for (const auto& [pattern, pt] : skip_patterns) {
+        if (pt == PatternTypePB::MATCH_NAME) {
+            if (path == pattern) {
+                return true;
+            }
+        } else {
+            // MATCH_NAME_GLOB
+            if (glob_match_re2(pattern, path)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 using PathToNoneNullValues = std::unordered_map<std::string, int64_t>;
 using PathToDataTypes = std::unordered_map<PathInData, std::vector<DataTypePtr>, PathInData::Hash>;
 

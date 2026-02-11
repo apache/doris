@@ -33,6 +33,7 @@ import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPatternType;
 import org.apache.doris.thrift.TPrimitiveType;
+import org.apache.doris.thrift.TSkipPattern;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -659,6 +660,12 @@ public class Column implements GsonPostProcessable {
         tColumn.setVariantEnableDocMode(this.getVariantEnableDocMode());
         tColumn.setVariantDocMaterializationMinRows(this.getvariantDocMaterializationMinRows());
         tColumn.setVariantDocHashShardCount(this.getVariantDocShardCount());
+        tColumn.setSkipPatterns(this.getVariantSkipPatterns().stream().map(sp -> {
+            TSkipPattern tsp = new TSkipPattern();
+            tsp.setPattern(sp.getPattern());
+            tsp.setPatternType(sp.getPatternType());
+            return tsp;
+        }).collect(java.util.stream.Collectors.toList()));
         // ATTN:
         // Currently, this `toThrift()` method is only used from CreateReplicaTask.
         // And CreateReplicaTask does not need `defineExpr` field.
@@ -886,6 +893,13 @@ public class Column implements GsonPostProcessable {
             builder.setVariantEnableDocMode(this.getVariantEnableDocMode());
             builder.setVariantDocMaterializationMinRows(this.getvariantDocMaterializationMinRows());
             builder.setVariantDocHashShardCount(this.getVariantDocShardCount());
+            builder.addAllSkipPatterns(this.getVariantSkipPatterns().stream().map(sp ->
+                    OlapFile.SkipPatternPB.newBuilder()
+                            .setPattern(sp.getPattern())
+                            .setPatternType(sp.getPatternType() == TPatternType.MATCH_NAME
+                                    ? PatternTypePB.MATCH_NAME : PatternTypePB.MATCH_NAME_GLOB)
+                            .build()
+            ).collect(java.util.stream.Collectors.toList()));
             // variant may contain predefined structured fields
             addChildren(builder);
         }
@@ -1334,6 +1348,10 @@ public class Column implements GsonPostProcessable {
 
     public int getVariantDocShardCount() {
         return type.isVariantType() ? ((ScalarType) type).getVariantDocShardCount() : 128;
+    }
+
+    public ArrayList<VariantSkipPattern> getVariantSkipPatterns() {
+        return type.isVariantType() ? ((VariantType) type).getSkipPatterns() : Lists.newArrayList();
     }
 
     public void setFieldPatternType(TPatternType type) {

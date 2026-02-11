@@ -50,6 +50,7 @@ public class VariantType extends PrimitiveType {
     private final int variantMaxSparseColumnStatisticsSize;
 
     private final List<VariantField> predefinedFields;
+    private final List<VariantSkipPattern> skipPatterns;
     private final int variantSparseHashShardCount;
 
     private final boolean enableVariantDocMode;
@@ -64,6 +65,7 @@ public class VariantType extends PrimitiveType {
     public VariantType(int variantMaxSubcolumnsCount) {
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
         this.predefinedFields = Lists.newArrayList();
+        this.skipPatterns = Lists.newArrayList();
         this.enableTypedPathsToSparse = false;
         this.variantMaxSparseColumnStatisticsSize = 10000;
         this.variantSparseHashShardCount = 0;
@@ -77,6 +79,7 @@ public class VariantType extends PrimitiveType {
      */
     public VariantType(List<VariantField> fields) {
         this.predefinedFields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
+        this.skipPatterns = Lists.newArrayList();
         this.variantMaxSubcolumnsCount = 0;
         this.enableTypedPathsToSparse = false;
         this.variantMaxSparseColumnStatisticsSize = 10000;
@@ -97,11 +100,14 @@ public class VariantType extends PrimitiveType {
      * @param enableVariantDocMode whether to enable variant doc snapshot writing mode
      * @param variantDocMaterializationMinRows minimum rows to generate doc snapshot columns
      */
-    public VariantType(List<VariantField> fields, int variantMaxSubcolumnsCount,
+    public VariantType(List<VariantField> fields, List<VariantSkipPattern> skipPatterns,
+            int variantMaxSubcolumnsCount,
             boolean enableTypedPathsToSparse, int variantMaxSparseColumnStatisticsSize,
             int variantSparseHashShardCount, boolean enableVariantDocMode,
             long variantDocMaterializationMinRows, int variantDocShardCount) {
         this.predefinedFields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
+        this.skipPatterns = ImmutableList.copyOf(
+                Objects.requireNonNull(skipPatterns, "skipPatterns should not be null"));
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
         this.enableTypedPathsToSparse = enableTypedPathsToSparse;
         this.variantMaxSparseColumnStatisticsSize = variantMaxSparseColumnStatisticsSize;
@@ -114,7 +120,8 @@ public class VariantType extends PrimitiveType {
     @Override
     public DataType conversion() {
         return new VariantType(predefinedFields.stream().map(VariantField::conversion)
-                                .collect(Collectors.toList()), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
+                                .collect(Collectors.toList()), skipPatterns,
+                                    variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                                     variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
                                     enableVariantDocMode, variantDocMaterializationMinRows,
                                     variantDocShardCount);
@@ -124,7 +131,11 @@ public class VariantType extends PrimitiveType {
     public Type toCatalogDataType() {
         org.apache.doris.catalog.VariantType type = new org.apache.doris.catalog.VariantType(predefinedFields.stream()
                 .map(VariantField::toCatalogDataType)
-                .collect(Collectors.toCollection(ArrayList::new)), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
+                .collect(Collectors.toCollection(ArrayList::new)),
+                skipPatterns.stream()
+                .map(VariantSkipPattern::toCatalogType)
+                .collect(Collectors.toCollection(ArrayList::new)),
+                variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                      variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, enableVariantDocMode,
                      variantDocMaterializationMinRows, variantDocShardCount);
         return type;
@@ -150,6 +161,10 @@ public class VariantType extends PrimitiveType {
         StringBuilder sb = new StringBuilder();
         sb.append("variant");
         sb.append("<");
+        if (!skipPatterns.isEmpty()) {
+            sb.append(skipPatterns.stream().map(VariantSkipPattern::toSql).collect(Collectors.joining(",")));
+            sb.append(",");
+        }
         if (!predefinedFields.isEmpty()) {
             sb.append(predefinedFields.stream().map(VariantField::toSql).collect(Collectors.joining(",")));
             sb.append(",");
@@ -197,7 +212,8 @@ public class VariantType extends PrimitiveType {
                     && this.enableTypedPathsToSparse == other.enableTypedPathsToSparse
                     && this.enableVariantDocMode == other.enableVariantDocMode
                     && this.variantDocMaterializationMinRows == other.variantDocMaterializationMinRows
-                    && Objects.equals(predefinedFields, other.predefinedFields);
+                    && Objects.equals(predefinedFields, other.predefinedFields)
+                    && Objects.equals(skipPatterns, other.skipPatterns);
     }
 
     @Override
@@ -226,7 +242,7 @@ public class VariantType extends PrimitiveType {
         return Objects.hash(super.hashCode(), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                             variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
                             enableVariantDocMode, variantDocMaterializationMinRows, variantDocShardCount,
-                            predefinedFields);
+                            predefinedFields, skipPatterns);
     }
 
     @Override
@@ -241,6 +257,10 @@ public class VariantType extends PrimitiveType {
 
     public List<VariantField> getPredefinedFields() {
         return predefinedFields;
+    }
+
+    public List<VariantSkipPattern> getSkipPatterns() {
+        return skipPatterns;
     }
 
     /**

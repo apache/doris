@@ -1071,6 +1071,7 @@ import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantField;
+import org.apache.doris.nereids.types.VariantSkipPattern;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -5133,8 +5134,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                         "Unsupported variant definition: " + variantDef.getText());
         VariantContext variantCtx = (VariantContext) variantDef;
 
-        List<VariantField> fields = variantCtx.variantSubColTypeList() != null
-                ? visitVariantSubColTypeList(variantCtx.variantSubColTypeList()) : Lists.newArrayList();
+        List<VariantField> fields = Lists.newArrayList();
+        List<VariantSkipPattern> skipPatterns = Lists.newArrayList();
+        if (variantCtx.variantSubColTypeList() != null) {
+            for (VariantSubColTypeContext subCtx : variantCtx.variantSubColTypeList().variantSubColType()) {
+                if (subCtx.SKIP_() != null) {
+                    String skipPattern = subCtx.STRING_LITERAL().getText();
+                    skipPattern = skipPattern.substring(1, skipPattern.length() - 1);
+                    String matchType = subCtx.variantSubColMatchType() != null
+                            ? subCtx.variantSubColMatchType().getText() : null;
+                    skipPatterns.add(matchType != null
+                            ? new VariantSkipPattern(skipPattern, matchType)
+                            : new VariantSkipPattern(skipPattern));
+                } else {
+                    fields.add(visitVariantSubColType(subCtx));
+                }
+            }
+        }
         Map<String, String> properties = variantCtx.properties != null
                 ? Maps.newHashMap(visitPropertyClause(variantCtx.properties)) : Maps.newHashMap();
 
@@ -5217,7 +5233,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT);
         }
 
-        return new VariantType(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
+        return new VariantType(fields, skipPatterns, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                     variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
                     enableVariantDocMode, variantDocMaterializationMinRows, variantDocHashShardCount);
     }

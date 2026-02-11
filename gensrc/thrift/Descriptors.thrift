@@ -70,6 +70,11 @@ struct TColumnAccessPath {
   3: optional TMetaAccessPath meta_access_path
 }
 
+struct TSkipPattern {
+    1: optional string pattern
+    2: optional TPatternType pattern_type
+}
+
 struct TColumn {
     1: required string column_name
     2: required Types.TColumnType column_type
@@ -99,6 +104,7 @@ struct TColumn {
     26: optional bool variant_enable_doc_mode
   27: optional i64 variant_doc_materialization_min_rows
   28: optional i32 variant_doc_hash_shard_count
+  29: optional list<TSkipPattern> skip_patterns
 }
 
 struct TSlotDescriptor {
