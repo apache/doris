@@ -29,7 +29,7 @@ suite("test_primary_key_partial_update_orc", "p0") {
                 `col_3` varchar(65533) NULL COMMENT "col_3",
                 `col_4` varchar(65533) DEFAULT "4321")
                 UNIQUE KEY(`col_0`)
-                CLUSTER BY(`col_1`, `col_2`) 
+                ORDER BY(`col_1`, `col_2`) 
                 DISTRIBUTED BY HASH(`col_0`) BUCKETS 1
                 PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true")
     """

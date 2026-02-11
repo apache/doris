@@ -37,7 +37,7 @@ suite("test_create_table") {
                     `c_city` varchar(11) NOT NULL COMMENT ""
             )
             UNIQUE KEY (`c_custkey`)
-            CLUSTER BY (`c_name`, `c_address`)
+            ORDER BY (`c_name`, `c_address`)
             DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
             PROPERTIES (
                     "replication_num" = "1",
@@ -58,7 +58,7 @@ suite("test_create_table") {
                     `c_city` varchar(11) NOT NULL COMMENT ""
             )
             UNIQUE KEY (`c_custkey`)
-            CLUSTER BY (`c_name`, `c_address`)
+            ORDER BY (`c_name`, `c_address`)
             DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
             PROPERTIES (
                     "replication_num" = "1",
@@ -78,7 +78,7 @@ suite("test_create_table") {
                     `c_city` varchar(11) NOT NULL COMMENT ""
             )
             UNIQUE KEY (`c_custkey`)
-            CLUSTER BY (`c_name`, `c_addresses`)
+            ORDER BY (`c_name`, `c_addresses`)
             DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
             PROPERTIES (
                     "replication_num" = "1",
@@ -98,7 +98,7 @@ suite("test_create_table") {
                     `c_city` varchar(11) NOT NULL COMMENT ""
             )
             UNIQUE KEY (`c_custkey`)
-            CLUSTER BY (`c_name`, `c_address`, `c_name`)
+            ORDER BY (`c_name`, `c_address`, `c_name`)
             DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
             PROPERTIES (
                     "replication_num" = "1",
@@ -118,7 +118,7 @@ suite("test_create_table") {
                     `c_city` varchar(11) NOT NULL COMMENT ""
             )
             UNIQUE KEY (`c_custkey`)
-            CLUSTER BY (`c_custkey`)
+            ORDER BY (`c_custkey`)
             DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
             PROPERTIES (
                     "replication_num" = "1",
@@ -139,7 +139,7 @@ suite("test_create_table") {
                     `c_city` varchar(11) NOT NULL COMMENT ""
             )
             UNIQUE KEY (`c_custkey`, `c_age`,  `c_name`)
-            CLUSTER BY (`c_custkey`, `c_age`,  `c_address`)
+            ORDER BY (`c_custkey`, `c_age`,  `c_address`)
             DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
             PROPERTIES (
                     "replication_num" = "1",
@@ -161,7 +161,7 @@ suite("test_create_table") {
                     `c_city` varchar(11) NOT NULL COMMENT ""
             )
             UNIQUE KEY (`c_custkey`, `c_age`,  `c_name`, `c_address`)
-            CLUSTER BY (`c_custkey`, `c_age`,  `c_name`, `c_city`)
+            ORDER BY (`c_custkey`, `c_age`,  `c_name`, `c_city`)
             DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
             PROPERTIES (
                     "replication_num" = "1",
@@ -180,7 +180,7 @@ suite("test_create_table") {
                 `c_city` varchar(11) NOT NULL COMMENT ""
         )
         UNIQUE KEY (`c_custkey`)
-        CLUSTER BY (`c_name`, `c_city`, `c_address`)
+        ORDER BY (`c_name`, `c_city`, `c_address`)
         DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
@@ -202,7 +202,7 @@ suite("test_create_table") {
                     `c_city` varchar(11) NOT NULL COMMENT ""
             )
             DUPLICATE KEY (`c_custkey`)
-            CLUSTER BY (`c_name`, `c_address`)
+            ORDER BY (`c_name`, `c_address`)
             DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
             PROPERTIES (
                     "replication_num" = "1"
@@ -221,7 +221,7 @@ suite("test_create_table") {
                 `c_city` variant NOT NULL COMMENT ""
             )
             UNIQUE KEY (`c_custkey`)
-            CLUSTER BY (`c_name`, `c_city`, `c_address`)
+            ORDER BY (`c_name`, `c_city`, `c_address`)
             DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
             PROPERTIES (
                 "replication_num" = "1",

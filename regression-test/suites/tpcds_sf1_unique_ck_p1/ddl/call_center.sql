@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS call_center (
     cc_tax_percentage decimal(5,2)
  )
 UNIQUE KEY(cc_call_center_sk, cc_call_center_id)
-CLUSTER BY(cc_division, cc_class)
+ORDER BY(cc_division, cc_class)
 DISTRIBUTED BY HASH(cc_call_center_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"

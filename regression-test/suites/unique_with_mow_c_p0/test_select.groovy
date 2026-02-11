@@ -39,7 +39,7 @@ suite("test_select") {
             v3 varchar(1000) not null 
         ) engine=olap
         UNIQUE KEY(pk)
-        cluster by(v2, v3)
+        ORDER BY(v2, v3)
         distributed by hash(pk) buckets 10
         properties("replication_num" = "1");
     """

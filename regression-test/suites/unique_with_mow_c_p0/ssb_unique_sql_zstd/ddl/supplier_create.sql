@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS `supplier` (
   `s_phone` varchar(16) NOT NULL COMMENT ""
 )
 UNIQUE KEY (`s_suppkey`)
-CLUSTER BY (`s_region`, `s_city`, `s_name`)
+ORDER BY (`s_region`, `s_city`, `s_name`)
 DISTRIBUTED BY HASH(`s_suppkey`) BUCKETS 10
 PROPERTIES (
 "compression"="zstd",

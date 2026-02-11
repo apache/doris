@@ -39,7 +39,7 @@ suite("test_partial_update_native_insert_stmt", "p0") {
                         `test` int(11) NULL COMMENT "null test",
                         `dft` int(11) DEFAULT "4321")
                         UNIQUE KEY(`id`)
-                        CLUSTER BY(`name`, `score`) 
+                        ORDER BY(`name`, `score`) 
                         DISTRIBUTED BY HASH(`id`) BUCKETS 1
                         PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true","store_row_column" = "${use_row_store}"); """
 
@@ -72,7 +72,7 @@ suite("test_partial_update_native_insert_stmt", "p0") {
                         `dft` int(11) DEFAULT "4321",
                         `update_time` date NULL)
                     UNIQUE KEY(`id`)
-                    CLUSTER BY(`test`, `score`) 
+                    ORDER BY(`test`, `score`) 
                     DISTRIBUTED BY HASH(`id`) BUCKETS 1
                     PROPERTIES(
                         "replication_num" = "1",
@@ -110,7 +110,7 @@ suite("test_partial_update_native_insert_stmt", "p0") {
                         `test` int(11) NULL COMMENT "null test",
                         `dft` int(11) DEFAULT "4321")
                         UNIQUE KEY(`id`)
-                        CLUSTER BY(`name`, `dft`) 
+                        ORDER BY(`name`, `dft`) 
                         DISTRIBUTED BY HASH(`id`) BUCKETS 1
                         PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
                         "store_row_column" = "${use_row_store}"); """
@@ -146,7 +146,7 @@ suite("test_partial_update_native_insert_stmt", "p0") {
                         `test` int(11) NULL COMMENT "null test",
                         `dft` int(11) DEFAULT "4321")
                         UNIQUE KEY(`id`)
-                        CLUSTER BY(`name`, `score`, `test`) 
+                        ORDER BY(`name`, `score`, `test`) 
                         DISTRIBUTED BY HASH(`id`) BUCKETS 1
                         PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
                         "store_row_column" = "${use_row_store}"); """
@@ -175,7 +175,7 @@ suite("test_partial_update_native_insert_stmt", "p0") {
                         `balance` decimalv3(9, 0) NULL, 
                         `last_access_time` datetime NULL 
                     ) ENGINE = OLAP UNIQUE KEY(`id`)
-                    CLUSTER BY(`balance`) 
+                    ORDER BY(`balance`) 
                     COMMENT 'OLAP' DISTRIBUTED BY HASH(`id`) 
                     BUCKETS AUTO PROPERTIES ( 
                         "replication_allocation" = "tag.location.default: 1", 
@@ -211,7 +211,7 @@ suite("test_partial_update_native_insert_stmt", "p0") {
                 v2 int null,
                 v3 int null
             ) unique key (k)
-            CLUSTER BY(`v2`, `v`) 
+            ORDER BY(`v2`, `v`) 
             distributed by hash(k) buckets 1
             properties("replication_num" = "1",
             "enable_unique_key_merge_on_write"="true",
@@ -238,7 +238,7 @@ suite("test_partial_update_native_insert_stmt", "p0") {
                 v1 int null,
                 v2 int null
             ) unique key (k1,k2,k3)
-            CLUSTER BY(`v2`, `k1`) 
+            ORDER BY(`v2`, `k1`) 
             distributed by hash(k1,k2) buckets 4
             properties("replication_num" = "1",
             "enable_unique_key_merge_on_write"="true",
