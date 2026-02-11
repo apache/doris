@@ -39,18 +39,13 @@ public interface RewriteJob {
         SessionVariable sessionVariable = context.getConnectContext().getSessionVariable();
         long elapsedS = context.getStatementContext().getStopwatch().elapsed(TimeUnit.MILLISECONDS) / 1000;
         if (sessionVariable.enableNereidsTimeout) {
-            SummaryProfile summaryProfile = context.getConnectContext().getExecutor().getSummaryProfile();
-            if (summaryProfile.isWarmup()) {
-                // For warmup queries, use a longer timeout (300 seconds)
-                if (elapsedS > Config.auto_start_wait_to_resume_times) {
-                    throw QueryPlanningErrors.planTimeoutError(elapsedS,
-                        Config.auto_start_wait_to_resume_times, summaryProfile);
-                }
-            } else {
-                if (elapsedS > sessionVariable.nereidsTimeoutSecond) {
-                    throw QueryPlanningErrors.planTimeoutError(elapsedS, sessionVariable.nereidsTimeoutSecond,
-                        summaryProfile);
-                }
+            SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(context.getConnectContext());
+            long timeoutS = sessionVariable.nereidsTimeoutSecond;
+            if (summaryProfile != null && summaryProfile.isWarmup()) {
+                timeoutS = Config.auto_start_wait_to_resume_times;
+            }
+            if (elapsedS > timeoutS) {
+                throw QueryPlanningErrors.planTimeoutError(elapsedS, timeoutS, summaryProfile);
             }
         }
     }
