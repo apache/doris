@@ -65,18 +65,13 @@ suite("test_routine_load_adaptive_param","nonConcurrent") {
                 );
             """
 
-            // Use debug point to prevent delay scheduling (isEof=false)
-            // This ensures tasks are scheduled immediately without waiting for max_batch_interval
             def injection = "RoutineLoadTaskInfo.judgeEof"
             try {
                 GetDebugPoint().enableDebugPointForAllFEs(injection)
-                
-                // Phase 1: Initial task
+
                 RoutineLoadTestUtils.sendTestDataToKafka(producer, kafkaCsvTpoics)
                 RoutineLoadTestUtils.waitForTaskFinish(runSql, job, tableName, 0)
                 
-                // Phase 2: Test adaptively increase timeout
-                // When isEof=false, task timeout should be increased to 3600s
                 logger.info("---test adaptively increase---")
                 RoutineLoadTestUtils.sendTestDataToKafka(producer, kafkaCsvTpoics)
                 RoutineLoadTestUtils.checkTaskTimeout(runSql, job, "3600")
@@ -86,8 +81,6 @@ suite("test_routine_load_adaptive_param","nonConcurrent") {
                 GetDebugPoint().disableDebugPointForAllFEs(injection)
             }
 
-            // Phase 3: Test restore adaptively
-            // When isEof=true (small data volume), task timeout should restore to default (100s)
             logger.info("---test restore adaptively---")
             RoutineLoadTestUtils.sendTestDataToKafka(producer, kafkaCsvTpoics)
             RoutineLoadTestUtils.waitForTaskFinish(runSql, job, tableName, 4)
