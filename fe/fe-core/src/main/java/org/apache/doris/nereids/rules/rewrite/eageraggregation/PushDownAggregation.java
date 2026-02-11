@@ -152,8 +152,10 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             aggFunctionsForOutputExpressions.put(aggOutput, funcs);
             for (Object obj : aggOutput.collect(AggregateFunction.class::isInstance)) {
                 AggregateFunction aggFunction = (AggregateFunction) obj;
-                if (pushDownAggFunctionSet.contains(aggFunction.getClass())
-                        && !aggFunction.isDistinct()) {
+                if (aggFunction.isDistinct()) {
+                    return agg;
+                }
+                if (pushDownAggFunctionSet.contains(aggFunction.getClass())) {
                     if (aggFunction.arity() > 0 && aggFunction.child(0) instanceof If
                             && !(aggFunction instanceof Count)) {
                         // Decompose Sum/Max/Min(If(cond, a, b)) into separate agg functions.
