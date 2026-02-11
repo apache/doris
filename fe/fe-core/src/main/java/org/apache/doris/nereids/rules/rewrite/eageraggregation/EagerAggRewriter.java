@@ -99,6 +99,13 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             }
         }
 
+        if (pushHere || (toLeft && toRight)) {
+            if (SessionVariable.isEagerAggregationOnJoin()) {
+                return genAggregate(join, context);
+            } else {
+                return join;
+            }
+        }
         // Do not push aggregation to the nullable side of outer joins when agg function contains case-when.
         //    plan1:
         //    agg(max(case when t1.a is null then 1 else null end))
@@ -126,14 +133,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 toRight = false;
             }
             if (!toLeft && !toRight && !pushHere) {
-                return join;
-            }
-        }
-
-        if (pushHere || (toLeft && toRight)) {
-            if (SessionVariable.isEagerAggregationOnJoin()) {
-                return genAggregate(join, context);
-            } else {
                 return join;
             }
         }
