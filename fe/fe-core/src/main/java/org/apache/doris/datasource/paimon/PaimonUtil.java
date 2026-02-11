@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HiveUtil;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -45,6 +46,7 @@ import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.InternalRow;
@@ -57,6 +59,7 @@ import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.SpecialFields;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.tag.Tag;
@@ -97,6 +100,8 @@ public class PaimonUtil {
     private static final Logger LOG = LogManager.getLogger(PaimonUtil.class);
     private static final Base64.Encoder BASE64_ENCODER = java.util.Base64.getUrlEncoder().withoutPadding();
     private static final Pattern DIGITAL_REGEX = Pattern.compile("\\d+");
+    private static final String SYS_TABLE_TYPE_AUDIT_LOG = "audit_log";
+    private static final String SYS_TABLE_TYPE_BINLOG = "binlog";
 
     public static boolean isDigitalString(String value) {
         return value != null && DIGITAL_REGEX.matcher(value).matches();
@@ -406,6 +411,70 @@ public class PaimonUtil {
         tSchema.setRootField(
                 getSchemaInfo(paimonTableSchema.fields(), enableVarbinaryMapping, enableTimestampTzMapping));
         return tSchema;
+    }
+
+    public static TSchema getHistorySchemaInfo(ExternalTable targetTable, TableSchema sourceSchema,
+            boolean enableVarbinaryMapping, boolean enableTimestampTzMapping) {
+        TSchema tSchema = new TSchema();
+        tSchema.setSchemaId(sourceSchema.id());
+        tSchema.setRootField(getSchemaInfo(resolveHistorySchemaFields(targetTable, sourceSchema.fields()),
+                enableVarbinaryMapping, enableTimestampTzMapping));
+        return tSchema;
+    }
+
+    private static List<DataField> resolveHistorySchemaFields(ExternalTable targetTable, List<DataField> sourceFields) {
+        if (!(targetTable instanceof PaimonSysExternalTable)) {
+            return sourceFields;
+        }
+
+        PaimonSysExternalTable sysTable = (PaimonSysExternalTable) targetTable;
+        boolean withSequenceNumber = isTableReadSequenceNumberEnabled(sysTable);
+        switch (sysTable.getSysTableType()) {
+            case SYS_TABLE_TYPE_AUDIT_LOG:
+                return buildAuditLogHistoryFields(sourceFields, withSequenceNumber);
+            case SYS_TABLE_TYPE_BINLOG:
+                return buildBinlogHistoryFields(sourceFields, withSequenceNumber);
+            default:
+                return sourceFields;
+        }
+    }
+
+    private static List<DataField> buildAuditLogHistoryFields(List<DataField> sourceFields,
+            boolean withSequenceNumber) {
+        List<DataField> fields = new ArrayList<>(sourceFields.size() + (withSequenceNumber ? 2 : 1));
+        fields.add(SpecialFields.ROW_KIND);
+        if (withSequenceNumber) {
+            fields.add(SpecialFields.SEQUENCE_NUMBER);
+        }
+        fields.addAll(sourceFields);
+        return fields;
+    }
+
+    private static List<DataField> buildBinlogHistoryFields(List<DataField> sourceFields,
+            boolean withSequenceNumber) {
+        List<DataField> fields = new ArrayList<>(sourceFields.size() + (withSequenceNumber ? 2 : 1));
+        fields.add(SpecialFields.ROW_KIND);
+        if (withSequenceNumber) {
+            fields.add(SpecialFields.SEQUENCE_NUMBER);
+        }
+        for (DataField sourceField : sourceFields) {
+            fields.add(sourceField.newType(new ArrayType(sourceField.type().nullable())));
+        }
+        return fields;
+    }
+
+    private static boolean isTableReadSequenceNumberEnabled(PaimonSysExternalTable sysTable) {
+        if (!SYS_TABLE_TYPE_AUDIT_LOG.equals(sysTable.getSysTableType())
+                && !SYS_TABLE_TYPE_BINLOG.equals(sysTable.getSysTableType())) {
+            return false;
+        }
+        try {
+            return CoreOptions.fromMap(sysTable.getTableProperties()).tableReadSequenceNumberEnabled();
+        } catch (Exception e) {
+            LOG.warn("Failed to parse table-read.sequence-number.enabled for Paimon system table {}: {}",
+                    sysTable.getName(), e.getMessage());
+            return false;
+        }
     }
 
     public static List<Column> parseSchema(Table table, boolean enableVarbinaryMapping,

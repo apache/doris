@@ -95,6 +95,7 @@ import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
 import org.apache.doris.dictionary.DictionaryManager;
@@ -4691,7 +4692,14 @@ public class Env {
             sb.append("\n)");
         } else if (table.getType() == TableType.PAIMON_EXTERNAL_TABLE) {
             addTableComment(table, sb);
-            PaimonExternalTable paimonExternalTable = (PaimonExternalTable) table;
+            PaimonExternalTable paimonExternalTable;
+            if (table instanceof PaimonExternalTable) {
+                paimonExternalTable = (PaimonExternalTable) table;
+            } else if (table instanceof PaimonSysExternalTable) {
+                paimonExternalTable = ((PaimonSysExternalTable) table).getSourceTable();
+            } else {
+                throw new RuntimeException("Unexpected Paimon table type: " + table.getClass().getSimpleName());
+            }
             Map<String, String> properties = paimonExternalTable.getTableProperties();
             sb.append("\nLOCATION '").append(properties.getOrDefault("path", "")).append("'");
             sb.append("\nPROPERTIES (");

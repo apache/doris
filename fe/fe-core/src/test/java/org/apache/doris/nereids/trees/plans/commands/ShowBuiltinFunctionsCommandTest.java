@@ -36,6 +36,7 @@ import java.util.List;
  * show builtin functions command test
  */
 public class ShowBuiltinFunctionsCommandTest extends TestWithFeService {
+    private static final int MIN_EXPECTED_BUILTIN_FUNCTION_COUNT = 774;
     private Auth auth;
 
     @Override
@@ -53,12 +54,12 @@ public class ShowBuiltinFunctionsCommandTest extends TestWithFeService {
         connectContext.setDatabase("");
         ShowBuiltinFunctionsCommand sbf1 = new ShowBuiltinFunctionsCommand(false, null);
         List<String> re1 = sbf1.getFunctions(connectContext);
-        Assertions.assertTrue(re1.size() >= 775);
+        Assertions.assertTrue(re1.size() >= MIN_EXPECTED_BUILTIN_FUNCTION_COUNT);
 
         // test for full builtin functions
         ShowBuiltinFunctionsCommand sbf2 = new ShowBuiltinFunctionsCommand(true, null);
         List<String> re3 = sbf2.getFunctions(connectContext);
-        Assertions.assertTrue(re3.size() >= 775);
+        Assertions.assertTrue(re3.size() >= MIN_EXPECTED_BUILTIN_FUNCTION_COUNT);
     }
 
     @Test
@@ -68,7 +69,7 @@ public class ShowBuiltinFunctionsCommandTest extends TestWithFeService {
         ShowBuiltinFunctionsCommand sbf2 = new ShowBuiltinFunctionsCommand(true, null);
         List<String> func3 = sbf2.getFunctions(connectContext);
         List<List<String>> re3 = sbf2.getResultRowSetByFunctions(func3);
-        Assertions.assertTrue(re3.size() >= 775);
+        Assertions.assertTrue(re3.size() >= MIN_EXPECTED_BUILTIN_FUNCTION_COUNT);
         for (List<String> funcItem : re3) {
             Assertions.assertEquals("", funcItem.get(1));
             Assertions.assertEquals("", funcItem.get(2));
@@ -98,6 +99,6 @@ public class ShowBuiltinFunctionsCommandTest extends TestWithFeService {
         ShowBuiltinFunctionsCommand sbf = new ShowBuiltinFunctionsCommand(false, null);
         ShowResultSet showResultSet = sbf.handleShowBuiltinFunctions(ctx, null);
         List<List<String>> ret = showResultSet.getResultRows();
-        Assertions.assertTrue(ret.size() >= 775);
+        Assertions.assertTrue(ret.size() >= MIN_EXPECTED_BUILTIN_FUNCTION_COUNT);
     }
 }

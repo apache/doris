@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
-import org.apache.doris.nereids.trees.expressions.functions.table.PaimonMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.ParquetMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.PartitionValues;
 import org.apache.doris.nereids.trees.expressions.functions.table.Partitions;
@@ -107,10 +106,6 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitIcebergMeta(IcebergMeta icebergMeta, C context) {
         return visitTableValuedFunction(icebergMeta, context);
-    }
-
-    default R visitPaimonMeta(PaimonMeta paimonMeta, C context) {
-        return visitTableValuedFunction(paimonMeta, context);
     }
 
     default R visitLocal(Local local, C context) {
