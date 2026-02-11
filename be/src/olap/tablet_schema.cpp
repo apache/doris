@@ -681,7 +681,12 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_pattern_type()) {
         _pattern_type = column.pattern_type();
     }
+    _variant.skip_patterns.clear();
+    _variant.skip_patterns.reserve(column.skip_patterns_size());
     for (const auto& sp : column.skip_patterns()) {
+        if (!sp.has_pattern() || sp.pattern().empty()) {
+            continue;
+        }
         PatternTypePB pt = sp.has_pattern_type() ? sp.pattern_type() : PatternTypePB::MATCH_NAME_GLOB;
         _variant.skip_patterns.emplace_back(sp.pattern(), pt);
     }
@@ -768,8 +773,10 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_variant_enable_doc_mode(_variant.enable_doc_mode);
     column->set_variant_doc_materialization_min_rows(_variant.doc_materialization_min_rows);
     column->set_variant_doc_hash_shard_count(_variant.doc_hash_shard_count);
+    auto* skip_patterns = column->mutable_skip_patterns();
+    skip_patterns->Reserve(cast_set<int>(_variant.skip_patterns.size()));
     for (const auto& [pattern, pt] : _variant.skip_patterns) {
-        auto* sp = column->add_skip_patterns();
+        auto* sp = skip_patterns->Add();
         sp->set_pattern(pattern);
         sp->set_pattern_type(pt);
     }

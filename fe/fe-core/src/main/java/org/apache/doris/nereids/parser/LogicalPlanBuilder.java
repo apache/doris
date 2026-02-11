@@ -477,7 +477,6 @@ import org.apache.doris.nereids.DorisParser.UserVariableContext;
 import org.apache.doris.nereids.DorisParser.VariantContext;
 import org.apache.doris.nereids.DorisParser.VariantPredefinedFieldsContext;
 import org.apache.doris.nereids.DorisParser.VariantSubColTypeContext;
-import org.apache.doris.nereids.DorisParser.VariantSubColTypeListContext;
 import org.apache.doris.nereids.DorisParser.VariantTypeDefinitionsContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
 import org.apache.doris.nereids.DorisParser.WindowFrameContext;
@@ -5240,12 +5239,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private static boolean isSupportedVariantDocModeType(DataType type) {
         return type.isStringLikeType() || type.isIntegralType() || type.isFloatLikeType() || type.isBooleanType();
-    }
-
-    @Override
-    public List<VariantField> visitVariantSubColTypeList(VariantSubColTypeListContext ctx) {
-        return ctx.variantSubColType().stream().map(
-                this::visitVariantSubColType).collect(ImmutableList.toImmutableList());
     }
 
     @Override

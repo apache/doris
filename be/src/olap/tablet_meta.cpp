@@ -82,6 +82,21 @@ bvar::Window<bvar::Adder<uint64_t>> g_contains_agg_with_cache_if_eligible_full_h
         "g_contains_agg_with_cache_if_eligible_full_hit_1m",
         &g_contains_agg_with_cache_if_eligible_full_hit, 60);
 
+namespace {
+
+inline PatternTypePB to_pattern_type_pb(TPatternType::type pattern_type) {
+    switch (pattern_type) {
+    case TPatternType::MATCH_NAME:
+        return PatternTypePB::MATCH_NAME;
+    case TPatternType::MATCH_NAME_GLOB:
+        return PatternTypePB::MATCH_NAME_GLOB;
+    default:
+        return PatternTypePB::MATCH_NAME_GLOB;
+    }
+}
+
+} // namespace
+
 TabletMetaSharedPtr TabletMeta::create(
         const TCreateTabletReq& request, const TabletUid& tablet_uid, uint64_t shard_id,
         uint32_t next_unique_id,
@@ -533,13 +548,7 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
         column->set_variant_max_subcolumns_count(tcolumn.column_type.variant_max_subcolumns_count);
     }
     if (tcolumn.__isset.pattern_type) {
-        switch (tcolumn.pattern_type) {
-        case TPatternType::MATCH_NAME:
-            column->set_pattern_type(PatternTypePB::MATCH_NAME);
-            break;
-        case TPatternType::MATCH_NAME_GLOB:
-            column->set_pattern_type(PatternTypePB::MATCH_NAME_GLOB);
-        }
+        column->set_pattern_type(to_pattern_type_pb(tcolumn.pattern_type));
     }
     if (tcolumn.__isset.variant_enable_typed_paths_to_sparse) {
         column->set_variant_enable_typed_paths_to_sparse(
@@ -562,22 +571,19 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     if (tcolumn.__isset.variant_doc_hash_shard_count) {
         column->set_variant_doc_hash_shard_count(tcolumn.variant_doc_hash_shard_count);
     }
-    if (tcolumn.__isset.skip_patterns) {
+    if (tcolumn.__isset.skip_patterns && !tcolumn.skip_patterns.empty()) {
+        auto* skip_patterns = column->mutable_skip_patterns();
+        skip_patterns->Reserve(cast_set<int>(tcolumn.skip_patterns.size()));
         for (const auto& tsp : tcolumn.skip_patterns) {
-            auto* sp = column->add_skip_patterns();
-            if (tsp.__isset.pattern) {
-                sp->set_pattern(tsp.pattern);
+            // Skip invalid entries to avoid persisting empty rules.
+            if (!tsp.__isset.pattern || tsp.pattern.empty()) {
+                continue;
             }
-            if (tsp.__isset.pattern_type) {
-                switch (tsp.pattern_type) {
-                case TPatternType::MATCH_NAME:
-                    sp->set_pattern_type(PatternTypePB::MATCH_NAME);
-                    break;
-                case TPatternType::MATCH_NAME_GLOB:
-                    sp->set_pattern_type(PatternTypePB::MATCH_NAME_GLOB);
-                    break;
-                }
-            }
+            auto* sp = skip_patterns->Add();
+            sp->set_pattern(tsp.pattern);
+            sp->set_pattern_type(tsp.__isset.pattern_type
+                                         ? to_pattern_type_pb(tsp.pattern_type)
+                                         : PatternTypePB::MATCH_NAME_GLOB);
         }
     }
 }

@@ -37,6 +37,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -64,6 +65,7 @@
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
 #include "re2/re2.h"
+#include "re2/set.h"
 #include "runtime/client_cache.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/exec_env.h"
@@ -130,6 +132,27 @@ inline void append_escaped_regex_char(std::string* regex_output, char ch) {
 
 // Small LRU to cap compiled glob patterns
 constexpr size_t kGlobRegexCacheCapacity = 256;
+constexpr size_t kSkipRe2SetThreshold = 32;
+
+struct TransparentStringHash {
+    using is_transparent = void;
+    size_t operator()(std::string_view s) const { return std::hash<std::string_view> {}(s); }
+    size_t operator()(const std::string& s) const {
+        return std::hash<std::string_view> {}(std::string_view(s));
+    }
+};
+
+struct TransparentStringEq {
+    using is_transparent = void;
+    bool operator()(std::string_view lhs, std::string_view rhs) const { return lhs == rhs; }
+};
+
+struct CompiledSkipMatcher {
+    phmap::flat_hash_set<std::string, TransparentStringHash, TransparentStringEq> exact_patterns;
+    std::vector<std::unique_ptr<RE2>> glob_regexes;
+    std::unique_ptr<RE2::Set> glob_regex_set;
+    bool use_re2_set = false;
+};
 
 struct GlobRegexCacheEntry {
     std::shared_ptr<RE2> re2;
@@ -257,6 +280,84 @@ bool glob_match_re2(const std::string& glob_pattern, const std::string& candidat
         return false;
     }
     return RE2::FullMatch(candidate_path, *compiled);
+}
+
+Status build_compiled_skip_matcher(
+        const std::vector<std::pair<std::string, PatternTypePB>>& skip_patterns,
+        bool enable_re2_set, std::shared_ptr<const CompiledSkipMatcher>* out) {
+    if (out == nullptr) {
+        return Status::InvalidArgument("Output pointer for compiled skip matcher is null");
+    }
+
+    auto matcher = std::make_shared<CompiledSkipMatcher>();
+    matcher->exact_patterns.reserve(skip_patterns.size());
+
+    std::vector<std::string> glob_regex_patterns;
+    glob_regex_patterns.reserve(skip_patterns.size());
+    for (const auto& [pattern, pt] : skip_patterns) {
+        if (pt == PatternTypePB::MATCH_NAME) {
+            matcher->exact_patterns.insert(pattern);
+            continue;
+        }
+
+        std::string regex_pattern;
+        RETURN_IF_ERROR(glob_to_regex(pattern, &regex_pattern));
+        glob_regex_patterns.emplace_back(std::move(regex_pattern));
+    }
+
+    if (glob_regex_patterns.empty()) {
+        *out = std::move(matcher);
+        return Status::OK();
+    }
+
+    if (enable_re2_set && glob_regex_patterns.size() >= kSkipRe2SetThreshold) {
+        RE2::Options options;
+        auto set = std::make_unique<RE2::Set>(options, RE2::ANCHOR_BOTH);
+        for (const auto& regex_pattern : glob_regex_patterns) {
+            if (set->Add(regex_pattern, nullptr) < 0) {
+                return Status::InvalidArgument(
+                        "Failed to add regexp '{}' into skip pattern matcher set", regex_pattern);
+            }
+        }
+        if (!set->Compile()) {
+            return Status::InvalidArgument("Failed to compile skip pattern matcher set");
+        }
+        matcher->glob_regex_set = std::move(set);
+        matcher->use_re2_set = true;
+    } else {
+        matcher->glob_regexes.reserve(glob_regex_patterns.size());
+        for (const auto& regex_pattern : glob_regex_patterns) {
+            auto compiled = std::make_unique<RE2>(regex_pattern);
+            if (!compiled->ok()) {
+                return Status::InvalidArgument(
+                        "Invalid regexp '{}' generated from skip glob pattern: {}", regex_pattern,
+                        compiled->error());
+            }
+            matcher->glob_regexes.emplace_back(std::move(compiled));
+        }
+    }
+
+    *out = std::move(matcher);
+    return Status::OK();
+}
+
+bool should_skip_path(const CompiledSkipMatcher& matcher, std::string_view path) {
+    if (matcher.exact_patterns.find(path) != matcher.exact_patterns.end()) {
+        return true;
+    }
+
+    if (matcher.use_re2_set) {
+        std::vector<int> matched_indexes;
+        return matcher.glob_regex_set->Match(path, &matched_indexes);
+    }
+
+    for (const auto& regex : matcher.glob_regexes) {
+        if (RE2::FullMatch(path, *regex)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 size_t get_number_of_dimensions(const IDataType& type) {
@@ -2164,6 +2265,9 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
         // set skip patterns if any
         if (!column.variant_params().skip_patterns.empty()) {
             configs[i].skip_patterns = &column.variant_params().skip_patterns;
+            RETURN_IF_ERROR(build_compiled_skip_matcher(column.variant_params().skip_patterns,
+                                                        true,
+                                                        &configs[i].compiled_skip_matcher));
         }
         // if doc mode is not enabled, no need to parse to doc value column
         if (!column.variant_enable_doc_mode()) {

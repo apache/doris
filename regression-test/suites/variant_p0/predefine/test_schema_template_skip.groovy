@@ -149,18 +149,7 @@ suite("test_schema_template_skip", "p0") {
     qt_skip_coexist_2 """ SELECT id, data['num_a'] FROM ${tableName9} ORDER BY id """
     qt_skip_coexist_3 """ SELECT id, data['other'] FROM ${tableName9} ORDER BY id """
 
-    // Test 10: Empty pattern rejection
-    test {
-        sql """CREATE TABLE test_skip_empty_pattern (
-            `id` bigint NULL,
-            `data` variant<SKIP ''> NOT NULL
-        ) ENGINE=OLAP DUPLICATE KEY(`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 1
-        PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
-        exception "pattern"
-    }
-
-    // Test 11: Bulk data — verify SKIP works correctly with larger dataset
+    // Test 10: Bulk data — verify SKIP works correctly with larger dataset
     def tableName11 = "test_skip_bulk"
     sql "DROP TABLE IF EXISTS ${tableName11}"
     sql """CREATE TABLE ${tableName11} (

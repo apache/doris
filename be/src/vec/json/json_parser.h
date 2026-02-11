@@ -23,6 +23,8 @@
 #include <parallel_hashmap/phmap.h>
 #include <stddef.h>
 
+#include <list>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -39,6 +41,9 @@
 #include "vec/json/simd_json_parser.h"
 
 namespace doris::vectorized {
+namespace variant_util {
+struct CompiledSkipMatcher;
+}
 
 template <typename Element>
 Field getValueAsField(const Element& element) {
@@ -109,6 +114,10 @@ struct ParseConfig {
     ParseTo parse_to = ParseTo::OnlySubcolumns;
     // skip patterns for variant column (pointer to avoid copy; nullptr means no skip)
     const std::vector<std::pair<std::string, PatternTypePB>>* skip_patterns = nullptr;
+    // pre-compiled skip matcher for hot parsing path
+    std::shared_ptr<const variant_util::CompiledSkipMatcher> compiled_skip_matcher = nullptr;
+    // per-parse cache size for "path -> skip result", 0 means disabled
+    uint16_t skip_result_cache_capacity = 256;
 };
 /// Result of parsing of a document.
 /// Contains all paths extracted from document
@@ -127,6 +136,11 @@ public:
 
 private:
     struct ParseContext {
+        struct SkipCacheEntry {
+            bool is_skipped = false;
+            std::list<std::string>::iterator lru_it;
+        };
+
         PathInDataBuilder builder;
         std::vector<PathInData::Parts> paths;
         std::vector<Field> values;
@@ -135,6 +149,12 @@ private:
         bool is_top_array = false;
         // skip patterns pointer (nullptr means no skip)
         const std::vector<std::pair<std::string, PatternTypePB>>* skip_patterns = nullptr;
+        // pre-compiled skip matcher (nullptr means use skip_patterns fallback)
+        const variant_util::CompiledSkipMatcher* skip_matcher = nullptr;
+        // max entries for skip result cache in one parse invocation
+        uint16_t skip_result_cache_capacity = 0;
+        phmap::flat_hash_map<std::string, SkipCacheEntry> skip_cache;
+        std::list<std::string> skip_cache_lru;
         // incrementally maintained dot-separated path for skip matching
         std::string current_path;
     };

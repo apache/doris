@@ -23,6 +23,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -65,11 +66,21 @@ const std::string SPARSE_COLUMN_PATH = "__DORIS_VARIANT_SPARSE__";
 const std::string DOC_VALUE_COLUMN_PATH = "__DORIS_VARIANT_DOC_VALUE__";
 namespace doris::vectorized::variant_util {
 
+struct CompiledSkipMatcher;
+
 // Convert a restricted glob pattern into a regex (for tests/internal use).
 Status glob_to_regex(const std::string& glob_pattern, std::string* regex_pattern);
 
 // Match a glob pattern against a path using RE2.
 bool glob_match_re2(const std::string& glob_pattern, const std::string& candidate_path);
+
+// Build an immutable matcher for skip patterns used in hot parsing paths.
+Status build_compiled_skip_matcher(
+        const std::vector<std::pair<std::string, PatternTypePB>>& skip_patterns,
+        bool enable_re2_set, std::shared_ptr<const CompiledSkipMatcher>* out);
+
+// Match a dot-separated path against precompiled skip patterns.
+bool should_skip_path(const CompiledSkipMatcher& matcher, std::string_view path);
 
 // Check if a dot-separated path should be skipped based on skip patterns.
 // For MATCH_NAME_GLOB, uses glob matching; for MATCH_NAME, uses exact string comparison.
@@ -77,15 +88,13 @@ inline bool should_skip_path(
         const std::vector<std::pair<std::string, PatternTypePB>>& skip_patterns,
         const std::string& path) {
     for (const auto& [pattern, pt] : skip_patterns) {
-        if (pt == PatternTypePB::MATCH_NAME) {
-            if (path == pattern) {
-                return true;
-            }
-        } else {
-            // MATCH_NAME_GLOB
-            if (glob_match_re2(pattern, path)) {
-                return true;
-            }
+        if (pt == PatternTypePB::MATCH_NAME && path == pattern) {
+            return true;
+        }
+    }
+    for (const auto& [pattern, pt] : skip_patterns) {
+        if (pt != PatternTypePB::MATCH_NAME && glob_match_re2(pattern, path)) {
+            return true;
         }
     }
     return false;

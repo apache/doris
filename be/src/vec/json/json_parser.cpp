@@ -50,6 +50,13 @@ std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, 
     context.enable_flatten_nested = config.enable_flatten_nested;
     context.is_top_array = document.isArray();
     context.skip_patterns = config.skip_patterns;
+    context.skip_matcher = config.compiled_skip_matcher.get();
+    context.skip_result_cache_capacity = config.skip_result_cache_capacity;
+    if (context.skip_result_cache_capacity > 0 &&
+        (context.skip_matcher != nullptr ||
+         (context.skip_patterns != nullptr && !context.skip_patterns->empty()))) {
+        context.skip_cache.reserve(context.skip_result_cache_capacity);
+    }
     traverse(document, context);
     ParseResult result;
     result.values = std::move(context.values);
@@ -101,21 +108,63 @@ void JSONDataParser<ParserImpl>::traverseObject(const JSONObject& object, ParseC
                     fmt::format("Key length exceeds maximum allowed size of {} bytes.",
                                 max_key_length));
         }
+        const bool has_skip_patterns = ctx.skip_matcher != nullptr ||
+                                       (ctx.skip_patterns != nullptr &&
+                                        !ctx.skip_patterns->empty());
         // Check skip patterns: build the dot-separated path and test against patterns
-        if (ctx.skip_patterns != nullptr && !ctx.skip_patterns->empty()) {
-            std::string saved_path = ctx.current_path;
+        if (has_skip_patterns) {
+            const size_t old_length = ctx.current_path.size();
+            const size_t required_capacity = old_length + (old_length ? 1 : 0) + key.size();
+            if (ctx.current_path.capacity() < required_capacity) {
+                ctx.current_path.reserve(required_capacity);
+            }
             if (!ctx.current_path.empty()) {
                 ctx.current_path.push_back('.');
             }
             ctx.current_path.append(key.data(), key.size());
-            if (variant_util::should_skip_path(*ctx.skip_patterns, ctx.current_path)) {
-                ctx.current_path = std::move(saved_path);
+
+            bool is_skipped = false;
+            if (ctx.skip_result_cache_capacity > 0) {
+                auto cache_it = ctx.skip_cache.find(ctx.current_path);
+                if (cache_it != ctx.skip_cache.end()) {
+                    is_skipped = cache_it->second.is_skipped;
+                    ctx.skip_cache_lru.splice(ctx.skip_cache_lru.begin(), ctx.skip_cache_lru,
+                                              cache_it->second.lru_it);
+                } else {
+                    if (ctx.skip_matcher != nullptr) {
+                        is_skipped = variant_util::should_skip_path(*ctx.skip_matcher, ctx.current_path);
+                    } else {
+                        is_skipped = variant_util::should_skip_path(*ctx.skip_patterns, ctx.current_path);
+                    }
+
+                    if (ctx.skip_cache.size() >= ctx.skip_result_cache_capacity &&
+                        !ctx.skip_cache_lru.empty()) {
+                        const auto& evicted_key = ctx.skip_cache_lru.back();
+                        ctx.skip_cache.erase(evicted_key);
+                        ctx.skip_cache_lru.pop_back();
+                    }
+
+                    std::string cache_key(ctx.current_path);
+                    ctx.skip_cache_lru.push_front(cache_key);
+                    typename ParseContext::SkipCacheEntry cache_entry;
+                    cache_entry.is_skipped = is_skipped;
+                    cache_entry.lru_it = ctx.skip_cache_lru.begin();
+                    ctx.skip_cache.emplace(std::move(cache_key), std::move(cache_entry));
+                }
+            } else if (ctx.skip_matcher != nullptr) {
+                is_skipped = variant_util::should_skip_path(*ctx.skip_matcher, ctx.current_path);
+            } else {
+                is_skipped = variant_util::should_skip_path(*ctx.skip_patterns, ctx.current_path);
+            }
+
+            if (is_skipped) {
+                ctx.current_path.resize(old_length);
                 continue; // skip this key and its entire subtree
             }
             ctx.builder.append(key, false);
             traverse(value, ctx);
             ctx.builder.pop_back();
-            ctx.current_path = std::move(saved_path);
+            ctx.current_path.resize(old_length);
         } else {
             ctx.builder.append(key, false);
             traverse(value, ctx);
@@ -224,8 +273,13 @@ void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
     ParseContext element_ctx;
     element_ctx.has_nested_in_flatten = ctx.has_nested_in_flatten;
     element_ctx.is_top_array = ctx.is_top_array;
+    element_ctx.skip_patterns = nullptr;
+    element_ctx.skip_matcher = nullptr;
+    element_ctx.skip_result_cache_capacity = 0;
     traverse(element, element_ctx);
-    auto& [_, paths, values, flatten_nested, __, is_top_array, ___, ____] = element_ctx;
+    auto& paths = element_ctx.paths;
+    auto& values = element_ctx.values;
+    const bool is_top_array = element_ctx.is_top_array;
 
     if (element_ctx.has_nested_in_flatten && is_top_array) {
         checkAmbiguousStructure(ctx, paths);
