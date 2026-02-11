@@ -44,6 +44,16 @@ public class CloudPartitionTest {
     }
 
     @Test
+    public void testGetCommittedVersion() {
+        CloudPartition part = createPartition(1, 2, 3);
+        // Cloud partition's committedVersion should return -1 (unknown),
+        // not the base class's nextVersion - 1 = -2
+        Assertions.assertEquals(-1, part.getCommittedVersion());
+        // Also verify nextVersion returns -1 for consistency
+        Assertions.assertEquals(-1, part.getNextVersion());
+    }
+
+    @Test
     public void testIsCachedVersionExpired() {
         // Create ConnectContext with SessionVariable
         ConnectContext ctx = new ConnectContext();

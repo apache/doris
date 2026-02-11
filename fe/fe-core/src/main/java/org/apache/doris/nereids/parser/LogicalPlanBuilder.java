@@ -5550,16 +5550,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public SetVarOp visitSetPassword(SetPasswordContext ctx) {
-        String user;
-        String host;
-        boolean isDomain;
         String passwordText;
         UserIdentity userIdentity = null;
         if (ctx.userIdentify() != null) {
-            user = stripQuotes(ctx.userIdentify().user.getText());
-            host = ctx.userIdentify().host != null ? stripQuotes(ctx.userIdentify().host.getText()) : "%";
-            isDomain = ctx.userIdentify().ATSIGN() != null;
-            userIdentity = new UserIdentity(user, host, isDomain);
+            userIdentity = visitUserIdentify(ctx.userIdentify());
         }
         passwordText = stripQuotes(ctx.STRING_LITERAL().getText());
         return new SetPassVarOp(userIdentity, new PassVar(passwordText, ctx.isPlain != null));
