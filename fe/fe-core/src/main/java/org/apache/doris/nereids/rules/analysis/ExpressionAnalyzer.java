@@ -735,10 +735,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             return false;
         }
         SessionVariable sessionVariable = context.cascadesContext.getConnectContext().getSessionVariable();
-        if (sessionVariable == null || !sessionVariable.isEnableVariantSchemaAutoCast()) {
-            return false;
-        }
-        return sessionVariable.isEnableVariantSchemaAutoCast();
+        return sessionVariable != null && sessionVariable.isEnableVariantSchemaAutoCast();
     }
 
     private Expression wrapVariantElementAtWithCast(Expression expr) {
@@ -808,6 +805,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             return alias;
         }
         Expression child = alias.child();
+        if (!(child instanceof ElementAt)) {
+            return alias;
+        }
         Expression casted = wrapVariantElementAtWithCast(child);
         if (casted == child) {
             return alias;

@@ -96,7 +96,8 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
                 }
         );
         AggregateParam param = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT, !skipRegulator(logicalAgg));
-        return ImmutableList.of(new PhysicalHashAggregate<>(logicalAgg.getGroupByExpressions(), aggOutput, param,
+        return ImmutableList.of(new PhysicalHashAggregate<>(logicalAgg.getGroupByExpressions(), aggOutput,
+                logicalAgg.getPartitionExpressions(), param,
                 AggregateUtils.maybeUsingStreamAgg(logicalAgg.getGroupByExpressions(), param),
                 null, logicalAgg.child()));
     }
@@ -159,7 +160,7 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
                     return new AggregateExpression(aggFunc, bufferToResultParam, alias.toSlot());
                 });
         return ImmutableList.of(new PhysicalHashAggregate<>(aggregate.getGroupByExpressions(),
-                globalAggOutput, bufferToResultParam,
+                globalAggOutput, aggregate.getPartitionExpressions(), bufferToResultParam,
                 AggregateUtils.maybeUsingStreamAgg(aggregate.getGroupByExpressions(), bufferToResultParam),
                 aggregate.getLogicalProperties(), localAgg));
     }

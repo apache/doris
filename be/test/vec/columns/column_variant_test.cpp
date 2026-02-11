@@ -29,6 +29,7 @@
 #include <cstdint>
 
 #include "common/cast_set.h"
+#include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/jsonb_value.h"
 #include "testutil/test_util.h"
@@ -2832,10 +2833,6 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         Map map;
         map.push_back(Field::create_field<TYPE_ARRAY>(std::move(k1)));
         map.push_back(Field::create_field<TYPE_ARRAY>(std::move(v1)));
-        FieldInfo info;
-        EXPECT_THROW(
-                variant_util::get_field_info(vectorized::Field::create_field<TYPE_MAP>(map), &info),
-                doris::Exception);
     }
 
     // Test Array with different types
@@ -3617,6 +3614,40 @@ TEST_F(ColumnVariantTest, subcolumn_finalize_and_insert) {
     field2.num_dimensions = 1;
     array_subcolumn.insert(field2);
     array_subcolumn.finalize();
+}
+
+TEST_F(ColumnVariantTest, deserialize_mixed_array_elements) {
+    ColumnVariant::Subcolumn subcolumn(0, true /* is_nullable */, false /* is_root */);
+
+    {
+        Field array_field = Field::create_field<TYPE_ARRAY>(Array());
+        auto& array = array_field.get<TYPE_ARRAY>();
+        array.emplace_back(Field::create_field<TYPE_DOUBLE>(1.0));
+        array.emplace_back(Field::create_field<TYPE_DOUBLE>(2.0));
+        subcolumn.insert(array_field);
+    }
+
+    ColumnString encoded;
+    std::string buf;
+    buf.push_back(static_cast<char>(FieldType::OLAP_FIELD_TYPE_ARRAY));
+    const size_t nested_size = 2;
+    buf.append(reinterpret_cast<const char*>(&nested_size), sizeof(size_t));
+    buf.push_back(static_cast<char>(FieldType::OLAP_FIELD_TYPE_DOUBLE));
+    const double d = 1.0;
+    buf.append(reinterpret_cast<const char*>(&d), sizeof(double));
+    buf.push_back(static_cast<char>(FieldType::OLAP_FIELD_TYPE_STRING));
+    const size_t str_size = 3;
+    buf.append(reinterpret_cast<const char*>(&str_size), sizeof(size_t));
+    buf.append("abc", 3);
+    encoded.insert_data(buf.data(), buf.size());
+
+    subcolumn.deserialize_from_binary_column(&encoded, 0);
+
+    EXPECT_EQ(subcolumn.size(), 2);
+    const auto base_type = get_base_type_of_array(subcolumn.get_least_common_type());
+    EXPECT_EQ(static_cast<int>(base_type->get_primitive_type()),
+              static_cast<int>(PrimitiveType::TYPE_JSONB))
+            << subcolumn.get_least_common_type()->get_name();
 }
 
 } // namespace doris::vectorized

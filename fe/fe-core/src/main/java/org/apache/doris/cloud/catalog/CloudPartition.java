@@ -358,6 +358,12 @@ public class CloudPartition extends Partition {
     }
 
     @Override
+    public long getCommittedVersion() {
+        // Cloud partition version is managed by meta-service, not resident in FE memory.
+        return -1;
+    }
+
+    @Override
     public long getNextVersion() {
         // use meta service visibleVersion
         if (LOG.isDebugEnabled()) {

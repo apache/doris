@@ -292,38 +292,68 @@ public class SearchDslParserTest {
 
     @Test
     public void testDefaultFieldWithMultiTermAnd() {
-        // Test: "foo bar" + field="tags" + operator="and" → "tags:ALL(foo bar)"
+        // Test: "foo bar" + field="tags" + operator="and" → "tags:foo AND tags:bar"
+        // With single-phase parsing, multi-term queries are parsed as separate terms
         String dsl = "foo bar";
         QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "and");
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.ALL, plan.getRoot().getType());
-        Assertions.assertEquals("tags", plan.getRoot().getField());
-        Assertions.assertEquals("foo bar", plan.getRoot().getValue());
+        Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
+
+        QsNode firstChild = plan.getRoot().getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.TERM, firstChild.getType());
+        Assertions.assertEquals("tags", firstChild.getField());
+        Assertions.assertEquals("foo", firstChild.getValue());
+
+        QsNode secondChild = plan.getRoot().getChildren().get(1);
+        Assertions.assertEquals(QsClauseType.TERM, secondChild.getType());
+        Assertions.assertEquals("tags", secondChild.getField());
+        Assertions.assertEquals("bar", secondChild.getValue());
     }
 
     @Test
     public void testDefaultFieldWithMultiTermOr() {
-        // Test: "foo bar" + field="tags" + operator="or" → "tags:ANY(foo bar)"
+        // Test: "foo bar" + field="tags" + operator="or" → "tags:foo OR tags:bar"
+        // With single-phase parsing, multi-term queries are parsed as separate terms
         String dsl = "foo bar";
         QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "or");
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.ANY, plan.getRoot().getType());
-        Assertions.assertEquals("tags", plan.getRoot().getField());
-        Assertions.assertEquals("foo bar", plan.getRoot().getValue());
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
+
+        QsNode firstChild = plan.getRoot().getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.TERM, firstChild.getType());
+        Assertions.assertEquals("tags", firstChild.getField());
+        Assertions.assertEquals("foo", firstChild.getValue());
+
+        QsNode secondChild = plan.getRoot().getChildren().get(1);
+        Assertions.assertEquals(QsClauseType.TERM, secondChild.getType());
+        Assertions.assertEquals("tags", secondChild.getField());
+        Assertions.assertEquals("bar", secondChild.getValue());
     }
 
     @Test
     public void testDefaultFieldWithMultiTermDefaultOr() {
-        // Test: "foo bar" + field="tags" (no operator, defaults to OR) → "tags:ANY(foo bar)"
+        // Test: "foo bar" + field="tags" (no operator, defaults to OR) → "tags:foo OR tags:bar"
+        // With single-phase parsing, multi-term queries are parsed as separate terms
         String dsl = "foo bar";
         QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", null);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.ANY, plan.getRoot().getType());
-        Assertions.assertEquals("tags", plan.getRoot().getField());
-        Assertions.assertEquals("foo bar", plan.getRoot().getValue());
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
+
+        QsNode firstChild = plan.getRoot().getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.TERM, firstChild.getType());
+        Assertions.assertEquals("tags", firstChild.getField());
+        Assertions.assertEquals("foo", firstChild.getValue());
+
+        QsNode secondChild = plan.getRoot().getChildren().get(1);
+        Assertions.assertEquals(QsClauseType.TERM, secondChild.getType());
+        Assertions.assertEquals("tags", secondChild.getField());
+        Assertions.assertEquals("bar", secondChild.getValue());
     }
 
     @Test
@@ -450,33 +480,44 @@ public class SearchDslParserTest {
 
     @Test
     public void testInvalidDefaultOperator() {
-        // Test: invalid operator should throw exception
+        // Test: invalid operator should throw IllegalArgumentException
         String dsl = "foo bar";
 
-        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class, () -> {
+        // Invalid operator should throw exception
+        Assertions.assertThrows(IllegalArgumentException.class, () -> {
             SearchDslParser.parseDsl(dsl, "tags", "invalid");
         });
+    }
 
-        Assertions.assertTrue(exception.getMessage().contains("Invalid default operator"));
-        Assertions.assertTrue(exception.getMessage().contains("Must be 'and' or 'or'"));
+    @Test
+    public void testDefaultFieldWithInFunction() {
+        // Test: "IN(value1 value2)" + field="tags" → "tags:IN(value1 value2)"
+        String dsl = "IN(value1 value2)";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", null);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.LIST, plan.getRoot().getType());
+        Assertions.assertEquals("tags", plan.getRoot().getField());
+        Assertions.assertEquals("IN(value1 value2)", plan.getRoot().getValue());
     }
 
     @Test
     public void testDefaultOperatorCaseInsensitive() {
         // Test: operator should be case-insensitive
+        // With single-phase parsing, multi-term queries produce AND/OR nodes
         String dsl = "foo bar";
 
         // Test "AND"
         QsPlan plan1 = SearchDslParser.parseDsl(dsl, "tags", "AND");
-        Assertions.assertEquals(QsClauseType.ALL, plan1.getRoot().getType());
+        Assertions.assertEquals(QsClauseType.AND, plan1.getRoot().getType());
 
         // Test "Or"
         QsPlan plan2 = SearchDslParser.parseDsl(dsl, "tags", "Or");
-        Assertions.assertEquals(QsClauseType.ANY, plan2.getRoot().getType());
+        Assertions.assertEquals(QsClauseType.OR, plan2.getRoot().getType());
 
         // Test "aNd"
         QsPlan plan3 = SearchDslParser.parseDsl(dsl, "tags", "aNd");
-        Assertions.assertEquals(QsClauseType.ALL, plan3.getRoot().getType());
+        Assertions.assertEquals(QsClauseType.AND, plan3.getRoot().getType());
     }
 
     @Test
@@ -548,11 +589,12 @@ public class SearchDslParserTest {
     @Test
     public void testDefaultFieldWithNullOperator() {
         // Test: null operator should default to OR
+        // With single-phase parsing, multi-term queries produce OR nodes
         String dsl = "foo bar";
         QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", null);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.ANY, plan.getRoot().getType()); // Defaults to OR/ANY
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType()); // Defaults to OR
     }
 
     @Test
@@ -1079,9 +1121,10 @@ public class SearchDslParserTest {
 
     @Test
     public void testMultiFieldNotOperator() {
-        // Test: "NOT hello" + fields=["title","content"]
+        // Test: "NOT hello" + fields=["title","content"] with cross_fields type
+        // cross_fields: NOT (title:hello OR content:hello)
         String dsl = "NOT hello";
-        String options = "{\"fields\":[\"title\",\"content\"]}";
+        String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"cross_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1317,5 +1360,233 @@ public class SearchDslParserTest {
         // Both should have same structure: (title:hello OR content:hello)
         Assertions.assertEquals(planBest.getRoot().getType(), planCross.getRoot().getType());
         Assertions.assertEquals(planBest.getRoot().getChildren().size(), planCross.getRoot().getChildren().size());
+    }
+
+    // =====================================================================
+    // Tests for bare query support (without field: prefix)
+    // These tests verify the single-phase parsing where ANTLR grammar
+    // natively supports bareQuery and visitor fills in default field
+    // =====================================================================
+
+    @Test
+    public void testBareTermWithDefaultField() {
+        // Bare term without field prefix - uses default_field
+        String dsl = "hello";
+        String options = "{\"default_field\":\"title\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        Assertions.assertEquals("hello", plan.getRoot().getValue());
+    }
+
+    @Test
+    public void testBareRegexWithDefaultField() {
+        // Bare regex without field prefix - uses default_field
+        String dsl = "/[a-z]+/";
+        String options = "{\"default_field\":\"title\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.REGEXP, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        Assertions.assertEquals("[a-z]+", plan.getRoot().getValue());
+    }
+
+    @Test
+    public void testBareTermNotWithRegex() {
+        // DORIS-24368 scenario: bare term NOT bare regex
+        // "Anthony NOT /(\\d{1,2}:\\d{2} [AP]M)/"
+        String dsl = "Anthony NOT /(\\d{1,2}:\\d{2} [AP]M)/";
+        String options = "{\"default_field\":\"title\",\"default_operator\":\"AND\",\"mode\":\"lucene\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        // Should parse correctly without mangling the regex
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
+    }
+
+    @Test
+    public void testMixedFieldAndBareQuery() {
+        // Mixed: explicit field + bare query
+        // "content:/[a-z]+/ AND hello" where hello uses default_field=title
+        String dsl = "content:/[a-z]+/ AND hello";
+        String options = "{\"default_field\":\"title\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
+
+        // First child: content:/[a-z]+/
+        QsNode first = plan.getRoot().getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.REGEXP, first.getType());
+        Assertions.assertEquals("content", first.getField());
+
+        // Second child: hello with default_field=title
+        QsNode second = plan.getRoot().getChildren().get(1);
+        Assertions.assertEquals(QsClauseType.TERM, second.getType());
+        Assertions.assertEquals("title", second.getField());
+    }
+
+    @Test
+    public void testRegexWithOperatorKeywordsInside() {
+        // Regex containing AND/OR keywords - should not be treated as operators
+        String dsl = "/pattern AND stuff/";
+        String options = "{\"default_field\":\"title\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.REGEXP, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        // The AND inside regex should be preserved literally
+        Assertions.assertEquals("pattern AND stuff", plan.getRoot().getValue());
+    }
+
+    @Test
+    public void testRegexWithSpacesAndColons() {
+        // Regex containing spaces and colons - should not break parsing
+        String dsl = "/\\d{1,2}:\\d{2} [AP]M/";
+        String options = "{\"default_field\":\"title\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.REGEXP, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        Assertions.assertEquals("\\d{1,2}:\\d{2} [AP]M", plan.getRoot().getValue());
+    }
+
+    @Test
+    public void testBarePhraseWithDefaultField() {
+        // Bare phrase without field prefix
+        String dsl = "\"hello world\"";
+        String options = "{\"default_field\":\"content\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.PHRASE, plan.getRoot().getType());
+        Assertions.assertEquals("content", plan.getRoot().getField());
+        Assertions.assertEquals("hello world", plan.getRoot().getValue());
+    }
+
+    @Test
+    public void testBarePrefixWithDefaultField() {
+        // Bare prefix query without field prefix
+        String dsl = "hello*";
+        String options = "{\"default_field\":\"title\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.PREFIX, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        Assertions.assertEquals("hello*", plan.getRoot().getValue());
+    }
+
+    @Test
+    public void testBareWildcardWithDefaultField() {
+        // Bare wildcard query without field prefix
+        String dsl = "h*llo";
+        String options = "{\"default_field\":\"title\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.WILDCARD, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        Assertions.assertEquals("h*llo", plan.getRoot().getValue());
+    }
+
+    @Test
+    public void testBareQueryWithoutDefaultFieldThrows() {
+        // Bare query without default_field should throw an error
+        String dsl = "hello";
+        String options = "{}";  // No default_field
+
+        Assertions.assertThrows(RuntimeException.class, () -> {
+            SearchDslParser.parseDsl(dsl, options);
+        });
+    }
+
+    @Test
+    public void testBareAndOperatorWithDefaultField() {
+        // "hello AND world" with default_field
+        String dsl = "hello AND world";
+        String options = "{\"default_field\":\"title\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
+
+        for (QsNode child : plan.getRoot().getChildren()) {
+            Assertions.assertEquals(QsClauseType.TERM, child.getType());
+            Assertions.assertEquals("title", child.getField());
+        }
+    }
+
+    @Test
+    public void testBareOrOperatorWithDefaultField() {
+        // "hello OR world" with default_field
+        String dsl = "hello OR world";
+        String options = "{\"default_field\":\"title\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
+
+        for (QsNode child : plan.getRoot().getChildren()) {
+            Assertions.assertEquals(QsClauseType.TERM, child.getType());
+            Assertions.assertEquals("title", child.getField());
+        }
+    }
+
+    @Test
+    public void testBareNotOperatorWithDefaultField() {
+        // "NOT hello" with default_field
+        String dsl = "NOT hello";
+        String options = "{\"default_field\":\"title\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.NOT, plan.getRoot().getType());
+        Assertions.assertEquals(1, plan.getRoot().getChildren().size());
+
+        QsNode child = plan.getRoot().getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.TERM, child.getType());
+        Assertions.assertEquals("title", child.getField());
+    }
+
+    @Test
+    public void testComplexBareQueryLuceneMode() {
+        // Complex bare query in Lucene mode
+        // "a AND b OR NOT c" with default_field
+        String dsl = "a AND b OR NOT c";
+        String options = "{\"default_field\":\"title\",\"mode\":\"lucene\",\"minimum_should_match\":0}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
+    }
+
+    @Test
+    public void testParenthesizedBareQuery() {
+        // "(hello OR world) AND foo" with default_field
+        String dsl = "(hello OR world) AND foo";
+        String options = "{\"default_field\":\"title\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
+
+        // First child should be OR
+        QsNode orNode = plan.getRoot().getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.OR, orNode.getType());
+
+        // Second child should be TERM
+        QsNode termNode = plan.getRoot().getChildren().get(1);
+        Assertions.assertEquals(QsClauseType.TERM, termNode.getType());
+        Assertions.assertEquals("title", termNode.getField());
     }
 }

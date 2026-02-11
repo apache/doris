@@ -28,6 +28,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.cache.IcebergManifestCache;
+import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -35,7 +36,6 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.exception.ExceptionUtils;
-import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
@@ -65,28 +65,38 @@ public class IcebergMetadataCache {
     }
 
     public void init() {
-        long tableMetaCacheTtlSecond = NumberUtils.toLong(
-                catalog.getProperties().get(IcebergExternalCatalog.ICEBERG_TABLE_META_CACHE_TTL_SECOND),
-                ExternalCatalog.CACHE_NO_TTL);
-
+        CacheSpec tableCacheSpec = resolveTableCacheSpec();
         CacheFactory tableCacheFactory = new CacheFactory(
-                OptionalLong.of(tableMetaCacheTtlSecond >= ExternalCatalog.CACHE_TTL_DISABLE_CACHE
-                    ? tableMetaCacheTtlSecond : Config.external_cache_expire_time_seconds_after_access),
-                OptionalLong.of(Config.external_cache_refresh_time_minutes * 60),
-                Config.max_external_table_cache_num,
+                CacheSpec.toExpireAfterAccess(tableCacheSpec.getTtlSecond()),
+                OptionalLong.empty(),
+                tableCacheSpec.getCapacity(),
                 true,
                 null);
         this.tableCache = tableCacheFactory.buildCache(this::loadTableCacheValue, executor);
         this.viewCache = tableCacheFactory.buildCache(this::loadView, executor);
 
-        long manifestCacheCapacityMb = NumberUtils.toLong(
-                catalog.getProperties().get(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_CAPACITY_MB),
-                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY_MB);
-        manifestCacheCapacityMb = Math.max(manifestCacheCapacityMb, 0L);
-        long manifestCacheTtlSec = NumberUtils.toLong(
-                catalog.getProperties().get(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_TTL_SECOND),
-                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND);
-        this.manifestCache = new IcebergManifestCache(manifestCacheCapacityMb, manifestCacheTtlSec);
+        CacheSpec manifestCacheSpec = resolveManifestCacheSpec();
+        this.manifestCache = new IcebergManifestCache(manifestCacheSpec.getCapacity(),
+                manifestCacheSpec.getTtlSecond());
+    }
+
+    private CacheSpec resolveTableCacheSpec() {
+        return CacheSpec.fromProperties(catalog.getProperties(),
+                IcebergExternalCatalog.ICEBERG_TABLE_CACHE_ENABLE, true,
+                IcebergExternalCatalog.ICEBERG_TABLE_CACHE_TTL_SECOND,
+                Config.external_cache_expire_time_seconds_after_access,
+                IcebergExternalCatalog.ICEBERG_TABLE_CACHE_CAPACITY,
+                Config.max_external_table_cache_num);
+    }
+
+    private CacheSpec resolveManifestCacheSpec() {
+        return CacheSpec.fromProperties(catalog.getProperties(),
+                IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_ENABLE,
+                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE,
+                IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_TTL_SECOND,
+                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND,
+                IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_CAPACITY,
+                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY);
     }
 
     public Table getIcebergTable(ExternalTable dorisTable) {
@@ -169,74 +179,61 @@ public class IcebergMetadataCache {
     }
 
     public void invalidateCatalogCache(long catalogId) {
-        tableCache.asMap().entrySet().stream()
-                .filter(entry -> entry.getKey().nameMapping.getCtlId() == catalogId)
-                .forEach(entry -> {
-                    ManifestFiles.dropCache(entry.getValue().getIcebergTable().io());
-                    if (LOG.isDebugEnabled()) {
-                        LOG.info("invalidate iceberg table cache {} when invalidating catalog cache",
-                                entry.getKey().nameMapping, new Exception());
-                    }
-                    tableCache.invalidate(entry.getKey());
-                });
-
-        viewCache.asMap().entrySet().stream()
-                .filter(entry -> entry.getKey().nameMapping.getCtlId() == catalogId)
-                .forEach(entry -> viewCache.invalidate(entry.getKey()));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalidate all iceberg table cache when invalidating catalog {}", catalogId);
+        }
+        // Invalidate all entries related to the catalog
+        tableCache.invalidateAll();
+        viewCache.invalidateAll();
         manifestCache.invalidateAll();
     }
 
     public void invalidateTableCache(ExternalTable dorisTable) {
-        long catalogId = dorisTable.getCatalog().getId();
+        IcebergMetadataCacheKey key = IcebergMetadataCacheKey.of(dorisTable.getOrBuildNameMapping());
+        IcebergTableCacheValue tableCacheValue = tableCache.getIfPresent(key);
+        if (tableCacheValue != null) {
+            invalidateTableCache(key, tableCacheValue);
+        } else {
+            invalidateTableCacheByLocalName(dorisTable);
+        }
+    }
+
+    private void invalidateTableCache(IcebergMetadataCacheKey key, IcebergTableCacheValue tableCacheValue) {
+        ManifestFiles.dropCache(tableCacheValue.getIcebergTable().io());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalidate iceberg table cache {}", key.nameMapping, new Exception());
+        }
+        tableCache.invalidate(key);
+        viewCache.invalidate(key);
+    }
+
+    private void invalidateTableCacheByLocalName(ExternalTable dorisTable) {
         String dbName = dorisTable.getDbName();
         String tblName = dorisTable.getName();
         tableCache.asMap().entrySet().stream()
-                .filter(entry -> {
-                    IcebergMetadataCacheKey key = entry.getKey();
-                    return key.nameMapping.getCtlId() == catalogId
-                            && key.nameMapping.getLocalDbName().equals(dbName)
-                            && key.nameMapping.getLocalTblName().equals(tblName);
-                })
-                .forEach(entry -> {
-                    ManifestFiles.dropCache(entry.getValue().getIcebergTable().io());
-                    if (LOG.isDebugEnabled()) {
-                        LOG.info("invalidate iceberg table cache {}",
-                                entry.getKey().nameMapping, new Exception());
-                    }
-                    tableCache.invalidate(entry.getKey());
-                });
-        viewCache.asMap().entrySet().stream()
-                .filter(entry -> {
-                    IcebergMetadataCacheKey key = entry.getKey();
-                    return key.nameMapping.getCtlId() == catalogId
-                            && key.nameMapping.getLocalDbName().equals(dbName)
-                            && key.nameMapping.getLocalTblName().equals(tblName);
-                })
-                .forEach(entry -> viewCache.invalidate(entry.getKey()));
+                .filter(entry -> entry.getKey().nameMapping.getLocalDbName().equals(dbName)
+                        && entry.getKey().nameMapping.getLocalTblName().equals(tblName))
+                .forEach(entry -> invalidateTableCache(entry.getKey(), entry.getValue()));
+        viewCache.asMap().keySet().stream()
+                .filter(key -> key.nameMapping.getLocalDbName().equals(dbName)
+                        && key.nameMapping.getLocalTblName().equals(tblName))
+                .forEach(viewCache::invalidate);
     }
 
     public void invalidateDbCache(long catalogId, String dbName) {
         tableCache.asMap().entrySet().stream()
-                .filter(entry -> {
-                    IcebergMetadataCacheKey key = entry.getKey();
-                    return key.nameMapping.getCtlId() == catalogId
-                            && key.nameMapping.getLocalDbName().equals(dbName);
-                })
+                .filter(entry -> entry.getKey().nameMapping.getLocalDbName().equals(dbName))
                 .forEach(entry -> {
                     ManifestFiles.dropCache(entry.getValue().getIcebergTable().io());
                     if (LOG.isDebugEnabled()) {
-                        LOG.info("invalidate iceberg table cache {} when invalidating db cache",
+                        LOG.debug("invalidate iceberg table cache {} when invalidating db cache",
                                 entry.getKey().nameMapping, new Exception());
                     }
                     tableCache.invalidate(entry.getKey());
                 });
-        viewCache.asMap().entrySet().stream()
-                .filter(entry -> {
-                    IcebergMetadataCacheKey key = entry.getKey();
-                    return key.nameMapping.getCtlId() == catalogId
-                            && key.nameMapping.getLocalDbName().equals(dbName);
-                })
-                .forEach(entry -> viewCache.invalidate(entry.getKey()));
+        viewCache.asMap().keySet().stream()
+                .filter(key -> key.nameMapping.getLocalDbName().equals(dbName))
+                .forEach(viewCache::invalidate);
     }
 
     private static void initIcebergTableFileIO(Table table, Map<String, String> props) {
@@ -258,6 +255,10 @@ public class IcebergMetadataCache {
 
         private IcebergMetadataCacheKey(NameMapping nameMapping) {
             this.nameMapping = nameMapping;
+        }
+
+        private static IcebergMetadataCacheKey of(NameMapping nameMapping) {
+            return new IcebergMetadataCacheKey(nameMapping);
         }
 
         @Override

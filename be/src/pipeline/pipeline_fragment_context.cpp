@@ -2089,6 +2089,8 @@ Status PipelineFragmentContext::set_to_rerun() {
 Status PipelineFragmentContext::rebuild(ThreadPool* thread_pool) {
     _submitted = false;
     _is_fragment_instance_closed = false;
+    // _require_bucket_distribution may be set to true to affect the building of pipeline with local shuffle
+    _require_bucket_distribution = false;
     return _build_and_prepare_full_pipeline(thread_pool);
 }
 
