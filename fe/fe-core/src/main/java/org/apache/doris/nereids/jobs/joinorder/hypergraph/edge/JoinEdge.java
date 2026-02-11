@@ -53,7 +53,8 @@ public class JoinEdge extends Edge {
      * swap the edge
      */
     public JoinEdge swap() {
-        JoinEdge swapEdge = new JoinEdge(join.swap(), getIndex(), getRightChildEdges(),
+        JoinEdge swapEdge = new
+                JoinEdge(join.swap(), getIndex(), getRightChildEdges(),
                 getLeftChildEdges(), getSubTreeNodes(), getRightRequiredNodes(), getLeftRequiredNodes(),
                 this.rightInputSlots, this.leftInputSlots);
         swapEdge.addLeftRejectEdges(getLeftRejectEdge());

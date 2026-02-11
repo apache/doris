@@ -26,13 +26,19 @@ import org.apache.doris.nereids.util.HyperGraphBuilder;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Set;
 
-public class OtherJoinTest extends TPCHTestBase {
+/**
+ * Consistency tests for GraphSimplifier: ensure enumeration outputs
+ * are the same before and after simplification with different limits.
+ */
+class GraphSimplifierConsistencyTest extends TPCHTestBase {
+
     @Test
     public void test() {
         for (int t = 3; t < 30; t++) {
@@ -53,34 +59,37 @@ public class OtherJoinTest extends TPCHTestBase {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext.getStatementContext(),
                 plan);
         hyperGraphBuilder.initStats("tpch", cascadesContext);
-        try {
-            Plan optimizedPlan = PlanChecker.from(cascadesContext)
-                    .dpHypOptimize()
-                    .getBestPlanTree();
+        List<Integer> limit = ImmutableList.of(100, 30, 1);
+        for (int i = 0; i < limit.size(); ++i) {
+            connectContext.getSessionVariable().dphyperLimit = limit.get(i);
+            try {
+                Plan optimizedPlan = PlanChecker.from(cascadesContext)
+                        .dpHypOptimize()
+                        .getBestPlanTree();
 
-            Set<List<String>> res2 = hyperGraphBuilder.evaluate(optimizedPlan);
+                Set<List<String>> res2 = hyperGraphBuilder.evaluate(optimizedPlan);
 
-            if (!res1.equals(res2)) {
-                res1 = hyperGraphBuilder.evaluate(plan);
-                res2 = hyperGraphBuilder.evaluate(optimizedPlan);
-                System.out.println("==== ORIGINAL PLAN ====");
+                if (!res1.equals(res2)) {
+                    res1 = hyperGraphBuilder.evaluate(plan);
+                    res2 = hyperGraphBuilder.evaluate(optimizedPlan);
+                    System.out.println("==== ORIGINAL PLAN ====");
+                    System.out.println(originalPlanStr);
+                    System.out.println("==== OPTIMIZED PLAN ====");
+                    System.out.println(optimizedPlan.treeString());
+                    cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
+                    PlanChecker.from(cascadesContext).dpHypOptimize().getBestPlanTree();
+                    System.out.println("==== EXPECTED RESULTS ====");
+                    System.out.println(res1);
+                    System.out.println("==== ACTUAL RESULTS ====");
+                    System.out.println(res2);
+                }
+                Assertions.assertTrue(res1.equals(res2));
+            } catch (Exception ex) {
+                System.out.println("Exception during optimization/evaluation:");
+                ex.printStackTrace(System.out);
+                System.out.println("==== ORIGINAL PLAN (on exception) ====");
                 System.out.println(originalPlanStr);
-                System.out.println("==== OPTIMIZED PLAN ====");
-                System.out.println(optimizedPlan.treeString());
-                cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
-                PlanChecker.from(cascadesContext).dpHypOptimize().getBestPlanTree();
-                System.out.println("==== EXPECTED RESULTS ====");
-                System.out.println(res1);
-                System.out.println("==== ACTUAL RESULTS ====");
-                System.out.println(res2);
             }
-            Assertions.assertTrue(res1.equals(res2));
-        } catch (Exception ex) {
-            System.out.println("Exception during optimization/evaluation:");
-            ex.printStackTrace(System.out);
-            System.out.println("==== ORIGINAL PLAN (on exception) ====");
-            System.out.println(originalPlanStr);
         }
-
     }
 }

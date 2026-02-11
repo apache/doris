@@ -316,7 +316,7 @@ public class GraphSimplifier {
     }
 
     private boolean trySetSimplificationStep(SimplificationStep step, BestSimplification bestSimplification,
-                                             int index, int neighborIndex) {
+            int index, int neighborIndex) {
         if (bestSimplification.bestNeighbor == -1 || !bestSimplification.isInQueue
                 || bestSimplification.getBenefit() <= step.getBenefit()) {
             bestSimplification.bestNeighbor = neighborIndex;
@@ -483,9 +483,9 @@ public class GraphSimplifier {
     }
 
     private @Nullable JoinEdge threeRightJoin(long bitmap1, JoinEdge edge1, long bitmap2,
-                                              JoinEdge edge2, long bitmap3) {
+            JoinEdge edge2, long bitmap3) {
         Preconditions.checkArgument(cacheStats.containsKey(bitmap1)
-                && cacheStats.containsKey(bitmap2) && cacheStats.containsKey(bitmap3));
+                        && cacheStats.containsKey(bitmap2) && cacheStats.containsKey(bitmap3));
         // plan1 edge1 (plan2 edge2 plan3)
         long newRight = LongBitmap.newBitmapUnion(bitmap2, bitmap3);
         if (LongBitmap.isOverlap(bitmap1, newRight)) {
@@ -501,7 +501,7 @@ public class GraphSimplifier {
     }
 
     private SimplificationStep orderJoin(JoinEdge edge1Before2,
-                                         JoinEdge edge2Before1, int edgeIndex1, int edgeIndex2) {
+            JoinEdge edge2Before1, int edgeIndex1, int edgeIndex2) {
         double cost1Before2 = calCost(edge1Before2,
                 edge1Before2.getLeftExtendedNodes(), edge1Before2.getRightExtendedNodes());
         double cost2Before1 = calCost(edge2Before1,
@@ -571,7 +571,7 @@ public class GraphSimplifier {
         long oldRight;
 
         SimplificationStep(double benefit, int beforeIndex, int afterIndex, long newLeft, long newRight,
-                           long oldLeft, long oldRight) {
+                long oldLeft, long oldRight) {
             this.afterIndex = afterIndex;
             this.beforeIndex = beforeIndex;
             this.benefit = benefit;

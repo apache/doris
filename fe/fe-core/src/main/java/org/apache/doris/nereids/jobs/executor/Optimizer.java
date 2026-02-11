@@ -27,6 +27,7 @@ import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.CTEInliner;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
@@ -115,11 +116,9 @@ public class Optimizer {
                 && !cascadesContext.isLeadingDisableJoinReorder()
                 && continuousJoinNum <= sessionVariable.getMaxJoinNumberOfReorder()
                 && isDpHyp;
-        finalEnableDpHyp = true;
+//        finalEnableDpHyp = true;
         cascadesContext.getStatementContext().setDpHyp(finalEnableDpHyp);
         return finalEnableDpHyp;
-
-        //        return true;
     }
 
     private void dpHypOptimize() {
@@ -139,10 +138,12 @@ public class Optimizer {
         RewriteJob columnPrune = AbstractBatchJobExecutor.custom(RuleType.COLUMN_PRUNING, ColumnPruning::new);
         RewriteJob adjustNullable = AbstractBatchJobExecutor.custom(RuleType.ADJUST_NULLABLE,
                 () -> new AdjustNullable(false));
+        RewriteJob checkAfterRewrite = AbstractBatchJobExecutor.bottomUp(new CheckAfterRewrite());
         AbstractBatchJobExecutor executor = new AbstractBatchJobExecutor(tempCtx) {
             @Override
             public java.util.List<org.apache.doris.nereids.jobs.rewrite.RewriteJob> getJobs() {
-                return com.google.common.collect.ImmutableList.of(pushDownRewrite, columnPrune, adjustNullable);
+                return com.google.common.collect.ImmutableList.of(pushDownRewrite, columnPrune, adjustNullable,
+                        checkAfterRewrite);
             }
         };
         boolean oldFeDebugValue = tempCtx.getStatementContext().getConnectContext().getSessionVariable().feDebug;
