@@ -50,7 +50,7 @@ public:
 
 private:
     void _do_filter(MergeSortCursorImpl& block, size_t num_rows);
-    size_t _data_size = 0;
+    int64_t _data_size = 0;
     size_t _heap_size = 0;
     size_t _queue_row_num = 0;
     MergeSorterQueue _queue;
