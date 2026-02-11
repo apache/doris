@@ -327,6 +327,13 @@ if (ENABLE_HDFS_STORAGE_VAULT)
         -ljvm)
 endif()
 
+if(BUILD_OSS STREQUAL "ON")
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
+        ${THIRDPARTY_DIR}/lib/libalibabacloud-oss-cpp-sdk.a
+        ${THIRDPARTY_DIR}/lib/libapr-1.a
+        ${THIRDPARTY_DIR}/lib/libaprutil-1.a)
+endif()
+
 if (NOT (USE_LIBCPP AND COMPILER_CLANG))
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -lstdc++fs)
 endif()
@@ -341,6 +348,12 @@ option(BUILD_AZURE "ON for building azure support for BE or OFF for not" OFF)
 message(STATUS "build azure: ${BUILD_AZURE}")
 if(BUILD_AZURE STREQUAL "ON")
     add_definitions(-DUSE_AZURE)
+endif()
+
+option(BUILD_OSS "ON for building OSS support or OFF for not" ON)
+message(STATUS "build OSS: ${BUILD_OSS}")
+if(BUILD_OSS STREQUAL "ON")
+    add_definitions(-DUSE_OSS)
 endif()
 
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")

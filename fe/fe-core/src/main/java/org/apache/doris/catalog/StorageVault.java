@@ -51,7 +51,8 @@ public abstract class StorageVault {
     public enum StorageVaultType {
         UNKNOWN,
         S3,
-        HDFS;
+        HDFS,
+        OSS;
 
         public static StorageVaultType fromString(String storageVaultTypeType) {
             for (StorageVaultType type : StorageVaultType.values()) {
@@ -152,6 +153,12 @@ public abstract class StorageVault {
                         new CreateResourceCommand(info);
                 resourceCommand.getInfo().analyzeResourceType();
                 vault = new S3StorageVault(name, ifNotExists, setAsDefault, resourceCommand);
+                break;
+            case OSS:
+                CreateResourceStmt ossResourceStmt =
+                        new CreateResourceStmt(false, ifNotExists, name, stmt.getProperties());
+                ossResourceStmt.analyzeResourceType();
+                vault = new OSSStorageVault(name, ifNotExists, setAsDefault, ossResourceStmt);
                 break;
             default:
                 throw new DdlException("Unknown StorageVault type: " + type);

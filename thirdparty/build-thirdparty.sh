@@ -1882,6 +1882,102 @@ build_ali_sdk() {
     "${BUILD_SYSTEM}" install
 }
 
+# Apache Portable Runtime (APR) - Required by OSS SDK
+build_apr() {
+    # Check if already built
+    if [[ -f "${TP_INSTALL_DIR}/lib/libapr-1.a" ]]; then
+        echo "APR already built, skipping"
+        return
+    fi
+
+    # Download if needed
+    if [[ ! -d "${TP_SOURCE_DIR}/${APR_SOURCE}" ]]; then
+        echo "Downloading APR..."
+        cd "${TP_SOURCE_DIR}"
+        if [[ ! -f "${APR_NAME}" ]]; then
+            wget --no-check-certificate "${APR_DOWNLOAD}" -O "${APR_NAME}"
+        fi
+        tar xzf "${APR_NAME}"
+    fi
+
+    check_if_source_exist "${APR_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${APR_SOURCE}"
+
+    # Clean previous build
+    make clean || true
+
+    # Use gcc instead of clang for APR
+    CC=gcc ./configure --prefix="${TP_INSTALL_DIR}" --enable-static --disable-shared
+    make -j "${PARALLEL}"
+    make install
+}
+
+# APR-Util - Required by OSS SDK
+build_apr_util() {
+    # Check if already built
+    if [[ -f "${TP_INSTALL_DIR}/lib/libaprutil-1.a" ]]; then
+        echo "APR-Util already built, skipping"
+        return
+    fi
+
+    # Download if needed
+    if [[ ! -d "${TP_SOURCE_DIR}/${APR_UTIL_SOURCE}" ]]; then
+        echo "Downloading APR-Util..."
+        cd "${TP_SOURCE_DIR}"
+        if [[ ! -f "${APR_UTIL_NAME}" ]]; then
+            wget --no-check-certificate "${APR_UTIL_DOWNLOAD}" -O "${APR_UTIL_NAME}"
+        fi
+        tar xzf "${APR_UTIL_NAME}"
+    fi
+
+    check_if_source_exist "${APR_UTIL_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${APR_UTIL_SOURCE}"
+
+    # Clean previous build
+    make clean || true
+
+    # Use gcc instead of clang for APR-Util
+    CC=gcc ./configure --prefix="${TP_INSTALL_DIR}" \
+        --with-apr="${TP_INSTALL_DIR}" \
+        --enable-static --disable-shared
+    make -j "${PARALLEL}"
+    make install
+}
+
+# AliCloud OSS C++ SDK 1.10.1 (V1 only - no V2 exists)
+build_oss() {
+    if [[ "${BUILD_OSS}" == "OFF" ]]; then
+        echo "Skip build OSS SDK"
+    else
+        # APR is required for OSS SDK
+        echo "Building APR dependencies for OSS SDK..."
+        build_apr
+        build_apr_util
+
+        check_if_source_exist "${OSS_SOURCE}"
+        cd "${TP_SOURCE_DIR}/${OSS_SOURCE}"
+
+        rm -rf "${BUILD_DIR}"
+        mkdir -p "${BUILD_DIR}"
+        cd "${BUILD_DIR}"
+
+        "${CMAKE_CMD}" -G "${GENERATOR}" \
+            -DCMAKE_C_COMPILER="${CC:-clang}" \
+            -DCMAKE_CXX_COMPILER="${CXX:-clang++}" \
+            -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+            -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_SAMPLE=OFF \
+            -DBUILD_TESTS=OFF \
+            -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
+            -DCMAKE_CXX_FLAGS="-fvisibility=hidden -D_GLIBCXX_USE_CXX11_ABI=1" \
+            ..
+
+        "${BUILD_SYSTEM}" -j "${PARALLEL}"
+        "${BUILD_SYSTEM}" install
+    fi
+}
+
 # base64
 build_base64() {
     check_if_source_exist "${BASE64_SOURCE}"
@@ -2146,6 +2242,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         libdeflate
         streamvbyte
         ali_sdk
+        oss
         base64
         azure
         brotli
