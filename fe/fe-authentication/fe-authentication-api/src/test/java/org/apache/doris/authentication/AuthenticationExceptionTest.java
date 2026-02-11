@@ -15,8 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.authentication.spi;
+package org.apache.doris.authentication;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -27,7 +28,7 @@ import org.junit.jupiter.api.Test;
 class AuthenticationExceptionTest {
 
     @Test
-    @DisplayName("UT-SPI-AE-001: Create exception with message")
+    @DisplayName("UT-API-AE-001: Create exception with message")
     void testCreateException_WithMessage() {
         // Given
         String message = "Authentication failed";
@@ -36,13 +37,13 @@ class AuthenticationExceptionTest {
         AuthenticationException exception = new AuthenticationException(message);
 
         // Then
-        assertNotNull(exception);
-        assertEquals(message, exception.getMessage());
-        assertNull(exception.getCause());
+        Assertions.assertNotNull(exception);
+        Assertions.assertEquals(message, exception.getMessage());
+        Assertions.assertNull(exception.getCause());
     }
 
     @Test
-    @DisplayName("UT-SPI-AE-002: Create exception with message and cause")
+    @DisplayName("UT-API-AE-002: Create exception with message and cause")
     void testCreateException_WithMessageAndCause() {
         // Given
         String message = "LDAP authentication failed";
@@ -52,15 +53,15 @@ class AuthenticationExceptionTest {
         AuthenticationException exception = new AuthenticationException(message, cause);
 
         // Then
-        assertNotNull(exception);
-        assertEquals(message, exception.getMessage());
-        assertNotNull(exception.getCause());
-        assertEquals(cause, exception.getCause());
-        assertEquals("Connection timeout", exception.getCause().getMessage());
+        Assertions.assertNotNull(exception);
+        Assertions.assertEquals(message, exception.getMessage());
+        Assertions.assertNotNull(exception.getCause());
+        Assertions.assertEquals(cause, exception.getCause());
+        Assertions.assertEquals("Connection timeout", exception.getCause().getMessage());
     }
 
     @Test
-    @DisplayName("UT-SPI-AE-003: Create exception with cause only")
+    @DisplayName("UT-API-AE-003: Create exception with cause only")
     void testCreateException_WithCause() {
         // Given
         Throwable cause = new IllegalArgumentException("Invalid credentials");
@@ -69,23 +70,23 @@ class AuthenticationExceptionTest {
         AuthenticationException exception = new AuthenticationException(cause);
 
         // Then
-        assertNotNull(exception);
-        assertNotNull(exception.getCause());
-        assertEquals(cause, exception.getCause());
+        Assertions.assertNotNull(exception);
+        Assertions.assertNotNull(exception.getCause());
+        Assertions.assertEquals(cause, exception.getCause());
     }
 
     @Test
-    @DisplayName("UT-SPI-AE-004: Exception is instance of Exception")
+    @DisplayName("UT-API-AE-004: Exception is instance of Exception")
     void testExceptionHierarchy() {
         // Given
         AuthenticationException exception = new AuthenticationException("Test");
 
         // When & Then
-        assertInstanceOf(Exception.class, exception);
+        Assertions.assertInstanceOf(Exception.class, exception);
     }
 
     @Test
-    @DisplayName("UT-SPI-AE-005: Exception supports stack trace")
+    @DisplayName("UT-API-AE-005: Exception supports stack trace")
     void testExceptionStackTrace() {
         // Given
         AuthenticationException exception = new AuthenticationException("Test exception");
@@ -94,9 +95,9 @@ class AuthenticationExceptionTest {
         StackTraceElement[] stackTrace = exception.getStackTrace();
 
         // Then
-        assertNotNull(stackTrace);
-        assertTrue(stackTrace.length > 0);
-        assertTrue(exception.toString().contains("AuthenticationException"));
-        assertTrue(exception.toString().contains("Test exception"));
+        Assertions.assertNotNull(stackTrace);
+        Assertions.assertTrue(stackTrace.length > 0);
+        Assertions.assertTrue(exception.toString().contains("AuthenticationException"));
+        Assertions.assertTrue(exception.toString().contains("Test exception"));
     }
 }

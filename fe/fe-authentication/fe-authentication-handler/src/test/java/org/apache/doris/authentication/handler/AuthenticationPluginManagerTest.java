@@ -17,14 +17,15 @@
 
 package org.apache.doris.authentication.handler;
 
+import org.apache.doris.authentication.AuthenticationException;
 import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationRequest;
+import org.apache.doris.authentication.AuthenticationResult;
 import org.apache.doris.authentication.BasicPrincipal;
-import org.apache.doris.authentication.spi.AuthenticationException;
 import org.apache.doris.authentication.spi.AuthenticationPlugin;
 import org.apache.doris.authentication.spi.AuthenticationPluginFactory;
-import org.apache.doris.authentication.spi.AuthenticationResult;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -33,16 +34,16 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Unit tests for {@link PluginManager}.
+ * Unit tests for {@link AuthenticationPluginManager}.
  */
 @DisplayName("PluginManager Unit Tests")
-class PluginManagerTest {
+class AuthenticationPluginManagerTest {
 
-    private PluginManager pluginManager;
+    private AuthenticationPluginManager pluginManager;
 
     @BeforeEach
     void setUp() {
-        pluginManager = new PluginManager();
+        pluginManager = new AuthenticationPluginManager();
     }
 
     @Test
@@ -52,9 +53,9 @@ class PluginManagerTest {
         List<String> pluginNames = pluginManager.getRegisteredPluginNames();
 
         // Then
-        assertNotNull(pluginNames);
-        assertFalse(pluginNames.isEmpty(), "Should load at least built-in plugins");
-        assertTrue(pluginNames.contains("password"), "Should include password plugin");
+        Assertions.assertNotNull(pluginNames);
+        Assertions.assertFalse(pluginNames.isEmpty(), "Should load at least built-in plugins");
+        Assertions.assertTrue(pluginNames.contains("password"), "Should include password plugin");
     }
 
     @Test
@@ -70,8 +71,8 @@ class PluginManagerTest {
         AuthenticationPlugin plugin = pluginManager.getPlugin(integration);
 
         // Then
-        assertNotNull(plugin);
-        assertEquals("password", plugin.name());
+        Assertions.assertNotNull(plugin);
+        Assertions.assertEquals("password", plugin.name());
     }
 
     @Test
@@ -84,7 +85,7 @@ class PluginManagerTest {
                 .build();
 
         // When & Then
-        assertThrows(AuthenticationException.class, () -> {
+        Assertions.assertThrows(AuthenticationException.class, () -> {
             pluginManager.getPlugin(integration);
         });
     }
@@ -100,8 +101,8 @@ class PluginManagerTest {
 
         // Then
         Optional<AuthenticationPluginFactory> retrieved = pluginManager.getFactory("test-manual");
-        assertTrue(retrieved.isPresent());
-        assertEquals("test-manual", retrieved.get().name());
+        Assertions.assertTrue(retrieved.isPresent());
+        Assertions.assertEquals("test-manual", retrieved.get().name());
     }
 
     @Test
@@ -117,8 +118,8 @@ class PluginManagerTest {
 
         // Then
         Optional<AuthenticationPluginFactory> retrieved = pluginManager.getFactory("test-manual");
-        assertTrue(retrieved.isPresent());
-        assertSame(factory2, retrieved.get());
+        Assertions.assertTrue(retrieved.isPresent());
+        Assertions.assertSame(factory2, retrieved.get());
     }
 
     @Test
@@ -127,21 +128,21 @@ class PluginManagerTest {
         // Given
         TestPluginFactory factory = new TestPluginFactory();
         pluginManager.registerFactory(factory);
-        assertTrue(pluginManager.hasFactory("test-manual"));
+        Assertions.assertTrue(pluginManager.hasFactory("test-manual"));
 
         // When
         pluginManager.removeFactory("test-manual");
 
         // Then
-        assertFalse(pluginManager.hasFactory("test-manual"));
-        assertFalse(pluginManager.getFactory("test-manual").isPresent());
+        Assertions.assertFalse(pluginManager.hasFactory("test-manual"));
+        Assertions.assertFalse(pluginManager.getFactory("test-manual").isPresent());
     }
 
     @Test
     @DisplayName("UT-HANDLER-PM-007: Remove non-existent factory does not throw")
     void testRemoveFactory_NotExists() {
         // When & Then - should not throw
-        assertDoesNotThrow(() -> pluginManager.removeFactory("nonexistent"));
+        Assertions.assertDoesNotThrow(() -> pluginManager.removeFactory("nonexistent"));
     }
 
     @Test
@@ -151,8 +152,8 @@ class PluginManagerTest {
         Optional<AuthenticationPluginFactory> factory = pluginManager.getFactory("password");
 
         // Then
-        assertTrue(factory.isPresent());
-        assertEquals("password", factory.get().name());
+        Assertions.assertTrue(factory.isPresent());
+        Assertions.assertEquals("password", factory.get().name());
     }
 
     @Test
@@ -162,15 +163,15 @@ class PluginManagerTest {
         Optional<AuthenticationPluginFactory> factory = pluginManager.getFactory("nonexistent");
 
         // Then
-        assertFalse(factory.isPresent());
+        Assertions.assertFalse(factory.isPresent());
     }
 
     @Test
     @DisplayName("UT-HANDLER-PM-010: Has factory check")
     void testHasFactory() {
         // When & Then
-        assertTrue(pluginManager.hasFactory("password"));
-        assertFalse(pluginManager.hasFactory("nonexistent"));
+        Assertions.assertTrue(pluginManager.hasFactory("password"));
+        Assertions.assertFalse(pluginManager.hasFactory("nonexistent"));
     }
 
     @Test
@@ -187,8 +188,8 @@ class PluginManagerTest {
         AuthenticationPlugin plugin2 = pluginManager.getPlugin(integration);
 
         // Then - should be same instance (cached)
-        assertSame(plugin1, plugin2);
-        assertEquals(1, pluginManager.getCachedPluginCount());
+        Assertions.assertSame(plugin1, plugin2);
+        Assertions.assertEquals(1, pluginManager.getCachedPluginCount());
     }
 
     @Test
@@ -200,13 +201,13 @@ class PluginManagerTest {
                 .type("password")
                 .build();
         pluginManager.getPlugin(integration);
-        assertEquals(1, pluginManager.getCachedPluginCount());
+        Assertions.assertEquals(1, pluginManager.getCachedPluginCount());
 
         // When
         pluginManager.removePlugin("test_password");
 
         // Then
-        assertEquals(0, pluginManager.getCachedPluginCount());
+        Assertions.assertEquals(0, pluginManager.getCachedPluginCount());
     }
 
     @Test
@@ -224,13 +225,13 @@ class PluginManagerTest {
 
         pluginManager.getPlugin(integration1);
         pluginManager.getPlugin(integration2);
-        assertEquals(2, pluginManager.getCachedPluginCount());
+        Assertions.assertEquals(2, pluginManager.getCachedPluginCount());
 
         // When
         pluginManager.clearCache();
 
         // Then
-        assertEquals(0, pluginManager.getCachedPluginCount());
+        Assertions.assertEquals(0, pluginManager.getCachedPluginCount());
     }
 
     @Test
@@ -249,7 +250,7 @@ class PluginManagerTest {
         AuthenticationPlugin newPlugin = pluginManager.getPlugin(integration);
 
         // Then - should be different instance
-        assertNotNull(newPlugin);
+        Assertions.assertNotNull(newPlugin);
         // Note: may or may not be same instance depending on implementation
     }
 
@@ -264,7 +265,7 @@ class PluginManagerTest {
         pluginManager.getPlugin(integration);
 
         // When & Then - should not throw
-        assertDoesNotThrow(() -> pluginManager.healthCheckAll());
+        Assertions.assertDoesNotThrow(() -> pluginManager.healthCheckAll());
     }
 
     /**

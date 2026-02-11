@@ -18,6 +18,7 @@
 package org.apache.doris.authentication.plugin.ldap;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -61,7 +62,7 @@ class LdapClientTest {
         ldapClient = new LdapClient(baseConfig);
 
         // Then
-        assertNotNull(ldapClient);
+        Assertions.assertNotNull(ldapClient);
     }
 
     @Test
@@ -75,7 +76,7 @@ class LdapClientTest {
         ldapClient = new LdapClient(baseConfig);
 
         // Then
-        assertNotNull(ldapClient);
+        Assertions.assertNotNull(ldapClient);
     }
 
     @Test
@@ -85,7 +86,7 @@ class LdapClientTest {
         baseConfig.put("server", "");
 
         // When & Then
-        assertThrows(IllegalArgumentException.class, () ->
+        Assertions.assertThrows(IllegalArgumentException.class, () ->
                 new LdapClient(baseConfig)
         );
     }
@@ -97,7 +98,7 @@ class LdapClientTest {
         baseConfig.put("base_dn", "");
 
         // When & Then
-        assertThrows(IllegalArgumentException.class, () ->
+        Assertions.assertThrows(IllegalArgumentException.class, () ->
                 new LdapClient(baseConfig)
         );
     }
@@ -112,7 +113,7 @@ class LdapClientTest {
         ldapClient = new LdapClient(baseConfig);
 
         // Then
-        assertNotNull(ldapClient);
+        Assertions.assertNotNull(ldapClient);
     }
 
     @Test
@@ -125,7 +126,7 @@ class LdapClientTest {
         ldapClient = new LdapClient(baseConfig);
 
         // Then
-        assertNotNull(ldapClient);
+        Assertions.assertNotNull(ldapClient);
     }
 
     @Test
@@ -138,7 +139,7 @@ class LdapClientTest {
         ldapClient = new LdapClient(baseConfig);
 
         // Then
-        assertNotNull(ldapClient);
+        Assertions.assertNotNull(ldapClient);
     }
 
     @Test
@@ -148,10 +149,10 @@ class LdapClientTest {
         ldapClient = new LdapClient(baseConfig);
 
         // When & Then
-        assertDoesNotThrow(() -> ldapClient.close());
+        Assertions.assertDoesNotThrow(() -> ldapClient.close());
 
         // Multiple close calls should be safe (idempotent)
-        assertDoesNotThrow(() -> ldapClient.close());
+        Assertions.assertDoesNotThrow(() -> ldapClient.close());
     }
 
     @Test
@@ -165,7 +166,7 @@ class LdapClientTest {
 
         // Then - may be true or false depending on server availability
         // Just verify it doesn't throw
-        assertNotNull(healthy);
+        Assertions.assertNotNull(healthy);
     }
 
     @Test
@@ -178,7 +179,7 @@ class LdapClientTest {
         String userDn = ldapClient.getUserDn(null);
 
         // Then
-        assertNull(userDn);
+        Assertions.assertNull(userDn);
     }
 
     @Test
@@ -191,7 +192,7 @@ class LdapClientTest {
         String userDn = ldapClient.getUserDn("");
 
         // Then
-        assertNull(userDn);
+        Assertions.assertNull(userDn);
     }
 
     @Test
@@ -204,7 +205,7 @@ class LdapClientTest {
         boolean valid = ldapClient.checkPassword(null, "password");
 
         // Then
-        assertFalse(valid);
+        Assertions.assertFalse(valid);
     }
 
     @Test
@@ -217,7 +218,7 @@ class LdapClientTest {
         boolean valid = ldapClient.checkPassword("", "password");
 
         // Then
-        assertFalse(valid);
+        Assertions.assertFalse(valid);
     }
 
     @Test
@@ -230,7 +231,7 @@ class LdapClientTest {
         boolean valid = ldapClient.checkPassword("alice", null);
 
         // Then
-        assertFalse(valid);
+        Assertions.assertFalse(valid);
     }
 
     @Test
@@ -243,7 +244,7 @@ class LdapClientTest {
         boolean valid = ldapClient.checkPassword("alice", "");
 
         // Then
-        assertFalse(valid);
+        Assertions.assertFalse(valid);
     }
 
     @Test
@@ -256,8 +257,8 @@ class LdapClientTest {
         var groups = ldapClient.getGroups(null);
 
         // Then
-        assertNotNull(groups);
-        assertTrue(groups.isEmpty());
+        Assertions.assertNotNull(groups);
+        Assertions.assertTrue(groups.isEmpty());
     }
 
     @Test
@@ -271,7 +272,7 @@ class LdapClientTest {
         var groups = ldapClient.getGroups("alice");
 
         // Then
-        assertNotNull(groups);
-        assertTrue(groups.isEmpty());
+        Assertions.assertNotNull(groups);
+        Assertions.assertTrue(groups.isEmpty());
     }
 }

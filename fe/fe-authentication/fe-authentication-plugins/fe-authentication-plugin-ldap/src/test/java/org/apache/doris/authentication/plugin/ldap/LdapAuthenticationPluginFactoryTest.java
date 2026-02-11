@@ -19,6 +19,7 @@ package org.apache.doris.authentication.plugin.ldap;
 
 import org.apache.doris.authentication.spi.AuthenticationPlugin;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -38,7 +39,7 @@ class LdapAuthenticationPluginFactoryTest {
         String name = factory.name();
 
         // Then
-        assertEquals("ldap", name, "Factory name should be 'ldap'");
+        Assertions.assertEquals("ldap", name, "Factory name should be 'ldap'");
     }
 
     @Test
@@ -51,9 +52,9 @@ class LdapAuthenticationPluginFactoryTest {
         AuthenticationPlugin plugin = factory.create();
 
         // Then
-        assertNotNull(plugin, "Factory should return non-null plugin");
-        assertInstanceOf(LdapAuthenticationPlugin.class, plugin);
-        assertEquals("ldap", plugin.name());
+        Assertions.assertNotNull(plugin, "Factory should return non-null plugin");
+        Assertions.assertInstanceOf(LdapAuthenticationPlugin.class, plugin);
+        Assertions.assertEquals("ldap", plugin.name());
     }
 
     @Test
@@ -67,9 +68,9 @@ class LdapAuthenticationPluginFactoryTest {
         AuthenticationPlugin plugin2 = factory.create();
 
         // Then
-        assertNotNull(plugin1);
-        assertNotNull(plugin2);
-        assertSame(plugin1, plugin2,
+        Assertions.assertNotNull(plugin1);
+        Assertions.assertNotNull(plugin2);
+        Assertions.assertSame(plugin1, plugin2,
                 "Factory should return singleton instance for stateless LDAP plugin");
     }
 }

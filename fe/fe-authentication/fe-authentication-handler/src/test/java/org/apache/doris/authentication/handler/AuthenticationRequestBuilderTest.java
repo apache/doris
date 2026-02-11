@@ -20,6 +20,7 @@ package org.apache.doris.authentication.handler;
 import org.apache.doris.authentication.AuthenticationRequest;
 import org.apache.doris.authentication.CredentialType;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -49,8 +50,8 @@ class AuthenticationRequestBuilderTest {
 
         Optional<String> result = AuthenticationRequestBuilder.resolveRequestedIntegration(request);
 
-        assertTrue(result.isPresent());
-        assertEquals("ldap_auth", result.get());
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals("ldap_auth", result.get());
     }
 
     @Test
@@ -68,8 +69,8 @@ class AuthenticationRequestBuilderTest {
 
         Optional<String> result = AuthenticationRequestBuilder.resolveRequestedIntegration(request);
 
-        assertTrue(result.isPresent());
-        assertEquals("oauth2_auth", result.get());
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals("oauth2_auth", result.get());
     }
 
     @Test
@@ -87,8 +88,8 @@ class AuthenticationRequestBuilderTest {
 
         Optional<String> result = AuthenticationRequestBuilder.resolveRequestedIntegration(request);
 
-        assertTrue(result.isPresent());
-        assertEquals("legacy_profile", result.get());
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals("legacy_profile", result.get());
     }
 
     @Test
@@ -106,8 +107,8 @@ class AuthenticationRequestBuilderTest {
 
         Optional<String> result = AuthenticationRequestBuilder.resolveRequestedIntegration(request);
 
-        assertTrue(result.isPresent());
-        assertEquals("legacy_requested", result.get());
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals("legacy_requested", result.get());
     }
 
     @Test
@@ -125,8 +126,8 @@ class AuthenticationRequestBuilderTest {
 
         Optional<String> result = AuthenticationRequestBuilder.resolveRequestedIntegration(request);
 
-        assertTrue(result.isPresent());
-        assertEquals("case_test", result.get());
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals("case_test", result.get());
     }
 
     @Test
@@ -146,8 +147,8 @@ class AuthenticationRequestBuilderTest {
 
         Optional<String> result = AuthenticationRequestBuilder.resolveRequestedIntegration(request);
 
-        assertTrue(result.isPresent());
-        assertEquals("first", result.get());
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals("first", result.get());
     }
 
     @Test
@@ -155,7 +156,7 @@ class AuthenticationRequestBuilderTest {
     void testResolve_NullRequest() {
         Optional<String> result = AuthenticationRequestBuilder.resolveRequestedIntegration(null);
 
-        assertFalse(result.isPresent());
+        Assertions.assertFalse(result.isPresent());
     }
 
     @Test
@@ -169,7 +170,7 @@ class AuthenticationRequestBuilderTest {
 
         Optional<String> result = AuthenticationRequestBuilder.resolveRequestedIntegration(request);
 
-        assertFalse(result.isPresent());
+        Assertions.assertFalse(result.isPresent());
     }
 
     @Test
@@ -184,7 +185,7 @@ class AuthenticationRequestBuilderTest {
 
         Optional<String> result = AuthenticationRequestBuilder.resolveRequestedIntegration(request);
 
-        assertFalse(result.isPresent());
+        Assertions.assertFalse(result.isPresent());
     }
 
     @Test
@@ -202,7 +203,7 @@ class AuthenticationRequestBuilderTest {
 
         Optional<String> result = AuthenticationRequestBuilder.resolveRequestedIntegration(request);
 
-        assertFalse(result.isPresent());
+        Assertions.assertFalse(result.isPresent());
     }
 
     @Test
@@ -220,15 +221,15 @@ class AuthenticationRequestBuilderTest {
 
         Optional<String> result = AuthenticationRequestBuilder.resolveRequestedIntegration(request);
 
-        assertFalse(result.isPresent());
+        Assertions.assertFalse(result.isPresent());
     }
 
     @Test
     @DisplayName("UT-ARB-012: Constants are defined correctly")
     void testConstants() {
-        assertEquals("auth_integration", AuthenticationRequestBuilder.KEY_AUTH_INTEGRATION);
-        assertEquals("requested_integration", AuthenticationRequestBuilder.KEY_REQUESTED_INTEGRATION);
-        assertEquals("auth_profile", AuthenticationRequestBuilder.KEY_AUTH_PROFILE);
-        assertEquals("requested_profile", AuthenticationRequestBuilder.KEY_REQUESTED_PROFILE);
+        Assertions.assertEquals("auth_integration", AuthenticationRequestBuilder.KEY_AUTH_INTEGRATION);
+        Assertions.assertEquals("requested_integration", AuthenticationRequestBuilder.KEY_REQUESTED_INTEGRATION);
+        Assertions.assertEquals("auth_profile", AuthenticationRequestBuilder.KEY_AUTH_PROFILE);
+        Assertions.assertEquals("requested_profile", AuthenticationRequestBuilder.KEY_REQUESTED_PROFILE);
     }
 }

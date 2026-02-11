@@ -17,6 +17,7 @@
 
 package org.apache.doris.authentication.plugin.password;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -36,7 +37,7 @@ class PasswordAuthenticationPluginFactoryTest {
         String name = factory.name();
 
         // Then
-        assertEquals("password", name, "Factory name should be 'password'");
+        Assertions.assertEquals("password", name, "Factory name should be 'password'");
     }
 
     @Test
@@ -49,8 +50,8 @@ class PasswordAuthenticationPluginFactoryTest {
         PasswordAuthenticationPlugin plugin = (PasswordAuthenticationPlugin) factory.create();
 
         // Then
-        assertNotNull(plugin, "Factory should return non-null plugin");
-        assertInstanceOf(PasswordAuthenticationPlugin.class, plugin);
+        Assertions.assertNotNull(plugin, "Factory should return non-null plugin");
+        Assertions.assertInstanceOf(PasswordAuthenticationPlugin.class, plugin);
     }
 
     @Test
@@ -64,6 +65,6 @@ class PasswordAuthenticationPluginFactoryTest {
         PasswordAuthenticationPlugin plugin2 = (PasswordAuthenticationPlugin) factory.create();
 
         // Then
-        assertSame(plugin1, plugin2, "Factory should return singleton instance for stateless plugin");
+        Assertions.assertSame(plugin1, plugin2, "Factory should return singleton instance for stateless plugin");
     }
 }

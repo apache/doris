@@ -18,10 +18,10 @@
 package org.apache.doris.authentication.handler;
 
 import org.apache.doris.authentication.AuthenticationIntegration;
+import org.apache.doris.authentication.AuthenticationResult;
 import org.apache.doris.authentication.Identity;
 import org.apache.doris.authentication.Principal;
 import org.apache.doris.authentication.Subject;
-import org.apache.doris.authentication.spi.AuthenticationResult;
 
 import java.util.Objects;
 import java.util.Optional;

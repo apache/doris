@@ -17,8 +17,8 @@
 
 package org.apache.doris.authentication.handler;
 
+import org.apache.doris.authentication.AuthenticationException;
 import org.apache.doris.authentication.AuthenticationIntegration;
-import org.apache.doris.authentication.spi.AuthenticationException;
 import org.apache.doris.authentication.spi.AuthenticationPlugin;
 import org.apache.doris.authentication.spi.AuthenticationPluginFactory;
 import org.apache.doris.extension.loader.ChildFirstClassLoader;
@@ -50,7 +50,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li>Factories are discovered via ServiceLoader</li>
  * </ul>
  */
-public class PluginManager {
+public class AuthenticationPluginManager {
 
     /** Factories by plugin name (e.g., "ldap", "oidc", "password") */
     private final Map<String, AuthenticationPluginFactory> factories = new ConcurrentHashMap<>();
@@ -66,11 +66,11 @@ public class PluginManager {
 
     private final PluginLoader pluginLoader;
 
-    public PluginManager() {
+    public AuthenticationPluginManager() {
         this(new PluginLoader(defaultParentFirstPackages()));
     }
 
-    public PluginManager(PluginLoader pluginLoader) {
+    public AuthenticationPluginManager(PluginLoader pluginLoader) {
         this.pluginLoader = Objects.requireNonNull(pluginLoader, "pluginLoader");
         // Discover factories via ServiceLoader
         ServiceLoader.load(AuthenticationPluginFactory.class).forEach(factory ->

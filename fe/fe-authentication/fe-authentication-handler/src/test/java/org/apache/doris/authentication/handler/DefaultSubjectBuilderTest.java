@@ -22,11 +22,13 @@ import org.apache.doris.authentication.BasicPrincipal;
 import org.apache.doris.authentication.CredentialType;
 import org.apache.doris.authentication.Subject;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
@@ -65,13 +67,13 @@ class DefaultSubjectBuilderTest {
 
         Subject subject = subjectBuilder.build(testPrincipal, roles, testRequest);
 
-        assertNotNull(subject);
-        assertEquals(testPrincipal, subject.getPrincipal());
-        assertEquals(2, subject.getAvailableRoles().size());
-        assertTrue(subject.getAvailableRoles().contains("admin"));
-        assertTrue(subject.getAvailableRoles().contains("developer"));
-        assertEquals(2, subject.getActiveRoles().size());
-        assertEquals("192.168.1.100", subject.getSourceIp());
+        Assertions.assertNotNull(subject);
+        Assertions.assertEquals(testPrincipal, subject.getPrincipal());
+        Assertions.assertEquals(2, subject.getAvailableRoles().size());
+        Assertions.assertTrue(subject.getAvailableRoles().contains("admin"));
+        Assertions.assertTrue(subject.getAvailableRoles().contains("developer"));
+        Assertions.assertEquals(2, subject.getActiveRoles().size());
+        Assertions.assertEquals("192.168.1.100", subject.getSourceIp());
     }
 
     @Test
@@ -79,11 +81,11 @@ class DefaultSubjectBuilderTest {
     void testBuild_NullRoles() {
         Subject subject = subjectBuilder.build(testPrincipal, null, testRequest);
 
-        assertNotNull(subject);
-        assertEquals(testPrincipal, subject.getPrincipal());
-        assertTrue(subject.getAvailableRoles().isEmpty());
-        assertTrue(subject.getActiveRoles().isEmpty());
-        assertEquals("192.168.1.100", subject.getSourceIp());
+        Assertions.assertNotNull(subject);
+        Assertions.assertEquals(testPrincipal, subject.getPrincipal());
+        Assertions.assertTrue(subject.getAvailableRoles().isEmpty());
+        Assertions.assertTrue(subject.getActiveRoles().isEmpty());
+        Assertions.assertEquals("192.168.1.100", subject.getSourceIp());
     }
 
     @Test
@@ -91,9 +93,9 @@ class DefaultSubjectBuilderTest {
     void testBuild_EmptyRoles() {
         Subject subject = subjectBuilder.build(testPrincipal, Collections.emptySet(), testRequest);
 
-        assertNotNull(subject);
-        assertTrue(subject.getAvailableRoles().isEmpty());
-        assertTrue(subject.getActiveRoles().isEmpty());
+        Assertions.assertNotNull(subject);
+        Assertions.assertTrue(subject.getAvailableRoles().isEmpty());
+        Assertions.assertTrue(subject.getActiveRoles().isEmpty());
     }
 
     @Test
@@ -103,10 +105,10 @@ class DefaultSubjectBuilderTest {
 
         Subject subject = subjectBuilder.build(testPrincipal, roles, null);
 
-        assertNotNull(subject);
-        assertEquals(testPrincipal, subject.getPrincipal());
-        assertEquals(1, subject.getAvailableRoles().size());
-        assertNull(subject.getSourceIp());
+        Assertions.assertNotNull(subject);
+        Assertions.assertEquals(testPrincipal, subject.getPrincipal());
+        Assertions.assertEquals(1, subject.getAvailableRoles().size());
+        Assertions.assertNull(subject.getSourceIp());
     }
 
     @Test
@@ -120,8 +122,8 @@ class DefaultSubjectBuilderTest {
 
         Subject subject = subjectBuilder.build(testPrincipal, null, requestWithoutHost);
 
-        assertNotNull(subject);
-        assertNull(subject.getSourceIp());
+        Assertions.assertNotNull(subject);
+        Assertions.assertNull(subject.getSourceIp());
     }
 
     @Test
@@ -131,7 +133,7 @@ class DefaultSubjectBuilderTest {
 
         Subject subject = subjectBuilder.build(testPrincipal, roles, testRequest);
 
-        assertEquals(subject.getAvailableRoles(), subject.getActiveRoles());
+        Assertions.assertEquals(subject.getAvailableRoles(), subject.getActiveRoles());
     }
 
     @Test
@@ -144,8 +146,8 @@ class DefaultSubjectBuilderTest {
         // Modifying original set should not affect subject
         roles.add("hacker");
 
-        assertEquals(1, subject.getAvailableRoles().size());
-        assertFalse(subject.getAvailableRoles().contains("hacker"));
+        Assertions.assertEquals(1, subject.getAvailableRoles().size());
+        Assertions.assertFalse(subject.getAvailableRoles().contains("hacker"));
     }
 
     @Test
@@ -156,10 +158,10 @@ class DefaultSubjectBuilderTest {
         Subject subject1 = subjectBuilder.build(testPrincipal, roles, testRequest);
         Subject subject2 = subjectBuilder.build(testPrincipal, roles, testRequest);
 
-        assertNotNull(subject1);
-        assertNotNull(subject2);
-        assertNotSame(subject1, subject2); // Different instances
-        assertEquals(subject1.getPrincipal(), subject2.getPrincipal());
+        Assertions.assertNotNull(subject1);
+        Assertions.assertNotNull(subject2);
+        Assertions.assertNotSame(subject1, subject2); // Different instances
+        Assertions.assertEquals(subject1.getPrincipal(), subject2.getPrincipal());
     }
 
     @Test
@@ -174,7 +176,7 @@ class DefaultSubjectBuilderTest {
 
         Subject subject = subjectBuilder.build(testPrincipal, null, ipv6Request);
 
-        assertEquals("2001:0db8:85a3:0000:0000:8a2e:0370:7334", subject.getSourceIp());
+        Assertions.assertEquals("2001:0db8:85a3:0000:0000:8a2e:0370:7334", subject.getSourceIp());
     }
 
     @Test
@@ -189,7 +191,7 @@ class DefaultSubjectBuilderTest {
 
         Subject subject = subjectBuilder.build(testPrincipal, null, hostnameRequest);
 
-        assertEquals("workstation.example.com", subject.getSourceIp());
+        Assertions.assertEquals("workstation.example.com", subject.getSourceIp());
     }
 
     @Test
@@ -199,9 +201,9 @@ class DefaultSubjectBuilderTest {
 
         Subject subject = subjectBuilder.build(testPrincipal, roles, testRequest);
 
-        assertEquals(1, subject.getAvailableRoles().size());
-        assertEquals(1, subject.getActiveRoles().size());
-        assertTrue(subject.getAvailableRoles().contains("admin"));
+        Assertions.assertEquals(1, subject.getAvailableRoles().size());
+        Assertions.assertEquals(1, subject.getActiveRoles().size());
+        Assertions.assertTrue(subject.getAvailableRoles().contains("admin"));
     }
 
     @Test
@@ -214,7 +216,7 @@ class DefaultSubjectBuilderTest {
 
         Subject subject = subjectBuilder.build(testPrincipal, roles, testRequest);
 
-        assertEquals(100, subject.getAvailableRoles().size());
-        assertEquals(100, subject.getActiveRoles().size());
+        Assertions.assertEquals(100, subject.getAvailableRoles().size());
+        Assertions.assertEquals(100, subject.getActiveRoles().size());
     }
 }

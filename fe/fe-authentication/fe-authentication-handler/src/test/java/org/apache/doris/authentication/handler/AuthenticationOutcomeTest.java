@@ -18,10 +18,11 @@
 package org.apache.doris.authentication.handler;
 
 import org.apache.doris.authentication.AuthenticationIntegration;
+import org.apache.doris.authentication.AuthenticationResult;
 import org.apache.doris.authentication.BasicPrincipal;
 import org.apache.doris.authentication.Subject;
-import org.apache.doris.authentication.spi.AuthenticationResult;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -54,14 +55,14 @@ class AuthenticationOutcomeTest {
 
         AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result, subject);
 
-        assertNotNull(outcome);
-        assertEquals(integration, outcome.getIntegration());
-        assertEquals(result, outcome.getAuthResult());
-        assertTrue(outcome.getSubject().isPresent());
-        assertEquals(subject, outcome.getSubject().get());
-        assertTrue(outcome.isSuccess());
-        assertFalse(outcome.isFailure());
-        assertFalse(outcome.isContinue());
+        Assertions.assertNotNull(outcome);
+        Assertions.assertEquals(integration, outcome.getIntegration());
+        Assertions.assertEquals(result, outcome.getAuthResult());
+        Assertions.assertTrue(outcome.getSubject().isPresent());
+        Assertions.assertEquals(subject, outcome.getSubject().get());
+        Assertions.assertTrue(outcome.isSuccess());
+        Assertions.assertFalse(outcome.isFailure());
+        Assertions.assertFalse(outcome.isContinue());
     }
 
     @Test
@@ -77,11 +78,11 @@ class AuthenticationOutcomeTest {
 
         AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result, null);
 
-        assertNotNull(outcome);
-        assertFalse(outcome.getSubject().isPresent());
-        assertTrue(outcome.isFailure());
-        assertFalse(outcome.isSuccess());
-        assertFalse(outcome.isContinue());
+        Assertions.assertNotNull(outcome);
+        Assertions.assertFalse(outcome.getSubject().isPresent());
+        Assertions.assertTrue(outcome.isFailure());
+        Assertions.assertFalse(outcome.isSuccess());
+        Assertions.assertFalse(outcome.isContinue());
     }
 
     @Test
@@ -106,8 +107,8 @@ class AuthenticationOutcomeTest {
 
         AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result, subject, resolvedUser);
 
-        assertTrue(outcome.getResolvedUser().isPresent());
-        assertEquals(resolvedUser, outcome.getResolvedUser().get());
+        Assertions.assertTrue(outcome.getResolvedUser().isPresent());
+        Assertions.assertEquals(resolvedUser, outcome.getResolvedUser().get());
     }
 
     @Test
@@ -128,8 +129,8 @@ class AuthenticationOutcomeTest {
 
         AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result, null);
 
-        assertTrue(outcome.getPrincipal().isPresent());
-        assertEquals(principal, outcome.getPrincipal().get());
+        Assertions.assertTrue(outcome.getPrincipal().isPresent());
+        Assertions.assertEquals(principal, outcome.getPrincipal().get());
     }
 
     @Test
@@ -157,7 +158,7 @@ class AuthenticationOutcomeTest {
         AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result, null);
 
         // Note: Identity is stored in AuthenticationResult, availability depends on plugin implementation
-        assertNotNull(outcome.getIdentity());
+        Assertions.assertNotNull(outcome.getIdentity());
     }
 
     @Test
@@ -170,7 +171,7 @@ class AuthenticationOutcomeTest {
 
         AuthenticationResult result = AuthenticationResult.success(principal);
 
-        assertThrows(NullPointerException.class, () ->
+        Assertions.assertThrows(NullPointerException.class, () ->
                 AuthenticationOutcome.of(null, result, null));
     }
 
@@ -183,7 +184,7 @@ class AuthenticationOutcomeTest {
                 .properties(new HashMap<>())
                 .build();
 
-        assertThrows(NullPointerException.class, () ->
+        Assertions.assertThrows(NullPointerException.class, () ->
                 AuthenticationOutcome.of(integration, null, null));
     }
 
@@ -205,8 +206,8 @@ class AuthenticationOutcomeTest {
 
         AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result, null);
 
-        assertNotNull(outcome);
-        assertFalse(outcome.getSubject().isPresent());
+        Assertions.assertNotNull(outcome);
+        Assertions.assertFalse(outcome.getSubject().isPresent());
     }
 
     @Test
@@ -227,7 +228,7 @@ class AuthenticationOutcomeTest {
 
         AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result, null, null);
 
-        assertFalse(outcome.getResolvedUser().isPresent());
+        Assertions.assertFalse(outcome.getResolvedUser().isPresent());
     }
 
     @Test
@@ -249,8 +250,8 @@ class AuthenticationOutcomeTest {
         AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result, null);
 
         String str = outcome.toString();
-        assertTrue(str.contains("my_integration"));
-        assertTrue(str.contains("success=true"));
+        Assertions.assertTrue(str.contains("my_integration"));
+        Assertions.assertTrue(str.contains("success=true"));
     }
 
     @Test
@@ -274,9 +275,9 @@ class AuthenticationOutcomeTest {
 
         AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result, subject);
 
-        assertNotNull(outcome);
-        assertTrue(outcome.getSubject().isPresent());
-        assertFalse(outcome.getResolvedUser().isPresent());
+        Assertions.assertNotNull(outcome);
+        Assertions.assertTrue(outcome.getSubject().isPresent());
+        Assertions.assertFalse(outcome.getResolvedUser().isPresent());
     }
 
     @Test
@@ -301,9 +302,9 @@ class AuthenticationOutcomeTest {
 
         AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result, subject, resolvedUser);
 
-        assertTrue(outcome.getSubject().isPresent());
-        assertTrue(outcome.getResolvedUser().isPresent());
-        assertEquals(resolvedUser, outcome.getResolvedUser().get());
+        Assertions.assertTrue(outcome.getSubject().isPresent());
+        Assertions.assertTrue(outcome.getResolvedUser().isPresent());
+        Assertions.assertEquals(resolvedUser, outcome.getResolvedUser().get());
     }
 
     @Test
@@ -320,8 +321,8 @@ class AuthenticationOutcomeTest {
 
         AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result, null);
 
-        assertTrue(outcome.isContinue());
-        assertFalse(outcome.isSuccess());
-        assertFalse(outcome.isFailure());
+        Assertions.assertTrue(outcome.isContinue());
+        Assertions.assertFalse(outcome.isSuccess());
+        Assertions.assertFalse(outcome.isFailure());
     }
 }

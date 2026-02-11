@@ -19,8 +19,10 @@ package org.apache.doris.authentication.spi;
 
 import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationRequest;
+import org.apache.doris.authentication.AuthenticationResult;
 import org.apache.doris.authentication.CredentialType;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -46,8 +48,8 @@ class AuthenticationPluginContractTest {
         String name = plugin.name();
 
         // Then
-        assertNotNull(name, "Plugin name must not be null");
-        assertFalse(name.trim().isEmpty(), "Plugin name must not be empty");
+        Assertions.assertNotNull(name, "Plugin name must not be null");
+        Assertions.assertFalse(name.trim().isEmpty(), "Plugin name must not be empty");
     }
 
     @Test
@@ -60,7 +62,7 @@ class AuthenticationPluginContractTest {
                 .build();
 
         // When & Then
-        assertThrows(NullPointerException.class, () ->
+        Assertions.assertThrows(NullPointerException.class, () ->
                 plugin.authenticate(null, integration)
         );
     }
@@ -76,7 +78,7 @@ class AuthenticationPluginContractTest {
                 .build();
 
         // When & Then
-        assertThrows(NullPointerException.class, () ->
+        Assertions.assertThrows(NullPointerException.class, () ->
                 plugin.authenticate(request, null)
         );
     }
@@ -94,7 +96,7 @@ class AuthenticationPluginContractTest {
         plugin.initialize(integration);
 
         // Then
-        assertTrue(plugin.isInitialized());
+        Assertions.assertTrue(plugin.isInitialized());
     }
 
     @Test
@@ -110,7 +112,7 @@ class AuthenticationPluginContractTest {
         plugin.close();
 
         // Then
-        assertTrue(plugin.isClosed());
+        Assertions.assertTrue(plugin.isClosed());
     }
 
     @Test
@@ -130,8 +132,8 @@ class AuthenticationPluginContractTest {
                 .build();
 
         // When & Then
-        assertDoesNotThrow(() -> plugin.validate(validConfig));
-        assertThrows(IllegalArgumentException.class, () ->
+        Assertions.assertDoesNotThrow(() -> plugin.validate(validConfig));
+        Assertions.assertThrows(IllegalArgumentException.class, () ->
                 plugin.validate(invalidConfig)
         );
     }

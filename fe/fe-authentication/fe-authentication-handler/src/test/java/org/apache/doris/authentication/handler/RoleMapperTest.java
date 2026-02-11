@@ -20,10 +20,12 @@ package org.apache.doris.authentication.handler;
 import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.Identity;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -68,8 +70,8 @@ class RoleMapperTest {
 
         Set<String> roles = roleMapper.mapRoles(identity, integration);
 
-        assertEquals(1, roles.size());
-        assertTrue(roles.contains("admin"));
+        Assertions.assertEquals(1, roles.size());
+        Assertions.assertTrue(roles.contains("admin"));
     }
 
     @Test
@@ -84,10 +86,10 @@ class RoleMapperTest {
 
         Set<String> roles = roleMapper.mapRoles(identity, integration);
 
-        assertEquals(3, roles.size());
-        assertTrue(roles.contains("admin"));
-        assertTrue(roles.contains("developer"));
-        assertTrue(roles.contains("user"));
+        Assertions.assertEquals(3, roles.size());
+        Assertions.assertTrue(roles.contains("admin"));
+        Assertions.assertTrue(roles.contains("developer"));
+        Assertions.assertTrue(roles.contains("user"));
     }
 
     @Test
@@ -102,7 +104,7 @@ class RoleMapperTest {
 
         Set<String> roles = roleMapper.mapRoles(identity, integration);
 
-        assertTrue(roles.isEmpty());
+        Assertions.assertTrue(roles.isEmpty());
     }
 
     @Test
@@ -110,7 +112,7 @@ class RoleMapperTest {
     void testMapRoles_NullIdentity() {
         Set<String> roles = roleMapper.mapRoles(null, integration);
 
-        assertTrue(roles.isEmpty());
+        Assertions.assertTrue(roles.isEmpty());
     }
 
     @Test
@@ -125,7 +127,7 @@ class RoleMapperTest {
 
         Set<String> roles = roleMapper.mapRoles(identity, null);
 
-        assertTrue(roles.isEmpty());
+        Assertions.assertTrue(roles.isEmpty());
     }
 
     @Test
@@ -140,7 +142,7 @@ class RoleMapperTest {
 
         Set<String> roles = roleMapper.mapRoles(identity, integration);
 
-        assertTrue(roles.isEmpty());
+        Assertions.assertTrue(roles.isEmpty());
     }
 
     @Test
@@ -155,9 +157,9 @@ class RoleMapperTest {
 
         Set<String> roles = roleMapper.mapRoles(identity, integration);
 
-        assertEquals(2, roles.size());
-        assertTrue(roles.contains("admin"));
-        assertTrue(roles.contains("developer"));
+        Assertions.assertEquals(2, roles.size());
+        Assertions.assertTrue(roles.contains("admin"));
+        Assertions.assertTrue(roles.contains("developer"));
     }
 
     @Test
@@ -172,8 +174,8 @@ class RoleMapperTest {
 
         Set<String> roles = roleMapper.mapRoles(identity, integration);
 
-        assertEquals(1, roles.size());
-        assertTrue(roles.contains("admin"));
+        Assertions.assertEquals(1, roles.size());
+        Assertions.assertTrue(roles.contains("admin"));
     }
 
     @Test
@@ -188,9 +190,9 @@ class RoleMapperTest {
 
         Set<String> roles = roleMapper.mapRoles(identity, integration);
 
-        assertEquals(2, roles.size());
-        assertTrue(roles.contains("admin"));
-        assertTrue(roles.contains("developer"));
+        Assertions.assertEquals(2, roles.size());
+        Assertions.assertTrue(roles.contains("admin"));
+        Assertions.assertTrue(roles.contains("developer"));
     }
 
     @Test
@@ -216,8 +218,8 @@ class RoleMapperTest {
 
         Set<String> roles = roleMapper.mapRoles(identity, integration);
 
-        assertEquals(1, roles.size());
-        assertTrue(roles.contains("admin"));
+        Assertions.assertEquals(1, roles.size());
+        Assertions.assertTrue(roles.contains("admin"));
     }
 
     @Test
@@ -242,9 +244,9 @@ class RoleMapperTest {
 
         Set<String> roles = roleMapper.mapRoles(identity, integration);
 
-        assertEquals(1, roles.size());
-        assertTrue(roles.contains("admin"));
-        assertFalse(roles.contains(""));
+        Assertions.assertEquals(1, roles.size());
+        Assertions.assertTrue(roles.contains("admin"));
+        Assertions.assertFalse(roles.contains(""));
     }
 
     @Test
@@ -265,7 +267,7 @@ class RoleMapperTest {
 
         Set<String> roles = roleMapper.mapRoles(identity, emptyIntegration);
 
-        assertTrue(roles.isEmpty());
+        Assertions.assertTrue(roles.isEmpty());
     }
 
     @Test
@@ -280,12 +282,12 @@ class RoleMapperTest {
 
         Set<String> roles = roleMapper.mapRoles(identity, integration);
 
-        assertTrue(roles.isEmpty()); // Should not match "admins"
+        Assertions.assertTrue(roles.isEmpty()); // Should not match "admins"
     }
 
     @Test
     @DisplayName("UT-RM-014: Role mapping prefix constant is correct")
     void testRoleMappingPrefix() {
-        assertEquals("role.mapping.", RoleMapper.ROLE_MAPPING_PREFIX);
+        Assertions.assertEquals("role.mapping.", RoleMapper.ROLE_MAPPING_PREFIX);
     }
 }

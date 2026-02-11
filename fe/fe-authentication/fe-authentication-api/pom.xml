@@ -30,24 +30,8 @@ under the License.
     <packaging>jar</packaging>
     <name>Doris FE Authentication API</name>
 
-    <dependencies>
-        <!-- Test dependencies -->
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-core</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-junit-jupiter</artifactId>
-            <scope>test</scope>
-        </dependency>
-    </dependencies>
+    <!-- No runtime dependencies - pure API module -->
+    <!-- Test dependencies inherited from parent POM -->
 
     <build>
         <plugins>

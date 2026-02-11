@@ -17,13 +17,14 @@
 
 package org.apache.doris.authentication.plugin.ldap;
 
+import org.apache.doris.authentication.AuthenticationException;
 import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationRequest;
+import org.apache.doris.authentication.AuthenticationResult;
 import org.apache.doris.authentication.CredentialType;
-import org.apache.doris.authentication.spi.AuthenticationException;
-import org.apache.doris.authentication.spi.AuthenticationResult;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -75,29 +76,29 @@ class LdapAuthenticationPluginTest {
         @Test
         @DisplayName("Should return correct plugin name")
         void testPluginName() {
-            assertEquals("ldap", plugin.name());
-            assertEquals(LdapAuthenticationPlugin.PLUGIN_NAME, plugin.name());
+            Assertions.assertEquals("ldap", plugin.name());
+            Assertions.assertEquals(LdapAuthenticationPlugin.PLUGIN_NAME, plugin.name());
         }
 
         @Test
         @DisplayName("Should have non-empty description")
         void testPluginDescription() {
-            assertNotNull(plugin.description());
-            assertFalse(plugin.description().isEmpty());
-            assertTrue(plugin.description().toLowerCase().contains("ldap"));
+            Assertions.assertNotNull(plugin.description());
+            Assertions.assertFalse(plugin.description().isEmpty());
+            Assertions.assertTrue(plugin.description().toLowerCase().contains("ldap"));
         }
 
         @Test
         @DisplayName("Should require clear password")
         void testRequiresClearPassword() {
-            assertTrue(plugin.requiresClearPassword(),
+            Assertions.assertTrue(plugin.requiresClearPassword(),
                     "LDAP authentication requires clear text password");
         }
 
         @Test
         @DisplayName("Should not support multi-step authentication")
         void testDoesNotSupportMultiStep() {
-            assertFalse(plugin.supportsMultiStep(),
+            Assertions.assertFalse(plugin.supportsMultiStep(),
                     "LDAP is single-step authentication");
         }
     }
@@ -117,7 +118,7 @@ class LdapAuthenticationPluginTest {
                     .credential("password".getBytes(StandardCharsets.UTF_8))
                     .build();
 
-            assertTrue(plugin.supports(request));
+            Assertions.assertTrue(plugin.supports(request));
         }
 
         @Test
@@ -129,7 +130,7 @@ class LdapAuthenticationPluginTest {
                     .credential(new byte[20])
                     .build();
 
-            assertFalse(plugin.supports(request));
+            Assertions.assertFalse(plugin.supports(request));
         }
 
         @Test
@@ -141,7 +142,7 @@ class LdapAuthenticationPluginTest {
                     .credential(new byte[128])
                     .build();
 
-            assertFalse(plugin.supports(request));
+            Assertions.assertFalse(plugin.supports(request));
         }
 
         @Test
@@ -153,7 +154,7 @@ class LdapAuthenticationPluginTest {
                     .credential("token".getBytes(StandardCharsets.UTF_8))
                     .build();
 
-            assertFalse(plugin.supports(request));
+            Assertions.assertFalse(plugin.supports(request));
         }
 
         @Test
@@ -165,7 +166,7 @@ class LdapAuthenticationPluginTest {
                     .credential(new byte[256])
                     .build();
 
-            assertFalse(plugin.supports(request));
+            Assertions.assertFalse(plugin.supports(request));
         }
     }
 
@@ -187,12 +188,12 @@ class LdapAuthenticationPluginTest {
                     .properties(config)
                     .build();
 
-            AuthenticationException exception = assertThrows(
+            AuthenticationException exception = Assertions.assertThrows(
                     AuthenticationException.class,
                     () -> plugin.validate(integration)
             );
 
-            assertTrue(exception.getMessage().toLowerCase().contains("server"));
+            Assertions.assertTrue(exception.getMessage().toLowerCase().contains("server"));
         }
 
         @Test
@@ -207,12 +208,12 @@ class LdapAuthenticationPluginTest {
                     .properties(config)
                     .build();
 
-            AuthenticationException exception = assertThrows(
+            AuthenticationException exception = Assertions.assertThrows(
                     AuthenticationException.class,
                     () -> plugin.validate(integration)
             );
 
-            assertTrue(exception.getMessage().toLowerCase().contains("base_dn"));
+            Assertions.assertTrue(exception.getMessage().toLowerCase().contains("base_dn"));
         }
 
         @Test
@@ -228,7 +229,7 @@ class LdapAuthenticationPluginTest {
                     .properties(config)
                     .build();
 
-            assertDoesNotThrow(() -> plugin.validate(integration));
+            Assertions.assertDoesNotThrow(() -> plugin.validate(integration));
         }
 
         @Test
@@ -242,7 +243,7 @@ class LdapAuthenticationPluginTest {
                     .properties(config)
                     .build();
 
-            assertDoesNotThrow(() -> plugin.validate(integration));
+            Assertions.assertDoesNotThrow(() -> plugin.validate(integration));
         }
 
         @Test
@@ -261,7 +262,7 @@ class LdapAuthenticationPluginTest {
                     .build();
 
             // Should not throw, but will log warning
-            assertDoesNotThrow(() -> plugin.validate(integration));
+            Assertions.assertDoesNotThrow(() -> plugin.validate(integration));
         }
     }
 
@@ -287,13 +288,13 @@ class LdapAuthenticationPluginTest {
                     .credential("password".getBytes(StandardCharsets.UTF_8))
                     .build();
 
-            AuthenticationResult result = assertDoesNotThrow(
+            AuthenticationResult result = Assertions.assertDoesNotThrow(
                     () -> plugin.authenticate(request, integration)
             );
 
-            assertTrue(result.isFailure());
-            assertNotNull(result.getException());
-            assertTrue(result.getException().getMessage().toLowerCase().contains("username"));
+            Assertions.assertTrue(result.isFailure());
+            Assertions.assertNotNull(result.getException());
+            Assertions.assertTrue(result.getException().getMessage().toLowerCase().contains("username"));
         }
 
         @Test
@@ -305,12 +306,12 @@ class LdapAuthenticationPluginTest {
                     .credential("password".getBytes(StandardCharsets.UTF_8))
                     .build();
 
-            AuthenticationResult result = assertDoesNotThrow(
+            AuthenticationResult result = Assertions.assertDoesNotThrow(
                     () -> plugin.authenticate(request, integration)
             );
 
-            assertTrue(result.isFailure());
-            assertTrue(result.getException().getMessage().toLowerCase().contains("username"));
+            Assertions.assertTrue(result.isFailure());
+            Assertions.assertTrue(result.getException().getMessage().toLowerCase().contains("username"));
         }
 
         @Test
@@ -322,12 +323,12 @@ class LdapAuthenticationPluginTest {
                     .credential(null)
                     .build();
 
-            AuthenticationResult result = assertDoesNotThrow(
+            AuthenticationResult result = Assertions.assertDoesNotThrow(
                     () -> plugin.authenticate(request, integration)
             );
 
-            assertTrue(result.isFailure());
-            assertTrue(result.getException().getMessage().toLowerCase().contains("password"));
+            Assertions.assertTrue(result.isFailure());
+            Assertions.assertTrue(result.getException().getMessage().toLowerCase().contains("password"));
         }
 
         @Test
@@ -339,12 +340,12 @@ class LdapAuthenticationPluginTest {
                     .credential(new byte[0])
                     .build();
 
-            AuthenticationResult result = assertDoesNotThrow(
+            AuthenticationResult result = Assertions.assertDoesNotThrow(
                     () -> plugin.authenticate(request, integration)
             );
 
-            assertTrue(result.isFailure());
-            assertTrue(result.getException().getMessage().toLowerCase().contains("password"));
+            Assertions.assertTrue(result.isFailure());
+            Assertions.assertTrue(result.getException().getMessage().toLowerCase().contains("password"));
         }
 
         @Test
@@ -365,13 +366,13 @@ class LdapAuthenticationPluginTest {
                         .credential("password".getBytes(StandardCharsets.UTF_8))
                         .build();
 
-                AuthenticationResult result = assertDoesNotThrow(
+                AuthenticationResult result = Assertions.assertDoesNotThrow(
                         () -> plugin.authenticate(request, integration),
                         "Should handle username: " + username
                 );
 
                 // Will fail because LDAP server not running, but shouldn't throw exception
-                assertTrue(result.isFailure());
+                Assertions.assertTrue(result.isFailure());
             }
         }
     }
@@ -389,7 +390,7 @@ class LdapAuthenticationPluginTest {
 
             // Note: Will fail to connect to LDAP server, but should not throw during init
             // Real validation happens during authenticate()
-            assertDoesNotThrow(() -> plugin.initialize(integration));
+            Assertions.assertDoesNotThrow(() -> plugin.initialize(integration));
         }
 
         @Test
@@ -397,7 +398,7 @@ class LdapAuthenticationPluginTest {
         void testMultipleInitializeCalls() {
             AuthenticationIntegration integration = createTestIntegration("test_multi_init");
 
-            assertDoesNotThrow(() -> {
+            Assertions.assertDoesNotThrow(() -> {
                 plugin.initialize(integration);
                 plugin.initialize(integration);  // Should replace existing
             });
@@ -407,7 +408,7 @@ class LdapAuthenticationPluginTest {
         @DisplayName("Should reload configuration")
         void testReloadConfiguration() {
             AuthenticationIntegration oldIntegration = createTestIntegration("test_reload");
-            assertDoesNotThrow(() -> plugin.initialize(oldIntegration));
+            Assertions.assertDoesNotThrow(() -> plugin.initialize(oldIntegration));
 
             // Create new config with different server
             Map<String, String> newConfig = new HashMap<>();
@@ -420,22 +421,22 @@ class LdapAuthenticationPluginTest {
                     .properties(newConfig)
                     .build();
 
-            assertDoesNotThrow(() -> plugin.reload(newIntegration));
+            Assertions.assertDoesNotThrow(() -> plugin.reload(newIntegration));
         }
 
         @Test
         @DisplayName("Should close cleanly")
         void testClose() {
             AuthenticationIntegration integration = createTestIntegration("test_close");
-            assertDoesNotThrow(() -> plugin.initialize(integration));
+            Assertions.assertDoesNotThrow(() -> plugin.initialize(integration));
 
-            assertDoesNotThrow(() -> plugin.close());
+            Assertions.assertDoesNotThrow(() -> plugin.close());
         }
 
         @Test
         @DisplayName("Should handle multiple close calls")
         void testMultipleCloseCalls() {
-            assertDoesNotThrow(() -> {
+            Assertions.assertDoesNotThrow(() -> {
                 plugin.close();
                 plugin.close();  // Should be idempotent
             });
@@ -454,7 +455,7 @@ class LdapAuthenticationPluginTest {
             AuthenticationIntegration corp = createTestIntegration("corp_ldap");
             AuthenticationIntegration partner = createTestIntegration("partner_ldap");
 
-            assertDoesNotThrow(() -> {
+            Assertions.assertDoesNotThrow(() -> {
                 plugin.initialize(corp);
                 plugin.initialize(partner);
             });
@@ -466,7 +467,7 @@ class LdapAuthenticationPluginTest {
             AuthenticationIntegration integration1 = createTestIntegration("ldap1");
             AuthenticationIntegration integration2 = createTestIntegration("ldap2");
 
-            assertDoesNotThrow(() -> {
+            Assertions.assertDoesNotThrow(() -> {
                 plugin.initialize(integration1);
                 plugin.initialize(integration2);
 
@@ -479,7 +480,7 @@ class LdapAuthenticationPluginTest {
         @DisplayName("Should handle concurrent access")
         void testConcurrentAccess() {
             AuthenticationIntegration integration = createTestIntegration("concurrent_test");
-            assertDoesNotThrow(() -> plugin.initialize(integration));
+            Assertions.assertDoesNotThrow(() -> plugin.initialize(integration));
 
             // Simulate concurrent authentication attempts
             Thread[] threads = new Thread[10];
@@ -492,7 +493,7 @@ class LdapAuthenticationPluginTest {
                             .credential("password".getBytes(StandardCharsets.UTF_8))
                             .build();
 
-                    assertDoesNotThrow(() -> plugin.authenticate(request, integration));
+                    Assertions.assertDoesNotThrow(() -> plugin.authenticate(request, integration));
                 });
             }
 
@@ -503,7 +504,7 @@ class LdapAuthenticationPluginTest {
 
             // Wait for all threads to complete
             for (Thread thread : threads) {
-                assertDoesNotThrow(() -> thread.join(5000));
+                Assertions.assertDoesNotThrow(() -> thread.join(5000));
             }
         }
     }
@@ -518,17 +519,17 @@ class LdapAuthenticationPluginTest {
         @DisplayName("Should return false for uninitialized integration")
         void testHealthCheckUninitializedIntegration() {
             AuthenticationIntegration integration = createTestIntegration("health_test");
-            assertFalse(plugin.healthCheck(integration));
+            Assertions.assertFalse(plugin.healthCheck(integration));
         }
 
         @Test
         @DisplayName("Should not throw exception on health check failure")
         void testHealthCheckDoesNotThrow() {
             AuthenticationIntegration integration = createTestIntegration("health_test");
-            assertDoesNotThrow(() -> plugin.initialize(integration));
+            Assertions.assertDoesNotThrow(() -> plugin.initialize(integration));
 
             // Health check will fail (no LDAP server), but should not throw
-            assertDoesNotThrow(() -> plugin.healthCheck(integration));
+            Assertions.assertDoesNotThrow(() -> plugin.healthCheck(integration));
         }
     }
 
@@ -556,7 +557,7 @@ class LdapAuthenticationPluginTest {
 
             AuthenticationIntegration integration = createTestIntegration("edge_test");
 
-            assertDoesNotThrow(() -> plugin.authenticate(request, integration));
+            Assertions.assertDoesNotThrow(() -> plugin.authenticate(request, integration));
         }
 
         @Test
@@ -577,7 +578,7 @@ class LdapAuthenticationPluginTest {
 
             AuthenticationIntegration integration = createTestIntegration("edge_test");
 
-            assertDoesNotThrow(() -> plugin.authenticate(request, integration));
+            Assertions.assertDoesNotThrow(() -> plugin.authenticate(request, integration));
         }
 
         @Test
@@ -600,7 +601,7 @@ class LdapAuthenticationPluginTest {
 
                 AuthenticationIntegration integration = createTestIntegration("unicode_test");
 
-                assertDoesNotThrow(() -> plugin.authenticate(request, integration),
+                Assertions.assertDoesNotThrow(() -> plugin.authenticate(request, integration),
                         "Should handle unicode username: " + username);
             }
         }
@@ -623,7 +624,7 @@ class LdapAuthenticationPluginTest {
 
                 AuthenticationIntegration integration = createTestIntegration("sql_injection_test");
 
-                assertDoesNotThrow(() -> plugin.authenticate(request, integration),
+                Assertions.assertDoesNotThrow(() -> plugin.authenticate(request, integration),
                         "Should safely handle SQL injection attempt: " + maliciousUsername);
             }
         }
@@ -646,7 +647,7 @@ class LdapAuthenticationPluginTest {
 
                 AuthenticationIntegration integration = createTestIntegration("ldap_injection_test");
 
-                assertDoesNotThrow(() -> plugin.authenticate(request, integration),
+                Assertions.assertDoesNotThrow(() -> plugin.authenticate(request, integration),
                         "Should safely handle LDAP injection attempt: " + maliciousUsername);
             }
         }

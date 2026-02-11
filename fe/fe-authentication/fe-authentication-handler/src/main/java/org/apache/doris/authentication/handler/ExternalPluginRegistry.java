@@ -17,7 +17,7 @@
 
 package org.apache.doris.authentication.handler;
 
-import org.apache.doris.authentication.spi.AuthenticationException;
+import org.apache.doris.authentication.AuthenticationException;
 import org.apache.doris.extension.loader.PluginLoader;
 import org.apache.doris.extension.spi.PluginDescriptor;
 
@@ -30,7 +30,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Registry for external authentication plugins.
  *
  * <p>This class stores plugin descriptors and provides a single entry point
- * to register them into {@link PluginManager}. IO and directory scanning are
+ * to register them into {@link AuthenticationPluginManager}. IO and directory scanning are
  * intentionally out of scope.</p>
  *
  * <p>Design per auth.md: plugins are identified by string name (not enum).
@@ -38,10 +38,10 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ExternalPluginRegistry {
 
     private final Map<String, ExternalPluginEntry> entries = new ConcurrentHashMap<>();
-    private final PluginManager pluginManager;
+    private final AuthenticationPluginManager pluginManager;
     private final PluginLoader pluginLoader;
 
-    public ExternalPluginRegistry(PluginManager pluginManager, PluginLoader pluginLoader) {
+    public ExternalPluginRegistry(AuthenticationPluginManager pluginManager, PluginLoader pluginLoader) {
         this.pluginManager = Objects.requireNonNull(pluginManager, "pluginManager");
         this.pluginLoader = Objects.requireNonNull(pluginLoader, "pluginLoader");
     }

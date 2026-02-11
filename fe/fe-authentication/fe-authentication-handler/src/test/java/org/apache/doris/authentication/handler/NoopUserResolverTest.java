@@ -20,6 +20,7 @@ package org.apache.doris.authentication.handler;
 import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.Identity;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -56,7 +57,7 @@ class NoopUserResolverTest {
 
         Object result = resolver.resolveUser(identity, integration);
 
-        assertNull(result);
+        Assertions.assertNull(result);
     }
 
     @Test
@@ -64,7 +65,7 @@ class NoopUserResolverTest {
     void testResolveUser_NullIdentity() {
         Object result = resolver.resolveUser(null, integration);
 
-        assertNull(result);
+        Assertions.assertNull(result);
     }
 
     @Test
@@ -78,7 +79,7 @@ class NoopUserResolverTest {
 
         Object result = resolver.resolveUser(identity, null);
 
-        assertNull(result);
+        Assertions.assertNull(result);
     }
 
     @Test
@@ -99,13 +100,13 @@ class NoopUserResolverTest {
         Object result1 = resolver.resolveUser(identity1, integration);
         Object result2 = resolver.resolveUser(identity2, integration);
 
-        assertNull(result1);
-        assertNull(result2);
+        Assertions.assertNull(result1);
+        Assertions.assertNull(result2);
     }
 
     @Test
     @DisplayName("UT-NUR-005: Implements UserResolver interface")
     void testImplementsInterface() {
-        assertTrue(resolver instanceof UserResolver);
+        Assertions.assertTrue(resolver instanceof UserResolver);
     }
 }

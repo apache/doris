@@ -20,15 +20,20 @@ package org.apache.doris.authentication.handler;
 import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.Identity;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Set;
+
 
 /**
  * Unit tests for {@link DefaultRoleResolutionStage}.
@@ -64,12 +69,12 @@ class DefaultRoleResolutionStageTest {
                 .build();
 
         Set<String> expectedRoles = new HashSet<>(Arrays.asList("admin", "developer"));
-        when(roleMapper.mapRoles(identity, integration)).thenReturn(expectedRoles);
+        Mockito.when(roleMapper.mapRoles(identity, integration)).thenReturn(expectedRoles);
 
         Set<String> result = stage.resolveRoles(identity, integration);
 
-        assertEquals(expectedRoles, result);
-        verify(roleMapper).mapRoles(identity, integration);
+        Assertions.assertEquals(expectedRoles, result);
+        Mockito.verify(roleMapper).mapRoles(identity, integration);
     }
 
     @Test
@@ -77,8 +82,8 @@ class DefaultRoleResolutionStageTest {
     void testResolveRoles_NullIdentity() {
         Set<String> result = stage.resolveRoles(null, integration);
 
-        assertTrue(result.isEmpty());
-        verify(roleMapper, never()).mapRoles(any(), any());
+        Assertions.assertTrue(result.isEmpty());
+        Mockito.verify(roleMapper, Mockito.never()).mapRoles(Mockito.any(), Mockito.any());
     }
 
     @Test
@@ -92,8 +97,8 @@ class DefaultRoleResolutionStageTest {
 
         Set<String> result = stage.resolveRoles(identity, null);
 
-        assertTrue(result.isEmpty());
-        verify(roleMapper, never()).mapRoles(any(), any());
+        Assertions.assertTrue(result.isEmpty());
+        Mockito.verify(roleMapper, Mockito.never()).mapRoles(Mockito.any(), Mockito.any());
     }
 
     @Test
@@ -101,8 +106,8 @@ class DefaultRoleResolutionStageTest {
     void testResolveRoles_BothNull() {
         Set<String> result = stage.resolveRoles(null, null);
 
-        assertTrue(result.isEmpty());
-        verify(roleMapper, never()).mapRoles(any(), any());
+        Assertions.assertTrue(result.isEmpty());
+        Mockito.verify(roleMapper, Mockito.never()).mapRoles(Mockito.any(), Mockito.any());
     }
 
     @Test
@@ -114,18 +119,18 @@ class DefaultRoleResolutionStageTest {
                 .authenticatorPluginName("ldap")
                 .build();
 
-        when(roleMapper.mapRoles(identity, integration)).thenReturn(Collections.emptySet());
+        Mockito.when(roleMapper.mapRoles(identity, integration)).thenReturn(Collections.emptySet());
 
         Set<String> result = stage.resolveRoles(identity, integration);
 
-        assertTrue(result.isEmpty());
-        verify(roleMapper).mapRoles(identity, integration);
+        Assertions.assertTrue(result.isEmpty());
+        Mockito.verify(roleMapper).mapRoles(identity, integration);
     }
 
     @Test
     @DisplayName("UT-DRRS-006: Constructor with null RoleMapper throws NPE")
     void testConstructor_NullRoleMapper() {
-        assertThrows(NullPointerException.class, () ->
+        Assertions.assertThrows(NullPointerException.class, () ->
                 new DefaultRoleResolutionStage(null));
     }
 
@@ -144,16 +149,16 @@ class DefaultRoleResolutionStageTest {
                 .authenticatorPluginName("ldap")
                 .build();
 
-        when(roleMapper.mapRoles(identity1, integration))
+        Mockito.Mockito.when(roleMapper.mapRoles(identity1, integration))
                 .thenReturn(Collections.singleton("role1"));
-        when(roleMapper.mapRoles(identity2, integration))
+        Mockito.Mockito.when(roleMapper.mapRoles(identity2, integration))
                 .thenReturn(new HashSet<>(Arrays.asList("role2", "role3")));
 
         Set<String> result1 = stage.resolveRoles(identity1, integration);
         Set<String> result2 = stage.resolveRoles(identity2, integration);
 
-        assertEquals(1, result1.size());
-        assertEquals(2, result2.size());
-        verify(roleMapper, times(2)).mapRoles(any(), eq(integration));
+        Assertions.assertEquals(1, result1.size());
+        Assertions.assertEquals(2, result2.size());
+        Mockito.verify(roleMapper, Mockito.times(2)).mapRoles(Mockito.any(), Mockito.eq(integration));
     }
 }

@@ -17,14 +17,14 @@
 
 package org.apache.doris.authentication.plugin.ldap;
 
+import org.apache.doris.authentication.AuthenticationException;
 import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationRequest;
+import org.apache.doris.authentication.AuthenticationResult;
 import org.apache.doris.authentication.BasicPrincipal;
 import org.apache.doris.authentication.CredentialType;
 import org.apache.doris.authentication.Principal;
-import org.apache.doris.authentication.spi.AuthenticationException;
 import org.apache.doris.authentication.spi.AuthenticationPlugin;
-import org.apache.doris.authentication.spi.AuthenticationResult;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;

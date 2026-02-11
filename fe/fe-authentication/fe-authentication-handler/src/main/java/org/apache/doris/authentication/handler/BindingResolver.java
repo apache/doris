@@ -17,9 +17,9 @@
 
 package org.apache.doris.authentication.handler;
 
+import org.apache.doris.authentication.AuthenticationException;
 import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationRequest;
-import org.apache.doris.authentication.spi.AuthenticationException;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;

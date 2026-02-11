@@ -17,6 +17,7 @@
 
 package org.apache.doris.authentication.plugin.password;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -47,9 +48,9 @@ class PasswordHasherTest {
         String hashedPassword = PasswordHasher.hash(plainPassword);
 
         // Then
-        assertNotNull(hashedPassword);
-        assertTrue(hashedPassword.startsWith("$2a$"), "Should use BCrypt by default");
-        assertNotEquals(plainPassword, hashedPassword, "Hashed password should differ from plain");
+        Assertions.assertNotNull(hashedPassword);
+        Assertions.assertTrue(hashedPassword.startsWith("$2a$"), "Should use BCrypt by default");
+        Assertions.assertNotEquals(plainPassword, hashedPassword, "Hashed password should differ from plain");
     }
 
     @Test
@@ -62,9 +63,9 @@ class PasswordHasherTest {
         String hashedPassword = PasswordHasher.hash(plainPassword, PasswordHasher.Algorithm.BCRYPT);
 
         // Then
-        assertNotNull(hashedPassword);
-        assertTrue(hashedPassword.startsWith("$2a$"), "BCrypt hash should start with $2a$");
-        assertTrue(hashedPassword.length() > 50, "BCrypt hash should be at least 50 chars");
+        Assertions.assertNotNull(hashedPassword);
+        Assertions.assertTrue(hashedPassword.startsWith("$2a$"), "BCrypt hash should start with $2a$");
+        Assertions.assertTrue(hashedPassword.length() > 50, "BCrypt hash should be at least 50 chars");
     }
 
     @Test
@@ -77,9 +78,9 @@ class PasswordHasherTest {
         String hashedPassword = PasswordHasher.hash(plainPassword, PasswordHasher.Algorithm.SHA256);
 
         // Then
-        assertNotNull(hashedPassword);
-        assertTrue(hashedPassword.startsWith("{SHA256}"), "SHA-256 hash should have prefix");
-        assertTrue(hashedPassword.length() > 50, "SHA-256 hash should include Base64 encoded hash");
+        Assertions.assertNotNull(hashedPassword);
+        Assertions.assertTrue(hashedPassword.startsWith("{SHA256}"), "SHA-256 hash should have prefix");
+        Assertions.assertTrue(hashedPassword.length() > 50, "SHA-256 hash should include Base64 encoded hash");
     }
 
     @Test
@@ -92,19 +93,19 @@ class PasswordHasherTest {
         String hashedPassword = PasswordHasher.hash(plainPassword, PasswordHasher.Algorithm.PLAIN);
 
         // Then
-        assertNotNull(hashedPassword);
-        assertEquals("{PLAIN}PlainPassword", hashedPassword, "PLAIN should just add prefix");
+        Assertions.assertNotNull(hashedPassword);
+        Assertions.assertEquals("{PLAIN}PlainPassword", hashedPassword, "PLAIN should just add prefix");
     }
 
     @Test
     @DisplayName("UT-PWD-H-005: Hash null password should throw exception")
     void testHash_NullPassword_ThrowsException() {
         // When & Then
-        IllegalArgumentException exception = assertThrows(
+        IllegalArgumentException exception = Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> PasswordHasher.hash(null)
         );
-        assertTrue(exception.getMessage().contains("plainPassword"), "Error message should mention plainPassword");
+        Assertions.assertTrue(exception.getMessage().contains("plainPassword"), "Error message should mention plainPassword");
     }
 
     @Test
@@ -117,8 +118,8 @@ class PasswordHasherTest {
         String hashedPassword = PasswordHasher.hash(emptyPassword, PasswordHasher.Algorithm.BCRYPT);
 
         // Then
-        assertNotNull(hashedPassword);
-        assertTrue(hashedPassword.startsWith("$2a$"));
+        Assertions.assertNotNull(hashedPassword);
+        Assertions.assertTrue(hashedPassword.startsWith("$2a$"));
     }
 
     @Test
@@ -131,8 +132,8 @@ class PasswordHasherTest {
         String hashedPassword = PasswordHasher.hash(specialPassword);
 
         // Then
-        assertNotNull(hashedPassword);
-        assertTrue(PasswordHasher.verify(specialPassword, hashedPassword));
+        Assertions.assertNotNull(hashedPassword);
+        Assertions.assertTrue(PasswordHasher.verify(specialPassword, hashedPassword));
     }
 
     @Test
@@ -145,8 +146,8 @@ class PasswordHasherTest {
         String hashedPassword = PasswordHasher.hash(unicodePassword);
 
         // Then
-        assertNotNull(hashedPassword);
-        assertTrue(PasswordHasher.verify(unicodePassword, hashedPassword));
+        Assertions.assertNotNull(hashedPassword);
+        Assertions.assertTrue(PasswordHasher.verify(unicodePassword, hashedPassword));
     }
 
     // ==================== Password Verification Tests ====================
@@ -162,7 +163,7 @@ class PasswordHasherTest {
         boolean result = PasswordHasher.verify(plainPassword, hashedPassword);
 
         // Then
-        assertTrue(result, "Correct password should verify successfully");
+        Assertions.assertTrue(result, "Correct password should verify successfully");
     }
 
     @Test
@@ -177,7 +178,7 @@ class PasswordHasherTest {
         boolean result = PasswordHasher.verify(wrongPassword, hashedPassword);
 
         // Then
-        assertFalse(result, "Wrong password should not verify");
+        Assertions.assertFalse(result, "Wrong password should not verify");
     }
 
     @Test
@@ -191,7 +192,7 @@ class PasswordHasherTest {
         boolean result = PasswordHasher.verify(plainPassword, hashedPassword);
 
         // Then
-        assertTrue(result, "SHA-256 password should verify correctly");
+        Assertions.assertTrue(result, "SHA-256 password should verify correctly");
     }
 
     @Test
@@ -206,7 +207,7 @@ class PasswordHasherTest {
         boolean result = PasswordHasher.verify(wrongPassword, hashedPassword);
 
         // Then
-        assertFalse(result, "Wrong SHA-256 password should not verify");
+        Assertions.assertFalse(result, "Wrong SHA-256 password should not verify");
     }
 
     @Test
@@ -220,7 +221,7 @@ class PasswordHasherTest {
         boolean result = PasswordHasher.verify(plainPassword, hashedPassword);
 
         // Then
-        assertTrue(result, "PLAIN password should verify correctly");
+        Assertions.assertTrue(result, "PLAIN password should verify correctly");
     }
 
     @Test
@@ -235,7 +236,7 @@ class PasswordHasherTest {
         boolean result = PasswordHasher.verify(wrongPassword, hashedPassword);
 
         // Then
-        assertFalse(result, "Wrong PLAIN password should not verify");
+        Assertions.assertFalse(result, "Wrong PLAIN password should not verify");
     }
 
     @Test
@@ -248,7 +249,7 @@ class PasswordHasherTest {
         boolean result = PasswordHasher.verify(null, hashedPassword);
 
         // Then
-        assertFalse(result, "Null plain password should return false");
+        Assertions.assertFalse(result, "Null plain password should return false");
     }
 
     @Test
@@ -258,7 +259,7 @@ class PasswordHasherTest {
         boolean result = PasswordHasher.verify("test", null);
 
         // Then
-        assertFalse(result, "Null hashed password should return false");
+        Assertions.assertFalse(result, "Null hashed password should return false");
     }
 
     @Test
@@ -271,7 +272,7 @@ class PasswordHasherTest {
         boolean result = PasswordHasher.verify("password", invalidHash);
 
         // Then
-        assertFalse(result, "Invalid hash format should return false");
+        Assertions.assertFalse(result, "Invalid hash format should return false");
     }
 
     @Test
@@ -285,7 +286,7 @@ class PasswordHasherTest {
         boolean result = PasswordHasher.verify(plainPassword, bcryptHash);
 
         // Then
-        assertTrue(result, "Should verify BCrypt even if prefix check is ambiguous");
+        Assertions.assertTrue(result, "Should verify BCrypt even if prefix check is ambiguous");
     }
 
     // ==================== Algorithm Detection Tests ====================
@@ -300,7 +301,7 @@ class PasswordHasherTest {
         PasswordHasher.Algorithm detected = PasswordHasher.detectAlgorithm(bcryptHash);
 
         // Then
-        assertEquals(PasswordHasher.Algorithm.BCRYPT, detected);
+        Assertions.assertEquals(PasswordHasher.Algorithm.BCRYPT, detected);
     }
 
     @Test
@@ -313,7 +314,7 @@ class PasswordHasherTest {
         PasswordHasher.Algorithm detected = PasswordHasher.detectAlgorithm(sha256Hash);
 
         // Then
-        assertEquals(PasswordHasher.Algorithm.SHA256, detected);
+        Assertions.assertEquals(PasswordHasher.Algorithm.SHA256, detected);
     }
 
     @Test
@@ -326,14 +327,14 @@ class PasswordHasherTest {
         PasswordHasher.Algorithm detected = PasswordHasher.detectAlgorithm(plainHash);
 
         // Then
-        assertEquals(PasswordHasher.Algorithm.PLAIN, detected);
+        Assertions.assertEquals(PasswordHasher.Algorithm.PLAIN, detected);
     }
 
     @Test
     @DisplayName("UT-PWD-D-004: Detect algorithm with null hash should throw exception")
     void testDetectAlgorithm_NullHash() {
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> PasswordHasher.detectAlgorithm(null));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> PasswordHasher.detectAlgorithm(null));
     }
 
     @Test
@@ -343,7 +344,7 @@ class PasswordHasherTest {
         String unknownHash = "unknown-format-hash";
 
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> PasswordHasher.detectAlgorithm(unknownHash));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> PasswordHasher.detectAlgorithm(unknownHash));
     }
 
     // ==================== Rehash Detection Tests ====================
@@ -358,7 +359,7 @@ class PasswordHasherTest {
         boolean needsRehash = PasswordHasher.needsRehash(sha256Hash, PasswordHasher.Algorithm.BCRYPT);
 
         // Then
-        assertTrue(needsRehash, "SHA-256 hash should need rehashing to BCrypt");
+        Assertions.assertTrue(needsRehash, "SHA-256 hash should need rehashing to BCrypt");
     }
 
     @Test
@@ -371,7 +372,7 @@ class PasswordHasherTest {
         boolean needsRehash = PasswordHasher.needsRehash(plainHash, PasswordHasher.Algorithm.BCRYPT);
 
         // Then
-        assertTrue(needsRehash, "PLAIN hash should need rehashing to BCrypt");
+        Assertions.assertTrue(needsRehash, "PLAIN hash should need rehashing to BCrypt");
     }
 
     @Test
@@ -384,7 +385,7 @@ class PasswordHasherTest {
         boolean needsRehash = PasswordHasher.needsRehash(bcryptHash, PasswordHasher.Algorithm.BCRYPT);
 
         // Then
-        assertFalse(needsRehash, "Same algorithm with same work factor should not need rehashing");
+        Assertions.assertFalse(needsRehash, "Same algorithm with same work factor should not need rehashing");
     }
 
     @Test
@@ -394,7 +395,7 @@ class PasswordHasherTest {
         boolean needsRehash = PasswordHasher.needsRehash(null, PasswordHasher.Algorithm.BCRYPT);
 
         // Then
-        assertTrue(needsRehash, "Null hash should always need rehashing");
+        Assertions.assertTrue(needsRehash, "Null hash should always need rehashing");
     }
 
     @Test
@@ -410,7 +411,7 @@ class PasswordHasherTest {
 
         // Then
         // Current implementation checks work factor from the hash
-        assertFalse(needsRehash, "Same or higher work factor should not need rehashing");
+        Assertions.assertFalse(needsRehash, "Same or higher work factor should not need rehashing");
     }
 
     // ==================== Edge Cases and Integration Tests ====================
@@ -423,15 +424,15 @@ class PasswordHasherTest {
 
         // When & Then - BCrypt
         String bcryptHash = PasswordHasher.hash(password, PasswordHasher.Algorithm.BCRYPT);
-        assertTrue(PasswordHasher.verify(password, bcryptHash), "BCrypt round-trip should work");
+        Assertions.assertTrue(PasswordHasher.verify(password, bcryptHash), "BCrypt round-trip should work");
 
         // When & Then - SHA-256
         String sha256Hash = PasswordHasher.hash(password, PasswordHasher.Algorithm.SHA256);
-        assertTrue(PasswordHasher.verify(password, sha256Hash), "SHA-256 round-trip should work");
+        Assertions.assertTrue(PasswordHasher.verify(password, sha256Hash), "SHA-256 round-trip should work");
 
         // When & Then - PLAIN
         String plainHash = PasswordHasher.hash(password, PasswordHasher.Algorithm.PLAIN);
-        assertTrue(PasswordHasher.verify(password, plainHash), "PLAIN round-trip should work");
+        Assertions.assertTrue(PasswordHasher.verify(password, plainHash), "PLAIN round-trip should work");
     }
 
     @Test
@@ -445,9 +446,9 @@ class PasswordHasherTest {
         String hash2 = PasswordHasher.hash(password, PasswordHasher.Algorithm.BCRYPT);
 
         // Then
-        assertNotEquals(hash1, hash2, "BCrypt should produce different hashes due to random salt");
-        assertTrue(PasswordHasher.verify(password, hash1), "First hash should verify");
-        assertTrue(PasswordHasher.verify(password, hash2), "Second hash should verify");
+        Assertions.assertNotEquals(hash1, hash2, "BCrypt should produce different hashes due to random salt");
+        Assertions.assertTrue(PasswordHasher.verify(password, hash1), "First hash should verify");
+        Assertions.assertTrue(PasswordHasher.verify(password, hash2), "Second hash should verify");
     }
 
     @Test
@@ -461,7 +462,7 @@ class PasswordHasherTest {
         String hash2 = PasswordHasher.hash(password, PasswordHasher.Algorithm.SHA256);
 
         // Then
-        assertEquals(hash1, hash2, "SHA-256 should be deterministic (no salt in this implementation)");
+        Assertions.assertEquals(hash1, hash2, "SHA-256 should be deterministic (no salt in this implementation)");
     }
 
     @Test
@@ -475,10 +476,10 @@ class PasswordHasherTest {
         String sha256Hash = PasswordHasher.hash(longPassword, PasswordHasher.Algorithm.SHA256);
 
         // Then
-        assertNotNull(bcryptHash);
-        assertNotNull(sha256Hash);
-        assertTrue(PasswordHasher.verify(longPassword, bcryptHash));
-        assertTrue(PasswordHasher.verify(longPassword, sha256Hash));
+        Assertions.assertNotNull(bcryptHash);
+        Assertions.assertNotNull(sha256Hash);
+        Assertions.assertTrue(PasswordHasher.verify(longPassword, bcryptHash));
+        Assertions.assertTrue(PasswordHasher.verify(longPassword, sha256Hash));
     }
 
     @Test
@@ -491,9 +492,9 @@ class PasswordHasherTest {
         String hashedPassword = PasswordHasher.hash(whitespacePassword);
 
         // Then
-        assertNotNull(hashedPassword);
-        assertTrue(PasswordHasher.verify(whitespacePassword, hashedPassword));
-        assertFalse(PasswordHasher.verify("", hashedPassword), "Empty string should not match whitespace");
+        Assertions.assertNotNull(hashedPassword);
+        Assertions.assertTrue(PasswordHasher.verify(whitespacePassword, hashedPassword));
+        Assertions.assertFalse(PasswordHasher.verify("", hashedPassword), "Empty string should not match whitespace");
     }
 
     @Test
@@ -504,8 +505,8 @@ class PasswordHasherTest {
         String hashedPassword = PasswordHasher.hash(password);
 
         // When & Then
-        assertTrue(PasswordHasher.verify("Password", hashedPassword), "Exact match should work");
-        assertFalse(PasswordHasher.verify("password", hashedPassword), "Should be case-sensitive");
-        assertFalse(PasswordHasher.verify("PASSWORD", hashedPassword), "Should be case-sensitive");
+        Assertions.assertTrue(PasswordHasher.verify("Password", hashedPassword), "Exact match should work");
+        Assertions.assertFalse(PasswordHasher.verify("password", hashedPassword), "Should be case-sensitive");
+        Assertions.assertFalse(PasswordHasher.verify("PASSWORD", hashedPassword), "Should be case-sensitive");
     }
 }

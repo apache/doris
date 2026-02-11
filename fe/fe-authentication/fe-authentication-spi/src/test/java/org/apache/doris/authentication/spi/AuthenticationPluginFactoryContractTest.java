@@ -19,6 +19,7 @@ package org.apache.doris.authentication.spi;
 
 import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationRequest;
+import org.apache.doris.authentication.AuthenticationResult;
 import org.apache.doris.authentication.BasicPrincipal;
 
 import org.junit.jupiter.api.Assertions;

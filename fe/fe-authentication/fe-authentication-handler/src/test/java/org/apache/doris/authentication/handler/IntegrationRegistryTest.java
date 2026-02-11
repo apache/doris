@@ -19,6 +19,7 @@ package org.apache.doris.authentication.handler;
 
 import org.apache.doris.authentication.AuthenticationIntegration;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -55,9 +56,9 @@ class IntegrationRegistryTest {
 
         // Then
         Optional<AuthenticationIntegration> retrieved = integrationRegistry.get("corp_ldap");
-        assertTrue(retrieved.isPresent());
-        assertEquals("corp_ldap", retrieved.get().getName());
-        assertEquals("ldap", retrieved.get().getType());
+        Assertions.assertTrue(retrieved.isPresent());
+        Assertions.assertEquals("corp_ldap", retrieved.get().getName());
+        Assertions.assertEquals("ldap", retrieved.get().getType());
     }
 
     @Test
@@ -74,8 +75,8 @@ class IntegrationRegistryTest {
         Optional<AuthenticationIntegration> retrieved = integrationRegistry.get("test_ldap");
 
         // Then
-        assertTrue(retrieved.isPresent());
-        assertEquals("test_ldap", retrieved.get().getName());
+        Assertions.assertTrue(retrieved.isPresent());
+        Assertions.assertEquals("test_ldap", retrieved.get().getName());
     }
 
     @Test
@@ -85,7 +86,7 @@ class IntegrationRegistryTest {
         Optional<AuthenticationIntegration> retrieved = integrationRegistry.get("nonexistent");
 
         // Then
-        assertFalse(retrieved.isPresent());
+        Assertions.assertFalse(retrieved.isPresent());
     }
 
     @Test
@@ -102,7 +103,7 @@ class IntegrationRegistryTest {
         integrationRegistry.unregister("temp_ldap");
 
         // Then
-        assertFalse(integrationRegistry.get("temp_ldap").isPresent());
+        Assertions.assertFalse(integrationRegistry.get("temp_ldap").isPresent());
     }
 
     @Test
@@ -122,8 +123,8 @@ class IntegrationRegistryTest {
         Map<String, AuthenticationIntegration> integrations = integrationRegistry.getAll();
 
         // Then
-        assertNotNull(integrations);
-        assertEquals(2, integrations.size());
+        Assertions.assertNotNull(integrations);
+        Assertions.assertEquals(2, integrations.size());
     }
 
     @Test
@@ -138,12 +139,12 @@ class IntegrationRegistryTest {
         integrationRegistry.setAuthenticationChain(chain);
 
         // Then
-        assertEquals(chain, integrationRegistry.getAuthenticationChain());
+        Assertions.assertEquals(chain, integrationRegistry.getAuthenticationChain());
 
         // Unregistering an item should remove it from chain
         integrationRegistry.unregister("i1");
-        assertEquals(1, integrationRegistry.getAuthenticationChain().size());
-        assertEquals("i2", integrationRegistry.getAuthenticationChain().get(0).getName());
+        Assertions.assertEquals(1, integrationRegistry.getAuthenticationChain().size());
+        Assertions.assertEquals("i2", integrationRegistry.getAuthenticationChain().get(0).getName());
     }
 
     @Test
@@ -156,10 +157,10 @@ class IntegrationRegistryTest {
         integrationRegistry.setDefaultPasswordIntegration(def);
 
         // Then
-        assertEquals(def, integrationRegistry.getDefaultPasswordIntegration());
+        Assertions.assertEquals(def, integrationRegistry.getDefaultPasswordIntegration());
 
         // Unregistering should clear default
         integrationRegistry.unregister("def");
-        assertNull(integrationRegistry.getDefaultPasswordIntegration());
+        Assertions.assertNull(integrationRegistry.getDefaultPasswordIntegration());
     }
 }

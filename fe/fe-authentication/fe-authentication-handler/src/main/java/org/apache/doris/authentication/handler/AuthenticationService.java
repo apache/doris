@@ -17,11 +17,11 @@
 
 package org.apache.doris.authentication.handler;
 
+import org.apache.doris.authentication.AuthenticationException;
 import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationRequest;
-import org.apache.doris.authentication.spi.AuthenticationException;
+import org.apache.doris.authentication.AuthenticationResult;
 import org.apache.doris.authentication.spi.AuthenticationPlugin;
-import org.apache.doris.authentication.spi.AuthenticationResult;
 
 import java.util.Collections;
 import java.util.Objects;
@@ -43,7 +43,7 @@ import java.util.Set;
 public class AuthenticationService {
 
     private final IntegrationRegistry integrationRegistry;
-    private final PluginManager pluginManager;
+    private final AuthenticationPluginManager pluginManager;
     private final BindingResolver bindingResolver;
     private final UserResolver userResolver;
     private final RoleMapper roleMapper;
@@ -57,7 +57,7 @@ public class AuthenticationService {
      * @param pluginManager the plugin manager
      * @param bindingResolver the binding resolver
      */
-    public AuthenticationService(IntegrationRegistry integrationRegistry, PluginManager pluginManager,
+    public AuthenticationService(IntegrationRegistry integrationRegistry, AuthenticationPluginManager pluginManager,
                        BindingResolver bindingResolver) {
         this(integrationRegistry, pluginManager, bindingResolver, null, null, null, null);
     }
@@ -73,7 +73,7 @@ public class AuthenticationService {
      * @param subjectBuilder subject builder (optional)
      * @param roleResolutionStage role resolution stage (optional)
      */
-    public AuthenticationService(IntegrationRegistry integrationRegistry, PluginManager pluginManager,
+    public AuthenticationService(IntegrationRegistry integrationRegistry, AuthenticationPluginManager pluginManager,
                        BindingResolver bindingResolver, UserResolver userResolver,
                        RoleMapper roleMapper, SubjectBuilder subjectBuilder,
                        RoleResolutionStage roleResolutionStage) {
@@ -97,7 +97,7 @@ public class AuthenticationService {
      * @param userResolver user resolver
      * @param roleMapper role mapper
      */
-    public AuthenticationService(IntegrationRegistry integrationRegistry, PluginManager pluginManager,
+    public AuthenticationService(IntegrationRegistry integrationRegistry, AuthenticationPluginManager pluginManager,
                        BindingResolver bindingResolver, UserResolver userResolver,
                        RoleMapper roleMapper) {
         this(integrationRegistry, pluginManager, bindingResolver, userResolver, roleMapper, null, null);
@@ -184,7 +184,7 @@ public class AuthenticationService {
      *
      * @return the plugin manager
      */
-    public PluginManager getPluginManager() {
+    public AuthenticationPluginManager getPluginManager() {
         return pluginManager;
     }
 

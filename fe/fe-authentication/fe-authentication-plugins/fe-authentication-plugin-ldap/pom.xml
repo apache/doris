@@ -32,6 +32,19 @@ under the License.
     <name>Doris FE - Authentication Plugin - LDAP</name>
 
     <dependencies>
+        <!-- Core dependencies - provided by parent classloader -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-authentication-api</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-authentication-spi</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
 
         <!-- Spring LDAP for LDAP client -->
         <dependency>

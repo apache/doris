@@ -19,9 +19,9 @@ package org.apache.doris.authentication.plugin.ldap;
 
 import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationRequest;
+import org.apache.doris.authentication.AuthenticationResult;
 import org.apache.doris.authentication.CredentialType;
 import org.apache.doris.authentication.Principal;
-import org.apache.doris.authentication.spi.AuthenticationResult;
 
 import com.unboundid.ldap.listener.InMemoryDirectoryServer;
 import com.unboundid.ldap.listener.InMemoryDirectoryServerConfig;
@@ -30,6 +30,7 @@ import com.unboundid.ldap.sdk.LDAPException;
 import com.unboundid.ldif.LDIFException;
 import com.unboundid.ldif.LDIFReader;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -133,7 +134,7 @@ class LdapAuthenticationPluginIntegrationTest {
                 .build();
 
         // Initialize plugin
-        assertDoesNotThrow(() -> plugin.initialize(integration));
+        Assertions.assertDoesNotThrow(() -> plugin.initialize(integration));
     }
 
     // ==================== Successful Authentication Tests ====================
@@ -149,12 +150,12 @@ class LdapAuthenticationPluginIntegrationTest {
 
         AuthenticationResult result = plugin.authenticate(request, integration);
 
-        assertTrue(result.isSuccess(), "Authentication should succeed");
-        assertNotNull(result.getPrincipal());
+        Assertions.assertTrue(result.isSuccess(), "Authentication should succeed");
+        Assertions.assertNotNull(result.getPrincipal());
 
         Principal principal = result.getPrincipal();
-        assertEquals("alice", principal.getName());
-        assertEquals("ldap", principal.getAuthenticator());
+        Assertions.assertEquals("alice", principal.getName());
+        Assertions.assertEquals("ldap", principal.getAuthenticator());
     }
 
     @Test
@@ -168,8 +169,8 @@ class LdapAuthenticationPluginIntegrationTest {
 
         AuthenticationResult result = plugin.authenticate(request, integration);
 
-        assertTrue(result.isSuccess());
-        assertEquals("bob", result.getPrincipal().getName());
+        Assertions.assertTrue(result.isSuccess());
+        Assertions.assertEquals("bob", result.getPrincipal().getName());
     }
 
     @Test
@@ -183,8 +184,8 @@ class LdapAuthenticationPluginIntegrationTest {
 
         AuthenticationResult result = plugin.authenticate(request, integration);
 
-        assertTrue(result.isSuccess());
-        assertEquals("charlie", result.getPrincipal().getName());
+        Assertions.assertTrue(result.isSuccess());
+        Assertions.assertEquals("charlie", result.getPrincipal().getName());
     }
 
     // ==================== Failed Authentication Tests ====================
@@ -200,8 +201,8 @@ class LdapAuthenticationPluginIntegrationTest {
 
         AuthenticationResult result = plugin.authenticate(request, integration);
 
-        assertTrue(result.isFailure(), "Authentication should fail with wrong password");
-        assertNotNull(result.getException());
+        Assertions.assertTrue(result.isFailure(), "Authentication should fail with wrong password");
+        Assertions.assertNotNull(result.getException());
     }
 
     @Test
@@ -215,8 +216,8 @@ class LdapAuthenticationPluginIntegrationTest {
 
         AuthenticationResult result = plugin.authenticate(request, integration);
 
-        assertTrue(result.isFailure(), "Authentication should fail for non-existent user");
-        assertTrue(result.getException().getMessage().contains("not found"));
+        Assertions.assertTrue(result.isFailure(), "Authentication should fail for non-existent user");
+        Assertions.assertTrue(result.getException().getMessage().contains("not found"));
     }
 
     @Test
@@ -230,7 +231,7 @@ class LdapAuthenticationPluginIntegrationTest {
 
         AuthenticationResult result = plugin.authenticate(request, integration);
 
-        assertTrue(result.isFailure());
+        Assertions.assertTrue(result.isFailure());
     }
 
     // ==================== Group Extraction Tests ====================
@@ -246,14 +247,14 @@ class LdapAuthenticationPluginIntegrationTest {
 
         AuthenticationResult result = plugin.authenticate(request, integration);
 
-        assertTrue(result.isSuccess());
+        Assertions.assertTrue(result.isSuccess());
         Principal principal = result.getPrincipal();
         Set<String> groups = principal.getExternalGroups();
 
-        assertNotNull(groups, "Groups should not be null");
-        assertFalse(groups.isEmpty(), "Alice should have groups");
-        assertTrue(groups.contains("developers"), "Alice should be in developers group");
-        assertTrue(groups.contains("employees"), "Alice should be in employees group");
+        Assertions.assertNotNull(groups, "Groups should not be null");
+        Assertions.assertFalse(groups.isEmpty(), "Alice should have groups");
+        Assertions.assertTrue(groups.contains("developers"), "Alice should be in developers group");
+        Assertions.assertTrue(groups.contains("employees"), "Alice should be in employees group");
     }
 
     @Test
@@ -267,12 +268,12 @@ class LdapAuthenticationPluginIntegrationTest {
 
         AuthenticationResult result = plugin.authenticate(request, integration);
 
-        assertTrue(result.isSuccess());
+        Assertions.assertTrue(result.isSuccess());
         Set<String> groups = result.getPrincipal().getExternalGroups();
 
-        assertTrue(groups.contains("analysts"), "Bob should be in analysts group");
-        assertTrue(groups.contains("employees"), "Bob should be in employees group");
-        assertFalse(groups.contains("developers"), "Bob should not be in developers group");
+        Assertions.assertTrue(groups.contains("analysts"), "Bob should be in analysts group");
+        Assertions.assertTrue(groups.contains("employees"), "Bob should be in employees group");
+        Assertions.assertFalse(groups.contains("developers"), "Bob should not be in developers group");
     }
 
     @Test
@@ -286,12 +287,12 @@ class LdapAuthenticationPluginIntegrationTest {
 
         AuthenticationResult result = plugin.authenticate(request, integration);
 
-        assertTrue(result.isSuccess());
+        Assertions.assertTrue(result.isSuccess());
         Set<String> groups = result.getPrincipal().getExternalGroups();
 
-        assertTrue(groups.contains("employees"), "Charlie should be in employees group");
-        assertFalse(groups.contains("developers"), "Charlie should not be in developers group");
-        assertFalse(groups.contains("analysts"), "Charlie should not be in analysts group");
+        Assertions.assertTrue(groups.contains("employees"), "Charlie should be in employees group");
+        Assertions.assertFalse(groups.contains("developers"), "Charlie should not be in developers group");
+        Assertions.assertFalse(groups.contains("analysts"), "Charlie should not be in analysts group");
     }
 
     // ==================== User DN Extraction Tests ====================
@@ -307,12 +308,12 @@ class LdapAuthenticationPluginIntegrationTest {
 
         AuthenticationResult result = plugin.authenticate(request, integration);
 
-        assertTrue(result.isSuccess());
+        Assertions.assertTrue(result.isSuccess());
         Principal principal = result.getPrincipal();
 
-        assertTrue(principal.getExternalPrincipal().isPresent());
+        Assertions.assertTrue(principal.getExternalPrincipal().isPresent());
         String dn = principal.getExternalPrincipal().get();
-        assertTrue(dn.toLowerCase().contains("uid=alice"),
+        Assertions.assertTrue(dn.toLowerCase().contains("uid=alice"),
                 "DN should contain uid=alice, got: " + dn);
     }
 
@@ -335,7 +336,7 @@ class LdapAuthenticationPluginIntegrationTest {
                 .build();
 
         LdapAuthenticationPlugin anonPlugin = new LdapAuthenticationPlugin();
-        assertDoesNotThrow(() -> anonPlugin.initialize(anonIntegration));
+        Assertions.assertDoesNotThrow(() -> anonPlugin.initialize(anonIntegration));
 
         AuthenticationRequest request = AuthenticationRequest.builder()
                 .username("alice")
@@ -346,7 +347,7 @@ class LdapAuthenticationPluginIntegrationTest {
         AuthenticationResult result = anonPlugin.authenticate(request, anonIntegration);
 
         // Should succeed for password validation, but group extraction might fail without bind
-        assertTrue(result.isSuccess());
+        Assertions.assertTrue(result.isSuccess());
     }
 
     @Test
@@ -378,7 +379,7 @@ class LdapAuthenticationPluginIntegrationTest {
 
         AuthenticationResult result = customPlugin.authenticate(request, customIntegration);
 
-        assertTrue(result.isSuccess());
+        Assertions.assertTrue(result.isSuccess());
     }
 
     // ==================== Health Check Tests ====================
@@ -387,7 +388,7 @@ class LdapAuthenticationPluginIntegrationTest {
     @DisplayName("Should pass health check with running LDAP server")
     void testHealthCheckSuccess() {
         boolean healthy = plugin.healthCheck(integration);
-        assertTrue(healthy, "Health check should pass with running LDAP server");
+        Assertions.assertTrue(healthy, "Health check should pass with running LDAP server");
     }
 
     @Test
@@ -408,7 +409,7 @@ class LdapAuthenticationPluginIntegrationTest {
         badPlugin.initialize(badIntegration);
 
         boolean healthy = badPlugin.healthCheck(badIntegration);
-        assertFalse(healthy, "Health check should fail with unreachable server");
+        Assertions.assertFalse(healthy, "Health check should fail with unreachable server");
     }
 
     // ==================== Concurrent Authentication Tests ====================
@@ -453,7 +454,7 @@ class LdapAuthenticationPluginIntegrationTest {
 
         // All authentications should succeed
         for (int i = 0; i < threadCount; i++) {
-            assertTrue(results[i], "Thread " + i + " authentication should succeed");
+            Assertions.assertTrue(results[i], "Thread " + i + " authentication should succeed");
         }
     }
 

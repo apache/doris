@@ -19,6 +19,7 @@ package org.apache.doris.authentication.handler;
 
 import org.apache.doris.authentication.AuthenticationBinding;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -51,8 +52,8 @@ class BindingRegistryTest {
 
         // Then
         Optional<String> bound = bindingRegistry.getIntegrationName(username);
-        assertTrue(bound.isPresent());
-        assertEquals(integrationName, bound.get());
+        Assertions.assertTrue(bound.isPresent());
+        Assertions.assertEquals(integrationName, bound.get());
     }
 
     @Test
@@ -67,8 +68,8 @@ class BindingRegistryTest {
 
         // Then
         Optional<String> bound = bindingRegistry.getIntegrationName(username);
-        assertTrue(bound.isPresent());
-        assertEquals("ldap2", bound.get());
+        Assertions.assertTrue(bound.isPresent());
+        Assertions.assertEquals("ldap2", bound.get());
     }
 
     @Test
@@ -81,7 +82,7 @@ class BindingRegistryTest {
         Optional<String> bound = bindingRegistry.getIntegrationName(username);
 
         // Then
-        assertFalse(bound.isPresent());
+        Assertions.assertFalse(bound.isPresent());
     }
 
     @Test
@@ -96,10 +97,10 @@ class BindingRegistryTest {
         Optional<AuthenticationBinding> removed = bindingRegistry.unregister(username);
 
         // Then
-        assertTrue(removed.isPresent());
-        assertEquals(username, removed.get().getUsername());
-        assertEquals(integrationName, removed.get().getIntegrationName());
-        assertFalse(bindingRegistry.getIntegrationName(username).isPresent());
+        Assertions.assertTrue(removed.isPresent());
+        Assertions.assertEquals(username, removed.get().getUsername());
+        Assertions.assertEquals(integrationName, removed.get().getIntegrationName());
+        Assertions.assertFalse(bindingRegistry.getIntegrationName(username).isPresent());
     }
 
     @Test
@@ -112,7 +113,7 @@ class BindingRegistryTest {
         Optional<AuthenticationBinding> removed = bindingRegistry.unregister(username);
 
         // Then
-        assertFalse(removed.isPresent());
+        Assertions.assertFalse(removed.isPresent());
     }
 
     @Test
@@ -124,8 +125,8 @@ class BindingRegistryTest {
         bindingRegistry.register(boundUser, "corp_ldap");
 
         // When & Then
-        assertTrue(bindingRegistry.hasBinding(boundUser));
-        assertFalse(bindingRegistry.hasBinding(unboundUser));
+        Assertions.assertTrue(bindingRegistry.hasBinding(boundUser));
+        Assertions.assertFalse(bindingRegistry.hasBinding(unboundUser));
     }
 
     @Test
@@ -139,8 +140,8 @@ class BindingRegistryTest {
         Collection<AuthenticationBinding> bindings = bindingRegistry.getAllBindings();
 
         // Then
-        assertNotNull(bindings);
-        assertEquals(2, bindings.size());
+        Assertions.assertNotNull(bindings);
+        Assertions.assertEquals(2, bindings.size());
     }
 
     @Test
@@ -155,31 +156,31 @@ class BindingRegistryTest {
         var usernames = bindingRegistry.getBoundUsernames();
 
         // Then
-        assertNotNull(usernames);
-        assertEquals(3, usernames.size());
-        assertTrue(usernames.contains("alice"));
-        assertTrue(usernames.contains("bob"));
-        assertTrue(usernames.contains("charlie"));
+        Assertions.assertNotNull(usernames);
+        Assertions.assertEquals(3, usernames.size());
+        Assertions.assertTrue(usernames.contains("alice"));
+        Assertions.assertTrue(usernames.contains("bob"));
+        Assertions.assertTrue(usernames.contains("charlie"));
     }
 
     @Test
     @DisplayName("UT-HANDLER-BR-009: Registry size tracking")
     void testRegistrySize() {
         // Given
-        assertEquals(0, bindingRegistry.size());
+        Assertions.assertEquals(0, bindingRegistry.size());
 
         // When
         bindingRegistry.register("alice", "corp_ldap");
         bindingRegistry.register("bob", "local_password");
 
         // Then
-        assertEquals(2, bindingRegistry.size());
+        Assertions.assertEquals(2, bindingRegistry.size());
 
         // When - unregister one
         bindingRegistry.unregister("alice");
 
         // Then
-        assertEquals(1, bindingRegistry.size());
+        Assertions.assertEquals(1, bindingRegistry.size());
     }
 
     @Test
@@ -188,15 +189,15 @@ class BindingRegistryTest {
         // Given
         bindingRegistry.register("alice", "corp_ldap");
         bindingRegistry.register("bob", "local_password");
-        assertEquals(2, bindingRegistry.size());
+        Assertions.assertEquals(2, bindingRegistry.size());
 
         // When
         bindingRegistry.clear();
 
         // Then
-        assertEquals(0, bindingRegistry.size());
-        assertFalse(bindingRegistry.hasBinding("alice"));
-        assertFalse(bindingRegistry.hasBinding("bob"));
+        Assertions.assertEquals(0, bindingRegistry.size());
+        Assertions.assertFalse(bindingRegistry.hasBinding("alice"));
+        Assertions.assertFalse(bindingRegistry.hasBinding("bob"));
     }
 
     @Test
@@ -209,8 +210,8 @@ class BindingRegistryTest {
         bindingRegistry.register(binding);
 
         // Then
-        assertTrue(bindingRegistry.hasBinding("alice"));
-        assertEquals("corp_ldap", bindingRegistry.getIntegrationName("alice").get());
+        Assertions.assertTrue(bindingRegistry.hasBinding("alice"));
+        Assertions.assertEquals("corp_ldap", bindingRegistry.getIntegrationName("alice").get());
     }
 
     @Test
@@ -225,27 +226,27 @@ class BindingRegistryTest {
         Optional<AuthenticationBinding> binding = bindingRegistry.getBinding(username);
 
         // Then
-        assertTrue(binding.isPresent());
-        assertEquals(username, binding.get().getUsername());
-        assertEquals(integrationName, binding.get().getIntegrationName());
-        assertTrue(binding.get().isUserBinding());
+        Assertions.assertTrue(binding.isPresent());
+        Assertions.assertEquals(username, binding.get().getUsername());
+        Assertions.assertEquals(integrationName, binding.get().getIntegrationName());
+        Assertions.assertTrue(binding.get().isUserBinding());
     }
 
     @Test
     @DisplayName("UT-HANDLER-BR-013: Null username returns empty")
     void testNullUsername() {
         // When & Then
-        assertFalse(bindingRegistry.getIntegrationName(null).isPresent());
-        assertFalse(bindingRegistry.getBinding(null).isPresent());
-        assertFalse(bindingRegistry.hasBinding(null));
-        assertFalse(bindingRegistry.unregister(null).isPresent());
+        Assertions.assertFalse(bindingRegistry.getIntegrationName(null).isPresent());
+        Assertions.assertFalse(bindingRegistry.getBinding(null).isPresent());
+        Assertions.assertFalse(bindingRegistry.hasBinding(null));
+        Assertions.assertFalse(bindingRegistry.unregister(null).isPresent());
     }
 
     @Test
     @DisplayName("UT-HANDLER-BR-014: Register null binding throws exception")
     void testRegisterNullBinding() {
         // When & Then
-        assertThrows(NullPointerException.class, () -> {
+        Assertions.assertThrows(NullPointerException.class, () -> {
             bindingRegistry.register((AuthenticationBinding) null);
         });
     }
@@ -257,7 +258,7 @@ class BindingRegistryTest {
         AuthenticationBinding nonUserBinding = AuthenticationBinding.of(null, "some_integration");
 
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
+        Assertions.assertThrows(IllegalArgumentException.class, () -> {
             bindingRegistry.register(nonUserBinding);
         });
     }

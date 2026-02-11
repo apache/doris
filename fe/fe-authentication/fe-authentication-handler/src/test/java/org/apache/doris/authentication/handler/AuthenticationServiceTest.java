@@ -17,20 +17,22 @@
 
 package org.apache.doris.authentication.handler;
 
+import org.apache.doris.authentication.AuthenticationException;
 import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationRequest;
+import org.apache.doris.authentication.AuthenticationResult;
 import org.apache.doris.authentication.BasicPrincipal;
 import org.apache.doris.authentication.CredentialType;
 import org.apache.doris.authentication.Identity;
-import org.apache.doris.authentication.spi.AuthenticationException;
 import org.apache.doris.authentication.spi.AuthenticationPlugin;
-import org.apache.doris.authentication.spi.AuthenticationResult;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
 import java.nio.charset.StandardCharsets;
@@ -49,7 +51,7 @@ class AuthenticationServiceTest {
     private IntegrationRegistry integrationRegistry;
 
     @Mock
-    private PluginManager pluginManager;
+    private AuthenticationPluginManager pluginManager;
 
     @Mock
     private BindingResolver bindingResolver;
@@ -101,10 +103,10 @@ class AuthenticationServiceTest {
         void testMinimalConstructor() {
             service = new AuthenticationService(integrationRegistry, pluginManager, bindingResolver);
 
-            assertNotNull(service);
-            assertEquals(integrationRegistry, service.getIntegrationRegistry());
-            assertEquals(pluginManager, service.getPluginManager());
-            assertEquals(bindingResolver, service.getBindingResolver());
+            Assertions.assertNotNull(service);
+            Assertions.assertEquals(integrationRegistry, service.getIntegrationRegistry());
+            Assertions.assertEquals(pluginManager, service.getPluginManager());
+            Assertions.assertEquals(bindingResolver, service.getBindingResolver());
         }
 
         @Test
@@ -114,27 +116,27 @@ class AuthenticationServiceTest {
                     integrationRegistry, pluginManager, bindingResolver,
                     userResolver, roleMapper, subjectBuilder, roleResolutionStage);
 
-            assertNotNull(service);
+            Assertions.assertNotNull(service);
         }
 
         @Test
         @DisplayName("UT-SVC-C-003: Constructor with null integrationRegistry throws NPE")
         void testConstructor_NullIntegrationRegistry() {
-            assertThrows(NullPointerException.class, () ->
+            Assertions.assertThrows(NullPointerException.class, () ->
                     new AuthenticationService(null, pluginManager, bindingResolver));
         }
 
         @Test
         @DisplayName("UT-SVC-C-004: Constructor with null pluginManager throws NPE")
         void testConstructor_NullPluginManager() {
-            assertThrows(NullPointerException.class, () ->
+            Assertions.assertThrows(NullPointerException.class, () ->
                     new AuthenticationService(integrationRegistry, null, bindingResolver));
         }
 
         @Test
         @DisplayName("UT-SVC-C-005: Constructor with null bindingResolver throws NPE")
         void testConstructor_NullBindingResolver() {
-            assertThrows(NullPointerException.class, () ->
+            Assertions.assertThrows(NullPointerException.class, () ->
                     new AuthenticationService(integrationRegistry, pluginManager, null));
         }
 
@@ -144,7 +146,7 @@ class AuthenticationServiceTest {
             service = new AuthenticationService(integrationRegistry, pluginManager, bindingResolver);
 
             // Service should work with default implementations
-            assertNotNull(service);
+            Assertions.assertNotNull(service);
         }
     }
 
@@ -173,58 +175,58 @@ class AuthenticationServiceTest {
 
             AuthenticationResult successResult = AuthenticationResult.success(identity);
 
-            when(bindingResolver.resolveCandidates(eq("alice"), any()))
+            Mockito.when(bindingResolver.resolveCandidates(Mockito.eq("alice"), Mockito.any()))
                     .thenReturn(Collections.singletonList(testIntegration));
-            when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
-            when(plugin.supports(any())).thenReturn(true);
-            when(plugin.authenticate(any(), eq(testIntegration))).thenReturn(successResult);
-            when(userResolver.resolveUser(any(), any())).thenReturn("alice_user_object");
-            when(roleResolutionStage.resolveRoles(any(), any()))
+            Mockito.when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
+            Mockito.when(plugin.supports(Mockito.any())).thenReturn(true);
+            Mockito.when(plugin.authenticate(Mockito.any(), Mockito.eq(testIntegration))).thenReturn(successResult);
+            Mockito.when(userResolver.resolveUser(Mockito.any(), Mockito.any())).thenReturn("alice_user_object");
+            Mockito.when(roleResolutionStage.resolveRoles(Mockito.any(), Mockito.any()))
                     .thenReturn(new HashSet<>(Arrays.asList("user", "admin")));
-            when(subjectBuilder.build(any(), any(), any())).thenReturn(null);
+            Mockito.when(subjectBuilder.build(Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(null);
 
             // When
             AuthenticationResult result = service.authenticate(testRequest);
 
             // Then
-            assertNotNull(result);
-            assertTrue(result.isSuccess());
-            verify(plugin).authenticate(any(), eq(testIntegration));
-            verify(userResolver).resolveUser(any(), any());
-            verify(roleResolutionStage).resolveRoles(any(), any());
+            Assertions.assertNotNull(result);
+            Assertions.assertTrue(result.isSuccess());
+            Mockito.verify(plugin).authenticate(Mockito.any(), Mockito.eq(testIntegration));
+            Mockito.verify(userResolver).resolveUser(Mockito.any(), Mockito.any());
+            Mockito.verify(roleResolutionStage).resolveRoles(Mockito.any(), Mockito.any());
         }
 
         @Test
         @DisplayName("UT-SVC-A-002: Authentication with null request throws exception")
         void testAuthenticate_NullRequest() {
-            assertThrows(AuthenticationException.class, () ->
+            Assertions.assertThrows(AuthenticationException.class, () ->
                     service.authenticate(null));
         }
 
         @Test
         @DisplayName("UT-SVC-A-003: No candidates available throws exception")
         void testAuthenticate_NoCandidates() {
-            when(bindingResolver.resolveCandidates(any(), any()))
+            Mockito.when(bindingResolver.resolveCandidates(Mockito.any(), Mockito.any()))
                     .thenReturn(Collections.emptyList());
 
-            AuthenticationException ex = assertThrows(AuthenticationException.class, () ->
+            AuthenticationException ex = Assertions.assertThrows(AuthenticationException.class, () ->
                     service.authenticate(testRequest));
 
-            assertTrue(ex.getMessage().contains("No authentication integration"));
+            Assertions.assertTrue(ex.getMessage().contains("No authentication integration"));
         }
 
         @Test
         @DisplayName("UT-SVC-A-004: No plugin supports request throws exception")
         void testAuthenticate_NoSupportingPlugin() throws AuthenticationException {
-            when(bindingResolver.resolveCandidates(any(), any()))
+            Mockito.when(bindingResolver.resolveCandidates(Mockito.any(), Mockito.any()))
                     .thenReturn(Collections.singletonList(testIntegration));
-            when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
-            when(plugin.supports(any())).thenReturn(false);
+            Mockito.when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
+            Mockito.when(plugin.supports(Mockito.any())).thenReturn(false);
 
-            AuthenticationException ex = assertThrows(AuthenticationException.class, () ->
+            AuthenticationException ex = Assertions.assertThrows(AuthenticationException.class, () ->
                     service.authenticate(testRequest));
 
-            assertTrue(ex.getMessage().contains("No authentication integration supports"));
+            Assertions.assertTrue(ex.getMessage().contains("No authentication integration supports"));
         }
 
         @Test
@@ -232,17 +234,17 @@ class AuthenticationServiceTest {
         void testAuthenticate_PluginFailure() throws AuthenticationException {
             AuthenticationResult failureResult = AuthenticationResult.failure("Invalid credentials");
 
-            when(bindingResolver.resolveCandidates(any(), any()))
+            Mockito.when(bindingResolver.resolveCandidates(Mockito.any(), Mockito.any()))
                     .thenReturn(Collections.singletonList(testIntegration));
-            when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
-            when(plugin.supports(any())).thenReturn(true);
-            when(plugin.authenticate(any(), eq(testIntegration))).thenReturn(failureResult);
+            Mockito.when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
+            Mockito.when(plugin.supports(Mockito.any())).thenReturn(true);
+            Mockito.when(plugin.authenticate(Mockito.any(), Mockito.eq(testIntegration))).thenReturn(failureResult);
 
             AuthenticationOutcome outcome = service.authenticateWithOutcome(testRequest);
 
-            assertNotNull(outcome);
-            assertFalse(outcome.getAuthResult().isSuccess());
-            verify(userResolver, never()).resolveUser(any(), any());
+            Assertions.assertNotNull(outcome);
+            Assertions.assertFalse(outcome.getAuthResult().isSuccess());
+            Mockito.verify(userResolver, Mockito.never()).resolveUser(Mockito.any(), Mockito.any());
         }
 
         @Test
@@ -254,7 +256,7 @@ class AuthenticationServiceTest {
                     .properties(new HashMap<>())
                     .build();
 
-            AuthenticationPlugin plugin2 = mock(AuthenticationPlugin.class);
+            AuthenticationPlugin plugin2 = Mockito.mock(AuthenticationPlugin.class);
 
             Identity identity = Identity.builder()
                     .username("alice")
@@ -262,17 +264,17 @@ class AuthenticationServiceTest {
                     .authenticatorPluginName("password")
                     .build();
 
-            when(bindingResolver.resolveCandidates(any(), any()))
+            Mockito.when(bindingResolver.resolveCandidates(Mockito.any(), Mockito.any()))
                     .thenReturn(Arrays.asList(testIntegration, integration2));
-            when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
-            when(pluginManager.getPlugin(integration2)).thenReturn(plugin2);
-            when(plugin.supports(any())).thenReturn(true);
-            when(plugin.authenticate(any(), any())).thenReturn(AuthenticationResult.success(identity));
+            Mockito.when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
+            Mockito.when(pluginManager.getPlugin(integration2)).thenReturn(plugin2);
+            Mockito.when(plugin.supports(Mockito.any())).thenReturn(true);
+            Mockito.when(plugin.authenticate(Mockito.any(), Mockito.any())).thenReturn(AuthenticationResult.success(identity));
 
             service.authenticate(testRequest);
 
-            verify(plugin).authenticate(any(), eq(testIntegration));
-            verify(plugin2, never()).authenticate(any(), any());
+            Mockito.verify(plugin).authenticate(Mockito.any(), Mockito.eq(testIntegration));
+            Mockito.verify(plugin2, Mockito.never()).authenticate(Mockito.any(), Mockito.any());
         }
     }
 
@@ -305,23 +307,23 @@ class AuthenticationServiceTest {
 
             AuthenticationResult successResult = AuthenticationResult.success(principal);
 
-            when(bindingResolver.resolveCandidates(any(), any()))
+            Mockito.when(bindingResolver.resolveCandidates(Mockito.any(), Mockito.any()))
                     .thenReturn(Collections.singletonList(testIntegration));
-            when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
-            when(plugin.supports(any())).thenReturn(true);
-            when(plugin.authenticate(any(), eq(testIntegration))).thenReturn(successResult);
-            when(userResolver.resolveUser(any(), any())).thenReturn("user_obj");
-            when(roleResolutionStage.resolveRoles(any(), any()))
+            Mockito.when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
+            Mockito.when(plugin.supports(Mockito.any())).thenReturn(true);
+            Mockito.when(plugin.authenticate(Mockito.any(), Mockito.eq(testIntegration))).thenReturn(successResult);
+            Mockito.when(userResolver.resolveUser(Mockito.any(), Mockito.any())).thenReturn("user_obj");
+            Mockito.when(roleResolutionStage.resolveRoles(Mockito.any(), Mockito.any()))
                     .thenReturn(new HashSet<>(Arrays.asList("admin")));
-            when(subjectBuilder.build(any(), any(), any())).thenReturn(null);
+            Mockito.when(subjectBuilder.build(Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(null);
 
             AuthenticationOutcome outcome = service.authenticateWithOutcome(testRequest);
 
-            assertNotNull(outcome);
-            assertTrue(outcome.getAuthResult().isSuccess());
-            assertEquals(testIntegration, outcome.getIntegration());
-            verify(plugin).authenticate(any(), eq(testIntegration));
-            verify(subjectBuilder).build(eq(principal), any(), eq(testRequest));
+            Assertions.assertNotNull(outcome);
+            Assertions.assertTrue(outcome.getAuthResult().isSuccess());
+            Assertions.assertEquals(testIntegration, outcome.getIntegration());
+            Mockito.verify(plugin).authenticate(Mockito.any(), Mockito.eq(testIntegration));
+            Mockito.verify(subjectBuilder).build(Mockito.eq(principal), Mockito.any(), Mockito.eq(testRequest));
         }
 
         @Test
@@ -329,18 +331,18 @@ class AuthenticationServiceTest {
         void testAuthenticateWithOutcome_FailureShortCircuits() throws AuthenticationException {
             AuthenticationResult failureResult = AuthenticationResult.failure("Bad password");
 
-            when(bindingResolver.resolveCandidates(any(), any()))
+            Mockito.when(bindingResolver.resolveCandidates(Mockito.any(), Mockito.any()))
                     .thenReturn(Collections.singletonList(testIntegration));
-            when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
-            when(plugin.supports(any())).thenReturn(true);
-            when(plugin.authenticate(any(), eq(testIntegration))).thenReturn(failureResult);
+            Mockito.when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
+            Mockito.when(plugin.supports(Mockito.any())).thenReturn(true);
+            Mockito.when(plugin.authenticate(Mockito.any(), Mockito.eq(testIntegration))).thenReturn(failureResult);
 
             AuthenticationOutcome outcome = service.authenticateWithOutcome(testRequest);
 
-            assertFalse(outcome.getAuthResult().isSuccess());
-            verify(userResolver, never()).resolveUser(any(), any());
-            verify(roleResolutionStage, never()).resolveRoles(any(), any());
-            verify(subjectBuilder, never()).build(any(), any(), any());
+            Assertions.assertFalse(outcome.getAuthResult().isSuccess());
+            Mockito.verify(userResolver, Mockito.never()).resolveUser(Mockito.any(), Mockito.any());
+            Mockito.verify(roleResolutionStage, Mockito.never()).resolveRoles(Mockito.any(), Mockito.any());
+            Mockito.verify(subjectBuilder, Mockito.never()).build(Mockito.any(), Mockito.any(), Mockito.any());
         }
     }
 
@@ -361,16 +363,16 @@ class AuthenticationServiceTest {
                     .authenticatorPluginName("password")
                     .build();
 
-            when(bindingResolver.resolveCandidates(any(), any()))
+            Mockito.when(bindingResolver.resolveCandidates(Mockito.any(), Mockito.any()))
                     .thenReturn(Collections.singletonList(testIntegration));
-            when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
-            when(plugin.supports(any())).thenReturn(true);
-            when(plugin.authenticate(any(), any())).thenReturn(AuthenticationResult.success(identity));
+            Mockito.when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
+            Mockito.when(plugin.supports(Mockito.any())).thenReturn(true);
+            Mockito.when(plugin.authenticate(Mockito.any(), Mockito.any())).thenReturn(AuthenticationResult.success(identity));
 
             AuthenticationResult result = service.authenticate(testRequest);
 
-            assertNotNull(result);
-            assertTrue(result.isSuccess());
+            Assertions.assertNotNull(result);
+            Assertions.assertTrue(result.isSuccess());
         }
 
         @Test
@@ -387,16 +389,16 @@ class AuthenticationServiceTest {
 
             AuthenticationResult successResult = AuthenticationResult.success(principal);
 
-            when(bindingResolver.resolveCandidates(any(), any()))
+            Mockito.when(bindingResolver.resolveCandidates(Mockito.any(), Mockito.any()))
                     .thenReturn(Collections.singletonList(testIntegration));
-            when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
-            when(plugin.supports(any())).thenReturn(true);
-            when(plugin.authenticate(any(), any())).thenReturn(successResult);
+            Mockito.when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
+            Mockito.when(plugin.supports(Mockito.any())).thenReturn(true);
+            Mockito.when(plugin.authenticate(Mockito.any(), Mockito.any())).thenReturn(successResult);
 
             AuthenticationOutcome outcome = service.authenticateWithOutcome(testRequest);
 
-            assertNotNull(outcome);
-            assertTrue(outcome.getAuthResult().isSuccess());
+            Assertions.assertNotNull(outcome);
+            Assertions.assertTrue(outcome.getAuthResult().isSuccess());
         }
     }
 
@@ -414,19 +416,19 @@ class AuthenticationServiceTest {
         @Test
         @DisplayName("UT-SVC-G-001: Get integration registry")
         void testGetIntegrationRegistry() {
-            assertEquals(integrationRegistry, service.getIntegrationRegistry());
+            Assertions.assertEquals(integrationRegistry, service.getIntegrationRegistry());
         }
 
         @Test
         @DisplayName("UT-SVC-G-002: Get plugin manager")
         void testGetPluginManager() {
-            assertEquals(pluginManager, service.getPluginManager());
+            Assertions.assertEquals(pluginManager, service.getPluginManager());
         }
 
         @Test
         @DisplayName("UT-SVC-G-003: Get binding resolver")
         void testGetBindingResolver() {
-            assertEquals(bindingResolver, service.getBindingResolver());
+            Assertions.assertEquals(bindingResolver, service.getBindingResolver());
         }
     }
 }
