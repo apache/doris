@@ -41,6 +41,7 @@ header:
     - "**/*.sql"
     - "**/*.lock"
     - "**/*.out"
+    - "**/*.ldif"
     - "**/*.parquet"
     - "docs/.markdownlintignore"
     - "fe/fe-core/src/test/resources/data/net_snmp_normal"
