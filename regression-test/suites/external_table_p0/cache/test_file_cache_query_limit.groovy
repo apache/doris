@@ -50,7 +50,7 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
         return
     }
 
-    sql """set enable_file_cache=true"""
+    sql """set enable_file_cache_external_catalog=true"""
 
     // Check backend configuration prerequisites
     // Note: This test case assumes a single backend scenario. Testing with single backend is logically equivalent

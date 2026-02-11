@@ -195,7 +195,7 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
 
         def test_cases = { String force, String cache ->
             sql """ set force_jni_scanner=${force} """
-            sql """ set enable_file_cache=${cache} """
+            sql """ set enable_file_cache_external_catalog=${cache} """
             qt_all_type("all_table")
             qt_all_type("all_table_with_parquet")
 

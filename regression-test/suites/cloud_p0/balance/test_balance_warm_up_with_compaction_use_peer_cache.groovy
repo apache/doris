@@ -77,7 +77,7 @@ suite('test_balance_warm_up_with_compaction_use_peer_cache', 'docker') {
     def testCase = { table -> 
         def ms = cluster.getAllMetaservices().get(0)
         def msHttpPort = ms.host + ":" + ms.httpPort
-        sql """set enable_file_cache=true"""
+        sql """set enable_file_cache_olap_table=true"""
         sql """CREATE TABLE $table (
                 `id` BIGINT,
                 `deleted` TINYINT,
