@@ -2549,8 +2549,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable.setStorageDictPageSize(storageDictPageSize);
 
         // check data sort properties
-        int keyColumnSize = CollectionUtils.isEmpty(keysDesc.getClusterKeysColumnNames()) ? keysDesc.keysColumnSize() :
-                keysDesc.getClusterKeysColumnNames().size();
+        int keyColumnSize = CollectionUtils.isEmpty(keysDesc.getOrderByKeysColumnNames()) ? keysDesc.keysColumnSize() :
+                keysDesc.getOrderByKeysColumnNames().size();
         DataSortInfo dataSortInfo = PropertyAnalyzer.analyzeDataSortInfo(properties, keysType,
                 keyColumnSize, storageFormat);
         olapTable.setDataSortInfo(dataSortInfo);
@@ -2563,7 +2563,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 throw new DdlException(e.getMessage());
             }
             if (enableUniqueKeyMergeOnWrite && !enableLightSchemaChange && !CollectionUtils.isEmpty(
-                    keysDesc.getClusterKeysColumnNames())) {
+                    keysDesc.getOrderByKeysColumnNames())) {
                 throw new DdlException(
                     "Unique merge-on-write tables with cluster keys require light schema change to be enabled.");
             }

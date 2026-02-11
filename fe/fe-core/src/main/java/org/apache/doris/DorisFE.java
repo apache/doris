@@ -592,8 +592,8 @@ public class DorisFE {
         // Keep global fuzzy knobs that are not session-based.
         if (Config.fuzzy_test_type.equalsIgnoreCase("daily")
                 || Config.fuzzy_test_type.equalsIgnoreCase("rqg")) {
-            Config.random_add_cluster_keys_for_mow = (LocalDate.now().getDayOfMonth() % 2 == 0);
-            LOG.info("fuzzy set random_add_cluster_keys_for_mow={}", Config.random_add_cluster_keys_for_mow);
+            Config.random_add_order_by_keys_for_mow = (LocalDate.now().getDayOfMonth() % 2 == 0);
+            LOG.info("fuzzy set random_add_order_by_keys_for_mow={}", Config.random_add_order_by_keys_for_mow);
         }
 
         setFuzzyForCatalog();

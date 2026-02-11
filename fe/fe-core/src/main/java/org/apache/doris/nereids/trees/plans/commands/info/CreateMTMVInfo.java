@@ -285,7 +285,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
         this.setPartitionTableInfo(partitionDesc == null
                 ? PartitionTableInfo.EMPTY : partitionDesc.convertToPartitionTableInfo());
         this.setRollups(Lists.newArrayList());
-        this.setClusterKeysColumnNames(Lists.newArrayList());
+        this.setSortOrderFields(Lists.newArrayList());
         this.setIndexes(Lists.newArrayList());
 
         this.analyzeEngine();
