@@ -1981,9 +1981,14 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     RETURN_IF_ERROR(
             _reader->read_page(_opts, iter.page(), &handle, &page_body, &footer, _compress_codec));
     // parse data page
-    RETURN_IF_ERROR(ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
-                                       _reader->encoding_info(), iter.page(), iter.page_index(),
-                                       &_page));
+    auto st = ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
+                                 _reader->encoding_info(), iter.page(), iter.page_index(), &_page);
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to create ParsedPage, file=" << _opts.file_reader->path().native()
+                     << ", page_offset=" << iter.page().offset << ", page_size=" << iter.page().size
+                     << ", page_index=" << iter.page_index() << ", error=" << st;
+        return st;
+    }
 
     // dictionary page is read when the first data page that uses it is read,
     // this is to optimize the memory usage: when there is no query on one column, we could

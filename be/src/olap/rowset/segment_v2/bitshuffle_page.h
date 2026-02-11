@@ -282,13 +282,15 @@ inline Status parse_bit_shuffle_header(const Slice& data, size_t& num_elements,
     num_elements = decode_fixed32_le((const uint8_t*)&data[0]);
     compressed_size = decode_fixed32_le((const uint8_t*)&data[4]);
     num_element_after_padding = decode_fixed32_le((const uint8_t*)&data[8]);
+    size_of_element = decode_fixed32_le((const uint8_t*)&data[12]);
     if (num_element_after_padding != ALIGN_UP(num_elements, 8)) {
         return Status::InternalError(
                 "num of element information corrupted,"
-                " _num_element_after_padding:{}, _num_elements:{}",
-                num_element_after_padding, num_elements);
+                " _num_element_after_padding:{}, _num_elements:{}, expected_padding:{},"
+                " compressed_size:{}, size_of_element:{}, data_size:{}",
+                num_element_after_padding, num_elements, ALIGN_UP(num_elements, 8), compressed_size,
+                size_of_element, data.size);
     }
-    size_of_element = decode_fixed32_le((const uint8_t*)&data[12]);
     switch (size_of_element) {
     case 1:
     case 2:
