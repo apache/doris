@@ -221,7 +221,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     if (_read_context->runtime_state != nullptr) {
         _read_options.io_ctx.query_id = &_read_context->runtime_state->query_id();
         _read_options.io_ctx.is_disposable =
-                !_read_context->runtime_state->query_options().enable_file_cache_olap_tables;
+                !_read_context->runtime_state->query_options().enable_file_cache_olap_table;
     }
 
     if (_read_context->condition_cache_digest) {

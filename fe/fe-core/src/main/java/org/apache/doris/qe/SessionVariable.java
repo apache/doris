@@ -473,8 +473,15 @@ public class SessionVariable implements Serializable, Writable {
     public static final String TOPN_OPT_LIMIT_THRESHOLD = "topn_opt_limit_threshold";
     public static final String TOPN_FILTER_RATIO = "topn_filter_ratio";
     public static final String ENABLE_SNAPSHOT_POINT_QUERY = "enable_snapshot_point_query";
-    public static final String ENABLE_FILE_CACHE_OLAP_TABLES = "enable_file_cache_olap_tables";
-    public static final String ENABLE_FILE_CACHE_EXTERNAL_CATALOGS = "enable_file_cache_external_catalogs";
+
+    // deprecated
+    public static final String ENABLE_FILE_CACHE = "enable_file_cache";
+
+    // deprecated
+    public static final String DISABLE_FILE_CACHE = "disable_file_cache";
+
+    public static final String ENABLE_FILE_CACHE_OLAP_TABLE = "enable_file_cache_olap_table";
+    public static final String ENABLE_FILE_CACHE_EXTERNAL_CATALOG = "enable_file_cache_external_catalog";
 
     public static final String FILE_CACHE_QUERY_LIMIT_PERCENT = "file_cache_query_limit_percent";
 
@@ -2134,19 +2141,32 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = GROUP_BY_AND_HAVING_USE_ALIAS_FIRST, varType = VariableAnnotation.DEPRECATED)
     public boolean groupByAndHavingUseAliasFirst = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE_OLAP_TABLES, needForward = true, description = {
+    // Whether disable block file cache. Block cache only works when FE's query options sets disableFileCache false
+    // along with BE's config `enable_file_cache` true
+    @VariableMgr.VarAttr(name = DISABLE_FILE_CACHE, needForward = true, varType = VariableAnnotation.DEPRECATED)
+    public boolean disableFileCache = false;
+
+    // Whether enable block file cache. Only take effect when BE config item enable_file_cache is true.
+    @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE, needForward = true, varType = VariableAnnotation.DEPRECATED,
+            description = {"是否启用 file cache。该变量只有在 be.conf 中 enable_file_cache=true 时才有效，"
+                    + "如果 be.conf 中 enable_file_cache=false，该 BE 节点的 file cache 处于禁用状态。",
+                "Set whether to use file cache. This variable takes effect only if the BE config "
+                    + "enable_file_cache=true. The cache is not used when BE config enable_file_cache=false."})
+    public boolean enableFileCache = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE_OLAP_TABLE, needForward = true, description = {
             "是否启用 olap table file cache。该变量只有在 be.conf 中 enable_file_cache=true 时才有效，"
                     + "如果 be.conf 中 enable_file_cache=false，该 BE 节点的 file cache 处于禁用状态。",
-            "Set wether to use olap table file cache. This variable takes effect only if the BE config enable_file_cache=true. "
-                    + "The cache is not used when BE config enable_file_cache=false."})
-    public boolean enableFileCacheOlapTables = true;
+            "Set whether to use olap table file cache. This variable takes effect only if the BE config "
+                    + "enable_file_cache=true. The cache is not used when BE config enable_file_cache=false."})
+    public boolean enableFileCacheOlapTable = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE_EXTERNAL_CATALOGS, needForward = true, description = {
+    @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE_EXTERNAL_CATALOG, needForward = true, description = {
             "是否启用 external catalog file cache。该变量只有在 be.conf 中 enable_file_cache=true 时才有效，"
                     + "如果 be.conf 中 enable_file_cache=false，该 BE 节点的 file cache 处于禁用状态。",
-            "Set wether to use external catalog file cache. This variable takes effect only if the BE config enable_file_cache=true. "
-                    + "The cache is not used when BE config enable_file_cache=false."})
-    public boolean enableFileCacheExternalCatalogs = false;
+            "Set whether to use external catalog file cache. This variable takes effect only if the BE config "
+                    + "enable_file_cache=true. The cache is not used when BE config enable_file_cache=false."})
+    public boolean enableFileCacheExternalCatalog = false;
 
     // Specify base path for file cache, or chose a random path.
     @VariableMgr.VarAttr(name = FILE_CACHE_BASE_PATH, needForward = true, description = {
@@ -4030,11 +4050,11 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isDisableFileCache() {
-        return Config.isCloudMode() ? !enableFileCacheOlapTables : false;
+        return Config.isCloudMode() ? disableFileCache : false;
     }
 
     public void setDisableFileCache(boolean disableFileCache) {
-        this.enableFileCacheOlapTables = !disableFileCache;
+        this.disableFileCache = disableFileCache;
     }
 
     public boolean isDisableColocatePlan() {
@@ -4872,20 +4892,28 @@ public class SessionVariable implements Serializable, Writable {
         return val ? 1 : 0;
     }
 
-    public boolean isEnableFileCacheOlapTables() {
-        return enableFileCacheOlapTables;
+    public boolean isEnableFileCache() {
+        return enableFileCache;
     }
 
-    public void setEnableFileCacheOlapTables(boolean enableFileCacheOlapTables) {
-        this.enableFileCacheOlapTables = enableFileCacheOlapTables;
+    public void setEnableFileCache(boolean enableFileCache) {
+        this.enableFileCache = enableFileCache;
     }
 
-    public boolean isEnableFileCacheExternalCatalogs() {
-        return enableFileCacheExternalCatalogs;
+    public boolean isEnableFileCacheOlapTable() {
+        return enableFileCacheOlapTable;
     }
 
-    public void setEnableFileCacheExternalCatalogs(boolean enableFileCacheExternalCatalogs) {
-        this.enableFileCacheExternalCatalogs = enableFileCacheExternalCatalogs;
+    public void setEnableFileCacheOlapTable(boolean enableFileCacheOlapTable) {
+        this.enableFileCacheOlapTable = enableFileCacheOlapTable;
+    }
+
+    public boolean isEnableFileCacheExternalCatalog() {
+        return enableFileCache;
+    }
+
+    public void setEnableFileCacheExternalCatalog(boolean enableFileCacheExternalCatalog) {
+        this.enableFileCacheExternalCatalog = enableFileCacheExternalCatalog;
     }
 
     public String getFileCacheBasePath() {
@@ -5074,6 +5102,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setSkipDeleteBitmap(skipDeleteBitmap);
 
+        tResult.setEnableFileCache(enableFileCache);
+
         tResult.setEnablePageCache(enablePageCache);
 
         tResult.setEnableParquetFilePageCache(enableParquetFilePageCache);
@@ -5117,9 +5147,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
         tResult.setOptimizeIndexScanParallelism(optimizeIndexScanParallelism);
         tResult.setSkipBadTablet(skipBadTablet);
-
-        tResult.setEnableFileCacheOlapTables(enableFileCacheOlapTables);
-        tResult.setEnableFileCacheExternalCatalogs(enableFileCacheExternalCatalogs);
+        tResult.setDisableFileCache(disableFileCache);
 
         tResult.setEnablePreferCachedRowset(getEnablePreferCachedRowset());
         tResult.setQueryFreshnessToleranceMs(getQueryFreshnessToleranceMs());

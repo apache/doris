@@ -44,7 +44,7 @@ public abstract class ExternalScanNode extends ScanNode {
     protected boolean needCheckColumnPriv;
 
     protected final FederationBackendPolicy backendPolicy = (ConnectContext.get() != null
-            && (ConnectContext.get().getSessionVariable().enableFileCacheExternalCatalogs
+            && (ConnectContext.get().getSessionVariable().enableFileCacheExternalCatalog
                 || ConnectContext.get().getSessionVariable().getUseConsistentHashForExternalScan()))
             ? new FederationBackendPolicy(NodeSelectionStrategy.CONSISTENT_HASHING)
             : new FederationBackendPolicy();
