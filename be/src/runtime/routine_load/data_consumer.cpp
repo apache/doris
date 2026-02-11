@@ -336,15 +336,17 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
 }
 
 Status KafkaDataConsumer::get_partition_meta(std::vector<int32_t>* partition_ids) {
-    // Trigger OAuth token refresh by polling the event loop
-    // librdkafka's OAUTHBEARER callback is only triggered through consume()/poll()
-    // Without this, metadata() will fail because broker is waiting for OAuth token
-    LOG(INFO) << "Polling to trigger OAuth token refresh before metadata request";
-    int max_poll_attempts = 10; // 10 × 500ms = 5 seconds max
-    for (int i = 0; i < max_poll_attempts; i++) {
-        RdKafka::Message* msg = _k_consumer->consume(500);
-        if (msg) {
-            delete msg; // We don't expect messages before partition assignment
+    if (_aws_msk_oauth_callback) {
+        // Trigger OAuth token refresh by polling the event loop
+        // librdkafka's OAUTHBEARER callback is only triggered through consume()/poll()
+        // Without this, metadata() will fail because broker is waiting for OAuth token
+        LOG(INFO) << "Polling to trigger OAuth token refresh before metadata request";
+        int max_poll_attempts = 10; // 10 × 500ms = 5 seconds max
+        for (int i = 0; i < max_poll_attempts; i++) {
+            RdKafka::Message* msg = _k_consumer->consume(500);
+            if (msg) {
+                delete msg; // We don't expect messages before partition assignment
+            }
         }
     }
 
