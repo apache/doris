@@ -1253,7 +1253,8 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         DateV2Value<DateTimeV2ValueType> datetimev2_value;
-        std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
+        // Use different format based on scale (0 = no fractional seconds, >0 = with fractional seconds)
+        const std::string date_format = (scale > 0) ? "%Y-%m-%d %H:%i:%s.%f" : "%Y-%m-%d %H:%i:%s";
 
         if (datetimev2_value.from_date_format_str(date_format.data(), date_format.size(),
                                                   scan_key.data(), scan_key.size())) {
