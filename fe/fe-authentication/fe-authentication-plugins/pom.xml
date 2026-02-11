@@ -32,7 +32,19 @@ under the License.
     <description>Authentication plugins (password, ldap, oidc, etc.)</description>
 
     <modules>
-        <module>fe-authentication-plugin-password</module>
         <module>fe-authentication-plugin-ldap</module>
+        <module>fe-authentication-plugin-password</module>
     </modules>
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-authentication-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-authentication-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+    </dependencies>
 </project>

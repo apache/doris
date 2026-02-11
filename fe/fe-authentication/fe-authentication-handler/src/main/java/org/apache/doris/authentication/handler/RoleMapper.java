@@ -64,10 +64,9 @@ public class RoleMapper {
                 continue;
             }
             // Look for mapping in integration properties
-            String mapped = integration.getProperty(ROLE_MAPPING_PREFIX + externalGroup);
-            if (mapped != null && !mapped.isEmpty()) {
-                roles.add(mapped);
-            }
+            integration.getProperty(ROLE_MAPPING_PREFIX + externalGroup)
+                    .filter(s -> !s.isEmpty())
+                    .ifPresent(roles::add);
         }
         return roles;
     }

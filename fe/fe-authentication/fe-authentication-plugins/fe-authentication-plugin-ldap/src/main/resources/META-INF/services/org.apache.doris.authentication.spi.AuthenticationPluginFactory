@@ -1,0 +1,1 @@
+org.apache.doris.authentication.plugin.ldap.LdapAuthenticationPluginFactory

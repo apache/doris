@@ -197,10 +197,10 @@ public class PluginManager {
     }
 
     private AuthenticationPlugin createAndInit(AuthenticationIntegration integration) throws AuthenticationException {
-        AuthenticationPluginFactory factory = factories.get(integration.getPluginName());
+        AuthenticationPluginFactory factory = factories.get(integration.getType());
         if (factory == null) {
             throw new AuthenticationException(
-                    "No AuthenticationPluginFactory found for plugin: " + integration.getPluginName());
+                    "No AuthenticationPluginFactory found for plugin: " + integration.getType());
         }
         AuthenticationPlugin plugin = factory.create();
         plugin.validate(integration);
