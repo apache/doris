@@ -88,6 +88,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final String DORIS_START_TIMESTAMP = "startTimestamp";
     private static final String DORIS_END_TIMESTAMP = "endTimestamp";
     private static final String DORIS_INCREMENTAL_BETWEEN_SCAN_MODE = "incrementalBetweenScanMode";
+    private static final String PAIMON_BINLOG_SYSTEM_TABLE_TYPE = "binlog";
 
     private enum SplitReadType {
         JNI,
@@ -307,6 +308,10 @@ public class PaimonScanNode extends FileQueryScanNode {
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
         boolean forceJniScanner = sessionVariable.isForceJniScanner();
+        // Binlog rows need Paimon-side pack/merge + array materialization semantics.
+        // TODO: Allow native reader after Doris native parquet/orc reader can materialize
+        // binlog rows consistently with Paimon BinlogTable.
+        boolean forceJniForBinlog = shouldForceJniForBinlog();
         SessionVariable.IgnoreSplitType ignoreSplitType = SessionVariable.IgnoreSplitType
                 .valueOf(sessionVariable.getIgnoreSplitType());
         List<Split> splits = new ArrayList<>();
@@ -370,7 +375,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 }
                 pushDownCountSplits.add(split);
                 pushDownCountSum += dataSplit.mergedRowCount();
-            } else if (!forceJniScanner && supportNativeReader(optRawFiles)) {
+            } else if (!forceJniScanner && !forceJniForBinlog && supportNativeReader(optRawFiles)) {
                 if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_NATIVE) {
                     continue;
                 }
@@ -441,6 +446,19 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         this.selectedPartitionNum = partitionInfoMaps.size();
         return splits;
+    }
+
+    @VisibleForTesting
+    boolean shouldForceJniForBinlog() {
+        if (source == null) {
+            return false;
+        }
+        ExternalTable externalTable = source.getExternalTable();
+        if (!(externalTable instanceof PaimonSysExternalTable)) {
+            return false;
+        }
+        PaimonSysExternalTable paimonSysExternalTable = (PaimonSysExternalTable) externalTable;
+        return PAIMON_BINLOG_SYSTEM_TABLE_TYPE.equalsIgnoreCase(paimonSysExternalTable.getSysTableType());
     }
 
     private long determineTargetFileSplitSize(List<DataSplit> dataSplits,
