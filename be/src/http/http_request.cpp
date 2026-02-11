@@ -40,8 +40,8 @@ static std::string s_empty = "";
 // Helper function to check if a header should be masked in logs
 static bool is_sensitive_header(const std::string& header_name) {
     return iequal(header_name, HttpHeaders::AUTHORIZATION) ||
-           iequal(header_name, HttpHeaders::PROXY_AUTHORIZATION) ||
-           iequal(header_name, "token") || iequal(header_name, HttpHeaders::AUTH_TOKEN);
+           iequal(header_name, HttpHeaders::PROXY_AUTHORIZATION) || iequal(header_name, "token") ||
+           iequal(header_name, HttpHeaders::AUTH_TOKEN);
 }
 
 HttpRequest::HttpRequest(evhttp_request* evhttp_request) : _ev_req(evhttp_request) {}
