@@ -4038,7 +4038,7 @@ public class Env {
                 sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
                 // show order keys
                 if (!clusterKeysColumnNamesToId.isEmpty()) {
-                    sb.append("\n").append("Order BY (`");
+                    sb.append("\n").append("ORDER BY (`");
                     sb.append(Joiner.on("`, `").join(clusterKeysColumnNamesToId.values())).append("`)");
                 }
             }
@@ -4450,7 +4450,7 @@ public class Env {
                 sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
                 // show order keys
                 if (!clusterKeysColumnNamesToId.isEmpty()) {
-                    sb.append("\n").append("Order BY (`");
+                    sb.append("\n").append("ORDER BY (`");
                     sb.append(Joiner.on("`, `").join(clusterKeysColumnNamesToId.values())).append("`)");
                 }
             }

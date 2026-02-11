@@ -644,8 +644,8 @@ public class Config extends ConfigBase {
             "Default timeout for insert load job, in seconds."})
     public static int insert_load_default_timeout_second = 14400; // 4 hour
 
-    @ConfField(mutable = true, masterOnly = true, description = {"对 mow 表随机设置 cluster keys，用于测试",
-            "random set cluster keys for mow table for test"})
+    @ConfField(mutable = true, masterOnly = true, description = {"对 mow 表随机设置 order by keys，用于测试",
+            "random set order by keys for mow table for test"})
     public static boolean random_add_order_by_keys_for_mow = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
