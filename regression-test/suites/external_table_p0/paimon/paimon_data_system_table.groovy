@@ -71,6 +71,25 @@ suite("paimon_data_system_table", "p0,external,doris,external_docker,external_do
         qt_binlog_count """select count(*) from ${tableName}\$binlog"""
         qt_binlog_rows """select rowkind, id[1], id[2], name[1], name[2] from ${tableName}\$binlog order by id[1]"""
         qt_binlog_rowkind_stats """select rowkind, count(*) from ${tableName}\$binlog group by rowkind order by rowkind"""
+        qt_desc_base_table """desc ${tableName}"""
+        qt_desc_base_table_binlog """desc ${tableName}\$binlog"""
+        qt_desc_base_table_audit_log """desc ${tableName}\$audit_log"""
+        qt_desc_base_table_ro """desc ${tableName}\$ro"""
+
+        qt_native_base_table_count """select count(*) from ${nativeTableName}"""
+        qt_native_base_table_rows """select id, name from ${nativeTableName} order by id"""
+        qt_native_audit_log_count """select count(*) from ${nativeTableName}\$audit_log"""
+        qt_native_audit_log_rows """select rowkind, id, name from ${nativeTableName}\$audit_log order by id"""
+        qt_native_audit_log_rowkind_stats """select rowkind, count(*) from ${nativeTableName}\$audit_log group by rowkind order by rowkind"""
+        qt_native_binlog_count """select count(*) from ${nativeTableName}\$binlog"""
+        qt_native_binlog_rows """select rowkind, id[1], id[2], name[1], name[2] from ${nativeTableName}\$binlog order by id[1]"""
+        qt_native_binlog_rowkind_stats """select rowkind, count(*) from ${nativeTableName}\$binlog group by rowkind order by rowkind"""
+        qt_native_ro_table_count """select count(*) from ${nativeTableName}\$ro"""
+        qt_native_ro_table_rows """select id, name from ${nativeTableName}\$ro order by id"""
+        qt_desc_native_table """desc ${nativeTableName}"""
+        qt_desc_native_table_binlog """desc ${nativeTableName}\$binlog"""
+        qt_desc_native_table_audit_log """desc ${nativeTableName}\$audit_log"""
+        qt_desc_native_table_ro """desc ${nativeTableName}\$ro"""
 
         qt_append_table_count """select count(*) from ${appendTableName}"""
         qt_append_table_rows """select id, name from ${appendTableName} order by id"""
@@ -135,6 +154,8 @@ suite("paimon_data_system_table", "p0,external,doris,external_docker,external_do
 
         qt_jni_binlog_rows """select rowkind, id[1], id[2], name[1], name[2] from ${tableName}\$binlog order by id[1]"""
         qt_jni_audit_log_rows """select rowkind, id, name from ${tableName}\$audit_log order by id"""
+        qt_jni_native_binlog_rows """select rowkind, id[1], id[2], name[1], name[2] from ${nativeTableName}\$binlog order by id[1]"""
+        qt_jni_native_audit_log_rows """select rowkind, id, name from ${nativeTableName}\$audit_log order by id"""
     } finally {
         sql """set force_jni_scanner=false"""
     }

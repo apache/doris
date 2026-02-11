@@ -26,7 +26,7 @@
 
 -- !binlog_rows --
 +I	1	\N	alpha	\N
-+U	2	2	beta	beta_v2
++U	2	\N	beta_v2	\N
 -D	3	\N	gamma	\N
 +I	4	\N	delta	\N
 
@@ -35,18 +35,40 @@
 +U	1
 -D	1
 
--- !append_table_count --
-3
+-- !desc_base_table --
+id	int	Yes	true	\N	
+name	text	Yes	true	\N	
 
--- !append_table_rows --
-10	delta
-20	epsilon
-30	zeta
+-- !desc_base_table_binlog --
+rowkind	text	Yes	true	\N	NONE
+id	array<int>	Yes	true	\N	NONE
+name	array<text>	Yes	true	\N	NONE
 
--- !append_ro_table_count --
-3
+-- !desc_base_table_audit_log --
+rowkind	text	Yes	true	\N	NONE
+id	int	Yes	true	\N	NONE
+name	text	Yes	true	\N	NONE
 
--- !append_ro_table_rows --
-10	delta
-20	epsilon
-30	zeta
+-- !desc_base_table_ro --
+id	int	Yes	true	\N	NONE
+name	text	Yes	true	\N	NONE
+
+-- !native_base_table_count --
+4
+
+-- !native_base_table_rows --
+1	alpha
+2	beta
+3	gamma
+4	delta
+
+-- !native_audit_log_count --
+4
+
+-- !native_audit_log_rows --
+
+-- !native_audit_log_rowkind_stats --
+
+-- !native_binlog_count --
+4
+

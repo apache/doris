@@ -64,3 +64,4 @@ total_record_count	bigint	Yes	true	\N	NONE
 delta_record_count	bigint	Yes	true	\N	NONE
 changelog_record_count	bigint	Yes	true	\N	NONE
 watermark	bigint	Yes	true	\N	NONE
+
