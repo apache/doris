@@ -1455,10 +1455,10 @@ TEST_F(VariantColumnWriterReaderTest, test_doc_compact_sparse_write_array_gap) {
 
     struct ConfigGuard {
         bool old_value;
-        ~ConfigGuard() { config::enable_variant_doc_compaction_sparse_write = old_value; }
+        ~ConfigGuard() { config::enable_variant_doc_sparse_write_subcolumns = old_value; }
     };
-    ConfigGuard guard {config::enable_variant_doc_compaction_sparse_write};
-    config::enable_variant_doc_compaction_sparse_write = true;
+    ConfigGuard guard {config::enable_variant_doc_sparse_write_subcolumns};
+    config::enable_variant_doc_sparse_write_subcolumns = true;
 
     TabletSchemaPB schema_pb;
     schema_pb.set_keys_type(KeysType::DUP_KEYS);
@@ -1564,10 +1564,10 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_sparse_write_array_gap_and_
 
     struct ConfigGuard {
         bool old_value;
-        ~ConfigGuard() { config::enable_variant_doc_compaction_sparse_write = old_value; }
+        ~ConfigGuard() { config::enable_variant_doc_sparse_write_subcolumns = old_value; }
     };
-    ConfigGuard guard {config::enable_variant_doc_compaction_sparse_write};
-    config::enable_variant_doc_compaction_sparse_write = true;
+    ConfigGuard guard {config::enable_variant_doc_sparse_write_subcolumns};
+    config::enable_variant_doc_sparse_write_subcolumns = true;
 
     TabletSchemaPB schema_pb;
     schema_pb.set_keys_type(KeysType::DUP_KEYS);

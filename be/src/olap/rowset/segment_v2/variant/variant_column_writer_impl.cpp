@@ -253,7 +253,7 @@ SubcolumnWritePlan build_subcolumn_write_plan(const vectorized::ColumnVariant& v
         return plan;
     }
 
-    if (config::enable_variant_doc_compaction_sparse_write) {
+    if (config::enable_variant_doc_sparse_write_subcolumns) {
         build_sparse_subcolumns_and_stats(variant, &plan.sparse_subcolumns, &plan.stats);
         plan.entries.reserve(plan.sparse_subcolumns.size());
         for (auto& [path, sparse] : plan.sparse_subcolumns) {
