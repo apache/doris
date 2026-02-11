@@ -239,10 +239,18 @@ public class LdapAuthenticationPlugin implements AuthenticationPlugin {
             throws AuthenticationException {
         return clientCache.computeIfAbsent(integrationName, k -> {
             try {
-                return new LdapClient(config);
+                return createClient(config);
             } catch (Exception e) {
                 throw new RuntimeException("Failed to create LDAP client: " + e.getMessage(), e);
             }
         });
+    }
+
+    /**
+     * Creates a new LDAP client.
+     * Protected for testing purposes (to allow mocking).
+     */
+    protected LdapClient createClient(Map<String, String> config) {
+        return new LdapClient(config);
     }
 }

@@ -249,8 +249,7 @@ public class LdapClient {
     private LdapTemplate createLdapTemplate() {
         LdapContextSource contextSource = new LdapContextSource();
         contextSource.setUrl(server);
-        // Don't set base here - we'll use full DNs in queries
-        // contextSource.setBase(baseDn);
+        contextSource.setBase(baseDn);
 
         // Set bind credentials if provided (for group lookup)
         if (!Strings.isNullOrEmpty(bindDn)) {

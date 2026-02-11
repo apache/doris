@@ -149,9 +149,9 @@ class DefaultRoleResolutionStageTest {
                 .authenticatorPluginName("ldap")
                 .build();
 
-        Mockito.Mockito.when(roleMapper.mapRoles(identity1, integration))
+        Mockito.when(roleMapper.mapRoles(identity1, integration))
                 .thenReturn(Collections.singleton("role1"));
-        Mockito.Mockito.when(roleMapper.mapRoles(identity2, integration))
+        Mockito.when(roleMapper.mapRoles(identity2, integration))
                 .thenReturn(new HashSet<>(Arrays.asList("role2", "role3")));
 
         Set<String> result1 = stage.resolveRoles(identity1, integration);

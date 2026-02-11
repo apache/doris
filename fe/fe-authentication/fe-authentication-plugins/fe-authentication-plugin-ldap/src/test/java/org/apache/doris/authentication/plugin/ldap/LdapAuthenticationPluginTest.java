@@ -57,7 +57,7 @@ class LdapAuthenticationPluginTest {
 
     @BeforeEach
     void setUp() {
-        plugin = new LdapAuthenticationPlugin();
+        plugin = new TestableLdapAuthenticationPlugin();
     }
 
     @AfterEach
@@ -282,19 +282,14 @@ class LdapAuthenticationPluginTest {
         @Test
         @DisplayName("Should reject null username")
         void testAuthenticateRejectsNullUsername() {
-            AuthenticationRequest request = AuthenticationRequest.builder()
+            // AuthenticationRequest builder throws NPE on null username
+            Assertions.assertThrows(NullPointerException.class, () ->
+                AuthenticationRequest.builder()
                     .username(null)
                     .credentialType(CredentialType.CLEAR_TEXT_PASSWORD)
                     .credential("password".getBytes(StandardCharsets.UTF_8))
-                    .build();
-
-            AuthenticationResult result = Assertions.assertDoesNotThrow(
-                    () -> plugin.authenticate(request, integration)
+                    .build()
             );
-
-            Assertions.assertTrue(result.isFailure());
-            Assertions.assertNotNull(result.getException());
-            Assertions.assertTrue(result.getException().getMessage().toLowerCase().contains("username"));
         }
 
         @Test
@@ -371,8 +366,8 @@ class LdapAuthenticationPluginTest {
                         "Should handle username: " + username
                 );
 
-                // Will fail because LDAP server not running, but shouldn't throw exception
-                Assertions.assertTrue(result.isFailure());
+                // Should succeed with stub client
+                Assertions.assertTrue(result.isSuccess(), "Should succeed for username: " + username);
             }
         }
     }
@@ -682,5 +677,38 @@ class LdapAuthenticationPluginTest {
         config.put("bind_dn", "cn=admin,dc=example,dc=com");
         config.put("bind_password", "admin_password");
         return config;
+    }
+
+    private static class StubLdapClient extends LdapClient {
+        StubLdapClient(Map<String, String> config) {
+            super(config);
+        }
+
+        @Override
+        public String getUserDn(String username) {
+            return "uid=" + username + ",ou=users,dc=example,dc=com";
+        }
+
+        @Override
+        public boolean checkPassword(String username, String password) {
+            return true;
+        }
+
+        @Override
+        public java.util.List<String> getGroups(String username) {
+            return java.util.Collections.emptyList();
+        }
+
+        @Override
+        public boolean healthCheck() {
+            return true;
+        }
+    }
+
+    private static class TestableLdapAuthenticationPlugin extends LdapAuthenticationPlugin {
+        @Override
+        protected LdapClient createClient(Map<String, String> config) {
+            return new StubLdapClient(config);
+        }
     }
 }
