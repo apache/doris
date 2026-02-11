@@ -25,10 +25,9 @@ suite("paimon_data_system_table", "p0,external,doris,external_docker,external_do
 
     String catalogName = "paimon_data_system_table"
     String dbName = "test_paimon_spark"
-    String tableName = "data_sys_table_seq_off"
+    String tableName = "data_sys_table"
+    String nativeTableName = "data_sys_table_native"
     String appendTableName = "data_sys_table_append"
-    String seqOnTableName = "data_sys_table_seq_on"
-    String seqOffTableName = "data_sys_table_seq_off"
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
@@ -58,14 +57,10 @@ suite("paimon_data_system_table", "p0,external,doris,external_docker,external_do
             row.size() > 0 && row[0].toString().equals(appendTableName)
         }
         assertTrue(appendTableExists, "Target table '${appendTableName}' not found in database '${dbName}'")
-        boolean seqOnTableExists = paimonTableList.any { row ->
-            row.size() > 0 && row[0].toString().equals(seqOnTableName)
+        boolean nativeTableExists = paimonTableList.any { row ->
+            row.size() > 0 && row[0].toString().equals(nativeTableName)
         }
-        assertTrue(seqOnTableExists, "Target table '${seqOnTableName}' not found in database '${dbName}'")
-        boolean seqOffTableExists = paimonTableList.any { row ->
-            row.size() > 0 && row[0].toString().equals(seqOffTableName)
-        }
-        assertTrue(seqOffTableExists, "Target table '${seqOffTableName}' not found in database '${dbName}'")
+        assertTrue(nativeTableExists, "Target table '${nativeTableName}' not found in database '${dbName}'")
 
         qt_base_table_count """select count(*) from ${tableName}"""
         qt_base_table_rows """select id, name from ${tableName} order by id"""
@@ -82,44 +77,9 @@ suite("paimon_data_system_table", "p0,external,doris,external_docker,external_do
 
         qt_append_ro_table_count """select count(*) from ${appendTableName}\$ro"""
         qt_append_ro_table_rows """select id, name from ${appendTableName}\$ro order by id"""
-
-        // 1. cover table-read.sequence-number.enabled=true
-        List<List<Object>> seqOnBinlogDesc = sql """desc ${seqOnTableName}\$binlog"""
-        List<String> seqOnBinlogColumns = seqOnBinlogDesc.collect { it[0].toString().toLowerCase() }
-        assertTrue(seqOnBinlogColumns.contains("_sequence_number"),
-                "Expected _SEQUENCE_NUMBER in ${seqOnTableName}\$binlog schema")
-
-        List<List<Object>> seqOnAuditLogDesc = sql """desc ${seqOnTableName}\$audit_log"""
-        List<String> seqOnAuditLogColumns = seqOnAuditLogDesc.collect { it[0].toString().toLowerCase() }
-        assertTrue(seqOnAuditLogColumns.contains("_sequence_number"),
-                "Expected _SEQUENCE_NUMBER in ${seqOnTableName}\$audit_log schema")
-
-        List<List<Object>> seqOnBinlogRows = sql """
-            select rowkind, _SEQUENCE_NUMBER, id[1], name[1]
-            from ${seqOnTableName}\$binlog
-            order by id[1], _SEQUENCE_NUMBER
-        """
-        assertTrue(seqOnBinlogRows.size() > 0, "Expected rows in ${seqOnTableName}\$binlog")
-        assertTrue(seqOnBinlogRows.every { row -> row[1] != null },
-                "Expected non-null _SEQUENCE_NUMBER in ${seqOnTableName}\$binlog")
-
-        // 2. cover table-read.sequence-number.enabled=false(default)
-        List<List<Object>> seqOffBinlogDesc = sql """desc ${seqOffTableName}\$binlog"""
-        List<String> seqOffBinlogColumns = seqOffBinlogDesc.collect { it[0].toString().toLowerCase() }
-        assertTrue(!seqOffBinlogColumns.contains("_sequence_number"),
-                "Unexpected _SEQUENCE_NUMBER in ${seqOffTableName}\$binlog schema")
-
-        List<List<Object>> seqOffAuditLogDesc = sql """desc ${seqOffTableName}\$audit_log"""
-        List<String> seqOffAuditLogColumns = seqOffAuditLogDesc.collect { it[0].toString().toLowerCase() }
-        assertTrue(!seqOffAuditLogColumns.contains("_sequence_number"),
-                "Unexpected _SEQUENCE_NUMBER in ${seqOffTableName}\$audit_log schema")
-
-        List<List<Object>> seqOffBinlogRows = sql """
-            select rowkind, id[1], name[1]
-            from ${seqOffTableName}\$binlog
-            order by id[1]
-        """
-        assertTrue(seqOffBinlogRows.size() > 0, "Expected rows in ${seqOffTableName}\$binlog")
+        // We intentionally do not run table-read.sequence-number.enabled regression checks here.
+        // Because Paimon also does not allow setting this option via SQL hints.
+        // This logic is covered in FE UT (PaimonUtilTest).
 
         def getExplainText = { String explainSql ->
             List<List<Object>> explainRows = sql(explainSql)
@@ -159,23 +119,19 @@ suite("paimon_data_system_table", "p0,external,doris,external_docker,external_do
         }
 
         sql """set force_jni_scanner=false"""
-        assertNativePath("select rowkind, id[1], name[1] from ${tableName}\$binlog", "${tableName}\$binlog")
-        assertNativePath("select rowkind, id, name from ${tableName}\$audit_log", "${tableName}\$audit_log")
-        assertNativePath("select rowkind, _SEQUENCE_NUMBER, id[1], name[1] from ${seqOnTableName}\$binlog",
-                "${seqOnTableName}\$binlog")
-        assertNativePath("select rowkind, _SEQUENCE_NUMBER, id, name from ${seqOnTableName}\$audit_log",
-                "${seqOnTableName}\$audit_log")
+        assertNativePath("select rowkind, id[1], name[1] from ${nativeTableName}\$binlog", "${nativeTableName}\$binlog")
+        assertNativePath("select rowkind, id, name from ${nativeTableName}\$audit_log", "${nativeTableName}\$audit_log")
 
         assertCountStarPushdown("select count(*) from ${tableName}\$binlog", "${tableName}\$binlog")
         assertCountStarPushdown("select count(*) from ${tableName}\$audit_log", "${tableName}\$audit_log")
+        assertCountStarPushdown("select count(*) from ${nativeTableName}\$binlog", "${nativeTableName}\$binlog")
+        assertCountStarPushdown("select count(*) from ${nativeTableName}\$audit_log", "${nativeTableName}\$audit_log")
 
         sql """set force_jni_scanner=true"""
         assertJniPath("select rowkind, id[1], name[1] from ${tableName}\$binlog", "${tableName}\$binlog")
         assertJniPath("select rowkind, id, name from ${tableName}\$audit_log", "${tableName}\$audit_log")
-        assertJniPath("select rowkind, _SEQUENCE_NUMBER, id[1], name[1] from ${seqOnTableName}\$binlog",
-                "${seqOnTableName}\$binlog")
-        assertJniPath("select rowkind, _SEQUENCE_NUMBER, id, name from ${seqOnTableName}\$audit_log",
-                "${seqOnTableName}\$audit_log")
+        assertJniPath("select rowkind, id[1], name[1] from ${nativeTableName}\$binlog", "${nativeTableName}\$binlog")
+        assertJniPath("select rowkind, id, name from ${nativeTableName}\$audit_log", "${nativeTableName}\$audit_log")
 
         qt_jni_binlog_rows """select rowkind, id[1], id[2], name[1], name[2] from ${tableName}\$binlog order by id[1]"""
         qt_jni_audit_log_rows """select rowkind, id, name from ${tableName}\$audit_log order by id"""
