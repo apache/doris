@@ -49,6 +49,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RollUpTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -237,9 +239,12 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                             Slot pushedDownSlot = pushDownContext.getAliasMap().get(func).toSlot();
                             if (func instanceof Count) {
                                 // For count(A), after pushdown we have count(A) as x,
-                                // and the top agg should use sum(x) instead of count(x)
+                                // and the top agg should use sum(x) instead of count(x).
+                                // Wrap with ifnull(..., 0) because COUNT never returns NULL,
+                                // but after pushdown across an outer join, the intermediate count
+                                // slot can be NULL (null-extended), making sum(NULL) = NULL.
                                 Function rollUpFunc = ((RollUpTrait) func).constructRollUp(pushedDownSlot);
-                                replaceMap.put(func, rollUpFunc);
+                                replaceMap.put(func, new Nvl(rollUpFunc, new BigIntLiteral(0)));
                             } else if (func.arity() > 0) {
                                 // For sum/max/min, replace the child expression with the pushed down slot
                                 replaceMap.put(func.child(0), pushedDownSlot);
