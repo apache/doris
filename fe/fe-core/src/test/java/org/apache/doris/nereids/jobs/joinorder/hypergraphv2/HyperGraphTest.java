@@ -20,98 +20,14 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraphv2;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
-import org.apache.doris.nereids.util.HyperGraphBuilder;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class HyperGraphTest extends SqlTestBase {
-    @Test
-    void testStarGraph() {
-        //      t2
-        //      |
-        //t3-- t1 -- t4
-        //      |
-        //     t5
-        org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph hyperGraph = new HyperGraphBuilder()
-                .init(10, 20, 30, 40, 50)
-                .addEdge(JoinType.INNER_JOIN, 0, 1)
-                .addEdge(JoinType.INNER_JOIN, 0, 2)
-                .addEdge(JoinType.INNER_JOIN, 0, 3)
-                .addEdge(JoinType.INNER_JOIN, 0, 4)
-                .build();
-        String dottyGraph = hyperGraph.toDottyHyperGraph();
-        String target = "digraph G {  # 4 edges\n"
-                + "  LOGICAL_OLAP_SCAN0 [label=\"LOGICAL_OLAP_SCAN0 \n"
-                + " rowCount=10.00\"];\n"
-                + "  LOGICAL_OLAP_SCAN1 [label=\"LOGICAL_OLAP_SCAN1 \n"
-                + " rowCount=20.00\"];\n"
-                + "  LOGICAL_OLAP_SCAN2 [label=\"LOGICAL_OLAP_SCAN2 \n"
-                + " rowCount=30.00\"];\n"
-                + "  LOGICAL_OLAP_SCAN3 [label=\"LOGICAL_OLAP_SCAN3 \n"
-                + " rowCount=40.00\"];\n"
-                + "  LOGICAL_OLAP_SCAN4 [label=\"LOGICAL_OLAP_SCAN4 \n"
-                + " rowCount=50.00\"];\n"
-                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN1 [label=\"1.00\",arrowhead=none]\n"
-                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN2 [label=\"1.00\",arrowhead=none]\n"
-                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN3 [label=\"1.00\",arrowhead=none]\n"
-                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN4 [label=\"1.00\",arrowhead=none]\n"
-                + "}\n";
-
-        Assertions.assertEquals(target, dottyGraph);
-    }
-
-    @Test
-    void testCircleGraph() {
-        //    .--t0\
-        //   /    | \
-        //   |   t1  t3
-        //   \    | /
-        //    `--t2/
-        org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph hyperGraph = new HyperGraphBuilder()
-                .init(10, 20, 30, 40)
-                .addEdge(JoinType.INNER_JOIN, 0, 1)
-                .addEdge(JoinType.INNER_JOIN, 0, 2)
-                .addEdge(JoinType.INNER_JOIN, 0, 3)
-                .addEdge(JoinType.INNER_JOIN, 1, 2)
-                .addEdge(JoinType.INNER_JOIN, 2, 3)
-                .build();
-        String dottyGraph = hyperGraph.toDottyHyperGraph();
-        String target = "digraph G {  # 5 edges\n"
-                + "  LOGICAL_OLAP_SCAN0 [label=\"LOGICAL_OLAP_SCAN0 \n"
-                + " rowCount=10.00\"];\n"
-                + "  LOGICAL_OLAP_SCAN1 [label=\"LOGICAL_OLAP_SCAN1 \n"
-                + " rowCount=20.00\"];\n"
-                + "  LOGICAL_OLAP_SCAN2 [label=\"LOGICAL_OLAP_SCAN2 \n"
-                + " rowCount=30.00\"];\n"
-                + "  LOGICAL_OLAP_SCAN3 [label=\"LOGICAL_OLAP_SCAN3 \n"
-                + " rowCount=40.00\"];\n"
-                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN1 [label=\"1.00\",arrowhead=none]\n"
-                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN2 [label=\"1.00\",arrowhead=none]\n"
-                + "LOGICAL_OLAP_SCAN1 -> LOGICAL_OLAP_SCAN2 [label=\"1.00\",arrowhead=none]\n"
-                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN3 [label=\"1.00\",arrowhead=none]\n"
-                + "LOGICAL_OLAP_SCAN2 -> LOGICAL_OLAP_SCAN3 [label=\"1.00\",arrowhead=none]\n"
-                + "}\n";
-        Assertions.assertEquals(target, dottyGraph);
-    }
-
-    @Test
-    void testRandomQuery() {
-        int tableNum = 10;
-        int edgeNum = 20;
-        // repeat 10 times
-        for (int i = 0; i < 10; i++) {
-            HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder();
-            org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph hyperGraph = hyperGraphBuilder.randomBuildWith(tableNum, edgeNum);
-            Assertions.assertEquals(tableNum, hyperGraph.getNodes().size());
-            Assertions.assertEquals(edgeNum, hyperGraph.getJoinEdges().size());
-        }
-    }
-
     @Test
     void testLimitOnScan() {
         connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");

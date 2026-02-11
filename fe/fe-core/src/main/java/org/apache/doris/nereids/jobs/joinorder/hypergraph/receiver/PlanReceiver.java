@@ -197,7 +197,7 @@ public class PlanReceiver implements AbstractReceiver {
     }
 
     private LogicalPlan proposeJoin(JoinType joinType, Plan left, Plan right, List<Expression> hashConjuncts,
-                                    List<Expression> otherConjuncts) {
+            List<Expression> otherConjuncts) {
         return new LogicalJoin<>(joinType, hashConjuncts, otherConjuncts, left, right, null);
     }
 

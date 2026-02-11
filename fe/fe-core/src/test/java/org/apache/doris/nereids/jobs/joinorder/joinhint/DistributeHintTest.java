@@ -24,7 +24,7 @@ import org.apache.doris.nereids.properties.SelectHintLeading;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
-import org.apache.doris.nereids.util.HyperGraphBuilder;
+import org.apache.doris.nereids.util.HyperGraphBuilderOld;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 
@@ -97,7 +97,7 @@ public class DistributeHintTest extends TPCHTestBase {
     }
 
     private void randomTest(int tableNum, int edgeNum, boolean withJoinHint, boolean withLeading) {
-        HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder();
+        HyperGraphBuilderOld hyperGraphBuilder = new HyperGraphBuilderOld();
         Plan plan = withJoinHint ? hyperGraphBuilder.buildJoinPlanWithJoinHint(tableNum, edgeNum) :
                 hyperGraphBuilder.randomBuildPlanWith(tableNum, edgeNum);
         plan = new LogicalProject(plan.getOutput(), plan);

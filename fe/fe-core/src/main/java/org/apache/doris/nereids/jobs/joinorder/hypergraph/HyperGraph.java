@@ -79,7 +79,7 @@ public class HyperGraph {
     private final Map<Long, List<NamedExpression>> complexProject;
 
     HyperGraph(Set<Slot> finalOutputs, List<JoinEdge> joinEdges, List<AbstractNode> nodes, List<FilterEdge> filterEdges,
-               Map<Long, List<NamedExpression>> complexProject) {
+            Map<Long, List<NamedExpression>> complexProject) {
         this.finalOutputs = ImmutableSet.copyOf(finalOutputs);
         this.joinEdges = ImmutableList.copyOf(joinEdges);
         this.nodes = ImmutableList.copyOf(nodes);
@@ -524,7 +524,7 @@ public class HyperGraph {
          * @param join The join plan
          */
         private BitSet addJoin(LogicalJoin<?, ?> join,
-                               Pair<BitSet, Long> leftEdgeNodes, Pair<BitSet, Long> rightEdgeNodes) {
+                Pair<BitSet, Long> leftEdgeNodes, Pair<BitSet, Long> rightEdgeNodes) {
             Map<Pair<Long, Long>, Pair<List<Expression>, List<Expression>>> conjuncts = new LinkedHashMap<>();
             for (Expression expression : join.getHashJoinConjuncts()) {
                 // TODO: avoid calling calculateEnds if calNodeMap's results are same
@@ -587,7 +587,7 @@ public class HyperGraph {
         // left = ref_nodes \cap left_tree , right = ref_nodes \cap right_tree
         // if left = 0, recursively calculate it in left tree
         private Pair<Long, Long> calculateEnds(long allNodes, Pair<BitSet, Long> leftEdgeNodes,
-                                               Pair<BitSet, Long> rightEdgeNodes) {
+                Pair<BitSet, Long> rightEdgeNodes) {
             long left = LongBitmap.newBitmapIntersect(allNodes, leftEdgeNodes.second);
             long right = LongBitmap.newBitmapIntersect(allNodes, rightEdgeNodes.second);
             if (left == 0) {

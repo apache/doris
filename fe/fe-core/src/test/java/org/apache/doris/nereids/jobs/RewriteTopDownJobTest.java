@@ -35,7 +35,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
@@ -73,7 +72,7 @@ public class RewriteTopDownJobTest {
     public void testSimplestScene() {
         Plan leaf = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), Lists.newArrayList("test"));
         LogicalProject<Plan> project = new LogicalProject<>(ImmutableList.of(
-                new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
+                new SlotReference("age", IntegerType.INSTANCE, true, ImmutableList.of("test"))),
                 leaf
         );
         PlanChecker.from(MemoTestUtils.createConnectContext(), project)
@@ -84,8 +83,8 @@ public class RewriteTopDownJobTest {
                     GroupExpression rootGroupExpression = rootGroup.getLogicalExpression();
                     List<Slot> output = rootGroup.getLogicalProperties().getOutput();
                     Assertions.assertEquals(1, output.size());
-                    Assertions.assertEquals("name", output.get(0).getName());
-                    Assertions.assertEquals(StringType.INSTANCE, output.get(0).getDataType());
+                    Assertions.assertEquals("age", output.get(0).getName());
+                    Assertions.assertEquals(IntegerType.INSTANCE, output.get(0).getDataType());
                     Assertions.assertEquals(1, rootGroupExpression.children().size());
                     Assertions.assertEquals(PlanType.LOGICAL_PROJECT, rootGroupExpression.getPlan().getType());
 
@@ -94,8 +93,8 @@ public class RewriteTopDownJobTest {
                     Assertions.assertEquals(2, output.size());
                     Assertions.assertEquals("id", output.get(0).getName());
                     Assertions.assertEquals(IntegerType.INSTANCE, output.get(0).getDataType());
-                    Assertions.assertEquals("name", output.get(1).getName());
-                    Assertions.assertEquals(StringType.INSTANCE, output.get(1).getDataType());
+                    Assertions.assertEquals("age", output.get(1).getName());
+                    Assertions.assertEquals(IntegerType.INSTANCE, output.get(1).getDataType());
                     Assertions.assertEquals(1, leafGroup.getLogicalExpressions().size());
                     GroupExpression leafGroupExpression = leafGroup.getLogicalExpression();
                     Assertions.assertEquals(PlanType.LOGICAL_BOUND_RELATION, leafGroupExpression.getPlan().getType());

@@ -33,7 +33,7 @@ public class FilterEdge extends Edge {
     private final LogicalFilter<? extends Plan> filter;
 
     public FilterEdge(LogicalFilter<? extends Plan> filter, int index,
-                      BitSet childEdges, long subTreeNodes, long childRequireNodes) {
+            BitSet childEdges, long subTreeNodes, long childRequireNodes) {
         super(index, childEdges, new BitSet(), subTreeNodes, childRequireNodes, 0L);
         this.filter = filter;
     }
