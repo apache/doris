@@ -177,9 +177,9 @@ void execute_if_selector(const ColumnPtr& cond_column, const Selector* selector,
     condition_view.for_each(null_func, true_func, false_func);
 }
 
-Status ShortCircuitIfExpr::execute_column(VExprContext* context, const Block* block,
-                                          Selector* selector, size_t count,
-                                          ColumnPtr& result_column) const {
+Status ShortCircuitIfExpr::execute_column_impl(VExprContext* context, const Block* block,
+                                               const Selector* selector, size_t count,
+                                               ColumnPtr& result_column) const {
     DCHECK(_open_finished || block == nullptr) << debug_string();
     DCHECK(selector == nullptr || selector->size() == count);
     ColumnPtr cond_column;
@@ -255,9 +255,9 @@ void execute_case_selector(const ColumnPtr& cond_column, const Selector* executo
     }
 }
 
-Status ShortCircuitCaseExpr::execute_column(VExprContext* context, const Block* block,
-                                            Selector* selector, size_t count,
-                                            ColumnPtr& result_column) const {
+Status ShortCircuitCaseExpr::execute_column_impl(VExprContext* context, const Block* block,
+                                                 const Selector* selector, size_t count,
+                                                 ColumnPtr& result_column) const {
     DCHECK(_open_finished || block == nullptr) << debug_string();
     DCHECK(selector == nullptr || selector->size() == count);
 
@@ -274,7 +274,7 @@ Status ShortCircuitCaseExpr::execute_column(VExprContext* context, const Block* 
     std::vector<ColumnAndSelector> columns_and_selectors;
     columns_and_selectors.resize(num_branches);
 
-    Selector* executor_selector = selector;
+    const Selector* executor_selector = selector;
     size_t executor_count = count;
 
     Selector* current_selector = nullptr;
@@ -374,9 +374,9 @@ void execute_ifnull_selector(const ColumnPtr& cond_column, const Selector* selec
     condition_view.for_each(null_func, not_null_func);
 }
 
-Status ShortCircuitIfNullExpr::execute_column(VExprContext* context, const Block* block,
-                                              Selector* selector, size_t count,
-                                              ColumnPtr& result_column) const {
+Status ShortCircuitIfNullExpr::execute_column_impl(VExprContext* context, const Block* block,
+                                                   const Selector* selector, size_t count,
+                                                   ColumnPtr& result_column) const {
     DCHECK(_open_finished || block == nullptr) << debug_string();
     DCHECK(selector == nullptr || selector->size() == count);
     ColumnPtr expr1_column;
@@ -440,9 +440,9 @@ void execute_coalesce_selector(const ColumnPtr& cond_column, const Selector* exe
     }
 }
 
-Status ShortCircuitCoalesceExpr::execute_column(VExprContext* context, const Block* block,
-                                                Selector* selector, size_t count,
-                                                ColumnPtr& result_column) const {
+Status ShortCircuitCoalesceExpr::execute_column_impl(VExprContext* context, const Block* block,
+                                                     const Selector* selector, size_t count,
+                                                     ColumnPtr& result_column) const {
     DCHECK(_open_finished || block == nullptr) << debug_string();
     DCHECK(selector == nullptr || selector->size() == count);
 
@@ -450,7 +450,7 @@ Status ShortCircuitCoalesceExpr::execute_column(VExprContext* context, const Blo
     columns_and_selectors.resize(_children.size() +
                                  1); // the last one represents the selector for null output
 
-    Selector* executor_selector = selector;
+    const Selector* executor_selector = selector;
     size_t executor_count = count;
 
     Selector* current_selector = nullptr;

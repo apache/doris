@@ -107,6 +107,11 @@ Status PythonFunctionCall::open(FunctionContext* context,
 Status PythonFunctionCall::execute_impl(FunctionContext* context, Block& block,
                                         const ColumnNumbers& arguments, uint32_t result,
                                         size_t num_rows) const {
+    if (num_rows == 0) {
+        block.get_by_position(result).column = _return_type->create_column();
+        return Status::OK();
+    }
+
     auto client = reinterpret_cast<PythonUDFClient*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
     if (!client) {

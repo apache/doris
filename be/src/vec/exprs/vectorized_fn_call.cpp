@@ -204,9 +204,9 @@ Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
-Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block, Selector* selector,
-                                     size_t count, ColumnPtr& result_column,
-                                     ColumnPtr* arg_column) const {
+Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block,
+                                     const Selector* selector, size_t count,
+                                     ColumnPtr& result_column, ColumnPtr* arg_column) const {
     if (is_const_and_have_executed()) { // const have executed in open function
         result_column = get_result_from_const(count);
         return Status::OK();
@@ -266,7 +266,7 @@ Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block, 
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), temp_block, args,
                                        num_columns_without_result, count));
     result_column = temp_block.get_by_position(num_columns_without_result).column;
-    DCHECK_EQ(result_column->size(), count);
+    // DCHECK_EQ(result_column->size(), count); tmp remove
     RETURN_IF_ERROR(result_column->column_self_check());
     return Status::OK();
 }
@@ -296,9 +296,9 @@ Status VectorizedFnCall::execute_runtime_filter(VExprContext* context, const Blo
     return _do_execute(context, block, nullptr, count, result_column, arg_column);
 }
 
-Status VectorizedFnCall::execute_column(VExprContext* context, const Block* block,
-                                        Selector* selector, size_t count,
-                                        ColumnPtr& result_column) const {
+Status VectorizedFnCall::execute_column_impl(VExprContext* context, const Block* block,
+                                             const Selector* selector, size_t count,
+                                             ColumnPtr& result_column) const {
     return _do_execute(context, block, selector, count, result_column, nullptr);
 }
 

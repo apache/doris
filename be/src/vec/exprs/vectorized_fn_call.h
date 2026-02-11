@@ -53,8 +53,8 @@ public:
 #endif
     VectorizedFnCall(const TExprNode& node);
 
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override;
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
     Status execute_runtime_filter(VExprContext* context, const Block* block,
                                   const uint8_t* __restrict filter, size_t count,
                                   ColumnPtr& result_column, ColumnPtr* arg_column) const override;
@@ -103,8 +103,8 @@ protected:
     std::string _function_name;
 
 private:
-    Status _do_execute(VExprContext* context, const Block* block, Selector* selector, size_t count,
-                       ColumnPtr& result_column, ColumnPtr* arg_column) const;
+    Status _do_execute(VExprContext* context, const Block* block, const Selector* selector,
+                       size_t count, ColumnPtr& result_column, ColumnPtr* arg_column) const;
 };
 
 #include "common/compile_check_end.h"

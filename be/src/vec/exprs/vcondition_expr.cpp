@@ -445,9 +445,9 @@ Status VectorizedIfExpr::_execute_impl_internal(Block& block, const ColumnNumber
     }
 }
 
-Status VectorizedIfExpr::execute_column(VExprContext* context, const Block* block,
-                                        Selector* selector, size_t count,
-                                        ColumnPtr& result_column) const {
+Status VectorizedIfExpr::execute_column_impl(VExprContext* context, const Block* block,
+                                             const Selector* selector, size_t count,
+                                             ColumnPtr& result_column) const {
     DCHECK(_open_finished || block == nullptr) << debug_string();
     DCHECK_EQ(_children.size(), 3) << "IF expr must have three children";
 
@@ -486,9 +486,9 @@ Status VectorizedIfExpr::execute_column(VExprContext* context, const Block* bloc
     return Status::OK();
 }
 
-Status VectorizedIfNullExpr::execute_column(VExprContext* context, const Block* block,
-                                            Selector* selector, size_t count,
-                                            ColumnPtr& result_column) const {
+Status VectorizedIfNullExpr::execute_column_impl(VExprContext* context, const Block* block,
+                                                 const Selector* selector, size_t count,
+                                                 ColumnPtr& result_column) const {
     DCHECK(_open_finished || block == nullptr) << debug_string();
     DCHECK_EQ(_children.size(), 2) << "IFNULL expr must have two children";
 
@@ -638,9 +638,9 @@ Status filled_result_column(const DataTypePtr& data_type, MutableColumnPtr& resu
     return Status::OK();
 }
 
-Status VectorizedCoalesceExpr::execute_column(VExprContext* context, const Block* block,
-                                              Selector* selector, size_t count,
-                                              ColumnPtr& return_column) const {
+Status VectorizedCoalesceExpr::execute_column_impl(VExprContext* context, const Block* block,
+                                                   const Selector* selector, size_t count,
+                                                   ColumnPtr& return_column) const {
     DataTypePtr result_type = _data_type;
     const auto input_rows_count = count;
 

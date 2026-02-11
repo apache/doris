@@ -156,9 +156,9 @@ const std::string& VMatchPredicate::get_analyzer_key() const {
     return _analyzer_ctx->analyzer_name;
 }
 
-Status VMatchPredicate::execute_column(VExprContext* context, const Block* block,
-                                       Selector* selector, size_t count,
-                                       ColumnPtr& result_column) const {
+Status VMatchPredicate::execute_column_impl(VExprContext* context, const Block* block,
+                                            const Selector* selector, size_t count,
+                                            ColumnPtr& result_column) const {
     DCHECK(_open_finished || block == nullptr);
     if (fast_execute(context, selector, count, result_column)) {
         return Status::OK();

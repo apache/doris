@@ -84,8 +84,8 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override {
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
         if (!_predicate->has_value()) {
             result_column = create_always_true_column(count, _data_type->is_nullable());
             return Status::OK();

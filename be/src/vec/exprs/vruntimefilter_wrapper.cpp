@@ -85,10 +85,10 @@ void VRuntimeFilterWrapper::close(VExprContext* context,
     _impl->close(context, scope);
 }
 
-Status VRuntimeFilterWrapper::execute_column(VExprContext* context, const Block* block,
-                                             Selector* selector, size_t count,
-                                             ColumnPtr& result_column) const {
-    return Status::InternalError("Not implement VRuntimeFilterWrapper::execute_column");
+Status VRuntimeFilterWrapper::execute_column_impl(VExprContext* context, const Block* block,
+                                                  const Selector* selector, size_t count,
+                                                  ColumnPtr& result_column) const {
+    return Status::InternalError("Not implement VRuntimeFilterWrapper::execute_column_impl");
 }
 
 const std::string& VRuntimeFilterWrapper::expr_name() const {

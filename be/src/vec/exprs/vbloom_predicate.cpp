@@ -71,7 +71,7 @@ void VBloomPredicate::close(VExprContext* context, FunctionContext::FunctionStat
 }
 
 Status VBloomPredicate::_do_execute(VExprContext* context, const Block* block,
-                                    const uint8_t* __restrict filter, Selector* selector,
+                                    const uint8_t* __restrict filter, const Selector* selector,
                                     size_t count, ColumnPtr& result_column) const {
     DCHECK(_open_finished || block == nullptr);
     DCHECK(!(filter != nullptr && selector != nullptr))
@@ -95,9 +95,9 @@ Status VBloomPredicate::_do_execute(VExprContext* context, const Block* block,
     return Status::OK();
 }
 
-Status VBloomPredicate::execute_column(VExprContext* context, const Block* block,
-                                       Selector* selector, size_t count,
-                                       ColumnPtr& result_column) const {
+Status VBloomPredicate::execute_column_impl(VExprContext* context, const Block* block,
+                                            const Selector* selector, size_t count,
+                                            ColumnPtr& result_column) const {
     return _do_execute(context, block, nullptr, selector, count, result_column);
 }
 

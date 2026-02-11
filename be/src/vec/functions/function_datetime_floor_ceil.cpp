@@ -136,6 +136,11 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
+        if (input_rows_count == 0) {
+            block.get_by_position(result).column =
+                    block.get_by_position(result).type->create_column();
+            return Status::OK();
+        }
         // Handle null map manually - update result null map from input null maps upfront
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
         NullMap& result_null_map = assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();

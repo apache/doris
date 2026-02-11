@@ -77,9 +77,9 @@ public:
 
     std::string get_name() const override { return name; }
 
-    Status execute(VExprContext* context, const vectorized::Block* block, Selector* expr_selector,
-                   size_t count, ColumnPtr& result_column, const DataTypePtr& result_type,
-                   const VExprSPtrs& children) const override {
+    Status execute(VExprContext* context, const vectorized::Block* block,
+                   const Selector* expr_selector, size_t count, ColumnPtr& result_column,
+                   const DataTypePtr& result_type, const VExprSPtrs& children) const override {
         LambdaArgs args_info;
         // collect used slot ref in lambda function body
         std::vector<int>& output_slot_ref_indexs = args_info.output_slot_ref_indexs;

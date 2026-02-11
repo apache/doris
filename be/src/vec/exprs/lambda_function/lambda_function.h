@@ -38,7 +38,7 @@ public:
     }
 
     virtual doris::Status execute(VExprContext* context, const doris::vectorized::Block* block,
-                                  Selector* selector, size_t count, ColumnPtr& result_column,
+                                  const Selector* selector, size_t count, ColumnPtr& result_column,
                                   const DataTypePtr& result_type,
                                   const VExprSPtrs& children) const = 0;
 
