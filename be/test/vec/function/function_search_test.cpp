@@ -1716,8 +1716,8 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryPhrase) {
 
     inverted_index::query_v2::QueryPtr out;
     std::string out_binding_key;
-    Status st =
-            function_search->build_leaf_query(clause, context, resolver, &out, &out_binding_key);
+    Status st = function_search->build_leaf_query(clause, context, resolver, &out, &out_binding_key,
+                                                  "OR", 0);
     EXPECT_TRUE(st.ok());
 
     auto phrase_query = std::dynamic_pointer_cast<inverted_index::query_v2::PhraseQuery>(out);

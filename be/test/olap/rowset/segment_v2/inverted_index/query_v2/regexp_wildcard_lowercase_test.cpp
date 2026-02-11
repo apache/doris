@@ -123,7 +123,7 @@ static std::vector<uint32_t> execute_query(const std::string& test_dir, const st
     auto* dir = FSDirectory::getDirectory(test_dir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
 
-    auto weight = query->weight();
+    auto weight = query->weight(false);
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();

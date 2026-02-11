@@ -138,7 +138,7 @@ ScorerPtr OccurBooleanWeight<ScoreCombinerPtrT>::effective_must_scorer(
         std::vector<ScorerPtr> must_scorers, size_t must_num_all_scorers) {
     if (must_scorers.empty()) {
         if (must_num_all_scorers > 0) {
-            return std::make_shared<AllScorer>(_max_doc);
+            return std::make_shared<AllScorer>(_max_doc, _enable_scoring);
         }
         return nullptr;
     }
@@ -153,10 +153,10 @@ SpecializedScorer OccurBooleanWeight<ScoreCombinerPtrT>::effective_should_scorer
         if (_enable_scoring) {
             std::vector<ScorerPtr> scorers;
             scorers.push_back(into_box_scorer(std::move(should_scorer), combiner));
-            scorers.push_back(std::make_shared<AllScorer>(_max_doc));
+            scorers.push_back(std::make_shared<AllScorer>(_max_doc, _enable_scoring));
             return make_buffered_union(std::move(scorers), combiner);
         } else {
-            return std::make_shared<AllScorer>(_max_doc);
+            return std::make_shared<AllScorer>(_max_doc, _enable_scoring);
         }
     }
     return should_scorer;
