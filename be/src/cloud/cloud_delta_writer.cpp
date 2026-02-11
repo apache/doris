@@ -121,7 +121,9 @@ Status CloudDeltaWriter::commit_rowset() {
     }
 
     // Handle normal rowset with data
-    return _engine.meta_mgr().commit_rowset(*rowset_meta(), "");
+    RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*rowset_meta(), ""));
+    rowset_builder()->register_uncommitted_rowset();
+    return Status::OK();
 }
 
 Status CloudDeltaWriter::_commit_empty_rowset() {

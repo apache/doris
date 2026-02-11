@@ -65,8 +65,8 @@ public class SessionVariablesTest extends TestWithFeService {
 
     @Test
     public void testCloneSessionVariablesWithSessionOriginValueNotEmpty() throws NoSuchFieldException {
-        Field txIsolation = SessionVariable.class.getField("txIsolation");
-        SessionVariableField txIsolationSessionVariableField = new SessionVariableField(txIsolation);
+        Field transactionIsolation = SessionVariable.class.getField("transactionIsolation");
+        SessionVariableField txIsolationSessionVariableField = new SessionVariableField(transactionIsolation);
         sessionVariable.addSessionOriginValue(txIsolationSessionVariableField, "test");
 
         SessionVariable sessionVariableClone = VariableMgr.cloneSessionVariable(sessionVariable);

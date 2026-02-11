@@ -73,6 +73,7 @@ class ReportWorker;
 class CreateTabletRRIdxCache;
 struct DirInfo;
 class SnapshotManager;
+class UncommittedRowsetRegistry;
 class WorkloadGroup;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
@@ -311,6 +312,9 @@ public:
     TabletManager* tablet_manager() { return _tablet_manager.get(); }
     TxnManager* txn_manager() { return _txn_manager.get(); }
     SnapshotManager* snapshot_mgr() { return _snapshot_mgr.get(); }
+    UncommittedRowsetRegistry* uncommitted_rowset_registry() {
+        return _uncommitted_rowset_registry.get();
+    }
     // Rowset garbage collection helpers
     bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id);
     PendingRowsetSet& pending_local_rowsets() { return _pending_local_rowsets; }
@@ -533,6 +537,7 @@ private:
 
     std::unique_ptr<TabletManager> _tablet_manager;
     std::unique_ptr<TxnManager> _txn_manager;
+    std::unique_ptr<UncommittedRowsetRegistry> _uncommitted_rowset_registry;
 
     // Used to control the migration from segment_v1 to segment_v2, can be deleted in futrue.
     // Type of new loaded data

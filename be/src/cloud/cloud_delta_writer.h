@@ -52,6 +52,7 @@ public:
     Status commit_rowset();
 
     Status set_txn_related_delete_bitmap();
+
     std::shared_ptr<ResourceContext> resource_context() { return _resource_ctx; }
 
 private:

@@ -22,6 +22,7 @@
 #include <memory>
 #include <numeric>
 #include <optional>
+#include <set>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
@@ -33,6 +34,7 @@
 #include "olap/rowset/segment_v2/ann_index/ann_topn_runtime.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
+#include "olap/uncommitted_rowset_registry.h"
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/query_cache/query_cache.h"
 #include "runtime/runtime_state.h"
@@ -744,6 +746,73 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
                      print_id(PipelineXLocalState<>::_state->query_id()));
         }
     }
+    // Inject uncommitted rowsets for READ UNCOMMITTED isolation level
+    if (_state->read_uncommitted()) {
+        auto* registry = get_uncommitted_rowset_registry();
+        if (registry) {
+            for (size_t i = 0; i < _scan_ranges.size(); i++) {
+                auto& tablet = _tablets[i].tablet;
+                // Only DUP_KEYS and UNIQUE_KEYS supported
+                if (tablet->keys_type() != DUP_KEYS && tablet->keys_type() != UNIQUE_KEYS) {
+                    continue;
+                }
+
+                std::vector<std::shared_ptr<UncommittedRowsetEntry>> entries;
+                registry->get_uncommitted_rowsets(tablet->tablet_id(), &entries);
+                if (entries.empty()) {
+                    continue;
+                }
+
+                // Collect committed rowset IDs to avoid double-reading during
+                // the publish window (rowset visible in both committed and
+                // uncommitted paths before unregister_rowset is called)
+                std::set<RowsetId> committed_rowset_ids;
+                for (auto& split : _read_sources[i].rs_splits) {
+                    committed_rowset_ids.insert(split.rs_reader->rowset()->rowset_id());
+                }
+
+                bool bitmap_copied = false;
+                auto ensure_bitmap_copy = [&]() {
+                    if (!bitmap_copied) {
+                        if (_read_sources[i].delete_bitmap) {
+                            _read_sources[i].delete_bitmap =
+                                    std::make_shared<DeleteBitmap>(*_read_sources[i].delete_bitmap);
+                        } else {
+                            _read_sources[i].delete_bitmap =
+                                    std::make_shared<DeleteBitmap>(tablet->tablet_id());
+                        }
+                        bitmap_copied = true;
+                    }
+                };
+
+                for (auto& entry : entries) {
+                    // Already published — remove from registry and skip
+                    if (committed_rowset_ids.count(entry->rowset->rowset_id())) {
+                        registry->unregister_rowset(entry->tablet_id, entry->transaction_id);
+                        continue;
+                    }
+
+                    RowsetReaderSharedPtr rs_reader;
+                    auto st = entry->rowset->create_reader(&rs_reader);
+                    if (!st.ok()) {
+                        LOG(WARNING) << "Failed to create reader for uncommitted rowset, "
+                                        "tablet_id="
+                                     << tablet->tablet_id() << " txn_id=" << entry->transaction_id
+                                     << ": " << st;
+                        continue;
+                    }
+                    _read_sources[i].rs_splits.emplace_back(std::move(rs_reader));
+
+                    // Merge the already-computed committed-vs-published delete bitmap
+                    if (entry->unique_key_merge_on_write && entry->committed_delete_bitmap) {
+                        ensure_bitmap_copy();
+                        _read_sources[i].delete_bitmap->merge(*entry->committed_delete_bitmap);
+                    }
+                }
+            }
+        }
+    }
+
     timer.stop();
     double cost_secs = static_cast<double>(timer.elapsed_time()) / NANOS_PER_SEC;
     if (cost_secs > 1) {

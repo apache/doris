@@ -39,6 +39,9 @@ public:
 
     Status set_txn_related_delete_bitmap();
 
+    // Register uncommitted rowset for READ UNCOMMITTED visibility.
+    void register_uncommitted_rowset();
+
     void set_skip_writing_rowset_metadata(bool skip) { _skip_writing_rowset_metadata = skip; }
 
 private:
