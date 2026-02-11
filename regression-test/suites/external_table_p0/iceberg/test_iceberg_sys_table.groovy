@@ -271,14 +271,27 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
 
         order_qt_select_manifests_count """select count(*) from ${systableName}"""
 
-        List<List<Object>> res1 = sql """select * from ${systableName} order by path"""
-        List<List<Object>> res2 = sql """select * from iceberg_meta(
-            "table" = "${catalog_name}.${db_name}.${table}",
-            "query_type" = "${systableType}") order by path"""
-        assertEquals(res1.size(), res2.size());
-        for (int i = 0; i < res1.size(); i++) {
-            for (int j = 0; j < res1[i].size(); j++) {
-                assertEquals(res1[i][j], res2[i][j]);
+        if (systableType.equals("manifests")) {
+            List<List<Object>> res1 = sql """select * from ${systableName} order by path"""
+            List<List<Object>> res2 = sql """select * from iceberg_meta(
+                "table" = "${catalog_name}.${db_name}.${table}",
+                "query_type" = "${systableType}") order by path"""
+            assertEquals(res1.size(), res2.size());
+            for (int i = 0; i < res1.size(); i++) {
+                for (int j = 0; j < res1[i].size(); j++) {
+                    assertEquals(res1[i][j], res2[i][j]);
+                }
+            }
+        } else {
+            List<List<Object>> res1 = sql """select * from ${systableName} order by path, reference_snapshot_id"""
+            List<List<Object>> res2 = sql """select * from iceberg_meta(
+                "table" = "${catalog_name}.${db_name}.${table}",
+                "query_type" = "${systableType}") order by path, reference_snapshot_id"""
+            assertEquals(res1.size(), res2.size());
+            for (int i = 0; i < res1.size(); i++) {
+                for (int j = 0; j < res1[i].size(); j++) {
+                    assertEquals(res1[i][j], res2[i][j]);
+                }
             }
         }
     }
