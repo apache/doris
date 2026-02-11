@@ -23,11 +23,15 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Objects;
 import java.util.OptionalLong;
 
 public class FileSystemCache {
+
+    private static final Logger LOG = LogManager.getLogger(FileSystemCache.class);
 
     private final LoadingCache<FileSystemCacheKey, RemoteFileSystem> fileSystemCache;
 
@@ -39,7 +43,17 @@ public class FileSystemCache {
                 Config.max_remote_file_system_cache_num,
                 false,
                 null);
-        fileSystemCache = fsCacheFactory.buildCache(this::loadFileSystem);
+        // Use sync RemovalListener to close evicted RemoteFileSystem and release underlying resources
+        // (e.g., Hadoop FileSystem handles). Without this, evicted entries leak native resources.
+        fileSystemCache = fsCacheFactory.buildCacheWithSyncRemovalListener(this::loadFileSystem, (key, fs, cause) -> {
+            if (fs != null) {
+                try {
+                    fs.close();
+                } catch (Exception e) {
+                    LOG.warn("Failed to close RemoteFileSystem on cache eviction", e);
+                }
+            }
+        });
     }
 
     private RemoteFileSystem loadFileSystem(FileSystemCacheKey key) {
