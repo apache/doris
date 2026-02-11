@@ -138,11 +138,14 @@ suite("paimon_data_system_table", "p0,external,doris,external_docker,external_do
         }
 
         sql """set force_jni_scanner=false"""
-        // Binlog needs Paimon-side pack/merge + array materialization semantics.
-        // TODO: switch binlog assertions back to native once Doris native reader supports this semantics.
+        // Paimon data system tables need Paimon-side semantics:
+        // - binlog: pack/merge + array materialization
+        // - audit_log: rowkind / sequence-number projection
+        // TODO: switch these assertions back to native once Doris native reader supports the same semantics.
         assertJniPath("select rowkind, id[1], name[1] from ${tableName}\$binlog", "${tableName}\$binlog")
         assertJniPath("select rowkind, id[1], name[1] from ${nativeTableName}\$binlog", "${nativeTableName}\$binlog")
-        assertNativePath("select rowkind, id, name from ${nativeTableName}\$audit_log", "${nativeTableName}\$audit_log")
+        assertJniPath("select rowkind, id, name from ${tableName}\$audit_log", "${tableName}\$audit_log")
+        assertJniPath("select rowkind, id, name from ${nativeTableName}\$audit_log", "${nativeTableName}\$audit_log")
 
         assertCountStarPushdown("select count(*) from ${tableName}\$binlog", "${tableName}\$binlog")
         assertCountStarPushdown("select count(*) from ${tableName}\$audit_log", "${tableName}\$audit_log")

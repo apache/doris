@@ -385,7 +385,7 @@ public class PaimonScanNodeTest {
     }
 
     @Test
-    public void testBinlogSystemTableForceJniEvenWhenNativeSupported() throws UserException {
+    public void testPaimonDataSystemTableForceJniEvenWhenNativeSupported() throws UserException {
         TupleDescriptor desc = new TupleDescriptor(new TupleId(3));
         PaimonScanNode paimonScanNode = new PaimonScanNode(new PlanNodeId(1), desc, false, sv);
         PaimonScanNode spyPaimonScanNode = Mockito.spy(paimonScanNode);
@@ -426,10 +426,19 @@ public class PaimonScanNodeTest {
         Mockito.when(sv.isEnableRuntimeFilterPartitionPrune()).thenReturn(false);
         Mockito.when(sv.getMaxSplitSize()).thenReturn(maxSplitSize);
 
-        Assert.assertTrue(spyPaimonScanNode.shouldForceJniForBinlog());
+        Assert.assertTrue(spyPaimonScanNode.shouldForceJniForSystemTable());
         List<org.apache.doris.spi.Split> splits = spyPaimonScanNode.getSplits(1);
         Assert.assertEquals(1, splits.size());
         Assert.assertNotNull(((PaimonSplit) splits.get(0)).getSplit());
+
+        PaimonSysExternalTable auditLogTable = Mockito.mock(PaimonSysExternalTable.class);
+        Mockito.when(auditLogTable.getSysTableType()).thenReturn("audit_log");
+        Mockito.when(source.getExternalTable()).thenReturn(auditLogTable);
+
+        Assert.assertTrue(spyPaimonScanNode.shouldForceJniForSystemTable());
+        List<org.apache.doris.spi.Split> auditLogSplits = spyPaimonScanNode.getSplits(1);
+        Assert.assertEquals(1, auditLogSplits.size());
+        Assert.assertNotNull(((PaimonSplit) auditLogSplits.get(0)).getSplit());
     }
 
     @Test

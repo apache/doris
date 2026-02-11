@@ -89,6 +89,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final String DORIS_END_TIMESTAMP = "endTimestamp";
     private static final String DORIS_INCREMENTAL_BETWEEN_SCAN_MODE = "incrementalBetweenScanMode";
     private static final String PAIMON_BINLOG_SYSTEM_TABLE_TYPE = "binlog";
+    private static final String PAIMON_AUDIT_LOG_SYSTEM_TABLE_TYPE = "audit_log";
 
     private enum SplitReadType {
         JNI,
@@ -308,10 +309,12 @@ public class PaimonScanNode extends FileQueryScanNode {
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
         boolean forceJniScanner = sessionVariable.isForceJniScanner();
-        // Binlog rows need Paimon-side pack/merge + array materialization semantics.
+        // Paimon system tables need Paimon-side semantics:
+        // - binlog: pack/merge + array materialization
+        // - audit_log: rowkind / sequence-number projection
         // TODO: Allow native reader after Doris native parquet/orc reader can materialize
-        // binlog rows consistently with Paimon BinlogTable.
-        boolean forceJniForBinlog = shouldForceJniForBinlog();
+        // these system-table rows consistently with Paimon system-table semantics.
+        boolean forceJniForSystemTable = shouldForceJniForSystemTable();
         SessionVariable.IgnoreSplitType ignoreSplitType = SessionVariable.IgnoreSplitType
                 .valueOf(sessionVariable.getIgnoreSplitType());
         List<Split> splits = new ArrayList<>();
@@ -375,7 +378,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 }
                 pushDownCountSplits.add(split);
                 pushDownCountSum += dataSplit.mergedRowCount();
-            } else if (!forceJniScanner && !forceJniForBinlog && supportNativeReader(optRawFiles)) {
+            } else if (!forceJniScanner && !forceJniForSystemTable && supportNativeReader(optRawFiles)) {
                 if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_NATIVE) {
                     continue;
                 }
@@ -449,7 +452,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     }
 
     @VisibleForTesting
-    boolean shouldForceJniForBinlog() {
+    boolean shouldForceJniForSystemTable() {
         if (source == null) {
             return false;
         }
@@ -458,7 +461,9 @@ public class PaimonScanNode extends FileQueryScanNode {
             return false;
         }
         PaimonSysExternalTable paimonSysExternalTable = (PaimonSysExternalTable) externalTable;
-        return PAIMON_BINLOG_SYSTEM_TABLE_TYPE.equalsIgnoreCase(paimonSysExternalTable.getSysTableType());
+        String sysTableType = paimonSysExternalTable.getSysTableType();
+        return PAIMON_BINLOG_SYSTEM_TABLE_TYPE.equalsIgnoreCase(sysTableType)
+                || PAIMON_AUDIT_LOG_SYSTEM_TABLE_TYPE.equalsIgnoreCase(sysTableType);
     }
 
     private long determineTargetFileSplitSize(List<DataSplit> dataSplits,
