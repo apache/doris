@@ -1493,10 +1493,11 @@ private:
     }
 };
 
-class FunctionNextDay : public IFunction {
+template <bool IsPrevious>
+class FunctionRelativeDay : public IFunction {
 public:
-    static constexpr auto name = "next_day";
-    static FunctionPtr create() { return std::make_shared<FunctionNextDay>(); }
+    static constexpr auto name = IsPrevious ? "previous_day" : "next_day";
+    static FunctionPtr create() { return std::make_shared<FunctionRelativeDay<IsPrevious>>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
@@ -1515,9 +1516,7 @@ public:
         const auto& date_col = *assert_cast<const ColumnDateV2*>(left_col.get());
         const auto& week_col = *assert_cast<const ColumnString*>(right_col.get());
         Status status;
-        if (left_const && right_const) {
-            status = execute_vector<true, true>(input_rows_count, date_col, week_col, *res);
-        } else if (left_const) {
+        if (left_const) {
             status = execute_vector<true, false>(input_rows_count, date_col, week_col, *res);
         } else if (right_const) {
             status = execute_vector<false, true>(input_rows_count, date_col, week_col, *res);
@@ -1547,10 +1546,11 @@ private:
         }
         return it->second;
     }
-    static Status compute_next_day(DateV2Value<DateV2ValueType>& dtv, const int week_day) {
-        auto days_to_add = (week_day - (dtv.weekday() + 1) + 7) % 7;
-        days_to_add = days_to_add == 0 ? 7 : days_to_add;
-        dtv.date_add_interval<TimeUnit::DAY>(TimeInterval(TimeUnit::DAY, days_to_add, false));
+    static Status compute_relative_day(DateV2Value<DateV2ValueType>& dtv, const int week_day) {
+        auto delta_days = IsPrevious ? ((dtv.weekday() + 1) - week_day + 7) % 7
+                                     : (week_day - (dtv.weekday() + 1) + 7) % 7;
+        delta_days = delta_days == 0 ? 7 : delta_days;
+        dtv.date_add_interval<TimeUnit::DAY>(TimeInterval(TimeUnit::DAY, delta_days, IsPrevious));
         return Status::OK();
     }
 
@@ -1583,12 +1583,15 @@ private:
                                                    week);
                 }
             }
-            RETURN_IF_ERROR(compute_next_day(dtv, week_day));
+            RETURN_IF_ERROR(compute_relative_day(dtv, week_day));
             res_col.insert_value(dtv);
         }
         return Status::OK();
     }
 };
+
+using FunctionNextDay = FunctionRelativeDay<true>;
+using FunctionPreviousDay = FunctionRelativeDay<false>;
 
 class FunctionTime : public IFunction {
 public:
