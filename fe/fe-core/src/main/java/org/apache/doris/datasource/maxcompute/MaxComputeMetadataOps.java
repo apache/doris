@@ -221,7 +221,40 @@ public class MaxComputeMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void dropTableImpl(ExternalTable dorisTable, boolean ifExists) throws DdlException {
-        throw new DdlException("Drop table is not supported for MaxCompute catalog.");
+        // Get remote names (handles case-sensitivity)
+        String remoteDbName = dorisTable.getRemoteDbName();
+        String remoteTblName = dorisTable.getRemoteName();
+
+        // Check table existence
+        if (!tableExist(remoteDbName, remoteTblName)) {
+            if (ifExists) {
+                LOG.info("drop table[{}.{}] which does not exist", remoteDbName, remoteTblName);
+                return;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE,
+                        remoteTblName, remoteDbName);
+            }
+        }
+
+        // Drop table via McStructureHelper
+        try {
+            McStructureHelper structureHelper = dorisCatalog.getMcStructureHelper();
+            structureHelper.dropTable(odps, remoteDbName, remoteTblName, ifExists);
+            LOG.info("Successfully dropped MaxCompute table: {}.{}", remoteDbName, remoteTblName);
+        } catch (OdpsException e) {
+            throw new DdlException("Failed to drop MaxCompute table '"
+                    + remoteTblName + "': " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void afterDropTable(String dbName, String tblName) {
+        Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dbName);
+        if (db.isPresent()) {
+            db.get().unregisterTable(tblName);
+        }
+        LOG.info("after drop table {}.{}.{}, is db exists: {}",
+                dorisCatalog.getName(), dbName, tblName, db.isPresent());
     }
 
     @Override

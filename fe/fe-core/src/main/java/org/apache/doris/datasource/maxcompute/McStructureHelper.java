@@ -63,6 +63,8 @@ public interface McStructureHelper {
 
     Tables.TableCreator createTableCreator(Odps mcClient, String dbName, String tableName, TableSchema schema);
 
+    void dropTable(Odps mcClient, String dbName, String tableName, boolean ifExists) throws OdpsException;
+
     /**
      * `mc.enable.namespace.schema` = true.
      * mapping structure between Doris and MaxCompute:
@@ -139,6 +141,13 @@ public interface McStructureHelper {
             // dbName is the schema name, defaultProjectName is the project
             return mcClient.tables().newTableCreator(defaultProjectName, tableName, schema)
                     .withSchemaName(dbName);
+        }
+
+        @Override
+        public void dropTable(Odps mcClient, String dbName, String tableName, boolean ifExists)
+                throws OdpsException {
+            // dbName is the schema name, defaultProjectName is the project
+            mcClient.tables().delete(defaultProjectName, dbName, tableName, ifExists);
         }
     }
 
@@ -229,6 +238,13 @@ public interface McStructureHelper {
                 TableSchema schema) {
             // dbName is the project name
             return mcClient.tables().newTableCreator(dbName, tableName, schema);
+        }
+
+        @Override
+        public void dropTable(Odps mcClient, String dbName, String tableName, boolean ifExists)
+                throws OdpsException {
+            // dbName is the project name
+            mcClient.tables().delete(dbName, tableName, ifExists);
         }
     }
 
