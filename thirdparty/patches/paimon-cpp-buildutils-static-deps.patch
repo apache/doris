@@ -146,7 +146,6 @@ diff --git a/src/paimon/format/blob/blob_format_writer.cpp b/src/paimon/format/b
      }
  
      // write bin length
-
 --- a/cmake_modules/arrow.diff
 +++ b/cmake_modules/arrow.diff
 @@ -196,3 +196,29 @@
