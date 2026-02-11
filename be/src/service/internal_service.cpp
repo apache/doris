@@ -2322,6 +2322,10 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
                 }
                 if (st.ok()) {
                     static_cast<void>(pipe->finish());
+                } else {
+                    if (config::enable_group_commit_mem_alloc_fail_cancel) {
+                        pipe->cancel("will cancel because append data failed: " + st.to_string());
+                    }
                 }
             }
         }
