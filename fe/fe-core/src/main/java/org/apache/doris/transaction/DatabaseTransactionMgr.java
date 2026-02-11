@@ -1219,7 +1219,8 @@ public class DatabaseTransactionMgr {
 
     private void setTableVersion(TransactionState transactionState, Database db) {
         List<TableCommitInfo> tableCommitInfos;
-        if (!transactionState.getSubTxnIdToTableCommitInfo().isEmpty()) {
+        if (transactionState.getSubTxnIdToTableCommitInfo() != null
+                && !transactionState.getSubTxnIdToTableCommitInfo().isEmpty()) {
             tableCommitInfos = transactionState.getSubTxnTableCommitInfos();
         } else {
             tableCommitInfos = Lists.newArrayList(transactionState.getIdToTableCommitInfos().values());
@@ -1239,7 +1240,8 @@ public class DatabaseTransactionMgr {
 
     private void produceEvent(TransactionState transactionState, Database db) throws AnalysisException {
         Collection<TableCommitInfo> tableCommitInfos;
-        if (!transactionState.getSubTxnIdToTableCommitInfo().isEmpty()) {
+        if (transactionState.getSubTxnIdToTableCommitInfo() != null
+                && !transactionState.getSubTxnIdToTableCommitInfo().isEmpty()) {
             tableCommitInfos = transactionState.getSubTxnTableCommitInfos();
         } else {
             tableCommitInfos = transactionState.getIdToTableCommitInfos().values();
@@ -1719,6 +1721,14 @@ public class DatabaseTransactionMgr {
                 cleanSubTransactions(transactionState.getTransactionId());
             }
         }
+        // Must update labelToTxnIds in all cases to maintain consistency with
+        // idToRunningTransactionState/idToFinalStatusTransactionState. Reasons:
+        // 1. During journal replay, transactions may be directly replayed with final status
+        //    (COMMITTED/VISIBLE/ABORTED), skipping the non-final status branch.
+        // 2. During normal operation, transaction status changes from non-final to final will
+        //    cause this method to be called multiple times. The Set's deduplication ensures safety.
+        //
+        // (TODO Refrain) maybe we can call this during journal replay
         updateTxnLabels(transactionState);
     }
 
@@ -2230,7 +2240,8 @@ public class DatabaseTransactionMgr {
         Set<Long> failedVersionSetReplicas = new HashSet<>();
 
         Collection<TableCommitInfo> tableCommitInfos;
-        if (!transactionState.getSubTxnIdToTableCommitInfo().isEmpty()) {
+        if (transactionState.getSubTxnIdToTableCommitInfo() != null
+                && !transactionState.getSubTxnIdToTableCommitInfo().isEmpty()) {
             tableCommitInfos = transactionState.getSubTxnTableCommitInfos();
         } else {
             tableCommitInfos = transactionState.getIdToTableCommitInfos().values();
