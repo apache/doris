@@ -102,7 +102,7 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> AwsMskIamAuth::_create_creden
         // Parse credentials provider type string
         std::string provider_upper = _config.credentials_provider;
         std::transform(provider_upper.begin(), provider_upper.end(), provider_upper.begin(),
-                      ::toupper);
+                       ::toupper);
 
         if (provider_upper == "ENV" || provider_upper == "ENVIRONMENT") {
             return std::make_shared<Aws::Auth::EnvironmentAWSCredentialsProvider>();
@@ -115,7 +115,7 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> AwsMskIamAuth::_create_creden
             return std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
         } else {
             LOG(WARNING) << "Unknown credentials provider type: " << _config.credentials_provider
-                        << ", falling back to default credentials provider chain";
+                         << ", falling back to default credentials provider chain";
             return std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
         }
     }
@@ -386,7 +386,7 @@ std::unique_ptr<AwsMskIamOAuthCallback> AwsMskIamOAuthCallback::create_from_prop
 
     // Extract broker hostname for token generation.
     std::string broker_hostname = brokers;
-    // If there are multiple brokers, we use the first one (Refrain : is this ok?) 
+    // If there are multiple brokers, we use the first one (Refrain : is this ok?)
     if (broker_hostname.find(',') != std::string::npos) {
         broker_hostname = broker_hostname.substr(0, broker_hostname.find(','));
     }

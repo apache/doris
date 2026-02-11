@@ -178,7 +178,8 @@ TEST_F(AwsMskIamAuthTest, DISABLED_IntegrationTestWithRealCredentials) {
     ASSERT_FALSE(token.empty());
     ASSERT_GT(token_lifetime_ms, 0);
 
-    LOG(INFO) << "Generated token (first 100 chars): " << token.substr(0, std::min(size_t(100), token.size()));
+    LOG(INFO) << "Generated token (first 100 chars): "
+              << token.substr(0, std::min(size_t(100), token.size()));
     LOG(INFO) << "Token lifetime: " << token_lifetime_ms << "ms";
 }
 

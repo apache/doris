@@ -39,12 +39,13 @@ namespace doris {
 class AwsMskIamAuth {
 public:
     struct Config {
-        std::string region;              // AWS region (e.g., "us-east-1"), required
-        std::string access_key;          // AWS Access Key ID (optional, for explicit credentials)
-        std::string secret_key;          // AWS Secret Access Key (optional, for explicit credentials)
-        std::string role_arn;            // IAM role ARN (optional, for assume role)
-        std::string profile_name;        // AWS profile name (optional, reads from ~/.aws/credentials)
-        std::string credentials_provider; // Credentials provider type (optional, e.g., "ENV", "INSTANCE_PROFILE")
+        std::string region;       // AWS region (e.g., "us-east-1"), required
+        std::string access_key;   // AWS Access Key ID (optional, for explicit credentials)
+        std::string secret_key;   // AWS Secret Access Key (optional, for explicit credentials)
+        std::string role_arn;     // IAM role ARN (optional, for assume role)
+        std::string profile_name; // AWS profile name (optional, reads from ~/.aws/credentials)
+        std::string
+                credentials_provider; // Credentials provider type (optional, e.g., "ENV", "INSTANCE_PROFILE")
         int token_refresh_margin_ms = 60000; // Refresh token 60s before expiry
     };
 
