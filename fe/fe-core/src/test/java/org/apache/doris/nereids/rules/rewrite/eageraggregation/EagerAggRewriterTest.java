@@ -110,4 +110,31 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
             connectContext.getSessionVariable().setEagerAggregationMode(0);
         }
     }
+
+    @Test
+    void testPushDownCountThroughLeftJoinWrapsWithIfnull() {
+        // When count(right.col) is pushed down to the right side of a LEFT JOIN,
+        // the top aggregate rolls up count to sum. But when the LEFT JOIN has no
+        // matching right row, the intermediate count slot becomes NULL (null-extended),
+        // and sum(NULL) = NULL. The correct result should be 0 (COUNT never returns NULL).
+        // Fix: wrap the rolled-up sum with ifnull(sum(x), 0).
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            String sql = "select count(t2.id2), t1.id1 from t1 left join t2"
+                    + " on t1.name = t2.name group by t1.id1";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .matches(logicalProject(logicalAggregate(logicalProject(logicalJoin(any(),
+                            logicalAggregate()))))
+                            .when(project -> project.getProjects().stream().anyMatch(
+                                    expr -> expr.toString().contains("ifnull")
+                            )))
+                    .printlnTree();
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
 }
