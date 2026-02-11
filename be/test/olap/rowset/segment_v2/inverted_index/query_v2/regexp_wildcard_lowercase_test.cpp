@@ -118,9 +118,8 @@ static std::shared_ptr<lucene::index::IndexReader> make_shared_reader(
             }};
 }
 
-static std::vector<uint32_t> execute_query(const std::string& test_dir,
-                                            const std::wstring& field,
-                                            const std::shared_ptr<Query>& query) {
+static std::vector<uint32_t> execute_query(const std::string& test_dir, const std::wstring& field,
+                                           const std::shared_ptr<Query>& query) {
     auto* dir = FSDirectory::getDirectory(test_dir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
 
@@ -169,8 +168,7 @@ TEST_F(RegexpWildcardLowercaseTest, RegexpLowercasePatternMatches) {
     auto matched = execute_query(kTestDir, field, query);
 
     // Docs 0 and 1 contain "abc", docs 2 and 3 don't
-    EXPECT_EQ(matched.size(), 2)
-            << "Lowercase regex 'ab.*' should match lowercased terms 'abc'";
+    EXPECT_EQ(matched.size(), 2) << "Lowercase regex 'ab.*' should match lowercased terms 'abc'";
 }
 
 // WILDCARD with lowercase pattern SHOULD match.
@@ -183,8 +181,7 @@ TEST_F(RegexpWildcardLowercaseTest, WildcardLowercasePatternMatches) {
     auto query = std::make_shared<WildcardQuery>(context, field, "ab*");
     auto matched = execute_query(kTestDir, field, query);
 
-    EXPECT_EQ(matched.size(), 2)
-            << "Lowercase wildcard 'ab*' should match lowercased terms 'abc'";
+    EXPECT_EQ(matched.size(), 2) << "Lowercase wildcard 'ab*' should match lowercased terms 'abc'";
 }
 
 // WILDCARD with uppercase pattern should NOT match lowercased index terms
@@ -197,8 +194,7 @@ TEST_F(RegexpWildcardLowercaseTest, WildcardUppercasePatternNoMatch) {
     auto query = std::make_shared<WildcardQuery>(context, field, "AB*");
     auto matched = execute_query(kTestDir, field, query);
 
-    EXPECT_EQ(matched.size(), 0)
-            << "Uppercase wildcard 'AB*' should not match lowercased terms";
+    EXPECT_EQ(matched.size(), 0) << "Uppercase wildcard 'AB*' should not match lowercased terms";
 }
 
 // REGEXP with a more complex pattern
