@@ -436,6 +436,51 @@ TEST_F(ColumnReaderWriterTest, test_array_type) {
     delete[] array_is_null;
 }
 
+TEST_F(ColumnReaderWriterTest, test_array_append_nulls) {
+    ColumnMetaPB meta;
+    TabletColumn list_column(OLAP_FIELD_AGGREGATION_NONE, FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn item_column(OLAP_FIELD_AGGREGATION_NONE, FieldType::OLAP_FIELD_TYPE_TINYINT, true);
+    list_column.add_sub_column(item_column);
+
+    std::string fname = TEST_DIR + "/array_append_nulls";
+    auto fs = io::global_local_filesystem();
+    io::FileWriterPtr file_writer;
+    Status st = fs->create_file(fname, &file_writer);
+    ASSERT_TRUE(st.ok()) << st;
+
+    ColumnWriterOptions writer_opts;
+    writer_opts.meta = &meta;
+    writer_opts.meta->set_column_id(0);
+    writer_opts.meta->set_unique_id(0);
+    writer_opts.meta->set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    writer_opts.meta->set_length(0);
+    writer_opts.meta->set_encoding(BIT_SHUFFLE);
+    writer_opts.meta->set_compression(segment_v2::CompressionTypePB::LZ4F);
+    writer_opts.meta->set_is_nullable(true);
+
+    ColumnMetaPB* child_meta = meta.add_children_columns();
+    child_meta->set_column_id(1);
+    child_meta->set_unique_id(1);
+    child_meta->set_type(FieldType::OLAP_FIELD_TYPE_TINYINT);
+    child_meta->set_length(0);
+    child_meta->set_encoding(BIT_SHUFFLE);
+    child_meta->set_compression(segment_v2::CompressionTypePB::LZ4F);
+    child_meta->set_is_nullable(true);
+
+    std::unique_ptr<ColumnWriter> writer;
+    ColumnWriter::create(writer_opts, &list_column, file_writer.get(), &writer);
+    st = writer->init();
+    ASSERT_TRUE(st.ok()) << st;
+
+    st = writer->append_nulls(1);
+    ASSERT_TRUE(st.ok()) << st;
+
+    ASSERT_TRUE(writer->finish().ok());
+    ASSERT_TRUE(writer->write_data().ok());
+    ASSERT_TRUE(writer->write_ordinal_index().ok());
+    ASSERT_TRUE(file_writer->close().ok());
+}
+
 template <FieldType type>
 void test_read_default_value(string value, void* result) {
     using Type = typename TypeTraits<type>::CppType;

@@ -611,6 +611,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
+import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCancelRebalanceDiskCommand;
@@ -4796,15 +4797,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 for (GroupingSetContext groupingSetContext : groupingElementContext.groupingSet()) {
                     groupingSets.add(visit(groupingSetContext.expression(), Expression.class));
                 }
-                return new LogicalRepeat<>(groupingSets.build(), namedExpressions, input);
+                return new LogicalRepeat<>(groupingSets.build(), namedExpressions, RepeatType.GROUPING_SETS, input);
             } else if (groupingElementContext.CUBE() != null) {
                 List<Expression> cubeExpressions = visit(groupingElementContext.expression(), Expression.class);
                 List<List<Expression>> groupingSets = ExpressionUtils.cubeToGroupingSets(cubeExpressions);
-                return new LogicalRepeat<>(groupingSets, namedExpressions, input);
+                return new LogicalRepeat<>(groupingSets, namedExpressions, RepeatType.CUBE, input);
             } else if (groupingElementContext.ROLLUP() != null && groupingElementContext.WITH() == null) {
                 List<Expression> rollupExpressions = visit(groupingElementContext.expression(), Expression.class);
                 List<List<Expression>> groupingSets = ExpressionUtils.rollupToGroupingSets(rollupExpressions);
-                return new LogicalRepeat<>(groupingSets, namedExpressions, input);
+                return new LogicalRepeat<>(groupingSets, namedExpressions, RepeatType.ROLLUP, input);
             } else {
                 List<GroupKeyWithOrder> groupKeyWithOrders = visit(groupingElementContext.expressionWithOrder(),
                         GroupKeyWithOrder.class);
@@ -4818,7 +4819,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
                 if (groupingElementContext.ROLLUP() != null) {
                     List<List<Expression>> groupingSets = ExpressionUtils.rollupToGroupingSets(groupByExpressions);
-                    return new LogicalRepeat<>(groupingSets, namedExpressions, input);
+                    return new LogicalRepeat<>(groupingSets, namedExpressions, RepeatType.ROLLUP, input);
                 } else {
                     return new LogicalAggregate<>(groupByExpressions, namedExpressions, input);
                 }

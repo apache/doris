@@ -1148,6 +1148,7 @@ DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mInt32(variant_max_json_key_length, "255");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
 DEFINE_mBool(enable_vertical_compact_variant_subcolumns, "true");
+DEFINE_mBool(enable_variant_doc_compaction_sparse_write, "true");
 
 DEFINE_Validator(variant_max_json_key_length,
                  [](const int config) -> bool { return config > 0 && config <= 65535; });

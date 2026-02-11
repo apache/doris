@@ -217,7 +217,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
     }
 
     private boolean containsVariantTypeOutsideCast(Expression expr, boolean underCast) {
-        boolean nextUnderCast = underCast || expr instanceof Cast;
+        boolean nextUnderCast = underCast || (expr instanceof Cast && !expr.getDataType().isVariantType());
         if (!nextUnderCast && expr.getDataType().isVariantType()) {
             return true;
         }

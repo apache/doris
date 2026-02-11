@@ -58,6 +58,9 @@ typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F&& 
                 field.template get<TYPE_DATETIME>());
     case PrimitiveType::TYPE_DATE:
         return visitor.template apply<PrimitiveType::TYPE_DATE>(field.template get<TYPE_DATE>());
+    case PrimitiveType::TYPE_DATEV2:
+        return visitor.template apply<PrimitiveType::TYPE_DATEV2>(
+                field.template get<TYPE_DATEV2>());
     case PrimitiveType::TYPE_BOOLEAN:
         return visitor.template apply<PrimitiveType::TYPE_BOOLEAN>(
                 field.template get<TYPE_BOOLEAN>());
@@ -72,11 +75,24 @@ typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F&& 
     case PrimitiveType::TYPE_BIGINT:
         return visitor.template apply<PrimitiveType::TYPE_BIGINT>(
                 field.template get<TYPE_BIGINT>());
+    case PrimitiveType::TYPE_UINT32:
+        return visitor.template apply<PrimitiveType::TYPE_UINT32>(
+                field.template get<TYPE_UINT32>());
+    case PrimitiveType::TYPE_UINT64:
+        return visitor.template apply<PrimitiveType::TYPE_UINT64>(
+                field.template get<TYPE_UINT64>());
     case PrimitiveType::TYPE_FLOAT:
         return visitor.template apply<PrimitiveType::TYPE_FLOAT>(field.template get<TYPE_FLOAT>());
+    case PrimitiveType::TYPE_TIMEV2:
+        return visitor.template apply<PrimitiveType::TYPE_TIMEV2>(
+                field.template get<TYPE_TIMEV2>());
     case PrimitiveType::TYPE_DOUBLE:
         return visitor.template apply<PrimitiveType::TYPE_DOUBLE>(
                 field.template get<TYPE_DOUBLE>());
+    case PrimitiveType::TYPE_IPV4:
+        return visitor.template apply<PrimitiveType::TYPE_IPV4>(field.template get<TYPE_IPV4>());
+    case PrimitiveType::TYPE_IPV6:
+        return visitor.template apply<PrimitiveType::TYPE_IPV6>(field.template get<TYPE_IPV6>());
     case PrimitiveType::TYPE_STRING:
         return visitor.template apply<PrimitiveType::TYPE_STRING>(
                 field.template get<TYPE_STRING>());
@@ -85,11 +101,16 @@ typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F&& 
     case PrimitiveType::TYPE_VARCHAR:
         return visitor.template apply<PrimitiveType::TYPE_VARCHAR>(
                 field.template get<TYPE_VARCHAR>());
+    case PrimitiveType::TYPE_VARBINARY:
+        return visitor.template apply<PrimitiveType::TYPE_VARBINARY>(
+                field.template get<TYPE_VARBINARY>());
     case PrimitiveType::TYPE_ARRAY:
         return visitor.template apply<PrimitiveType::TYPE_ARRAY>(field.template get<TYPE_ARRAY>());
     case PrimitiveType::TYPE_STRUCT:
         return visitor.template apply<PrimitiveType::TYPE_STRUCT>(
                 field.template get<TYPE_STRUCT>());
+    case PrimitiveType::TYPE_MAP:
+        return visitor.template apply<PrimitiveType::TYPE_MAP>(field.template get<TYPE_MAP>());
     case PrimitiveType::TYPE_VARIANT:
         return visitor.template apply<PrimitiveType::TYPE_VARIANT>(
                 field.template get<TYPE_VARIANT>());
@@ -108,6 +129,14 @@ typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F&& 
     case PrimitiveType::TYPE_DECIMAL256:
         return visitor.template apply<PrimitiveType::TYPE_DECIMAL256>(
                 field.template get<TYPE_DECIMAL256>());
+    case PrimitiveType::TYPE_BITMAP:
+        return visitor.template apply<PrimitiveType::TYPE_BITMAP>(
+                field.template get<TYPE_BITMAP>());
+    case PrimitiveType::TYPE_HLL:
+        return visitor.template apply<PrimitiveType::TYPE_HLL>(field.template get<TYPE_HLL>());
+    case PrimitiveType::TYPE_QUANTILE_STATE:
+        return visitor.template apply<PrimitiveType::TYPE_QUANTILE_STATE>(
+                field.template get<TYPE_QUANTILE_STATE>());
     case PrimitiveType::TYPE_JSONB:
         return visitor.template apply<PrimitiveType::TYPE_JSONB>(field.template get<TYPE_JSONB>());
     default:
