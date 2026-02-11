@@ -19,7 +19,6 @@ package org.apache.doris.datasource.paimon.source;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -33,6 +32,7 @@ import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonUtil;
+import org.apache.doris.datasource.paimon.PaimonUtils;
 import org.apache.doris.datasource.paimon.profile.PaimonMetricRegistry;
 import org.apache.doris.datasource.paimon.profile.PaimonScanMetricsReporter;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -202,8 +202,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     private void putHistorySchemaInfo(Long schemaId) {
         if (currentQuerySchema.putIfAbsent(schemaId, Boolean.TRUE) == null) {
             PaimonExternalTable table = (PaimonExternalTable) source.getTargetTable();
-            TableSchema tableSchema = Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache()
-                    .getPaimonSchemaCacheValue(table.getOrBuildNameMapping(), schemaId).getTableSchema();
+            TableSchema tableSchema = PaimonUtils.getSchemaCacheValue(table, schemaId).getTableSchema();
             params.addToHistorySchemaInfo(
                     PaimonUtil.getSchemaInfo(tableSchema, source.getCatalog().getEnableMappingVarbinary(),
                             source.getCatalog().getEnableMappingTimestampTz()));

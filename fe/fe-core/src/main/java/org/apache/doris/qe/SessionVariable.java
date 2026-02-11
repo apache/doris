@@ -376,6 +376,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HBO_ROW_MATCHING_THRESHOLD = "hbo_row_matching_threshold";
     public static final String HBO_SKEW_RATIO_THRESHOLD = "hbo_skew_ratio_threshold";
     public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
+    public static final String REQUIRED_GROUP_IDS = "required_group_ids";
 
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
     public static final String ENABLE_NEREIDS_DISTRIBUTE_PLANNER = "enable_nereids_distribute_planner";
@@ -845,6 +846,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKEW_REWRITE_AGG_BUCKET_NUM = "skew_rewrite_agg_bucket_num";
     public static final String AGG_SHUFFLE_USE_PARENT_KEY = "agg_shuffle_use_parent_key";
+    public static final String DECOMPOSE_REPEAT_THRESHOLD = "decompose_repeat_threshold";
+    public static final String DECOMPOSE_REPEAT_SHUFFLE_INDEX_IN_MAX_GROUP
+            = "decompose_repeat_shuffle_index_in_max_group";
 
     public static final String HOT_VALUE_COLLECT_COUNT = "hot_value_collect_count";
     @VariableMgr.VarAttr(name = HOT_VALUE_COLLECT_COUNT, needForward = true,
@@ -1824,6 +1828,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = NTH_OPTIMIZED_PLAN)
     private int nthOptimizedPlan = 1;
 
+    @VariableMgr.VarAttr(name = REQUIRED_GROUP_IDS,
+            description = {"指定优化器必须选择包含这些 Group ID 的物理计划（逗号分隔的整数列表）",
+                    "Force the optimizer to choose a physical plan containing these Group IDs "
+                    + "(comma-separated integer list)"})
+    public String requiredGroupIds = "";
+
     @VariableMgr.VarAttr(name = LIMIT_ROWS_FOR_SINGLE_INSTANCE,
             description = {"当一个 ScanNode 上没有过滤条件，且 limit 值小于这个阈值时，"
                     + "系统会将这个算子的并发度调整为 1，以减少简单查询的扇出",
@@ -2442,7 +2452,7 @@ public class SessionVariable implements Serializable, Writable {
                     + "因为外表会存在表的 schema 中 char 或者 varchar 列的最大长度和底层 parquet 或者 orc 文件中的 schema 不一致"
                     + "的情况。此时开启改选项，会按照表的 schema 中的最大长度进行截断。",
                     "Whether to truncate char or varchar columns according to the table's schema. "
-                            + "The default is false.\n"
+                            + "The default is true.\n"
                     + "Because the maximum length of the char or varchar column in the schema of the table"
                             + " is inconsistent with the schema in the underlying parquet or orc file."
                     + " At this time, if the option is turned on, it will be truncated according to the maximum length"
@@ -2858,6 +2868,33 @@ public class SessionVariable implements Serializable, Writable {
 
             }
             ids.add(res);
+        }
+        return ids;
+    }
+
+    public Set<Integer> getRequiredGroupIds() {
+        Set<Integer> ids = Sets.newLinkedHashSet();
+        if (requiredGroupIds.isEmpty()) {
+            return ImmutableSet.of();
+        }
+        for (String v : requiredGroupIds.split(",[\\s]*")) {
+            if (!v.isEmpty()) {
+                boolean isNumber = true;
+                for (int i = 0; i < v.length(); ++i) {
+                    char c = v.charAt(i);
+                    if (c < '0' || c > '9') {
+                        isNumber = false;
+                        break;
+                    }
+                }
+                if (isNumber) {
+                    try {
+                        ids.add(Integer.parseInt(v));
+                    } catch (Throwable t) {
+                        // ignore
+                    }
+                }
+            }
         }
         return ids;
     }
@@ -3297,12 +3334,12 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true,
             affectQueryResultInExecution = true,
             description = {
-                    "是否启用基于 schema template 的 variant 自动 cast，默认关闭。",
+                    "是否启用基于 schema template 的 variant 自动 cast，默认开启。",
                     "Whether to enable schema-template-based auto cast for variant expressions. "
-                            + "The default is false."
+                            + "The default is true."
             }
     )
-    public boolean enableVariantSchemaAutoCast = false;
+    public boolean enableVariantSchemaAutoCast = true;
 
     @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
@@ -3367,6 +3404,11 @@ public class SessionVariable implements Serializable, Writable {
     )
     public boolean useV3StorageFormat = false;
 
+    @VariableMgr.VarAttr(name = DECOMPOSE_REPEAT_THRESHOLD)
+    public int decomposeRepeatThreshold = 3;
+    @VariableMgr.VarAttr(name = DECOMPOSE_REPEAT_SHUFFLE_INDEX_IN_MAX_GROUP)
+    public int decomposeRepeatShuffleIndexInMaxGroup = -1;
+
     public static final String IGNORE_ICEBERG_DANGLING_DELETE = "ignore_iceberg_dangling_delete";
     @VariableMgr.VarAttr(name = IGNORE_ICEBERG_DANGLING_DELETE,
             description = {"是否忽略 Iceberg 表中 dangling delete 文件对 COUNT(*) 统计信息的影响。"
@@ -3379,6 +3421,7 @@ public class SessionVariable implements Serializable, Writable {
                             + "When set to false, COUNT(*) will scan data files "
                             + "to exclude the impact of dangling delete files."})
     public boolean ignoreIcebergDanglingDelete = false;
+
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -4680,9 +4723,15 @@ public class SessionVariable implements Serializable, Writable {
     /** canUseNereidsDistributePlanner */
     public static boolean canUseNereidsDistributePlanner() {
         ConnectContext connectContext = ConnectContext.get();
-        if (connectContext == null) {
+        if (connectContext != null) {
+            return canUseNereidsDistributePlanner(connectContext);
+        } else {
             return true;
         }
+    }
+
+    /** canUseNereidsDistributePlanner */
+    public static boolean canUseNereidsDistributePlanner(ConnectContext connectContext) {
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         StatementContext statementContext = connectContext.getStatementContext();
         if (statementContext != null) {

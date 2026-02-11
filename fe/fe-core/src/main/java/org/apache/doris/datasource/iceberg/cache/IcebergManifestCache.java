@@ -17,16 +17,15 @@
 
 package org.apache.doris.datasource.iceberg.cache;
 
+import org.apache.doris.common.CacheFactory;
 import org.apache.doris.datasource.CacheException;
+import org.apache.doris.datasource.metacache.CacheSpec;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
-import com.github.benmanes.caffeine.cache.Weigher;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 
@@ -38,20 +37,14 @@ public class IcebergManifestCache {
 
     private final LoadingCache<ManifestCacheKey, ManifestCacheValue> cache;
 
-    public IcebergManifestCache(long capacityMb, long ttlSec) {
-        long capacityInBytes = capacityMb * 1024L * 1024L;
-        Weigher<ManifestCacheKey, ManifestCacheValue> weigher = (key, value) -> {
-            long weight = Optional.ofNullable(value).map(ManifestCacheValue::getWeightBytes).orElse(0L);
-            if (weight > Integer.MAX_VALUE) {
-                return Integer.MAX_VALUE;
-            }
-            return (int) weight;
-        };
-        Caffeine<ManifestCacheKey, ManifestCacheValue> builder = Caffeine.newBuilder()
-                .maximumWeight(capacityInBytes)
-                .weigher(weigher)
-                .expireAfterAccess(Duration.ofSeconds(ttlSec));
-        cache = builder.build(new CacheLoader<ManifestCacheKey, ManifestCacheValue>() {
+    public IcebergManifestCache(long capacity, long ttlSec) {
+        CacheFactory cacheFactory = new CacheFactory(
+                CacheSpec.toExpireAfterAccess(ttlSec),
+                java.util.OptionalLong.empty(),
+                capacity,
+                true,
+                null);
+        cache = cacheFactory.buildCache(new CacheLoader<ManifestCacheKey, ManifestCacheValue>() {
             @Override
             public ManifestCacheValue load(ManifestCacheKey key) {
                 throw new CacheException("Manifest cache loader should be provided explicitly for key %s", null, key);

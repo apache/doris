@@ -2576,7 +2576,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // cube and rollup already convert to grouping sets in LogicalPlanBuilder.withAggregate()
         GroupingInfo groupingInfo = new GroupingInfo(outputTuple, preRepeatExprs);
 
-        List<Set<Integer>> repeatSlotIdList = repeat.computeRepeatSlotIdList(getSlotIds(outputTuple));
+        List<Set<Integer>> repeatSlotIdList = repeat.computeRepeatSlotIdList(getSlotIds(outputTuple), outputSlots);
         Set<Integer> allSlotId = repeatSlotIdList.stream()
                 .flatMap(Set::stream)
                 .collect(ImmutableSet.toImmutableSet());
