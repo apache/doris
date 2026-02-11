@@ -106,6 +106,7 @@ iceberg_rest_case_db1
 -- !sql7 --
 
 -- !sqlx --
+case_tbl11
 
 -- !sql8 --
 
@@ -205,6 +206,7 @@ iceberg_rest_case_db1
 -- !sql7 --
 
 -- !sqlx --
+CASE_TBL11
 
 -- !sql8 --
 CASE_TBL14
