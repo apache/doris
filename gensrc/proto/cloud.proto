@@ -511,7 +511,7 @@ message TxnInfoPB {
     // The delete bitmap locks will be extended and removed during lazy commit phase.
     optional bool defer_deleting_pending_delete_bitmaps = 21;
     // The cluster_id of the compute cluster that performed the load
-    // Set during prepare_rowset, used by commit_txn for compaction read-write separation
+    // Set by FE during begin_txn, used by commit_txn for compaction read-write separation
     optional string load_cluster_id = 22;
 }
 
