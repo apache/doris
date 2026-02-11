@@ -224,4 +224,173 @@ public class KafkaAwsMskIamAuthTest {
         Assert.assertNotNull(props.getCustomKafkaProperties());
         Assert.assertEquals("SSL", props.getCustomKafkaProperties().get("security.protocol"));
     }
+
+    @Test
+    public void testPublicAccessWithExplicitCredentials() throws UserException {
+        // Test public MSK access (broker contains "-public.") with explicit credentials
+        dataSourceProperties.put("kafka_broker_list", "b-1-public.msk-cluster.xxx.kafka.us-east-1.amazonaws.com:9198");
+        dataSourceProperties.put("property.security.protocol", "SASL_SSL");
+        dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
+        dataSourceProperties.put("property.aws.region", "us-east-1");
+        dataSourceProperties.put("property.aws.access.key", "AKIAIOSFODNN7EXAMPLE");
+        dataSourceProperties.put("property.aws.secret.key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+
+        KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
+        props.setTimezone("UTC");
+        props.analyze();
+
+        Assert.assertNotNull(props.getCustomKafkaProperties());
+        Assert.assertEquals("us-east-1", props.getCustomKafkaProperties().get("aws.region"));
+        Assert.assertEquals("AKIAIOSFODNN7EXAMPLE", props.getCustomKafkaProperties().get("aws.access.key"));
+    }
+
+    @Test
+    public void testPublicAccessWithoutCredentials() {
+        // Test public MSK access without credentials - should fail
+        dataSourceProperties.put("kafka_broker_list", "b-1-public.msk-cluster.xxx.kafka.us-east-1.amazonaws.com:9198");
+        dataSourceProperties.put("property.security.protocol", "SASL_SSL");
+        dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
+        dataSourceProperties.put("property.aws.region", "us-east-1");
+
+        KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
+        props.setTimezone("UTC");
+
+        try {
+            props.analyze();
+            Assert.fail("Should throw AnalysisException for public access without credentials");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("public"));
+            Assert.assertTrue(e.getMessage().contains("credentials"));
+        }
+    }
+
+    @Test
+    public void testInternalAccessWithInstanceProfile() throws UserException {
+        // Test internal MSK access with instance profile (credentials_provider)
+        dataSourceProperties.put("property.security.protocol", "SASL_SSL");
+        dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
+        dataSourceProperties.put("property.aws.region", "us-east-1");
+        dataSourceProperties.put("property.aws.credentials.provider", "INSTANCE_PROFILE");
+
+        KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
+        props.setTimezone("UTC");
+        props.analyze();
+
+        Assert.assertNotNull(props.getCustomKafkaProperties());
+        Assert.assertEquals("INSTANCE_PROFILE", props.getCustomKafkaProperties().get("aws.credentials.provider"));
+    }
+
+    @Test
+    public void testInternalAccessWithProfile() throws UserException {
+        // Test internal MSK access with AWS profile
+        dataSourceProperties.put("property.security.protocol", "SASL_SSL");
+        dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
+        dataSourceProperties.put("property.aws.region", "us-east-1");
+        dataSourceProperties.put("property.aws.profile.name", "default");
+
+        KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
+        props.setTimezone("UTC");
+        props.analyze();
+
+        Assert.assertNotNull(props.getCustomKafkaProperties());
+        Assert.assertEquals("default", props.getCustomKafkaProperties().get("aws.profile.name"));
+    }
+
+    @Test
+    public void testCrossAccountAccessWithRoleArnAndCredentials() throws UserException {
+        // Test cross-account access: Account B's credentials + Account A's role ARN
+        dataSourceProperties.put("property.security.protocol", "SASL_SSL");
+        dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
+        dataSourceProperties.put("property.aws.region", "us-east-1");
+        dataSourceProperties.put("property.aws.access.key", "AKIAIOSFODNN7EXAMPLE");
+        dataSourceProperties.put("property.aws.secret.key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        dataSourceProperties.put("property.aws.msk.iam.role.arn", "arn:aws:iam::111111111111:role/AccountAMskRole");
+
+        KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
+        props.setTimezone("UTC");
+        props.analyze();
+
+        Map<String, String> customProps = props.getCustomKafkaProperties();
+        Assert.assertEquals("AKIAIOSFODNN7EXAMPLE", customProps.get("aws.access.key"));
+        Assert.assertEquals("arn:aws:iam::111111111111:role/AccountAMskRole", customProps.get("aws.msk.iam.role.arn"));
+    }
+
+    @Test
+    public void testMissingAccessKeyWithSecretKey() {
+        // Test with only secret key but missing access key - should fail
+        dataSourceProperties.put("property.security.protocol", "SASL_SSL");
+        dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
+        dataSourceProperties.put("property.aws.region", "us-east-1");
+        dataSourceProperties.put("property.aws.secret.key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+
+        KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
+        props.setTimezone("UTC");
+
+        try {
+            props.analyze();
+            Assert.fail("Should throw AnalysisException for missing access key");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("aws.access.key"));
+            Assert.assertTrue(e.getMessage().contains("aws.secret.key"));
+            Assert.assertTrue(e.getMessage().contains("together"));
+        }
+    }
+
+    @Test
+    public void testPublicAccessWithProfile() throws UserException {
+        // Test public access with AWS profile (allowed but warned)
+        dataSourceProperties.put("kafka_broker_list", "b-1-public.msk-cluster.xxx.kafka.us-east-1.amazonaws.com:9198");
+        dataSourceProperties.put("property.security.protocol", "SASL_SSL");
+        dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
+        dataSourceProperties.put("property.aws.region", "us-east-1");
+        dataSourceProperties.put("property.aws.profile.name", "default");
+
+        KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
+        props.setTimezone("UTC");
+        props.analyze();
+
+        // Should succeed but a warning should be logged
+        Assert.assertNotNull(props.getCustomKafkaProperties());
+        Assert.assertEquals("default", props.getCustomKafkaProperties().get("aws.profile.name"));
+    }
+
+    @Test
+    public void testPublicAccessWithCredentialsProvider() throws UserException {
+        // Test public access with credentials provider (allowed but warned)
+        dataSourceProperties.put("kafka_broker_list", "b-1-public.msk-cluster.xxx.kafka.us-east-1.amazonaws.com:9198");
+        dataSourceProperties.put("property.security.protocol", "SASL_SSL");
+        dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
+        dataSourceProperties.put("property.aws.region", "us-east-1");
+        dataSourceProperties.put("property.aws.credentials.provider", "ENV");
+
+        KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
+        props.setTimezone("UTC");
+        props.analyze();
+
+        // Should succeed but a warning should be logged
+        Assert.assertNotNull(props.getCustomKafkaProperties());
+        Assert.assertEquals("ENV", props.getCustomKafkaProperties().get("aws.credentials.provider"));
+    }
+
+    @Test
+    public void testMultipleCredentialsSources() throws UserException {
+        // Test with multiple credentials sources - all should be allowed
+        dataSourceProperties.put("property.security.protocol", "SASL_SSL");
+        dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
+        dataSourceProperties.put("property.aws.region", "us-east-1");
+        dataSourceProperties.put("property.aws.access.key", "AKIAIOSFODNN7EXAMPLE");
+        dataSourceProperties.put("property.aws.secret.key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        dataSourceProperties.put("property.aws.msk.iam.role.arn", "arn:aws:iam::123456789012:role/MyRole");
+        dataSourceProperties.put("property.aws.profile.name", "default");
+
+        KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
+        props.setTimezone("UTC");
+        props.analyze();
+
+        // All properties should be preserved (BE will use them in priority order)
+        Map<String, String> customProps = props.getCustomKafkaProperties();
+        Assert.assertEquals("AKIAIOSFODNN7EXAMPLE", customProps.get("aws.access.key"));
+        Assert.assertEquals("arn:aws:iam::123456789012:role/MyRole", customProps.get("aws.msk.iam.role.arn"));
+        Assert.assertEquals("default", customProps.get("aws.profile.name"));
+    }
 }

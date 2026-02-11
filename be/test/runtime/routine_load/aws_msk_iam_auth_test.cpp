@@ -31,7 +31,6 @@ protected:
     void SetUp() override {
         // Setup test configuration
         config.region = "us-east-1";
-        config.use_instance_profile = false; // Don't use instance profile in tests
     }
 
     AwsMskIamAuth::Config config;
@@ -96,6 +95,36 @@ TEST_F(AwsMskIamAuthTest, TestConfigWithProfile) {
     ASSERT_TRUE(true);
 }
 
+TEST_F(AwsMskIamAuthTest, TestConfigWithCredentialsProvider) {
+    config.credentials_provider = "INSTANCE_PROFILE";
+
+    AwsMskIamAuth auth(config);
+
+    // Should create without error
+    ASSERT_TRUE(true);
+}
+
+TEST_F(AwsMskIamAuthTest, TestConfigWithExplicitCredentials) {
+    config.access_key = "AKIAIOSFODNN7EXAMPLE";
+    config.secret_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+
+    AwsMskIamAuth auth(config);
+
+    // Should create without error
+    ASSERT_TRUE(true);
+}
+
+TEST_F(AwsMskIamAuthTest, TestCrossAccountAssumeRole) {
+    config.role_arn = "arn:aws:iam::123456789012:role/CrossAccountRole";
+    config.access_key = "AKIAIOSFODNN7EXAMPLE";
+    config.secret_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+
+    AwsMskIamAuth auth(config);
+
+    // Should create without error (actual assume role will fail without real credentials)
+    ASSERT_TRUE(true);
+}
+
 TEST_F(AwsMskIamAuthTest, TestMultipleRegions) {
     std::vector<std::string> regions = {"us-east-1", "us-west-2", "eu-west-1", "ap-southeast-1"};
 
@@ -135,7 +164,7 @@ TEST_F(AwsMskIamAuthTest, DISABLED_IntegrationTestWithRealCredentials) {
     // 1. AWS credentials configured (environment variables, ~/.aws/credentials, or IAM role)
     // 2. Run with: --gtest_also_run_disabled_tests
 
-    config.use_instance_profile = true;
+    config.credentials_provider = "INSTANCE_PROFILE";
 
     AwsMskIamAuth auth(config);
     std::string token;
@@ -149,7 +178,7 @@ TEST_F(AwsMskIamAuthTest, DISABLED_IntegrationTestWithRealCredentials) {
     ASSERT_FALSE(token.empty());
     ASSERT_GT(token_lifetime_ms, 0);
 
-    LOG(INFO) << "Generated token (first 100 chars): " << token.substr(0, 100);
+    LOG(INFO) << "Generated token (first 100 chars): " << token.substr(0, std::min(size_t(100), token.size()));
     LOG(INFO) << "Token lifetime: " << token_lifetime_ms << "ms";
 }
 

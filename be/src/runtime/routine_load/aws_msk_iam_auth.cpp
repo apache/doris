@@ -21,12 +21,14 @@
 #include <aws/core/auth/AWSCredentialsProvider.h>
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
 #include <aws/core/auth/STSCredentialsProvider.h>
+#include <aws/core/platform/Environment.h>
 #include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
 #include <aws/sts/STSClient.h>
 #include <aws/sts/model/AssumeRoleRequest.h>
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
 
+#include <algorithm>
 #include <chrono>
 #include <iomanip>
 #include <sstream>
@@ -40,13 +42,6 @@ AwsMskIamAuth::AwsMskIamAuth(Config config) : _config(std::move(config)) {
 }
 
 std::shared_ptr<Aws::Auth::AWSCredentialsProvider> AwsMskIamAuth::_create_credentials_provider() {
-    // Three authentication methods are supported:
-    // 1. Explicit AK/SK (if access_key and secret_key are provided, no role_arn)
-    // 2. Assume Role with Instance Profile (if only role_arn is specified, AWS internal)
-    // 3. Cross-account Assume Role with AK/SK (if role_arn + access_key + secret_key, AWS external)
-
-    // 3. Cross-account Assume Role with AK/SK (for cross-account access from outside AWS)
-    // This is the most specific case, so check it first
     if (!_config.role_arn.empty() && !_config.access_key.empty() && !_config.secret_key.empty()) {
         LOG(INFO) << "Using AWS STS Assume Role with explicit credentials (cross-account): "
                   << _config.role_arn << " (Access Key ID: " << _config.access_key.substr(0, 4)
@@ -68,8 +63,7 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> AwsMskIamAuth::_create_creden
                 _config.role_arn, Aws::String(), /* external_id */ Aws::String(),
                 Aws::Auth::DEFAULT_CREDS_LOAD_FREQ_SECONDS, sts_client);
     }
-
-    // 1. Explicit AK/SK credentials (direct access)
+    // 2. Explicit AK/SK credentials (direct access)
     if (!_config.access_key.empty() && !_config.secret_key.empty()) {
         LOG(INFO) << "Using explicit AWS credentials (Access Key ID: "
                   << _config.access_key.substr(0, 4) << "****)";
@@ -78,8 +72,7 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> AwsMskIamAuth::_create_creden
 
         return std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(credentials);
     }
-
-    // 2. Assume Role with Instance Profile (for same-account access from within AWS)
+    // 3. Assume Role with Instance Profile (for same-account access from within AWS)
     if (!_config.role_arn.empty()) {
         LOG(INFO) << "Using AWS STS Assume Role with Instance Profile: " << _config.role_arn;
 
@@ -95,7 +88,39 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> AwsMskIamAuth::_create_creden
                 _config.role_arn, Aws::String(), /* external_id */ Aws::String(),
                 Aws::Auth::DEFAULT_CREDS_LOAD_FREQ_SECONDS, sts_client);
     }
+    // 4. AWS Profile (reads from ~/.aws/credentials)
+    if (!_config.profile_name.empty()) {
+        LOG(INFO) << "Using AWS Profile: " << _config.profile_name;
 
+        return std::make_shared<Aws::Auth::ProfileConfigFileAWSCredentialsProvider>(
+                _config.profile_name.c_str());
+    }
+    // 5. Custom Credentials Provider
+    if (!_config.credentials_provider.empty()) {
+        LOG(INFO) << "Using custom credentials provider: " << _config.credentials_provider;
+
+        // Parse credentials provider type string
+        std::string provider_upper = _config.credentials_provider;
+        std::transform(provider_upper.begin(), provider_upper.end(), provider_upper.begin(),
+                      ::toupper);
+
+        if (provider_upper == "ENV" || provider_upper == "ENVIRONMENT") {
+            return std::make_shared<Aws::Auth::EnvironmentAWSCredentialsProvider>();
+        } else if (provider_upper == "INSTANCE_PROFILE" || provider_upper == "INSTANCEPROFILE") {
+            return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
+        } else if (provider_upper == "CONTAINER" || provider_upper == "ECS") {
+            return std::make_shared<Aws::Auth::TaskRoleCredentialsProvider>(
+                    Aws::Environment::GetEnv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI").c_str());
+        } else if (provider_upper == "DEFAULT") {
+            return std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
+        } else {
+            LOG(WARNING) << "Unknown credentials provider type: " << _config.credentials_provider
+                        << ", falling back to default credentials provider chain";
+            return std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
+        }
+    }
+    // No valid credentials configuration found
+    LOG(ERROR) << "AWS MSK IAM authentication requires credentials. Please provide.";
     return nullptr;
 }
 
@@ -341,9 +366,8 @@ constexpr const char* PROP_AWS_REGION = "aws.region";
 constexpr const char* PROP_AWS_ACCESS_KEY = "aws.access.key";
 constexpr const char* PROP_AWS_SECRET_KEY = "aws.secret.key";
 constexpr const char* PROP_AWS_ROLE_ARN = "aws.msk.iam.role.arn";
-// TODO: Support aws.profile.name and aws.credentials.provider in the future
-// constexpr const char* PROP_AWS_PROFILE_NAME = "aws.profile.name";
-// constexpr const char* PROP_AWS_CREDENTIALS_PROVIDER = "aws.credentials.provider";
+constexpr const char* PROP_AWS_PROFILE_NAME = "aws.profile.name";
+constexpr const char* PROP_AWS_CREDENTIALS_PROVIDER = "aws.credentials.provider";
 } // namespace
 
 std::unique_ptr<AwsMskIamOAuthCallback> AwsMskIamOAuthCallback::create_from_properties(
@@ -391,6 +415,20 @@ std::unique_ptr<AwsMskIamOAuthCallback> AwsMskIamOAuthCallback::create_from_prop
     if (role_arn_it != custom_properties.end()) {
         auth_config.role_arn = role_arn_it->second;
         LOG(INFO) << "AWS MSK IAM: using role " << auth_config.role_arn
+                  << " (region: " << auth_config.region << ")";
+    }
+
+    auto profile_name_it = custom_properties.find(PROP_AWS_PROFILE_NAME);
+    if (profile_name_it != custom_properties.end()) {
+        auth_config.profile_name = profile_name_it->second;
+        LOG(INFO) << "AWS MSK IAM: using profile " << auth_config.profile_name
+                  << " (region: " << auth_config.region << ")";
+    }
+
+    auto credentials_provider_it = custom_properties.find(PROP_AWS_CREDENTIALS_PROVIDER);
+    if (credentials_provider_it != custom_properties.end()) {
+        auth_config.credentials_provider = credentials_provider_it->second;
+        LOG(INFO) << "AWS MSK IAM: using credentials provider " << auth_config.credentials_provider
                   << " (region: " << auth_config.region << ")";
     }
 

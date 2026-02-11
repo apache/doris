@@ -298,10 +298,15 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
                         + "Other SASL mechanisms are not supported now.");
             }
 
-            // Validate AK/SK configuration - both must be provided together (if any)
-            if (!hasAccessKey || !hasSecretKey) {
-                throw new AnalysisException("When using AWS credentials, "
-                        + "both 'aws.access.key' and 'aws.secret.key' must be provided together.");
+            // Detect if this is public (internet) access or internal AWS access
+            boolean isPublicAccess = brokerList != null && brokerList.contains("-public.");
+
+            if (isPublicAccess) {
+                if (!(hasAccessKey && hasSecretKey)) {
+                    throw new AnalysisException(
+                        "When using explicit AWS credentials for public (internet) access, both 'aws.access.key' and 'aws.secret.key' must be provided together."
+                    );
+                }
             }
         }
     }
