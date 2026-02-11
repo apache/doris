@@ -46,7 +46,6 @@ import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.InternalRow;
@@ -102,6 +101,7 @@ public class PaimonUtil {
     private static final Pattern DIGITAL_REGEX = Pattern.compile("\\d+");
     private static final String SYS_TABLE_TYPE_AUDIT_LOG = "audit_log";
     private static final String SYS_TABLE_TYPE_BINLOG = "binlog";
+    private static final String TABLE_READ_SEQUENCE_NUMBER_ENABLED = "table-read.sequence-number.enabled";
 
     public static boolean isDigitalString(String value) {
         return value != null && DIGITAL_REGEX.matcher(value).matches();
@@ -469,7 +469,8 @@ public class PaimonUtil {
             return false;
         }
         try {
-            return CoreOptions.fromMap(sysTable.getTableProperties()).tableReadSequenceNumberEnabled();
+            String optionValue = sysTable.getTableProperties().get(TABLE_READ_SEQUENCE_NUMBER_ENABLED);
+            return Boolean.parseBoolean(optionValue);
         } catch (Exception e) {
             LOG.warn("Failed to parse table-read.sequence-number.enabled for Paimon system table {}: {}",
                     sysTable.getName(), e.getMessage());

@@ -22,7 +22,6 @@ import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.schema.external.TFieldPtr;
 import org.apache.doris.thrift.schema.external.TSchema;
 
-import org.apache.paimon.CoreOptions;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
@@ -37,6 +36,8 @@ import java.util.Collections;
 import java.util.List;
 
 public class PaimonUtilTest {
+    private static final String TABLE_READ_SEQUENCE_NUMBER_ENABLED = "table-read.sequence-number.enabled";
+
     @Test
     public void testSchemaForVarcharAndChar() {
         DataField c1 = new DataField(1, "c1", new VarCharType(32));
@@ -53,7 +54,7 @@ public class PaimonUtilTest {
         PaimonSysExternalTable binlogTable = Mockito.mock(PaimonSysExternalTable.class);
         Mockito.when(binlogTable.getSysTableType()).thenReturn("binlog");
         Mockito.when(binlogTable.getTableProperties()).thenReturn(
-                Collections.singletonMap(CoreOptions.TABLE_READ_SEQUENCE_NUMBER_ENABLED.key(), "true"));
+                Collections.singletonMap(TABLE_READ_SEQUENCE_NUMBER_ENABLED, "true"));
         Mockito.when(binlogTable.getName()).thenReturn("mock_binlog");
 
         List<DataField> sourceFields = Arrays.asList(

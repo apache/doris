@@ -120,6 +120,66 @@ suite("paimon_data_system_table", "p0,external,doris,external_docker,external_do
             order by id[1]
         """
         assertTrue(seqOffBinlogRows.size() > 0, "Expected rows in ${seqOffTableName}\$binlog")
+
+        def getExplainText = { String explainSql ->
+            List<List<Object>> explainRows = sql(explainSql)
+            return explainRows.collect { row -> row[0].toString() }.join("\n")
+        }
+
+        def assertNativePath = { String querySql, String tableLabel ->
+            String explainText = getExplainText("explain verbose ${querySql}")
+            def splitMatcher = (explainText =~ /paimonNativeReadSplits=(\d+)\/(\d+)/)
+            assertTrue(splitMatcher.find(), "Expected paimonNativeReadSplits in explain for ${tableLabel}")
+            long nativeSplits = Long.parseLong(splitMatcher.group(1))
+            long totalSplits = Long.parseLong(splitMatcher.group(2))
+            assertTrue(totalSplits > 0, "Expected total splits > 0 for ${tableLabel}")
+            assertTrue(nativeSplits > 0,
+                    "Expected native splits > 0 for ${tableLabel}, native=${nativeSplits}, total=${totalSplits}")
+            assertTrue(explainText.contains("SplitStat [type=NATIVE"),
+                    "Expected NATIVE split stats in explain for ${tableLabel}")
+        }
+
+        def assertJniPath = { String querySql, String tableLabel ->
+            String explainText = getExplainText("explain verbose ${querySql}")
+            def splitMatcher = (explainText =~ /paimonNativeReadSplits=(\d+)\/(\d+)/)
+            assertTrue(splitMatcher.find(), "Expected paimonNativeReadSplits in explain for ${tableLabel}")
+            long nativeSplits = Long.parseLong(splitMatcher.group(1))
+            long totalSplits = Long.parseLong(splitMatcher.group(2))
+            assertTrue(totalSplits > 0, "Expected total splits > 0 for ${tableLabel}")
+            assertTrue(nativeSplits == 0,
+                    "Expected native splits == 0 for JNI path ${tableLabel}, native=${nativeSplits}, total=${totalSplits}")
+            assertTrue(explainText.contains("SplitStat [type=JNI"),
+                    "Expected JNI split stats in explain for ${tableLabel}")
+        }
+
+        def assertCountStarPushdown = { String querySql, String tableLabel ->
+            String explainText = getExplainText("explain ${querySql}")
+            assertTrue(explainText.contains("pushdown agg=COUNT"),
+                    "Expected count(*) pushdown in explain for ${tableLabel}")
+        }
+
+        sql """set force_jni_scanner=false"""
+        assertNativePath("select rowkind, id[1], name[1] from ${tableName}\$binlog", "${tableName}\$binlog")
+        assertNativePath("select rowkind, id, name from ${tableName}\$audit_log", "${tableName}\$audit_log")
+        assertNativePath("select rowkind, _SEQUENCE_NUMBER, id[1], name[1] from ${seqOnTableName}\$binlog",
+                "${seqOnTableName}\$binlog")
+        assertNativePath("select rowkind, _SEQUENCE_NUMBER, id, name from ${seqOnTableName}\$audit_log",
+                "${seqOnTableName}\$audit_log")
+
+        assertCountStarPushdown("select count(*) from ${tableName}\$binlog", "${tableName}\$binlog")
+        assertCountStarPushdown("select count(*) from ${tableName}\$audit_log", "${tableName}\$audit_log")
+
+        sql """set force_jni_scanner=true"""
+        assertJniPath("select rowkind, id[1], name[1] from ${tableName}\$binlog", "${tableName}\$binlog")
+        assertJniPath("select rowkind, id, name from ${tableName}\$audit_log", "${tableName}\$audit_log")
+        assertJniPath("select rowkind, _SEQUENCE_NUMBER, id[1], name[1] from ${seqOnTableName}\$binlog",
+                "${seqOnTableName}\$binlog")
+        assertJniPath("select rowkind, _SEQUENCE_NUMBER, id, name from ${seqOnTableName}\$audit_log",
+                "${seqOnTableName}\$audit_log")
+
+        qt_jni_binlog_rows """select rowkind, id[1], id[2], name[1], name[2] from ${tableName}\$binlog order by id[1]"""
+        qt_jni_audit_log_rows """select rowkind, id, name from ${tableName}\$audit_log order by id"""
     } finally {
+        sql """set force_jni_scanner=false"""
     }
 }
