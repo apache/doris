@@ -154,7 +154,13 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                 AggregateFunction aggFunction = (AggregateFunction) obj;
                 if (pushDownAggFunctionSet.contains(aggFunction.getClass())
                         && !aggFunction.isDistinct()) {
-                    if (aggFunction.arity() > 0 && aggFunction.child(0) instanceof If) {
+                    if (aggFunction.arity() > 0 && aggFunction.child(0) instanceof If
+                            && !(aggFunction instanceof Count)) {
+                        // Decompose Sum/Max/Min(If(cond, a, b)) into separate agg functions.
+                        // Count(If(...)) is NOT decomposed here because the top-level
+                        // replacement (Count->Sum rollup) cannot match the decomposed
+                        // Count(a)/Count(b) as sub-expressions of the original Count(If(cond,a,b)).
+                        // Count(If(...)) is pushed down as-is and rolled up normally.
                         If body = (If) (aggFunction).child(0);
                         Set<Slot> valueSlots = Sets.newHashSet(body.getTrueValue().getInputSlots());
                         valueSlots.addAll(body.getFalseValue().getInputSlots());

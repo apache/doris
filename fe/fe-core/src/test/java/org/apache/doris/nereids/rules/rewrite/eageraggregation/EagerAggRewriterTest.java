@@ -137,4 +137,28 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
             connectContext.getSessionVariable().setDisableJoinReorder(false);
         }
     }
+
+    @Test
+    void testPushDownCountWithIfChildShouldNotDecompose() {
+        // Count(If(cond, a, b)) should NOT be decomposed into Count(a) and Count(b)
+        // in the SumIf path, because the replacement logic cannot match decomposed
+        // Count(a)/Count(b) as sub-expressions of the original Count(If(cond, a, b)).
+        // This would cause "Input slot(s) not in child's output" error.
+        // Instead, Count(If(...)) should be pushed down as-is and rolled up via
+        // ifnull(sum(count_if_result), 0).
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            String sql = "select count(case when t1.id1 > 3 then t1.name else 'x' end), t2.id2"
+                    + " from t1 left join t2 on t1.name = t2.name group by t2.id2";
+            // Should not throw "Input slot(s) not in child's output"
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .printlnTree();
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
 }
