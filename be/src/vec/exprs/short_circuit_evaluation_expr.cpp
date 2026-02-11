@@ -84,6 +84,22 @@ std::string ShortCircuitExpr::debug_string() const {
     return result;
 }
 
+// Returns empty result column if count==0
+// For some exprs, executing with a size-0 column may cause errors.
+// These are issues with the exprs themselves, but for convenience, we handle this case uniformly in short-circuit expr.
+/// TODO: Once all exprs support size-0 columns in the future, this function can be removed.
+[[nodiscard]] Status try_early_return_on_empty(const VExprSPtr& expr, VExprContext* context,
+                                               const Block* block, Selector* selector, size_t count,
+                                               ColumnPtr& result_columnn) {
+    if (count == 0) {
+        result_columnn = expr->execute_type(block)->create_column();
+        DCHECK_EQ(result_columnn->size(), 0);
+        return Status::OK();
+    }
+
+    return expr->execute_column(context, block, selector, count, result_columnn);
+}
+
 ShortCircuitCaseExpr::ShortCircuitCaseExpr(const TExprNode& node)
         : ShortCircuitExpr(node), _has_else_expr(node.case_expr.has_else_expr) {}
 
@@ -167,7 +183,8 @@ Status ShortCircuitIfExpr::execute_column(VExprContext* context, const Block* bl
     DCHECK(_open_finished || block == nullptr) << debug_string();
     DCHECK(selector == nullptr || selector->size() == count);
     ColumnPtr cond_column;
-    RETURN_IF_ERROR(_children[0]->execute_column(context, block, selector, count, cond_column));
+    RETURN_IF_ERROR(
+            try_early_return_on_empty(_children[0], context, block, selector, count, cond_column));
     DCHECK_EQ(cond_column->size(), count);
 
     Selector true_executor_selector;
@@ -179,12 +196,13 @@ Status ShortCircuitIfExpr::execute_column(VExprContext* context, const Block* bl
                         false_executor_selector, false_self_selector);
 
     ColumnPtr true_column;
-    RETURN_IF_ERROR(_children[1]->execute_column(context, block, &true_executor_selector,
-                                                 true_executor_selector.size(), true_column));
 
+    RETURN_IF_ERROR(try_early_return_on_empty(_children[1], context, block, &true_executor_selector,
+                                              true_executor_selector.size(), true_column));
     ColumnPtr false_column;
-    RETURN_IF_ERROR(_children[2]->execute_column(context, block, &false_executor_selector,
-                                                 false_executor_selector.size(), false_column));
+    RETURN_IF_ERROR(try_early_return_on_empty(_children[2], context, block,
+                                              &false_executor_selector,
+                                              false_executor_selector.size(), false_column));
 
     result_column = dispatch_fill_columns(true_column, true_self_selector, false_column,
                                           false_self_selector, count);
@@ -264,10 +282,14 @@ Status ShortCircuitCaseExpr::execute_column(VExprContext* context, const Block* 
     Selector left_not_matched_executor_selector;
     Selector left_not_matched_current_selector;
 
+    int64_t executed_branches = 0;
+
     for (int64_t i = 0; i < static_cast<int64_t>(_children.size()) - _has_else_expr; i += 2) {
+        executed_branches++;
         ColumnPtr when_column_ptr;
-        RETURN_IF_ERROR(_children[i]->execute_column(context, block, executor_selector,
-                                                     executor_count, when_column_ptr));
+
+        RETURN_IF_ERROR(try_early_return_on_empty(_children[i], context, block, executor_selector,
+                                                  executor_count, when_column_ptr));
 
         DCHECK(executor_selector == nullptr ||
                executor_selector->size() == when_column_ptr->size());
@@ -282,9 +304,10 @@ Status ShortCircuitCaseExpr::execute_column(VExprContext* context, const Block* 
                               not_matched_executor_selector, not_matched_current_selector);
 
         ColumnPtr then_column_ptr;
-        RETURN_IF_ERROR(_children[i + 1]->execute_column(context, block, &matched_executor_selector,
-                                                         matched_executor_selector.size(),
-                                                         then_column_ptr));
+        RETURN_IF_ERROR(try_early_return_on_empty(
+                _children[i + 1], context, block, &matched_executor_selector,
+                matched_executor_selector.size(), then_column_ptr));
+
         columns_and_selectors[i / 2].column = then_column_ptr;
         columns_and_selectors[i / 2].selector.swap(matched_current_selector);
 
@@ -294,6 +317,13 @@ Status ShortCircuitCaseExpr::execute_column(VExprContext* context, const Block* 
         executor_selector = &left_not_matched_executor_selector;
         executor_count = left_not_matched_executor_selector.size();
         current_selector = &left_not_matched_current_selector;
+
+        if (executor_count == 0) {
+            columns_and_selectors.resize(executed_branches);
+            // All rows have been matched; no need to process other branch
+            result_column = dispatch_fill_columns(columns_and_selectors, count);
+            return Status::OK();
+        }
     }
 
     // handle the else branch
@@ -301,8 +331,10 @@ Status ShortCircuitCaseExpr::execute_column(VExprContext* context, const Block* 
         DCHECK_EQ(columns_and_selectors.size(), (_children.size() + 1) / 2);
 
         ColumnPtr else_column_ptr;
-        RETURN_IF_ERROR(_children.back()->execute_column(context, block, executor_selector,
-                                                         executor_count, else_column_ptr));
+
+        RETURN_IF_ERROR(try_early_return_on_empty(_children.back(), context, block,
+                                                  executor_selector, executor_count,
+                                                  else_column_ptr));
         columns_and_selectors.back().column = else_column_ptr;
         columns_and_selectors.back().selector.swap(left_not_matched_current_selector);
     } else {
@@ -348,7 +380,8 @@ Status ShortCircuitIfNullExpr::execute_column(VExprContext* context, const Block
     DCHECK(_open_finished || block == nullptr) << debug_string();
     DCHECK(selector == nullptr || selector->size() == count);
     ColumnPtr expr1_column;
-    RETURN_IF_ERROR(_children[0]->execute_column(context, block, selector, count, expr1_column));
+    RETURN_IF_ERROR(
+            try_early_return_on_empty(_children[0], context, block, selector, count, expr1_column));
     DCHECK_EQ(expr1_column->size(), count);
     Selector null_executor_selector;
     Selector null_current_selector;
@@ -361,8 +394,9 @@ Status ShortCircuitIfNullExpr::execute_column(VExprContext* context, const Block
                                                not_null_self_selector.size());
 
     ColumnPtr expr2_column;
-    RETURN_IF_ERROR(_children[1]->execute_column(context, block, &null_executor_selector,
-                                                 null_executor_selector.size(), expr2_column));
+
+    RETURN_IF_ERROR(try_early_return_on_empty(_children[1], context, block, &null_executor_selector,
+                                              null_executor_selector.size(), expr2_column));
 
     result_column = dispatch_fill_columns(expr1_column, not_null_self_selector, expr2_column,
                                           null_current_selector, count);
@@ -423,10 +457,14 @@ Status ShortCircuitCoalesceExpr::execute_column(VExprContext* context, const Blo
     Selector left_null_executor_selector;
     Selector left_null_current_selector;
 
+    int64_t executed_branches = 0;
+
     for (int64_t i = 0; i < _children.size(); ++i) {
+        executed_branches++;
         ColumnPtr child_column_ptr;
-        RETURN_IF_ERROR(_children[i]->execute_column(context, block, executor_selector,
-                                                     executor_count, child_column_ptr));
+
+        RETURN_IF_ERROR(try_early_return_on_empty(_children[i], context, block, executor_selector,
+                                                  executor_count, child_column_ptr));
 
         DCHECK(executor_selector == nullptr ||
                executor_selector->size() == child_column_ptr->size());
@@ -453,6 +491,13 @@ Status ShortCircuitCoalesceExpr::execute_column(VExprContext* context, const Blo
         executor_selector = &left_null_executor_selector;
         executor_count = left_null_executor_selector.size();
         current_selector = &left_null_current_selector;
+
+        if (executor_count == 0) {
+            columns_and_selectors.resize(executed_branches);
+            // All rows have been matched; no need to process other branch
+            result_column = dispatch_fill_columns(columns_and_selectors, count);
+            return Status::OK();
+        }
     }
 
     // the remaining null rows at the end
