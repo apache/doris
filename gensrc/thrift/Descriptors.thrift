@@ -472,6 +472,13 @@ struct TRemoteDorisTable {
   3: optional map<string, string> properties
 }
 
+struct TFlussTable {
+  1: optional string db_name
+  2: optional string table_name
+  3: optional string bootstrap_servers
+  4: optional map<string, string> properties
+}
+
 // "Union" of all table types.
 struct TTableDescriptor {
   1: required Types.TTableId id
@@ -499,6 +506,7 @@ struct TTableDescriptor {
   23: optional TLakeSoulTable lakesoulTable
   24: optional TDictionaryTable dictionaryTable
   25: optional TRemoteDorisTable remoteDorisTable
+  26: optional TFlussTable flussTable
 }
 
 struct TDescriptorTable {

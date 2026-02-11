@@ -1,0 +1,99 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <memory>
+#include <vector>
+
+#include "vec/exec/format/orc/vorc_reader.h"
+#include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/exec/format/table/table_format_reader.h"
+
+namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
+// FlussReader wraps Parquet/ORC readers for Fluss table format
+// For MVP, this is a simple wrapper. Future enhancements will integrate
+// Fluss Rust C++ bindings for direct data access.
+class FlussReader : public TableFormatReader {
+public:
+    FlussReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
+                RuntimeState* state, const TFileScanRangeParams& params,
+                const TFileRangeDesc& range, io::IOContext* io_ctx, FileMetaCache* meta_cache);
+
+    ~FlussReader() override = default;
+
+    Status get_next_block_inner(Block* block, size_t* read_rows, bool* eof) final;
+};
+
+class FlussParquetReader final : public FlussReader {
+public:
+    ENABLE_FACTORY_CREATOR(FlussParquetReader);
+    FlussParquetReader(std::unique_ptr<GenericReader> file_format_reader,
+                       RuntimeProfile* profile, RuntimeState* state,
+                       const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                       io::IOContext* io_ctx, FileMetaCache* meta_cache)
+            : FlussReader(std::move(file_format_reader), profile, state, params, range, io_ctx,
+                          meta_cache) {};
+    ~FlussParquetReader() final = default;
+
+    Status init_reader(
+            const std::vector<std::string>& read_table_col_names,
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
+            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
+            const RowDescriptor* row_descriptor,
+            const VExprContextSPtrs* not_single_slot_filter_conjuncts,
+            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
+        auto* parquet_reader = static_cast<ParquetReader*>(_file_format_reader.get());
+        return parquet_reader->init_reader(&read_table_col_names, col_name_to_block_idx, conjuncts,
+                                           false, tuple_descriptor, row_descriptor,
+                                           not_single_slot_filter_conjuncts,
+                                           slot_id_to_filter_conjuncts, nullptr);
+    }
+};
+
+class FlussOrcReader final : public FlussReader {
+public:
+    ENABLE_FACTORY_CREATOR(FlussOrcReader);
+    FlussOrcReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
+                   RuntimeState* state, const TFileScanRangeParams& params,
+                   const TFileRangeDesc& range, io::IOContext* io_ctx, FileMetaCache* meta_cache)
+            : FlussReader(std::move(file_format_reader), profile, state, params, range, io_ctx,
+                          meta_cache) {};
+    ~FlussOrcReader() final = default;
+
+    Status init_reader(
+            const std::vector<std::string>& read_table_col_names,
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
+            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
+            const RowDescriptor* row_descriptor,
+            const VExprContextSPtrs* not_single_slot_filter_conjuncts,
+            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
+        auto* orc_reader = static_cast<OrcReader*>(_file_format_reader.get());
+        const orc::Type* orc_type_ptr = nullptr;
+        RETURN_IF_ERROR(orc_reader->get_file_type(&orc_type_ptr));
+        return orc_reader->init_reader(&read_table_col_names, col_name_to_block_idx, conjuncts,
+                                       false, tuple_descriptor, row_descriptor,
+                                       not_single_slot_filter_conjuncts,
+                                       slot_id_to_filter_conjuncts, nullptr);
+    }
+};
+
+#include "common/compile_check_end.h"
+} // namespace doris::vectorized
+

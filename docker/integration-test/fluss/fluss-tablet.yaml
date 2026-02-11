@@ -1,0 +1,12 @@
+tablet-server.id: 0
+tablet-server.host: fluss-tablet-server
+tablet-server.port: 9124
+coordinator.address: fluss-coordinator:9123
+zookeeper.address: zookeeper:2181
+zookeeper.path.root: /fluss
+data.dir: /opt/fluss/data
+remote.data.dir: s3://fluss-lake/data
+s3.endpoint: http://minio:9000
+s3.access-key: minioadmin
+s3.secret-key: minioadmin
+s3.path-style-access: true

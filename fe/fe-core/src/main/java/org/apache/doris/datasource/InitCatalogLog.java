@@ -44,6 +44,7 @@ public class InitCatalogLog implements Writable {
         TEST,
         TRINO_CONNECTOR,
         REMOTE_DORIS,
+        FLUSS,
         UNKNOWN;
     }
 

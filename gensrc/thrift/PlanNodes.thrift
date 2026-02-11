@@ -405,6 +405,35 @@ struct TRemoteDorisFileDesc {
     6: optional string password
 }
 
+enum TFlussSplitTier {
+    LAKE_ONLY = 0,
+    LOG_ONLY = 1,
+    HYBRID = 2
+}
+
+struct TFlussFileDesc {
+    1: optional string database_name
+    2: optional string table_name
+    3: optional i64 table_id
+    4: optional i32 bucket_id
+    5: optional string partition_name
+    6: optional i64 snapshot_id
+    7: optional string file_path
+    8: optional string file_format
+    9: optional string bootstrap_servers
+    
+    // Tier information for tiered storage
+    10: optional TFlussSplitTier tier
+    
+    // Lake tier fields (Parquet/ORC files)
+    11: optional list<string> lake_file_paths
+    12: optional i64 lake_snapshot_id
+    
+    // Log tier fields (Fluss native format)
+    13: optional i64 log_start_offset
+    14: optional i64 log_end_offset
+}
+
 struct TTableFormatFileDesc {
     1: optional string table_format_type
     2: optional TIcebergFileDesc iceberg_params
@@ -416,6 +445,7 @@ struct TTableFormatFileDesc {
     8: optional TLakeSoulFileDesc lakesoul_params
     9: optional i64 table_level_row_count = -1
     10: optional TRemoteDorisFileDesc remote_doris_params
+    11: optional TFlussFileDesc fluss_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type

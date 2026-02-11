@@ -533,6 +533,13 @@ under the License.
             <version>${paimon.version}</version>
         </dependency>
 
+        <!-- fluss -->
+        <dependency>
+            <groupId>org.apache.fluss</groupId>
+            <artifactId>fluss-client</artifactId>
+            <version>0.9-SNAPSHOT</version>
+        </dependency>
+
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>glue</artifactId>
