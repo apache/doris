@@ -322,8 +322,9 @@ public class KafkaAwsMskIamAuthTest {
     }
 
     @Test
-    public void testMissingAccessKeyWithSecretKey() {
-        // Test with only secret key but missing access key - should fail
+    public void testMissingAccessKeyWithSecretKeyPublicAccess() {
+        // Test with only secret key but missing access key for PUBLIC access - should fail
+        dataSourceProperties.put("kafka_broker_list", "b-1-public.msk-cluster.xxx.kafka.us-east-1.amazonaws.com:9198");
         dataSourceProperties.put("property.security.protocol", "SASL_SSL");
         dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
         dataSourceProperties.put("property.aws.region", "us-east-1");
@@ -343,8 +344,9 @@ public class KafkaAwsMskIamAuthTest {
     }
 
     @Test
-    public void testMissingSecretKeyWithAccessKey() {
-        // Test with only access key but missing secret key - should fail
+    public void testMissingSecretKeyWithAccessKeyPublicAccess() {
+        // Test with only access key but missing secret key for PUBLIC access - should fail
+        dataSourceProperties.put("kafka_broker_list", "b-1-public.msk-cluster.xxx.kafka.us-east-1.amazonaws.com:9198");
         dataSourceProperties.put("property.security.protocol", "SASL_SSL");
         dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
         dataSourceProperties.put("property.aws.region", "us-east-1");
@@ -364,8 +366,9 @@ public class KafkaAwsMskIamAuthTest {
     }
 
     @Test
-    public void testPublicAccessWithProfile() throws UserException {
-        // Test public access with AWS profile (allowed but warned)
+    public void testPublicAccessWithProfileOnly() {
+        // Test public access with AWS profile only (no explicit credentials) - should fail
+        // because public access requires explicit credentials
         dataSourceProperties.put("kafka_broker_list", "b-1-public.msk-cluster.xxx.kafka.us-east-1.amazonaws.com:9198");
         dataSourceProperties.put("property.security.protocol", "SASL_SSL");
         dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
@@ -374,16 +377,21 @@ public class KafkaAwsMskIamAuthTest {
 
         KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
         props.setTimezone("UTC");
-        props.analyze();
 
-        // Should succeed but a warning should be logged
-        Assert.assertNotNull(props.getCustomKafkaProperties());
-        Assert.assertEquals("default", props.getCustomKafkaProperties().get("aws.profile.name"));
+        try {
+            props.analyze();
+            Assert.fail("Should throw AnalysisException for public access without explicit credentials");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("aws.access.key"));
+            Assert.assertTrue(e.getMessage().contains("aws.secret.key"));
+            Assert.assertTrue(e.getMessage().contains("together"));
+        }
     }
 
     @Test
-    public void testPublicAccessWithCredentialsProvider() throws UserException {
-        // Test public access with credentials provider (allowed but warned)
+    public void testPublicAccessWithCredentialsProviderOnly() {
+        // Test public access with credentials provider only (no explicit credentials) - should fail
+        // because public access requires explicit credentials
         dataSourceProperties.put("kafka_broker_list", "b-1-public.msk-cluster.xxx.kafka.us-east-1.amazonaws.com:9198");
         dataSourceProperties.put("property.security.protocol", "SASL_SSL");
         dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
@@ -392,11 +400,15 @@ public class KafkaAwsMskIamAuthTest {
 
         KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
         props.setTimezone("UTC");
-        props.analyze();
 
-        // Should succeed but a warning should be logged
-        Assert.assertNotNull(props.getCustomKafkaProperties());
-        Assert.assertEquals("ENV", props.getCustomKafkaProperties().get("aws.credentials.provider"));
+        try {
+            props.analyze();
+            Assert.fail("Should throw AnalysisException for public access without explicit credentials");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("aws.access.key"));
+            Assert.assertTrue(e.getMessage().contains("aws.secret.key"));
+            Assert.assertTrue(e.getMessage().contains("together"));
+        }
     }
 
     @Test
