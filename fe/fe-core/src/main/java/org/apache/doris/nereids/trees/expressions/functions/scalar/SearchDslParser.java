@@ -110,23 +110,27 @@ public class SearchDslParser {
         String defaultField = searchOptions.getDefaultField();
         String defaultOperator = searchOptions.getDefaultOperator();
 
+        QsPlan plan;
         // Use Lucene mode parser if specified
         if (searchOptions.isLuceneMode()) {
             // Multi-field + Lucene mode: first expand DSL, then parse with Lucene semantics
             if (searchOptions.isMultiFieldMode()) {
-                return parseDslMultiFieldLuceneMode(dsl, searchOptions.getFields(),
+                plan = parseDslMultiFieldLuceneMode(dsl, searchOptions.getFields(),
                         defaultOperator, searchOptions);
+            } else {
+                plan = parseDslLuceneMode(dsl, defaultField, defaultOperator, searchOptions);
             }
-            return parseDslLuceneMode(dsl, defaultField, defaultOperator, searchOptions);
+        } else if (searchOptions.isMultiFieldMode()) {
+            // Multi-field mode parsing (standard mode)
+            plan = parseDslMultiFieldMode(dsl, searchOptions.getFields(), defaultOperator, searchOptions);
+        } else {
+            // Standard mode parsing
+            plan = parseDslStandardMode(dsl, defaultField, defaultOperator);
         }
 
-        // Multi-field mode parsing (standard mode)
-        if (searchOptions.isMultiFieldMode()) {
-            return parseDslMultiFieldMode(dsl, searchOptions.getFields(), defaultOperator, searchOptions);
-        }
-
-        // Standard mode parsing
-        return parseDslStandardMode(dsl, defaultField, defaultOperator);
+        // Wrap plan with options for BE serialization
+        return new QsPlan(plan.getRoot(), plan.getFieldBindings(),
+                searchOptions.getDefaultOperator(), searchOptions.getMinimumShouldMatch());
     }
 
     /**
@@ -996,11 +1000,28 @@ public class SearchDslParser {
         @JsonProperty("fieldBindings")
         private final List<QsFieldBinding> fieldBindings;
 
+        @JsonProperty("defaultOperator")
+        private final String defaultOperator;
+
+        @JsonProperty("minimumShouldMatch")
+        private final Integer minimumShouldMatch;
+
         @JsonCreator
         public QsPlan(@JsonProperty("root") QsNode root,
                 @JsonProperty("fieldBindings") List<QsFieldBinding> fieldBindings) {
+            this(root, fieldBindings, null, null);
+        }
+
+        public QsPlan(QsNode root, List<QsFieldBinding> fieldBindings, String defaultOperator) {
+            this(root, fieldBindings, defaultOperator, null);
+        }
+
+        public QsPlan(QsNode root, List<QsFieldBinding> fieldBindings, String defaultOperator,
+                Integer minimumShouldMatch) {
             this.root = Objects.requireNonNull(root, "root cannot be null");
             this.fieldBindings = fieldBindings != null ? new ArrayList<>(fieldBindings) : new ArrayList<>();
+            this.defaultOperator = defaultOperator;
+            this.minimumShouldMatch = minimumShouldMatch;
         }
 
         public QsNode getRoot() {
@@ -1009,6 +1030,14 @@ public class SearchDslParser {
 
         public List<QsFieldBinding> getFieldBindings() {
             return Collections.unmodifiableList(fieldBindings);
+        }
+
+        public String getDefaultOperator() {
+            return defaultOperator;
+        }
+
+        public Integer getMinimumShouldMatch() {
+            return minimumShouldMatch;
         }
 
         /**
@@ -1036,7 +1065,7 @@ public class SearchDslParser {
 
         @Override
         public int hashCode() {
-            return Objects.hash(root, fieldBindings);
+            return Objects.hash(root, fieldBindings, defaultOperator, minimumShouldMatch);
         }
 
         @Override
@@ -1049,7 +1078,9 @@ public class SearchDslParser {
             }
             QsPlan qsPlan = (QsPlan) o;
             return Objects.equals(root, qsPlan.getRoot())
-                    && Objects.equals(fieldBindings, qsPlan.getFieldBindings());
+                    && Objects.equals(fieldBindings, qsPlan.getFieldBindings())
+                    && Objects.equals(defaultOperator, qsPlan.getDefaultOperator())
+                    && Objects.equals(minimumShouldMatch, qsPlan.getMinimumShouldMatch());
         }
     }
 
