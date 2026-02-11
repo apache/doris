@@ -55,6 +55,9 @@ public:
     virtual Status finish() = 0;
     virtual Status write_data() = 0;
     virtual Status write_ordinal_index() = 0;
+    virtual Status write_zone_map() = 0;
+    virtual Status write_inverted_index() = 0;
+    virtual Status write_bloom_filter_index() = 0;
     virtual uint64_t estimate_buffer_size() const = 0;
 };
 
@@ -68,13 +71,31 @@ public:
     Status finish() override;
     Status write_data() override;
     Status write_ordinal_index() override;
+    Status write_zone_map() override;
+    Status write_inverted_index() override;
+    Status write_bloom_filter_index() override;
     uint64_t estimate_buffer_size() const override;
 
 private:
+    Status _write_materialized_subcolumn(const TabletColumn& parent_column, std::string_view path,
+                                         vectorized::ColumnVariant::Subcolumn& subcolumn,
+                                         size_t num_rows,
+                                         vectorized::OlapBlockDataConvertor* converter,
+                                         int& column_id, const std::vector<uint32_t>* rowids);
+    Status _write_doc_value_column(
+            const TabletColumn& parent_column, const vectorized::ColumnVariant& src,
+            size_t num_rows, vectorized::OlapBlockDataConvertor* converter,
+            const phmap::flat_hash_map<StringRef, uint32_t, StringRefHash>& column_stats);
+
+    const TabletColumn* _parent_column = nullptr;
+    ColumnWriterOptions _opts;
     int _bucket_num = 0;
     int _first_column_id = -1;
     std::vector<std::unique_ptr<ColumnWriter>> _doc_value_column_writers;
     std::vector<ColumnWriterOptions> _doc_value_column_opts;
+    std::vector<std::unique_ptr<ColumnWriter>> _subcolumn_writers;
+    std::vector<TabletIndexes> _subcolumns_indexes;
+    std::vector<ColumnWriterOptions> _subcolumn_opts;
 };
 
 // Unifies writing of Variant sparse data in two modes:
@@ -105,6 +126,9 @@ public:
     Status finish() override;
     Status write_data() override;
     Status write_ordinal_index() override;
+    Status write_zone_map() override;
+    Status write_inverted_index() override;
+    Status write_bloom_filter_index() override;
 
 private:
     // Initialize single sparse column writer and consume one column_id.
@@ -240,15 +264,6 @@ private:
                                          size_t num_rows,
                                          vectorized::OlapBlockDataConvertor* converter,
                                          int& column_id, const std::vector<uint32_t>* rowids);
-
-    Status _prepare_subcolumn_writer(const TabletColumn& parent_column, std::string_view path,
-                                     const vectorized::ColumnVariant::Subcolumn& subcolumn,
-                                     vectorized::ColumnPtr& current_column,
-                                     vectorized::DataTypePtr& current_type,
-                                     int64_t none_null_value_size, int current_column_id,
-                                     size_t num_rows, TabletColumn* out_tablet_column);
-
-    bool _is_invalid_array_type(const vectorized::DataTypePtr& type) const;
     Status _write_doc_value_column(const TabletColumn& parent_column,
                                    vectorized::ColumnVariant* variant_column,
                                    vectorized::OlapBlockDataConvertor* converter, int column_id,

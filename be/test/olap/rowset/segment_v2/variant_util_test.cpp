@@ -232,32 +232,40 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeBinaryToSubcolumns) {
 
     vectorized::ParseConfig parse_cfg;
     parse_cfg.enable_flatten_nested = false;
-    parse_cfg.parse_to = vectorized::ParseConfig::ParseTo::BothSubcolumnsAndDocValueColumn;
+    parse_cfg.parse_to = vectorized::ParseConfig::ParseTo::OnlyDocValueColumn;
     Status st =
             parse_and_materialize_variant_columns(block, std::vector<uint32_t> {0}, {parse_cfg});
     EXPECT_TRUE(st.ok()) << st.to_string();
 
     const auto& out =
             assert_cast<const vectorized::ColumnVariant&>(*block.get_by_position(0).column);
-    EXPECT_FALSE(out.is_doc_mode());
+    EXPECT_TRUE(out.is_doc_mode());
 
     const auto* sub_a = out.get_subcolumn(vectorized::PathInData("a"));
     const auto* sub_b = out.get_subcolumn(vectorized::PathInData("b"));
-    ASSERT_TRUE(sub_a != nullptr);
-    ASSERT_TRUE(sub_b != nullptr);
+    ASSERT_TRUE(sub_a == nullptr);
+    ASSERT_TRUE(sub_b == nullptr);
+
+    auto docs_subcolumns = materialize_docs_to_subcolumns_map(out);
+    ASSERT_TRUE(docs_subcolumns.contains("a"));
+    ASSERT_TRUE(docs_subcolumns.contains("b"));
+    auto& materialized_a = docs_subcolumns.at("a");
+    auto& materialized_b = docs_subcolumns.at("b");
+    materialized_a.finalize();
+    materialized_b.finalize();
 
     vectorized::FieldWithDataType f;
-    sub_a->get(0, f);
+    materialized_a.get(0, f);
     EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
     EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 1);
-    sub_a->get(1, f);
+    materialized_a.get(1, f);
     EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
     EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 2);
 
-    sub_b->get(0, f);
+    materialized_b.get(0, f);
     EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_STRING);
     EXPECT_EQ(f.field.get<TYPE_STRING>(), "x");
-    sub_b->get(1, f);
+    materialized_b.get(1, f);
     EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_STRING);
     EXPECT_EQ(f.field.get<TYPE_STRING>(), "y");
 }
@@ -278,7 +286,7 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeRejectOnlySubcolumnsConfig) {
 
     vectorized::ParseConfig parse_cfg;
     parse_cfg.enable_flatten_nested = false;
-    parse_cfg.parse_to = vectorized::ParseConfig::ParseTo::BothSubcolumnsAndDocValueColumn;
+    parse_cfg.parse_to = vectorized::ParseConfig::ParseTo::OnlyDocValueColumn;
     Status st =
             parse_and_materialize_variant_columns(block, std::vector<uint32_t> {0}, {parse_cfg});
     EXPECT_TRUE(st.ok()) << st.to_string();
