@@ -37,7 +37,7 @@ import java.util.stream.Collectors;
  */
 public class PushDownAggContext {
     public static final int BIG_JOIN_BUILD_SIZE = 400_000;
-    public final boolean aggregateOnCaseWhen;
+    public final boolean hasDecomposedAggIf;
     private final List<AggregateFunction> aggFunctions;
     private final List<SlotReference> groupKeys;
     private final HashMap<AggregateFunction, Alias> aliasMap;
@@ -53,7 +53,7 @@ public class PushDownAggContext {
      */
     public PushDownAggContext(List<AggregateFunction> aggFunctions,
             List<SlotReference> groupKeys, Map<AggregateFunction, Alias> aliasMap, CascadesContext cascadesContext,
-            boolean passThroughBigJoin, boolean hasSumIf) {
+            boolean passThroughBigJoin, boolean hasDecomposedAggIf) {
         this.groupKeys = groupKeys.stream().distinct().collect(Collectors.toList());
         this.aggFunctions = ImmutableList.copyOf(aggFunctions);
         this.cascadesContext = cascadesContext;
@@ -79,7 +79,7 @@ public class PushDownAggContext {
                 .filter(Slot.class::isInstance)
                 .collect(ImmutableSet.toImmutableSet());
         this.passThroughBigJoin = passThroughBigJoin;
-        this.aggregateOnCaseWhen = hasSumIf;
+        this.hasDecomposedAggIf = hasDecomposedAggIf;
     }
 
     /**
@@ -93,7 +93,7 @@ public class PushDownAggContext {
 
     public PushDownAggContext passThroughBigJoin() {
         return new PushDownAggContext(aggFunctions, groupKeys, aliasMap, cascadesContext,
-                true, aggregateOnCaseWhen);
+                true, hasDecomposedAggIf);
     }
 
     public HashMap<AggregateFunction, Alias> getAliasMap() {
@@ -110,7 +110,7 @@ public class PushDownAggContext {
 
     public PushDownAggContext withGroupKeys(List<SlotReference> groupKeys) {
         return new PushDownAggContext(aggFunctions, groupKeys, aliasMap,
-                cascadesContext, passThroughBigJoin, aggregateOnCaseWhen);
+                cascadesContext, passThroughBigJoin, hasDecomposedAggIf);
     }
 
     public Set<Slot> getAggFunctionsInputSlots() {

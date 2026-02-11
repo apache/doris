@@ -145,7 +145,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
         }
 
         Set<AggregateFunction> aggFunctions = Sets.newHashSet();
-        boolean hasSumIf = false;
+        boolean hasDecomposedAggIf = false;
         Map<NamedExpression, List<AggregateFunction>> aggFunctionsForOutputExpressions = Maps.newHashMap();
         for (NamedExpression aggOutput : agg.getOutputExpressions()) {
             List<AggregateFunction> funcs = Lists.newArrayList();
@@ -179,7 +179,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                         }
                         groupKeys.addAll(body.getCondition().getInputSlots()
                                 .stream().map(slot -> (SlotReference) slot).collect(Collectors.toList()));
-                        hasSumIf = true;
+                        hasDecomposedAggIf = true;
                     } else {
                         aggFunctions.add(aggFunction);
                         funcs.add(aggFunction);
@@ -197,7 +197,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
         }
 
         PushDownAggContext pushDownContext = new PushDownAggContext(new ArrayList<>(aggFunctions),
-                groupKeys, null, context.getCascadesContext(), false, hasSumIf);
+                groupKeys, null, context.getCascadesContext(), false, hasDecomposedAggIf);
         if (!pushDownContext.isValid()) {
             return agg;
         }

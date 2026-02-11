@@ -114,7 +114,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         // this transform is incorrect, because right join condition is false, then x is null,
         // and the output is max(null)=null.
         // but the output of plan1 should be 1
-        if (context.aggregateOnCaseWhen) {
+        if (context.hasDecomposedAggIf) {
             JoinType joinType = join.getJoinType();
             if (joinType.isFullOuterJoin()) {
                 return join;
@@ -234,7 +234,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             aggFunctions.add(newAggFunc);
         }
         return new PushDownAggContext(aggFunctions, groupKeys, aliasMap,
-                context.getCascadesContext(), context.isPassThroughBigJoin(), context.aggregateOnCaseWhen);
+                context.getCascadesContext(), context.isPassThroughBigJoin(), context.hasDecomposedAggIf);
     }
 
     private boolean canPushThroughProject(LogicalProject<? extends Plan> project, PushDownAggContext context) {
@@ -337,7 +337,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                     .collect(Collectors.toList());
             PushDownAggContext contextForChild = new PushDownAggContext(aggFunctionsForChild, groupKeysForChild,
                     aliasMapForChild, context.getCascadesContext(),
-                    context.isPassThroughBigJoin(), context.aggregateOnCaseWhen);
+                    context.isPassThroughBigJoin(), context.hasDecomposedAggIf);
             childrenContext.add(contextForChild);
             if (contextForChild.isValid()) {
                 Plan newChild = child.accept(this, contextForChild);
@@ -496,7 +496,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             return context.isPassThroughBigJoin();
         }
 
-        if (!context.isPassThroughBigJoin() && !context.aggregateOnCaseWhen) {
+        if (!context.isPassThroughBigJoin() && !context.hasDecomposedAggIf) {
             return false;
         }
 
