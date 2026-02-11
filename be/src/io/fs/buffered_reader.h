@@ -34,6 +34,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_reader.h"
+#include "io/io_common.h"
 #include "olap/olap_define.h"
 #include "util/runtime_profile.h"
 #include "util/slice.h"
@@ -46,7 +47,6 @@ namespace doris {
 namespace io {
 
 class FileSystem;
-struct IOContext;
 
 struct PrefetchRange {
     size_t start_offset;
@@ -159,6 +159,8 @@ public:
     size_t size() const override { return _size; }
 
     bool closed() const override { return _closed; }
+
+    int64_t mtime() const override { return _inner_reader->mtime(); }
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
@@ -329,6 +331,8 @@ public:
 
     bool closed() const override { return _closed; }
 
+    int64_t mtime() const override { return _reader->mtime(); }
+
     // for test only
     size_t buffer_remaining() const { return _remaining; }
 
@@ -411,6 +415,12 @@ public:
             const FileDescription& file_description, const io::FileReaderOptions& reader_options,
             AccessMode access_mode = SEQUENTIAL, const IOContext* io_ctx = nullptr,
             const PrefetchRange file_range = PrefetchRange(0, 0));
+
+    static Result<io::FileReaderSPtr> create_file_reader(
+            RuntimeProfile* profile, const FileSystemProperties& system_properties,
+            const FileDescription& file_description, const io::FileReaderOptions& reader_options,
+            AccessMode access_mode, std::shared_ptr<const IOContext> io_ctx,
+            const PrefetchRange file_range = PrefetchRange(0, 0));
 };
 
 class PrefetchBufferedReader;
@@ -418,13 +428,14 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
     enum class BufferStatus { RESET, PENDING, PREFETCHED, CLOSED };
 
     PrefetchBuffer(const PrefetchRange file_range, size_t buffer_size, size_t whole_buffer_size,
-                   io::FileReader* reader, const IOContext* io_ctx,
+                   io::FileReader* reader, std::shared_ptr<const IOContext> io_ctx,
                    std::function<void(PrefetchBuffer&)> sync_profile)
             : _file_range(file_range),
               _size(buffer_size),
               _whole_buffer_size(whole_buffer_size),
               _reader(reader),
-              _io_ctx(io_ctx),
+              _io_ctx_holder(std::move(io_ctx)),
+              _io_ctx(_io_ctx_holder.get()),
               _buf(new char[buffer_size]),
               _sync_profile(std::move(sync_profile)) {}
 
@@ -435,7 +446,8 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
               _size(other._size),
               _whole_buffer_size(other._whole_buffer_size),
               _reader(other._reader),
-              _io_ctx(other._io_ctx),
+              _io_ctx_holder(std::move(other._io_ctx_holder)),
+              _io_ctx(_io_ctx_holder.get()),
               _buf(std::move(other._buf)),
               _sync_profile(std::move(other._sync_profile)) {}
 
@@ -451,6 +463,7 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
     size_t _len {0};
     size_t _whole_buffer_size;
     io::FileReader* _reader = nullptr;
+    std::shared_ptr<const IOContext> _io_ctx_holder;
     const IOContext* _io_ctx = nullptr;
     std::unique_ptr<char[]> _buf;
     BufferStatus _buffer_status {BufferStatus::RESET};
@@ -520,7 +533,8 @@ constexpr int64_t s_max_pre_buffer_size = 4 * 1024 * 1024; // 4MB
 class PrefetchBufferedReader final : public io::FileReader {
 public:
     PrefetchBufferedReader(RuntimeProfile* profile, io::FileReaderSPtr reader,
-                           PrefetchRange file_range, const IOContext* io_ctx = nullptr,
+                           PrefetchRange file_range,
+                           std::shared_ptr<const IOContext> io_ctx = nullptr,
                            int64_t buffer_size = -1L);
     ~PrefetchBufferedReader() override;
 
@@ -531,6 +545,8 @@ public:
     size_t size() const override { return _size; }
 
     bool closed() const override { return _closed; }
+
+    int64_t mtime() const override { return _reader->mtime(); }
 
     void set_random_access_ranges(const std::vector<PrefetchRange>* random_access_ranges) {
         _random_access_ranges = random_access_ranges;
@@ -565,6 +581,7 @@ private:
     io::FileReaderSPtr _reader;
     PrefetchRange _file_range;
     const std::vector<PrefetchRange>* _random_access_ranges = nullptr;
+    std::shared_ptr<const IOContext> _io_ctx_holder;
     const IOContext* _io_ctx = nullptr;
     std::vector<std::shared_ptr<PrefetchBuffer>> _pre_buffers;
     int64_t _whole_pre_buffer_size;
@@ -591,6 +608,8 @@ public:
     size_t size() const override { return _size; }
 
     bool closed() const override { return _closed; }
+
+    int64_t mtime() const override { return _reader->mtime(); }
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
@@ -626,6 +645,8 @@ public:
     virtual ~BufferedStreamReader() = default;
     // return the file path
     virtual std::string path() = 0;
+
+    virtual int64_t mtime() const = 0;
 };
 
 class BufferedFileStreamReader : public BufferedStreamReader, public ProfileCollector {
@@ -638,6 +659,8 @@ public:
                       const IOContext* io_ctx) override;
     Status read_bytes(Slice& slice, uint64_t offset, const IOContext* io_ctx) override;
     std::string path() override { return _file->path(); }
+
+    int64_t mtime() const override { return _file->mtime(); }
 
 protected:
     void _collect_profile_before_close() override {

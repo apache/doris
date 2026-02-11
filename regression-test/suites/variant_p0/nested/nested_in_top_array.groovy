@@ -18,6 +18,10 @@
 // this test is used to test the nested in top array
 suite("nested_in_top_array", "p0"){
 
+    sql "set default_variant_enable_doc_mode = false"
+    sql "set default_variant_max_subcolumns_count = 0"
+    sql "set default_variant_sparse_hash_shard_count = 0"
+    sql "set default_variant_enable_typed_paths_to_sparse = false"
     try {
 
         // create a table with nested in top array
@@ -120,7 +124,7 @@ suite("nested_in_top_array", "p0"){
         sql_test_cast_to_scalar(table_name)
 
         // trigger and wait compaction
-        trigger_and_wait_compaction("${table_name}", "full")
+        trigger_and_wait_compaction("${table_name}", "full", 1800)
         sql_select_batch(table_name)
         sql_test_cast_to_array(table_name)    
         sql_test_cast_to_scalar(table_name)

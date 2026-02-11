@@ -56,6 +56,16 @@ public class UserIdentity implements Writable, GsonPostProcessable {
     @SerializedName(value = "isDomain")
     private boolean isDomain;
 
+    // TLS certificate authentication fields
+    @SerializedName(value = "san")
+    private String san;
+    @SerializedName(value = "issuer")
+    private String issuer;
+    @SerializedName(value = "cipher")
+    private String cipher;
+    @SerializedName(value = "subject")
+    private String subject;
+
     private boolean isAnalyzed = false;
 
     public static final UserIdentity ROOT;
@@ -120,6 +130,77 @@ public class UserIdentity implements Writable, GsonPostProcessable {
 
     public boolean isDomain() {
         return isDomain;
+    }
+
+    // TLS certificate authentication getters and setters
+    public String getSan() {
+        return san;
+    }
+
+    public void setSan(String san) {
+        this.san = san;
+    }
+
+    public String getIssuer() {
+        return issuer;
+    }
+
+    public void setIssuer(String issuer) {
+        this.issuer = issuer;
+    }
+
+    public String getCipher() {
+        return cipher;
+    }
+
+    public void setCipher(String cipher) {
+        this.cipher = cipher;
+    }
+
+    public String getSubject() {
+        return subject;
+    }
+
+    public void setSubject(String subject) {
+        this.subject = subject;
+    }
+
+    /**
+     * Checks if this user has any TLS certificate requirements.
+     */
+    public boolean hasTlsRequirements() {
+        return san != null || issuer != null || cipher != null || subject != null;
+    }
+
+    /**
+     * Clears all TLS certificate requirements.
+     * Used when REQUIRE NONE is specified.
+     */
+    public void clearTlsRequirements() {
+        this.san = null;
+        this.issuer = null;
+        this.cipher = null;
+        this.subject = null;
+    }
+
+    /**
+     * Applies TLS options from a TlsOptions object.
+     * If tlsOptions is null or has no REQUIRE clause, no changes are made.
+     * If REQUIRE NONE is specified, all TLS requirements are cleared.
+     * Otherwise, the TLS fields are set from the TlsOptions.
+     */
+    public void applyTlsOptions(TlsOptions tlsOptions) {
+        if (tlsOptions == null || !tlsOptions.hasRequireClause()) {
+            return;
+        }
+        if (tlsOptions.isRequireNone()) {
+            clearTlsRequirements();
+        } else {
+            this.san = tlsOptions.getSan();
+            this.issuer = tlsOptions.getIssuer();
+            this.cipher = tlsOptions.getCipher();
+            this.subject = tlsOptions.getSubject();
+        }
     }
 
     public void setIsAnalyzed() {

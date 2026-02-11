@@ -102,6 +102,10 @@ value1
 -- !sql --
 20
 
+-- !element_at_short_circuit_evaluation_test --
+\N
+\N
+
 -- !sql --
 0
 

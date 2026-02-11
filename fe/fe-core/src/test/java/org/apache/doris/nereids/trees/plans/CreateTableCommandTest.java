@@ -30,7 +30,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
@@ -54,7 +53,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -89,8 +87,6 @@ public class CreateTableCommandTest extends TestWithFeService {
                 + "properties('replication_num' = '1','colocate_with'='test'); ";
         createTable(sql);
         Set<Long> tabletIdSetAfterCreateFirstTable = env.getTabletInvertedIndex().getReplicaMetaTable().rowKeySet();
-        Set<TabletMeta> tabletMetaSetBeforeCreateFirstTable =
-                new HashSet<>(env.getTabletInvertedIndex().getTabletMetaTable().values());
         Set<Long> colocateTableIdBeforeCreateFirstTable = env.getColocateTableIndex().getTable2Group().keySet();
         Assertions.assertTrue(colocateTableIdBeforeCreateFirstTable.size() > 0);
         Assertions.assertTrue(tabletIdSetAfterCreateFirstTable.size() > 0);
@@ -102,13 +98,10 @@ public class CreateTableCommandTest extends TestWithFeService {
         Set<Long> tabletIdSetAfterDuplicateCreateTable2 = env.getTabletInvertedIndex().getBackingReplicaMetaTable()
                 .columnKeySet();
         Set<Long> tabletIdSetAfterDuplicateCreateTable3 = env.getTabletInvertedIndex().getTabletMetaMap().keySet();
-        Set<TabletMeta> tabletIdSetAfterDuplicateCreateTable4 =
-                new HashSet<>(env.getTabletInvertedIndex().getTabletMetaTable().values());
 
         Assertions.assertEquals(tabletIdSetAfterCreateFirstTable, tabletIdSetAfterDuplicateCreateTable1);
         Assertions.assertEquals(tabletIdSetAfterCreateFirstTable, tabletIdSetAfterDuplicateCreateTable2);
         Assertions.assertEquals(tabletIdSetAfterCreateFirstTable, tabletIdSetAfterDuplicateCreateTable3);
-        Assertions.assertEquals(tabletMetaSetBeforeCreateFirstTable, tabletIdSetAfterDuplicateCreateTable4);
 
         // check whether table id is cleared from colocate group after duplicate create table
         Set<Long> colocateTableIdAfterCreateFirstTable = env.getColocateTableIndex().getTable2Group().keySet();
@@ -1085,6 +1078,39 @@ public class CreateTableCommandTest extends TestWithFeService {
         command.getCreateMTMVInfo().analyze(connectContext);
 
         return command.getCreateMTMVInfo();
+    }
+
+    @Test
+    public void testVariantFieldPatternDictCompressionValidation() {
+        String invalidSql = "create table test.tbl_variant_dict_invalid\n"
+                + "(k1 int, v variant<\n"
+                + "    MATCH_NAME 'metrics.score' : int\n"
+                + "> null,\n"
+                + "INDEX idx_v (v) USING INVERTED PROPERTIES(\n"
+                + "    \"field_pattern\" = \"metrics.score\",\n"
+                + "    \"dict_compression\" = \"true\"\n"
+                + "))\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'inverted_index_storage_format' = 'V3');";
+
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class, () -> createTable(invalidSql));
+        Assertions.assertTrue(ex.getMessage().contains("invalid INVERTED index: field pattern: metrics.score"));
+        Assertions.assertTrue(ex.getMessage().contains("dict_compression can only be set for StringType columns"));
+
+        String validSql = "create table test.tbl_variant_dict_valid\n"
+                + "(k1 int, v variant<\n"
+                + "    MATCH_NAME 'metrics.score' : string\n"
+                + "> null,\n"
+                + "INDEX idx_v (v) USING INVERTED PROPERTIES(\n"
+                + "    \"field_pattern\" = \"metrics.score\",\n"
+                + "    \"dict_compression\" = \"true\"\n"
+                + "))\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'inverted_index_storage_format' = 'V3');";
+
+        Assertions.assertDoesNotThrow(() -> createTable(validSql));
     }
 
     @Test

@@ -145,7 +145,7 @@ public class StatisticsAutoCollectorTest {
         HMSExternalCatalog hmsCatalog = new HMSExternalCatalog(0, "jdbc_ctl", null, Maps.newHashMap(), "");
         ExternalTable icebergExternalTable = new HMSExternalTable(1, "hmsTable", "hmsDb", hmsCatalog,
                 hmsExternalDatabase);
-        Assertions.assertFalse(collector.supportAutoAnalyze(icebergExternalTable));
+        Assertions.assertTrue(collector.supportAutoAnalyze(icebergExternalTable));
 
         new MockUp<HMSExternalTable>() {
             @Mock

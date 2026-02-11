@@ -98,6 +98,8 @@ public class HiveInsertExecutor extends BaseExternalTableInsertExecutor {
         }
 
         // Write edit log to notify other FEs
+        long updateTime = System.currentTimeMillis();
+        hmsTable.setUpdateTime(updateTime);
         ExternalObjectLog log;
         if (!modifiedPartNames.isEmpty() || !newPartNames.isEmpty()) {
             // Partition-level refresh for other FEs
@@ -106,13 +108,14 @@ public class HiveInsertExecutor extends BaseExternalTableInsertExecutor {
                     table.getDatabase().getFullName(),
                     table.getName(),
                     modifiedPartNames,
-                    newPartNames);
+                    newPartNames,
+                    updateTime);
         } else {
             // Full table refresh for other FEs
             log = ExternalObjectLog.createForRefreshTable(
                     hmsTable.getCatalog().getId(),
                     table.getDatabase().getFullName(),
-                    table.getName());
+                    table.getName(), updateTime);
         }
         Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
     }

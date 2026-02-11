@@ -41,6 +41,7 @@ public class TestExternalTable extends ExternalTable {
     public synchronized void makeSureInitialized() {
         super.makeSureInitialized();
         this.objectCreated = true;
+        setUpdateTime(System.currentTimeMillis());
     }
 
     @Override

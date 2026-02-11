@@ -115,8 +115,7 @@ void ColumnNullable::update_crcs_with_value(uint32_t* __restrict hashes, doris::
 }
 
 void ColumnNullable::update_crc32c_batch(uint32_t* __restrict hashes,
-                                         const uint8_t* __restrict null_map) const {
-    DCHECK(null_map == nullptr);
+                                         const uint8_t* __restrict /* null_map */) const {
     const auto* __restrict real_null_data =
             assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
     if (_nested_column->support_replace_column_null_data()) {
@@ -135,13 +134,11 @@ void ColumnNullable::update_crc32c_batch(uint32_t* __restrict hashes,
 }
 
 void ColumnNullable::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
-                                          const uint8_t* __restrict null_map) const {
-    DCHECK(null_map == nullptr);
+                                          const uint8_t* __restrict /* null_map */) const {
     const auto* __restrict real_null_data =
             assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
     constexpr int NULL_VALUE = 0;
-    auto s = size();
-    for (int i = 0; i < s; ++i) {
+    for (size_t i = start; i < end; ++i) {
         if (real_null_data[i] != 0) {
             hash = HashUtil::crc32c_fixed(NULL_VALUE, hash);
         }
@@ -280,7 +277,7 @@ size_t ColumnNullable::serialize_impl(char* pos, const size_t row) const {
 }
 
 void ColumnNullable::serialize(StringRef* keys, size_t num_rows) const {
-    const bool has_null = simd::contain_byte(get_null_map_data().data(), num_rows, 1);
+    const bool has_null = simd::contain_one(get_null_map_data().data(), num_rows);
     const auto* __restrict null_map =
             assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
     _nested_column->serialize_with_nullable(keys, num_rows, has_null, null_map);
@@ -331,6 +328,16 @@ void ColumnNullable::insert(const Field& x) {
     } else {
         get_nested_column().insert(x);
         push_false_to_nullmap(1);
+    }
+}
+
+void ColumnNullable::insert_duplicate_fields(const Field& x, const size_t n) {
+    if (x.is_null()) {
+        get_nested_column().insert_many_defaults(n);
+        get_null_map_column().insert_many_vals(1, n);
+    } else {
+        get_nested_column().insert_duplicate_fields(x, n);
+        get_null_map_column().insert_many_vals(0, n);
     }
 }
 
@@ -598,11 +605,11 @@ void ColumnNullable::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
 }
 
 bool ColumnNullable::only_null() const {
-    return !simd::contain_byte(get_null_map_data().data(), size(), 0);
+    return !simd::contain_zero(get_null_map_data().data(), size());
 }
 
 bool ColumnNullable::has_null(size_t begin, size_t end) const {
-    return simd::contain_byte(get_null_map_data().data() + begin, end - begin, 1);
+    return simd::contain_one(get_null_map_data().data() + begin, end - begin);
 }
 
 bool ColumnNullable::has_null() const {

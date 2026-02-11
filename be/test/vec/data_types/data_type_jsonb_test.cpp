@@ -230,7 +230,7 @@ TEST_F(DataTypeJsonbTest, ser_deser) {
             }
         }
     };
-    test_func(dt_jsonb, *column_jsonb, USE_CONST_SERDE);
+    test_func(dt_jsonb, *column_jsonb, BeExecVersionManager::max_be_exec_version);
 }
 
 TEST_F(DataTypeJsonbTest, simple_func_test) {

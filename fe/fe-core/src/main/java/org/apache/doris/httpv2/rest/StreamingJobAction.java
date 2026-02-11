@@ -21,13 +21,11 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.cdc.request.CommitOffsetRequest;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 
 import com.google.common.base.Strings;
 import jakarta.servlet.http.HttpServletRequest;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -67,6 +65,7 @@ public class StreamingJobAction extends RestBaseController {
 
         StreamingInsertJob streamingJob = (StreamingInsertJob) job;
         try {
+            LOG.info("Committing offset with {}", offsetRequest.toString());
             streamingJob.commitOffset(offsetRequest);
             return ResponseEntityBuilder.ok("Offset committed successfully");
         } catch (Exception e) {
@@ -74,16 +73,5 @@ public class StreamingJobAction extends RestBaseController {
                     offsetRequest.getOffset(), e.getMessage());
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
-    }
-
-    @Getter
-    @Setter
-    @NoArgsConstructor
-    public static class CommitOffsetRequest {
-        public long jobId;
-        public long taskId;
-        public String offset;
-        public long scannedRows;
-        public long scannedBytes;
     }
 }

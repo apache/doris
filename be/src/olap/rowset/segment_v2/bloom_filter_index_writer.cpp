@@ -317,6 +317,8 @@ Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
     case TYPE:                                                                   \
         res->reset(new BloomFilterIndexWriterImpl<TYPE>(bf_options, type_info)); \
         break;
+        M(FieldType::OLAP_FIELD_TYPE_BOOL)
+        M(FieldType::OLAP_FIELD_TYPE_TINYINT)
         M(FieldType::OLAP_FIELD_TYPE_SMALLINT)
         M(FieldType::OLAP_FIELD_TYPE_INT)
         M(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT)

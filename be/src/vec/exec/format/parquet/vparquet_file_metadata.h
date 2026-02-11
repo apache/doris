@@ -29,7 +29,7 @@ class FileMetaData {
 public:
     FileMetaData(tparquet::FileMetaData& metadata, size_t mem_size);
     ~FileMetaData();
-    Status init_schema(const bool enable_mapping_varbinary);
+    Status init_schema(const bool enable_mapping_varbinary, const bool enable_mapping_timestamp_tz);
     const FieldDescriptor& schema() const { return _schema; }
     FieldDescriptor& schema() { return _schema; }
     const tparquet::FileMetaData& to_thrift() const;

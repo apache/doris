@@ -33,13 +33,19 @@ class RuntimeState;
 namespace pipeline {
 #include "common/compile_check_begin.h"
 class NestedLoopJoinProbeOperatorX;
+
+/// TODO: Long-term task — the current implementation of this class
+/// is not ideal. Many variables are in a global state, and changing
+/// one may affect other functions. In the future, we should pass the
+/// required variables through function parameters to avoid issues
+/// caused by global state.
 class NestedLoopJoinProbeLocalState final
         : public JoinProbeLocalState<NestedLoopJoinSharedState, NestedLoopJoinProbeLocalState> {
 public:
     using Parent = NestedLoopJoinProbeOperatorX;
     ENABLE_FACTORY_CREATOR(NestedLoopJoinProbeLocalState);
     NestedLoopJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent);
-    ~NestedLoopJoinProbeLocalState() = default;
+    ~NestedLoopJoinProbeLocalState() override = default;
 
 #define CLEAR_BLOCK                                                  \
     for (size_t i = 0; i < column_to_keep; ++i) {                    \
@@ -48,18 +54,33 @@ public:
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
+
+    // For some complex join types, after generating data on the build/probe side,
+    // we need to update visited flags.
     template <typename JoinOpType, bool set_build_side_flag, bool set_probe_side_flag>
-    Status generate_join_block_data(RuntimeState* state, JoinOpType& join_op_variants);
+    Status generate_other_join_block_data(RuntimeState* state, JoinOpType& join_op_variants);
+
+    // Effective only for inner/cross join
+    Status generate_inner_join_block_data(RuntimeState* state);
+
+    // Generate data based on the probe side; applicable to all join types
+    template <bool set_build_side_flag, bool set_probe_side_flag>
+    void _generate_block_base_probe(RuntimeState* state, vectorized::Block* probe_block);
+
+    // Currently only inner join calls this; both set_build_side_flag and
+    // set_probe_side_flag are false, so visited flags will not be updated.
+    void _generate_block_base_build(RuntimeState* state, vectorized::Block* probe_block);
 
 private:
+    // Whether to generate data based on the build side
+    bool use_generate_block_base_build() const;
+
     friend class NestedLoopJoinProbeOperatorX;
     void _update_additional_flags(vectorized::Block* block);
     template <bool BuildSide, bool IsSemi>
     void _finalize_current_phase(vectorized::Block& block, size_t batch_size);
     void _reset_with_next_probe_row();
-    void _append_left_data_with_null(vectorized::Block& block) const;
-    void _process_left_child_block(vectorized::Block& block,
-                                   const vectorized::Block& now_process_build_block) const;
+    void _append_probe_data_with_null(vectorized::Block& block) const;
     template <typename Filter, bool SetBuildSideFlag, bool SetProbeSideFlag>
     void _do_filtering_and_update_visited_flags_impl(vectorized::Block* block,
                                                      uint32_t column_to_keep,
@@ -87,9 +108,9 @@ private:
             }
             if constexpr (SetProbeSideFlag) {
                 int64_t end = filter.size();
-                for (int i = _left_block_pos == _child_block->rows() ? _left_block_pos - 1
-                                                                     : _left_block_pos;
-                     i >= _left_block_start_pos; i--) {
+                for (int i = _probe_block_pos == _child_block->rows() ? _probe_block_pos - 1
+                                                                      : _probe_block_pos;
+                     i >= _probe_block_start_pos; i--) {
                     int64_t offset = 0;
                     if (!_probe_offset_stack.empty()) {
                         offset = _probe_offset_stack.top();
@@ -97,9 +118,7 @@ private:
                     }
                     if (!_cur_probe_row_visited_flags[i]) {
                         _cur_probe_row_visited_flags[i] =
-                                simd::contain_byte<uint8_t>(filter.data() + offset, end - offset, 1)
-                                        ? 1
-                                        : 0;
+                                simd::contain_one(filter.data() + offset, end - offset);
                     }
                     end = offset;
                 }
@@ -178,13 +197,15 @@ private:
     }
 
     bool _matched_rows_done;
-    int _left_block_start_pos = 0;
-    int _left_block_pos; // current scan pos in _left_block
-    int _left_side_process_count = 0;
+    int _probe_block_start_pos = 0;
+    int _probe_block_pos; // current scan pos in _probe_block
+    int _probe_side_process_count = 0;
     bool _need_more_input_data = true;
     // Visited flags for current row in probe side.
     std::vector<int8_t> _cur_probe_row_visited_flags;
     size_t _current_build_pos = 0;
+    size_t _current_build_row_pos =
+            0; // current row pos in build block, used by _generate_block_base_build
     vectorized::MutableColumns _dst_columns;
     std::stack<uint16_t> _build_offset_stack;
     std::stack<uint16_t> _probe_offset_stack;
@@ -232,7 +253,7 @@ public:
 
 private:
     friend class NestedLoopJoinProbeLocalState;
-    bool _is_output_left_side_only;
+    bool _is_output_probe_side_only;
     vectorized::VExprContextSPtrs _join_conjuncts;
     size_t _num_probe_side_columns = 0;
     size_t _num_build_side_columns = 0;

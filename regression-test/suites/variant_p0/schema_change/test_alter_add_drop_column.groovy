@@ -55,7 +55,7 @@ suite("regression_test_variant_add_drop_column", "variant_type"){
     def tablets = sql_return_maparray """ show tablets from ${table_name}; """
 
     // trigger compactions for all tablets in ${tableName}
-    trigger_and_wait_compaction(table_name, "cumulative")
+    trigger_and_wait_compaction(table_name, "cumulative", 1800)
 
     qt_sql "select * from variant_add_drop_column order by k limit 10"
 }

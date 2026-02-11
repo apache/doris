@@ -49,6 +49,8 @@ public:
 
     Status revoke_memory(RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context);
 
+    Status _execute_spill_process(RuntimeState* state, size_t size_to_revoke);
+
     Status setup_in_memory_agg_op(RuntimeState* state);
 
     template <bool spilled>
@@ -102,8 +104,7 @@ public:
 class PartitionedAggSinkOperatorX : public DataSinkOperatorX<PartitionedAggSinkLocalState> {
 public:
     PartitionedAggSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
-                                const TPlanNode& tnode, const DescriptorTbl& descs,
-                                bool require_bucket_distribution);
+                                const TPlanNode& tnode, const DescriptorTbl& descs);
     ~PartitionedAggSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
@@ -116,12 +117,21 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
+    void update_operator(const TPlanNode& tnode, bool followed_by_shuffled_operator,
+                         bool require_bucket_distribution) override {
+        _agg_sink_operator->update_operator(tnode, followed_by_shuffled_operator,
+                                            require_bucket_distribution);
+    }
+
     DataDistribution required_data_distribution(RuntimeState* state) const override {
         return _agg_sink_operator->required_data_distribution(state);
     }
 
-    bool require_data_distribution() const override {
-        return _agg_sink_operator->require_data_distribution();
+    bool is_colocated_operator() const override {
+        return _agg_sink_operator->is_colocated_operator();
+    }
+    bool is_shuffled_operator() const override {
+        return _agg_sink_operator->is_shuffled_operator();
     }
 
     Status set_child(OperatorPtr child) override {

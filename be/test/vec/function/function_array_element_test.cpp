@@ -94,13 +94,14 @@ TEST(function_array_element_test, element_at) {
         InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMALV2,
                                     PrimitiveType::TYPE_BIGINT};
 
-        TestArray vec = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67),
-                         ut_type::DECIMALV2(0.0)};
+        TestArray vec = {ut_type::DECIMALV2VALUEFROMDOUBLE(17014116.67),
+                         ut_type::DECIMALV2VALUEFROMDOUBLE(-17014116.67),
+                         ut_type::DECIMALV2VALUEFROMDOUBLE(0.0)};
         DataSet data_set = {{{vec, Int64(0)}, Null()},
-                            {{vec, Int64(1)}, ut_type::DECIMALV2(17014116.67)},
+                            {{vec, Int64(1)}, ut_type::DECIMALV2VALUEFROMDOUBLE(17014116.67)},
                             {{vec, Int64(4)}, Null()},
-                            {{vec, Int64(-1)}, ut_type::DECIMALV2(0.0)},
-                            {{vec, Int64(-2)}, ut_type::DECIMALV2(-17014116.67)},
+                            {{vec, Int64(-1)}, ut_type::DECIMALV2VALUEFROMDOUBLE(0.0)},
+                            {{vec, Int64(-2)}, ut_type::DECIMALV2VALUEFROMDOUBLE(-17014116.67)},
                             {{vec, Int64(-4)}, Null()},
                             {{Null(), Int64(1)}, Null()},
                             {{empty_arr, Int64(0)}, Null()},

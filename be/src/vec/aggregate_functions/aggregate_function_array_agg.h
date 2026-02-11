@@ -39,7 +39,7 @@ class Arena;
 template <PrimitiveType T>
 struct AggregateFunctionArrayAggData {
     static constexpr PrimitiveType PType = T;
-    using ElementType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using ElementType = typename PrimitiveTypeTraits<T>::CppType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using Self = AggregateFunctionArrayAggData<T>;
     MutableColumnPtr column_data;

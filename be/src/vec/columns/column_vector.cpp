@@ -191,7 +191,7 @@ void ColumnVector<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
 
 template <PrimitiveType T>
 Field ColumnVector<T>::operator[](size_t n) const {
-    return Field::create_field<T>((typename PrimitiveTypeTraits<T>::NearestFieldType)data[n]);
+    return Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)(&data[n]));
 }
 
 template <PrimitiveType T>
@@ -224,15 +224,13 @@ void ColumnVector<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primit
         if (null_data == nullptr) {
             for (size_t i = 0; i < s; i++) {
                 hashes[i] = HashUtil::zlib_crc_hash(
-                        &data[i], sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType),
-                        hashes[i]);
+                        &data[i], sizeof(typename PrimitiveTypeTraits<T>::CppType), hashes[i]);
             }
         } else {
             for (size_t i = 0; i < s; i++) {
                 if (null_data[i] == 0)
                     hashes[i] = HashUtil::zlib_crc_hash(
-                            &data[i], sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType),
-                            hashes[i]);
+                            &data[i], sizeof(typename PrimitiveTypeTraits<T>::CppType), hashes[i]);
             }
         }
     }
@@ -270,15 +268,14 @@ void ColumnVector<T>::update_crc32c_batch(uint32_t* __restrict hashes,
 template <PrimitiveType T>
 void ColumnVector<T>::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
                                            const uint8_t* __restrict null_map) const {
-    auto s = size();
     if (null_map) {
-        for (size_t i = 0; i < s; ++i) {
+        for (size_t i = start; i < end; ++i) {
             if (null_map[i] == 0) {
                 hash = _crc32c_hash(hash, i);
             }
         }
     } else {
-        for (size_t i = 0; i < s; ++i) {
+        for (size_t i = start; i < end; ++i) {
             hash = _crc32c_hash(hash, i);
         }
     }
@@ -525,12 +522,9 @@ MutableColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size
 template <PrimitiveType T>
 void ColumnVector<T>::replace_column_null_data(const uint8_t* __restrict null_map) {
     auto s = size();
-    size_t null_count = s - simd::count_zero_num((const int8_t*)null_map, s);
-    if (0 == null_count) {
-        return;
-    }
+    auto value = default_value();
     for (size_t i = 0; i < s; ++i) {
-        data[i] = null_map[i] ? default_value() : data[i];
+        data[i] = null_map[i] ? value : data[i];
     }
 }
 

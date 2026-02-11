@@ -40,6 +40,7 @@
 namespace doris {
 
 bvar::Status<size_t> g_wal_total_count("wal_total_count", 0);
+bvar::Status<size_t> g_wal_max_count_per_table("wal_max_count_per_table", 0);
 
 WalManager::WalManager(ExecEnv* exec_env, const std::string& wal_dir_list)
         : _exec_env(exec_env),
@@ -204,9 +205,15 @@ size_t WalManager::get_wal_queue_size(int64_t table_id) {
         }
     } else {
         // table_id is -1 meaning get all table wal size
+        size_t max_count_per_table = 0;
         for (auto& [_, table_wals] : _wal_queues) {
-            count += table_wals.size();
+            size_t table_wal_count = table_wals.size();
+            count += table_wal_count;
+            if (table_wal_count > max_count_per_table) {
+                max_count_per_table = table_wal_count;
+            }
         }
+        g_wal_max_count_per_table.set_value(max_count_per_table);
     }
     return count;
 }

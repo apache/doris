@@ -461,7 +461,7 @@ suite("test_function_signature_all_types", 'nonConcurrent') {
     
     explain {
         sql("SELECT date_format(k14, '%Y-%m-%d') FROM test_sig_all_types")
-        notContains("CAST")
+        contains("CAST")
     }
     qt_dateformat_datev2 "SELECT date_format(k14, '%Y-%m-%d') FROM test_sig_all_types ORDER BY k1"
     

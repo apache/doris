@@ -34,10 +34,17 @@ import java.util.List;
  * ScalarFunction 'search' - simplified architecture similar to MultiMatch.
  * Handles DSL parsing and generates SearchPredicate during translation.
  * <p>
- * Supports 1-3 parameters:
- * - search(dsl_string): Traditional usage
- * - search(dsl_string, default_field): Simplified syntax with default field
- * - search(dsl_string, default_field, default_operator): Full control over expansion
+ * Supports 1-2 parameters:
+ * - search(dsl_string): Traditional usage with field specified in DSL
+ * - search(dsl_string, options): With JSON options for configuration
+ * <p>
+ * Options parameter (JSON format):
+ * - default_field: default field name when DSL doesn't specify field
+ * - default_operator: "and" or "or" for multi-term queries (default: "and")
+ * - mode: "standard" (default) or "lucene" (ES/Lucene-style boolean parsing)
+ * - minimum_should_match: integer for Lucene mode (default: 0 for filter context)
+ * <p>
+ * Example options: '{"default_field":"title","mode":"lucene","minimum_should_match":0}'
  */
 public class Search extends ScalarFunction
         implements ExplicitlyCastableSignature, AlwaysNotNullable {
@@ -45,11 +52,8 @@ public class Search extends ScalarFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             // Original signature: search(dsl_string)
             FunctionSignature.ret(BooleanType.INSTANCE).args(StringType.INSTANCE),
-            // With default field: search(dsl_string, default_field)
-            FunctionSignature.ret(BooleanType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE),
-            // With default field and operator: search(dsl_string, default_field, default_operator)
-            FunctionSignature.ret(BooleanType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE,
-                    StringType.INSTANCE)
+            // With options: search(dsl_string, options)
+            FunctionSignature.ret(BooleanType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE)
     );
 
     public Search(Expression... varArgs) {
@@ -62,8 +66,8 @@ public class Search extends ScalarFunction
 
     @Override
     public Search withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1 && children.size() <= 3,
-                "search() requires 1-3 arguments");
+        Preconditions.checkArgument(children.size() >= 1 && children.size() <= 2,
+                "search() requires 1-2 arguments");
         return new Search(getFunctionParams(children));
     }
 
@@ -89,31 +93,23 @@ public class Search extends ScalarFunction
     }
 
     /**
-     * Get default field from second argument (optional)
+     * Get options JSON string from second argument (optional).
+     * Options is a JSON string containing all configuration:
+     * - default_field: default field name when DSL doesn't specify field
+     * - default_operator: "and" or "or" for multi-term queries
+     * - mode: "standard" or "lucene"
+     * - minimum_should_match: integer for Lucene mode
+     * Example: '{"default_field":"title","mode":"lucene","minimum_should_match":0}'
      */
-    public String getDefaultField() {
+    public String getOptionsJson() {
         if (children().size() < 2) {
             return null;
         }
-        Expression fieldArg = child(1);
-        if (fieldArg instanceof StringLikeLiteral) {
-            return ((StringLikeLiteral) fieldArg).getStringValue();
+        Expression optionsArg = child(1);
+        if (optionsArg instanceof StringLikeLiteral) {
+            return ((StringLikeLiteral) optionsArg).getStringValue();
         }
-        return fieldArg.toString();
-    }
-
-    /**
-     * Get default operator from third argument (optional)
-     */
-    public String getDefaultOperator() {
-        if (children().size() < 3) {
-            return null;
-        }
-        Expression operatorArg = child(2);
-        if (operatorArg instanceof StringLikeLiteral) {
-            return ((StringLikeLiteral) operatorArg).getStringValue();
-        }
-        return operatorArg.toString();
+        return optionsArg.toString();
     }
 
     /**
@@ -122,7 +118,7 @@ public class Search extends ScalarFunction
      */
     public SearchDslParser.QsPlan getQsPlan() {
         // Lazy evaluation will be handled in SearchPredicate
-        return SearchDslParser.parseDsl(getDslString(), getDefaultField(), getDefaultOperator());
+        return SearchDslParser.parseDsl(getDslString(), getOptionsJson());
     }
 
     @Override

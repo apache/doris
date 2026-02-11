@@ -20,8 +20,8 @@
 
 #include "common/status.h"
 #include "runtime/runtime_state.h"
-#include "udf/udf.h"
 #include "vec/core/column_numbers.h"
+#include "vec/exprs/function_context.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
@@ -61,8 +61,8 @@ class VectorizedIfExpr : public VConditionExpr {
 public:
     VectorizedIfExpr(const TExprNode& node) : VConditionExpr(node) {}
 
-    Status execute_column(VExprContext* context, const Block* block, size_t count,
-                          ColumnPtr& result_column) const override;
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override;
 
     const std::string& expr_name() const override { return IF_NAME; }
     inline static const std::string IF_NAME = "if";
@@ -125,16 +125,16 @@ public:
     const std::string& expr_name() const override { return IF_NULL_NAME; }
     inline static const std::string IF_NULL_NAME = "ifnull";
 
-    Status execute_column(VExprContext* context, const Block* block, size_t count,
-                          ColumnPtr& result_column) const override;
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override;
 };
 
 class VectorizedCoalesceExpr : public VConditionExpr {
     ENABLE_FACTORY_CREATOR(VectorizedCoalesceExpr);
 
 public:
-    Status execute_column(VExprContext* context, const Block* block, size_t count,
-                          ColumnPtr& result_column) const override;
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override;
     VectorizedCoalesceExpr(const TExprNode& node) : VConditionExpr(node) {}
     const std::string& expr_name() const override { return NAME; }
     inline static const std::string NAME = "coalesce";

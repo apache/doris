@@ -113,7 +113,12 @@ void FileBlock::reset_downloader_impl(std::lock_guard<std::mutex>& block_lock) {
 
 Status FileBlock::set_downloaded(std::lock_guard<std::mutex>& /* block_lock */) {
     DCHECK(_download_state != State::DOWNLOADED);
-    DCHECK_NE(_downloaded_size, 0);
+    if (_downloaded_size == 0) {
+        _download_state = State::EMPTY;
+        _downloader_id = 0;
+        return Status::InternalError("Try to set empty block {} as downloaded",
+                                     _block_range.to_string());
+    }
     Status status = _mgr->_storage->finalize(_key, this->_block_range.size());
     if (status.ok()) [[likely]] {
         _download_state = State::DOWNLOADED;
@@ -147,7 +152,15 @@ Status FileBlock::append(Slice data) {
 }
 
 Status FileBlock::finalize() {
-    if (_downloaded_size != 0 && _downloaded_size != _block_range.size()) {
+    if (_downloaded_size == 0) {
+        std::lock_guard block_lock(_mutex);
+        _download_state = State::EMPTY;
+        _downloader_id = 0;
+        _cv.notify_all();
+        return Status::InternalError("Try to finalize an empty file block {}",
+                                     _block_range.to_string());
+    }
+    if (_downloaded_size != _block_range.size()) {
         SCOPED_CACHE_LOCK(_mgr->_mutex, _mgr);
         size_t old_size = _block_range.size();
         _block_range.right = _block_range.left + _downloaded_size - 1;

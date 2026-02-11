@@ -56,12 +56,14 @@ suite("mtmv_with_sql_cache") {
         def judge_res = { def sql_str ->
 
             sql "set enable_sql_cache=true"
+            sql "set enable_strong_consistency_read=true"
             def directly_res = sql sql_str
             directly_res.sort { [it[0], it[1]] }
             sql "set enable_sql_cache=false"
             def sql_cache_res = sql sql_str
             sql_cache_res.sort { [it[0], it[1]] }
             sql "set enable_sql_cache=true"
+            sql "set enable_strong_consistency_read=true"
 
             assertTrue(directly_res.size() == sql_cache_res.size())
             for (int i = 0; i < directly_res.size(); i++) {
@@ -189,6 +191,7 @@ suite("mtmv_with_sql_cache") {
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
+                            sql "set enable_strong_consistency_read=true"
 
                             // Direct Query
                             assertNoCache "select * from ${mv_name1}"
@@ -293,6 +296,7 @@ suite("mtmv_with_sql_cache") {
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
+                            sql "set enable_strong_consistency_read=true"
 
                             // Direct Query
                             assertNoCache "select * from ${mv_name1}"
@@ -411,6 +415,7 @@ suite("mtmv_with_sql_cache") {
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
+                            sql "set enable_strong_consistency_read=true"
 
                             // Direct Query
                             assertNoCache "select * from ${mv_name1}"
@@ -515,6 +520,7 @@ suite("mtmv_with_sql_cache") {
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
+                            sql "set enable_strong_consistency_read=true"
 
                             // Direct Query
                             assertNoCache "select * from ${mv_name1}"
@@ -611,6 +617,7 @@ suite("mtmv_with_sql_cache") {
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
+                            sql "set enable_strong_consistency_read=true"
 
                             // Direct Query
                             assertNoCache "select * from ${mv_name1}"
@@ -714,6 +721,7 @@ suite("mtmv_with_sql_cache") {
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
+                            sql "set enable_strong_consistency_read=true"
 
                             // Direct Query
                             assertNoCache "select * from ${mv_name1}"
@@ -825,6 +833,7 @@ suite("mtmv_with_sql_cache") {
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
+                            sql "set enable_strong_consistency_read=true"
 
                             // Direct Query
                             assertNoCache "select * from ${mv_name1}"
@@ -937,6 +946,7 @@ suite("mtmv_with_sql_cache") {
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
+                            sql "set enable_strong_consistency_read=true"
 
                             // Direct Query
                             assertNoCache "select * from ${mv_name1}"

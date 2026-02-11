@@ -60,8 +60,6 @@ import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 
 public class FileSystemManager {
 
@@ -1383,35 +1381,32 @@ public class FileSystemManager {
     /**
      *   In view of the different expiration mechanisms of different authentication modes，
      *   there are two ways to determine whether BrokerFileSystem has expired:
-     *   1. For the authentication mode of Kerberos and S3 aksk, use the createTime to determine whether it expires
+     *   1. For the authentication mode of Kerberos and S3 aksk, use the end time of TGT to determine whether it expires
      *   2. For other authentication modes, the lastAccessTime is used to determine whether it has expired
      */
     private BrokerFileSystem updateCachedFileSystem(FileSystemIdentity fileSystemIdentity, Map<String, String> properties) {
         BrokerFileSystem brokerFileSystem;
         if (cachedFileSystem.containsKey(fileSystemIdentity)) {
             brokerFileSystem = cachedFileSystem.get(fileSystemIdentity);
-            if (properties.containsKey(KERBEROS_KEYTAB) && properties.containsKey(KERBEROS_PRINCIPAL)) {
-                if (brokerFileSystem.isExpiredByCreateTime(BrokerConfig.client_expire_seconds)) {
-                    logger.info("file system " + brokerFileSystem + " is expired, update it.");
-                    try {
-                        Configuration conf = new HdfsConfiguration();
-                        conf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION, AUTHENTICATION_KERBEROS);
-                        UserGroupInformation ugi = UserGroupInformation.loginUserFromKeytabAndReturnUGI(
-                            preparePrincipal(properties.get(KERBEROS_PRINCIPAL)), properties.get(KERBEROS_KEYTAB));
-                        // update FileSystem TGT
-                        ugi.checkTGTAndReloginFromKeytab();
-                    } catch (Exception e) {
-                        logger.error("errors while checkTGTAndReloginFromKeytab: ", e);
-                    }
+            if (UserGroupInformation.isSecurityEnabled()) {
+                try {
+                    UserGroupInformation.getCurrentUser().checkTGTAndReloginFromKeytab();
+                } catch (Exception e) {
+                    logger.error("errors while refresh TGT: ", e);
                 }
-            } else if (brokerFileSystem.isExpiredByLastAccessTime(BrokerConfig.client_expire_seconds)) {
+            } else if (brokerFileSystem.isExpiredByLastAccessTime()) {
                 brokerFileSystem.getLock().lock();
+                BrokerFileSystem bfs = cachedFileSystem.get(fileSystemIdentity);
+                if (!bfs.isExpiredByLastAccessTime()) {
+                  return bfs;
+                }
                 try {
                     logger.info("file system " + brokerFileSystem + " is expired, update it.");
                     brokerFileSystem.closeFileSystem();
-                    brokerFileSystem.getLock().unlock();
                 } catch (Throwable t) {
                     logger.error("errors while close file system: ", t);
+                } finally {
+                    brokerFileSystem.getLock().unlock();
                 }
                 brokerFileSystem = new BrokerFileSystem(fileSystemIdentity);
                 cachedFileSystem.put(fileSystemIdentity, brokerFileSystem);

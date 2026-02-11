@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -41,7 +42,10 @@ public class MinuteSecondAdd extends ScalarFunction
         ComputeSignatureForDateArithmetic, PropagateNullable, DateAddSubMonotonic {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD,
-            VarcharType.SYSTEM_DEFAULT));
+            VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(TimeStampTzType.WILDCARD).args(TimeStampTzType.WILDCARD,
+            VarcharType.SYSTEM_DEFAULT)
+    );
 
     public MinuteSecondAdd(Expression arg0, Expression arg1) {
         super("minute_second_add", arg0, arg1);

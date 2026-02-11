@@ -103,7 +103,6 @@ private:
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
-    std::unique_ptr<vectorized::Arena> _agg_profile_arena = nullptr;
     std::unique_ptr<AggregateDataContainer> _aggregate_data_container = nullptr;
     bool _reach_limit = false;
     size_t _input_num_rows = 0;
@@ -205,13 +204,15 @@ private:
 class StreamingAggOperatorX MOCK_REMOVE(final) : public StatefulOperatorX<StreamingAggLocalState> {
 public:
     StreamingAggOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                          const DescriptorTbl& descs, bool require_bucket_distribution);
+                          const DescriptorTbl& descs);
 #ifdef BE_TEST
     StreamingAggOperatorX() : _is_first_phase {false} {}
 #endif
 
     ~StreamingAggOperatorX() override = default;
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
+    void update_operator(const TPlanNode& tnode, bool followed_by_shuffled_operator,
+                         bool require_bucket_distribution) override;
     Status prepare(RuntimeState* state) override;
     Status pull(RuntimeState* state, vectorized::Block* block, bool* eos) const override;
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
@@ -272,7 +273,7 @@ private:
     std::vector<int> _order_directions;
     std::vector<int> _null_directions;
 
-    const std::vector<TExpr> _partition_exprs;
+    std::vector<TExpr> _partition_exprs;
 };
 
 } // namespace pipeline

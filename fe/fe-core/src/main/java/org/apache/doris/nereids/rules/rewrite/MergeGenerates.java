@@ -35,18 +35,19 @@ import java.util.Set;
 public class MergeGenerates extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalGenerate(logicalGenerate()).then(top -> {
-            LogicalGenerate<Plan> bottom = top.child();
-            Set<Slot> topGeneratorSlots = top.getInputSlots();
-            if (bottom.getGeneratorOutput().stream().anyMatch(topGeneratorSlots::contains)) {
-                // top generators use bottom's generator's output, cannot merge.
-                return top;
-            }
-            List<Function> generators = Lists.newArrayList(bottom.getGenerators());
-            generators.addAll(top.getGenerators());
-            List<Slot> generatorsOutput = Lists.newArrayList(bottom.getGeneratorOutput());
-            generatorsOutput.addAll(top.getGeneratorOutput());
-            return new LogicalGenerate<>(generators, generatorsOutput, bottom.child());
-        }).toRule(RuleType.MERGE_GENERATES);
+        return logicalGenerate(logicalGenerate().when(generate -> generate.getConjuncts().isEmpty()))
+                .when(generate -> generate.getConjuncts().isEmpty()).then(top -> {
+                    LogicalGenerate<Plan> bottom = top.child();
+                    Set<Slot> topGeneratorSlots = top.getInputSlots();
+                    if (bottom.getGeneratorOutput().stream().anyMatch(topGeneratorSlots::contains)) {
+                        // top generators use bottom's generator's output, cannot merge.
+                        return top;
+                    }
+                    List<Function> generators = Lists.newArrayList(bottom.getGenerators());
+                    generators.addAll(top.getGenerators());
+                    List<Slot> generatorsOutput = Lists.newArrayList(bottom.getGeneratorOutput());
+                    generatorsOutput.addAll(top.getGeneratorOutput());
+                    return new LogicalGenerate<>(generators, generatorsOutput, bottom.child());
+                }).toRule(RuleType.MERGE_GENERATES);
     }
 }

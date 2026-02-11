@@ -193,9 +193,18 @@ public class HeartbeatMgr extends MasterDaemon {
                 if (be != null) {
                     long oldStartTime = be.getLastStartTime();
                     boolean isChanged = be.handleHbResponse(hbResponse, isReplay);
+                    if (DebugPointUtil.isEnable("HeartbeatMgr.abortTxnWhenCoordinateBeDown")) {
+                        submitAbortTxnTaskByExecutor(() -> Env.getCurrentGlobalTransactionMgr()
+                                    .abortTxnWhenCoordinateBeDown(be.getId(), be.getHost(), 100), "down");
+                    }
                     if (hbResponse.getStatus() == HbStatus.OK) {
                         long newStartTime = be.getLastStartTime();
                         // oldStartTime > 0 means it is not the first heartbeat
+                        if (DebugPointUtil.isEnable("FE.abortTxnWhenCoordinateBeRestart")) {
+                            submitAbortTxnTaskByExecutor(() -> Env.getCurrentGlobalTransactionMgr()
+                                    .abortTxnWhenCoordinateBeRestart(be.getId(), be.getHost(), newStartTime + 1000),
+                                    "restart");
+                        }
                         if (!isReplay && Config.enable_abort_txn_by_checking_coordinator_be
                                 && oldStartTime != newStartTime && oldStartTime > 0) {
                             submitAbortTxnTaskByExecutor(() -> Env.getCurrentGlobalTransactionMgr()

@@ -447,6 +447,8 @@ public class VectorColumn {
             case DATETIME:
             case DATETIMEV2:
                 return appendDateTime(LocalDateTime.MIN);
+            case TIMESTAMPTZ:
+                return appendTimeStampTz(LocalDateTime.MIN);
             case CHAR:
             case VARCHAR:
             case STRING:
@@ -1164,6 +1166,50 @@ public class VectorColumn {
         OffHeap.putLong(null, data + rowId * 8L, time);
     }
 
+    public int appendTimeStampTz(LocalDateTime v) {
+        reserve(appendIndex + 1);
+        putTimeStampTz(appendIndex, v);
+        return appendIndex++;
+    }
+
+    private void putTimeStampTz(int rowId, LocalDateTime v) {
+        // TimeStampTz use the same storage format as DateTimeV2
+        long time = TypeNativeBytes.convertToDateTimeV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth(), v.getHour(),
+                    v.getMinute(), v.getSecond(), v.getNano() / 1000);
+        OffHeap.putLong(null, data + rowId * 8L, time);
+    }
+
+    public LocalDateTime[] getTimeStampTzColumn(int start, int end) {
+        LocalDateTime[] result = new LocalDateTime[end - start];
+        for (int i = start; i < end; ++i) {
+            if (!isNullAt(i)) {
+                result[i - start] = getTimeStampTz(i);
+            }
+        }
+        return result;
+    }
+
+    public LocalDateTime getTimeStampTz(int rowId) {
+        long time = OffHeap.getLong(null, data + rowId * 8L);
+        return TypeNativeBytes.convertToJavaDateTimeV2(time);
+    }
+
+    public void appendTimeStampTz(LocalDateTime[] batch, boolean isNullable) {
+        if (!isNullable) {
+            checkNullable(batch, batch.length);
+        }
+        reserve(appendIndex + batch.length);
+        for (LocalDateTime v : batch) {
+            if (v == null) {
+                putNull(appendIndex);
+                putTimeStampTz(appendIndex, LocalDateTime.MIN);
+            } else {
+                putTimeStampTz(appendIndex, v);
+            }
+            appendIndex++;
+        }
+    }
+
     private void putBytes(int rowId, byte[] src, int offset, int length) {
         OffHeap.copyMemory(src, OffHeap.BYTE_ARRAY_OFFSET + offset, null, data + rowId, length);
     }
@@ -1638,6 +1684,9 @@ public class VectorColumn {
             case DATETIME:
             case DATETIMEV2:
                 return new LocalDateTime[size];
+            case TIMESTAMPTZ:
+                // MAYBE use LocalDateTime is not appropriate
+                return new LocalDateTime[size];
             case CHAR:
             case VARCHAR:
             case STRING:
@@ -1697,6 +1746,10 @@ public class VectorColumn {
             case DATETIME:
             case DATETIMEV2:
                 appendDateTime((LocalDateTime[]) batch, isNullable);
+                break;
+            case TIMESTAMPTZ:
+                // MAYBE use LocalDateTime is not appropriate
+                appendTimeStampTz((LocalDateTime[]) batch, isNullable);
                 break;
             case CHAR:
             case VARCHAR:
@@ -1762,6 +1815,8 @@ public class VectorColumn {
             case DATETIME:
             case DATETIMEV2:
                 return getDateTimeColumn(start, end);
+            case TIMESTAMPTZ:
+                return getTimeStampTzColumn(start, end);
             case CHAR:
             case VARCHAR:
             case STRING:
@@ -1825,6 +1880,9 @@ public class VectorColumn {
             case DATETIME:
             case DATETIMEV2:
                 appendDateTime(o.getDateTime());
+                break;
+            case TIMESTAMPTZ:
+                appendTimeStampTz(o.getTimeStampTz());
                 break;
             case CHAR:
                 if (o.canGetCharAsBytes()) {
@@ -1916,6 +1974,9 @@ public class VectorColumn {
             case DATETIME:
             case DATETIMEV2:
                 sb.append(getDateTime(i));
+                break;
+            case TIMESTAMPTZ:
+                sb.append(getTimeStampTz(i));
                 break;
             case CHAR:
             case VARCHAR:

@@ -54,20 +54,6 @@ void ColumnStr<T>::sanity_check() const {
 }
 
 template <typename T>
-void ColumnStr<T>::sanity_check_simple() const {
-#ifndef NDEBUG
-    auto count = cast_set<int64_t>(offsets.size());
-    if (chars.size() != offsets[count - 1]) {
-        throw Exception(Status::InternalError("row count: {}, chars.size(): {}, offset[{}]: {}",
-                                              count, chars.size(), count - 1, offsets[count - 1]));
-    }
-    if (offsets[-1] != 0) {
-        throw Exception(Status::InternalError("wrong offsets[-1]: {}", offsets[-1]));
-    }
-#endif
-}
-
-template <typename T>
 MutableColumnPtr ColumnStr<T>::clone_resized(size_t to_size) const {
     auto res = ColumnStr<T>::create();
     if (to_size == 0) {
@@ -745,15 +731,15 @@ void ColumnStr<T>::insert(const Field& x) {
     StringRef s;
     if (x.get_type() == PrimitiveType::TYPE_JSONB) {
         // Handle JsonbField
-        const auto& real_field = vectorized::get<const JsonbField&>(x);
+        const auto& real_field = x.get<TYPE_JSONB>();
         s = StringRef(real_field.get_value(), real_field.get_size());
     } else {
         DCHECK(is_string_type(x.get_type()));
         // If `x.get_type()` is not String, such as UInt64, may get the error
         // `string column length is too large: total_length=13744632839234567870`
         // because `<String>(x).size() = 13744632839234567870`
-        s.data = vectorized::get<const String&>(x).data();
-        s.size = vectorized::get<const String&>(x).size();
+        s.data = x.get<TYPE_STRING>().data();
+        s.size = x.get<TYPE_STRING>().size();
     }
     const size_t old_size = chars.size();
     const size_t size_to_append = s.size;

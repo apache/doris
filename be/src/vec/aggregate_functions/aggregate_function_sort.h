@@ -174,7 +174,7 @@ public:
         // place is essentially an AggregateDataPtr, passed as a ConstAggregateDataPtr.
         auto* place = const_cast<AggregateDataPtr>(targetplace);
         Arena arena;
-        if (!this->data(place).block.is_empty_column()) {
+        if (!this->data(place).block.empty()) {
             this->data(place).sort();
 
             ColumnRawPtrs arguments_nested;

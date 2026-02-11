@@ -40,10 +40,10 @@ public:
 
 class MockClosure : public google::protobuf::Closure {
 public:
+    MockClosure() {}
     MockClosure(std::function<void()> cb) : _cb(cb) {}
     void Run() override { _cb(); }
 
-private:
     std::function<void()> _cb;
 };
 
@@ -126,7 +126,9 @@ TEST_F(GetResultBatchCtxTest, TestGetResultBatchCtx) {
 
 TEST_F(GetResultBatchCtxTest, TestGetArrowResultBatchCtx) {
     PFetchArrowDataResult result;
-    auto ctx = GetArrowResultBatchCtx::create_shared(&result);
+    MockClosure closure;
+    closure._cb = [&]() { std::cout << "cb" << std::endl; };
+    auto ctx = GetArrowResultBatchCtx::create_shared(&result, &closure);
 
     {
         // on_failure

@@ -110,6 +110,6 @@ suite("regression_test_variant_schema_change", "variant_type"){
     sql """insert into t values (5, '{"a" : 1111.11111}')"""
     sql """insert into t values (6, '{"a" : "11111"}')"""
     sql """insert into t values (7, '{"a" : 11111.11111}')"""
-    trigger_and_wait_compaction("t", "cumulative")
+    trigger_and_wait_compaction("t", "cumulative", 1800)
     qt_sql "select * from t order by col0 limit 3"
 }

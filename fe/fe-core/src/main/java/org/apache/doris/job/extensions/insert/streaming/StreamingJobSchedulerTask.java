@@ -67,6 +67,7 @@ public class StreamingJobSchedulerTask extends AbstractTask {
         }
         streamingInsertJob.replayOffsetProviderIfNeed();
         streamingInsertJob.createStreamingTask();
+        streamingInsertJob.setSampleStartTime(System.currentTimeMillis());
         streamingInsertJob.updateJobStatus(JobStatus.RUNNING);
         streamingInsertJob.setAutoResumeCount(0);
     }
@@ -94,7 +95,6 @@ public class StreamingJobSchedulerTask extends AbstractTask {
                 if (autoResumeCount < Long.MAX_VALUE) {
                     streamingInsertJob.setAutoResumeCount(autoResumeCount + 1);
                 }
-                streamingInsertJob.resetFailureInfo(null);
                 streamingInsertJob.updateJobStatus(JobStatus.PENDING);
                 return;
             }

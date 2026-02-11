@@ -100,6 +100,18 @@ public:
         const auto& request_id = outcome.IsSuccess() ? outcome.GetResult().GetRequestId()
                                                      : outcome.GetError().GetRequestId();
         if (!outcome.IsSuccess()) {
+            // Treat NoSuchKey as empty response for compatibility with some S3-compatible storage providers
+            // e.g. TOS by ByteDance Cloud (Volcano Engine)
+            if (outcome.GetError().GetErrorType() == Aws::S3::S3Errors::NO_SUCH_KEY) {
+                LOG_INFO("NoSuchKey error when listing objects, treat as empty response")
+                        .tag("endpoint", endpoint_)
+                        .tag("bucket", req_.GetBucket())
+                        .tag("prefix", req_.GetPrefix())
+                        .tag("request_id", request_id);
+                has_more_ = false;
+                return false;
+            }
+
             LOG_WARNING("failed to list objects")
                     .tag("endpoint", endpoint_)
                     .tag("bucket", req_.GetBucket())

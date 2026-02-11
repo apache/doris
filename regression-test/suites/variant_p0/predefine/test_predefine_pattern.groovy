@@ -20,6 +20,7 @@ suite("test_variant_predefine_base", "p0"){
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_enable_doc_mode = false """
     def count = new Random().nextInt(5)
     def tableName = "base_match_name_variant_test"
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -54,7 +55,7 @@ suite("test_variant_predefine_base", "p0"){
     qt_sql """ select count() from ${tableName} where cast(var['bxx'] as string) match '789' """
     
 
-    trigger_and_wait_compaction(tableName, "full")
+    trigger_and_wait_compaction(tableName, "full", 1800)
 
     qt_sql """select * from ${tableName} order by id"""
     qt_sql """ select variant_type(var) from base_match_name_variant_test group by variant_type(var) """
@@ -96,7 +97,7 @@ suite("test_variant_predefine_base", "p0"){
     qt_sql """ select count() from ${tableName} where cast(var['a']['bxc'] as string) match '789' """
 qt_sql """ select count() from ${tableName} where cast(var['a']['c2323'] as string) match '789' """
     
-    trigger_and_wait_compaction(tableName, "full")
+    trigger_and_wait_compaction(tableName, "full", 1800)
 
     qt_sql """select * from ${tableName} order by id"""
     qt_sql """ select variant_type(var) from base_match_name_variant_test group by variant_type(var) """

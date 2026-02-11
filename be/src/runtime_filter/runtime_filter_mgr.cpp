@@ -62,13 +62,13 @@ std::vector<std::shared_ptr<RuntimeFilterConsumer>> RuntimeFilterMgr::get_consum
 }
 
 Status RuntimeFilterMgr::register_consumer_filter(
-        const QueryContext* query_ctx, const TRuntimeFilterDesc& desc, int node_id,
+        const RuntimeState* state, const TRuntimeFilterDesc& desc, int node_id,
         std::shared_ptr<RuntimeFilterConsumer>* consumer) {
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
 
     std::lock_guard<std::mutex> l(_lock);
-    RETURN_IF_ERROR(RuntimeFilterConsumer::create(query_ctx, &desc, node_id, consumer));
+    RETURN_IF_ERROR(RuntimeFilterConsumer::create(state, &desc, node_id, consumer));
     _consumer_map[key].push_back(*consumer);
     return Status::OK();
 }
@@ -126,7 +126,10 @@ Status RuntimeFilterMgr::get_local_merge_producer_filters(int filter_id,
                 filter_id);
     }
     *local_merge_filters = &iter->second;
-    DCHECK(iter->second.merger);
+    if (!iter->second.merger) {
+        return Status::InternalError("local merge context merger is nullptr for filter_id: {}",
+                                     filter_id);
+    }
     return Status::OK();
 }
 
@@ -354,7 +357,11 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(GlobalMergeContext
                                                               int64_t merge_time,
                                                               PUniqueId query_id,
                                                               int execution_timeout) {
-    DCHECK_GT(cnt_val.targetv2_info.size(), 0);
+    if (cnt_val.targetv2_info.empty()) {
+        return Status::InternalError(
+                "_send_rf_to_target called with empty targetv2_info, filter: {}",
+                cnt_val.merger ? cnt_val.merger->debug_string() : "unknown");
+    }
 
     if (cnt_val.done) {
         return Status::InternalError("Runtime filter has been sent",
@@ -431,6 +438,29 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(GlobalMergeContext
         closure.release();
     }
     return st;
+}
+
+Status GlobalMergeContext::reset(QueryContext* query_ctx) {
+    int producer_size = merger->get_expected_producer_num();
+    RETURN_IF_ERROR(RuntimeFilterMerger::create(query_ctx, &runtime_filter_desc, &merger));
+    merger->set_expected_producer_num(producer_size);
+    arrive_id.clear();
+    source_addrs.clear();
+    done = false;
+    return Status::OK();
+}
+
+Status RuntimeFilterMergeControllerEntity::reset_global_rf(
+        QueryContext* query_ctx, const google::protobuf::RepeatedField<int32_t>& filter_ids) {
+    for (const auto& filter_id : filter_ids) {
+        GlobalMergeContext* cnt_val;
+        {
+            std::unique_lock<std::shared_mutex> guard(_filter_map_mutex);
+            cnt_val = &_filter_map[filter_id]; // may inplace construct default object
+        }
+        RETURN_IF_ERROR(cnt_val->reset(query_ctx));
+    }
+    return Status::OK();
 }
 
 std::string RuntimeFilterMergeControllerEntity::debug_string() {

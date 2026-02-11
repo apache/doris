@@ -684,6 +684,7 @@ public class SchemaTable extends Table {
                                     .column("USER_NAME", ScalarType.createStringType())
                                     .column("CURRENT_ABORT_TASK_NUM", ScalarType.createType(PrimitiveType.INT))
                                     .column("IS_ABNORMAL_PAUSE", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("COMPUTE_GROUP", ScalarType.createStringType())
                                     .build())
             )
             .put("load_jobs",
@@ -713,6 +714,7 @@ public class SchemaTable extends Table {
             .put("file_cache_info",
                     new SchemaTable(SystemIdGenerator.getNextId(), "file_cache_info", TableType.SCHEMA,
                             builder().column("HASH", ScalarType.createStringType())
+                                    .column("OFFSET", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SIZE", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("TYPE", ScalarType.createStringType())

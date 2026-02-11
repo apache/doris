@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
@@ -48,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 
 /**
  * relation visitor
@@ -139,6 +141,10 @@ public interface RelationVisitor<R, C> {
         return visitLogicalCatalogRelation(testScan, context);
     }
 
+    default R visitLogicalWorkTableReference(LogicalWorkTableReference logicalWorkTableReference, C context) {
+        return visitLogicalRelation(logicalWorkTableReference, context);
+    }
+
     // *******************************
     // physical relations
     // *******************************
@@ -174,6 +180,10 @@ public interface RelationVisitor<R, C> {
     default R visitPhysicalDeferMaterializeOlapScan(
             PhysicalDeferMaterializeOlapScan deferMaterializeOlapScan, C context) {
         return visitPhysicalCatalogRelation(deferMaterializeOlapScan, context);
+    }
+
+    default R visitPhysicalWorkTableReference(PhysicalWorkTableReference workTableReference, C context) {
+        return visitPhysicalRelation(workTableReference, context);
     }
 
     default R visitPhysicalOneRowRelation(PhysicalOneRowRelation oneRowRelation, C context) {

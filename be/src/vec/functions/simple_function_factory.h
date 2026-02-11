@@ -24,7 +24,7 @@
 #include <string>
 
 #include "agent/be_exec_version_manager.h"
-#include "udf/udf.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
@@ -98,6 +98,7 @@ void register_function_geo(SimpleFunctionFactory& factory);
 void register_function_multi_string_position(SimpleFunctionFactory& factory);
 void register_function_multi_string_search(SimpleFunctionFactory& factory);
 void register_function_width_bucket(SimpleFunctionFactory& factory);
+void register_function_interval(SimpleFunctionFactory& factory);
 void register_function_ignore(SimpleFunctionFactory& factory);
 void register_function_encryption(SimpleFunctionFactory& factory);
 void register_function_regexp_extract(SimpleFunctionFactory& factory);
@@ -337,6 +338,7 @@ public:
             register_function_multi_string_position(instance);
             register_function_multi_string_search(instance);
             register_function_width_bucket(instance);
+            register_function_interval(instance);
             register_function_match(instance);
             register_function_ip(instance);
             register_function_tokenize(instance);

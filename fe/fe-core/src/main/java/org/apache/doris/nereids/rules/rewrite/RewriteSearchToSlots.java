@@ -93,7 +93,7 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
         try {
             // Parse DSL to get field bindings
             SearchDslParser.QsPlan qsPlan = search.getQsPlan();
-            if (qsPlan == null || qsPlan.fieldBindings == null || qsPlan.fieldBindings.isEmpty()) {
+            if (qsPlan == null || qsPlan.getFieldBindings() == null || qsPlan.getFieldBindings().isEmpty()) {
                 LOG.warn("Search function has no field bindings: {}", search.getDslString());
                 return search;
             }
@@ -102,8 +102,8 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
 
             // Create slot reference children from field bindings
             List<Expression> slotChildren = new ArrayList<>();
-            for (SearchDslParser.QsFieldBinding binding : qsPlan.fieldBindings) {
-                String originalFieldName = binding.fieldName;
+            for (SearchDslParser.QsFieldBinding binding : qsPlan.getFieldBindings()) {
+                String originalFieldName = binding.getFieldName();
                 Expression childExpr;
                 String normalizedFieldName;
 
@@ -151,14 +151,14 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
                 }
 
                 normalizedFields.put(originalFieldName, normalizedFieldName);
-                binding.fieldName = normalizedFieldName;
+                binding.setFieldName(normalizedFieldName);
                 slotChildren.add(childExpr);
             }
 
             LOG.info("Rewriting search function: dsl='{}' with {} slot children",
                     search.getDslString(), slotChildren.size());
 
-            normalizePlanFields(qsPlan.root, normalizedFields);
+            normalizePlanFields(qsPlan.getRoot(), normalizedFields);
 
             // Create SearchExpression with slot children
             return new SearchExpression(search.getDslString(), qsPlan, slotChildren);
@@ -182,16 +182,16 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
         if (node == null) {
             return;
         }
-        if (node.field != null) {
+        if (node.getField() != null) {
             for (Map.Entry<String, String> entry : normalized.entrySet()) {
-                if (entry.getKey().equalsIgnoreCase(node.field)) {
-                    node.field = entry.getValue();
+                if (entry.getKey().equalsIgnoreCase(node.getField())) {
+                    node.setField(entry.getValue());
                     break;
                 }
             }
         }
-        if (node.children != null) {
-            for (SearchDslParser.QsNode child : node.children) {
+        if (node.getChildren() != null) {
+            for (SearchDslParser.QsNode child : node.getChildren()) {
                 normalizePlanFields(child, normalized);
             }
         }

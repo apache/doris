@@ -72,7 +72,7 @@ class MockPartitionedAggSinkOperatorX : public PartitionedAggSinkOperatorX {
 public:
     MockPartitionedAggSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
                                     const TPlanNode& tnode, const DescriptorTbl& descs)
-            : PartitionedAggSinkOperatorX(pool, operator_id, dest_id, tnode, descs, false) {}
+            : PartitionedAggSinkOperatorX(pool, operator_id, dest_id, tnode, descs) {}
     ~MockPartitionedAggSinkOperatorX() override = default;
 
     Status prepare(RuntimeState* state) override { return Status::OK(); }

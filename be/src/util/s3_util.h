@@ -88,8 +88,8 @@ struct S3ClientConf {
 
     uint64_t get_hash() const {
         uint64_t hash_code = 0;
-        hash_code ^= crc32_hash(ak);
-        hash_code ^= crc32_hash(sk);
+        // Use crc32_hash(ak + sk) hash to prevent swapped AK/SK order from producing same result.
+        hash_code ^= crc32_hash(ak + sk);
         hash_code ^= crc32_hash(token);
         hash_code ^= crc32_hash(endpoint);
         hash_code ^= crc32_hash(region);

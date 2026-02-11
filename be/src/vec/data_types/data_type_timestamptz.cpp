@@ -34,7 +34,7 @@ Field DataTypeTimeStampTz::get_field(const TExprNode& node) const {
                                "Invalid value: {} for type TimeStampTz({})",
                                node.date_literal.value, _scale);
     } else {
-        return Field::create_field<TYPE_TIMESTAMPTZ>(res.to_date_int_val());
+        return Field::create_field<TYPE_TIMESTAMPTZ>(res);
     }
 }
 

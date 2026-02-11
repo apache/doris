@@ -19,6 +19,8 @@
 // and modified by Doris
 
 #pragma once
+#include <parallel_hashmap/phmap.h>
+
 #include <memory>
 
 #include "runtime/exec_env.h"
@@ -47,7 +49,7 @@ public:
         Kind kind = TUPLE;
         const Node* parent = nullptr;
 
-        std::unordered_map<StringRef, std::shared_ptr<Node>, StringRefHash> children;
+        phmap::flat_hash_map<StringRef, std::shared_ptr<Node>, StringRefHash> children;
 
         NodeData data;
         PathInData path;

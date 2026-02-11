@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.generator;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
@@ -44,7 +44,8 @@ import java.util.List;
  * pose column: 0, 1, 2
  * value column: 'a', 'b', 'c'
  */
-public class PosExplode extends TableGeneratingFunction implements CustomSignature, ComputePrecision, AlwaysNullable {
+public class PosExplode extends TableGeneratingFunction implements
+        CustomSignature, ComputePrecision, AlwaysNotNullable {
     public static final String POS_COLUMN = "pos";
 
     /**

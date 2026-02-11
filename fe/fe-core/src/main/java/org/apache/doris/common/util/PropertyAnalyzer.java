@@ -269,6 +269,14 @@ public class PropertyAnalyzer {
     // number of buckets when using bucketized sparse serialization
     public static final String PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT = "variant_sparse_hash_shard_count";
 
+    public static final String PROPERTIES_VARIANT_ENABLE_DOC_MODE = "variant_enable_doc_mode";
+
+    public static final String PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS =
+            "variant_doc_materialization_min_rows";
+
+    // number of buckets when using doc snapshot serialization
+    public static final String PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT = "variant_doc_hash_shard_count";
+
     public enum RewriteType {
         PUT,      // always put property
         REPLACE,  // replace if exists property
@@ -2092,6 +2100,82 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT);
         }
         return bucketNum;
+    }
+
+    public static boolean analyzeEnableVariantDocMode(Map<String, String> properties, boolean defaultValue)
+                                                                                throws AnalysisException {
+        boolean enableVariantDocMode = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_DOC_MODE)) {
+            String enableVariantDocModeStr = properties.get(PROPERTIES_VARIANT_ENABLE_DOC_MODE);
+            try {
+                enableVariantDocMode = Boolean.parseBoolean(enableVariantDocModeStr);
+            } catch (Exception e) {
+                throw new AnalysisException("variant_enable_doc_mode must be `true` or `false`");
+            }
+            properties.remove(PROPERTIES_VARIANT_ENABLE_DOC_MODE);
+        }
+        return enableVariantDocMode;
+    }
+
+    public static long analyzeVariantDocMaterializationMinRows(Map<String, String> properties,
+                                                               long defaultValue)
+                                                                                throws AnalysisException {
+        long minRows = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS)) {
+            String minRowsStr = properties.get(PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS);
+            try {
+                minRows = Long.parseLong(minRowsStr);
+                if (minRows < 0 || minRows > 1_000_000_000) {
+                    throw new AnalysisException(
+                            "variant_doc_materialization_min_rows must between 0 and 1000000000 ");
+                }
+            } catch (Exception e) {
+                throw new AnalysisException(
+                        "variant_doc_materialization_min_rows format error:" + e.getMessage());
+            }
+            properties.remove(PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS);
+        }
+        return minRows;
+    }
+
+    public static int analyzeVariantDocHashShardCount(Map<String, String> properties, int defaultValue)
+            throws AnalysisException {
+        int shardCount = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT)) {
+            String shardCountStr = properties.get(PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT);
+            try {
+                shardCount = Integer.parseInt(shardCountStr);
+                if (shardCount < 0 || shardCount > 1024) {
+                    throw new AnalysisException("variant_doc_hash_shard_count must between 0 and 1024 ");
+                }
+            } catch (Exception e) {
+                throw new AnalysisException(
+                        "variant_doc_hash_shard_count format error:" + e.getMessage());
+            }
+            properties.remove(PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT);
+        }
+        return shardCount;
+    }
+
+    public static void validateVariantProperties(Map<String, String> properties) throws AnalysisException {
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_DOC_MODE)) {
+            if (properties.containsKey(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT)) {
+                throw new AnalysisException("variant_max_subcolumns_count and variant_enable_doc_mode "
+                        + "cannot be set together");
+            }
+            if (properties.containsKey(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE)) {
+                throw new AnalysisException("variant_enable_typed_paths_to_sparse and variant_enable_doc_mode "
+                        + "cannot be set together");
+            }
+            if (properties.containsKey(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE)) {
+                throw new AnalysisException("variant_max_sparse_column_statistics_size and variant_enable_doc_mode "
+                        + "cannot be set together");
+            }
+            if (properties.containsKey(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT)) {
+                throw new AnalysisException("variant_sparse_hash_shard_count and variant_enable_doc_mode "
+                        + "cannot be set together");
+            }
+        }
     }
 
     public static TEncryptionAlgorithm analyzeTDEAlgorithm(Map<String, String> properties) throws AnalysisException {

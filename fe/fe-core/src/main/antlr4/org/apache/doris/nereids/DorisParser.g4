@@ -96,7 +96,7 @@ materializedViewStatement
     ;
 
 jobFromToClause
-    : FROM sourceType=identifier LEFT_PAREN sourceProperties=propertyItemList RIGHT_PAREN
+    : FROM sourceType=identifier (LEFT_PAREN sourceProperties=propertyItemList RIGHT_PAREN)?
       TO DATABASE targetDb=identifier (LEFT_PAREN targetProperties=propertyItemList RIGHT_PAREN)?
     ;
 
@@ -233,14 +233,15 @@ supportedCreateStatement
             (TABLES | AGGREGATE)? FUNCTION (IF NOT EXISTS)?
             functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN
             RETURNS returnType=dataType (INTERMEDIATE intermediateType=dataType)?
-            properties=propertyClause?                                              #createUserDefineFunction
+            properties=propertyClause?
+            (AS functionCode=dollarQuotedString)?                                   #createUserDefineFunction
     | CREATE statementScope? ALIAS FUNCTION (IF NOT EXISTS)?
             functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN
             WITH PARAMETER LEFT_PAREN parameters=identifierSeq? RIGHT_PAREN
             AS expression                                                           #createAliasFunction
     | CREATE USER (IF NOT EXISTS)? grantUserIdentify
             (SUPERUSER | DEFAULT ROLE role=STRING_LITERAL)?
-            passwordOption commentSpec?                                             #createUser
+            passwordOption requireClause? commentSpec?                              #createUser
     | CREATE (DATABASE | SCHEMA) (IF NOT EXISTS)? name=multipartIdentifier
               properties=propertyClause?                                            #createDatabase
     | CREATE (READ ONLY)? REPOSITORY name=identifier WITH storageBackend            #createRepository
@@ -318,7 +319,7 @@ supportedAlterStatement
     | ALTER COLOCATE GROUP name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterColocateGroup
     | ALTER USER (IF EXISTS)? grantUserIdentify
-        passwordOption (COMMENT STRING_LITERAL)?                                            #alterUser
+        passwordOption requireClause? commentSpec?                                          #alterUser
     ;
 
 supportedDropStatement
@@ -374,9 +375,10 @@ supportedShowStatement
     | SHOW CREATE statementScope? FUNCTION functionIdentifier
         LEFT_PAREN functionArguments? RIGHT_PAREN
         ((FROM | IN) database=multipartIdentifier)?                                 #showCreateFunction
-    | SHOW FULL? BUILTIN? FUNCTIONS
+    | SHOW FULL? FUNCTIONS
         ((FROM | IN) database=multipartIdentifier)? (LIKE STRING_LITERAL)?          #showFunctions
     | SHOW GLOBAL FULL? FUNCTIONS (LIKE STRING_LITERAL)?                            #showGlobalFunctions
+    | SHOW FULL? BUILTIN FUNCTIONS (LIKE STRING_LITERAL)?                           #showBuiltinFunctions
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
     | SHOW CREATE USER userIdentify                                                 #showCreateUser
@@ -908,6 +910,17 @@ passwordOption
         (ACCOUNT_LOCK | ACCOUNT_UNLOCK)?
     ;
 
+requireClause
+    : REQUIRE (NONE | tlsOption (AND? tlsOption)*)
+    ;
+
+tlsOption
+    : SAN STRING_LITERAL
+    | ISSUER STRING_LITERAL
+    | CIPHER STRING_LITERAL
+    | SUBJECT STRING_LITERAL
+    ;
+
 functionArguments
     : DOTDOTDOT
     | dataTypeList
@@ -1240,7 +1253,7 @@ querySpecification
     ;
 
 cte
-    : WITH aliasQuery (COMMA aliasQuery)*
+    : WITH RECURSIVE? aliasQuery (COMMA aliasQuery)*
     ;
 
 aliasQuery
@@ -1356,6 +1369,17 @@ lateralView
       tableName=identifier AS columnNames+=identifier (COMMA columnNames+=identifier)*
     ;
 
+unnest:
+    LATERAL? UNNEST LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN (
+        WITH ORDINALITY
+    )? (
+        AS? tableName = identifier (
+            LEFT_PAREN columnNames += identifier (
+                COMMA columnNames += identifier
+            )* RIGHT_PAREN
+        )?
+    )?;
+
 queryOrganization
     : sortClause? limitClause?
     ;
@@ -1415,6 +1439,7 @@ relationPrimary
       (properties=propertyItemList)?
       RIGHT_PAREN tableAlias                                                               #tableValuedFunction
     | LEFT_PAREN relations RIGHT_PAREN                                                     #relationList
+    | unnest                                                                               #unnestFunction
     ;
 
 materializedViewName
@@ -1586,7 +1611,8 @@ predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
     | NOT? kind=(REGEXP | RLIKE) pattern=valueExpression
     | NOT? kind=LIKE pattern=valueExpression (ESCAPE escape=valueExpression)?
-    | NOT? kind=(MATCH | MATCH_ANY | MATCH_ALL | MATCH_PHRASE | MATCH_PHRASE_PREFIX | MATCH_REGEXP | MATCH_PHRASE_EDGE) pattern=valueExpression
+    | NOT? kind=(MATCH | MATCH_ANY | MATCH_ALL | MATCH_PHRASE | MATCH_PHRASE_PREFIX | MATCH_REGEXP | MATCH_PHRASE_EDGE)
+        pattern=valueExpression (USING ANALYZER analyzer=identifierOrText)?
     | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
     | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     | IS NOT? kind=NULL
@@ -1598,7 +1624,7 @@ valueExpression
     | operator=(SUBTRACT | PLUS | TILDE) valueExpression                                     #arithmeticUnary
     // split arithmeticBinary from 1 to 5 due to they have different operator precedence
     | left=valueExpression operator=HAT right=valueExpression                                #arithmeticBinary
-    | left=valueExpression operator=(ASTERISK | SLASH | MOD | DIV) right=valueExpression     #arithmeticBinary
+    | left=valueExpression operator=(ASTERISK | SLASH | MOD | MOD_ALT | DIV) right=valueExpression     #arithmeticBinary
     | left=valueExpression operator=(PLUS | SUBTRACT) right=valueExpression                  #arithmeticBinary
     | left=valueExpression operator=AMPERSAND right=valueExpression                          #arithmeticBinary
     | left=valueExpression operator=PIPE right=valueExpression                               #arithmeticBinary
@@ -1617,6 +1643,7 @@ primaryExpression
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
     | name=CAST LEFT_PAREN expression AS castDataType RIGHT_PAREN                              #cast
     | name=TRY_CAST LEFT_PAREN expression AS castDataType RIGHT_PAREN                           #tryCast
+    | DEFAULT LEFT_PAREN qualifiedName RIGHT_PAREN                                                 #defaultValue
     | constant                                                                                 #constantDefault
     | interval                                                                                 #intervalLiteral
     | ASTERISK (exceptOrReplace)*                                                              #star
@@ -1651,7 +1678,7 @@ primaryExpression
     | base=primaryExpression DOT fieldName=identifier                                          #dereference
     | LEFT_PAREN expression RIGHT_PAREN                                                        #parenthesizedExpression
     | KEY (dbName=identifier DOT)? keyName=identifier                                          #encryptKey
-    | EXTRACT LEFT_PAREN field=identifier FROM (DATE | TIMESTAMP)?
+    | EXTRACT LEFT_PAREN field=unitIdentifier FROM (DATE | TIMESTAMP)?
       source=valueExpression RIGHT_PAREN                                                       #extract
     | primaryExpression COLLATE (identifier | STRING_LITERAL | DEFAULT)                        #collate
     ;
@@ -1689,6 +1716,7 @@ functionNameIdentifier
     | CURRENT_USER
     | DATABASE
     | IF
+    | INTERVAL
     | LEFT
     | LIKE
     | PASSWORD
@@ -1767,8 +1795,10 @@ interval
     ;
 
 unitIdentifier
-	: YEAR | QUARTER | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND | DAY_SECOND | DAY_HOUR
-    | MINUTE_SECOND | SECOND_MICROSECOND
+	: YEAR | QUARTER | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND | MICROSECOND | YEAR_MONTH
+    | DAY_HOUR | DAY_MINUTE | DAY_SECOND | DAY_MICROSECOND | HOUR_MINUTE | HOUR_SECOND
+    | HOUR_MICROSECOND | MINUTE_SECOND | MINUTE_MICROSECOND | SECOND_MICROSECOND
+    | DAYOFWEEK | DAYOFYEAR | DOW | DOY
     ;
 
 dataTypeWithNullable
@@ -1899,6 +1929,10 @@ number
     | SUBTRACT? (EXPONENT_VALUE | DECIMAL_VALUE) #decimalLiteral
     ;
 
+dollarQuotedString
+    : DOLLAR_QUOTED_STRING
+    ;
+
 // there are 1 kinds of keywords in Doris.
 // - Non-reserved keywords:
 //     normal version of non-reserved keywords.
@@ -1940,10 +1974,15 @@ nonReserved
     | CACHE
     | CACHED
     | CALL
+    | CANCEL
+    | CASE
+    | CAST
     | CATALOG
     | CATALOGS
     | CHAIN
+    | CIPHER
     | CHAR
+
     | CHARSET
     | CHECK
     | CLUSTER
@@ -1984,6 +2023,8 @@ nonReserved
     | DATEV1
     | DATEV2
     | DAY
+    | DAYOFWEEK
+    | DAYOFYEAR
     | DAYS
     | DECIMAL
     | DECIMALV2
@@ -1998,6 +2039,8 @@ nonReserved
     | DISTINCTPCSA
     | DO
     | DORIS_INTERNAL_TABLE_ID
+    | DOW
+    | DOY
     | DUAL
     | DYNAMIC
     | E
@@ -2062,6 +2105,7 @@ nonReserved
     | IS_NULL_PRED
     | ISNULL
     | ISOLATION
+    | ISSUER
     | JOB
     | JOBS
     | JSON
@@ -2102,6 +2146,7 @@ nonReserved
     | MIN
     | MINUTE
     | MINUTES
+    | MOD_ALT
     | MODIFY
     | MONTH
     | MTMV
@@ -2112,6 +2157,7 @@ nonReserved
     | NEXT
     | NGRAM_BF
     | NO
+    | NONE
     | NON_NULLABLE
     | NORMALIZER
     | NULLS
@@ -2122,6 +2168,7 @@ nonReserved
     | OPEN
     | OPTIMIZE
     | OPTIMIZED
+    | ORDINALITY
     | PARAMETER
     | PARSED
     | PASSWORD
@@ -2159,6 +2206,7 @@ nonReserved
     | RANDOM
     | RECENT
     | RECOVER
+    | RECURSIVE
     | RECYCLE
     | REFRESH
     | REPEATABLE
@@ -2174,6 +2222,7 @@ nonReserved
     | RESUME
     | RETAIN
     | RETENTION
+    | REQUIRE
     | RETURNS
     | REWRITTEN
     | RIGHT_BRACE
@@ -2185,10 +2234,12 @@ nonReserved
     | ROUTINE
     | S3
     | SAMPLE
+    | SAN
     | SCHEDULE
     | SCHEDULER
     | SCHEMA
     | SECOND
+    | MICROSECOND
     | SEPARATOR
     | SERIALIZABLE
     | SET_SESSION_VARIABLE
@@ -2213,6 +2264,7 @@ nonReserved
     | STREAMING
     | STRING
     | STRUCT
+    | SUBJECT
     | SUBSTR
     | SUBSTRING
     | SUM
@@ -2235,6 +2287,7 @@ nonReserved
     | TYPES
     | UNCOMMITTED
     | UNLOCK
+    | UNNEST
     | UNSET
     | UP
     | USER

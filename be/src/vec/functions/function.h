@@ -31,9 +31,9 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "olap/inverted_index_parser.h"
 #include "olap/rowset/segment_v2/inverted_index_iterator.h" // IWYU pragma: keep
 #include "runtime/define_primitive_type.h"
-#include "udf/udf.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -44,6 +44,7 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/exprs/function_context.h"
 
 namespace doris {
 struct InvertedIndexAnalyzerCtx;

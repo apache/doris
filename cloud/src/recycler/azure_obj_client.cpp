@@ -116,40 +116,35 @@ public:
             return false;
         }
 
-        try {
-            auto resp = s3_get_rate_limit([&]() {
-                SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
-                return client_->ListBlobs(req_);
-            });
-            has_more_ = resp.NextPageToken.HasValue();
-            DCHECK(!(has_more_ && resp.Blobs.empty())) << has_more_ << ' ' << resp.Blobs.empty();
-            req_.ContinuationToken = std::move(resp.NextPageToken);
-            results_.reserve(resp.Blobs.size());
-            for (auto&& item : std::ranges::reverse_view(resp.Blobs)) {
-                DCHECK(item.Name.starts_with(*req_.Prefix)) << item.Name << ' ' << *req_.Prefix;
-                results_.emplace_back(ObjectMeta {
-                        .key = std::move(item.Name),
-                        .size = item.BlobSize,
-                        // `Azure::DateTime` adds the offset of `SystemClockEpoch` to the given Unix timestamp,
-                        // so here we need to subtract this offset to obtain the Unix timestamp of the mtime.
-                        // https://github.com/Azure/azure-sdk-for-cpp/blob/azure-core_1.12.0/sdk/core/azure-core/inc/azure/core/datetime.hpp#L129
-                        .mtime_s = duration_cast<std::chrono::seconds>(item.Details.LastModified -
-                                                                       SystemClockEpoch)
-                                           .count()});
-            }
-        } catch (Azure::Core::RequestFailedException& e) {
-            LOG_WARNING(
-                    "Azure request failed because {}, http_code: {}, request_id: {}, url: {}, "
-                    "prefix: {}",
-                    e.Message, static_cast<int>(e.StatusCode), e.RequestId, client_->GetUrl(),
-                    req_.Prefix.Value());
+        ListBlobsPagedResponse resp;
+        auto obj_resp = do_azure_client_call(
+                [&]() {
+                    resp = s3_get_rate_limit([&]() {
+                        SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
+                        return client_->ListBlobs(req_);
+                    });
+                },
+                client_->GetUrl(), req_.Prefix.Value());
+        if (obj_resp.ret != 0) {
             is_valid_ = false;
             return false;
-        } catch (std::exception& e) {
-            LOG_WARNING("Azure request failed because {}, url: {}, prefix: {}", e.what(),
-                        client_->GetUrl(), req_.Prefix.Value());
-            is_valid_ = false;
-            return false;
+        }
+
+        has_more_ = resp.NextPageToken.HasValue();
+        DCHECK(!(has_more_ && resp.Blobs.empty())) << has_more_ << ' ' << resp.Blobs.empty();
+        req_.ContinuationToken = std::move(resp.NextPageToken);
+        results_.reserve(resp.Blobs.size());
+        for (auto&& item : std::ranges::reverse_view(resp.Blobs)) {
+            DCHECK(item.Name.starts_with(*req_.Prefix)) << item.Name << ' ' << *req_.Prefix;
+            results_.emplace_back(ObjectMeta {
+                    .key = std::move(item.Name),
+                    .size = item.BlobSize,
+                    // `Azure::DateTime` adds the offset of `SystemClockEpoch` to the given Unix timestamp,
+                    // so here we need to subtract this offset to obtain the Unix timestamp of the mtime.
+                    // https://github.com/Azure/azure-sdk-for-cpp/blob/azure-core_1.12.0/sdk/core/azure-core/inc/azure/core/datetime.hpp#L129
+                    .mtime_s = duration_cast<std::chrono::seconds>(item.Details.LastModified -
+                                                                   SystemClockEpoch)
+                                       .count()});
         }
 
         return !results_.empty();
@@ -191,27 +186,38 @@ ObjectStorageResponse AzureObjClient::put_object(ObjectStoragePathRef path,
 }
 
 ObjectStorageResponse AzureObjClient::head_object(ObjectStoragePathRef path, ObjectMeta* res) {
-    try {
-        auto&& properties = s3_get_rate_limit([&]() {
-            SCOPED_BVAR_LATENCY(s3_bvar::s3_head_latency);
-            return client_->GetBlockBlobClient(path.key).GetProperties().Value;
-        });
-        res->key = path.key;
-        res->mtime_s = properties.LastModified.time_since_epoch().count();
-        res->size = properties.BlobSize;
-        return {0};
-    } catch (Azure::Storage::StorageException& e) {
-        if (e.StatusCode == Azure::Core::Http::HttpStatusCode::NotFound) {
-            return {1};
-        }
-        auto msg = fmt::format(
-                "Head azure blob failed because {}, http_code: {}, request_id: {}, url: {}, "
-                "key: {}",
-                e.Message, static_cast<int>(e.StatusCode), e.RequestId, client_->GetUrl(),
-                path.key);
-        LOG_WARNING(msg);
-        return {-1, std::move(msg)};
+    Models::BlobProperties properties {};
+    bool not_found = false;
+
+    auto resp = do_azure_client_call(
+            [&]() {
+                try {
+                    properties = s3_get_rate_limit([&]() {
+                        SCOPED_BVAR_LATENCY(s3_bvar::s3_head_latency);
+                        return client_->GetBlockBlobClient(path.key).GetProperties().Value;
+                    });
+                } catch (Azure::Storage::StorageException& e) {
+                    if (e.StatusCode == Azure::Core::Http::HttpStatusCode::NotFound) {
+                        not_found = true;
+                        return;
+                    }
+                    throw;
+                }
+            },
+            client_->GetUrl(), path.key);
+
+    if (not_found) {
+        return {1};
     }
+
+    if (resp.ret != 0) {
+        return resp;
+    }
+
+    res->key = path.key;
+    res->mtime_s = properties.LastModified.time_since_epoch().count();
+    res->size = properties.BlobSize;
+    return {0};
 }
 
 std::unique_ptr<ObjectListIterator> AzureObjClient::list_objects(ObjectStoragePathRef path) {

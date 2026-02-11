@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingId;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -44,6 +45,7 @@ public class NormalizeRepeatTest implements MemoPatternMatchSupported {
         Plan plan = new LogicalRepeat<>(
                 ImmutableList.of(ImmutableList.of(id), ImmutableList.of(name)),
                 ImmutableList.of(idNotNull, alias),
+                RepeatType.GROUPING_SETS,
                 scan1
         );
         PlanChecker.from(MemoTestUtils.createCascadesContext(plan))
@@ -62,6 +64,7 @@ public class NormalizeRepeatTest implements MemoPatternMatchSupported {
         Plan plan = new LogicalRepeat<>(
                 ImmutableList.of(ImmutableList.of(id)),
                 ImmutableList.of(idNotNull, alias),
+                RepeatType.GROUPING_SETS,
                 scan1
         );
         PlanChecker.from(MemoTestUtils.createCascadesContext(plan))
@@ -80,6 +83,7 @@ public class NormalizeRepeatTest implements MemoPatternMatchSupported {
         Plan plan = new LogicalRepeat<>(
                 ImmutableList.of(ImmutableList.of(id)),
                 ImmutableList.of(idNotNull, alias),
+                RepeatType.GROUPING_SETS,
                 scan1
         );
         PlanChecker.from(MemoTestUtils.createCascadesContext(plan))

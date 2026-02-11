@@ -93,9 +93,12 @@ void JSONDataParser<ParserImpl>::traverseObject(const JSONObject& object, ParseC
     ctx.values.reserve(ctx.values.size() + object.size());
     for (auto it = object.begin(); it != object.end(); ++it) {
         const auto& [key, value] = *it;
-        if (key.size() >= std::numeric_limits<uint8_t>::max()) {
-            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                                   "Key length exceeds maximum allowed size of 255 bytes.");
+        const size_t max_key_length = cast_set<size_t>(config::variant_max_json_key_length);
+        if (key.size() > max_key_length) {
+            throw doris::Exception(
+                    doris::ErrorCode::INVALID_ARGUMENT,
+                    fmt::format("Key length exceeds maximum allowed size of {} bytes.",
+                                max_key_length));
         }
         ctx.builder.append(key, false);
         traverse(value, ctx);
@@ -133,9 +136,12 @@ void JSONDataParser<ParserImpl>::traverseObjectAsJsonb(const JSONObject& object,
     writer.writeStartObject();
     for (auto it = object.begin(); it != object.end(); ++it) {
         const auto& [key, value] = *it;
-        if (key.size() >= std::numeric_limits<uint8_t>::max()) {
-            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                                   "Key length exceeds maximum allowed size of 255 bytes.");
+        const size_t max_key_length = cast_set<size_t>(config::variant_max_json_key_length);
+        if (key.size() > max_key_length) {
+            throw doris::Exception(
+                    doris::ErrorCode::INVALID_ARGUMENT,
+                    fmt::format("Key length exceeds maximum allowed size of {} bytes.",
+                                max_key_length));
         }
         writer.writeKey(key.data(), cast_set<uint8_t>(key.size()));
         traverseAsJsonb(value, writer);
@@ -264,7 +270,7 @@ void JSONDataParser<ParserImpl>::handleExistingPath(std::pair<PathInData::Parts,
     // the Nested has been already collected.
     auto nested_key = getNameOfNested(path, value);
     if (!nested_key.empty()) {
-        size_t array_size = get<const Array&>(value).size();
+        size_t array_size = value.get<TYPE_ARRAY>().size();
         auto& current_nested_sizes = ctx.nested_sizes_by_key[nested_key];
         if (current_nested_sizes.size() == ctx.current_size) {
             current_nested_sizes.push_back(array_size);
@@ -293,7 +299,7 @@ void JSONDataParser<ParserImpl>::handleNewPath(UInt128 hash, const PathInData::P
 
     auto nested_key = getNameOfNested(path, value);
     if (!nested_key.empty()) {
-        size_t array_size = get<const Array&>(value).size();
+        size_t array_size = value.get<TYPE_ARRAY>().size();
         auto& current_nested_sizes = ctx.nested_sizes_by_key[nested_key];
         if (current_nested_sizes.empty()) {
             current_nested_sizes.resize(ctx.current_size);

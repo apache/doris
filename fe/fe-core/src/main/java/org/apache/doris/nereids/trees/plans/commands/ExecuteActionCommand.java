@@ -105,7 +105,7 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
 
             action.validate(tableNameInfo, ctx.getCurrentUserIdentity());
             ResultSet resultSet = action.execute(table);
-            logRefreshTable(table);
+            logRefreshTable(table, System.currentTimeMillis());
             if (resultSet != null) {
                 executor.sendResultSet(resultSet);
             }
@@ -150,7 +150,7 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
      * @param table the table to log
      * @throws UserException if the table type is not supported
      */
-    private void logRefreshTable(TableIf table) throws UserException {
+    private void logRefreshTable(TableIf table, long updateTime) throws UserException {
         if (table instanceof ExternalTable) {
             ExternalTable externalTable = (ExternalTable) table;
             Env.getCurrentEnv().getEditLog()
@@ -158,7 +158,7 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
                             ExternalObjectLog.createForRefreshTable(
                                     externalTable.getCatalog().getId(),
                                     externalTable.getDbName(),
-                                    externalTable.getName()));
+                                    externalTable.getName(), updateTime));
         } else {
             // support more table in future
             throw new UserException("Unsupported table type: " + table.getClass().getName() + " for refresh table");

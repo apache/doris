@@ -53,6 +53,9 @@ protected:
     int _calc_spill_blocks_to_merge(RuntimeState* state) const;
     Status _create_intermediate_merger(int num_blocks,
                                        const vectorized::SortDescription& sort_description);
+
+    Status _execute_merge_sort_spill_streams(RuntimeState* state, TUniqueId query_id);
+
     friend class SpillSortSourceOperatorX;
     std::unique_ptr<RuntimeState> _runtime_state;
 

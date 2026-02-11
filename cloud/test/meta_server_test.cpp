@@ -55,6 +55,8 @@ int main(int argc, char** argv) {
         return -1;
     }
 
+    // Clear the secondary package name for testing, to avoid brpc::Server::~Server() SEGV
+    config::secondary_package_name = "";
     if (!cloud::init_glog("meta_server_test")) {
         std::cerr << "failed to init glog" << std::endl;
         return -1;

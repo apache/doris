@@ -107,7 +107,7 @@ public:
                         from_dt.to_string(), context->state()->timezone());
             }
 
-            col_to_data[i] = tz_value.to_date_int_val();
+            col_to_data[i] = tz_value;
         }
         block.get_by_position(result).column = std::move(col_to);
         return Status::OK();
@@ -139,7 +139,7 @@ public:
             TimestampTzValue tz_value {};
 
             if (tz_value.from_datetime(from_dt, local_time_zone, dt_scale, tz_scale)) {
-                col_to_data[i] = tz_value.to_date_int_val();
+                col_to_data[i] = tz_value;
             } else {
                 col_null_map[i] = true;
             }
@@ -214,7 +214,7 @@ public:
 
             if (!transform_date_scale(to_scale, from_scale, to_tz, from_tz)) {
                 col_null_map[i] = true;
-                to_tz = MIN_DATETIME_V2;
+                to_tz = TimestampTzValue(MIN_DATETIME_V2);
             }
         }
 

@@ -74,4 +74,6 @@ under the License.
 
     <!-- ignore gensrc/thrift/ExternalTableSchema.thrift -->
     <suppress files=".*thrift/schema/external/.*" checks=".*"/>
+    <suppress files="software/amazon/awssdk/core/client/builder/SdkDefaultClientBuilder.java" checks=".*"/>
+    <suppress files="software/amazon/awssdk/core/client/builder/UncloseableScheduledExecutorService.java" checks=".*"/>
 </suppressions>

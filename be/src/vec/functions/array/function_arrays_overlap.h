@@ -95,6 +95,43 @@ struct OverlapSetImpl {
 };
 
 template <>
+struct OverlapSetImpl<ColumnDecimal128V2> {
+    using ElementNativeType = Int128;
+    using Set = phmap::flat_hash_set<ElementNativeType, DefaultHash<ElementNativeType>>;
+    Set set;
+    bool has_null = false;
+
+    void insert_array(const IColumn* column, const UInt8* nullmap, size_t start, size_t size) {
+        const auto& vec = assert_cast<const ColumnDecimal128V2&>(*column).get_data();
+        for (size_t i = start; i < start + size; ++i) {
+            if (nullmap[i]) {
+                has_null = true;
+                continue;
+            }
+            set.insert(vec[i].value());
+        }
+    }
+
+    bool find_any(const IColumn* column, const UInt8* nullmap, size_t start, size_t size) {
+        const auto& vec = assert_cast<const ColumnDecimal128V2&>(*column).get_data();
+        for (size_t i = start; i < start + size; ++i) {
+            if (nullmap[i]) {
+                if (has_null) {
+                    return true;
+                } else {
+                    continue;
+                }
+            }
+
+            if (set.contains(vec[i].value())) {
+                return true;
+            }
+        }
+        return false;
+    }
+};
+
+template <>
 struct OverlapSetImpl<ColumnString> {
     using Set = phmap::flat_hash_set<StringRef, DefaultHash<StringRef>>;
     Set set;
@@ -210,7 +247,7 @@ public:
             null_bitmap = null_bitmap_cache_handle.get_bitmap();
         }
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
-        const Array& query_val = param_value.get<Array>();
+        const Array& query_val = param_value.get<TYPE_ARRAY>();
 
         InvertedIndexParam param;
         param.column_name = data_type_with_name.first;

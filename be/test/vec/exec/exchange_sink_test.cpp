@@ -20,13 +20,12 @@
 #include <gtest/gtest.h>
 
 #include <memory>
-#include <vector>
 
 #include "pipeline/exec/exchange_sink_buffer.h"
 
 namespace doris::vectorized {
 using namespace pipeline;
-TEST_F(ExchangeSInkTest, test_normal_end) {
+TEST_F(ExchangeSinkTest, test_normal_end) {
     {
         auto state = create_runtime_state();
         auto buffer = create_buffer(state);
@@ -78,7 +77,7 @@ TEST_F(ExchangeSInkTest, test_normal_end) {
     }
 }
 
-TEST_F(ExchangeSInkTest, test_eof_end) {
+TEST_F(ExchangeSinkTest, test_eof_end) {
     {
         auto state = create_runtime_state();
         auto buffer = create_buffer(state);
@@ -140,7 +139,7 @@ TEST_F(ExchangeSInkTest, test_eof_end) {
     }
 }
 
-TEST_F(ExchangeSInkTest, test_error_end) {
+TEST_F(ExchangeSinkTest, test_error_end) {
     {
         auto state = create_runtime_state();
         auto buffer = create_buffer(state);
@@ -195,7 +194,7 @@ TEST_F(ExchangeSInkTest, test_error_end) {
     }
 }
 
-TEST_F(ExchangeSInkTest, test_queue_size) {
+TEST_F(ExchangeSinkTest, test_queue_size) {
     {
         auto state = create_runtime_state();
         auto buffer = create_buffer(state);

@@ -17,9 +17,11 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
@@ -28,6 +30,8 @@ import org.apache.commons.lang3.StringUtils;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -48,15 +52,16 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     protected String endpoint = "";
 
     @Getter
-    @ConnectorProperty(names = {"oss.access_key", "s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY",
-            "dlf.access_key", "dlf.catalog.accessKeyId", "fs.oss.accessKeyId"},
+    @ConnectorProperty(names = {"oss.access_key", "s3.access_key", "s3.access-key-id", "AWS_ACCESS_KEY", "access_key",
+        "ACCESS_KEY", "dlf.access_key", "dlf.catalog.accessKeyId", "fs.oss.accessKeyId"},
             required = false,
             sensitive = true,
             description = "The access key of OSS.")
     protected String accessKey = "";
 
     @Getter
-    @ConnectorProperty(names = {"oss.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY",
+    @ConnectorProperty(names = {"oss.secret_key", "s3.secret_key", "s3.secret-access-key", "AWS_SECRET_KEY",
+        "secret_key", "SECRET_KEY",
             "dlf.secret_key", "dlf.catalog.secret_key", "fs.oss.accessKeySecret"},
             required = false,
             sensitive = true,
@@ -76,7 +81,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     protected String dlfAccessPublic = "false";
 
     @Getter
-    @ConnectorProperty(names = {"oss.session_token", "s3.session_token", "session_token",
+    @ConnectorProperty(names = {"oss.session_token", "s3.session_token", "s3.session-token", "session_token",
             "fs.oss.securityToken", "AWS_TOKEN"},
             required = false,
             sensitive = true,
@@ -257,6 +262,11 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     }
 
     @Override
+    public String validateAndNormalizeUri(String uri) throws UserException {
+        return super.validateAndNormalizeUri(rewriteOssBucketIfNecessary(uri));
+    }
+
+    @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         if (StringUtils.isBlank(endpoint) || !STANDARD_ENDPOINT_PATTERN.matcher(endpoint).matches()) {
@@ -303,5 +313,73 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         hadoopStorageConfig.set("fs.oss.accessKeyId", accessKey);
         hadoopStorageConfig.set("fs.oss.accessKeySecret", secretKey);
         hadoopStorageConfig.set("fs.oss.endpoint", endpoint);
+    }
+
+    /**
+     * Rewrites the bucket part of an OSS URI if the bucket is specified
+     * in the form of bucket.endpoint. https://help.aliyun.com/zh/oss/user-guide/access-oss-via-bucket-domain-name
+     *
+     * <p>This method is designed for OSS usage, but it also supports
+     * the {@code s3://} scheme since OSS URIs are sometimes written
+     * using the S3-style scheme.</p>
+     *
+     * <p>HTTP and HTTPS URIs are returned unchanged.</p>
+     *
+     * <p>Examples:
+     * <pre>
+     *   oss://bucket.endpoint/path  -> oss://bucket/path
+     *   s3://bucket.endpoint        -> s3://bucket
+     *   https://bucket.endpoint     -> unchanged
+     * </pre>
+     *
+     * @param uri the original URI string
+     * @return the rewritten URI string, or the original URI if no rewrite is needed
+     */
+    @VisibleForTesting
+    protected static String rewriteOssBucketIfNecessary(String uri) {
+        if (uri == null || uri.isEmpty()) {
+            return uri;
+        }
+
+        URI parsed;
+        try {
+            parsed = URI.create(uri);
+        } catch (IllegalArgumentException e) {
+            // Invalid URI, do not rewrite
+            return uri;
+        }
+
+        String scheme = parsed.getScheme();
+        if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
+            return uri;
+        }
+
+        // For non-standard schemes (oss / s3), authority is more reliable than host
+        String authority = parsed.getAuthority();
+        if (authority == null || authority.isEmpty()) {
+            return uri;
+        }
+
+        // Handle bucket.endpoint format
+        int dotIndex = authority.indexOf('.');
+        if (dotIndex <= 0) {
+            return uri;
+        }
+
+        String bucket = authority.substring(0, dotIndex);
+
+        try {
+            URI rewritten = new URI(
+                    scheme,
+                    bucket,
+                    parsed.getPath(),
+                    parsed.getQuery(),
+                    parsed.getFragment()
+            );
+            return rewritten.toString();
+        } catch (URISyntaxException e) {
+            // Be conservative: fallback to original URI
+            return uri;
+        }
     }
 }

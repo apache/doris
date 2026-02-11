@@ -382,6 +382,9 @@ public:
     // Refresh the top limit heap with a new row
     void refresh_top_limit(size_t row_id, const vectorized::ColumnRawPtrs& key_columns);
 
+    vectorized::Arena agg_arena_pool;
+    vectorized::Arena agg_profile_arena;
+
 private:
     vectorized::MutableColumns _get_keys_hash_table();
 
@@ -577,6 +580,7 @@ public:
     std::mutex buffer_mutex;
     bool sink_eos = false;
     std::mutex sink_eos_lock;
+    vectorized::Arena agg_arena_pool;
 };
 
 struct JoinSharedState : public BasicSharedState {
@@ -618,6 +622,12 @@ struct HashJoinSharedState : public JoinSharedState {
     // memory in `_hash_table_variants`. So before execution, we should use a local _hash_table_variants
     // which has a shared hash table in it.
     std::vector<std::shared_ptr<JoinDataVariants>> hash_table_variant_vector;
+
+    // whether left semi join could directly return
+    // if runtime filters contains local in filter, we can make sure all input rows are matched
+    // local filter will always be applied, and in filter could guarantee precise filtering
+    // ATTN: we should disable always_true logic for in filter when we set this flag
+    bool left_semi_direct_return = false;
 };
 
 struct PartitionedHashJoinSharedState
@@ -643,8 +653,8 @@ struct PartitionedHashJoinSharedState
 
 struct NestedLoopJoinSharedState : public JoinSharedState {
     ENABLE_FACTORY_CREATOR(NestedLoopJoinSharedState)
-    // if true, left child has no more rows to process
-    bool left_side_eos = false;
+    // if true, probe child has no more rows to process
+    bool probe_side_eos = false;
     // Visited flags for each row in build side.
     vectorized::MutableColumns build_side_visited_flags;
     // List of build blocks, constructed in prepare()
@@ -698,6 +708,8 @@ public:
     std::vector<vectorized::VExprContextSPtrs> probe_child_exprs_lists;
 
     std::atomic<bool> ready_for_read = false;
+
+    vectorized::Arena arena;
 
     /// called in setup_local_state
     Status hash_table_init();

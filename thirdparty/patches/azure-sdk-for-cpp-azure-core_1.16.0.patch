@@ -1,7 +1,7 @@
 From 0c18bd91955f6ad48582c01901ffadd4ad5a149c Mon Sep 17 00:00:00 2001
 From: BiteTheDDDDt <xl@selectdb.com>
 Date: Tue, 15 Jul 2025 12:57:25 +0800
-Subject: [PATCH] resolve missing uint8_t define
+Subject: [PATCH 1/2] resolve missing uint8_t define
 
 ---
  .../azure-security-attestation/src/private/crypto/inc/crypto.hpp | 1 +
@@ -13,12 +13,39 @@ index 9a98f204..8f338436 100644
 +++ b/sdk/attestation/azure-security-attestation/src/private/crypto/inc/crypto.hpp
 @@ -2,6 +2,7 @@
  // Licensed under the MIT License.
- 
+
  #pragma once
 +#include <cstdint>
  #include <ctime>
  #include <memory>
  #include <string>
--- 
+--
 2.43.5
 
+From 0c18bd91955f6ad48582c01901ffadd4ad5a149d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 29 Jan 2026 16:00:00 +0800
+Subject: [PATCH 2/2] fix clang link error: always link libdl for openssl
+
+libcrypto.a requires dlopen/dlsym/dlclose/dlerror from libdl.
+With clang, find_library may not find libdl, but -ldl is still needed.
+---
+ vcpkg-custom-ports/openssl/vcpkg-cmake-wrapper.cmake.in | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/vcpkg-custom-ports/openssl/vcpkg-cmake-wrapper.cmake.in b/vcpkg-custom-ports/openssl/vcpkg-cmake-wrapper.cmake.in
+index 1234567..abcdefg 100644
+--- a/vcpkg-custom-ports/openssl/vcpkg-cmake-wrapper.cmake.in
++++ b/vcpkg-custom-ports/openssl/vcpkg-cmake-wrapper.cmake.in
+@@ -53,7 +53,8 @@ if(OPENSSL_FOUND AND "@VCPKG_LIBRARY_LINKAGE@" STREQUAL "static")
+             set_property(TARGET OpenSSL::SSL APPEND PROPERTY INTERFACE_LINK_LIBRARIES "crypt32;ws2_32")
+         endif()
+     else()
+-        find_library(OPENSSL_DL_LIBRARY NAMES dl)
++        # Always link dl for clang compatibility
++        set(OPENSSL_DL_LIBRARY "dl")
+         if(OPENSSL_DL_LIBRARY)
+             list(APPEND OPENSSL_LIBRARIES "dl")
+             if(TARGET OpenSSL::Crypto)
+--
+2.43.5
