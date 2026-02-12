@@ -383,6 +383,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Pmod;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Positive;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pow;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Power;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.PreviousDay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Protocol;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantilePercent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateEmpty;
@@ -926,6 +927,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ParseDataSize.class, "parse_data_size"),
             scalar(PeriodAdd.class, "period_add"),
             scalar(PeriodDiff.class, "period_diff"),
+            scalar(PreviousDay.class, "previous_day"),
             scalar(Pi.class, "pi"),
             scalar(Pmod.class, "pmod"),
             scalar(Positive.class, "positive"),
