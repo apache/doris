@@ -20,6 +20,7 @@ package org.apache.doris.common.jni.utils;
 import com.esotericsoftware.reflectasm.MethodAccess;
 
 import java.lang.reflect.Method;
+import java.net.URLClassLoader;
 import java.util.HashMap;
 
 /**
@@ -42,4 +43,8 @@ public class UdfClassCache {
     // for java-udf  index is evaluate method index
     // for java-udaf index is add method index
     public int methodIndex;
+
+    // Keep a reference to the ClassLoader for static load mode
+    // This ensures the ClassLoader is not garbage collected and can load dependent classes
+    public URLClassLoader classLoader;
 }

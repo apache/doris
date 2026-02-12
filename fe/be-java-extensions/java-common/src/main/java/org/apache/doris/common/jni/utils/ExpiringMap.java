@@ -19,6 +19,7 @@ package org.apache.doris.common.jni.utils;
 
 import org.apache.log4j.Logger;
 
+import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -47,9 +48,7 @@ public class ExpiringMap<K, V> {
     public V get(K key) {
         Long expirationTime = expirationMap.get(key);
         if (expirationTime == null || System.currentTimeMillis() > expirationTime) {
-            map.remove(key);
-            expirationMap.remove(key);
-            ttlMap.remove(key);
+            remove(key);
             return null;
         }
         // reset time again
@@ -64,18 +63,30 @@ public class ExpiringMap<K, V> {
             long now = System.currentTimeMillis();
             for (K key : expirationMap.keySet()) {
                 if (expirationMap.get(key) <= now) {
-                    map.remove(key);
-                    expirationMap.remove(key);
-                    ttlMap.remove(key);
+                    remove(key);
                 }
             }
         }, DEFAULT_INTERVAL_TIME, DEFAULT_INTERVAL_TIME, TimeUnit.MINUTES);
     }
 
     public void remove(K key) {
-        map.remove(key);
+        V value = map.remove(key);
         expirationMap.remove(key);
         ttlMap.remove(key);
+
+        // Clean up resources if the value is UdfClassCache
+        if (value instanceof UdfClassCache) {
+            UdfClassCache cache = (UdfClassCache) value;
+            if (cache.classLoader != null) {
+                try {
+                    cache.classLoader.close();
+                    LOG.info("Closed ClassLoader for cached UDF: " + key);
+                } catch (IOException e) {
+                    LOG.warn("Failed to close ClassLoader for cached UDF: " + key, e);
+                }
+                cache.classLoader = null;
+            }
+        }
     }
 
     public int size() {

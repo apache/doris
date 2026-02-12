@@ -139,6 +139,10 @@ public abstract class BaseExecutor {
         UdfClassCache cache = null;
         if (isStaticLoad) {
             cache = ScannerLoader.getUdfClassLoader(signature);
+            if (cache != null && cache.classLoader != null) {
+                // Reuse the cached classLoader to ensure dependent classes can be loaded
+                classLoader = cache.classLoader;
+            }
         }
         if (cache == null) {
             ClassLoader loader;
@@ -156,6 +160,7 @@ public abstract class BaseExecutor {
             cache.allMethods = new HashMap<>();
             cache.udfClass = Class.forName(className, true, loader);
             cache.methodAccess = MethodAccess.get(cache.udfClass);
+            cache.classLoader = classLoader;
             checkAndCacheUdfClass(cache, funcRetType, parameterTypes);
             if (isStaticLoad) {
                 ScannerLoader.cacheClassLoader(signature, cache, expirationTime);
@@ -171,24 +176,23 @@ public abstract class BaseExecutor {
      * Close the class loader we may have created.
      */
     public void close() {
-        if (classLoader != null) {
-            try {
-                classLoader.close();
-            } catch (IOException e) {
-                // Log and ignore.
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Error closing the URLClassloader.", e);
-                }
-            }
-        }
         // Close the output table if it exists.
         if (outputTable != null) {
             outputTable.close();
         }
-        // We are now un-usable (because the class loader has been
-        // closed), so null out method_ and classLoader_.
-        classLoader = null;
-        objCache.methodAccess = null;
+        if (!isStaticLoad) {
+            objCache.methodAccess = null;
+            // close classLoader if it's not in static load mode
+            // In static load mode, the classLoader is cached and should not be closed here
+            if (classLoader != null) {
+                try {
+                    classLoader.close();
+                } catch (IOException e) {
+                    LOG.warn("Error closing the URLClassloader.", e);
+                }
+                classLoader = null;
+            }
+        }
     }
 
     protected ColumnValueConverter getInputConverter(TPrimitiveType primitiveType, Class clz)
