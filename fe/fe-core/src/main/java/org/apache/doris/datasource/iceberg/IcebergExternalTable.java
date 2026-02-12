@@ -400,7 +400,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
                 sortItems.add(sortFieldInfo.toSql());
             }
         }
-        return "ORDER BY " + String.join(", ", sortItems);
+        return "ORDER BY (" + String.join(", ", sortItems) + ")";
     }
 
     /**
