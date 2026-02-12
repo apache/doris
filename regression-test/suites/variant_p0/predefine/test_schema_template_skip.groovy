@@ -96,6 +96,10 @@ suite("test_schema_template_skip", "p0") {
     DISTRIBUTED BY HASH(`id`) BUCKETS 1
     PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
 
+    sql """insert into ${tableName5} values(1, '{"i":"x","invalid":"y"}')"""
+    qt_skip_invalid_glob_1 """ SELECT id, data['i'] FROM ${tableName5} ORDER BY id """
+    qt_skip_invalid_glob_2 """ SELECT id, data['invalid'] FROM ${tableName5} ORDER BY id """
+
     // Test 6: Glob cross-level matching — pattern spans nested path
     def tableName6 = "test_skip_glob_cross_level"
     sql "DROP TABLE IF EXISTS ${tableName6}"

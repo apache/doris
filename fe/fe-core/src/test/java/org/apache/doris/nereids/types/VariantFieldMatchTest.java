@@ -362,4 +362,70 @@ public class VariantFieldMatchTest {
         Assertions.assertFalse(field2.matches("int_1"));
 
     }
+
+    @Test
+    public void testSkipPatternFlagsAndSql() {
+        VariantField skipExact = new VariantField("secret", StringType.INSTANCE, "",
+                TPatternType.SKIP_NAME.name());
+        Assertions.assertTrue(skipExact.isSkipPatternType());
+        Assertions.assertFalse(skipExact.isTypedPathPatternType());
+        Assertions.assertEquals("SKIP MATCH_NAME 'secret'", skipExact.toSql());
+        Assertions.assertEquals(TPatternType.SKIP_NAME, skipExact.toCatalogDataType().getPatternType());
+
+        VariantField skipGlob = new VariantField("debug_*", StringType.INSTANCE, "",
+                TPatternType.SKIP_NAME_GLOB.name());
+        Assertions.assertTrue(skipGlob.isSkipPatternType());
+        Assertions.assertFalse(skipGlob.isTypedPathPatternType());
+        Assertions.assertEquals("SKIP 'debug_*'", skipGlob.toSql());
+        Assertions.assertEquals(TPatternType.SKIP_NAME_GLOB, skipGlob.toCatalogDataType().getPatternType());
+    }
+
+    @Test
+    public void testSkipPatternNeverMatches() {
+        VariantField skipExact = new VariantField("secret", StringType.INSTANCE, "",
+                TPatternType.SKIP_NAME.name());
+        VariantField skipGlob = new VariantField("debug_*", StringType.INSTANCE, "",
+                TPatternType.SKIP_NAME_GLOB.name());
+        Assertions.assertFalse(skipExact.matches("secret"));
+        Assertions.assertFalse(skipGlob.matches("debug_x"));
+    }
+
+    @Test
+    public void testFindMatchingFieldIgnoresSkipPatterns() {
+        VariantField skip = new VariantField("debug_*", StringType.INSTANCE, "",
+                TPatternType.SKIP_NAME_GLOB.name());
+        VariantField typed = new VariantField("num_*", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+        VariantType variantType = new VariantType(ImmutableList.of(skip, typed));
+
+        Assertions.assertFalse(variantType.findMatchingField("debug_x").isPresent());
+        Optional<VariantField> result = variantType.findMatchingField("num_a");
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(BigIntType.INSTANCE, result.get().getDataType());
+    }
+
+    @Test
+    public void testEqualsAndHashCodeIncludePatternType() {
+        VariantField typed = new VariantField("a", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+        VariantField skip = new VariantField("a", BigIntType.INSTANCE, "",
+                TPatternType.SKIP_NAME_GLOB.name());
+
+        Assertions.assertNotEquals(typed, skip);
+        Assertions.assertNotEquals(typed.hashCode(), skip.hashCode());
+    }
+
+    @Test
+    public void testGetVariantTypedPathPatternsFiltersSkipPatterns() {
+        VariantField skip = new VariantField("debug_*", StringType.INSTANCE, "",
+                TPatternType.SKIP_NAME_GLOB.name());
+        VariantField typed1 = new VariantField("num_*", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME_GLOB.name());
+        VariantField typed2 = new VariantField("id", BigIntType.INSTANCE, "",
+                TPatternType.MATCH_NAME.name());
+        VariantType variantType = new VariantType(ImmutableList.of(skip, typed1, typed2));
+
+        Assertions.assertEquals(3, variantType.getVariantPathPatterns().size());
+        Assertions.assertEquals(2, variantType.getVariantTypedPathPatterns().size());
+    }
 }

@@ -304,7 +304,10 @@ Status build_compiled_skip_matcher(
         }
 
         std::string regex_pattern;
-        RETURN_IF_ERROR(glob_to_regex(pattern, &regex_pattern));
+        auto st = glob_to_regex(pattern, &regex_pattern);
+        if (!st.ok()) {
+            continue;
+        }
         glob_regex_patterns.emplace_back(std::move(regex_pattern));
     }
 

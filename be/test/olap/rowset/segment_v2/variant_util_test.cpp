@@ -591,6 +591,145 @@ TEST(VariantUtilTest, GlobMatchRe2) {
     EXPECT_FALSE(glob_match_re2("a[\\]b", "a]b"));
 }
 
+TEST(VariantUtilTest, ShouldSkipPathLegacyPatterns) {
+    std::vector<std::pair<std::string, PatternTypePB>> skip_patterns = {
+            {"secret", PatternTypePB::SKIP_NAME},
+            {"debug_*", PatternTypePB::SKIP_NAME_GLOB},
+            {"typed_*", PatternTypePB::MATCH_NAME_GLOB},
+    };
+
+    EXPECT_TRUE(should_skip_path(skip_patterns, "secret"));
+    EXPECT_TRUE(should_skip_path(skip_patterns, "debug_field"));
+    EXPECT_FALSE(should_skip_path(skip_patterns, "typed_field"));
+    EXPECT_FALSE(should_skip_path(skip_patterns, "other"));
+}
+
+TEST(VariantUtilTest, PatternTypeHelpers) {
+    EXPECT_TRUE(is_typed_path_pattern_type(PatternTypePB::MATCH_NAME));
+    EXPECT_TRUE(is_typed_path_pattern_type(PatternTypePB::MATCH_NAME_GLOB));
+    EXPECT_FALSE(is_typed_path_pattern_type(PatternTypePB::SKIP_NAME));
+    EXPECT_FALSE(is_typed_path_pattern_type(PatternTypePB::SKIP_NAME_GLOB));
+
+    EXPECT_TRUE(is_skip_exact_path_pattern_type(PatternTypePB::SKIP_NAME));
+    EXPECT_FALSE(is_skip_exact_path_pattern_type(PatternTypePB::SKIP_NAME_GLOB));
+    EXPECT_TRUE(is_skip_glob_path_pattern_type(PatternTypePB::SKIP_NAME_GLOB));
+    EXPECT_FALSE(is_skip_glob_path_pattern_type(PatternTypePB::MATCH_NAME_GLOB));
+}
+
+TEST(VariantUtilTest, BuildCompiledSkipMatcherRejectsNullOutPointer) {
+    std::vector<std::pair<std::string, PatternTypePB>> skip_patterns = {
+            {"secret", PatternTypePB::SKIP_NAME},
+    };
+    Status st = build_compiled_skip_matcher(skip_patterns, true, nullptr);
+    EXPECT_FALSE(st.ok());
+}
+
+TEST(VariantUtilTest, BuildCompiledSkipMatcherMixedPatterns) {
+    std::vector<std::pair<std::string, PatternTypePB>> skip_patterns = {
+            {"secret", PatternTypePB::SKIP_NAME},
+            {"debug_*", PatternTypePB::SKIP_NAME_GLOB},
+            {"[invalid", PatternTypePB::SKIP_NAME_GLOB},
+            {"typed_*", PatternTypePB::MATCH_NAME_GLOB},
+    };
+
+    std::shared_ptr<const CompiledSkipMatcher> matcher;
+    Status st = build_compiled_skip_matcher(skip_patterns, false, &matcher);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_TRUE(matcher != nullptr);
+
+    EXPECT_TRUE(should_skip_path(*matcher, "secret"));
+    EXPECT_TRUE(should_skip_path(*matcher, "debug_field"));
+    EXPECT_FALSE(should_skip_path(*matcher, "typed_field"));
+    EXPECT_FALSE(should_skip_path(*matcher, "other"));
+}
+
+TEST(VariantUtilTest, BuildCompiledSkipMatcherWithRe2Set) {
+    std::vector<std::pair<std::string, PatternTypePB>> skip_patterns;
+    for (int i = 0; i < 40; ++i) {
+        skip_patterns.emplace_back("k" + std::to_string(i) + "_*", PatternTypePB::SKIP_NAME_GLOB);
+    }
+
+    std::shared_ptr<const CompiledSkipMatcher> matcher;
+    Status st = build_compiled_skip_matcher(skip_patterns, true, &matcher);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_TRUE(matcher != nullptr);
+
+    EXPECT_TRUE(should_skip_path(*matcher, "k1_abc"));
+    EXPECT_TRUE(should_skip_path(*matcher, "k39_abc"));
+    EXPECT_FALSE(should_skip_path(*matcher, "unknown_abc"));
+}
+
+TEST(VariantUtilTest, ParseVariantColumnsApplySkipPatternsFromSchemaChildren) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    auto* c = schema_pb.add_column();
+    c->set_unique_id(1);
+    c->set_name("v");
+    c->set_type("VARIANT");
+    c->set_is_key(false);
+    c->set_is_nullable(false);
+    c->set_variant_enable_doc_mode(false);
+
+    // Typed path: should not be skipped.
+    auto* typed = c->add_children_columns();
+    typed->set_unique_id(2);
+    typed->set_name("num_*");
+    typed->set_type("BIGINT");
+    typed->set_is_key(false);
+    typed->set_is_nullable(true);
+    typed->set_pattern_type(PatternTypePB::MATCH_NAME_GLOB);
+
+    // Skip exact.
+    auto* skip_exact = c->add_children_columns();
+    skip_exact->set_unique_id(3);
+    skip_exact->set_name("secret");
+    skip_exact->set_type("STRING");
+    skip_exact->set_is_key(false);
+    skip_exact->set_is_nullable(true);
+    skip_exact->set_pattern_type(PatternTypePB::SKIP_NAME);
+
+    // Skip glob.
+    auto* skip_glob = c->add_children_columns();
+    skip_glob->set_unique_id(4);
+    skip_glob->set_name("debug_*");
+    skip_glob->set_type("STRING");
+    skip_glob->set_is_key(false);
+    skip_glob->set_is_nullable(true);
+    skip_glob->set_pattern_type(PatternTypePB::SKIP_NAME_GLOB);
+
+    TabletSchema tablet_schema;
+    tablet_schema.init_from_pb(schema_pb);
+
+    auto variant = vectorized::ColumnVariant::create(0);
+    doris::VariantUtil::insert_root_scalar_field(
+            *variant, vectorized::Field::create_field<TYPE_STRING>(
+                              String(R"({"secret":1,"debug_a":2,"keep":3,"num_a":4})")));
+    doris::VariantUtil::insert_root_scalar_field(
+            *variant, vectorized::Field::create_field<TYPE_STRING>(
+                              String(R"({"secret":5,"debug_b":6,"keep":7,"num_b":8})")));
+
+    vectorized::Block block;
+    block.insert({variant->get_ptr(), std::make_shared<vectorized::DataTypeVariant>(0), "v"});
+
+    Status st =
+            parse_and_materialize_variant_columns(block, tablet_schema, std::vector<uint32_t> {0});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    const auto& col0 = *block.get_by_position(0).column;
+    const auto& out = assert_cast<const vectorized::ColumnVariant&>(col0);
+
+    EXPECT_EQ(nullptr, out.get_subcolumn(vectorized::PathInData("secret")));
+    EXPECT_EQ(nullptr, out.get_subcolumn(vectorized::PathInData("debug_a")));
+    EXPECT_EQ(nullptr, out.get_subcolumn(vectorized::PathInData("debug_b")));
+
+    const auto* sub_keep = out.get_subcolumn(vectorized::PathInData("keep"));
+    const auto* sub_num_a = out.get_subcolumn(vectorized::PathInData("num_a"));
+    const auto* sub_num_b = out.get_subcolumn(vectorized::PathInData("num_b"));
+    ASSERT_TRUE(sub_keep != nullptr);
+    ASSERT_TRUE(sub_num_a != nullptr);
+    ASSERT_TRUE(sub_num_b != nullptr);
+}
+
 TEST(VariantUtilTest, SkipPatternPerfCompareNoSkipLegacyOptimized) {
     if (std::getenv("DORIS_RUN_VARIANT_SKIP_PERF_UT") == nullptr) {
         GTEST_SKIP() << "Set DORIS_RUN_VARIANT_SKIP_PERF_UT=1 to run this heavy perf test.";

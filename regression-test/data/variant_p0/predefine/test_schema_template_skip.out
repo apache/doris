@@ -39,6 +39,12 @@
 -- !skip_priority_2 --
 1	val
 
+-- !skip_invalid_glob_1 --
+1	x
+
+-- !skip_invalid_glob_2 --
+1	y
+
 -- !skip_glob_cross_1 --
 1	\N
 

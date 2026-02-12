@@ -47,6 +47,8 @@ import org.apache.doris.nereids.trees.plans.commands.ExecuteActionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
@@ -61,10 +63,14 @@ import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VariantField;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TPatternType;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -1513,6 +1519,75 @@ public class NereidsParserTest extends ParserTestBase {
                 + "WHEN MATCHED THEN DELETE "
                 + "WHEN NOT MATCHED THEN INSERT VALUES (c1, c2, c3)";
         Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(invalidSql4));
+    }
+
+    @Test
+    public void testParseVariantSkipPatternsInCreateTable() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "create table t_skip_parse (\n"
+                + "  id int,\n"
+                + "  v variant<SKIP 'debug_*', SKIP MATCH_NAME 'secret', 'num_*': BIGINT>\n"
+                + ")\n"
+                + "duplicate key(id)\n"
+                + "distributed by hash(id) buckets 1\n"
+                + "properties('replication_num'='1')";
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(CreateTableCommand.class, logicalPlan);
+
+        CreateTableInfo createTableInfo = ((CreateTableCommand) logicalPlan).getCreateTableInfo();
+        ColumnDefinition variantColumn = createTableInfo.getColumnDefinitions().stream()
+                .filter(c -> "v".equalsIgnoreCase(c.getName()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("variant column not found"));
+
+        Assertions.assertTrue(variantColumn.getType() instanceof VariantType);
+        VariantType variantType = (VariantType) variantColumn.getType();
+        List<VariantField> variantPathPatterns = variantType.getVariantPathPatterns();
+        Assertions.assertEquals(3, variantPathPatterns.size());
+
+        VariantField skipGlob = variantPathPatterns.get(0);
+        Assertions.assertTrue(skipGlob.isSkipPatternType());
+        Assertions.assertEquals(StringType.INSTANCE, skipGlob.getDataType());
+        Assertions.assertEquals(TPatternType.SKIP_NAME_GLOB, skipGlob.toCatalogDataType().getPatternType());
+        Assertions.assertEquals("SKIP 'debug_*'", skipGlob.toSql());
+
+        VariantField skipExact = variantPathPatterns.get(1);
+        Assertions.assertTrue(skipExact.isSkipPatternType());
+        Assertions.assertEquals(StringType.INSTANCE, skipExact.getDataType());
+        Assertions.assertEquals(TPatternType.SKIP_NAME, skipExact.toCatalogDataType().getPatternType());
+        Assertions.assertEquals("SKIP MATCH_NAME 'secret'", skipExact.toSql());
+
+        VariantField typedPattern = variantPathPatterns.get(2);
+        Assertions.assertTrue(typedPattern.isTypedPathPatternType());
+        Assertions.assertEquals(TPatternType.MATCH_NAME_GLOB, typedPattern.toCatalogDataType().getPatternType());
+        Assertions.assertTrue(typedPattern.matches("num_a"));
+        Assertions.assertEquals(1, variantType.getVariantTypedPathPatterns().size());
+    }
+
+    @Test
+    public void testParseVariantSkipOnlyWithDocMode() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "create table t_skip_doc_mode (\n"
+                + "  id int,\n"
+                + "  v variant<SKIP 'debug_*', PROPERTIES(\"variant_enable_doc_mode\" = \"true\")>\n"
+                + ")\n"
+                + "duplicate key(id)\n"
+                + "distributed by hash(id) buckets 1\n"
+                + "properties('replication_num'='1')";
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(CreateTableCommand.class, logicalPlan);
+
+        CreateTableInfo createTableInfo = ((CreateTableCommand) logicalPlan).getCreateTableInfo();
+        ColumnDefinition variantColumn = createTableInfo.getColumnDefinitions().stream()
+                .filter(c -> "v".equalsIgnoreCase(c.getName()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("variant column not found"));
+
+        VariantType variantType = (VariantType) variantColumn.getType();
+        Assertions.assertTrue(variantType.getEnableVariantDocMode());
+        Assertions.assertEquals(1, variantType.getVariantPathPatterns().size());
+        Assertions.assertEquals(0, variantType.getVariantTypedPathPatterns().size());
+        Assertions.assertTrue(variantType.getVariantPathPatterns().get(0).isSkipPatternType());
     }
 
     @Test

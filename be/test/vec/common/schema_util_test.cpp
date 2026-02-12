@@ -902,9 +902,9 @@ TEST_F(SchemaUtilTest, TestUpdateLeastSchemaInternal) {
     PathInData single_path("test_variant.c");
     subcolumns_types[single_path] = {std::make_shared<DataTypeString>()};
 
-    std::map<std::string, TabletColumnPtr> typed_columns;
-    Status st =
-            variant_util::update_least_schema_internal(subcolumns_types, schema, 1, typed_columns);
+    std::map<std::string, TabletColumnPtr> typed_path_columns;
+    Status st = variant_util::update_least_schema_internal(subcolumns_types, schema, 1,
+                                                           typed_path_columns);
     EXPECT_TRUE(st.ok());
 
     // Check results
