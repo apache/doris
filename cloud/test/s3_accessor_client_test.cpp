@@ -144,10 +144,9 @@ protected:
                          << ret;
         }
 
-        std::string test_path = "s3_accessor_test_dir";
         // Clean up test directory if it exists
         if (s3_accessor) {
-            s3_accessor->delete_directory("/");
+            s3_accessor->delete_all();
         }
     }
 
@@ -184,16 +183,8 @@ protected:
     void TearDown() override {
         // Cleanup test directory
         if (s3_accessor) {
-            s3_accessor->delete_directory("/");
+            s3_accessor->delete_all();
         }
-    }
-
-    std::string get_unique_test_path() {
-        std::string path = config_->get_prefix();
-        if (!path.empty() && path.back() != '/') {
-            path += '/';
-        }
-        return path;
     }
 
     std::shared_ptr<S3TestConfig> config_;
