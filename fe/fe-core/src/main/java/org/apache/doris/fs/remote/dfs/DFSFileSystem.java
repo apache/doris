@@ -47,6 +47,7 @@ import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
+import org.apache.hadoop.metrics2.lib.DefaultMetricsSystem;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -159,6 +160,16 @@ public class DFSFileSystem extends RemoteFileSystem {
                                 throw new RuntimeException(e);
                             }
                         });
+                        // Shutdown Hadoop's DefaultMetricsSystem to prevent MetricsSourceAdapter leak.
+                        // Each FileSystem.get() registers metrics sources in the global MetricsSystemImpl
+                        // that are never unregistered on FileSystem.close(), causing unbounded growth of
+                        // MetricCounterLong, MBeanAttributeInfo, etc. Doris FE does not consume Hadoop
+                        // metrics, so shutting down the metrics system is safe.
+                        try {
+                            DefaultMetricsSystem.shutdown();
+                        } catch (Exception e) {
+                            LOG.warn("Failed to shutdown Hadoop DefaultMetricsSystem", e);
+                        }
                         operations = new HDFSFileOperations(dfsFileSystem);
                         RemoteFSPhantomManager.registerPhantomReference(this);
                     } catch (Exception e) {
