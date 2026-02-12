@@ -596,7 +596,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
         for (size_t j = 0; j < key_columns.size(); ++j) {
             const char* __restrict data = key_columns[j]->get_raw_data().data;
 
-            auto foo = [&]<typename Fixed>(Fixed zero) {
+            auto goo = [&]<typename Fixed, bool aligned>(Fixed zero) {
                 CHECK_EQ(sizeof(Fixed), key_sizes[j]);
                 if (has_null_column.size() && has_null_column[j]) {
                     const auto* nullmap =
@@ -606,9 +606,16 @@ struct MethodKeysFixed : public MethodBase<TData> {
                 }
                 auto* __restrict current = result_data + offset;
                 for (size_t i = 0; i < row_numbers; ++i) {
-                    memcpy_fixed<Fixed, true>(current, data);
+                    memcpy_fixed<Fixed, aligned>(current, data);
                     current += sizeof(T);
                     data += sizeof(Fixed);
+                }
+            };
+            auto foo = [&]<typename Fixed>(Fixed zero) {
+                if (reinterpret_cast<uintptr_t>(result_data + offset) % sizeof(T) == 0) {
+                    goo.template operator()<Fixed, true>(zero);
+                } else {
+                    goo.template operator()<Fixed, false>(zero);
                 }
             };
 
@@ -688,6 +695,9 @@ struct MethodKeysFixed : public MethodBase<TData> {
 
     void insert_keys_into_columns(std::vector<typename Base::Key>& input_keys,
                                   MutableColumns& key_columns, const uint32_t num_rows) override {
+        if (num_rows == 0) {
+            return;
+        }
         size_t pos = std::ranges::any_of(key_columns,
                                          [](const auto& col) { return col->is_nullable(); });
 
@@ -717,11 +727,18 @@ struct MethodKeysFixed : public MethodBase<TData> {
                 data = const_cast<char*>(key_columns[i]->get_raw_data().data);
             }
 
-            auto foo = [&]<typename Fixed>(Fixed zero) {
+            auto goo = [&]<typename Fixed, bool aligned>(Fixed zero) {
                 CHECK_EQ(sizeof(Fixed), size);
                 for (size_t j = 0; j < num_rows; j++) {
-                    memcpy_fixed<Fixed, true>(data + j * sizeof(Fixed),
-                                              (char*)(&input_keys[j]) + pos);
+                    memcpy_fixed<Fixed, aligned>(data + j * sizeof(Fixed),
+                                                 (char*)(&input_keys[j]) + pos);
+                }
+            };
+            auto foo = [&]<typename Fixed>(Fixed zero) {
+                if (reinterpret_cast<uintptr_t>(input_keys.data() + pos) % sizeof(Fixed) == 0) {
+                    goo.template operator()<Fixed, true>(zero);
+                } else {
+                    goo.template operator()<Fixed, false>(zero);
                 }
             };
 
