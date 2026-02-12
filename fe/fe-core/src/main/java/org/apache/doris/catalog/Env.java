@@ -709,7 +709,9 @@ public class Env {
         this.lock = new MonitoredReentrantLock(true);
         this.backupHandler = new BackupHandler(this);
         this.metaDir = Config.meta_dir;
-        this.publishVersionDaemon = new PublishVersionDaemon();
+        if (!isCheckpointCatalog) {
+            this.publishVersionDaemon = new PublishVersionDaemon();
+        }
         this.deleteHandler = new DeleteHandler();
         this.dbUsedDataQuotaInfoCollector = new DbUsedDataQuotaInfoCollector();
         this.partitionInfoCollector = new PartitionInfoCollector();
