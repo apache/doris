@@ -66,6 +66,18 @@ public class NopMetricsSystem extends MetricsSystem {
     }
 
     @Override
+    public void start() {}
+
+    @Override
+    public void stop() {}
+
+    @Override
+    public void startMetricsMBeans() {}
+
+    @Override
+    public void stopMetricsMBeans() {}
+
+    @Override
     public String currentConfig() {
         return "";
     }
