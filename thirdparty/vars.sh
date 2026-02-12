@@ -524,16 +524,16 @@ ALI_SDK_SOURCE="aliyun-openapi-cpp-sdk-1.36.1586"
 ALI_SDK_MD5SUM="14623ee8e87c89615477d9bf8cb30bea"
 
 # Apache Portable Runtime (APR) - Required by OSS SDK
-APR_DOWNLOAD="https://archive.apache.org/dist/apr/apr-1.7.4.tar.gz"
-APR_NAME="apr-1.7.4.tar.gz"
-APR_SOURCE="apr-1.7.4"
-APR_MD5SUM="eb9b239f23598b746e82259797df5945"
+APR_DOWNLOAD="https://dlcdn.apache.org//apr/apr-1.7.6.tar.gz"
+APR_NAME="apr-1.7.6.tar.gz"
+APR_SOURCE="apr-1.7.6"
+APR_MD5SUM="44f27088e423da7cefc1a9717b910d85"
 
 # APR-Util - Required by OSS SDK
-APR_UTIL_DOWNLOAD="https://archive.apache.org/dist/apr/apr-util-1.6.3.tar.gz"
+APR_UTIL_DOWNLOAD="https://dlcdn.apache.org//apr/apr-util-1.6.3.tar.gz"
 APR_UTIL_NAME="apr-util-1.6.3.tar.gz"
 APR_UTIL_SOURCE="apr-util-1.6.3"
-APR_UTIL_MD5SUM="4ce110b31c10158aaafb1b46ec818f96"
+APR_UTIL_MD5SUM="b2b6fb440548869dc228535e339f619b"
 
 # AliCloud OSS C++ SDK 1.10.1 (V1 only - no V2 exists)
 OSS_DOWNLOAD="https://github.com/aliyun/aliyun-oss-cpp-sdk/archive/refs/tags/1.10.1.tar.gz"
