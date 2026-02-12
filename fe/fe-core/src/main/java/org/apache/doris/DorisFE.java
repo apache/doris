@@ -190,13 +190,6 @@ public class DorisFE {
 
             fuzzyConfigs();
 
-            // Disable Hadoop metrics2 to prevent memory leak.
-            // Each new Hadoop FileSystem instance registers metrics with the global DefaultMetricsSystem
-            // singleton, but never unregisters them on close(). This causes MetricCounterLong and
-            // MBeanAttributeInfo objects to accumulate unboundedly, eventually leading to OOM.
-            // Doris FE does not use Hadoop metrics, so it is safe to disable them entirely.
-            org.apache.hadoop.metrics2.lib.DefaultMetricsSystem.setMiniClusterMode(true);
-
             LOG.info("Doris FE starting...");
 
             FrontendOptions.init();
