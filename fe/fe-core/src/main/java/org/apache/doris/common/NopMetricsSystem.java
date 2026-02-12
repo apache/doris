@@ -17,6 +17,7 @@
 
 package org.apache.doris.common;
 
+import org.apache.hadoop.metrics2.MetricsSink;
 import org.apache.hadoop.metrics2.MetricsSource;
 import org.apache.hadoop.metrics2.MetricsSystem;
 
@@ -46,6 +47,11 @@ public class NopMetricsSystem extends MetricsSystem {
     @Override
     public MetricsSource getSource(String name) {
         return null;
+    }
+
+    @Override
+    public <T extends MetricsSink> T register(String name, String desc, T sink) {
+        return sink;
     }
 
     @Override
