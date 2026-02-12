@@ -190,6 +190,12 @@ public class DorisFE {
 
             fuzzyConfigs();
 
+            // Replace Hadoop's DefaultMetricsSystem with a no-op to prevent memory leak.
+            // Each FileSystem.get() registers metrics (MetricCounterLong, MBeanAttributeInfo, etc.)
+            // that are never unregistered, causing unbounded growth. Doris FE does not use Hadoop metrics.
+            org.apache.hadoop.metrics2.lib.DefaultMetricsSystem
+                    .setInstance(new org.apache.doris.common.NopMetricsSystem());
+
             LOG.info("Doris FE starting...");
 
             FrontendOptions.init();
