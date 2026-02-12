@@ -51,6 +51,11 @@ public class PatternDescriptor<INPUT_TYPE extends Plan> {
         return new PatternDescriptor<>(pattern.withPredicates(predicates), defaultPromise);
     }
 
+    /** when with description, the description will be shown in diagnostic message when predicate fails */
+    public PatternDescriptor<INPUT_TYPE> when(String description, Predicate<INPUT_TYPE> predicate) {
+        return when(DescribedPredicate.of(description, predicate));
+    }
+
     public PatternDescriptor<INPUT_TYPE> whenNot(Predicate<INPUT_TYPE> predicate) {
         return when(predicate.negate());
     }
