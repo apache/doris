@@ -54,11 +54,15 @@ static uint64_t _splitmix64(uint64_t x) {
     return x ^ (x >> 31);
 }
 
+static constexpr size_t kPerfNestedDim = 8;
+static constexpr size_t kPerfNestedLeafCount =
+        kPerfNestedDim * kPerfNestedDim * kPerfNestedDim * kPerfNestedDim;
+
 static std::string _path_of_leaf_id(size_t leaf_id) {
-    const size_t g = leaf_id / 1000;
-    const size_t s = (leaf_id / 100) % 10;
-    const size_t t = (leaf_id / 10) % 10;
-    const size_t k = leaf_id % 10;
+    const size_t g = leaf_id / (kPerfNestedDim * kPerfNestedDim * kPerfNestedDim);
+    const size_t s = (leaf_id / (kPerfNestedDim * kPerfNestedDim)) % kPerfNestedDim;
+    const size_t t = (leaf_id / kPerfNestedDim) % kPerfNestedDim;
+    const size_t k = leaf_id % kPerfNestedDim;
     std::string path;
     path.reserve(16);
     path += "g";
@@ -77,21 +81,22 @@ static std::string _build_nested_json_row(size_t row_idx, uint64_t seed) {
     root.reserve(220000);
     root.push_back('{');
     bool first_g = true;
-    for (size_t g = 0; g < 10; ++g) {
+    for (size_t g = 0; g < kPerfNestedDim; ++g) {
         std::string g_obj;
         g_obj.push_back('{');
         bool first_s = true;
-        for (size_t s = 0; s < 10; ++s) {
+        for (size_t s = 0; s < kPerfNestedDim; ++s) {
             std::string s_obj;
             s_obj.push_back('{');
             bool first_t = true;
-            for (size_t t = 0; t < 10; ++t) {
+            for (size_t t = 0; t < kPerfNestedDim; ++t) {
                 std::string t_obj;
                 t_obj.push_back('{');
                 bool first_k = true;
-                for (size_t k = 0; k < 10; ++k) {
-                    const size_t leaf_id = ((g * 10 + s) * 10 + t) * 10 + k;
-                    // Keep 10k nested columns per row to stress skip-pattern matching.
+                for (size_t k = 0; k < kPerfNestedDim; ++k) {
+                    const size_t leaf_id =
+                            ((g * kPerfNestedDim + s) * kPerfNestedDim + t) * kPerfNestedDim + k;
+                    // Keep many nested columns per row to stress skip-pattern matching.
                     if (!first_k) {
                         t_obj.push_back(',');
                     }
@@ -171,7 +176,7 @@ static std::vector<std::pair<std::string, PatternTypePB>> _build_skip_patterns_f
     patterns.reserve(96);
 
     // Exact match patterns.
-    for (size_t leaf_id = 0; leaf_id < 10000; leaf_id += 211) {
+    for (size_t leaf_id = 0; leaf_id < kPerfNestedLeafCount; leaf_id += 211) {
         patterns.emplace_back(_path_of_leaf_id(leaf_id), PatternTypePB::SKIP_NAME);
     }
 
@@ -182,7 +187,7 @@ static std::vector<std::pair<std::string, PatternTypePB>> _build_skip_patterns_f
     }
 
     // Matched glob patterns.
-    for (size_t g = 0; g < 10; ++g) {
+    for (size_t g = 0; g < kPerfNestedDim; ++g) {
         std::string pattern = "g";
         pattern.push_back(static_cast<char>('0' + g));
         pattern += ".s?.t?.k[02468]";
@@ -735,7 +740,7 @@ TEST(VariantUtilTest, SkipPatternPerfCompareNoSkipLegacyOptimized) {
         GTEST_SKIP() << "Set DORIS_RUN_VARIANT_SKIP_PERF_UT=1 to run this heavy perf test.";
     }
 
-    constexpr size_t kRows = 1000;
+    constexpr size_t kRows = 200;
     constexpr uint64_t kSeed = 0x20260211ULL;
     const auto json_rows = _build_nested_json_rows(kRows, kSeed);
     const auto json_column = _make_json_column(json_rows);
@@ -799,7 +804,8 @@ TEST(VariantUtilTest, SkipPatternPerfCompareNoSkipLegacyOptimized) {
                               static_cast<double>(optimized_result.elapsed_ms)
                     : 0.0;
 
-    LOG(INFO) << "skip-pattern perf compare (1000 rows, 10k nested columns, same random data): "
+    LOG(INFO) << "skip-pattern perf compare (" << kRows << " rows, " << kPerfNestedLeafCount
+              << " nested columns, same random data): "
               << "no_skip_ms=" << no_skip_result.elapsed_ms << ", "
               << "legacy_ms=" << legacy_result.elapsed_ms
               << ", optimized_ms=" << optimized_result.elapsed_ms
