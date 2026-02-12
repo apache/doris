@@ -764,6 +764,7 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_predicate_column_read_seek_counter,
                    stats.predicate_column_read_seek_num);
     COUNTER_UPDATE(local_state->_lazy_read_timer, stats.lazy_read_ns);
+    COUNTER_UPDATE(local_state->_lazy_read_pruned_timer, stats.lazy_read_pruned_ns);
     COUNTER_UPDATE(local_state->_lazy_read_seek_timer, stats.block_lazy_read_seek_ns);
     COUNTER_UPDATE(local_state->_lazy_read_seek_counter, stats.block_lazy_read_seek_num);
     COUNTER_UPDATE(local_state->_output_col_timer, stats.output_col_ns);
