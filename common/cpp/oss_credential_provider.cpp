@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/oss_credential_provider.h"
+#include "cpp/oss_credential_provider.h"
 
 #include <curl/curl.h>
 #include <rapidjson/document.h>

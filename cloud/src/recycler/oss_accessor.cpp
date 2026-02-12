@@ -31,7 +31,7 @@
 #include "common/logging.h"
 #include "common/string_util.h"
 #include "common/util.h"
-#include "util/oss_credential_provider.h"
+#include "cpp/oss_credential_provider.h"
 
 namespace doris::cloud {
 

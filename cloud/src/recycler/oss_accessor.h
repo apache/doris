@@ -37,9 +37,11 @@ class Credentials;
 } // namespace AlibabaCloud
 
 namespace doris {
+// Forward declare credential provider
 class ECSMetadataCredentialsProvider;
+} // namespace doris
 
-namespace cloud {
+namespace doris::cloud {
 class ObjectStoreInfoPB;
 
 namespace oss_bvar {

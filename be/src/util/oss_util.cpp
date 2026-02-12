@@ -23,7 +23,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "util/oss_credential_provider.h"
+#include "cpp/oss_credential_provider.h"
 
 namespace doris {
 
