@@ -1221,7 +1221,11 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
                 ValueBuf old_val;
                 auto get_err = cloud::blob_get(txn.get(), key, &old_val);
                 if (get_err == TxnErrorCode::TXN_OK) {
-                    old_val.remove(txn.get());
+                    bool skip_remove = false;
+                    TEST_SYNC_POINT_CALLBACK("update_tablet::skip_schema_remove", &skip_remove);
+                    if (!skip_remove) {
+                        old_val.remove(txn.get());
+                    }
                 }
                 uint8_t ver = config::meta_schema_value_version;
                 if (ver > 0) {
