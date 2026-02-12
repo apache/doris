@@ -49,7 +49,10 @@ void CollectionSimilarity::get_bm25_scores(roaring::Roaring* row_bitmap,
 
     size_t num_results = row_ids->size();
     auto score_column = vectorized::ColumnFloat32::create(num_results);
-    memcpy(score_column->get_data().data(), filtered_scores.data(), num_results * sizeof(float));
+    if (num_results > 0) {
+        memcpy(score_column->get_data().data(), filtered_scores.data(),
+               num_results * sizeof(float));
+    }
 
     *row_bitmap = std::move(new_bitmap);
     auto null_map = vectorized::ColumnUInt8::create(num_results, 0);
