@@ -123,20 +123,14 @@ Result<int64_t> OSSClientHolder::object_file_size(const std::string& bucket,
         return ResultError(Status::InvalidArgument("init oss client error"));
     }
 
-    try {
-        auto outcome = client->HeadObject(bucket, key);
-        if (!outcome.isSuccess()) {
-            return ResultError(Status::IOError("failed to head oss file {}: {} - {}",
-                                               full_oss_path(bucket, key), outcome.error().Code(),
-                                               outcome.error().Message()));
-        }
-
-        return outcome.result().ContentLength();
-    } catch (const AlibabaCloud::OSS::OssException& e) {
+    auto outcome = client->HeadObject(bucket, key);
+    if (!outcome.isSuccess()) {
         return ResultError(Status::IOError("failed to head oss file {}: {} - {}",
-                                           full_oss_path(bucket, key), e.GetErrorCode(),
-                                           e.GetErrorMessage()));
+                                           full_oss_path(bucket, key), outcome.error().Code(),
+                                           outcome.error().Message()));
     }
+
+    return outcome.result().ContentLength();
 }
 
 std::string OSSClientHolder::full_oss_path(std::string_view bucket, std::string_view key) const {
@@ -203,24 +197,18 @@ Status OSSFileSystem::delete_file_impl(const Path& file) {
 
     auto key = DORIS_TRY(get_oss_key(file));
 
-    try {
-        AlibabaCloud::OSS::DeleteObjectRequest request(_bucket, key);
-        auto outcome = client->DeleteObject(request);
+    auto outcome = client->DeleteObject(_bucket, key);
 
-        // OSS DeleteObject returns success even if object doesn't exist
-        if (!outcome.isSuccess()) {
-            std::string error_code = outcome.error().Code();
-            if (error_code != "NoSuchKey") {
-                return Status::IOError("failed to delete file {}: {} - {}", full_oss_path(key),
-                                       error_code, outcome.error().Message());
-            }
+    // OSS DeleteObject returns success even if object doesn't exist
+    if (!outcome.isSuccess()) {
+        std::string error_code = outcome.error().Code();
+        if (error_code != "NoSuchKey") {
+            return Status::IOError("failed to delete file {}: {} - {}", full_oss_path(key),
+                                   error_code, outcome.error().Message());
         }
-
-        return Status::OK();
-    } catch (const AlibabaCloud::OSS::OssException& e) {
-        return Status::IOError("failed to delete file {}: {} - {}", full_oss_path(key),
-                               e.GetErrorCode(), e.GetErrorMessage());
     }
+
+    return Status::OK();
 }
 
 Status OSSFileSystem::delete_directory_impl(const Path& dir) {
@@ -232,56 +220,52 @@ Status OSSFileSystem::delete_directory_impl(const Path& dir) {
         prefix.push_back('/');
     }
 
-    try {
-        // List and delete all objects with prefix
-        bool is_truncated = true;
-        std::string marker;
+    // List and delete all objects with prefix
+    bool is_truncated = true;
+    std::string marker;
 
-        while (is_truncated) {
-            AlibabaCloud::OSS::ListObjectsRequest list_request(_bucket);
-            list_request.setPrefix(prefix);
-            list_request.setMaxKeys(1000);
+    while (is_truncated) {
+        AlibabaCloud::OSS::ListObjectsRequest list_request(_bucket);
+        list_request.setPrefix(prefix);
+        list_request.setMaxKeys(1000);
 
-            if (!marker.empty()) {
-                list_request.setMarker(marker);
-            }
-
-            auto list_outcome = client->ListObjects(list_request);
-            if (!list_outcome.isSuccess()) {
-                return Status::IOError("failed to list objects for delete directory {}: {} - {}",
-                                       full_oss_path(prefix), list_outcome.error().Code(),
-                                       list_outcome.error().Message());
-            }
-
-            const auto& result = list_outcome.result();
-            const auto& objects = result.ObjectSummarys();
-
-            // Delete objects in batch (max 1000 per request)
-            if (!objects.empty()) {
-                AlibabaCloud::OSS::DeletedKeyList keys;
-                for (const auto& obj : objects) {
-                    keys.push_back(obj.Key());
-                }
-
-                AlibabaCloud::OSS::DeleteObjectsRequest delete_request(_bucket, keys);
-                auto delete_outcome = client->DeleteObjects(delete_request);
-
-                if (!delete_outcome.isSuccess()) {
-                    return Status::IOError("failed to batch delete objects: {} - {}",
-                                           delete_outcome.error().Code(),
-                                           delete_outcome.error().Message());
-                }
-            }
-
-            is_truncated = result.IsTruncated();
-            marker = result.NextMarker();
+        if (!marker.empty()) {
+            list_request.setMarker(marker);
         }
 
-        return Status::OK();
-    } catch (const AlibabaCloud::OSS::OssException& e) {
-        return Status::IOError("failed to delete directory {}: {} - {}", full_oss_path(prefix),
-                               e.GetErrorCode(), e.GetErrorMessage());
+        auto list_outcome = client->ListObjects(list_request);
+        if (!list_outcome.isSuccess()) {
+            return Status::IOError("failed to list objects for delete directory {}: {} - {}",
+                                   full_oss_path(prefix), list_outcome.error().Code(),
+                                   list_outcome.error().Message());
+        }
+
+        const auto& result = list_outcome.result();
+        const auto& objects = result.ObjectSummarys();
+
+        // Delete objects in batch (max 1000 per request)
+        if (!objects.empty()) {
+            AlibabaCloud::OSS::DeletedKeyList keys;
+            for (const auto& obj : objects) {
+                keys.push_back(obj.Key());
+            }
+
+            AlibabaCloud::OSS::DeleteObjectsRequest delete_request(_bucket);
+            delete_request.setKeyList(keys);
+            auto delete_outcome = client->DeleteObjects(delete_request);
+
+            if (!delete_outcome.isSuccess()) {
+                return Status::IOError("failed to batch delete objects: {} - {}",
+                                       delete_outcome.error().Code(),
+                                       delete_outcome.error().Message());
+            }
+        }
+
+        is_truncated = result.IsTruncated();
+        marker = result.NextMarker();
     }
+
+    return Status::OK();
 }
 
 Status OSSFileSystem::batch_delete_impl(const std::vector<Path>& remote_files) {
@@ -292,35 +276,31 @@ Status OSSFileSystem::batch_delete_impl(const std::vector<Path>& remote_files) {
     constexpr size_t max_delete_batch = 1000;
     auto path_iter = remote_files.begin();
 
-    try {
-        do {
-            AlibabaCloud::OSS::DeletedKeyList keys;
-            auto path_begin = path_iter;
+    do {
+        AlibabaCloud::OSS::DeletedKeyList keys;
+        auto path_begin = path_iter;
 
-            for (; path_iter != remote_files.end() && (path_iter - path_begin < max_delete_batch);
-                 ++path_iter) {
-                auto key = DORIS_TRY(get_oss_key(*path_iter));
-                keys.push_back(key);
-            }
+        for (; path_iter != remote_files.end() && (path_iter - path_begin < max_delete_batch);
+             ++path_iter) {
+            auto key = DORIS_TRY(get_oss_key(*path_iter));
+            keys.push_back(key);
+        }
 
-            if (keys.empty()) {
-                break;
-            }
+        if (keys.empty()) {
+            break;
+        }
 
-            AlibabaCloud::OSS::DeleteObjectsRequest request(_bucket, keys);
-            auto outcome = client->DeleteObjects(request);
+        AlibabaCloud::OSS::DeleteObjectsRequest request(_bucket);
+        request.setKeyList(keys);
+        auto outcome = client->DeleteObjects(request);
 
-            if (!outcome.isSuccess()) {
-                return Status::IOError("failed to batch delete objects: {} - {}",
-                                       outcome.error().Code(), outcome.error().Message());
-            }
-        } while (path_iter != remote_files.end());
+        if (!outcome.isSuccess()) {
+            return Status::IOError("failed to batch delete objects: {} - {}",
+                                   outcome.error().Code(), outcome.error().Message());
+        }
+    } while (path_iter != remote_files.end());
 
-        return Status::OK();
-    } catch (const AlibabaCloud::OSS::OssException& e) {
-        return Status::IOError("failed to batch delete: {} - {}", e.GetErrorCode(),
-                               e.GetErrorMessage());
-    }
+    return Status::OK();
 }
 
 Status OSSFileSystem::exists_impl(const Path& path, bool* res) const {
@@ -329,13 +309,8 @@ Status OSSFileSystem::exists_impl(const Path& path, bool* res) const {
 
     auto key = DORIS_TRY(get_oss_key(path));
 
-    try {
-        *res = client->DoesObjectExist(_bucket, key);
-        return Status::OK();
-    } catch (const AlibabaCloud::OSS::OssException& e) {
-        return Status::IOError("failed to check existence of {}: {} - {}", full_oss_path(key),
-                               e.GetErrorCode(), e.GetErrorMessage());
-    }
+    *res = client->DoesObjectExist(_bucket, key);
+    return Status::OK();
 }
 
 Status OSSFileSystem::file_size_impl(const Path& file, int64_t* file_size) const {
@@ -356,55 +331,50 @@ Status OSSFileSystem::list_impl(const Path& dir, bool only_file, std::vector<Fil
 
     *exists = false;
 
-    try {
-        bool is_truncated = true;
-        std::string marker;
+    bool is_truncated = true;
+    std::string marker;
 
-        while (is_truncated) {
-            AlibabaCloud::OSS::ListObjectsRequest request(_bucket);
-            request.setPrefix(prefix);
-            request.setMaxKeys(1000);
+    while (is_truncated) {
+        AlibabaCloud::OSS::ListObjectsRequest request(_bucket);
+        request.setPrefix(prefix);
+        request.setMaxKeys(1000);
 
-            if (!marker.empty()) {
-                request.setMarker(marker);
-            }
-
-            auto outcome = client->ListObjects(request);
-            if (!outcome.isSuccess()) {
-                return Status::IOError("failed to list objects: {} - {}", outcome.error().Code(),
-                                       outcome.error().Message());
-            }
-
-            const auto& result = outcome.result();
-            const auto& objects = result.ObjectSummarys();
-
-            if (!objects.empty()) {
-                *exists = true;
-            }
-
-            for (const auto& obj : objects) {
-                FileInfo file_info;
-                file_info.file_name = obj.Key();
-                // Remove prefix from file name
-                if (file_info.file_name.find(prefix) == 0) {
-                    file_info.file_name = file_info.file_name.substr(prefix.length());
-                }
-
-                file_info.file_size = obj.Size();
-                file_info.is_file = true; // OSS objects are always files
-
-                files->push_back(std::move(file_info));
-            }
-
-            is_truncated = result.IsTruncated();
-            marker = result.NextMarker();
+        if (!marker.empty()) {
+            request.setMarker(marker);
         }
 
-        return Status::OK();
-    } catch (const AlibabaCloud::OSS::OssException& e) {
-        return Status::IOError("failed to list {}: {} - {}", full_oss_path(prefix),
-                               e.GetErrorCode(), e.GetErrorMessage());
+        auto outcome = client->ListObjects(request);
+        if (!outcome.isSuccess()) {
+            return Status::IOError("failed to list objects: {} - {}", outcome.error().Code(),
+                                   outcome.error().Message());
+        }
+
+        const auto& result = outcome.result();
+        const auto& objects = result.ObjectSummarys();
+
+        if (!objects.empty()) {
+            *exists = true;
+        }
+
+        for (const auto& obj : objects) {
+            FileInfo file_info;
+            file_info.file_name = obj.Key();
+            // Remove prefix from file name
+            if (file_info.file_name.find(prefix) == 0) {
+                file_info.file_name = file_info.file_name.substr(prefix.length());
+            }
+
+            file_info.file_size = obj.Size();
+            file_info.is_file = true; // OSS objects are always files
+
+            files->push_back(std::move(file_info));
+        }
+
+        is_truncated = result.IsTruncated();
+        marker = result.NextMarker();
     }
+
+    return Status::OK();
 }
 
 Status OSSFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
@@ -415,34 +385,28 @@ Status OSSFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
     auto src_key = DORIS_TRY(get_oss_key(orig_name));
     auto dst_key = DORIS_TRY(get_oss_key(new_name));
 
-    try {
-        // Copy object
-        AlibabaCloud::OSS::CopyObjectRequest copy_request(_bucket, dst_key);
-        copy_request.setCopySource(_bucket, src_key);
+    // Copy object
+    AlibabaCloud::OSS::CopyObjectRequest copy_request(_bucket, dst_key);
+    copy_request.setCopySource(_bucket, src_key);
 
-        auto copy_outcome = client->CopyObject(copy_request);
-        if (!copy_outcome.isSuccess()) {
-            return Status::IOError("failed to copy object from {} to {}: {} - {}",
-                                   full_oss_path(src_key), full_oss_path(dst_key),
-                                   copy_outcome.error().Code(), copy_outcome.error().Message());
-        }
-
-        // Delete source object
-        AlibabaCloud::OSS::DeleteObjectRequest delete_request(_bucket, src_key);
-        auto delete_outcome = client->DeleteObject(delete_request);
-
-        if (!delete_outcome.isSuccess()) {
-            LOG(WARNING) << "Failed to delete source object after copy: " << src_key << " - "
-                         << delete_outcome.error().Code() << ": "
-                         << delete_outcome.error().Message();
-            // Don't fail the rename if delete fails, copy succeeded
-        }
-
-        return Status::OK();
-    } catch (const AlibabaCloud::OSS::OssException& e) {
-        return Status::IOError("failed to rename from {} to {}: {} - {}", full_oss_path(src_key),
-                               full_oss_path(dst_key), e.GetErrorCode(), e.GetErrorMessage());
+    auto copy_outcome = client->CopyObject(copy_request);
+    if (!copy_outcome.isSuccess()) {
+        return Status::IOError("failed to copy object from {} to {}: {} - {}",
+                               full_oss_path(src_key), full_oss_path(dst_key),
+                               copy_outcome.error().Code(), copy_outcome.error().Message());
     }
+
+    // Delete source object
+    auto delete_outcome = client->DeleteObject(_bucket, src_key);
+
+    if (!delete_outcome.isSuccess()) {
+        LOG(WARNING) << "Failed to delete source object after copy: " << src_key << " - "
+                     << delete_outcome.error().Code() << ": "
+                     << delete_outcome.error().Message();
+        // Don't fail the rename if delete fails, copy succeeded
+    }
+
+    return Status::OK();
 }
 
 Status OSSFileSystem::upload_impl(const Path& local_file, const Path& remote_file) {
@@ -451,20 +415,13 @@ Status OSSFileSystem::upload_impl(const Path& local_file, const Path& remote_fil
 
     auto key = DORIS_TRY(get_oss_key(remote_file));
 
-    try {
-        AlibabaCloud::OSS::PutObjectRequest request(_bucket, key, local_file.native());
-
-        auto outcome = client->PutObject(request);
-        if (!outcome.isSuccess()) {
-            return Status::IOError("failed to upload file to {}: {} - {}", full_oss_path(key),
-                                   outcome.error().Code(), outcome.error().Message());
-        }
-
-        return Status::OK();
-    } catch (const AlibabaCloud::OSS::OssException& e) {
+    auto outcome = client->PutObject(_bucket, key, local_file.native());
+    if (!outcome.isSuccess()) {
         return Status::IOError("failed to upload file to {}: {} - {}", full_oss_path(key),
-                               e.GetErrorCode(), e.GetErrorMessage());
+                               outcome.error().Code(), outcome.error().Message());
     }
+
+    return Status::OK();
 }
 
 Status OSSFileSystem::batch_upload_impl(const std::vector<Path>& local_files,
@@ -486,33 +443,28 @@ Status OSSFileSystem::download_impl(const Path& remote_file, const Path& local_f
 
     auto key = DORIS_TRY(get_oss_key(remote_file));
 
-    try {
-        AlibabaCloud::OSS::GetObjectRequest request(_bucket, key);
+    AlibabaCloud::OSS::GetObjectRequest request(_bucket, key);
 
-        auto outcome = client->GetObject(request);
-        if (!outcome.isSuccess()) {
-            return Status::IOError("failed to download file from {}: {} - {}", full_oss_path(key),
-                                   outcome.error().Code(), outcome.error().Message());
-        }
-
-        // Write to local file
-        std::ofstream out(local_file.native(), std::ios::binary);
-        if (!out) {
-            return Status::IOError("failed to open local file for writing: {}", local_file.native());
-        }
-
-        auto& content_stream = outcome.result().Content();
-        out << content_stream->rdbuf();
-
-        if (!out.good()) {
-            return Status::IOError("failed to write to local file: {}", local_file.native());
-        }
-
-        return Status::OK();
-    } catch (const AlibabaCloud::OSS::OssException& e) {
+    auto outcome = client->GetObject(request);
+    if (!outcome.isSuccess()) {
         return Status::IOError("failed to download file from {}: {} - {}", full_oss_path(key),
-                               e.GetErrorCode(), e.GetErrorMessage());
+                               outcome.error().Code(), outcome.error().Message());
     }
+
+    // Write to local file
+    std::ofstream out(local_file.native(), std::ios::binary);
+    if (!out) {
+        return Status::IOError("failed to open local file for writing: {}", local_file.native());
+    }
+
+    auto& content_stream = outcome.result().Content();
+    out << content_stream->rdbuf();
+
+    if (!out.good()) {
+        return Status::IOError("failed to write to local file: {}", local_file.native());
+    }
+
+    return Status::OK();
 }
 
 } // namespace doris::io

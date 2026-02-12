@@ -318,27 +318,21 @@ int OSSAccessor::put_file(const std::string& path, const std::string& content) {
 
     std::string key = get_key(path);
 
-    try {
-        // Create stream from content
-        std::shared_ptr<std::stringstream> content_stream =
-                std::make_shared<std::stringstream>(content);
+    // Create stream from content
+    std::shared_ptr<std::stringstream> content_stream =
+            std::make_shared<std::stringstream>(content);
 
-        AlibabaCloud::OSS::PutObjectRequest request(conf_.bucket, key, content_stream);
+    AlibabaCloud::OSS::PutObjectRequest request(conf_.bucket, key, content_stream);
 
-        auto outcome = oss_client_->PutObject(request);
-        if (!outcome.isSuccess()) {
-            LOG(WARNING) << "OSS PutObject failed: " << outcome.error().Code() << " - "
-                         << outcome.error().Message() << ", key: " << key;
-            return convert_oss_error_code(outcome.error().Code());
-        }
-
-        VLOG(1) << "OSS PutObject success: " << key << ", size: " << content.size();
-        return 0;
-    } catch (const AlibabaCloud::OSS::OssException& e) {
-        LOG(ERROR) << "OSS PutObject exception: " << e.GetErrorCode() << " - "
-                   << e.GetErrorMessage() << ", key: " << key;
-        return convert_oss_error_code(e.GetErrorCode());
+    auto outcome = oss_client_->PutObject(request);
+    if (!outcome.isSuccess()) {
+        LOG(WARNING) << "OSS PutObject failed: " << outcome.error().Code() << " - "
+                     << outcome.error().Message() << ", key: " << key;
+        return convert_oss_error_code(outcome.error().Code());
     }
+
+    VLOG(1) << "OSS PutObject success: " << key << ", size: " << content.size();
+    return 0;
 }
 
 int OSSAccessor::delete_file(const std::string& path) {
@@ -352,28 +346,20 @@ int OSSAccessor::delete_file(const std::string& path) {
 
     std::string key = get_key(path);
 
-    try {
-        AlibabaCloud::OSS::DeleteObjectRequest request(conf_.bucket, key);
-
-        auto outcome = oss_client_->DeleteObject(request);
-        if (!outcome.isSuccess()) {
-            // OSS DeleteObject returns success even if object doesn't exist
-            // Only log real errors
-            std::string error_code = outcome.error().Code();
-            if (error_code != "NoSuchKey") {
-                LOG(WARNING) << "OSS DeleteObject failed: " << error_code << " - "
-                             << outcome.error().Message() << ", key: " << key;
-                return convert_oss_error_code(error_code);
-            }
+    auto outcome = oss_client_->DeleteObject(conf_.bucket, key);
+    if (!outcome.isSuccess()) {
+        // OSS DeleteObject returns success even if object doesn't exist
+        // Only log real errors
+        std::string error_code = outcome.error().Code();
+        if (error_code != "NoSuchKey") {
+            LOG(WARNING) << "OSS DeleteObject failed: " << error_code << " - "
+                         << outcome.error().Message() << ", key: " << key;
+            return convert_oss_error_code(error_code);
         }
-
-        VLOG(1) << "OSS DeleteObject success: " << key;
-        return 0;
-    } catch (const AlibabaCloud::OSS::OssException& e) {
-        LOG(ERROR) << "OSS DeleteObject exception: " << e.GetErrorCode() << " - "
-                   << e.GetErrorMessage() << ", key: " << key;
-        return convert_oss_error_code(e.GetErrorCode());
     }
+
+    VLOG(1) << "OSS DeleteObject success: " << key;
+    return 0;
 }
 
 int OSSAccessor::delete_files(const std::vector<std::string>& paths) {
@@ -400,22 +386,17 @@ int OSSAccessor::delete_files(const std::vector<std::string>& paths) {
             keys.push_back(get_key(paths[j]));
         }
 
-        try {
-            AlibabaCloud::OSS::DeleteObjectsRequest request(conf_.bucket, keys);
+        AlibabaCloud::OSS::DeleteObjectsRequest request(conf_.bucket);
+        request.setKeyList(keys);
 
-            auto outcome = oss_client_->DeleteObjects(request);
-            if (!outcome.isSuccess()) {
-                LOG(WARNING) << "OSS DeleteObjects failed: " << outcome.error().Code() << " - "
-                             << outcome.error().Message();
-                return convert_oss_error_code(outcome.error().Code());
-            }
-
-            VLOG(1) << "OSS DeleteObjects success: deleted " << (end - i) << " objects";
-        } catch (const AlibabaCloud::OSS::OssException& e) {
-            LOG(ERROR) << "OSS DeleteObjects exception: " << e.GetErrorCode() << " - "
-                       << e.GetErrorMessage();
-            return convert_oss_error_code(e.GetErrorCode());
+        auto outcome = oss_client_->DeleteObjects(request);
+        if (!outcome.isSuccess()) {
+            LOG(WARNING) << "OSS DeleteObjects failed: " << outcome.error().Code() << " - "
+                         << outcome.error().Message();
+            return convert_oss_error_code(outcome.error().Code());
         }
+
+        VLOG(1) << "OSS DeleteObjects success: deleted " << (end - i) << " objects";
     }
 
     return 0;
@@ -433,86 +414,81 @@ int OSSAccessor::delete_prefix(const std::string& path_prefix, int64_t expiratio
     std::vector<std::string> keys_to_delete;
     const size_t batch_size = 1000;
 
-    try {
-        bool is_truncated = true;
-        std::string marker;
+    bool is_truncated = true;
+    std::string marker;
 
-        while (is_truncated) {
-            AlibabaCloud::OSS::ListObjectsRequest list_request(conf_.bucket);
-            list_request.setPrefix(prefix);
-            list_request.setMaxKeys(1000);
+    while (is_truncated) {
+        AlibabaCloud::OSS::ListObjectsRequest list_request(conf_.bucket);
+        list_request.setPrefix(prefix);
+        list_request.setMaxKeys(1000);
 
-            if (!marker.empty()) {
-                list_request.setMarker(marker);
-            }
+        if (!marker.empty()) {
+            list_request.setMarker(marker);
+        }
 
-            auto outcome = oss_client_->ListObjects(list_request);
-            if (!outcome.isSuccess()) {
-                LOG(WARNING) << "OSS ListObjects failed: " << outcome.error().Code() << " - "
-                             << outcome.error().Message();
-                return convert_oss_error_code(outcome.error().Code());
-            }
+        auto outcome = oss_client_->ListObjects(list_request);
+        if (!outcome.isSuccess()) {
+            LOG(WARNING) << "OSS ListObjects failed: " << outcome.error().Code() << " - "
+                         << outcome.error().Message();
+            return convert_oss_error_code(outcome.error().Code());
+        }
 
-            const auto& result = outcome.result();
-            const auto& objects = result.ObjectSummarys();
+        const auto& result = outcome.result();
+        const auto& objects = result.ObjectSummarys();
 
-            for (const auto& obj : objects) {
-                // Check expiration time if specified
-                if (expiration_time > 0) {
-                    int64_t obj_mtime = static_cast<int64_t>(obj.LastModified());
-                    if (obj_mtime >= expiration_time) {
-                        continue; // Skip objects newer than expiration time
-                    }
-                }
-
-                keys_to_delete.push_back(obj.Key());
-
-                // Delete in batches
-                if (keys_to_delete.size() >= batch_size) {
-                    AlibabaCloud::OSS::DeletedKeyList batch_keys(keys_to_delete.begin(),
-                                                                  keys_to_delete.end());
-                    AlibabaCloud::OSS::DeleteObjectsRequest delete_request(conf_.bucket,
-                                                                            batch_keys);
-
-                    auto delete_outcome = oss_client_->DeleteObjects(delete_request);
-                    if (!delete_outcome.isSuccess()) {
-                        LOG(WARNING) << "OSS DeleteObjects failed: "
-                                     << delete_outcome.error().Code() << " - "
-                                     << delete_outcome.error().Message();
-                        return convert_oss_error_code(delete_outcome.error().Code());
-                    }
-
-                    VLOG(1) << "OSS deleted batch of " << keys_to_delete.size() << " objects";
-                    keys_to_delete.clear();
+        for (const auto& obj : objects) {
+            // Check expiration time if specified
+            if (expiration_time > 0) {
+                int64_t obj_mtime = static_cast<int64_t>(obj.LastModified());
+                if (obj_mtime >= expiration_time) {
+                    continue; // Skip objects newer than expiration time
                 }
             }
 
-            is_truncated = result.IsTruncated();
-            marker = result.NextMarker();
-        }
+            keys_to_delete.push_back(obj.Key());
 
-        // Delete remaining keys
-        if (!keys_to_delete.empty()) {
-            AlibabaCloud::OSS::DeletedKeyList batch_keys(keys_to_delete.begin(),
-                                                          keys_to_delete.end());
-            AlibabaCloud::OSS::DeleteObjectsRequest delete_request(conf_.bucket, batch_keys);
+            // Delete in batches
+            if (keys_to_delete.size() >= batch_size) {
+                AlibabaCloud::OSS::DeletedKeyList batch_keys(keys_to_delete.begin(),
+                                                              keys_to_delete.end());
+                AlibabaCloud::OSS::DeleteObjectsRequest delete_request(conf_.bucket);
+                delete_request.setKeyList(batch_keys);
 
-            auto delete_outcome = oss_client_->DeleteObjects(delete_request);
-            if (!delete_outcome.isSuccess()) {
-                LOG(WARNING) << "OSS DeleteObjects failed: " << delete_outcome.error().Code()
-                             << " - " << delete_outcome.error().Message();
-                return convert_oss_error_code(delete_outcome.error().Code());
+                auto delete_outcome = oss_client_->DeleteObjects(delete_request);
+                if (!delete_outcome.isSuccess()) {
+                    LOG(WARNING) << "OSS DeleteObjects failed: "
+                                 << delete_outcome.error().Code() << " - "
+                                 << delete_outcome.error().Message();
+                    return convert_oss_error_code(delete_outcome.error().Code());
+                }
+
+                VLOG(1) << "OSS deleted batch of " << keys_to_delete.size() << " objects";
+                keys_to_delete.clear();
             }
-
-            VLOG(1) << "OSS deleted final batch of " << keys_to_delete.size() << " objects";
         }
 
-        return 0;
-    } catch (const AlibabaCloud::OSS::OssException& e) {
-        LOG(ERROR) << "OSS delete_prefix exception: " << e.GetErrorCode() << " - "
-                   << e.GetErrorMessage();
-        return convert_oss_error_code(e.GetErrorCode());
+        is_truncated = result.IsTruncated();
+        marker = result.NextMarker();
     }
+
+    // Delete remaining keys
+    if (!keys_to_delete.empty()) {
+        AlibabaCloud::OSS::DeletedKeyList batch_keys(keys_to_delete.begin(),
+                                                      keys_to_delete.end());
+        AlibabaCloud::OSS::DeleteObjectsRequest delete_request(conf_.bucket);
+        delete_request.setKeyList(batch_keys);
+
+        auto delete_outcome = oss_client_->DeleteObjects(delete_request);
+        if (!delete_outcome.isSuccess()) {
+            LOG(WARNING) << "OSS DeleteObjects failed: " << delete_outcome.error().Code()
+                         << " - " << delete_outcome.error().Message();
+            return convert_oss_error_code(delete_outcome.error().Code());
+        }
+
+        VLOG(1) << "OSS deleted final batch of " << keys_to_delete.size() << " objects";
+    }
+
+    return 0;
 }
 
 int OSSAccessor::delete_directory(const std::string& dir_path) {
@@ -545,16 +521,10 @@ int OSSAccessor::list_prefix(const std::string& path_prefix, std::unique_ptr<Lis
 
     std::string prefix = get_key(path_prefix);
 
-    try {
-        *res = std::make_unique<OSSListIterator>(oss_client_, conf_.bucket, prefix,
-                                                  conf_.prefix.empty() ? 0
-                                                                       : conf_.prefix.length() + 1);
-        return 0;
-    } catch (const AlibabaCloud::OSS::OssException& e) {
-        LOG(ERROR) << "OSS list_prefix exception: " << e.GetErrorCode() << " - "
-                   << e.GetErrorMessage();
-        return convert_oss_error_code(e.GetErrorCode());
-    }
+    *res = std::make_unique<OSSListIterator>(oss_client_, conf_.bucket, prefix,
+                                              conf_.prefix.empty() ? 0
+                                                                   : conf_.prefix.length() + 1);
+    return 0;
 }
 
 int OSSAccessor::exists(const std::string& path) {
@@ -568,18 +538,12 @@ int OSSAccessor::exists(const std::string& path) {
 
     std::string key = get_key(path);
 
-    try {
-        // Use DoesObjectExist for efficient check
-        bool exists = oss_client_->DoesObjectExist(conf_.bucket, key);
+    // Use DoesObjectExist for efficient check
+    bool exists = oss_client_->DoesObjectExist(conf_.bucket, key);
 
-        VLOG(2) << "OSS exists check: " << key << " -> " << (exists ? "found" : "not found");
+    VLOG(2) << "OSS exists check: " << key << " -> " << (exists ? "found" : "not found");
 
-        return exists ? 0 : 1; // 0 = exists, 1 = not found
-    } catch (const AlibabaCloud::OSS::OssException& e) {
-        LOG(WARNING) << "OSS exists check exception: " << e.GetErrorCode() << " - "
-                     << e.GetErrorMessage() << ", key: " << key;
-        return convert_oss_error_code(e.GetErrorCode());
-    }
+    return exists ? 0 : 1; // 0 = exists, 1 = not found
 }
 
 } // namespace doris::cloud
