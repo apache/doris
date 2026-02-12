@@ -28,6 +28,7 @@
 #include "exprs/vexpr_context.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
+#include "util/concurrency_stats.h"
 #include "util/defer_op.h"
 
 namespace doris {
@@ -77,6 +78,7 @@ Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
 }
 
 Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool* eos) {
+    SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().vscanner_get_block);
     auto& row_descriptor = _local_state->_parent->row_descriptor();
     if (_output_row_descriptor) {
         if (_alreay_eos) {

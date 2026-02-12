@@ -51,6 +51,7 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "storage/tablet/tablet_schema_cache.h"
 #include "storage/utils.h"
+#include "util/concurrency_stats.h"
 #include "util/jni-util.h"
 
 #if defined(LEAK_SANITIZER)
@@ -532,6 +533,9 @@ int main(int argc, char** argv) {
         std::cerr << "failed to init doris storage engine, res=" << status;
         return 0;
     }
+
+    // Start concurrency stats manager
+    doris::ConcurrencyStatsManager::instance().start();
 
     // begin to start services
     doris::ThriftRpcHelper::setup(exec_env);

@@ -342,6 +342,8 @@ private:
 
     void _init_row_bitmap_by_condition_cache();
 
+    void _init_segment_prefetchers();
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
