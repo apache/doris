@@ -56,6 +56,8 @@ public:
     const std::string& expr_name() const override { return _expr_name; }
     std::string debug_string() const override;
 
+    double execute_cost() const override { return 0.0; }
+
     MOCK_FUNCTION std::string value(const DataTypeSerDe::FormatOptions& options) const;
 
     const ColumnPtr& get_column_ptr() const { return _column_ptr; }

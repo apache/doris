@@ -221,6 +221,10 @@ public:
         _spill_streaming_agg_mem_limit = 1024 * 1024;
     }
     DataDistribution required_data_distribution(RuntimeState* state) const override {
+        if (_child && _child->is_hash_join_probe() &&
+            state->enable_streaming_agg_hash_join_force_passthrough()) {
+            return DataDistribution(ExchangeType::PASSTHROUGH);
+        }
         if (!state->get_query_ctx()->should_be_shuffled_agg(
                     StatefulOperatorX<StreamingAggLocalState>::node_id())) {
             return StatefulOperatorX<StreamingAggLocalState>::required_data_distribution(state);
@@ -264,7 +268,6 @@ private:
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
     bool _can_short_circuit = false;
     std::vector<size_t> _make_nullable_keys;
-    bool _have_conjuncts;
     RowDescriptor _agg_fn_output_row_descriptor;
 
     // For sort limit

@@ -428,7 +428,15 @@ struct TQueryOptions {
 
   185: optional bool enable_parquet_file_page_cache = true;
 
+  186: optional bool enable_streaming_agg_hash_join_force_passthrough;
+
+  187: optional bool enable_distinct_streaming_agg_force_passthrough;
+
+  188: optional bool enable_broadcast_join_force_passthrough;
+
   195: optional bool enable_left_semi_direct_return_opt;
+
+  200: optional bool enable_adjust_conjunct_order_by_cost;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.

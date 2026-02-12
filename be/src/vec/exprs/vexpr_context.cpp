@@ -474,5 +474,14 @@ uint64_t VExprContext::get_digest(uint64_t seed) const {
     return _root->get_digest(seed);
 }
 
+double VExprContext::execute_cost() const {
+    if (_root == nullptr) {
+        // When there is no expression root, treat the cost as a base value.
+        // This avoids null dereferences while keeping a deterministic cost.
+        return 0.0;
+    }
+    return _root->execute_cost();
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

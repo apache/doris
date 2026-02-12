@@ -435,4 +435,40 @@ suite("test_array_functions") {
     qt_const_select "select sequence(1, 10, 0); "
     qt_const_select "select sequence(cast('2022-05-15 12:00:00' as datetimev2(0)), cast('2022-05-17 12:00:00' as datetimev2(0)), interval 0 day); "
     qt_const_select """select sequence("2022-05-18T12:00:00.123", "2022-05-18T12:16:00.123", interval 5 minute); """
+
+
+
+    sql"""
+        DROP TABLE IF EXISTS db_test_array_join;
+    """
+
+
+    sql"""
+ CREATE TABLE IF NOT EXISTS db_test_array_join (
+              `id` INT(11) NUll COMMENT "",
+              `sarr` array<String>  NUll COMMENT "",
+              `s1` String  NUll COMMENT "",
+              `s2` String  NUll COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2"
+);
+
+    """
+
+    sql"""
+insert into db_test_array_join values(1,["a","b","c"],"0000","?") , (2,["c","d","e"] , "11111" , "??") , (3,["f",null,"g"] ,"222222", "???");
+    """
+
+    qt_array_join_1 """
+        select id, array_join(sarr,s1) from db_test_array_join order by id;
+    """
+
+    qt_array_join_2 """
+        select id , array_join(sarr,s1,s2) from db_test_array_join order by id;
+    """
+
 }

@@ -125,7 +125,12 @@ public:
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }
-        return {ExchangeType::PASSTHROUGH};
+        if (state->enable_distinct_streaming_agg_force_passthrough()) {
+            return {ExchangeType::PASSTHROUGH};
+        } else {
+            return StatefulOperatorX<DistinctStreamingAggLocalState>::required_data_distribution(
+                    state);
+        }
     }
 
     bool is_colocated_operator() const override { return _is_colocate; }

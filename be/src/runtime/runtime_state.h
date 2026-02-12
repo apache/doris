@@ -125,6 +125,11 @@ public:
                                                            : _query_options.mem_limit / 20;
     }
 
+    bool enable_adjust_conjunct_order_by_cost() const {
+        return _query_options.__isset.enable_adjust_conjunct_order_by_cost &&
+               _query_options.enable_adjust_conjunct_order_by_cost;
+    }
+
     int32_t max_column_reader_num() const {
         return _query_options.__isset.max_column_reader_num ? _query_options.max_column_reader_num
                                                             : 20000;
@@ -533,6 +538,21 @@ public:
         return _query_options.__isset.cte_max_recursion_depth
                        ? _query_options.cte_max_recursion_depth
                        : 0;
+    }
+
+    bool enable_streaming_agg_hash_join_force_passthrough() const {
+        return _query_options.__isset.enable_streaming_agg_hash_join_force_passthrough &&
+               _query_options.enable_streaming_agg_hash_join_force_passthrough;
+    }
+
+    bool enable_distinct_streaming_agg_force_passthrough() const {
+        return _query_options.__isset.enable_distinct_streaming_agg_force_passthrough &&
+               _query_options.enable_distinct_streaming_agg_force_passthrough;
+    }
+
+    bool enable_broadcast_join_force_passthrough() const {
+        return _query_options.__isset.enable_broadcast_join_force_passthrough &&
+               _query_options.enable_broadcast_join_force_passthrough;
     }
 
     int rpc_verbose_profile_max_instance_count() const {
