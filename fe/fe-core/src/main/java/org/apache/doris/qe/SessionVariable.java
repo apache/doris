@@ -2166,17 +2166,19 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableFileCache = false;
 
     @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE_OLAP_TABLE, needForward = true, description = {
-            "是否启用 olap table file cache。该变量只有在 be.conf 中 enable_file_cache=true 时才有效，"
+            "是否在存算分离场景下启用 file cache。该变量只有在 be.conf 中 enable_file_cache=true 时才有效，"
                     + "如果 be.conf 中 enable_file_cache=false，该 BE 节点的 file cache 处于禁用状态。",
-            "Set whether to use olap table file cache. This variable takes effect only if the BE config "
-                    + "enable_file_cache=true. The cache is not used when BE config enable_file_cache=false."})
+            "Set whether to enable file cache for OLAP tables in cloud mode. "
+                    + "This variable takes effect only if the BE config enable_file_cache=true. "
+                    + "The cache is not used when BE config enable_file_cache=false."})
     public boolean enableFileCacheOlapTable = true;
 
     @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE_EXTERNAL_CATALOG, needForward = true, description = {
-            "是否启用 external catalog file cache。该变量只有在 be.conf 中 enable_file_cache=true 时才有效，"
+            "是否在湖仓一体场景下启用 file cache。该变量只有在 be.conf 中 enable_file_cache=true 时才有效，"
                     + "如果 be.conf 中 enable_file_cache=false，该 BE 节点的 file cache 处于禁用状态。",
-            "Set whether to use external catalog file cache. This variable takes effect only if the BE config "
-                    + "enable_file_cache=true. The cache is not used when BE config enable_file_cache=false."})
+            "Set whether to enable file cache for external catalogs in lakehouse scenarios. "
+                    + "This variable takes effect only if the BE config enable_file_cache=true. "
+                    + "The cache is not used when BE config enable_file_cache=false."})
     public boolean enableFileCacheExternalCatalog = false;
 
     // Specify base path for file cache, or chose a random path.
