@@ -275,23 +275,22 @@ bool StreamingAggLocalState::_should_not_do_pre_agg(size_t rows) {
     const auto spill_streaming_agg_mem_limit = p._spill_streaming_agg_mem_limit;
     const bool used_too_much_memory =
             spill_streaming_agg_mem_limit > 0 && _memory_usage() > spill_streaming_agg_mem_limit;
-    std::visit(
-            vectorized::Overload {
-                    [&](std::monostate& arg) {
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
-                    },
-                    [&](auto& agg_method) {
-                        auto& hash_tbl = *agg_method.hash_table;
-                        /// If too much memory is used during the pre-aggregation stage,
-                        /// it is better to output the data directly without performing further aggregation.
-                        // do not try to do agg, just init and serialize directly return the out_block
-                        if (used_too_much_memory || (hash_tbl.add_elem_size_overflow(rows) &&
-                                                     !_should_expand_preagg_hash_tables())) {
-                            SCOPED_TIMER(_streaming_agg_timer);
-                            ret_flag = true;
-                        }
-                    }},
-            _agg_data->method_variant);
+    std::visit(vectorized::Overload {
+                       [&](std::monostate& arg) {
+                           throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                       },
+                       [&](auto& agg_method) {
+                           auto& hash_tbl = *agg_method.hash_table;
+                           /// If too much memory is used during the pre-aggregation stage,
+                           /// it is better to output the data directly without performing further aggregation.
+                           // do not try to do agg, just init and serialize directly return the out_block
+                           if (used_too_much_memory || (hash_tbl.add_elem_size_overflow(rows) &&
+                                                        !_should_expand_preagg_hash_tables())) {
+                               SCOPED_TIMER(_streaming_agg_timer);
+                               ret_flag = true;
+                           }
+                       }},
+               _agg_data->method_variant);
 
     return ret_flag;
 }
@@ -786,7 +785,6 @@ StreamingAggOperatorX::StreamingAggOperatorX(ObjectPool* pool, int operator_id,
           _output_tuple_id(tnode.agg_node.output_tuple_id),
           _needs_finalize(tnode.agg_node.need_finalize),
           _is_first_phase(tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase),
-          _have_conjuncts(tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()),
           _agg_fn_output_row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples) {}
 
 void StreamingAggOperatorX::update_operator(const TPlanNode& tnode,
