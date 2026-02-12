@@ -1066,11 +1066,11 @@ import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantField;
-import org.apache.doris.nereids.types.VariantSkipPattern;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -5133,20 +5133,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                         "Unsupported variant definition: " + variantDef.getText());
         VariantContext variantCtx = (VariantContext) variantDef;
 
-        List<VariantField> fields = Lists.newArrayList();
-        List<VariantSkipPattern> skipPatterns = Lists.newArrayList();
+        List<VariantField> variantPathPatterns = Lists.newArrayList();
         if (variantCtx.variantSubColTypeList() != null) {
             for (VariantSubColTypeContext subCtx : variantCtx.variantSubColTypeList().variantSubColType()) {
                 if (subCtx.SKIP_() != null) {
                     String skipPattern = subCtx.STRING_LITERAL().getText();
                     skipPattern = skipPattern.substring(1, skipPattern.length() - 1);
-                    String matchType = subCtx.variantSubColMatchType() != null
-                            ? subCtx.variantSubColMatchType().getText() : null;
-                    skipPatterns.add(matchType != null
-                            ? new VariantSkipPattern(skipPattern, matchType)
-                            : new VariantSkipPattern(skipPattern));
+                    String skipMatchType = subCtx.variantSubColMatchType() == null
+                            ? null
+                            : subCtx.variantSubColMatchType().getText();
+                    String skipPatternType = "MATCH_NAME".equalsIgnoreCase(skipMatchType)
+                            ? "SKIP_NAME" : "SKIP_NAME_GLOB";
+                    variantPathPatterns.add(new VariantField(skipPattern, StringType.INSTANCE, "", skipPatternType));
                 } else {
-                    fields.add(visitVariantSubColType(subCtx));
+                    variantPathPatterns.add(visitVariantSubColType(subCtx));
                 }
             }
         }
@@ -5201,7 +5201,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             variantSparseHashShardCount = 0;
             // Validate that all typed fields use data types supported in doc mode
             // document mode only supports string, integral, float, and boolean types
-            for (VariantField field : fields) {
+            for (VariantField field : variantPathPatterns) {
+                if (field.isSkipPatternType()) {
+                    continue;
+                }
                 DataType dataType = field.getDataType();
                 if (dataType.isArrayType()) {
                     ArrayType arrayType = (ArrayType) dataType;
@@ -5232,7 +5235,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT);
         }
 
-        return new VariantType(fields, skipPatterns, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
+        return new VariantType(variantPathPatterns, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                     variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
                     enableVariantDocMode, variantDocMaterializationMinRows, variantDocHashShardCount);
     }

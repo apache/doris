@@ -283,20 +283,23 @@ bool glob_match_re2(const std::string& glob_pattern, const std::string& candidat
 }
 
 Status build_compiled_skip_matcher(
-        const std::vector<std::pair<std::string, PatternTypePB>>& skip_patterns,
+        const std::vector<std::pair<std::string, PatternTypePB>>& skip_path_patterns,
         bool enable_re2_set, std::shared_ptr<const CompiledSkipMatcher>* out) {
     if (out == nullptr) {
         return Status::InvalidArgument("Output pointer for compiled skip matcher is null");
     }
 
     auto matcher = std::make_shared<CompiledSkipMatcher>();
-    matcher->exact_patterns.reserve(skip_patterns.size());
+    matcher->exact_patterns.reserve(skip_path_patterns.size());
 
     std::vector<std::string> glob_regex_patterns;
-    glob_regex_patterns.reserve(skip_patterns.size());
-    for (const auto& [pattern, pt] : skip_patterns) {
-        if (pt == PatternTypePB::MATCH_NAME) {
+    glob_regex_patterns.reserve(skip_path_patterns.size());
+    for (const auto& [pattern, pt] : skip_path_patterns) {
+        if (is_skip_exact_path_pattern_type(pt)) {
             matcher->exact_patterns.insert(pattern);
+            continue;
+        }
+        if (!is_skip_glob_path_pattern_type(pt)) {
             continue;
         }
 
@@ -359,6 +362,36 @@ bool should_skip_path(const CompiledSkipMatcher& matcher, std::string_view path)
 
     return false;
 }
+
+namespace {
+
+inline bool is_variant_skip_path_pattern_type(PatternTypePB pattern_type) {
+    return pattern_type == PatternTypePB::SKIP_NAME ||
+           pattern_type == PatternTypePB::SKIP_NAME_GLOB;
+}
+
+void collect_variant_skip_path_patterns_from_children(
+        const TabletColumn& column,
+        std::vector<std::pair<std::string, PatternTypePB>>* skip_path_patterns) {
+    skip_path_patterns->clear();
+    for (const auto& sub_column : column.get_sub_columns()) {
+        if (!is_variant_skip_path_pattern_type(sub_column->pattern_type())) {
+            continue;
+        }
+        skip_path_patterns->emplace_back(sub_column->name(), sub_column->pattern_type());
+    }
+}
+
+bool has_variant_typed_path_children(const TabletColumn& column) {
+    for (const auto& sub_column : column.get_sub_columns()) {
+        if (is_typed_path_pattern_type(sub_column->pattern_type())) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
 
 size_t get_number_of_dimensions(const IDataType& type) {
     if (const auto* type_array = typeid_cast<const DataTypeArray*>(&type)) {
@@ -571,10 +604,11 @@ Status check_variant_has_no_ambiguous_paths(const PathsInData& tuple_paths) {
     return Status::OK();
 }
 
-Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
-                                    TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
-                                    const std::map<std::string, TabletColumnPtr>& typed_columns,
-                                    std::set<PathInData>* path_set) {
+Status update_least_schema_internal(
+        const std::map<PathInData, DataTypes>& subcolumns_types, TabletSchemaSPtr& common_schema,
+        int32_t variant_col_unique_id,
+        const std::map<std::string, TabletColumnPtr>& typed_path_columns,
+        std::set<PathInData>* path_set) {
     PathsInData tuple_paths;
     DataTypes tuple_types;
     CHECK(common_schema.use_count() == 1);
@@ -610,10 +644,10 @@ Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subco
     // Append all common type columns of this variant
     for (int i = 0; i < tuple_paths.size(); ++i) {
         TabletColumn common_column;
-        // typed path not contains root part
+        // typed path does not include root part
         auto path_without_root = tuple_paths[i].copy_pop_front().get_path();
-        if (typed_columns.contains(path_without_root) && !tuple_paths[i].has_nested_part()) {
-            common_column = *typed_columns.at(path_without_root);
+        if (typed_path_columns.contains(path_without_root) && !tuple_paths[i].has_nested_part()) {
+            common_column = *typed_path_columns.at(path_without_root);
             // parent unique id and path may not be init in write path
             common_column.set_parent_unique_id(variant_col_unique_id);
             common_column.set_path_info(tuple_paths[i]);
@@ -636,10 +670,13 @@ Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subco
 Status update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
                                   TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
                                   std::set<PathInData>* path_set) {
-    std::map<std::string, TabletColumnPtr> typed_columns;
+    std::map<std::string, TabletColumnPtr> typed_path_columns;
     for (const TabletColumnPtr& col :
          common_schema->column_by_uid(variant_col_unique_id).get_sub_columns()) {
-        typed_columns[col->name()] = col;
+        if (!is_typed_path_pattern_type(col->pattern_type())) {
+            continue;
+        }
+        typed_path_columns[col->name()] = col;
     }
     // Types of subcolumns by path from all tuples.
     std::map<PathInData, DataTypes> subcolumns_types;
@@ -663,7 +700,7 @@ Status update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
     RETURN_IF_ERROR(check_variant_has_no_ambiguous_paths(all_paths));
 
     return update_least_schema_internal(subcolumns_types, common_schema, variant_col_unique_id,
-                                        typed_columns, path_set);
+                                        typed_path_columns, path_set);
 }
 
 // Keep variant subcolumn BF support aligned with FE DDL checks.
@@ -1344,7 +1381,8 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
                      uid_to_paths_set_info[column->unique_id()]);
 
         // 4. append subcolumns
-        if (column->variant_max_subcolumns_count() > 0 || !column->get_sub_columns().empty()) {
+        if (column->variant_max_subcolumns_count() > 0 ||
+            has_variant_typed_path_children(*column)) {
             get_compaction_subcolumns_from_subpaths(
                     uid_to_paths_set_info[column->unique_id()], column, target,
                     uid_to_variant_extended_info[column->unique_id()].path_to_data_types,
@@ -2255,6 +2293,8 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
     }
 
     std::vector<ParseConfig> configs(variant_column_pos.size());
+    std::vector<std::vector<std::pair<std::string, PatternTypePB>>> variant_skip_path_patterns(
+            variant_column_pos.size());
     for (size_t i = 0; i < variant_column_pos.size(); ++i) {
         configs[i].enable_flatten_nested = tablet_schema.variant_flatten_nested();
         const auto& column = tablet_schema.column(variant_schema_pos[i]);
@@ -2262,11 +2302,11 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
             return Status::InternalError("column is not variant type, column name: {}",
                                          column.name());
         }
-        // set skip patterns if any
-        if (!column.variant_params().skip_patterns.empty()) {
-            configs[i].skip_patterns = &column.variant_params().skip_patterns;
-            RETURN_IF_ERROR(build_compiled_skip_matcher(column.variant_params().skip_patterns,
-                                                        true,
+        // Set skip path patterns if configured on variant children.
+        collect_variant_skip_path_patterns_from_children(column, &variant_skip_path_patterns[i]);
+        if (!variant_skip_path_patterns[i].empty()) {
+            configs[i].skip_path_patterns = &variant_skip_path_patterns[i];
+            RETURN_IF_ERROR(build_compiled_skip_matcher(variant_skip_path_patterns[i], true,
                                                         &configs[i].compiled_skip_matcher));
         }
         // if doc mode is not enabled, no need to parse to doc value column

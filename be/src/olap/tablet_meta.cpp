@@ -85,14 +85,7 @@ bvar::Window<bvar::Adder<uint64_t>> g_contains_agg_with_cache_if_eligible_full_h
 namespace {
 
 inline PatternTypePB to_pattern_type_pb(TPatternType::type pattern_type) {
-    switch (pattern_type) {
-    case TPatternType::MATCH_NAME:
-        return PatternTypePB::MATCH_NAME;
-    case TPatternType::MATCH_NAME_GLOB:
-        return PatternTypePB::MATCH_NAME_GLOB;
-    default:
-        return PatternTypePB::MATCH_NAME_GLOB;
-    }
+    return static_cast<PatternTypePB>(pattern_type);
 }
 
 } // namespace
@@ -570,21 +563,6 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     }
     if (tcolumn.__isset.variant_doc_hash_shard_count) {
         column->set_variant_doc_hash_shard_count(tcolumn.variant_doc_hash_shard_count);
-    }
-    if (tcolumn.__isset.skip_patterns && !tcolumn.skip_patterns.empty()) {
-        auto* skip_patterns = column->mutable_skip_patterns();
-        skip_patterns->Reserve(cast_set<int>(tcolumn.skip_patterns.size()));
-        for (const auto& tsp : tcolumn.skip_patterns) {
-            // Skip invalid entries to avoid persisting empty rules.
-            if (!tsp.__isset.pattern || tsp.pattern.empty()) {
-                continue;
-            }
-            auto* sp = skip_patterns->Add();
-            sp->set_pattern(tsp.pattern);
-            sp->set_pattern_type(tsp.__isset.pattern_type
-                                         ? to_pattern_type_pb(tsp.pattern_type)
-                                         : PatternTypePB::MATCH_NAME_GLOB);
-        }
     }
 }
 

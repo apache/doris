@@ -66,15 +66,34 @@ public class VariantField {
         return patternType;
     }
 
+    public boolean isSkipPatternType() {
+        return patternType == TPatternType.SKIP_NAME || patternType == TPatternType.SKIP_NAME_GLOB;
+    }
+
+    public boolean isTypedPathPatternType() {
+        return patternType == null
+                || patternType == TPatternType.MATCH_NAME
+                || patternType == TPatternType.MATCH_NAME_GLOB;
+    }
+
     public String toSql(int depth) {
         StringBuilder sb = new StringBuilder();
+        if (isSkipPatternType()) {
+            sb.append("SKIP ");
+            if (patternType == TPatternType.SKIP_NAME) {
+                sb.append("MATCH_NAME ");
+            }
+            sb.append("'").append(pattern).append("'");
+            return sb.toString();
+        }
+
         if (patternType == TPatternType.MATCH_NAME) {
             sb.append(patternType.toString()).append(" ");
         }
 
         sb.append("'").append(pattern).append("'");
         sb.append(":").append(type.toSql(depth + 1));
-        if (!comment.isEmpty()) {
+        if (comment != null && !comment.isEmpty()) {
             sb.append(" COMMENT '").append(comment).append("'");
         }
         return sb.toString();
@@ -98,6 +117,9 @@ public class VariantField {
     }
 
     public boolean matchesField(VariantField f) {
+        if (!isTypedPathPatternType() || !f.isTypedPathPatternType()) {
+            return false;
+        }
         if (equals(f)) {
             return true;
         }
@@ -114,7 +136,9 @@ public class VariantField {
             return false;
         }
         VariantField otherFiled = (VariantField) other;
-        return otherFiled.pattern.equals(pattern) && otherFiled.type.equals(type);
+        return otherFiled.pattern.equals(pattern)
+                && otherFiled.type.equals(type)
+                && otherFiled.patternType == patternType;
     }
 
     @Override

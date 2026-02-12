@@ -68,32 +68,45 @@ namespace doris::vectorized::variant_util {
 
 struct CompiledSkipMatcher;
 
+inline bool is_typed_path_pattern_type(PatternTypePB pattern_type) {
+    return pattern_type == PatternTypePB::MATCH_NAME ||
+           pattern_type == PatternTypePB::MATCH_NAME_GLOB;
+}
+
+inline bool is_skip_exact_path_pattern_type(PatternTypePB pattern_type) {
+    return pattern_type == PatternTypePB::SKIP_NAME;
+}
+
+inline bool is_skip_glob_path_pattern_type(PatternTypePB pattern_type) {
+    return pattern_type == PatternTypePB::SKIP_NAME_GLOB;
+}
+
 // Convert a restricted glob pattern into a regex (for tests/internal use).
 Status glob_to_regex(const std::string& glob_pattern, std::string* regex_pattern);
 
 // Match a glob pattern against a path using RE2.
 bool glob_match_re2(const std::string& glob_pattern, const std::string& candidate_path);
 
-// Build an immutable matcher for skip patterns used in hot parsing paths.
+// Build an immutable matcher for skip path patterns used in hot parsing paths.
 Status build_compiled_skip_matcher(
-        const std::vector<std::pair<std::string, PatternTypePB>>& skip_patterns,
+        const std::vector<std::pair<std::string, PatternTypePB>>& skip_path_patterns,
         bool enable_re2_set, std::shared_ptr<const CompiledSkipMatcher>* out);
 
-// Match a dot-separated path against precompiled skip patterns.
+// Match a dot-separated path against precompiled skip path patterns.
 bool should_skip_path(const CompiledSkipMatcher& matcher, std::string_view path);
 
-// Check if a dot-separated path should be skipped based on skip patterns.
-// For MATCH_NAME_GLOB, uses glob matching; for MATCH_NAME, uses exact string comparison.
+// Check if a dot-separated path should be skipped based on skip path patterns.
+// For SKIP_NAME_GLOB, uses glob matching; for SKIP_NAME, uses exact string comparison.
 inline bool should_skip_path(
-        const std::vector<std::pair<std::string, PatternTypePB>>& skip_patterns,
+        const std::vector<std::pair<std::string, PatternTypePB>>& skip_path_patterns,
         const std::string& path) {
-    for (const auto& [pattern, pt] : skip_patterns) {
-        if (pt == PatternTypePB::MATCH_NAME && path == pattern) {
+    for (const auto& [pattern, pt] : skip_path_patterns) {
+        if (is_skip_exact_path_pattern_type(pt) && path == pattern) {
             return true;
         }
     }
-    for (const auto& [pattern, pt] : skip_patterns) {
-        if (pt != PatternTypePB::MATCH_NAME && glob_match_re2(pattern, path)) {
+    for (const auto& [pattern, pt] : skip_path_patterns) {
+        if (is_skip_glob_path_pattern_type(pt) && glob_match_re2(pattern, path)) {
             return true;
         }
     }
@@ -196,10 +209,11 @@ bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
                    TabletIndexes& sub_column_indexes, const segment_v2::ColumnMetaPB& column_pb);
 
-Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
-                                    TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
-                                    const std::map<std::string, TabletColumnPtr>& typed_columns,
-                                    std::set<PathInData>* path_set = nullptr);
+Status update_least_schema_internal(
+        const std::map<PathInData, DataTypes>& subcolumns_types, TabletSchemaSPtr& common_schema,
+        int32_t variant_col_unique_id,
+        const std::map<std::string, TabletColumnPtr>& typed_path_columns,
+        std::set<PathInData>* path_set = nullptr);
 
 bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
                               const std::string& path,

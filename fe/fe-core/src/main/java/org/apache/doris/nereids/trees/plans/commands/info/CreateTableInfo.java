@@ -1435,8 +1435,8 @@ public class CreateTableInfo {
                         }
                         boolean findFieldPattern = false;
                         VariantType variantType = (VariantType) column.getType();
-                        List<VariantField> predefinedFields = variantType.getPredefinedFields();
-                        for (VariantField field : predefinedFields) {
+                        List<VariantField> typedPathPatterns = variantType.getVariantTypedPathPatterns();
+                        for (VariantField field : typedPathPatterns) {
                             if (field.getPattern().equals(fieldPattern)) {
                                 findFieldPattern = true;
                                 if (!IndexDefinition.isSupportIdxType(field.getDataType())) {

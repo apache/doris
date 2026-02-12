@@ -172,13 +172,13 @@ static std::vector<std::pair<std::string, PatternTypePB>> _build_skip_patterns_f
 
     // Exact match patterns.
     for (size_t leaf_id = 0; leaf_id < 10000; leaf_id += 211) {
-        patterns.emplace_back(_path_of_leaf_id(leaf_id), PatternTypePB::MATCH_NAME);
+        patterns.emplace_back(_path_of_leaf_id(leaf_id), PatternTypePB::SKIP_NAME);
     }
 
     // Unmatched glob patterns to amplify old per-pattern matching cost.
     for (int i = 0; i < 30; ++i) {
         patterns.emplace_back("x" + std::to_string(i) + "*.s?.t?.k?",
-                              PatternTypePB::MATCH_NAME_GLOB);
+                              PatternTypePB::SKIP_NAME_GLOB);
     }
 
     // Matched glob patterns.
@@ -186,7 +186,7 @@ static std::vector<std::pair<std::string, PatternTypePB>> _build_skip_patterns_f
         std::string pattern = "g";
         pattern.push_back(static_cast<char>('0' + g));
         pattern += ".s?.t?.k[02468]";
-        patterns.emplace_back(std::move(pattern), PatternTypePB::MATCH_NAME_GLOB);
+        patterns.emplace_back(std::move(pattern), PatternTypePB::SKIP_NAME_GLOB);
     }
 
     return patterns;
@@ -205,8 +205,7 @@ static PerfParseResult _run_parse_perf(const vectorized::ColumnString& json_colu
     const auto end = std::chrono::steady_clock::now();
     PerfParseResult result;
     result.column = std::move(variant);
-    result.elapsed_ms =
-            std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    result.elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
     return result;
 }
 
@@ -610,7 +609,7 @@ TEST(VariantUtilTest, SkipPatternPerfCompareNoSkipLegacyOptimized) {
     vectorized::ParseConfig legacy_config;
     legacy_config.enable_flatten_nested = false;
     legacy_config.parse_to = vectorized::ParseConfig::ParseTo::OnlySubcolumns;
-    legacy_config.skip_patterns = &skip_patterns;
+    legacy_config.skip_path_patterns = &skip_patterns;
     legacy_config.compiled_skip_matcher = nullptr;
     legacy_config.skip_result_cache_capacity = 0;
 
@@ -647,22 +646,22 @@ TEST(VariantUtilTest, SkipPatternPerfCompareNoSkipLegacyOptimized) {
     ASSERT_TRUE(found_no_skip_difference)
             << "no-skip output should differ from skip-enabled output on sampled rows";
 
-    const double legacy_vs_no_skip = no_skip_result.elapsed_ms > 0
-                                             ? static_cast<double>(legacy_result.elapsed_ms) /
-                                                       static_cast<double>(no_skip_result.elapsed_ms)
-                                             : 0.0;
-    const double optimized_vs_no_skip = no_skip_result.elapsed_ms > 0
-                                                ? static_cast<double>(optimized_result.elapsed_ms) /
-                                                          static_cast<double>(no_skip_result.elapsed_ms)
-                                                : 0.0;
-    const double optimized_vs_legacy = optimized_result.elapsed_ms > 0
-                                               ? static_cast<double>(legacy_result.elapsed_ms) /
-                                                         static_cast<double>(optimized_result.elapsed_ms)
-                                               : 0.0;
+    const double legacy_vs_no_skip =
+            no_skip_result.elapsed_ms > 0 ? static_cast<double>(legacy_result.elapsed_ms) /
+                                                    static_cast<double>(no_skip_result.elapsed_ms)
+                                          : 0.0;
+    const double optimized_vs_no_skip =
+            no_skip_result.elapsed_ms > 0 ? static_cast<double>(optimized_result.elapsed_ms) /
+                                                    static_cast<double>(no_skip_result.elapsed_ms)
+                                          : 0.0;
+    const double optimized_vs_legacy =
+            optimized_result.elapsed_ms > 0
+                    ? static_cast<double>(legacy_result.elapsed_ms) /
+                              static_cast<double>(optimized_result.elapsed_ms)
+                    : 0.0;
 
     LOG(INFO) << "skip-pattern perf compare (1000 rows, 10k nested columns, same random data): "
-              << "no_skip_ms=" << no_skip_result.elapsed_ms
-              << ", "
+              << "no_skip_ms=" << no_skip_result.elapsed_ms << ", "
               << "legacy_ms=" << legacy_result.elapsed_ms
               << ", optimized_ms=" << optimized_result.elapsed_ms
               << ", legacy_vs_no_skip=" << legacy_vs_no_skip

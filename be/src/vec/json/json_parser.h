@@ -112,8 +112,8 @@ struct ParseConfig {
         OnlyDocValueColumn = 1,
     };
     ParseTo parse_to = ParseTo::OnlySubcolumns;
-    // skip patterns for variant column (pointer to avoid copy; nullptr means no skip)
-    const std::vector<std::pair<std::string, PatternTypePB>>* skip_patterns = nullptr;
+    // skip path patterns for variant column (pointer to avoid copy; nullptr means no skip)
+    const std::vector<std::pair<std::string, PatternTypePB>>* skip_path_patterns = nullptr;
     // pre-compiled skip matcher for hot parsing path
     std::shared_ptr<const variant_util::CompiledSkipMatcher> compiled_skip_matcher = nullptr;
     // per-parse cache size for "path -> skip result", 0 means disabled
@@ -147,9 +147,9 @@ private:
         bool enable_flatten_nested = false;
         bool has_nested_in_flatten = false;
         bool is_top_array = false;
-        // skip patterns pointer (nullptr means no skip)
-        const std::vector<std::pair<std::string, PatternTypePB>>* skip_patterns = nullptr;
-        // pre-compiled skip matcher (nullptr means use skip_patterns fallback)
+        // skip path patterns pointer (nullptr means no skip)
+        const std::vector<std::pair<std::string, PatternTypePB>>* skip_path_patterns = nullptr;
+        // pre-compiled skip matcher (nullptr means use skip_path_patterns fallback)
         const variant_util::CompiledSkipMatcher* skip_matcher = nullptr;
         // max entries for skip result cache in one parse invocation
         uint16_t skip_result_cache_capacity = 0;

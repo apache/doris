@@ -80,9 +80,6 @@ public:
         bool enable_doc_mode = false;
         int64_t doc_materialization_min_rows = 0;
         int32_t doc_hash_shard_count = 64;
-
-        // skip patterns for variant column
-        std::vector<std::pair<std::string, PatternTypePB>> skip_patterns;
     };
 
     TabletColumn();
@@ -237,7 +234,7 @@ public:
         _variant.max_subcolumns_count = variant_max_subcolumns_count;
     }
 
-    PatternTypePB pattern_type() const { return _pattern_type; }
+    PatternTypePB pattern_type() const { return _field_pattern_type; }
 
     bool variant_enable_typed_paths_to_sparse() const {
         return _variant.enable_typed_paths_to_sparse;
@@ -323,7 +320,8 @@ private:
     // The extracted sub-columns from "variant" contain the following information:
     int32_t _parent_col_unique_id = -1;     // "variant" -> col_unique_id
     vectorized::PathInDataPtr _column_path; // the path of the sub-columns themselves
-    PatternTypePB _pattern_type = PatternTypePB::MATCH_NAME_GLOB;
+    // When pattern_type is absent (legacy metadata), keep typed-path default behavior.
+    PatternTypePB _field_pattern_type = PatternTypePB::MATCH_NAME_GLOB;
 
     VariantParams _variant;
 };

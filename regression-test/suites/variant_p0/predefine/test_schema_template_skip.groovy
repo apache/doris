@@ -86,16 +86,15 @@ suite("test_schema_template_skip", "p0") {
     qt_skip_priority_1 """ SELECT id, data['num_a'] FROM ${tableName4} ORDER BY id """
     qt_skip_priority_2 """ SELECT id, data['other'] FROM ${tableName4} ORDER BY id """
 
-    // Test 5: Invalid glob DDL rejection
-    test {
-        sql """CREATE TABLE test_skip_invalid_glob (
-            `id` bigint NULL,
-            `data` variant<SKIP '[invalid'> NOT NULL
-        ) ENGINE=OLAP DUPLICATE KEY(`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 1
-        PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
-        exception "Invalid glob pattern"
-    }
+    // Test 5: Invalid skip glob is allowed in DDL (same behavior as typed path)
+    def tableName5 = "test_skip_invalid_glob"
+    sql "DROP TABLE IF EXISTS ${tableName5}"
+    sql """CREATE TABLE ${tableName5} (
+        `id` bigint NULL,
+        `data` variant<SKIP '[invalid'> NOT NULL
+    ) ENGINE=OLAP DUPLICATE KEY(`id`)
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
 
     // Test 6: Glob cross-level matching — pattern spans nested path
     def tableName6 = "test_skip_glob_cross_level"

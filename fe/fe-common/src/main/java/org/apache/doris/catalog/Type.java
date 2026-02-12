@@ -1158,8 +1158,8 @@ public abstract class Type {
                 }
                 return true;
             } else if (type1.isVariantType()) {
-                ArrayList<VariantField> fields1 = ((VariantType) type1).getPredefinedFields();
-                ArrayList<VariantField> fields2 = ((VariantType) type2).getPredefinedFields();
+                ArrayList<VariantField> fields1 = ((VariantType) type1).getVariantTypedPathPatterns();
+                ArrayList<VariantField> fields2 = ((VariantType) type2).getVariantTypedPathPatterns();
                 if (fields1.size() != fields2.size()) {
                     return false;
                 }
