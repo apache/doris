@@ -24,6 +24,7 @@
 //#include "cloud/cloud_cumulative_compaction.h"
 //#include "cloud/cloud_base_compaction.h"
 //#include "cloud/cloud_full_compaction.h"
+#include "cloud/cloud_committed_rs_mgr.h"
 #include "cloud/cloud_cumulative_compaction_policy.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
@@ -93,6 +94,8 @@ public:
     CloudSnapshotMgr& cloud_snapshot_mgr() { return *_cloud_snapshot_mgr; }
 
     CloudTxnDeleteBitmapCache& txn_delete_bitmap_cache() const { return *_txn_delete_bitmap_cache; }
+
+    CloudCommittedRSMgr& committed_rs_mgr() const { return *_committed_rs_mgr; }
 
     ThreadPool& calc_tablet_delete_bitmap_task_thread_pool() const {
         return *_calc_tablet_delete_bitmap_task_thread_pool;
@@ -214,6 +217,7 @@ private:
     std::unique_ptr<cloud::CloudMetaMgr> _meta_mgr;
     std::unique_ptr<CloudTabletMgr> _tablet_mgr;
     std::unique_ptr<CloudTxnDeleteBitmapCache> _txn_delete_bitmap_cache;
+    std::unique_ptr<CloudCommittedRSMgr> _committed_rs_mgr;
     std::unique_ptr<ThreadPool> _calc_tablet_delete_bitmap_task_thread_pool;
     std::unique_ptr<ThreadPool> _sync_delete_bitmap_thread_pool;
 

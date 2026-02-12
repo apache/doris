@@ -51,6 +51,7 @@
 #include "cloud/cloud_schema_change_job.h"
 #include "cloud/cloud_snapshot_loader.h"
 #include "cloud/cloud_snapshot_mgr.h"
+#include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
 #include "common/config.h"
@@ -2385,6 +2386,53 @@ void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskReq
 
     finish_task(finish_task_request);
     remove_task_info(req.task_type, req.signature);
+}
+
+void make_cloud_committed_rs_visible_callback(CloudStorageEngine& engine,
+                                              const TAgentTaskRequest& req) {
+    if (!config::enable_cloud_make_rs_visible_on_be) {
+        return;
+    }
+    LOG(INFO) << "begin to make cloud tmp rs visible, txn_id="
+              << req.make_cloud_tmp_rs_visible_req.txn_id
+              << ", tablet_count=" << req.make_cloud_tmp_rs_visible_req.tablet_ids.size();
+
+    const auto& make_visible_req = req.make_cloud_tmp_rs_visible_req;
+    auto& tablet_mgr = engine.tablet_mgr();
+
+    int64_t txn_id = make_visible_req.txn_id;
+    int64_t version_update_time_ms = make_visible_req.__isset.version_update_time_ms
+                                             ? make_visible_req.version_update_time_ms
+                                             : 0;
+
+    // Process each tablet involved in this transaction on this BE
+    for (int64_t tablet_id : make_visible_req.tablet_ids) {
+        auto tablet_result = tablet_mgr.get_tablet(tablet_id, false, false, nullptr, true, false);
+        if (!tablet_result.has_value()) {
+            continue;
+        }
+        auto cloud_tablet = tablet_result.value();
+
+        int64_t partition_id = cloud_tablet->partition_id();
+        auto version_iter = make_visible_req.partition_version_map.find(partition_id);
+        if (version_iter == make_visible_req.partition_version_map.end()) {
+            continue;
+        }
+        int64_t visible_version = version_iter->second;
+        DBUG_EXECUTE_IF("make_cloud_committed_rs_visible_callback.block", {
+            auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+            auto target_table_id = dp->param<int64_t>("table_id", -1);
+            auto version = dp->param<int64_t>("version", -1);
+            if ((target_tablet_id == tablet_id || target_table_id == cloud_tablet->table_id()) &&
+                version == visible_version) {
+                DBUG_BLOCK
+            }
+        });
+        cloud_tablet->try_make_committed_rs_visible(txn_id, visible_version,
+                                                    version_update_time_ms);
+    }
+    LOG(INFO) << "make cloud tmp rs visible finished, txn_id=" << txn_id
+              << ", processed_tablets=" << make_visible_req.tablet_ids.size();
 }
 
 void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req) {

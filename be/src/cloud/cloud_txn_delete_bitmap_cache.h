@@ -77,6 +77,10 @@ public:
                              DeleteBitmapPtr* delete_bitmap, RowsetIdUnorderedSet* rowset_ids,
                              std::shared_ptr<PublishStatus>* publish_status);
 
+    // the caller should guarantee that the txn `transaction_id` has been published successfully in MS
+    Result<std::pair<RowsetSharedPtr, DeleteBitmapPtr>> get_rowset_and_delete_bitmap(
+            TTransactionId transaction_id, int64_t tablet_id);
+
 private:
     void _clean_thread_callback();
 

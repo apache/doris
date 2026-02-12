@@ -348,6 +348,10 @@ void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
                       << ", tablet_id=" << tablet_id_with_max_useless_rowset_version_count;
         }
     }
+    {
+        _tablet_map->traverse(
+                [](auto&& tablet) { tablet->clear_unused_visible_pending_rowsets(); });
+    }
 }
 
 std::vector<std::weak_ptr<CloudTablet>> CloudTabletMgr::get_weak_tablets() {

@@ -395,11 +395,9 @@ public:
         }
         return system_clock::from_time_t(newest_write_timestamp());
     }
-#ifdef BE_TEST
     void set_visible_ts_ms(int64_t visible_ts_ms) {
         _rowset_meta_pb.set_visible_ts_ms(visible_ts_ms);
     }
-#endif
 
     void set_tablet_schema(const TabletSchemaSPtr& tablet_schema);
     void set_tablet_schema(const TabletSchemaPB& tablet_schema);
@@ -460,6 +458,16 @@ public:
     void set_encryption_algorithm(EncryptionAlgorithmPB algorithm) {
         _determine_encryption_once.call(
                 [algorithm]() -> Result<EncryptionAlgorithmPB> { return algorithm; });
+    }
+
+    void set_cloud_fields_after_visible(int64_t visible_version, int64_t version_update_time_ms) {
+        // Update rowset meta with correct version and visible_ts
+        // !!ATTENTION!!: this code should be updated if there are more fields
+        // in rowset meta which will be modified in meta-service when commit_txn in the future
+        set_version({visible_version, visible_version});
+        if (version_update_time_ms > 0) {
+            set_visible_ts_ms(version_update_time_ms);
+        }
     }
 
 private:
