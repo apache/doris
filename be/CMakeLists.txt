@@ -51,6 +51,10 @@ elseif (CMAKE_SYSTEM_NAME MATCHES "Darwin")
     add_definitions(-D OS_MACOSX)
 endif ()
 
+if (OS_MACOSX)
+    add_definitions(-DBOOST_PROCESS_POSIX_NO_SIGTIMEDWAIT -UBOOST_POSIX_HAS_SIGTIMEDWAIT)
+endif()
+
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     set (COMPILER_GCC 1)
     option(ENABLE_PCH "enable pch" OFF)
