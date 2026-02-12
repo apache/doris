@@ -156,5 +156,4 @@ protected:
     mutable std::mutex client_mutex_;
 };
 
-} // namespace cloud
-} // namespace doris
+} // namespace doris::cloud

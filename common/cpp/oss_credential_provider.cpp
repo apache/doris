@@ -25,8 +25,6 @@
 #include <stdexcept>
 
 #include "common/logging.h"
-#include "gutil/strings/substitute.h"
-#include "util/defer_op.h"
 
 // Include OSS SDK headers in implementation only
 #include <alibabacloud/oss/auth/Credentials.h>
@@ -75,17 +73,19 @@ AlibabaCloud::OSS::Credentials ECSMetadataCredentialsProvider::getCredentials() 
     }
 
     // Fetch new credentials
-    Status st = _fetch_credentials_from_metadata();
-    if (!st.ok()) {
-        LOG(ERROR) << "Failed to fetch OSS credentials from ECS metadata service: " << st;
+    int ret = _fetch_credentials_from_metadata();
+    if (ret != 0) {
+        LOG(ERROR) << "Failed to fetch OSS credentials from ECS metadata service, error code: "
+                   << ret;
         // If we have cached credentials, return them even if expired (better than failing)
         if (_cached_credentials != nullptr) {
             LOG(WARNING) << "Using expired credentials as fallback";
             return *_cached_credentials;
         }
         // No cached credentials, throw exception
-        throw std::runtime_error(strings::Substitute(
-                "Failed to fetch OSS credentials from ECS metadata service: $0", st.to_string()));
+        throw std::runtime_error(
+                "Failed to fetch OSS credentials from ECS metadata service, error code: " +
+                std::to_string(ret));
     }
 
     // Log success
@@ -102,12 +102,12 @@ AlibabaCloud::OSS::Credentials ECSMetadataCredentialsProvider::getCredentials() 
     return *_cached_credentials;
 }
 
-Status ECSMetadataCredentialsProvider::_http_get(const std::string& url, std::string& response) {
+int ECSMetadataCredentialsProvider::_http_get(const std::string& url, std::string& response) {
     CURL* curl = curl_easy_init();
     if (!curl) {
-        return Status::InternalError("Failed to initialize CURL for ECS metadata request");
+        LOG(ERROR) << "Failed to initialize CURL for ECS metadata request";
+        return -1;
     }
-    Defer defer {[&curl]() { curl_easy_cleanup(curl); }};
 
     response.clear();
 
@@ -121,29 +121,33 @@ Status ECSMetadataCredentialsProvider::_http_get(const std::string& url, std::st
     // Perform HTTP request
     CURLcode res = curl_easy_perform(curl);
     if (res != CURLE_OK) {
-        return Status::InternalError("HTTP request to ECS metadata service failed: {}",
-                                     curl_easy_strerror(res));
+        LOG(ERROR) << "HTTP request to ECS metadata service failed: " << curl_easy_strerror(res);
+        curl_easy_cleanup(curl);
+        return -1;
     }
 
     // Check HTTP response code
     long http_code = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    curl_easy_cleanup(curl);
+
     if (http_code != 200) {
-        return Status::InternalError("ECS metadata service returned HTTP {}: {}", http_code,
-                                     response);
+        LOG(ERROR) << "ECS metadata service returned HTTP " << http_code << ": " << response;
+        return -1;
     }
 
     VLOG(2) << "ECS metadata service HTTP GET success: " << url;
-    return Status::OK();
+    return 0;
 }
 
-Status ECSMetadataCredentialsProvider::_get_role_name(std::string& role_name) {
+int ECSMetadataCredentialsProvider::_get_role_name(std::string& role_name) {
     // Build URL: http://100.100.100.200/latest/meta-data/ram/security-credentials/
-    std::string url =
-            strings::Substitute("http://$0$1", METADATA_SERVICE_HOST, METADATA_SERVICE_PATH);
+    std::string url = std::string("http://") + METADATA_SERVICE_HOST + METADATA_SERVICE_PATH;
 
     std::string response;
-    RETURN_IF_ERROR(_http_get(url, response));
+    if (_http_get(url, response) != 0) {
+        return -1;
+    }
 
     // Trim whitespace from response
     role_name = response;
@@ -158,44 +162,48 @@ Status ECSMetadataCredentialsProvider::_get_role_name(std::string& role_name) {
                     role_name.end());
 
     if (role_name.empty()) {
-        return Status::InternalError(
-                "No RAM role attached to this ECS instance. "
-                "Please attach a RAM role with OSS permissions to the ECS instance.");
+        LOG(ERROR) << "No RAM role attached to this ECS instance. "
+                   << "Please attach a RAM role with OSS permissions to the ECS instance.";
+        return -1;
     }
 
     LOG(INFO) << "ECS RAM role detected: " << role_name;
-    return Status::OK();
+    return 0;
 }
 
-Status ECSMetadataCredentialsProvider::_get_credentials_from_role(const std::string& role_name) {
+int ECSMetadataCredentialsProvider::_get_credentials_from_role(const std::string& role_name) {
     // Build URL: http://100.100.100.200/latest/meta-data/ram/security-credentials/{role-name}
-    std::string url = strings::Substitute("http://$0$1$2", METADATA_SERVICE_HOST,
-                                          METADATA_SERVICE_PATH, role_name);
+    std::string url =
+            std::string("http://") + METADATA_SERVICE_HOST + METADATA_SERVICE_PATH + role_name;
 
     std::string response;
-    RETURN_IF_ERROR(_http_get(url, response));
+    if (_http_get(url, response) != 0) {
+        return -1;
+    }
 
     // Parse JSON response
     rapidjson::Document doc;
     doc.Parse(response.c_str());
 
     if (doc.HasParseError()) {
-        return Status::InternalError("Failed to parse JSON response from ECS metadata service");
+        LOG(ERROR) << "Failed to parse JSON response from ECS metadata service";
+        return -1;
     }
 
     // Check response code
     if (!doc.HasMember("Code") || std::string(doc["Code"].GetString()) != "Success") {
         std::string error_msg =
                 doc.HasMember("Message") ? doc["Message"].GetString() : "Unknown error";
-        return Status::InternalError("ECS metadata service returned error: {}", error_msg);
+        LOG(ERROR) << "ECS metadata service returned error: " << error_msg;
+        return -1;
     }
 
     // Extract required fields
     if (!doc.HasMember("AccessKeyId") || !doc.HasMember("AccessKeySecret") ||
         !doc.HasMember("SecurityToken") || !doc.HasMember("Expiration")) {
-        return Status::InternalError(
-                "ECS metadata service response missing required fields. "
-                "Expected: AccessKeyId, AccessKeySecret, SecurityToken, Expiration");
+        LOG(ERROR) << "ECS metadata service response missing required fields. "
+                   << "Expected: AccessKeyId, AccessKeySecret, SecurityToken, Expiration";
+        return -1;
     }
 
     std::string access_key_id = doc["AccessKeyId"].GetString();
@@ -205,7 +213,8 @@ Status ECSMetadataCredentialsProvider::_get_credentials_from_role(const std::str
 
     // Validate credentials are not empty
     if (access_key_id.empty() || access_key_secret.empty() || security_token.empty()) {
-        return Status::InternalError("ECS metadata service returned empty credentials");
+        LOG(ERROR) << "ECS metadata service returned empty credentials";
+        return -1;
     }
 
     // Parse expiration time (ISO 8601 format: "2025-02-10T15:30:00Z")
@@ -214,8 +223,8 @@ Status ECSMetadataCredentialsProvider::_get_credentials_from_role(const std::str
     ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
 
     if (ss.fail()) {
-        return Status::InternalError("Failed to parse expiration time from ECS metadata: {}",
-                                     expiration_str);
+        LOG(ERROR) << "Failed to parse expiration time from ECS metadata: " << expiration_str;
+        return -1;
     }
 
     // Convert to system_clock::time_point
@@ -229,18 +238,22 @@ Status ECSMetadataCredentialsProvider::_get_credentials_from_role(const std::str
             << "AccessKeyId=" << access_key_id.substr(0, 8) << "..., "
             << "Expiration=" << expiration_str;
 
-    return Status::OK();
+    return 0;
 }
 
-Status ECSMetadataCredentialsProvider::_fetch_credentials_from_metadata() {
+int ECSMetadataCredentialsProvider::_fetch_credentials_from_metadata() {
     // Step 1: Get RAM role name
     std::string role_name;
-    RETURN_IF_ERROR(_get_role_name(role_name));
+    if (_get_role_name(role_name) != 0) {
+        return -1;
+    }
 
     // Step 2: Get credentials for the role
-    RETURN_IF_ERROR(_get_credentials_from_role(role_name));
+    if (_get_credentials_from_role(role_name) != 0) {
+        return -1;
+    }
 
-    return Status::OK();
+    return 0;
 }
 
 } // namespace doris

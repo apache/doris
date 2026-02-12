@@ -22,15 +22,13 @@
 #include <mutex>
 #include <string>
 
-#include "common/status.h"
-
 // Include OSS SDK headers for credential provider interface
 #include <alibabacloud/oss/auth/Credentials.h>
 #include <alibabacloud/oss/auth/CredentialsProvider.h>
 
 namespace doris {
 
-// Type alias for OSS Credentials (implementation uses actual type)
+// Type alias for OSS Credentials
 using OSSCredentials = AlibabaCloud::OSS::Credentials;
 
 /**
@@ -61,7 +59,7 @@ public:
      * Thread-safe: Can be called from multiple threads.
      *
      * @return Credentials object with AccessKeyId, AccessKeySecret, SecurityToken
-     * @throws OssError if metadata service is unreachable or returns error
+     * @throws std::runtime_error if metadata service is unreachable or returns error
      */
     AlibabaCloud::OSS::Credentials getCredentials() override;
 
@@ -73,25 +71,25 @@ private:
      * 1. http://100.100.100.200/latest/meta-data/ram/security-credentials/ (get role name)
      * 2. http://100.100.100.200/latest/meta-data/ram/security-credentials/{role-name} (get creds)
      *
-     * @return Status::OK() on success, error status on failure
+     * @return 0 on success, non-zero on error
      */
-    Status _fetch_credentials_from_metadata();
+    int _fetch_credentials_from_metadata();
 
     /**
      * @brief Get RAM role name from metadata service
      *
      * @param role_name [out] RAM role name (e.g., "DorisOSSRole")
-     * @return Status::OK() if role found, error otherwise
+     * @return 0 on success, non-zero on error
      */
-    Status _get_role_name(std::string& role_name);
+    int _get_role_name(std::string& role_name);
 
     /**
      * @brief Get credentials for a specific RAM role
      *
      * @param role_name RAM role name
-     * @return Status::OK() on success, updates _cached_credentials
+     * @return 0 on success, updates _cached_credentials
      */
-    Status _get_credentials_from_role(const std::string& role_name);
+    int _get_credentials_from_role(const std::string& role_name);
 
     /**
      * @brief Check if cached credentials are expired or about to expire
@@ -107,9 +105,9 @@ private:
      *
      * @param url Full URL to fetch
      * @param response [out] Response body
-     * @return Status::OK() on HTTP 200, error otherwise
+     * @return 0 on HTTP 200, non-zero otherwise
      */
-    Status _http_get(const std::string& url, std::string& response);
+    int _http_get(const std::string& url, std::string& response);
 
     // Mutex to protect _cached_credentials and _expiration
     mutable std::mutex _mtx;
