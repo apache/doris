@@ -57,9 +57,8 @@ OSSConf OSSConf::get_oss_conf(const cloud::ObjectStoreInfoPB& obj_info) {
             conf.client_conf.cred_provider_type = OSSClientConf::CredProviderType::SIMPLE;
             conf.client_conf.ak = obj_info.ak();
             conf.client_conf.sk = obj_info.sk();
-            if (obj_info.has_token() && !obj_info.token().empty()) {
-                conf.client_conf.token = obj_info.token();
-            }
+            // Note: token is not read from ObjectStoreInfoPB
+            // For temporary credentials, use INSTANCE_PROFILE mode with ECS metadata
             LOG(INFO) << "Using OSS SIMPLE credential provider";
             break;
         default:
@@ -73,9 +72,7 @@ OSSConf OSSConf::get_oss_conf(const cloud::ObjectStoreInfoPB& obj_info) {
             conf.client_conf.cred_provider_type = OSSClientConf::CredProviderType::SIMPLE;
             conf.client_conf.ak = obj_info.ak();
             conf.client_conf.sk = obj_info.sk();
-            if (obj_info.has_token() && !obj_info.token().empty()) {
-                conf.client_conf.token = obj_info.token();
-            }
+            // Note: token is not read from ObjectStoreInfoPB
             LOG(INFO) << "Using OSS SIMPLE credential provider (from AK/SK)";
         } else {
             conf.client_conf.cred_provider_type = OSSClientConf::CredProviderType::INSTANCE_PROFILE;
@@ -218,9 +215,8 @@ std::shared_ptr<AlibabaCloud::OSS::OssClient> OSSClientFactory::create(
             LOG(INFO) << "Created OSS client with SIMPLE credentials for endpoint: "
                       << oss_conf.endpoint;
         }
-    } catch (const AlibabaCloud::OSS::OssException& e) {
-        LOG(ERROR) << "Failed to create OSS client: " << e.GetErrorCode() << " - "
-                   << e.GetErrorMessage();
+    } catch (const std::exception& e) {
+        LOG(ERROR) << "Failed to create OSS client: " << e.what();
         return nullptr;
     }
 

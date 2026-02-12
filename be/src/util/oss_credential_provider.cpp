@@ -22,6 +22,7 @@
 
 #include <iomanip>
 #include <sstream>
+#include <stdexcept>
 
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
@@ -83,9 +84,8 @@ AlibabaCloud::OSS::Credentials ECSMetadataCredentialsProvider::getCredentials() 
             return *_cached_credentials;
         }
         // No cached credentials, throw exception
-        throw AlibabaCloud::OSS::OssException(
-                "ECS-METADATA-ERROR",
-                strings::Substitute("Failed to fetch credentials: $0", st.to_string()));
+        throw std::runtime_error(strings::Substitute(
+                "Failed to fetch OSS credentials from ECS metadata service: $0", st.to_string()));
     }
 
     // Log success

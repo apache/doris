@@ -24,13 +24,9 @@
 
 #include "common/status.h"
 
-// Forward declare Alibaba Cloud OSS SDK types to avoid header dependency in .h
-namespace AlibabaCloud {
-namespace OSS {
-class Credentials;
-class CredentialsProvider;
-} // namespace OSS
-} // namespace AlibabaCloud
+// Include OSS SDK headers for credential provider interface
+#include <alibabacloud/oss/auth/Credentials.h>
+#include <alibabacloud/oss/auth/CredentialsProvider.h>
 
 namespace doris {
 

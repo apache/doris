@@ -24,6 +24,7 @@
 
 #include <memory>
 #include <sstream>
+#include <stdexcept>
 #include <utility>
 
 #include "common/config.h"
@@ -159,9 +160,8 @@ std::optional<OSSConf> OSSConf::from_obj_store_info(const ObjectStoreInfoPB& obj
                 conf.provider_type = OSSConf::CredProviderType::SIMPLE;
                 conf.access_key_id = obj_info.ak();
                 conf.access_key_secret = obj_info.sk();
-                if (obj_info.has_token() && !obj_info.token().empty()) {
-                    conf.security_token = obj_info.token();
-                }
+                // Note: security_token is not read from ObjectStoreInfoPB
+                // For temporary credentials, use INSTANCE_PROFILE mode
                 LOG(INFO) << "Using OSS SIMPLE credential provider";
                 break;
             default:
@@ -175,9 +175,7 @@ std::optional<OSSConf> OSSConf::from_obj_store_info(const ObjectStoreInfoPB& obj
                 conf.provider_type = OSSConf::CredProviderType::SIMPLE;
                 conf.access_key_id = obj_info.ak();
                 conf.access_key_secret = obj_info.sk();
-                if (obj_info.has_token() && !obj_info.token().empty()) {
-                    conf.security_token = obj_info.token();
-                }
+                // Note: security_token is not read from ObjectStoreInfoPB
                 LOG(INFO) << "Using OSS SIMPLE credential provider (from AK/SK)";
             } else {
                 conf.provider_type = OSSConf::CredProviderType::INSTANCE_PROFILE;
@@ -261,9 +259,8 @@ int OSSAccessor::create_oss_client() {
             LOG(ERROR) << "Unsupported OSS credential provider type";
             return -1;
         }
-    } catch (const AlibabaCloud::OSS::OssException& e) {
-        LOG(ERROR) << "Failed to create OSS client: " << e.GetErrorCode() << " - "
-                   << e.GetErrorMessage();
+    } catch (const std::exception& e) {
+        LOG(ERROR) << "Failed to create OSS client: " << e.what();
         return -1;
     }
 
