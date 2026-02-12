@@ -1059,6 +1059,12 @@ public class CreateTableInfo {
             // check that order keys is not duplicated
             for (int i = 0; i < sortOrderFields.size(); i++) {
                 String name = sortOrderFields.get(i).getColumnName();
+                if (!sortOrderFields.get(i).isAscending()) {
+                    throw new AnalysisException("Order keys only support ASC in OLAP table.");
+                }
+                if (!sortOrderFields.get(i).isNullFirst()) {
+                    throw new AnalysisException("Order keys only support NULLS FIRST in OLAP table.");
+                }
                 for (int j = 0; j < i; j++) {
                     if (sortOrderFields.get(j).getColumnName().equalsIgnoreCase(name)) {
                         throw new AnalysisException("Duplicate order key column[" + name + "].");

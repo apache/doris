@@ -153,7 +153,6 @@ public class SortNode extends PlanNode {
         output.append(detailPrefix).append("order by: ");
         Iterator<Expr> expr = info.getOrderingExprs().iterator();
         Iterator<Boolean> isAsc = info.getIsAscOrder().iterator();
-        Iterator<Boolean> nullsFirst = info.getNullsFirstParams().iterator();
         boolean start = true;
         while (expr.hasNext()) {
             if (start) {
@@ -163,7 +162,6 @@ public class SortNode extends PlanNode {
             }
             output.append(expr.next().toSql()).append(" ");
             output.append(isAsc.next() ? "ASC" : "DESC");
-            output.append(" NULLS ").append(nullsFirst.next() ? "FIRST" : "LAST");
         }
         output.append("\n");
 
