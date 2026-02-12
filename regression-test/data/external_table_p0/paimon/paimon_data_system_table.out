@@ -66,8 +66,13 @@ name	text	Yes	true	\N	NONE
 4
 
 -- !native_audit_log_rows --
++I	1	alpha
++I	2	beta
++I	3	gamma
++I	4	delta
 
 -- !native_audit_log_rowkind_stats --
++I	4
 
 -- !native_binlog_count --
 4
