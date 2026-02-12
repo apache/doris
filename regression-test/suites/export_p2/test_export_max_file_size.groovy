@@ -135,43 +135,38 @@ suite("test_export_max_file_size", "p2,external") {
             def outfile_info = waiting_export.call(uuid)
             def json = parseJson(outfile_info)
             assert json instanceof List
-            assertEquals("3", json.fileNumber[0][0])
+            assertEquals("25", json.fileNumber[0][0])
             def outfile_url = json.url[0][0]
 
-            for (int j = 0; j < json.fileNumber[0][0].toInteger(); ++j) {
-                def res = sql """ 
-                    select count(*) from s3(
-                        "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length())}${j}.csv",
-                        "ACCESS_KEY"= "${ak}",
-                        "SECRET_KEY" = "${sk}",
-                        "format" = "csv",
-                        "provider" = "${getS3Provider()}",
-                        "region" = "${region}"
-                    );
-                """
-                logger.info("res[0][0] = " + res[0][0]);
-                if(res[0][0] == 0) {
-                    continue;
-                }
+            qt_sql_count """ 
+                select count(*) from s3(
+                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length())}.csv",
+                    "ACCESS_KEY"= "${ak}",
+                    "SECRET_KEY" = "${sk}",
+                    "format" = "csv",
+                    "provider" = "${getS3Provider()}",
+                    "region" = "${region}"
+                );
+            """
 
-                // check data correctness
-                sql """ 
-                    insert into ${table_load_name}
-                    select * from s3(
-                        "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length())}${j}.csv",
-                        "ACCESS_KEY"= "${ak}",
-                        "SECRET_KEY" = "${sk}",
-                        "format" = "csv",
-                        "provider" = "${getS3Provider()}",
-                        "region" = "${region}"
-                    );
-                """
-            }
+            // check data correctness
+            sql """ 
+                insert into ${table_load_name}
+                select * from s3(
+                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length())}.csv",
+                    "ACCESS_KEY"= "${ak}",
+                    "SECRET_KEY" = "${sk}",
+                    "format" = "csv",
+                    "provider" = "${getS3Provider()}",
+                    "region" = "${region}"
+                );
+            """
+
+            order_qt_select """ select user_id from ${table_load_name} order by user_id limit 100 """
+            order_qt_select_cnt """ select count(*) from ${table_load_name} """
         }
 
         // begin test
         test_export('csv', 'csv', true);
-        order_qt_select """ select * from ${table_load_name} order by user_id limit 1000 """
-        order_qt_select_cnt """ select count(*) from ${table_load_name} """
     }
 }

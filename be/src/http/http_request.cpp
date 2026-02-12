@@ -37,6 +37,13 @@ namespace doris {
 
 static std::string s_empty = "";
 
+// Helper function to check if a header should be masked in logs
+static bool is_sensitive_header(const std::string& header_name) {
+    return iequal(header_name, HttpHeaders::AUTHORIZATION) ||
+           iequal(header_name, HttpHeaders::PROXY_AUTHORIZATION) || iequal(header_name, "token") ||
+           iequal(header_name, HttpHeaders::AUTH_TOKEN);
+}
+
 HttpRequest::HttpRequest(evhttp_request* evhttp_request) : _ev_req(evhttp_request) {}
 
 HttpRequest::~HttpRequest() {
@@ -88,8 +95,7 @@ std::string HttpRequest::debug_string() const {
        << "raw_path:" << _raw_path << "\n"
        << "headers: \n";
     for (auto& iter : _headers) {
-        if (iequal(iter.first, HttpHeaders::AUTHORIZATION) ||
-            iequal(iter.first, HttpHeaders::PROXY_AUTHORIZATION)) {
+        if (is_sensitive_header(iter.first)) {
             ss << "key=" << iter.first << ", value=***MASKED***\n";
         } else {
             ss << "key=" << iter.first << ", value=" << iter.second << "\n";
@@ -123,8 +129,7 @@ std::string HttpRequest::get_all_headers() const {
     std::stringstream headers;
     for (const auto& header : _headers) {
         // Mask sensitive headers
-        if (iequal(header.first, HttpHeaders::AUTHORIZATION) ||
-            iequal(header.first, HttpHeaders::PROXY_AUTHORIZATION)) {
+        if (is_sensitive_header(header.first)) {
             headers << header.first << ":***MASKED***, ";
         } else {
             headers << header.first << ":" << header.second + ", ";

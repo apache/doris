@@ -103,7 +103,7 @@ TEST_P(DataTypeFixedLengthObjectTest, CreateColumnTest) {
     // get_uncompressed_serialized_bytes
     ASSERT_EQ(datatype_fixed_length->get_uncompressed_serialized_bytes(
                       *column, BeExecVersionManager::get_newest_version()),
-              17);
+              25);
 }
 
 void insert_data_fixed_length_data(MutableColumns* fixed_length_cols,
@@ -132,9 +132,8 @@ TEST_P(DataTypeFixedLengthObjectTest, SerializeDeserializeTest) {
     auto size = datatype_fixed_length->get_uncompressed_serialized_bytes(
             *column, BeExecVersionManager::get_newest_version());
     std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
-    auto* result = datatype_fixed_length->serialize(*column, buf.get(),
-                                                    BeExecVersionManager::get_newest_version());
-    ASSERT_EQ(result, buf.get() + size);
+    datatype_fixed_length->serialize(*column, buf.get(),
+                                     BeExecVersionManager::get_newest_version());
 
     auto column2 = datatype_fixed_length->create_column();
     datatype_fixed_length->deserialize(buf.get(), &column2,

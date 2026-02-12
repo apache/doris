@@ -252,8 +252,6 @@ private:
 
     Status _parse_zone_map(const ZoneMapPB& zone_map, ZoneMapInfo& zone_map_info) const;
 
-    Status _parse_zone_map_skip_null(const ZoneMapPB& zone_map, ZoneMapInfo& zone_map_info) const;
-
     Status _get_filtered_pages(
             const AndBlockColumnPredicate* col_predicates,
             const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
@@ -715,13 +713,14 @@ private:
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
     DefaultValueColumnIterator(bool has_default_value, std::string default_value, bool is_nullable,
-                               TypeInfoPtr type_info, int precision, int scale)
+                               TypeInfoPtr type_info, int precision, int scale, int len)
             : _has_default_value(has_default_value),
               _default_value(std::move(default_value)),
               _is_nullable(is_nullable),
               _type_info(std::move(type_info)),
               _precision(precision),
-              _scale(scale) {}
+              _scale(scale),
+              _len(len) {}
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -746,9 +745,6 @@ public:
 
     ordinal_t get_current_ordinal() const override { return _current_rowid; }
 
-    static void insert_default_data(const TypeInfo* type_info, size_t type_size, void* mem_value,
-                                    vectorized::MutableColumnPtr& dst, size_t n);
-
 private:
     void _insert_many_default(vectorized::MutableColumnPtr& dst, size_t n);
 
@@ -756,11 +752,10 @@ private:
     std::string _default_value;
     bool _is_nullable;
     TypeInfoPtr _type_info;
-    bool _is_default_value_null {false};
-    size_t _type_size {0};
     int _precision;
     int _scale;
-    std::vector<char> _mem_value;
+    const int _len;
+    vectorized::Field _default_value_field;
 
     // current rowid
     ordinal_t _current_rowid = 0;

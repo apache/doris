@@ -111,7 +111,7 @@ TEST_P(DataTypeAggStateTest, CreateColumnTest) {
     // get_uncompressed_serialized_bytes
     ASSERT_EQ(datatype_agg_state_count->get_uncompressed_serialized_bytes(
                       *column, BeExecVersionManager::get_newest_version()),
-              25);
+              33);
 }
 
 void insert_data_agg_state(MutableColumns* agg_state_cols, DataTypePtr datatype_agg_state,

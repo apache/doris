@@ -744,6 +744,28 @@ public class Config extends ConfigBase {
             "Txn manager will reject coming txns."})
     public static int max_running_txn_num_per_db = 10000;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否将事务的 edit log 写入移到写锁之外以减少锁竞争。"
+                    + "开启后，edit log 条目在写锁内入队（FIFO 保证顺序），"
+                    + "在写锁外等待持久化完成，从而降低写锁持有时间，提高并发事务吞吐量。"
+                    + "默认开启。关闭后使用传统的锁内同步写入模式。",
+            "Whether to move transaction edit log writes outside the write lock to reduce lock contention. "
+                    + "When enabled, edit log entries are enqueued inside the write lock (FIFO preserves ordering) "
+                    + "and awaited outside the lock, reducing write lock hold time "
+                    + "and improving concurrent transaction throughput. "
+                    + "Default is true. Set to false to use the traditional in-lock synchronous write mode."})
+    public static boolean enable_txn_log_outside_lock = true;
+
+    @ConfField(mutable = true, description = {
+            "是否启用按事务级别并行发布。开启后，同一数据库内的不同事务可以在不同的执行器线程上并行完成发布，"
+                    + "而不是按数据库顺序执行。关闭后回退到按数据库路由（旧行为），同一数据库内的事务顺序发布。",
+            "Whether to enable per-transaction parallel publish. When enabled, different transactions "
+                    + "in the same database can finish publishing in parallel across executor threads, "
+                    + "instead of being serialized per database. "
+                    + "When disabled, falls back to per-database routing (old behavior) "
+                    + "where transactions within a DB are published sequentially."})
+    public static boolean enable_per_txn_publish = true;
+
     @ConfField(masterOnly = true, description = {"pending load task 执行线程数。这个配置可以限制当前等待的导入作业数。"
             + "并且应小于 `max_running_txn_num_per_db`。",
             "The pending load task executor pool size. "
@@ -2130,13 +2152,13 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 8;
+    public static int max_be_exec_version = 10;
 
     /**
      * Min data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int min_be_exec_version = 0;
+    public static int min_be_exec_version = 8;
 
     /**
      * Data version of backends serialize block.

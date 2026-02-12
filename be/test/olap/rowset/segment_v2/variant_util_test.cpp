@@ -95,6 +95,81 @@ TEST(VariantUtilTest, ParseDocValueToSubcolumns_FillsDefaultsAndValues) {
     EXPECT_EQ(fb.field.get_type(), PrimitiveType::TYPE_NULL); // missing
 }
 
+TEST(VariantUtilTest, ParseOnlyDocValueColumn_SerializesMixedTypes) {
+    const std::vector<std::string_view> jsons = {
+            R"({"b":true,"d":1.5,"u":18446744073709551615,"arr":[1,2,3],"arr2":[[1],[2]],"s":"x"})",
+            R"({"b":false,"arr":[4],"s":"y"})",
+    };
+
+    auto variant = vectorized::ColumnVariant::create(0);
+    auto json_col = _make_json_column(jsons);
+
+    vectorized::ParseConfig cfg;
+    cfg.enable_flatten_nested = false;
+    cfg.parse_to = vectorized::ParseConfig::ParseTo::OnlyDocValueColumn;
+    parse_json_to_variant(*variant, *json_col, cfg);
+
+    EXPECT_TRUE(variant->is_doc_mode());
+
+    auto subcolumns = materialize_docs_to_subcolumns_map(*variant);
+    ASSERT_TRUE(subcolumns.contains("b"));
+    ASSERT_TRUE(subcolumns.contains("d"));
+    ASSERT_TRUE(subcolumns.contains("u"));
+    ASSERT_TRUE(subcolumns.contains("arr"));
+    ASSERT_TRUE(subcolumns.contains("arr2"));
+    ASSERT_TRUE(subcolumns.contains("s"));
+
+    auto& b = subcolumns.at("b");
+    auto& d = subcolumns.at("d");
+    auto& u = subcolumns.at("u");
+    auto& arr = subcolumns.at("arr");
+    auto& arr2 = subcolumns.at("arr2");
+    auto& s = subcolumns.at("s");
+    b.finalize();
+    d.finalize();
+    u.finalize();
+    arr.finalize();
+    arr2.finalize();
+    s.finalize();
+
+    vectorized::FieldWithDataType f;
+    b.get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BOOLEAN);
+    EXPECT_EQ(f.field.get<TYPE_BOOLEAN>(), true);
+    b.get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BOOLEAN);
+    EXPECT_EQ(f.field.get<TYPE_BOOLEAN>(), false);
+
+    d.get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_DOUBLE);
+    EXPECT_EQ(f.field.get<TYPE_DOUBLE>(), 1.5);
+    d.get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_NULL);
+
+    u.get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_LARGEINT);
+    EXPECT_EQ(f.field.get<TYPE_LARGEINT>(), static_cast<int128_t>(18446744073709551615ULL));
+    u.get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_NULL);
+
+    arr.get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_ARRAY);
+    arr.get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_ARRAY);
+
+    arr2.get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_JSONB);
+    arr2.get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_NULL);
+
+    s.get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(f.field.get<TYPE_STRING>(), "x");
+    s.get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(f.field.get<TYPE_STRING>(), "y");
+}
+
 TEST(VariantUtilTest, ParseVariantColumns_ScalarJsonStringToSubcolumns) {
     TabletSchemaPB schema_pb;
     schema_pb.set_keys_type(KeysType::DUP_KEYS);
@@ -207,6 +282,138 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeRejectOnlySubcolumnsConfig) {
     Status st =
             parse_and_materialize_variant_columns(block, std::vector<uint32_t> {0}, {parse_cfg});
     EXPECT_TRUE(st.ok()) << st.to_string();
+}
+
+TEST(VariantUtilTest, GlobToRegex) {
+    struct Case {
+        std::string glob;
+        std::string expected_regex;
+    };
+    const std::vector<Case> cases = {
+            {"*", "^.*$"},
+            {"?", "^.$"},
+            {"a?b", "^a.b$"},
+            {"a*b", "^a.*b$"},
+            {"a**b", "^a.*.*b$"},
+            {"a??b", "^a..b$"},
+            {"?*", "^..*$"},
+            {"*?", "^.*.$"},
+            {"a.b", "^a\\.b$"},
+            {"a+b", "^a\\+b$"},
+            {"a{b}", "^a\\{b\\}$"},
+            {R"(a\*b)", R"(^a\*b$)"},
+            {"a\\?b", "^a\\?b$"},
+            {"a\\[b", "^a\\[b$"},
+            {"abc\\", "^abc\\\\$"},
+            {"a|b", "^a\\|b$"},
+            {"a(b)c", "^a\\(b\\)c$"},
+            {"a^b", "^a\\^b$"},
+            {"a$b", "^a\\$b$"},
+            {"int_[0-9]", "^int_[0-9]$"},
+            {"int_[!0-9]", "^int_[^0-9]$"},
+            {"int_[^0-9]", "^int_[^0-9]$"},
+            {"a[\\-]b", "^a[-]b$"},
+            {"a[b-d]e", "^a[b-d]e$"},
+            {"a[\\]]b", "^a[]]b$"},
+            {"a[\\!]b", "^a[!]b$"},
+            {"", "^$"},
+            {"a[[]b", "^a[[]b$"},
+            {"a[]b", "^a[]b$"},
+            {"[]", "^[]$"},
+            {"[!]", "^[^]$"},
+            {"[^]", "^[^]$"},
+            {"\\", "^\\\\$"},
+            {"\\*", "^\\*$"},
+            {"a\\*b", "^a\\*b$"},
+            {"a[!\\]]b", "^a[^]]b$"},
+    };
+
+    for (const auto& test_case : cases) {
+        std::string regex;
+        Status st = glob_to_regex(test_case.glob, &regex);
+        EXPECT_TRUE(st.ok()) << st.to_string() << " pattern=" << test_case.glob;
+        EXPECT_EQ(regex, test_case.expected_regex) << "pattern=" << test_case.glob;
+    }
+
+    std::string regex;
+    Status st = glob_to_regex("int_[0-9", &regex);
+    EXPECT_FALSE(st.ok());
+
+    st = glob_to_regex("a[\\]b", &regex);
+    EXPECT_FALSE(st.ok());
+}
+
+TEST(VariantUtilTest, GlobMatchRe2) {
+    struct Case {
+        std::string glob;
+        std::string candidate;
+        bool expected;
+    };
+    const std::vector<Case> cases = {
+            {"*", "", true},
+            {"*", "abc", true},
+            {"?", "a", true},
+            {"?", "", false},
+            {"a?b", "acb", true},
+            {"a?b", "ab", false},
+            {"a*b", "ab", true},
+            {"a*b", "axxxb", true},
+            {"a**b", "ab", true},
+            {"a**b", "axxxb", true},
+            {"?*", "", false},
+            {"?*", "a", true},
+            {"*?", "", false},
+            {"*?", "a", true},
+            {"a*b", "a/b", true},
+            {"a.b", "a.b", true},
+            {"a.b", "acb", false},
+            {"a+b", "a+b", true},
+            {"a{b}", "a{b}", true},
+            {"a|b", "a|b", true},
+            {"a|b", "ab", false},
+            {"a(b)c", "a(b)c", true},
+            {"a(b)c", "abc", false},
+            {"a^b", "a^b", true},
+            {"a^b", "ab", false},
+            {"a$b", "a$b", true},
+            {"a$b", "ab", false},
+            {"a[b-d]e", "ace", true},
+            {"a[b-d]e", "aee", false},
+            {"a[\\]]b", "a]b", true},
+            {"a[\\]]b", "a[b", false},
+            {"a[\\!]b", "a!b", true},
+            {"a[\\!]b", "a]b", false},
+            {"[]", "a", false},
+            {"[!]", "]", false},
+            {"\\", "\\", true},
+            {"\\*", "\\abc", false},
+            {"a[!\\]]b", "aXb", true},
+            {"a[!\\]]b", "a]b", false},
+            {"a[]b", "aXb", false},
+            {"a[[]b", "a[b", true},
+            {R"(a\*b)", "a*b", true},
+            {R"(a\?b)", "a?b", true},
+            {R"(a\[b)", "a[b", true},
+            {R"(abc\)", R"(abc\)", true},
+            {"int_[0-9]", "int_1", true},
+            {"int_[0-9]", "int_a", false},
+            {"int_[!0-9]", "int_a", true},
+            {"int_[!0-9]", "int_1", false},
+            {"int_[^0-9]", "int_b", true},
+            {"int_[^0-9]", "int_2", false},
+            {R"(a[\-]b)", "a-b", true},
+            {"", "", true},
+            {"", "a", false},
+    };
+
+    for (const auto& test_case : cases) {
+        bool matched = glob_match_re2(test_case.glob, test_case.candidate);
+        EXPECT_EQ(matched, test_case.expected)
+                << "pattern=" << test_case.glob << " candidate=" << test_case.candidate;
+    }
+
+    EXPECT_FALSE(glob_match_re2("int_[0-9", "int_1"));
+    EXPECT_FALSE(glob_match_re2("a[\\]b", "a]b"));
 }
 
 } // namespace doris::vectorized::variant_util

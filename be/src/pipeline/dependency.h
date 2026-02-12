@@ -653,8 +653,8 @@ struct PartitionedHashJoinSharedState
 
 struct NestedLoopJoinSharedState : public JoinSharedState {
     ENABLE_FACTORY_CREATOR(NestedLoopJoinSharedState)
-    // if true, left child has no more rows to process
-    bool left_side_eos = false;
+    // if true, probe child has no more rows to process
+    bool probe_side_eos = false;
     // Visited flags for each row in build side.
     vectorized::MutableColumns build_side_visited_flags;
     // List of build blocks, constructed in prepare()

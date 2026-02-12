@@ -15,30 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.jni.utils;
+package org.apache.doris.datasource;
 
-import org.apache.log4j.Level;
-import org.apache.log4j.Logger;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 
-import java.io.OutputStream;
+public class CatalogScopedCacheMgr<T> {
+    private final Map<Long, T> cacheMap = new ConcurrentHashMap<>();
+    private final Function<ExternalCatalog, T> cacheFactory;
 
-public class Log4jOutputStream extends OutputStream {
-    private final Logger logger;
-    private final StringBuilder buffer = new StringBuilder();
-    private final Level level;
-
-    public Log4jOutputStream(Logger logger, Level level) {
-        this.logger = logger;
-        this.level = level;
+    public CatalogScopedCacheMgr(Function<ExternalCatalog, T> cacheFactory) {
+        this.cacheFactory = cacheFactory;
     }
 
-    @Override
-    public void write(int b) {
-        if (b == '\n') {
-            logger.log(level, buffer.toString());
-            buffer.setLength(0);
-        } else {
-            buffer.append((char) b);
-        }
+    public T getCache(ExternalCatalog catalog) {
+        return cacheMap.computeIfAbsent(catalog.getId(), id -> cacheFactory.apply(catalog));
+    }
+
+    public T getCache(long catalogId) {
+        return cacheMap.get(catalogId);
+    }
+
+    public T removeCache(long catalogId) {
+        return cacheMap.remove(catalogId);
     }
 }

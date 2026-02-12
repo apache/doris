@@ -17,8 +17,12 @@
 
 package org.apache.doris.nereids.types;
 
+import org.apache.doris.common.GlobRegexUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.thrift.TPatternType;
+
+import com.google.re2j.Pattern;
+import com.google.re2j.PatternSyntaxException;
 
 import java.util.Objects;
 
@@ -65,6 +69,35 @@ public class VariantField {
 
     public String getComment() {
         return comment;
+    }
+
+    /**
+     * Check if the given field name matches this field's pattern.
+     * This method uses a restricted glob syntax converted to regex.
+     *
+     * Supported glob syntax:
+     * - '*' matches any sequence of characters
+     * - '?' matches any single character
+     * - '[...]' matches any character in the brackets
+     * - '[!...]' matches any character not in the brackets
+     * - '\\' escapes the next character
+     *
+     * @param fieldName the field name to check
+     * @return true if the field name matches the pattern
+     */
+    public boolean matches(String fieldName) {
+        if (patternType == TPatternType.MATCH_NAME) {
+            return pattern.equals(fieldName);
+        }
+        if (patternType != TPatternType.MATCH_NAME_GLOB) {
+            return false;
+        }
+        try {
+            Pattern compiled = GlobRegexUtil.getOrCompilePattern(pattern);
+            return compiled.matcher(fieldName).matches();
+        } catch (PatternSyntaxException | IllegalArgumentException e) {
+            return false;
+        }
     }
 
     public org.apache.doris.catalog.VariantField toCatalogDataType() {

@@ -60,6 +60,14 @@ template <typename DateValueType>
                     datelike_to_string<DateValueType>(arg0), delta);
 }
 
+// Throw for operations with a datelike and a string interval(e.g., date_add(date, interval '-1 2:3:4' day_second))
+template <typename DateValueType>
+[[noreturn]] inline void throw_out_of_bound_date_string(const char* op, DateValueType arg0,
+                                                        std::string_view delta) {
+    throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} of {}, {} out of range", op,
+                    datelike_to_string<DateValueType>(arg0), delta);
+}
+
 // Throw for operations with a single integer argument (e.g., from_days daynr)
 [[noreturn]] inline void throw_out_of_bound_int(const char* op, int64_t value) {
     throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} of {} out of range", op, value);
@@ -111,7 +119,7 @@ template <typename DateValueType>
 }
 
 // Helper to get time unit name for error messages
-inline const char* get_time_unit_name(TimeUnit unit) {
+constexpr const char* get_time_unit_name(TimeUnit unit) {
     switch (unit) {
     case TimeUnit::YEAR:
         return "year_add";
@@ -133,6 +141,28 @@ inline const char* get_time_unit_name(TimeUnit unit) {
         return "millisecond_add";
     case TimeUnit::MICROSECOND:
         return "microsecond_add";
+    case TimeUnit::YEAR_MONTH:
+        return "year_month_add";
+    case TimeUnit::DAY_HOUR:
+        return "day_hour_add";
+    case TimeUnit::DAY_MINUTE:
+        return "day_minute_add";
+    case TimeUnit::DAY_SECOND:
+        return "day_second_add";
+    case TimeUnit::DAY_MICROSECOND:
+        return "day_microsecond_add";
+    case TimeUnit::HOUR_MINUTE:
+        return "hour_minute_add";
+    case TimeUnit::HOUR_SECOND:
+        return "hour_second_add";
+    case TimeUnit::HOUR_MICROSECOND:
+        return "hour_microsecond_add";
+    case TimeUnit::MINUTE_SECOND:
+        return "minute_second_add";
+    case TimeUnit::MINUTE_MICROSECOND:
+        return "minute_microsecond_add";
+    case TimeUnit::SECOND_MICROSECOND:
+        return "second_microsecond_add";
     default:
         return "date_add";
     }

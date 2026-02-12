@@ -155,5 +155,8 @@ DEFINE_mBool(enable_cache_read_from_peer, "true");
 // If the value is -1, use the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration as the expiration time.
 DEFINE_mInt64(cache_read_from_peer_expired_seconds, "-1");
 
+DEFINE_mBool(enable_file_cache_write_base_compaction_index_only, "false");
+DEFINE_mBool(enable_file_cache_write_cumu_compaction_index_only, "false");
+
 #include "common/compile_check_end.h"
 } // namespace doris::config

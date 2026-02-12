@@ -181,9 +181,34 @@ void FileCacheBlockDownloader::download_file_cache_block(
                    << ", rowset_id=" << meta.rowset_id() << ", segment_id=" << meta.segment_id()
                    << ", offset=" << meta.offset() << ", size=" << meta.size()
                    << ", type=" << meta.cache_type();
+
+        // Helper to decrease inflight count on early return.
+        // NOTE: This lambda captures 'this' pointer. It's safe because:
+        // 1. download_segment_file() calls download_done synchronously
+        // 2. ~FileCacheBlockDownloader() waits for all workers to finish via _workers->shutdown()
+        // If this assumption changes (e.g., async callback), consider using shared_from_this pattern.
+        auto decrease_inflight_count = [this, tablet_id = meta.tablet_id()]() {
+            std::lock_guard lock(_inflight_mtx);
+            auto it = _inflight_tablets.find(tablet_id);
+            if (it == _inflight_tablets.end()) {
+                LOG(WARNING) << "inflight ref cnt not exist, tablet id " << tablet_id;
+            } else {
+                it->second--;
+                VLOG_DEBUG << "download_file_cache_block: inflight_tablets[" << tablet_id
+                           << "] = " << it->second;
+                if (it->second <= 0) {
+                    DCHECK_EQ(it->second, 0) << it->first;
+                    _inflight_tablets.erase(it);
+                    VLOG_DEBUG << "download_file_cache_block: erase inflight_tablets[" << tablet_id
+                               << "]";
+                }
+            }
+        };
+
         CloudTabletSPtr tablet;
         if (auto res = _engine.tablet_mgr().get_tablet(meta.tablet_id(), false); !res.has_value()) {
             LOG(INFO) << "failed to find tablet " << meta.tablet_id() << " : " << res.error();
+            decrease_inflight_count();
             return;
         } else {
             tablet = std::move(res).value();
@@ -202,12 +227,14 @@ void FileCacheBlockDownloader::download_file_cache_block(
         if (find_it == id_to_rowset_meta_map.end()) {
             LOG(WARNING) << "download_file_cache_block: tablet_id=" << meta.tablet_id()
                          << " rowset_id not found, rowset_id=" << meta.rowset_id();
+            decrease_inflight_count();
             return;
         }
 
         auto storage_resource = find_it->second->remote_storage_resource();
         if (!storage_resource) {
             LOG(WARNING) << storage_resource.error();
+            decrease_inflight_count();
             return;
         }
         // Use RowsetMeta::fs() instead of storage_resource->fs to support packed file.
@@ -218,26 +245,15 @@ void FileCacheBlockDownloader::download_file_cache_block(
         if (!file_system) {
             LOG(WARNING) << "download_file_cache_block: failed to get file system for tablet_id="
                          << meta.tablet_id() << ", rowset_id=" << meta.rowset_id();
+            decrease_inflight_count();
             return;
         }
 
-        auto download_done = [&, tablet_id = meta.tablet_id()](Status st) {
-            std::lock_guard lock(_inflight_mtx);
-            auto it = _inflight_tablets.find(tablet_id);
+        // Capture decrease_inflight_count by value to ensure lifetime safety
+        // even if download_done is called asynchronously in the future
+        auto download_done = [decrease_inflight_count, tablet_id = meta.tablet_id()](Status st) {
             TEST_SYNC_POINT_CALLBACK("FileCacheBlockDownloader::download_file_cache_block");
-            if (it == _inflight_tablets.end()) {
-                LOG(WARNING) << "inflight ref cnt not exist, tablet id " << tablet_id;
-            } else {
-                it->second--;
-                VLOG_DEBUG << "download_file_cache_block: inflight_tablets[" << tablet_id
-                           << "] = " << it->second;
-                if (it->second <= 0) {
-                    DCHECK_EQ(it->second, 0) << it->first;
-                    _inflight_tablets.erase(it);
-                    VLOG_DEBUG << "download_file_cache_block: erase inflight_tablets[" << tablet_id
-                               << "]";
-                }
-            }
+            decrease_inflight_count();
             LOG(INFO) << "download_file_cache_block: download_done, tablet_Id=" << tablet_id
                       << " status=" << st.to_string();
         };

@@ -19,7 +19,6 @@
 
 #include <assert.h>
 #include <fmt/format.h>
-#include <fnmatch.h>
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
@@ -38,6 +37,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <list>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -63,6 +63,7 @@
 #include "olap/tablet.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
+#include "re2/re2.h"
 #include "runtime/client_cache.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/exec_env.h"
@@ -101,6 +102,162 @@
 
 namespace doris::vectorized::variant_util {
 #include "common/compile_check_begin.h"
+
+inline void append_escaped_regex_char(std::string* regex_output, char ch) {
+    switch (ch) {
+    case '.':
+    case '^':
+    case '$':
+    case '+':
+    case '*':
+    case '?':
+    case '(':
+    case ')':
+    case '|':
+    case '{':
+    case '}':
+    case '[':
+    case ']':
+    case '\\':
+        regex_output->push_back('\\');
+        regex_output->push_back(ch);
+        break;
+    default:
+        regex_output->push_back(ch);
+        break;
+    }
+}
+
+// Small LRU to cap compiled glob patterns
+constexpr size_t kGlobRegexCacheCapacity = 256;
+
+struct GlobRegexCacheEntry {
+    std::shared_ptr<RE2> re2;
+    std::list<std::string>::iterator lru_it;
+};
+
+static std::mutex g_glob_regex_cache_mutex;
+static std::list<std::string> g_glob_regex_cache_lru;
+static std::unordered_map<std::string, GlobRegexCacheEntry> g_glob_regex_cache;
+
+std::shared_ptr<RE2> get_or_build_re2(const std::string& glob_pattern) {
+    {
+        std::lock_guard<std::mutex> lock(g_glob_regex_cache_mutex);
+        auto it = g_glob_regex_cache.find(glob_pattern);
+        if (it != g_glob_regex_cache.end()) {
+            g_glob_regex_cache_lru.splice(g_glob_regex_cache_lru.begin(), g_glob_regex_cache_lru,
+                                          it->second.lru_it);
+            return it->second.re2;
+        }
+    }
+    std::string regex_pattern;
+    Status st = glob_to_regex(glob_pattern, &regex_pattern);
+    if (!st.ok()) {
+        return nullptr;
+    }
+    auto compiled = std::make_shared<RE2>(regex_pattern);
+    if (!compiled->ok()) {
+        return nullptr;
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_glob_regex_cache_mutex);
+        auto it = g_glob_regex_cache.find(glob_pattern);
+        if (it != g_glob_regex_cache.end()) {
+            g_glob_regex_cache_lru.splice(g_glob_regex_cache_lru.begin(), g_glob_regex_cache_lru,
+                                          it->second.lru_it);
+            return it->second.re2;
+        }
+        g_glob_regex_cache_lru.push_front(glob_pattern);
+        g_glob_regex_cache.emplace(glob_pattern,
+                                   GlobRegexCacheEntry {compiled, g_glob_regex_cache_lru.begin()});
+        if (g_glob_regex_cache.size() > kGlobRegexCacheCapacity) {
+            const std::string& evict_key = g_glob_regex_cache_lru.back();
+            g_glob_regex_cache.erase(evict_key);
+            g_glob_regex_cache_lru.pop_back();
+        }
+    }
+    return compiled;
+}
+
+// Convert a restricted glob pattern into a regex.
+// Supported: '*', '?', '[...]', '\\' escape. Others are treated as literals.
+Status glob_to_regex(const std::string& glob_pattern, std::string* regex_pattern) {
+    regex_pattern->clear();
+    regex_pattern->append("^");
+    bool is_escaped = false;
+    size_t pattern_length = glob_pattern.size();
+    for (size_t index = 0; index < pattern_length; ++index) {
+        char current_char = glob_pattern[index];
+        if (is_escaped) {
+            append_escaped_regex_char(regex_pattern, current_char);
+            is_escaped = false;
+            continue;
+        }
+        if (current_char == '\\') {
+            is_escaped = true;
+            continue;
+        }
+        if (current_char == '*') {
+            regex_pattern->append(".*");
+            continue;
+        }
+        if (current_char == '?') {
+            regex_pattern->append(".");
+            continue;
+        }
+        if (current_char == '[') {
+            size_t class_index = index + 1;
+            bool class_closed = false;
+            bool is_class_escaped = false;
+            std::string class_buffer;
+            if (class_index < pattern_length &&
+                (glob_pattern[class_index] == '!' || glob_pattern[class_index] == '^')) {
+                class_buffer.push_back('^');
+                ++class_index;
+            }
+            for (; class_index < pattern_length; ++class_index) {
+                char class_char = glob_pattern[class_index];
+                if (is_class_escaped) {
+                    class_buffer.push_back(class_char);
+                    is_class_escaped = false;
+                    continue;
+                }
+                if (class_char == '\\') {
+                    is_class_escaped = true;
+                    continue;
+                }
+                if (class_char == ']') {
+                    class_closed = true;
+                    break;
+                }
+                class_buffer.push_back(class_char);
+            }
+            if (!class_closed) {
+                return Status::InvalidArgument("Unclosed character class in glob pattern: {}",
+                                               glob_pattern);
+            }
+            regex_pattern->append("[");
+            regex_pattern->append(class_buffer);
+            regex_pattern->append("]");
+            index = class_index;
+            continue;
+        }
+        append_escaped_regex_char(regex_pattern, current_char);
+    }
+    if (is_escaped) {
+        append_escaped_regex_char(regex_pattern, '\\');
+    }
+    regex_pattern->append("$");
+    return Status::OK();
+}
+
+bool glob_match_re2(const std::string& glob_pattern, const std::string& candidate_path) {
+    auto compiled = get_or_build_re2(glob_pattern);
+    if (compiled == nullptr) {
+        return false;
+    }
+    return RE2::FullMatch(candidate_path, *compiled);
+}
 
 size_t get_number_of_dimensions(const IDataType& type) {
     if (const auto* type_array = typeid_cast<const DataTypeArray*>(&type)) {
@@ -641,7 +798,7 @@ Status VariantCompactionUtil::aggregate_path_to_stats(
             std::static_pointer_cast<BetaRowset>(rs), &segment_cache));
 
     for (const auto& column : rs->tablet_schema()->columns()) {
-        if (!column->is_variant_type()) {
+        if (!column->is_variant_type() || column->unique_id() < 0) {
             continue;
         }
 
@@ -780,6 +937,12 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
     // check no extended schema in output rowset
     for (const auto& column : output->tablet_schema()->columns()) {
         if (column->is_extracted_column()) {
+            const auto& name = column->name();
+            if (name.find("." + DOC_VALUE_COLUMN_PATH + ".") != std::string::npos ||
+                name.find("." + SPARSE_COLUMN_PATH + ".") != std::string::npos ||
+                name.ends_with("." + SPARSE_COLUMN_PATH)) {
+                continue;
+            }
             return Status::InternalError("Unexpected extracted column {} in output rowset",
                                          column->name());
         }
@@ -1307,8 +1470,7 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
             break;
         }
         case PatternTypePB::MATCH_NAME_GLOB: {
-            int result = fnmatch(pattern, path.c_str(), FNM_PATHNAME);
-            if (result == 0) {
+            if (glob_match_re2(pattern, path)) {
                 generate_result_column(*sub_column, &sub_column_info->column);
                 generate_index(sub_column->name());
                 return true;
@@ -1514,6 +1676,82 @@ public:
 SimpleObjectPool<JsonParser> parsers_pool;
 
 using Node = typename ColumnVariant::Subcolumns::Node;
+
+static inline void append_binary_bytes(ColumnString::Chars& chars, const void* data, size_t size) {
+    const auto old_size = chars.size();
+    chars.resize(old_size + size);
+    memcpy(chars.data() + old_size, reinterpret_cast<const char*>(data), size);
+}
+
+static inline void append_binary_type(ColumnString::Chars& chars, FieldType type) {
+    const uint8_t t = static_cast<uint8_t>(type);
+    append_binary_bytes(chars, &t, sizeof(uint8_t));
+}
+
+static inline void append_binary_sizet(ColumnString::Chars& chars, size_t v) {
+    append_binary_bytes(chars, &v, sizeof(size_t));
+}
+
+static void append_field_to_binary_chars(const Field& field, ColumnString::Chars& chars) {
+    switch (field.get_type()) {
+    case PrimitiveType::TYPE_NULL: {
+        append_binary_type(chars, FieldType::OLAP_FIELD_TYPE_NONE);
+        return;
+    }
+    case PrimitiveType::TYPE_BOOLEAN: {
+        append_binary_type(chars,
+                           TabletColumn::get_field_type_by_type(PrimitiveType::TYPE_BOOLEAN));
+        const auto v = static_cast<UInt8>(field.get<PrimitiveType::TYPE_BOOLEAN>());
+        append_binary_bytes(chars, &v, sizeof(UInt8));
+        return;
+    }
+    case PrimitiveType::TYPE_BIGINT: {
+        append_binary_type(chars, TabletColumn::get_field_type_by_type(PrimitiveType::TYPE_BIGINT));
+        const auto v = field.get<PrimitiveType::TYPE_BIGINT>();
+        append_binary_bytes(chars, &v, sizeof(Int64));
+        return;
+    }
+    case PrimitiveType::TYPE_LARGEINT: {
+        append_binary_type(chars,
+                           TabletColumn::get_field_type_by_type(PrimitiveType::TYPE_LARGEINT));
+        const auto v = field.get<PrimitiveType::TYPE_LARGEINT>();
+        append_binary_bytes(chars, &v, sizeof(int128_t));
+        return;
+    }
+    case PrimitiveType::TYPE_DOUBLE: {
+        append_binary_type(chars, TabletColumn::get_field_type_by_type(PrimitiveType::TYPE_DOUBLE));
+        const auto v = field.get<PrimitiveType::TYPE_DOUBLE>();
+        append_binary_bytes(chars, &v, sizeof(Float64));
+        return;
+    }
+    case PrimitiveType::TYPE_STRING: {
+        append_binary_type(chars, FieldType::OLAP_FIELD_TYPE_STRING);
+        const auto& v = field.get<PrimitiveType::TYPE_STRING>();
+        append_binary_sizet(chars, v.size());
+        append_binary_bytes(chars, v.data(), v.size());
+        return;
+    }
+    case PrimitiveType::TYPE_JSONB: {
+        append_binary_type(chars, FieldType::OLAP_FIELD_TYPE_JSONB);
+        const auto& v = field.get<PrimitiveType::TYPE_JSONB>();
+        append_binary_sizet(chars, v.get_size());
+        append_binary_bytes(chars, v.get_value(), v.get_size());
+        return;
+    }
+    case PrimitiveType::TYPE_ARRAY: {
+        append_binary_type(chars, FieldType::OLAP_FIELD_TYPE_ARRAY);
+        const auto& a = field.get<PrimitiveType::TYPE_ARRAY>();
+        append_binary_sizet(chars, a.size());
+        for (const auto& elem : a) {
+            append_field_to_binary_chars(elem, chars);
+        }
+        return;
+    }
+    default:
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Unsupported field type {}",
+                               field.get_type());
+    }
+}
 /// Visitor that keeps @num_dimensions_to_keep dimensions in arrays
 /// and replaces all scalars or nested arrays to @replacement at that level.
 class FieldVisitorReplaceScalars : public StaticVisitor<Field> {
@@ -1582,7 +1820,6 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
     auto [doc_value_data_paths, doc_value_data_values] =
             column_variant.get_doc_value_data_paths_and_values();
     auto& doc_value_data_offsets = column_variant.serialized_doc_value_column_offsets();
-    std::unordered_set<std::string> subcolumn_set;
 
     auto flush_defaults = [](ColumnVariant::Subcolumn* subcolumn) {
         const auto num_defaults = subcolumn->cur_num_of_defaults();
@@ -1627,43 +1864,49 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
         return subcolumn;
     };
 
-    auto insert_unique_path_or_throw = [&](const std::string& path) {
-        auto [it, inserted] = subcolumn_set.insert(path);
-        (void)it;
-        if (!inserted) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                   "may contains duplicated entry : {}", path);
-        }
-    };
-
     switch (config.parse_to) {
     case ParseConfig::ParseTo::OnlySubcolumns:
         for (size_t i = 0; i < paths.size(); ++i) {
             insert_into_subcolumn(i, true);
         }
         break;
-    case ParseConfig::ParseTo::BothSubcolumnsAndDocValueColumn:
+    case ParseConfig::ParseTo::BothSubcolumnsAndDocValueColumn: {
+        std::vector<std::pair<std::string_view, ColumnVariant::Subcolumn*>> doc_items;
+        doc_items.reserve(paths.size());
+        phmap::flat_hash_set<StringRef, StringRefHash> seen_paths;
+        seen_paths.reserve(paths.size());
+
         for (size_t i = 0; i < paths.size(); ++i) {
             auto* subcolumn = insert_into_subcolumn(i, true);
-            if (!subcolumn) {
+            if (!subcolumn || paths[i].empty()) {
                 continue;
             }
-            const auto path = paths[i].get_path();
-            insert_unique_path_or_throw(path);
-            if (!paths[i].empty()) {
-                subcolumn->serialize_to_binary_column(doc_value_data_paths, path,
-                                                      doc_value_data_values, old_num_rows);
+            const auto& path_str = paths[i].get_path();
+            StringRef path_ref {path_str.data(), path_str.size()};
+            if (UNLIKELY(!seen_paths.emplace(path_ref).second)) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "may contains duplicated entry : {}",
+                                       std::string_view(path_str));
             }
+            doc_items.emplace_back(std::string_view(path_str), subcolumn);
         }
-        break;
-    case ParseConfig::ParseTo::OnlyDocValueColumn:
-        ColumnVariant::Subcolumn tmp_subcolumn(0, true);
+
+        std::sort(doc_items.begin(), doc_items.end(),
+                  [](const auto& l, const auto& r) { return l.first < r.first; });
+        for (const auto& [path, subcolumn] : doc_items) {
+            subcolumn->serialize_to_binary_column(doc_value_data_paths, path, doc_value_data_values,
+                                                  old_num_rows);
+        }
+    } break;
+    case ParseConfig::ParseTo::OnlyDocValueColumn: {
+        std::vector<size_t> doc_item_indexes;
+        doc_item_indexes.reserve(paths.size());
+        phmap::flat_hash_set<StringRef, StringRefHash> seen_paths;
+        seen_paths.reserve(paths.size());
+
         for (size_t i = 0; i < paths.size(); ++i) {
             FieldInfo field_info;
             get_field_info(values[i], &field_info);
-            const auto path = paths[i].get_path();
-            insert_unique_path_or_throw(path);
-            // only insert root path to subcolumns
             if (paths[i].empty()) {
                 auto* subcolumn = column_variant.get_subcolumn(paths[i]);
                 DCHECK(subcolumn != nullptr);
@@ -1671,12 +1914,30 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
                 subcolumn->insert(std::move(values[i]), std::move(field_info));
                 continue;
             }
-            tmp_subcolumn.insert(std::move(values[i]), std::move(field_info));
-            tmp_subcolumn.serialize_to_binary_column(doc_value_data_paths, path,
-                                                     doc_value_data_values, 0);
-            tmp_subcolumn.pop_back(1);
+            if (field_info.scalar_type_id == PrimitiveType::INVALID_TYPE ||
+                values[i].get_type() == PrimitiveType::TYPE_NULL) {
+                continue;
+            }
+            const auto& path_str = paths[i].get_path();
+            StringRef path_ref {path_str.data(), path_str.size()};
+            if (UNLIKELY(!seen_paths.emplace(path_ref).second)) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "may contains duplicated entry : {}",
+                                       std::string_view(path_str));
+            }
+            doc_item_indexes.push_back(i);
         }
-        break;
+
+        std::sort(doc_item_indexes.begin(), doc_item_indexes.end(),
+                  [&](size_t l, size_t r) { return paths[l].get_path() < paths[r].get_path(); });
+        for (const auto idx : doc_item_indexes) {
+            const auto& path_str = paths[idx].get_path();
+            doc_value_data_paths->insert_data(path_str.data(), path_str.size());
+            auto& chars = doc_value_data_values->get_chars();
+            append_field_to_binary_chars(values[idx], chars);
+            doc_value_data_values->get_offsets().push_back(chars.size());
+        }
+    } break;
     }
     doc_value_data_offsets.push_back(doc_value_data_paths->size());
     // /// Insert default values to missed subcolumns.
@@ -1747,9 +2008,9 @@ void materialize_docs_to_subcolumns(ColumnVariant& column_variant) {
 
 // ============ Implementation from variant_util.cpp ============
 
-std::unordered_map<std::string_view, ColumnVariant::Subcolumn> materialize_docs_to_subcolumns_map(
+phmap::flat_hash_map<std::string_view, ColumnVariant::Subcolumn> materialize_docs_to_subcolumns_map(
         const ColumnVariant& variant) {
-    std::unordered_map<std::string_view, ColumnVariant::Subcolumn> subcolumns;
+    phmap::flat_hash_map<std::string_view, ColumnVariant::Subcolumn> subcolumns;
 
     const auto [column_key, column_value] = variant.get_doc_value_data_paths_and_values();
     const auto& column_offsets = variant.serialized_doc_value_column_offsets();
@@ -1760,8 +2021,8 @@ std::unordered_map<std::string_view, ColumnVariant::Subcolumn> materialize_docs_
     // Best-effort reserve: at most number of kv pairs.
     subcolumns.reserve(column_key->size());
 
-    for (int row = 0; row < num_rows; ++row) {
-        const size_t start = column_offsets[row - 1];
+    for (size_t row = 0; row < num_rows; ++row) {
+        const size_t start = (row == 0) ? 0 : column_offsets[row - 1];
         const size_t end = column_offsets[row];
         for (size_t i = start; i < end; ++i) {
             const auto& key = column_key->get_data_at(i);
@@ -1787,8 +2048,6 @@ std::unordered_map<std::string_view, ColumnVariant::Subcolumn> materialize_docs_
 
     return subcolumns;
 }
-
-namespace {
 
 Status _parse_and_materialize_variant_columns(Block& block,
                                               const std::vector<uint32_t>& variant_pos,
@@ -1863,8 +2122,6 @@ Status _parse_and_materialize_variant_columns(Block& block,
     }
     return Status::OK();
 }
-
-} // namespace
 
 Status parse_and_materialize_variant_columns(Block& block, const std::vector<uint32_t>& variant_pos,
                                              const std::vector<ParseConfig>& configs) {

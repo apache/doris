@@ -64,6 +64,13 @@ using JsonParser = JSONDataParser<SimdJSONParser>;
 const std::string SPARSE_COLUMN_PATH = "__DORIS_VARIANT_SPARSE__";
 const std::string DOC_VALUE_COLUMN_PATH = "__DORIS_VARIANT_DOC_VALUE__";
 namespace doris::vectorized::variant_util {
+
+// Convert a restricted glob pattern into a regex (for tests/internal use).
+Status glob_to_regex(const std::string& glob_pattern, std::string* regex_pattern);
+
+// Match a glob pattern against a path using RE2.
+bool glob_match_re2(const std::string& glob_pattern, const std::string& candidate_path);
+
 using PathToNoneNullValues = std::unordered_map<std::string, int64_t>;
 using PathToDataTypes = std::unordered_map<PathInData, std::vector<DataTypePtr>, PathInData::Hash>;
 
@@ -248,7 +255,7 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
 // Parse doc snapshot column (paths/values/offsets stored in ColumnVariant) into per-path subcolumns.
 // NOTE: Returned map keys are `std::string_view` pointing into the underlying doc snapshot paths
 // column, so the input `variant` must outlive the returned map.
-std::unordered_map<std::string_view, ColumnVariant::Subcolumn> materialize_docs_to_subcolumns_map(
+phmap::flat_hash_map<std::string_view, ColumnVariant::Subcolumn> materialize_docs_to_subcolumns_map(
         const ColumnVariant& variant);
 
 } // namespace  doris::vectorized::variant_util

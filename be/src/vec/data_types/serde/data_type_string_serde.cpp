@@ -455,9 +455,16 @@ Status DataTypeStringSerDeBase<ColumnType>::from_string(StringRef& str, IColumn&
 }
 
 template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::from_string(const std::string& str, Field& field,
-                                                        const FormatOptions& options) const {
-    field = Field::create_field<TYPE_STRING>(str);
+Status DataTypeStringSerDeBase<ColumnType>::from_olap_string(const std::string& str, Field& field,
+                                                             const FormatOptions& options) const {
+    if (cast_set<int>(str.size()) < _len) {
+        DCHECK_EQ(_type, TYPE_CHAR);
+        std::string tmp(_len, '\0');
+        memcpy(tmp.data(), str.data(), str.size());
+        field = Field::create_field<TYPE_CHAR>(std::move(tmp));
+    } else {
+        field = Field::create_field<TYPE_STRING>(str);
+    }
     return Status::OK();
 }
 

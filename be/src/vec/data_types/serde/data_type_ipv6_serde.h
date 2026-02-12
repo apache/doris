@@ -76,8 +76,8 @@ public:
 
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
-    Status from_string(const std::string& str, Field& field,
-                       const FormatOptions& options) const override;
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
 
     Status from_string_strict_mode(StringRef& str, IColumn& column,
                                    const FormatOptions& options) const override;

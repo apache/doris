@@ -18,6 +18,7 @@
 package org.apache.doris.transaction;
 
 import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.binlog.UpsertRecord;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -55,6 +56,7 @@ import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.CleanLabelOperationLog;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.OperationType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.task.AgentBatchTask;
@@ -78,7 +80,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -90,7 +91,9 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -134,8 +137,10 @@ public class DatabaseTransactionMgr {
     // The "Short" queue is used to store the txns of the expire time
     // controlled by Config.streaming_label_keep_max_second.
     // The "Long" queue is used to store the txns of the expire time controlled by Config.label_keep_max_second.
-    private final ArrayDeque<TransactionState> finalStatusTransactionStateDequeShort = new ArrayDeque<>();
-    private final ArrayDeque<TransactionState> finalStatusTransactionStateDequeLong = new ArrayDeque<>();
+    private final ConcurrentLinkedDeque<TransactionState> finalStatusTransactionStateDequeShort
+            = new ConcurrentLinkedDeque<>();
+    private final ConcurrentLinkedDeque<TransactionState> finalStatusTransactionStateDequeLong
+            = new ConcurrentLinkedDeque<>();
 
     // label -> txn ids
     // this is used for checking if label already used. a label may correspond to multiple txns,
@@ -150,7 +155,7 @@ public class DatabaseTransactionMgr {
     private Long lastCommittedTxnCountUpdateTime = 0L;
 
     // count the number of running txns of database
-    private volatile int runningTxnNums = 0;
+    private final AtomicInteger runningTxnNums = new AtomicInteger(0);
 
     private final Env env;
 
@@ -222,7 +227,7 @@ public class DatabaseTransactionMgr {
     }
 
     protected int getRunningTxnNums() {
-        return runningTxnNums;
+        return runningTxnNums.get();
     }
 
     @VisibleForTesting
@@ -331,6 +336,8 @@ public class DatabaseTransactionMgr {
         FeNameFormat.checkLabel(label);
 
         long tid = 0L;
+        TransactionState transactionState = null;
+        EditLog.EditLogItem logItem = null;
         writeLock();
         try {
             /*
@@ -368,10 +375,16 @@ public class DatabaseTransactionMgr {
             checkRunningTxnExceedLimit(tableIdList);
 
             tid = idGenerator.getNextTransactionId();
-            TransactionState transactionState = new TransactionState(dbId, tableIdList,
+            transactionState = new TransactionState(dbId, tableIdList,
                     tid, label, requestId, sourceType, coordinator, listenerId, timeoutSecond * 1000);
             transactionState.setPrepareTime(System.currentTimeMillis());
-            unprotectUpsertTransactionState(transactionState, false);
+            unprotectUpdateInMemoryState(transactionState, false);
+            updateTxnLabels(transactionState);
+            if (Config.enable_txn_log_outside_lock) {
+                logItem = enqueueTransactionState(transactionState);
+            } else {
+                persistTransactionState(transactionState);
+            }
 
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_TXN_BEGIN.increase(1L);
@@ -379,6 +392,7 @@ public class DatabaseTransactionMgr {
         } finally {
             writeUnlock();
         }
+        awaitTransactionState(logItem, transactionState);
         LOG.info("begin transaction: txn id {} with label {} from coordinator {}, listener id: {}",
                     tid, label, coordinator, listenerId);
         return tid;
@@ -448,13 +462,17 @@ public class DatabaseTransactionMgr {
         checkCommitStatus(tableList, transactionState, tabletCommitInfos, txnCommitAttachment, errorReplicaIds,
                           tableToPartition, totalInvolvedBackends);
 
-        writeLock();
-        try {
+        EditLog.EditLogItem logItem = null;
+        synchronized (transactionState) {
             unprotectedPreCommitTransaction2PC(transactionState, errorReplicaIds, tableToPartition,
                     totalInvolvedBackends, db);
-        } finally {
-            writeUnlock();
+            if (Config.enable_txn_log_outside_lock) {
+                logItem = enqueueTransactionState(transactionState);
+            } else {
+                persistTransactionState(transactionState);
+            }
         }
+        awaitTransactionState(logItem, transactionState);
         LOG.info("transaction:[{}] successfully pre-committed", transactionState);
     }
 
@@ -802,23 +820,29 @@ public class DatabaseTransactionMgr {
         transactionState.beforeStateTransform(TransactionStatus.COMMITTED);
         // transaction state transform
         boolean txnOperated = false;
-        writeLock();
-        try {
+        EditLog.EditLogItem logItem = null;
+        synchronized (transactionState) {
             if (is2PC) {
                 unprotectedCommitTransaction2PC(transactionState, db);
             } else {
                 unprotectedCommitTransaction(transactionState, errorReplicaIds,
                         tableToPartition, totalInvolvedBackends, db);
             }
-            txnOperated = true;
-        } finally {
-            writeUnlock();
-            // after state transform
-            try {
-                transactionState.afterStateTransform(TransactionStatus.COMMITTED, txnOperated);
-            } catch (Throwable e) {
-                LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
+            if (Config.enable_txn_log_outside_lock) {
+                logItem = enqueueTransactionState(transactionState);
+            } else {
+                persistTransactionState(transactionState);
             }
+            txnOperated = true;
+        }
+        // after state transform
+        try {
+            transactionState.afterStateTransform(TransactionStatus.COMMITTED, txnOperated);
+        } catch (Throwable e) {
+            LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
+        }
+        if (txnOperated) {
+            awaitTransactionState(logItem, transactionState);
         }
 
         // update nextVersion because of the failure of persistent transaction resulting in error version
@@ -869,19 +893,25 @@ public class DatabaseTransactionMgr {
         transactionState.beforeStateTransform(TransactionStatus.COMMITTED);
         // transaction state transform
         boolean txnOperated = false;
-        writeLock();
-        try {
+        EditLog.EditLogItem logItem = null;
+        synchronized (transactionState) {
             unprotectedCommitTransaction(transactionState, errorReplicaIds, subTxnToPartition, totalInvolvedBackends,
                     subTransactionStates, db);
-            txnOperated = true;
-        } finally {
-            writeUnlock();
-            // after state transform
-            try {
-                transactionState.afterStateTransform(TransactionStatus.COMMITTED, txnOperated);
-            } catch (Throwable e) {
-                LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
+            if (Config.enable_txn_log_outside_lock) {
+                logItem = enqueueTransactionState(transactionState);
+            } else {
+                persistTransactionState(transactionState);
             }
+            txnOperated = true;
+        }
+        // after state transform
+        try {
+            transactionState.afterStateTransform(TransactionStatus.COMMITTED, txnOperated);
+        } catch (Throwable e) {
+            LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
+        }
+        if (txnOperated) {
+            awaitTransactionState(logItem, transactionState);
         }
 
         // update nextVersion because of the failure of persistent transaction resulting in error version
@@ -930,15 +960,15 @@ public class DatabaseTransactionMgr {
             // here we only delete the oldest element, so if element exist in finalStatusTransactionStateDeque,
             // it must at the front of the finalStatusTransactionStateDeque.
             // check both "short" and "long" queue.
-            if (!finalStatusTransactionStateDequeShort.isEmpty()
-                    && transactionState.getTransactionId()
-                    == finalStatusTransactionStateDequeShort.getFirst().getTransactionId()) {
-                finalStatusTransactionStateDequeShort.pop();
+            TransactionState shortHead = finalStatusTransactionStateDequeShort.peekFirst();
+            TransactionState longHead = finalStatusTransactionStateDequeLong.peekFirst();
+            if (shortHead != null
+                    && transactionState.getTransactionId() == shortHead.getTransactionId()) {
+                finalStatusTransactionStateDequeShort.pollFirst();
                 clearTransactionState(transactionState.getTransactionId());
-            } else if (!finalStatusTransactionStateDequeLong.isEmpty()
-                    && transactionState.getTransactionId()
-                    == finalStatusTransactionStateDequeLong.getFirst().getTransactionId()) {
-                finalStatusTransactionStateDequeLong.pop();
+            } else if (longHead != null
+                    && transactionState.getTransactionId() == longHead.getTransactionId()) {
+                finalStatusTransactionStateDequeLong.pollFirst();
                 clearTransactionState(transactionState.getTransactionId());
             }
         } finally {
@@ -953,13 +983,13 @@ public class DatabaseTransactionMgr {
                 // here we only delete the oldest element, so if element exist in finalStatusTransactionStateDeque,
                 // it must at the front of the finalStatusTransactionStateDeque
                 // check both "short" and "long" queue.
-                if (!finalStatusTransactionStateDequeShort.isEmpty()
-                        && txnId == finalStatusTransactionStateDequeShort.getFirst().getTransactionId()) {
-                    finalStatusTransactionStateDequeShort.pop();
+                TransactionState shortHead = finalStatusTransactionStateDequeShort.peekFirst();
+                TransactionState longHead = finalStatusTransactionStateDequeLong.peekFirst();
+                if (shortHead != null && txnId == shortHead.getTransactionId()) {
+                    finalStatusTransactionStateDequeShort.pollFirst();
                     clearTransactionState(txnId);
-                } else if (!finalStatusTransactionStateDequeLong.isEmpty()
-                        && txnId == finalStatusTransactionStateDequeLong.getFirst().getTransactionId()) {
-                    finalStatusTransactionStateDequeLong.pop();
+                } else if (longHead != null && txnId == longHead.getTransactionId()) {
+                    finalStatusTransactionStateDequeLong.pollFirst();
                     clearTransactionState(txnId);
                 }
             }
@@ -972,8 +1002,8 @@ public class DatabaseTransactionMgr {
         writeLock();
         try {
             if (operation.getLatestTxnIdForShort() != -1) {
-                while (!finalStatusTransactionStateDequeShort.isEmpty()) {
-                    TransactionState transactionState = finalStatusTransactionStateDequeShort.pop();
+                TransactionState transactionState;
+                while ((transactionState = finalStatusTransactionStateDequeShort.pollFirst()) != null) {
                     clearTransactionState(transactionState.getTransactionId());
                     if (operation.getLatestTxnIdForShort() == transactionState.getTransactionId()) {
                         break;
@@ -982,8 +1012,8 @@ public class DatabaseTransactionMgr {
             }
 
             if (operation.getLatestTxnIdForLong() != -1) {
-                while (!finalStatusTransactionStateDequeLong.isEmpty()) {
-                    TransactionState transactionState = finalStatusTransactionStateDequeLong.pop();
+                TransactionState transactionState;
+                while ((transactionState = finalStatusTransactionStateDequeLong.pollFirst()) != null) {
                     clearTransactionState(transactionState.getTransactionId());
                     if (operation.getLatestTxnIdForLong() == transactionState.getTransactionId()) {
                         break;
@@ -1169,14 +1199,19 @@ public class DatabaseTransactionMgr {
                 }
             }
             boolean txnOperated = false;
-            writeLock();
-            try {
+            EditLog.EditLogItem logItem = null;
+            synchronized (transactionState) {
                 transactionState.setErrorReplicas(errorReplicaIds);
                 transactionState.setFinishTime(System.currentTimeMillis());
                 transactionState.clearErrorMsg();
                 transactionState.setTransactionStatus(TransactionStatus.VISIBLE);
                 setTableVersion(transactionState, db);
-                unprotectUpsertTransactionState(transactionState, false);
+                unprotectUpdateInMemoryState(transactionState, false);
+                if (Config.enable_txn_log_outside_lock) {
+                    logItem = enqueueTransactionState(transactionState);
+                } else {
+                    persistTransactionState(transactionState);
+                }
                 txnOperated = true;
                 // TODO(cmy): We found a very strange problem. When delete-related transactions are processed here,
                 // subsequent `updateCatalogAfterVisible()` is called, but it does not seem to be executed here
@@ -1185,13 +1220,14 @@ public class DatabaseTransactionMgr {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("after set transaction {} to visible", transactionState);
                 }
-            } finally {
-                writeUnlock();
-                try {
-                    transactionState.afterStateTransform(TransactionStatus.VISIBLE, txnOperated);
-                } catch (Throwable e) {
-                    LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
-                }
+            }
+            try {
+                transactionState.afterStateTransform(TransactionStatus.VISIBLE, txnOperated);
+            } catch (Throwable e) {
+                LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
+            }
+            if (txnOperated) {
+                awaitTransactionState(logItem, transactionState);
             }
             updateCatalogAfterVisible(transactionState, db, partitionVisibleVersions, backendPartitions);
         } finally {
@@ -1527,8 +1563,8 @@ public class DatabaseTransactionMgr {
             }
             transactionState.putIdToTableCommitInfo(tableId, tableCommitInfo);
         }
-        // persist transactionState
-        unprotectUpsertTransactionState(transactionState, false);
+        // Update in-memory state only; caller handles edit log persistence
+        unprotectUpdateInMemoryState(transactionState, false);
         transactionState.setInvolvedBackends(totalInvolvedBackends);
     }
 
@@ -1565,8 +1601,8 @@ public class DatabaseTransactionMgr {
             }
             transactionState.putIdToTableCommitInfo(tableId, tableCommitInfo);
         }
-        // persist transactionState
-        unprotectUpsertTransactionState(transactionState, false);
+        // Update in-memory state only; caller handles edit log persistence
+        unprotectUpdateInMemoryState(transactionState, false);
         transactionState.setInvolvedBackends(totalInvolvedBackends);
     }
 
@@ -1626,8 +1662,8 @@ public class DatabaseTransactionMgr {
                 transactionState.addSubTxnTableCommitInfo(subTransactionState, tableCommitInfo);
             }
         }
-        // persist transactionState
-        unprotectUpsertTransactionState(transactionState, false);
+        // Update in-memory state only; caller handles edit log persistence
+        unprotectUpdateInMemoryState(transactionState, false);
         transactionState.setInvolvedBackends(totalInvolvedBackends);
     }
 
@@ -1674,26 +1710,34 @@ public class DatabaseTransactionMgr {
                 partitionCommitInfo.setVersionTime(System.currentTimeMillis());
             }
         }
-        // persist transactionState
-        editLog.logInsertTransactionState(transactionState);
+        // Update in-memory state only; caller handles edit log persistence
+        unprotectUpdateInMemoryState(transactionState, false);
     }
 
-    // for add/update/delete TransactionState
+    /**
+     * Replays a transaction state update from the edit log.
+     * Only called during replay (follower sync or restart), so no edit log persistence is needed.
+     *
+     * @param transactionState the transaction state to replay
+     * @param isReplay must be true (only used in replay path)
+     */
     protected void unprotectUpsertTransactionState(TransactionState transactionState, boolean isReplay) {
-        // if this is a replay operation, we should not log it
-        if (!isReplay) {
-            if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE
-                    || transactionState.getSourceType() == TransactionState.LoadJobSourceType.FRONTEND) {
-                // if this is a prepare txn, and load source type is not FRONTEND
-                // no need to persist it. if prepare txn lost, the following commit will just be failed.
-                // user only need to retry this txn.
-                // The FRONTEND type txn is committed and running asynchronously, so we have to persist it.
-                editLog.logInsertTransactionState(transactionState);
-            }
-        }
+        unprotectUpdateInMemoryState(transactionState, isReplay);
+    }
+
+    /**
+     * Updates only in-memory transaction state without persisting to edit log.
+     * This method must be called while holding the write lock.
+     * Use this method in combination with {@link #persistTransactionState} to reduce lock contention
+     * by moving edit log writes outside the lock.
+     *
+     * @param transactionState the transaction state to update
+     * @param isReplay true if this is a replay operation (edit log already contains this state)
+     */
+    protected void unprotectUpdateInMemoryState(TransactionState transactionState, boolean isReplay) {
         if (!transactionState.getTransactionStatus().isFinalStatus()) {
             if (idToRunningTransactionState.put(transactionState.getTransactionId(), transactionState) == null) {
-                runningTxnNums++;
+                runningTxnNums.incrementAndGet();
             }
             if (isReplay && transactionState.getSubTxnIds() != null) {
                 LOG.info("add sub transactions for txn_id={}, status={}, sub_txn_ids={}",
@@ -1705,7 +1749,7 @@ public class DatabaseTransactionMgr {
             }
         } else {
             if (idToRunningTransactionState.remove(transactionState.getTransactionId()) != null) {
-                runningTxnNums--;
+                runningTxnNums.decrementAndGet();
             }
             idToFinalStatusTransactionState.put(transactionState.getTransactionId(), transactionState);
             if (transactionState.isShortTxn()) {
@@ -1719,16 +1763,69 @@ public class DatabaseTransactionMgr {
                 cleanSubTransactions(transactionState.getTransactionId());
             }
         }
-        updateTxnLabels(transactionState);
+        if (isReplay) {
+            updateTxnLabels(transactionState);
+        }
+    }
+
+    /**
+     * Persists the transaction state to edit log synchronously.
+     * For PREPARE transactions with non-FRONTEND source type, persistence is skipped
+     * because losing them only requires the client to retry.
+     */
+    protected void persistTransactionState(TransactionState transactionState) {
+        if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE
+                || transactionState.getSourceType() == TransactionState.LoadJobSourceType.FRONTEND) {
+            // if this is a prepare txn, and load source type is not FRONTEND
+            // no need to persist it. if prepare txn lost, the following commit will just be failed.
+            // user only need to retry this txn.
+            // The FRONTEND type txn is committed and running asynchronously, so we have to persist it.
+            editLog.logInsertTransactionState(transactionState);
+        }
+    }
+
+    /**
+     * Enqueue a transaction state edit log entry without waiting for persistence.
+     * Must be called inside the write lock to preserve ordering via the FIFO queue.
+     *
+     * @return an {@link EditLog.EditLogItem} handle to await completion, or null if persistence is skipped
+     */
+    protected EditLog.EditLogItem enqueueTransactionState(TransactionState transactionState) {
+        if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE
+                || transactionState.getSourceType() == TransactionState.LoadJobSourceType.FRONTEND) {
+            return editLog.submitEdit(OperationType.OP_UPSERT_TRANSACTION_STATE, transactionState);
+        }
+        return null;
+    }
+
+    /**
+     * Await completion of a previously enqueued transaction state edit log entry.
+     * Should be called outside the write lock. Handles binlog and timing logic.
+     *
+     * @param item the handle returned by {@link #enqueueTransactionState}, may be null
+     * @param transactionState the transaction state (for binlog and timing)
+     */
+    protected void awaitTransactionState(EditLog.EditLogItem item, TransactionState transactionState) {
+        if (item == null) {
+            return;
+        }
+        long start = System.currentTimeMillis();
+        long logId = item.await();
+        long logEditEnd = System.currentTimeMillis();
+        long end = logEditEnd;
+        if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
+            UpsertRecord record = new UpsertRecord(logId, transactionState);
+            Env.getCurrentEnv().getBinlogManager().addUpsertRecord(record);
+            end = System.currentTimeMillis();
+        }
+        if (end - start > Config.lock_reporting_threshold_ms) {
+            LOG.warn("edit log insert transaction take a lot time, write bdb {} ms, write binlog {} ms",
+                    logEditEnd - start, end - logEditEnd);
+        }
     }
 
     public int getRunningTxnNumsWithLock() {
-        readLock();
-        try {
-            return runningTxnNums;
-        } finally {
-            readUnlock();
-        }
+        return runningTxnNums.get();
     }
 
     private void updateTxnLabels(TransactionState transactionState) {
@@ -1770,12 +1867,20 @@ public class DatabaseTransactionMgr {
         // before state transform
         transactionState.beforeStateTransform(TransactionStatus.ABORTED);
         boolean txnOperated = false;
-        writeLock();
-        try {
+        EditLog.EditLogItem logItem = null;
+        synchronized (transactionState) {
             txnOperated = unprotectAbortTransaction(transactionId, reason);
-        } finally {
-            writeUnlock();
-            transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, reason);
+            if (txnOperated) {
+                if (Config.enable_txn_log_outside_lock) {
+                    logItem = enqueueTransactionState(transactionState);
+                } else {
+                    persistTransactionState(transactionState);
+                }
+            }
+        }
+        transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, reason);
+        if (txnOperated) {
+            awaitTransactionState(logItem, transactionState);
         }
 
         // send clear txn task to BE to clear the transactions on BE.
@@ -1812,12 +1917,20 @@ public class DatabaseTransactionMgr {
         // before state transform
         transactionState.beforeStateTransform(TransactionStatus.ABORTED);
         boolean txnOperated = false;
-        writeLock();
-        try {
+        EditLog.EditLogItem logItem = null;
+        synchronized (transactionState) {
             txnOperated = unprotectAbortTransaction(transactionId, "User Abort");
-        } finally {
-            writeUnlock();
-            transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, "User Abort");
+            if (txnOperated) {
+                if (Config.enable_txn_log_outside_lock) {
+                    logItem = enqueueTransactionState(transactionState);
+                } else {
+                    persistTransactionState(transactionState);
+                }
+            }
+        }
+        transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, "User Abort");
+        if (txnOperated) {
+            awaitTransactionState(logItem, transactionState);
         }
 
         // send clear txn task to BE to clear the transactions on BE.
@@ -1849,7 +1962,8 @@ public class DatabaseTransactionMgr {
         transactionState.setFinishTime(System.currentTimeMillis());
         transactionState.setReason(reason);
         transactionState.setTransactionStatus(TransactionStatus.ABORTED);
-        unprotectUpsertTransactionState(transactionState, false);
+        // Update in-memory state only; caller handles edit log persistence
+        unprotectUpdateInMemoryState(transactionState, false);
         return true;
     }
 
@@ -1953,6 +2067,9 @@ public class DatabaseTransactionMgr {
 
     public void removeUselessTxns(long currentMillis) {
         // delete expired txns
+        BatchRemoveTransactionsOperationV2 op = null;
+        EditLog.EditLogItem logItem = null;
+        int numOfClearedTransaction = 0;
         writeLock();
         try {
             Pair<Long, Integer> expiredTxnsInfoForShort = unprotectedRemoveUselessTxns(currentMillis,
@@ -1960,28 +2077,36 @@ public class DatabaseTransactionMgr {
             Pair<Long, Integer> expiredTxnsInfoForLong = unprotectedRemoveUselessTxns(currentMillis,
                     finalStatusTransactionStateDequeLong,
                     MAX_REMOVE_TXN_PER_ROUND - expiredTxnsInfoForShort.second);
-            int numOfClearedTransaction = expiredTxnsInfoForShort.second + expiredTxnsInfoForLong.second;
+            numOfClearedTransaction = expiredTxnsInfoForShort.second + expiredTxnsInfoForLong.second;
             if (numOfClearedTransaction > 0) {
-                BatchRemoveTransactionsOperationV2 op = new BatchRemoveTransactionsOperationV2(dbId,
+                op = new BatchRemoveTransactionsOperationV2(dbId,
                         expiredTxnsInfoForShort.first, expiredTxnsInfoForLong.first);
-                editLog.logBatchRemoveTransactions(op);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Remove {} expired transactions", numOfClearedTransaction);
+                if (Config.enable_txn_log_outside_lock) {
+                    logItem = editLog.submitEdit(OperationType.OP_BATCH_REMOVE_TXNS_V2, op);
+                } else {
+                    editLog.logBatchRemoveTransactions(op);
                 }
             }
         } finally {
             writeUnlock();
         }
+        if (logItem != null) {
+            logItem.await();
+        }
+        if (op != null && LOG.isDebugEnabled()) {
+            LOG.debug("Remove {} expired transactions", numOfClearedTransaction);
+        }
     }
 
     private Pair<Long, Integer> unprotectedRemoveUselessTxns(long currentMillis,
-            ArrayDeque<TransactionState> finalStatusTransactionStateDeque, int left) {
+            ConcurrentLinkedDeque<TransactionState> finalStatusTransactionStateDeque, int left) {
         long latestTxnId = -1;
         int numOfClearedTransaction = 0;
-        while (!finalStatusTransactionStateDeque.isEmpty() && numOfClearedTransaction < left) {
-            TransactionState transactionState = finalStatusTransactionStateDeque.getFirst();
+        TransactionState transactionState;
+        while ((transactionState = finalStatusTransactionStateDeque.peekFirst()) != null
+                && numOfClearedTransaction < left) {
             if (transactionState.isExpired(currentMillis)) {
-                finalStatusTransactionStateDeque.pop();
+                finalStatusTransactionStateDeque.pollFirst();
                 clearTransactionState(transactionState.getTransactionId());
                 latestTxnId = transactionState.getTransactionId();
                 numOfClearedTransaction++;
@@ -1991,9 +2116,9 @@ public class DatabaseTransactionMgr {
         }
         while ((Config.label_num_threshold > 0 && finalStatusTransactionStateDeque.size() > Config.label_num_threshold)
                 && numOfClearedTransaction < left) {
-            TransactionState transactionState = finalStatusTransactionStateDeque.getFirst();
-            if (transactionState.getFinishTime() != -1) {
-                finalStatusTransactionStateDeque.pop();
+            transactionState = finalStatusTransactionStateDeque.peekFirst();
+            if (transactionState != null && transactionState.getFinishTime() != -1) {
+                finalStatusTransactionStateDeque.pollFirst();
                 clearTransactionState(transactionState.getTransactionId());
                 latestTxnId = transactionState.getTransactionId();
                 numOfClearedTransaction++;
@@ -2105,9 +2230,9 @@ public class DatabaseTransactionMgr {
             throws BeginTransactionException, MetaNotFoundException {
         long txnQuota = env.getInternalCatalog().getDbOrMetaException(dbId).getTransactionQuotaSize();
 
-        if (runningTxnNums >= txnQuota) {
+        if (runningTxnNums.get() >= txnQuota) {
             throw new BeginTransactionException("current running txns on db " + dbId + " is "
-                    + runningTxnNums + ", larger than limit " + txnQuota);
+                    + runningTxnNums.get() + ", larger than limit " + txnQuota);
         }
 
         // Check if committed txn count on any table exceeds the configured limit
@@ -2524,7 +2649,7 @@ public class DatabaseTransactionMgr {
         readLock();
         try {
             infos.add(Lists.newArrayList("running", String.valueOf(
-                    runningTxnNums)));
+                    runningTxnNums.get())));
             long finishedNum = getFinishedTxnNums();
             infos.add(Lists.newArrayList("finished", String.valueOf(finishedNum)));
         } finally {

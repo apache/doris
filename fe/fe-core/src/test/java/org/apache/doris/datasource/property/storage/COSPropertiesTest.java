@@ -173,10 +173,14 @@ public class COSPropertiesTest {
         props.put("cos.endpoint", "cos.ap-beijing.myqcloud.com");
         COSProperties obsStorageProperties = (COSProperties) StorageProperties.createPrimary(props);
         Assertions.assertEquals(AnonymousCredentialsProvider.class, obsStorageProperties.getAwsCredentialsProvider().getClass());
+        Map<String, String> backendProps = obsStorageProperties.getBackendConfigProperties();
+        Assertions.assertEquals("ANONYMOUS", backendProps.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
         props.put("cos.access_key", "myAccessKey");
         props.put("cos.secret_key", "mySecretKey");
         obsStorageProperties = (COSProperties) StorageProperties.createPrimary(props);
         Assertions.assertEquals(StaticCredentialsProvider.class, obsStorageProperties.getAwsCredentialsProvider().getClass());
+        backendProps = obsStorageProperties.getBackendConfigProperties();
+        Assertions.assertNull(backendProps.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
     }
 
     @Test

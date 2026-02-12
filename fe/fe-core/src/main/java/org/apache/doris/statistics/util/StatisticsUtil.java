@@ -64,6 +64,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
@@ -1321,5 +1322,24 @@ public class StatisticsUtil {
             LOG.info("Failed to parse hot values [{}]. {}", stringValues, e.getMessage());
         }
         return null;
+    }
+
+    public static boolean isBalanced(ColumnStatistic columnStatistic, double rowCount, int instanceNum) {
+        double ndv = columnStatistic.ndv;
+        double maxHotValueCntIncludeNull;
+        Map<Literal, Float> hotValues = columnStatistic.getHotValues();
+        // When hotValues not exist, or exist but unknown, treat nulls as the only hot value.
+        if (columnStatistic.getHotValues() == null || hotValues.isEmpty()) {
+            maxHotValueCntIncludeNull = columnStatistic.numNulls;
+        } else {
+            double rate = hotValues.values().stream().mapToDouble(Float::doubleValue).max().orElse(0);
+            maxHotValueCntIncludeNull = rate * rowCount > columnStatistic.numNulls
+                    ? rate * rowCount : columnStatistic.numNulls;
+        }
+        double rowsPerInstance = (rowCount - maxHotValueCntIncludeNull) / instanceNum;
+        double balanceFactor = maxHotValueCntIncludeNull == 0
+                ? Double.MAX_VALUE : rowsPerInstance / maxHotValueCntIncludeNull;
+        // The larger this factor is, the more balanced the data.
+        return balanceFactor > 2.0 && ndv > instanceNum * 3 && ndv > AggregateUtils.LOW_NDV_THRESHOLD;
     }
 }

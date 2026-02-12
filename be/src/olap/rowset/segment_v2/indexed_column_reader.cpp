@@ -165,6 +165,11 @@ Status IndexedColumnIterator::_read_data_page(const PagePointer& pp) {
     opts.need_check_bitmap = false;
     status = ParsedPage::create(std::move(handle), body, footer.data_page_footer(),
                                 _reader->encoding_info(), pp, 0, &_data_page, opts);
+    if (!status.ok()) {
+        LOG(WARNING) << "failed to create ParsedPage in IndexedColumnIterator, file="
+                     << _reader->_file_reader->path().native() << ", page_offset=" << pp.offset
+                     << ", page_size=" << pp.size << ", error=" << status;
+    }
     DCHECK(_reader->_meta.ordinal_index_meta().is_root_data_page()
                    ? _reader->_meta.num_values() == _data_page.num_rows
                    : true);

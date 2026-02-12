@@ -746,8 +746,8 @@ Status DataTypeNumberSerDe<T>::from_string(StringRef& str, IColumn& column,
 }
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::from_string(const std::string& str, Field& field,
-                                           const FormatOptions& options) const {
+Status DataTypeNumberSerDe<T>::from_olap_string(const std::string& str, Field& field,
+                                                const FormatOptions& options) const {
     typename PrimitiveTypeTraits<T>::CppType val;
     CastParameters params;
     params.is_strict = false;

@@ -88,6 +88,32 @@ using std::vector;
 
 namespace doris {
 using namespace ErrorCode;
+
+// Determine whether to enable index-only file cache mode for compaction output.
+// This function decides if only index files should be written to cache, based on:
+// - write_file_cache: whether file cache is enabled
+// - compaction_type: type of compaction (base or cumulative)
+// - enable_base_index_only: config flag for base compaction
+// - enable_cumu_index_only: config flag for cumulative compaction
+// Returns true if index-only mode should be enabled, false otherwise.
+bool should_enable_compaction_cache_index_only(bool write_file_cache, ReaderType compaction_type,
+                                               bool enable_base_index_only,
+                                               bool enable_cumu_index_only) {
+    if (!write_file_cache) {
+        return false;
+    }
+
+    if (compaction_type == ReaderType::READER_BASE_COMPACTION && enable_base_index_only) {
+        return true;
+    }
+
+    if (compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION && enable_cumu_index_only) {
+        return true;
+    }
+
+    return false;
+}
+
 namespace {
 #include "common/compile_check_begin.h"
 
@@ -1749,6 +1775,13 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.write_file_cache = should_cache_compaction_output();
     ctx.file_cache_ttl_sec = _tablet->ttl_seconds();
     ctx.approximate_bytes_to_write = _input_rowsets_total_size;
+
+    // Set fine-grained control: only write index files to cache if configured
+    ctx.compaction_output_write_index_only = should_enable_compaction_cache_index_only(
+            ctx.write_file_cache, compaction_type(),
+            config::enable_file_cache_write_base_compaction_index_only,
+            config::enable_file_cache_write_cumu_compaction_index_only);
+
     ctx.tablet = _tablet;
     ctx.job_id = _uuid;
 

@@ -157,7 +157,7 @@ ColumnVariant::Subcolumn::Subcolumn(MutableColumnPtr&& data_, DataTypePtr type, 
 }
 
 ColumnVariant::Subcolumn::Subcolumn(size_t size_, bool is_nullable_, bool is_root_)
-        : least_common_type(std::make_shared<DataTypeNothing>()),
+        : least_common_type(LeastCommonType::nothing(is_root_)),
           is_nullable(is_nullable_),
           num_of_defaults_in_prefix(size_),
           is_root(is_root_),
@@ -589,6 +589,14 @@ void ColumnVariant::Subcolumn::remove_nullable() {
     }
     data[0] = doris::vectorized::remove_nullable(data[0]);
     least_common_type.remove_nullable();
+}
+
+const ColumnVariant::Subcolumn::LeastCommonType& ColumnVariant::Subcolumn::LeastCommonType::nothing(
+        bool is_root) {
+    static const auto nothing_type = std::make_shared<DataTypeNothing>();
+    static const LeastCommonType root(nothing_type, true);
+    static const LeastCommonType non_root(nothing_type, false);
+    return is_root ? root : non_root;
 }
 
 ColumnVariant::Subcolumn::LeastCommonType::LeastCommonType(DataTypePtr type_, bool is_root)
@@ -2483,25 +2491,23 @@ void ColumnVariant::Subcolumn::deserialize_from_binary_column(const ColumnString
         DCHECK_EQ(end_ptr - reinterpret_cast<const uint8_t*>(data_ref.data), data_ref.size);
     };
 
-    // check if the type is same as least common type
-    // if the type is same as least common type, we can directly deserialize to the subcolumn
-    // if not, we need to deserialize to the field first, then insert to the subcolumn
-    bool same_as_least_common_type = type != least_common_type.get_type_id();
-
-    // array needs to check nested type is same as least common type's nested type
-    if (!same_as_least_common_type && type == PrimitiveType::TYPE_ARRAY) {
-        // |PrimitiveType::TYPE_ARRAY| + |size_t| + |nested_type|
-        // skip the first 1 byte for PrimitiveType::TYPE_ARRAY and the next sizeof(size_t) bytes for the size of the array
-        const auto* nested_start_data = start_data + 1 + sizeof(size_t);
-        const PrimitiveType nested_type = TabletColumn::get_primitive_type_by_field_type(
-                static_cast<FieldType>(*nested_start_data));
-        same_as_least_common_type = (nested_type != least_common_type.get_base_type_id());
+    bool need_deserialize_to_field = (type != least_common_type.get_type_id());
+    if (!need_deserialize_to_field && type == PrimitiveType::TYPE_ARRAY) {
+        need_deserialize_to_field = true;
     }
 
-    if (same_as_least_common_type) {
+    if (need_deserialize_to_field) {
         Field res;
         FieldInfo info;
         const uint8_t* end_data = DataTypeSerDe::deserialize_binary_to_field(start_data, res, info);
+        if (res.is_complex_field()) {
+            FieldInfo recomputed;
+            variant_util::get_field_info(res, &recomputed);
+            info.scalar_type_id = recomputed.scalar_type_id;
+            info.have_nulls = recomputed.have_nulls;
+            info.need_convert = recomputed.need_convert;
+            info.num_dimensions = recomputed.num_dimensions;
+        }
         check_end(end_data);
         insert(std::move(res), std::move(info));
     } else {
@@ -2578,40 +2584,6 @@ MutableColumnPtr ColumnVariant::clone() const {
     res->set_num_rows(num_rows);
     ENABLE_CHECK_CONSISTENCY(res.get());
     return res;
-}
-
-void ColumnVariant::sort_doc_value_column() {
-    const auto& offset = serialized_doc_value_column_offsets();
-
-    auto sort_map_by_row_paths = [&](const ColumnString& in_paths, const ColumnString& in_values,
-                                     const ColumnArray::Offsets64& in_offsets) -> MutableColumnPtr {
-        auto sorted = create_binary_column_fn();
-        auto& sorted_map = assert_cast<ColumnMap&>(*sorted);
-        auto& out_paths = assert_cast<ColumnString&>(sorted_map.get_keys());
-        auto& out_values = assert_cast<ColumnString&>(sorted_map.get_values());
-        auto& out_offsets = sorted_map.get_offsets();
-        out_offsets.reserve(num_rows);
-
-        for (int64_t i = 0; i < num_rows; ++i) {
-            size_t start = in_offsets[i - 1];
-            size_t end = in_offsets[i];
-            std::vector<std::tuple<std::string_view, size_t>> order;
-            order.reserve(end - start);
-            for (size_t j = start; j < end; ++j) {
-                order.emplace_back(in_paths.get_data_at(j).to_string_view(), j);
-            }
-            std::sort(order.begin(), order.end());
-            for (const auto& [p, j] : order) {
-                out_paths.insert_data(p.data(), p.size());
-                out_values.insert_from(in_values, j);
-            }
-            out_offsets.push_back(out_paths.size());
-        }
-        return sorted;
-    };
-
-    auto [path, value] = get_doc_value_data_paths_and_values();
-    serialized_doc_value_column = sort_map_by_row_paths(*path, *value, offset);
 }
 
 bool ColumnVariant::is_doc_mode() const {

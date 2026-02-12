@@ -70,7 +70,11 @@ public:
             auto in_filter = request->mutable_in_filter();
             RETURN_IF_ERROR(_to_protobuf(in_filter));
         } else if (real_runtime_filter_type == RuntimeFilterType::BLOOM_FILTER) {
-            DCHECK(data != nullptr);
+            if (data == nullptr) {
+                return Status::InternalError(
+                        "data is nullptr for bloom filter serialization, filter_id: {}",
+                        _wrapper->filter_id());
+            }
             RETURN_IF_ERROR(_to_protobuf(request->mutable_bloom_filter(), (char**)data, len));
         } else if (real_runtime_filter_type == RuntimeFilterType::MINMAX_FILTER ||
                    real_runtime_filter_type == RuntimeFilterType::MIN_FILTER ||
@@ -89,7 +93,12 @@ protected:
     RuntimeFilter(const TRuntimeFilterDesc* desc)
             : _has_remote_target(desc->has_remote_targets),
               _runtime_filter_type(get_runtime_filter_type(desc)) {
-        DCHECK_NE(desc->has_remote_targets, desc->has_local_targets);
+        if (desc->has_remote_targets == desc->has_local_targets) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "has_remote_targets ({}) should not equal has_local_targets ({}), "
+                            "filter_id: {}",
+                            desc->has_remote_targets, desc->has_local_targets, desc->filter_id);
+        }
     }
 
     virtual Status _init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options);
@@ -112,7 +121,7 @@ protected:
     std::shared_ptr<RuntimeFilterWrapper> _wrapper;
 
     // will apply to remote node
-    bool _has_remote_target = false;
+    const bool _has_remote_target;
 
     // runtime filter type
     RuntimeFilterType _runtime_filter_type = RuntimeFilterType::UNKNOWN_FILTER;
