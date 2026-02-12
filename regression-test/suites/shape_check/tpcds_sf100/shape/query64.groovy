@@ -154,7 +154,7 @@ order by cs1.product_name
        ,cs2.cnt
        ,cs1.s1
        ,cs2.s1"""
-    qt_ds_shape_64 """
+    sql """
     explain shape plan
     ${ds}
     """
