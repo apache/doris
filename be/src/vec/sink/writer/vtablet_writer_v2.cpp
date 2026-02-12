@@ -104,11 +104,11 @@ Status VTabletWriterV2::_incremental_open_streams(
                     tablet.set_tablet_id(tablet_id);
                     new_backends.insert(node);
                     _tablets_for_node[node].emplace(tablet_id, tablet);
+                    _tablets_by_node[node].emplace(tablet_id);
                     if (known_indexes.contains(index.index_id)) [[likely]] {
                         continue;
                     }
                     _indexes_from_node[node].emplace_back(tablet);
-                    _tablets_by_node[node].emplace(tablet_id);
                     known_indexes.insert(index.index_id);
                     VLOG_DEBUG << "incremental open stream (" << partition->id << ", " << tablet_id
                                << ")";
@@ -347,11 +347,11 @@ Status VTabletWriterV2::_build_tablet_node_mapping() {
                         // ignore fake tablet for auto partition
                         continue;
                     }
+                    _tablets_by_node[node].emplace(tablet_id);
                     if (known_indexes.contains(index.index_id)) [[likely]] {
                         continue;
                     }
                     _indexes_from_node[node].emplace_back(tablet);
-                    _tablets_by_node[node].emplace(tablet_id);
                     known_indexes.insert(index.index_id);
                 }
                 _build_tablet_replica_info(tablet_id, partition);

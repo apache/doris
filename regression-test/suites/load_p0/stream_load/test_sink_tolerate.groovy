@@ -117,5 +117,44 @@ suite("test_sink_tolerate", "docker") {
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("TabletStream.add_segment.add_segment_failed")
         }
+
+        try {
+            // Enable close_load block on only the first BE (minor BE)
+            def firstBE = true
+            GetDebugPoint().operateDebugPointForAllBEs({ host, port ->
+                if (port == -1) return
+                if (firstBE) {
+                    firstBE = false
+                    GetDebugPoint().enableDebugPoint(host, port as int, NodeType.BE, "LoadStream.close_load.block")
+                }
+            })
+            streamLoad {
+                table "${tableName}"
+                set 'column_separator', '\t'
+                set 'columns', 'k1, k2, v2, v10, v11'
+                set 'partitions', 'partition_a, partition_b, partition_c, partition_d'
+                set 'strict_mode', 'true'
+                set 'memtable_on_sink_node', 'true'
+                file 'test_strict_mode.csv'
+                time 10000 // limit inflight 10s
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(2, json.NumberTotalRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
+                }
+            }
+            sql "sync"
+            def res = sql "select * from ${tableName}"
+            log.info("select result: ${res}".toString())
+            assertEquals(2, res.size())
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("LoadStream.close_load.block")
+        }
     }
 }
