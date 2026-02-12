@@ -75,9 +75,6 @@ protected:
         g_bool_old_val = false;
         g_bool_new_val = false;
         g_bool_callback_count = 0;
-
-        // Initialize config system
-        config::init(nullptr, true);
     }
 };
 
