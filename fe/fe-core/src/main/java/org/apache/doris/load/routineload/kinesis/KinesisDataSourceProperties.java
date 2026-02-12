@@ -26,7 +26,6 @@ import org.apache.doris.load.routineload.LoadDataSourceType;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
@@ -42,14 +41,14 @@ import java.util.TimeZone;
 
 /**
  * AWS Kinesis data source properties for Routine Load.
- * 
+ *
  * Kinesis is AWS's managed streaming data service, similar to Apache Kafka.
  * Key differences from Kafka:
  * - Uses shards instead of partitions
  * - Uses sequence numbers instead of offsets
  * - Requires AWS authentication (IAM, access keys, etc.)
  * - Region-specific endpoints
- * 
+ *
  * Example usage in SQL:
  * CREATE ROUTINE LOAD my_job ON my_table
  * FROM KINESIS (
@@ -69,7 +68,7 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
      * SequenceNumber can be:
      * - Actual sequence number string
      * - TRIM_HORIZON_VAL (-2) for oldest record
-     * - LATEST_VAL (-1) for newest record  
+     * - LATEST_VAL (-1) for newest record
      * - Timestamp value for AT_TIMESTAMP
      */
     @Getter
@@ -216,7 +215,7 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
 
         // Validate that positions and default_position are not both set
         if (CollectionUtils.isNotEmpty(positions) && StringUtils.isNotBlank(defaultPositionString)) {
-            throw new AnalysisException("Only one of " + KinesisConfiguration.KINESIS_POSITIONS.getName() 
+            throw new AnalysisException("Only one of " + KinesisConfiguration.KINESIS_POSITIONS.getName()
                     + " and " + KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName() + " can be set.");
         }
 
@@ -243,7 +242,7 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
     private void validateRegion(String region) throws AnalysisException {
         // AWS regions follow patterns like: us-east-1, eu-west-2, ap-southeast-1, cn-north-1
         if (!region.matches("^[a-z]{2}(-[a-z]+)?-[a-z]+-\\d$")) {
-            throw new AnalysisException("Invalid AWS region format: " + region 
+            throw new AnalysisException("Invalid AWS region format: " + region
                     + ". Expected format like: us-east-1, eu-west-2, cn-north-1");
         }
     }
@@ -309,22 +308,21 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
         String accessKey = customKinesisProperties.get(KinesisConfiguration.KINESIS_ACCESS_KEY.getName());
         String secretKey = customKinesisProperties.get(KinesisConfiguration.KINESIS_SECRET_KEY.getName());
         String roleArn = customKinesisProperties.get(KinesisConfiguration.KINESIS_ROLE_ARN.getName());
-        String profileName = customKinesisProperties.get(KinesisConfiguration.KINESIS_PROFILE_NAME.getName());
 
         // If access key is provided, secret key must also be provided
         if (StringUtils.isNotBlank(accessKey) && StringUtils.isBlank(secretKey)) {
-            throw new AnalysisException("When " + KinesisConfiguration.KINESIS_ACCESS_KEY.getName() 
+            throw new AnalysisException("When " + KinesisConfiguration.KINESIS_ACCESS_KEY.getName()
                     + " is set, " + KinesisConfiguration.KINESIS_SECRET_KEY.getName() + " must also be set");
         }
         if (StringUtils.isNotBlank(secretKey) && StringUtils.isBlank(accessKey)) {
-            throw new AnalysisException("When " + KinesisConfiguration.KINESIS_SECRET_KEY.getName() 
+            throw new AnalysisException("When " + KinesisConfiguration.KINESIS_SECRET_KEY.getName()
                     + " is set, " + KinesisConfiguration.KINESIS_ACCESS_KEY.getName() + " must also be set");
         }
 
         // If external ID is provided, role ARN must be provided
         String externalId = customKinesisProperties.get(KinesisConfiguration.KINESIS_EXTERNAL_ID.getName());
         if (StringUtils.isNotBlank(externalId) && StringUtils.isBlank(roleArn)) {
-            throw new AnalysisException("When " + KinesisConfiguration.KINESIS_EXTERNAL_ID.getName() 
+            throw new AnalysisException("When " + KinesisConfiguration.KINESIS_EXTERNAL_ID.getName()
                     + " is set, " + KinesisConfiguration.KINESIS_ROLE_ARN.getName() + " must also be set");
         }
 
@@ -359,7 +357,7 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
             }
         }
         if (foundTime && foundPosition) {
-            throw new AnalysisException("Cannot mix timestamp and position values in " 
+            throw new AnalysisException("Cannot mix timestamp and position values in "
                     + KinesisConfiguration.KINESIS_POSITIONS.getName());
         }
 
@@ -383,11 +381,11 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
      * Validate position value.
      */
     private void validatePosition(String position) throws AnalysisException {
-        if (!position.equalsIgnoreCase(POSITION_TRIM_HORIZON) 
+        if (!position.equalsIgnoreCase(POSITION_TRIM_HORIZON)
                 && !position.equalsIgnoreCase(POSITION_LATEST)
                 && !position.equalsIgnoreCase(POSITION_AT_TIMESTAMP)
                 && !isValidSequenceNumber(position)) {
-            throw new AnalysisException(KinesisConfiguration.KINESIS_POSITIONS.getName() 
+            throw new AnalysisException(KinesisConfiguration.KINESIS_POSITIONS.getName()
                     + " must be TRIM_HORIZON, LATEST, AT_TIMESTAMP, or a valid sequence number. Got: " + position);
         }
     }
@@ -413,7 +411,7 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
     private boolean analyzeKinesisDefaultPositionProperty() throws AnalysisException {
         customKinesisProperties.putIfAbsent(KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName(), POSITION_LATEST);
         String defaultPosition = customKinesisProperties.get(KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName());
-        
+
         TimeZone timeZone = TimeUtils.getOrSystemTimeZone(this.getTimezone());
         long timestamp = TimeUtils.timeStringToLong(defaultPosition, timeZone);
         if (timestamp != -1) {
@@ -422,9 +420,9 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
                     String.valueOf(timestamp));
             return true;
         } else {
-            if (!defaultPosition.equalsIgnoreCase(POSITION_TRIM_HORIZON) 
+            if (!defaultPosition.equalsIgnoreCase(POSITION_TRIM_HORIZON)
                     && !defaultPosition.equalsIgnoreCase(POSITION_LATEST)) {
-                throw new AnalysisException(KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName() 
+                throw new AnalysisException(KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName()
                         + " can only be set to TRIM_HORIZON, LATEST, or a datetime string. Got: " + defaultPosition);
             }
             return false;

@@ -72,13 +72,13 @@ import java.util.UUID;
 
 /**
  * KinesisRoutineLoadJob is a RoutineLoadJob that fetches data from AWS Kinesis streams.
- * 
+ *
  * Key concepts:
  * - Stream: Named collection of data records (similar to Kafka topic)
  * - Shard: Sequence of data records in a stream (similar to Kafka partition)
  * - Sequence Number: Unique identifier for each record within a shard (similar to Kafka offset)
  * - Consumer: Application that reads from a stream
- * 
+ *
  * The progress tracks sequence numbers for each shard, represented as:
  * {"shardId-000000000000": "49590338271490256608559692538361571095921575989136588802", ...}
  */
@@ -259,7 +259,8 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         }
 
         if (LOG.isDebugEnabled()) {
-            LOG.debug("current concurrent task number is min(shard num: {}, desire task concurrent num: {}, config: {})",
+            LOG.debug("current concurrent task number is min"
+                    + "(shard num: {}, desire task concurrent num: {}, config: {})",
                     shardNum, desireTaskConcurrentNum, Config.max_routine_load_task_concurrent_num);
         }
         currentTaskConcurrentNum = Math.min(shardNum, Math.min(desireTaskConcurrentNum,
@@ -309,7 +310,8 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         KinesisTaskInfo oldKinesisTaskInfo = (KinesisTaskInfo) routineLoadTaskInfo;
         // Add new task
         KinesisTaskInfo kinesisTaskInfo = new KinesisTaskInfo(oldKinesisTaskInfo,
-                ((KinesisProgress) progress).getShardIdToSequenceNumber(oldKinesisTaskInfo.getShards()), isMultiTable());
+                ((KinesisProgress) progress).getShardIdToSequenceNumber(oldKinesisTaskInfo.getShards()),
+                isMultiTable());
         kinesisTaskInfo.setDelaySchedule(delaySchedule);
         // Remove old task
         routineLoadTaskInfoList.remove(routineLoadTaskInfo);
@@ -368,7 +370,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
             currentKinesisShards = customKinesisShards;
             return false;
         }
-        
+
         Preconditions.checkNotNull(this.newCurrentKinesisShards);
         if (new HashSet<>(currentKinesisShards).containsAll(this.newCurrentKinesisShards)) {
             if (currentKinesisShards.size() > this.newCurrentKinesisShards.size()) {
@@ -446,7 +448,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(info.getDBName());
 
         long id = Env.getCurrentEnv().getNextId();
-        KinesisDataSourceProperties kinesisProperties = 
+        KinesisDataSourceProperties kinesisProperties =
                 (KinesisDataSourceProperties) info.getDataSourceProperties();
         KinesisRoutineLoadJob kinesisRoutineLoadJob;
 
@@ -521,7 +523,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         super.setOptional(info);
         KinesisDataSourceProperties kinesisDataSourceProperties =
                 (KinesisDataSourceProperties) info.getDataSourceProperties();
-        
+
         // Set endpoint if provided
         if (kinesisDataSourceProperties.getEndpoint() != null) {
             this.endpoint = kinesisDataSourceProperties.getEndpoint();
@@ -531,7 +533,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         if (CollectionUtils.isNotEmpty(kinesisDataSourceProperties.getKinesisShardPositions())) {
             setCustomKinesisShards(kinesisDataSourceProperties);
         }
-        
+
         // Set custom properties
         if (MapUtils.isNotEmpty(kinesisDataSourceProperties.getCustomKinesisProperties())) {
             setCustomKinesisProperties(kinesisDataSourceProperties.getCustomKinesisProperties());
@@ -608,7 +610,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     @Override
     public void modifyProperties(AlterRoutineLoadCommand command) throws UserException {
         Map<String, String> jobProperties = command.getAnalyzedJobProperties();
-        KinesisDataSourceProperties dataSourceProperties = 
+        KinesisDataSourceProperties dataSourceProperties =
                 (KinesisDataSourceProperties) command.getDataSourceProperties();
 
         writeLock();
@@ -629,7 +631,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
 
     private void modifyPropertiesInternal(Map<String, String> jobProperties,
                                           KinesisDataSourceProperties dataSourceProperties)
-            throws DdlException {
+            throws UserException {
         if (dataSourceProperties != null) {
             List<Pair<String, String>> shardPositions = Lists.newArrayList();
             Map<String, String> customKinesisProperties = Maps.newHashMap();
@@ -691,9 +693,9 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     @Override
     public void replayModifyProperties(AlterRoutineLoadJobOperationLog log) {
         try {
-            modifyPropertiesInternal(log.getJobProperties(), 
+            modifyPropertiesInternal(log.getJobProperties(),
                     (KinesisDataSourceProperties) log.getDataSourceProperties());
-        } catch (DdlException e) {
+        } catch (UserException e) {
             LOG.error("failed to replay modify kinesis routine load job: {}", id, e);
         }
     }
@@ -731,25 +733,25 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
 
     /**
      * Check if there is more data to consume from Kinesis shards.
-     * 
+     *
      * For Kinesis, we always return true as a simple implementation,
      * since Kinesis doesn't provide an easy way to check if there's more data
      * without actually trying to consume it. The actual data availability
      * is handled during consumption with GetRecords API which returns
      * MillisBehindLatest to indicate how far behind the consumer is.
-     * 
+     *
      * @param taskId The task ID
      * @param shardIdToSequenceNumber Map of shard IDs to sequence numbers
      * @return true if there may be more data to consume
      * @throws UserException if an error occurs
      */
-    public boolean hasMoreDataToConsume(UUID taskId, Map<String, String> shardIdToSequenceNumber) 
+    public boolean hasMoreDataToConsume(UUID taskId, Map<String, String> shardIdToSequenceNumber)
             throws UserException {
         // For Kinesis, we optimistically return true and let the BE handle
         // the actual data availability check during consumption.
         // The BE will use GetRecords API which returns MillisBehindLatest
         // to determine if there's more data.
-        // 
+        //
         // A more sophisticated implementation could call DescribeStream
         // or GetShardIterator to check shard status, but this adds latency.
         return true;
@@ -779,7 +781,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         return new NereidsRoutineLoadTaskInfo(execMemLimit, new HashMap<>(jobProperties), maxBatchIntervalS,
                 partitionNamesInfo, mergeType, deleteCondition, sequenceCol, maxFilterRatio, importColumnDescs,
                 precedingFilter, whereExpr, columnSeparator, lineDelimiter, enclose, escape, sendBatchParallelism,
-                loadToSingleTablet, isPartialUpdate, partialUpdateNewKeyPolicy, memtableOnSinkNode);
+                loadToSingleTablet, uniqueKeyUpdateMode, partialUpdateNewKeyPolicy, memtableOnSinkNode);
     }
 
     @Override

@@ -25,7 +25,7 @@ import java.util.stream.Collectors;
 
 /**
  * Configuration enum for AWS Kinesis data source properties.
- * 
+ *
  * AWS Kinesis is a managed real-time data streaming service from AWS.
  * The main concepts in Kinesis are:
  * - Stream: Similar to Kafka topic, a named stream for data records
@@ -73,7 +73,7 @@ public enum KinesisConfiguration {
      * - AT_TIMESTAMP: Start from a specific timestamp
      * - Specific sequence number
      */
-    KINESIS_POSITIONS("kinesis_positions", null, 
+    KINESIS_POSITIONS("kinesis_positions", null,
             positionsString -> Splitter.on(",").trimResults().splitToList(positionsString)),
 
     /**

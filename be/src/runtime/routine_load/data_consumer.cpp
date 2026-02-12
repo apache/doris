@@ -592,7 +592,8 @@ Status KinesisDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
     }
 
     // Store custom properties (AWS credentials, etc.)
-    _custom_properties = ctx->kinesis_info->properties;
+    _custom_properties.insert(ctx->kinesis_info->properties.begin(),
+                              ctx->kinesis_info->properties.end());
 
     // Create AWS Kinesis client
     RETURN_IF_ERROR(_create_kinesis_client(ctx));
@@ -907,7 +908,7 @@ Status KinesisDataConsumer::_process_records(
         // Create shared_ptr to record for queue
         auto record_ptr = std::make_shared<Aws::Kinesis::Model::Record>(record);
 
-        if (!queue->controlled_blocking_put(record_ptr.get(),
+        if (!queue->controlled_blocking_put(record_ptr,
                                            config::blocking_queue_cv_wait_timeout_ms)) {
             // Queue shutdown
             return Status::InternalError("Queue shutdown during record processing");

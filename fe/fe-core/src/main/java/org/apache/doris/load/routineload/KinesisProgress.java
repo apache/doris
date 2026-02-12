@@ -38,11 +38,11 @@ import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Progress tracking for Kinesis Routine Load jobs.
- * 
+ *
  * Kinesis uses sequence numbers instead of offsets like Kafka.
  * A sequence number is a unique identifier for each record within a shard.
  * Sequence numbers are string representations of 128-bit integers.
- * 
+ *
  * Special position values:
  * - TRIM_HORIZON: Start from the oldest record in the shard
  * - LATEST: Start from the newest record (records arriving after the iterator is created)
@@ -65,7 +65,7 @@ public class KinesisProgress extends RoutineLoadProgress {
     /**
      * Map from shard ID to sequence number.
      * The sequence number saved here is the next sequence number to be consumed.
-     * 
+     *
      * Note: Unlike Kafka partitions which are integers, Kinesis shard IDs are strings
      * like "shardId-000000000000".
      */
@@ -208,7 +208,7 @@ public class KinesisProgress extends RoutineLoadProgress {
      * Note: Kinesis lag calculation is more complex than Kafka because:
      * 1. Sequence numbers are strings, not comparable integers
      * 2. GetRecords API returns millisBehindLatest which is more useful
-     * 
+     *
      * This method returns -1 for shards where lag cannot be calculated.
      */
     public Map<String, Long> getLag(Map<String, Long> shardIdWithMillsBehindLatest) {

@@ -52,7 +52,7 @@ import java.util.stream.Collectors;
 
 /**
  * Task info for Kinesis Routine Load.
- * 
+ *
  * Each task is responsible for consuming data from one or more Kinesis shards.
  * The task tracks the sequence number for each shard and reports progress back
  * to the FE after successful consumption.
@@ -76,7 +76,7 @@ public class KinesisTaskInfo extends RoutineLoadTaskInfo {
      * @param shardIdToSequenceNumber Initial shard positions
      * @param isMultiTable Whether this is a multi-table job
      */
-    public KinesisTaskInfo(UUID id, long jobId, long timeoutMs, 
+    public KinesisTaskInfo(UUID id, long jobId, long timeoutMs,
                            Map<String, String> shardIdToSequenceNumber,
                            boolean isMultiTable, long taskSubmitTimeMs, boolean isEof) {
         super(id, jobId, timeoutMs, isMultiTable, taskSubmitTimeMs, isEof);
@@ -88,8 +88,8 @@ public class KinesisTaskInfo extends RoutineLoadTaskInfo {
      */
     public KinesisTaskInfo(KinesisTaskInfo oldTask, ConcurrentMap<String, String> shardIdToSequenceNumber,
                            boolean isMultiTable) {
-        super(UUID.randomUUID(), oldTask.getJobId(), oldTask.getTimeoutMs(), 
-              oldTask.getBeId(), isMultiTable, oldTask.getLastScheduledTime(), oldTask.getIsEof());
+        super(UUID.randomUUID(), oldTask.getJobId(), oldTask.getTimeoutMs(),
+                oldTask.getBeId(), isMultiTable, oldTask.getLastScheduledTime(), oldTask.getIsEof());
         this.shardIdToSequenceNumber.putAll(shardIdToSequenceNumber);
     }
 
@@ -109,7 +109,7 @@ public class KinesisTaskInfo extends RoutineLoadTaskInfo {
 
     @Override
     public TRoutineLoadTask createRoutineLoadTask() throws UserException {
-        KinesisRoutineLoadJob routineLoadJob = 
+        KinesisRoutineLoadJob routineLoadJob =
                 (KinesisRoutineLoadJob) routineLoadManager.getJob(jobId);
 
         // Create Thrift task object
@@ -118,16 +118,16 @@ public class KinesisTaskInfo extends RoutineLoadTaskInfo {
         tRoutineLoadTask.setId(queryId);
         tRoutineLoadTask.setJobId(jobId);
         tRoutineLoadTask.setTxnId(txnId);
-        
+
         Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(routineLoadJob.getDbId());
         tRoutineLoadTask.setDb(database.getFullName());
-        
+
         // label = job_name+job_id+task_id+txn_id
         String label = Joiner.on("-").join(routineLoadJob.getName(),
                 routineLoadJob.getId(), DebugUtil.printId(id), txnId);
         tRoutineLoadTask.setLabel(label);
         tRoutineLoadTask.setAuthCode(routineLoadJob.getAuthCode());
-        
+
         // Set Kinesis-specific load info
         TKinesisLoadInfo tKinesisLoadInfo = new TKinesisLoadInfo();
         tKinesisLoadInfo.setRegion(routineLoadJob.getRegion());
@@ -137,7 +137,7 @@ public class KinesisTaskInfo extends RoutineLoadTaskInfo {
         }
         tKinesisLoadInfo.setShardBeginSequenceNumber(shardIdToSequenceNumber);
         tKinesisLoadInfo.setProperties(routineLoadJob.getConvertedCustomProperties());
-        
+
         tRoutineLoadTask.setKinesisLoadInfo(tKinesisLoadInfo);
         tRoutineLoadTask.setType(TLoadSourceType.KINESIS);
         tRoutineLoadTask.setIsMultiTable(isMultiTable);
@@ -246,11 +246,11 @@ public class KinesisTaskInfo extends RoutineLoadTaskInfo {
 
     @Override
     public String toString() {
-        return "KinesisTaskInfo{" 
-                + "id=" + id 
-                + ", jobId=" + jobId 
-                + ", txnId=" + txnId 
-                + ", shardIdToSequenceNumber=" + shardIdToSequenceNumber 
+        return "KinesisTaskInfo{"
+                + "id=" + id
+                + ", jobId=" + jobId
+                + ", txnId=" + txnId
+                + ", shardIdToSequenceNumber=" + shardIdToSequenceNumber
                 + '}';
     }
 }
