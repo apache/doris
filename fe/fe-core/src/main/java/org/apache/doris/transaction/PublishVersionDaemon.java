@@ -71,9 +71,11 @@ public class PublishVersionDaemon extends MasterDaemon {
 
     public PublishVersionDaemon() {
         super("PUBLISH_VERSION", Config.publish_version_interval_ms);
-        for (int i = 0; i < Config.publish_thread_pool_num; i++) {
-            dbExecutors.add(ThreadPoolManager.newDaemonFixedThreadPool(1, Config.publish_queue_size,
-                    "PUBLISH_VERSION_EXEC-" + i, true));
+        if (dbExecutors.isEmpty()) {
+            for (int i = 0; i < Config.publish_thread_pool_num; i++) {
+                dbExecutors.add(ThreadPoolManager.newDaemonFixedThreadPool(1, Config.publish_queue_size,
+                        "PUBLISH_VERSION_EXEC-" + i, true));
+            }
         }
     }
 
