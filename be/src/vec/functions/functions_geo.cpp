@@ -555,6 +555,209 @@ struct StTouchesFunc {
     static bool evaluate(GeoShape* shape1, GeoShape* shape2) { return shape1->touches(shape2); }
 };
 
+struct StEqualsFunc {
+    static constexpr auto NAME = "st_equals";
+    static bool evaluate(GeoShape* shape1, GeoShape* shape2) { return shape1->equals(shape2); }
+};
+
+// ST_Relate computes the DE-9IM matrix for two geometries
+// The matrix is a 9-character string where each character represents:
+// II (Interior-Interior), IB (Interior-Boundary), IE (Interior-Exterior),
+// BI (Boundary-Interior), BB (Boundary-Boundary), BE (Boundary-Exterior),
+// EI (Exterior-Interior), EB (Exterior-Boundary), EE (Exterior-Exterior)
+// Values: F (false), 0 (dimension 0, point), 1 (dimension 1, line), 2 (dimension 2, area)
+struct StRelate {
+    static constexpr auto NAME = "st_relate";
+    static const size_t NUM_ARGS = 2;
+    using Type = DataTypeString;
+
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 2);
+        auto return_type = block.get_data_type(result);
+        const auto& [left_column, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [right_column, right_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+
+        const auto size = std::max(left_column->size(), right_column->size());
+
+        auto res = ColumnString::create();
+        auto null_map = ColumnUInt8::create(size, 0);
+        auto& null_map_data = null_map->get_data();
+
+        if (left_const) {
+            const_vector(left_column, right_column, res, null_map_data, size);
+        } else if (right_const) {
+            vector_const(left_column, right_column, res, null_map_data, size);
+        } else {
+            vector_vector(left_column, right_column, res, null_map_data, size);
+        }
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+        return Status::OK();
+    }
+
+    static char dimension_char(int dim) {
+        if (dim < 0) return 'F';
+        if (dim == 0) return '0';
+        if (dim == 1) return '1';
+        return '2';
+    }
+
+    static int get_dimension(GeoShapeType type) {
+        switch (type) {
+        case GEO_SHAPE_POINT:
+            return 0;
+        case GEO_SHAPE_LINE_STRING:
+            return 1;
+        case GEO_SHAPE_POLYGON:
+        case GEO_SHAPE_MULTI_POLYGON:
+        case GEO_SHAPE_CIRCLE:
+            return 2;
+        default:
+            return -1;
+        }
+    }
+
+    // Simplified DE-9IM computation based on available spatial predicates
+    // This is an approximation since S2 doesn't provide full DE-9IM support
+    static std::string compute_relate(GeoShape* shape1, GeoShape* shape2) {
+        // DE-9IM matrix: II, IB, IE, BI, BB, BE, EI, EB, EE
+        char matrix[10] = "FFFFFFFFF";
+
+        bool intersects = shape1->intersects(shape2);
+        bool contains1 = shape1->contains(shape2);
+        bool contains2 = shape2->contains(shape1);
+        bool touches = shape1->touches(shape2);
+        bool equals = shape1->equals(shape2);
+        bool disjoint = shape1->disjoint(shape2);
+
+        int dim1 = get_dimension(shape1->type());
+        int dim2 = get_dimension(shape2->type());
+
+        // EE (Exterior-Exterior): Always 2 (both have infinite exteriors)
+        matrix[8] = '2';
+
+        if (disjoint) {
+            // No intersection - only exterior relationships
+            // IE and EI are based on the dimensions of the geometries
+            matrix[2] = dimension_char(dim1);  // IE
+            matrix[6] = dimension_char(dim2);  // EI
+            // BE and EB depend on whether geometries have boundaries
+            if (dim1 > 0) matrix[5] = dimension_char(dim1 - 1);  // BE
+            if (dim2 > 0) matrix[7] = dimension_char(dim2 - 1);  // EB
+            return std::string(matrix, 9);
+        }
+
+        if (equals) {
+            // For equal geometries
+            int dim = std::max(dim1, dim2);
+            matrix[0] = dimension_char(dim);  // II
+            if (dim > 0) {
+                matrix[4] = dimension_char(dim - 1);  // BB
+            }
+            matrix[2] = 'F';  // IE
+            matrix[6] = 'F';  // EI
+            matrix[5] = 'F';  // BE
+            matrix[7] = 'F';  // EB
+            matrix[8] = '2';  // EE
+            return std::string(matrix, 9);
+        }
+
+        int intersect_dim = std::min(dim1, dim2);
+        if (intersects) {
+            // II (Interior-Interior): the dimension of the intersection
+            // For simplicity, use the minimum dimension of the two shapes
+            matrix[0] = dimension_char(intersect_dim);
+
+            if (touches) {
+                // Touches means interiors don't intersect, only boundaries
+                matrix[0] = 'F';  // II is F for touches
+                // BB intersection exists
+                int bb_dim = std::min(dim1 - 1, dim2 - 1);
+                if (bb_dim >= 0) {
+                    matrix[4] = dimension_char(bb_dim);
+                }
+            }
+
+            if (contains1 && !contains2) {
+                // shape1 contains shape2
+                matrix[2] = dimension_char(dim1);  // IE: shape1's interior vs shape2's exterior
+                matrix[6] = 'F';  // EI: shape1's exterior vs shape2's interior
+            } else if (contains2 && !contains1) {
+                // shape2 contains shape1
+                matrix[2] = 'F';  // IE
+                matrix[6] = dimension_char(dim2);  // EI
+            } else {
+                // Partial overlap
+                matrix[2] = dimension_char(dim1);  // IE
+                matrix[6] = dimension_char(dim2);  // EI
+            }
+        }
+
+        // Handle boundary interactions (simplified)
+        if (dim1 > 0 && dim2 > 0) {
+            if (intersects && !touches) {
+                matrix[1] = dimension_char(std::min(intersect_dim, dim2 - 1));  // IB
+                matrix[3] = dimension_char(std::min(dim1 - 1, intersect_dim));  // BI
+            }
+        }
+
+        // BE and EB
+        if (dim1 > 0) matrix[5] = dimension_char(dim1 - 1);  // BE
+        if (dim2 > 0) matrix[7] = dimension_char(dim2 - 1);  // EB
+
+        return std::string(matrix, 9);
+    }
+
+    static void loop_do(StringRef& lhs_value, StringRef& rhs_value,
+                        std::vector<std::unique_ptr<GeoShape>>& shapes,
+                        ColumnString::MutablePtr& res, NullMap& null_map, int row) {
+        StringRef* strs[2] = {&lhs_value, &rhs_value};
+        for (int i = 0; i < 2; ++i) {
+            std::unique_ptr<GeoShape> shape(GeoShape::from_encoded(strs[i]->data, strs[i]->size));
+            shapes[i] = std::move(shape);
+            if (!shapes[i]) {
+                null_map[row] = 1;
+                res->insert_default();
+                return;
+            }
+        }
+        std::string matrix = compute_relate(shapes[0].get(), shapes[1].get());
+        res->insert_data(matrix.data(), matrix.size());
+    }
+
+    static void const_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
+                             ColumnString::MutablePtr& res, NullMap& null_map, const size_t size) {
+        auto lhs_value = left_column->get_data_at(0);
+        std::vector<std::unique_ptr<GeoShape>> shapes(2);
+        for (int row = 0; row < size; ++row) {
+            auto rhs_value = right_column->get_data_at(row);
+            loop_do(lhs_value, rhs_value, shapes, res, null_map, row);
+        }
+    }
+
+    static void vector_const(const ColumnPtr& left_column, const ColumnPtr& right_column,
+                             ColumnString::MutablePtr& res, NullMap& null_map, const size_t size) {
+        auto rhs_value = right_column->get_data_at(0);
+        std::vector<std::unique_ptr<GeoShape>> shapes(2);
+        for (int row = 0; row < size; ++row) {
+            auto lhs_value = left_column->get_data_at(row);
+            loop_do(lhs_value, rhs_value, shapes, res, null_map, row);
+        }
+    }
+
+    static void vector_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
+                              ColumnString::MutablePtr& res, NullMap& null_map, const size_t size) {
+        std::vector<std::unique_ptr<GeoShape>> shapes(2);
+        for (int row = 0; row < size; ++row) {
+            auto lhs_value = left_column->get_data_at(row);
+            auto rhs_value = right_column->get_data_at(row);
+            loop_do(lhs_value, rhs_value, shapes, res, null_map, row);
+        }
+    }
+};
+
 struct StGeometryFromText {
     static constexpr auto NAME = "st_geometryfromtext";
     static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
@@ -722,6 +925,8 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StRelationFunction<StIntersectsFunc>>>();
     factory.register_function<GeoFunction<StRelationFunction<StDisjointFunc>>>();
     factory.register_function<GeoFunction<StRelationFunction<StTouchesFunc>>>();
+    factory.register_function<GeoFunction<StRelationFunction<StEqualsFunc>>>();
+    factory.register_function<GeoFunction<StRelate>>();
     factory.register_function<GeoFunction<StCircle>>();
     factory.register_function<GeoFunction<StGeoFromText<StGeometryFromText>>>();
     factory.register_function<GeoFunction<StGeoFromText<StGeomFromText>>>();

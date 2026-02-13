@@ -494,6 +494,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StCircle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDisjoint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistanceSphere;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StEquals;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
@@ -505,6 +506,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StPoint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolyfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygon;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygonfromtext;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StRelate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StTouches;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StX;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StY;
@@ -2350,6 +2352,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStTouches(StTouches stTouches, C context) {
         return visitScalarFunction(stTouches, context);
+    }
+
+    default R visitStEquals(StEquals stEquals, C context) {
+        return visitScalarFunction(stEquals, context);
+    }
+
+    default R visitStRelate(StRelate stRelate, C context) {
+        return visitScalarFunction(stRelate, context);
     }
 
     default R visitStDistanceSphere(StDistanceSphere stDistanceSphere, C context) {

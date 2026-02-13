@@ -585,6 +585,14 @@ bool GeoPoint::touches(const GeoShape* rhs) const {
     }
 }
 
+bool GeoPoint::equals(const GeoShape* rhs) const {
+    if (rhs->type() != GEO_SHAPE_POINT) {
+        return false;
+    }
+    const GeoPoint* point = assert_cast<const GeoPoint*>(rhs);
+    return *_point == *point->point();
+}
+
 std::string GeoPoint::to_string() const {
     return as_wkt();
 }
@@ -763,6 +771,23 @@ bool GeoLine::touches(const GeoShape* rhs) const {
     default:
         return false;
     }
+}
+
+bool GeoLine::equals(const GeoShape* rhs) const {
+    if (rhs->type() != GEO_SHAPE_LINE_STRING) {
+        return false;
+    }
+    const GeoLine* other = assert_cast<const GeoLine*>(rhs);
+    // Two lines are equal if they have the same vertices in the same order
+    if (_polyline->num_vertices() != other->polyline()->num_vertices()) {
+        return false;
+    }
+    for (int i = 0; i < _polyline->num_vertices(); ++i) {
+        if (_polyline->vertex(i) != other->polyline()->vertex(i)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 void GeoLine::encode(std::string* buf) {
@@ -1095,6 +1120,15 @@ bool GeoPolygon::contains(const GeoShape* rhs) const {
     }
 }
 
+bool GeoPolygon::equals(const GeoShape* rhs) const {
+    if (rhs->type() != GEO_SHAPE_POLYGON) {
+        return false;
+    }
+    const GeoPolygon* other = assert_cast<const GeoPolygon*>(rhs);
+    // Two polygons are equal if they contain each other
+    return _polygon->Contains(*other->polygon()) && other->polygon()->Contains(*_polygon);
+}
+
 std::double_t GeoPolygon::getArea() const {
     return _polygon->GetArea();
 }
@@ -1325,6 +1359,15 @@ bool GeoMultiPolygon::contains(const GeoShape* rhs) const {
     default:
         return false;
     }
+}
+
+bool GeoMultiPolygon::equals(const GeoShape* rhs) const {
+    if (rhs->type() != GEO_SHAPE_MULTI_POLYGON) {
+        return false;
+    }
+    const GeoMultiPolygon* other = assert_cast<const GeoMultiPolygon*>(rhs);
+    // Two multipolygons are equal if they contain each other
+    return this->contains(other) && other->contains(this);
 }
 
 std::string GeoMultiPolygon::as_wkt() const {
@@ -1560,6 +1603,17 @@ bool GeoCircle::contains(const GeoShape* rhs) const {
     default:
         return false;
     }
+}
+
+bool GeoCircle::equals(const GeoShape* rhs) const {
+    if (rhs->type() != GEO_SHAPE_CIRCLE) {
+        return false;
+    }
+    const GeoCircle* other = assert_cast<const GeoCircle*>(rhs);
+    // Two circles are equal if they have the same center and radius
+    // Use tolerance-based comparison for floating-point radius values
+    return _cap->center() == other->circle()->center() &&
+           std::abs(_cap->radius().radians() - other->circle()->radius().radians()) < TOLERANCE;
 }
 
 void GeoCircle::encode(std::string* buf) {

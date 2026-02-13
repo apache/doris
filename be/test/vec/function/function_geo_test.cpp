@@ -463,4 +463,158 @@ TEST(VGeoFunctionsTest, function_geo_st_area_square_km) {
     }
 }
 
+TEST(VGeoFunctionsTest, function_geo_st_equals) {
+    std::string func_name = "st_equals";
+
+    std::string buf1;
+    std::string buf2;
+    std::string buf3;
+    GeoParseStatus status;
+
+    // Create two identical points
+    GeoPoint point1;
+    status = point1.from_coord(24.7, 56.7);
+    EXPECT_TRUE(status == GEO_PARSE_OK);
+    point1.encode_to(&buf1);
+
+    GeoPoint point2;
+    status = point2.from_coord(24.7, 56.7);
+    EXPECT_TRUE(status == GEO_PARSE_OK);
+    point2.encode_to(&buf2);
+
+    // Create a different point
+    GeoPoint point3;
+    status = point3.from_coord(50, 50);
+    EXPECT_TRUE(status == GEO_PARSE_OK);
+    point3.encode_to(&buf3);
+
+    DataSet data_set = {{{buf1, buf2}, (uint8_t)1},
+                        {{buf1, buf3}, (uint8_t)0},
+                        {{buf1, Null()}, Null()},
+                        {{Null(), buf3}, Null()}};
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {Consted {PrimitiveType::TYPE_VARCHAR},
+                                    PrimitiveType::TYPE_VARCHAR};
+
+        for (const auto& line : data_set) {
+            DataSet const_dataset = {line};
+            static_cast<void>(
+                    check_function<DataTypeUInt8, true>(func_name, input_types, const_dataset));
+        }
+    }
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR,
+                                    Consted {PrimitiveType::TYPE_VARCHAR}};
+
+        for (const auto& line : data_set) {
+            DataSet const_dataset = {line};
+            static_cast<void>(
+                    check_function<DataTypeUInt8, true>(func_name, input_types, const_dataset));
+        }
+    }
+}
+
+TEST(VGeoFunctionsTest, function_geo_st_equals_polygon) {
+    std::string func_name = "st_equals";
+
+    std::string buf1;
+    std::string buf2;
+    std::string buf3;
+    GeoParseStatus status;
+
+    // Create two identical polygons
+    std::string shape1_wkt = "POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))";
+    std::unique_ptr<GeoShape> shape1(GeoShape::from_wkt(shape1_wkt.data(), shape1_wkt.size(), status));
+    EXPECT_TRUE(status == GEO_PARSE_OK);
+    EXPECT_TRUE(shape1 != nullptr);
+    shape1->encode_to(&buf1);
+
+    std::string shape2_wkt = "POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))";
+    std::unique_ptr<GeoShape> shape2(GeoShape::from_wkt(shape2_wkt.data(), shape2_wkt.size(), status));
+    EXPECT_TRUE(status == GEO_PARSE_OK);
+    EXPECT_TRUE(shape2 != nullptr);
+    shape2->encode_to(&buf2);
+
+    // Create a different polygon
+    std::string shape3_wkt = "POLYGON ((0 0, 20 0, 20 20, 0 20, 0 0))";
+    std::unique_ptr<GeoShape> shape3(GeoShape::from_wkt(shape3_wkt.data(), shape3_wkt.size(), status));
+    EXPECT_TRUE(status == GEO_PARSE_OK);
+    EXPECT_TRUE(shape3 != nullptr);
+    shape3->encode_to(&buf3);
+
+    DataSet data_set = {{{buf1, buf2}, (uint8_t)1},
+                        {{buf1, buf3}, (uint8_t)0},
+                        {{buf1, Null()}, Null()},
+                        {{Null(), buf3}, Null()}};
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
+    }
+}
+
+TEST(VGeoFunctionsTest, function_geo_st_relate) {
+    std::string func_name = "st_relate";
+
+    std::string buf1;
+    std::string buf2;
+    GeoParseStatus status;
+
+    // Create a point
+    GeoPoint point1;
+    status = point1.from_coord(5, 5);
+    EXPECT_TRUE(status == GEO_PARSE_OK);
+    point1.encode_to(&buf1);
+
+    // Create another point (same location)
+    GeoPoint point2;
+    status = point2.from_coord(5, 5);
+    EXPECT_TRUE(status == GEO_PARSE_OK);
+    point2.encode_to(&buf2);
+
+    // ST_Relate should return a 9-character DE-9IM string
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+
+        DataSet data_set = {{{buf1, buf2}, std::string("0FFFFFFF2")},
+                            {{buf1, Null()}, Null()},
+                            {{Null(), buf2}, Null()}};
+
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
+}
+
+TEST(VGeoFunctionsTest, function_geo_st_relate_disjoint) {
+    std::string func_name = "st_relate";
+
+    std::string buf1;
+    std::string buf2;
+    GeoParseStatus status;
+
+    // Create two disjoint points
+    GeoPoint point1;
+    status = point1.from_coord(0, 0);
+    EXPECT_TRUE(status == GEO_PARSE_OK);
+    point1.encode_to(&buf1);
+
+    GeoPoint point2;
+    status = point2.from_coord(50, 50);
+    EXPECT_TRUE(status == GEO_PARSE_OK);
+    point2.encode_to(&buf2);
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+
+        // For disjoint points, the matrix should show F for interior-interior
+        DataSet data_set = {{{buf1, buf2}, std::string("FF0FF0FF2")}};
+
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
+}
+
 } // namespace doris::vectorized
