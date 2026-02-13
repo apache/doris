@@ -20,25 +20,18 @@ package org.apache.doris.extension.spi;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * Runtime context passed to plugins.
  */
 public final class PluginContext {
 
-    private final PluginDescriptor descriptor;
     private final Map<String, String> properties;
 
-    public PluginContext(PluginDescriptor descriptor, Map<String, String> properties) {
-        this.descriptor = Objects.requireNonNull(descriptor, "descriptor");
+    public PluginContext(Map<String, String> properties) {
         this.properties = properties != null
                 ? Collections.unmodifiableMap(new HashMap<>(properties))
                 : Collections.emptyMap();
-    }
-
-    public PluginDescriptor getDescriptor() {
-        return descriptor;
     }
 
     public Map<String, String> getProperties() {

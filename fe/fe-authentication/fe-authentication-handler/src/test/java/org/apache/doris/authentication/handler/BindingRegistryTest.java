@@ -25,6 +25,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -153,7 +154,7 @@ class BindingRegistryTest {
         bindingRegistry.register("charlie", "corp_ldap");
 
         // When
-        var usernames = bindingRegistry.getBoundUsernames();
+        List<String> usernames = bindingRegistry.getBoundUsernames();
 
         // Then
         Assertions.assertNotNull(usernames);

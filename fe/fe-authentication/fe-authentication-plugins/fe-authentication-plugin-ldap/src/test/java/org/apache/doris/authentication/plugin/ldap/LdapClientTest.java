@@ -24,6 +24,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -156,20 +157,6 @@ class LdapClientTest {
     }
 
     @Test
-    @DisplayName("UT-LDAP-C-009: Health check returns boolean")
-    void testHealthCheck() {
-        // Given
-        ldapClient = new LdapClient(baseConfig);
-
-        // When
-        boolean healthy = ldapClient.healthCheck();
-
-        // Then - may be true or false depending on server availability
-        // Just verify it doesn't throw
-        Assertions.assertNotNull(healthy);
-    }
-
-    @Test
     @DisplayName("UT-LDAP-C-010: GetUserDn with null username returns null")
     void testGetUserDnWithNullUsername() {
         // Given
@@ -254,7 +241,7 @@ class LdapClientTest {
         ldapClient = new LdapClient(baseConfig);
 
         // When
-        var groups = ldapClient.getGroups(null);
+        List<String> groups = ldapClient.getGroups(null);
 
         // Then
         Assertions.assertNotNull(groups);
@@ -269,7 +256,7 @@ class LdapClientTest {
         ldapClient = new LdapClient(baseConfig);
 
         // When
-        var groups = ldapClient.getGroups("alice");
+        List<String> groups = ldapClient.getGroups("alice");
 
         // Then
         Assertions.assertNotNull(groups);

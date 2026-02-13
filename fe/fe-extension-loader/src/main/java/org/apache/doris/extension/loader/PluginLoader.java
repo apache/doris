@@ -18,13 +18,14 @@
 package org.apache.doris.extension.loader;
 
 import org.apache.doris.extension.spi.Plugin;
-import org.apache.doris.extension.spi.PluginDescriptor;
+import org.apache.doris.extension.spi.PluginContext;
 import org.apache.doris.extension.spi.PluginException;
 import org.apache.doris.extension.spi.PluginFactory;
 
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.ServiceLoader;
 
 /**
@@ -46,20 +47,41 @@ public final class PluginLoader {
         return new ChildFirstClassLoader(urls, parent, parentFirstPackages);
     }
 
-    public PluginFactory loadFactory(PluginDescriptor descriptor, ClassLoader classLoader) {
-        ServiceLoader<PluginFactory> loader = ServiceLoader.load(PluginFactory.class, classLoader);
-        for (PluginFactory factory : loader) {
-            if (factory.getClass().getName().equals(descriptor.getFactoryClass())) {
-                return factory;
-            }
-        }
-        throw new PluginException("No PluginFactory found for: " + descriptor.getFactoryClass());
+    public <F extends PluginFactory> List<F> loadFactories(ClassLoader classLoader, Class<F> factoryType) {
+        Objects.requireNonNull(factoryType, "factoryType");
+        List<F> factories = new ArrayList<>();
+        ServiceLoader.load(factoryType, classLoader).forEach(factories::add);
+        return factories;
     }
 
-    public Plugin loadPlugin(PluginDescriptor descriptor, ClassLoader classLoader) {
-        PluginFactory factory = loadFactory(descriptor, classLoader);
-        Plugin plugin = factory.create(descriptor);
-        plugin.initialize(descriptor);
+    public List<PluginFactory> loadFactories(ClassLoader classLoader) {
+        return loadFactories(classLoader, PluginFactory.class);
+    }
+
+    public <F extends PluginFactory> F loadFactory(ClassLoader classLoader, Class<F> factoryType) {
+        Objects.requireNonNull(factoryType, "factoryType");
+        List<F> factories = loadFactories(classLoader, factoryType);
+        if (factories.isEmpty()) {
+            throw new PluginException("No " + factoryType.getSimpleName() + " found in classloader");
+        }
+        if (factories.size() > 1) {
+            throw new PluginException("Multiple " + factoryType.getSimpleName() + " found: " + factories.size());
+        }
+        return factories.get(0);
+    }
+
+    public PluginFactory loadFactory(ClassLoader classLoader) {
+        return loadFactory(classLoader, PluginFactory.class);
+    }
+
+    public Plugin loadPlugin(ClassLoader classLoader, PluginContext context) {
+        PluginFactory factory = loadFactory(classLoader);
+        Plugin plugin = factory.create(context);
+        plugin.initialize(context);
         return plugin;
+    }
+
+    public Plugin loadPlugin(ClassLoader classLoader) {
+        return loadPlugin(classLoader, new PluginContext(null));
     }
 }

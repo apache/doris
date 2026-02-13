@@ -32,8 +32,7 @@ import java.util.Optional;
  *
  * <p>The request contains:
  * <ul>
- *   <li>Core fields - username, credential (abstract), source info</li>
- *   <li>Target info - database, catalog</li>
+ *   <li>Core fields - username, credential type + data, source info</li>
  *   <li>Client info - client type</li>
  *   <li>Extension properties - for business layer extensions</li>
  * </ul>
@@ -41,7 +40,7 @@ import java.util.Optional;
  * <p>Key design improvements:
  * <ul>
  *   <li>Removed protocol-specific fields (challenge, authState) - handled by Protocol Adapter</li>
- *   <li>Uses Credential interface for type safety instead of byte[] + credentialType</li>
+ *   <li>Uses string credentialType for extensibility (built-in constants in {@link CredentialType})</li>
  *   <li>Simplified extension properties - only for business layer, not protocol details</li>
  * </ul>
  *
@@ -51,14 +50,10 @@ public final class AuthenticationRequest {
 
     // === Core fields (required for all authentication) ===
     private final String username;
-    private final CredentialType credentialType;
+    private final String credentialType;
     private final byte[] credential;
     private final String remoteHost;
     private final int remotePort;
-
-    // === Target info ===
-    private final String database;
-    private final String catalog;
 
     // === Client info ===
     private final String clientType;
@@ -72,8 +67,6 @@ public final class AuthenticationRequest {
         this.credential = builder.credential;
         this.remoteHost = builder.remoteHost;
         this.remotePort = builder.remotePort;
-        this.database = builder.database;
-        this.catalog = builder.catalog;
         this.clientType = builder.clientType;
         this.properties = builder.properties != null
                 ? Collections.unmodifiableMap(new HashMap<>(builder.properties))
@@ -90,11 +83,11 @@ public final class AuthenticationRequest {
     }
 
     /**
-     * Returns the credential type.
+     * Returns the credential type string.
      *
-     * @return the credential type
+     * @return the credential type (typically from {@link CredentialType})
      */
-    public CredentialType getCredentialType() {
+    public String getCredentialType() {
         return credentialType;
     }
 
@@ -124,24 +117,6 @@ public final class AuthenticationRequest {
      */
     public int getRemotePort() {
         return remotePort;
-    }
-
-    /**
-     * Returns the target database if specified.
-     *
-     * @return optional database name
-     */
-    public Optional<String> getDatabase() {
-        return Optional.ofNullable(database);
-    }
-
-    /**
-     * Returns the target catalog if specified.
-     *
-     * @return optional catalog name
-     */
-    public Optional<String> getCatalog() {
-        return Optional.ofNullable(catalog);
     }
 
     /**
@@ -207,12 +182,10 @@ public final class AuthenticationRequest {
      */
     public static final class Builder {
         private String username;
-        private CredentialType credentialType;
+        private String credentialType;
         private byte[] credential;
         private String remoteHost;
         private int remotePort;
-        private String database;
-        private String catalog;
         private String clientType;
         private Map<String, Object> properties;
 
@@ -224,7 +197,7 @@ public final class AuthenticationRequest {
             return this;
         }
 
-        public Builder credentialType(CredentialType credentialType) {
+        public Builder credentialType(String credentialType) {
             this.credentialType = credentialType;
             return this;
         }
@@ -241,16 +214,6 @@ public final class AuthenticationRequest {
 
         public Builder remotePort(int remotePort) {
             this.remotePort = remotePort;
-            return this;
-        }
-
-        public Builder database(String database) {
-            this.database = database;
-            return this;
-        }
-
-        public Builder catalog(String catalog) {
-            this.catalog = catalog;
             return this;
         }
 

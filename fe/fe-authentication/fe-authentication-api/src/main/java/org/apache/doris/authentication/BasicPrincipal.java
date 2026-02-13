@@ -235,7 +235,11 @@ public final class BasicPrincipal implements Principal {
         }
 
         /**
-         * Sets whether this is a service principal.
+         * Sets whether this is a service principal (non-human / machine account).
+         *
+         * <p>This flag is intended to distinguish service accounts from human users
+         * for policy and audit purposes. It does NOT refer to Kerberos "service
+         * principal" names.</p>
          *
          * @param servicePrincipal true if service account
          * @return this builder

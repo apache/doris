@@ -194,7 +194,7 @@ class BindingResolverTest {
 
         @Test
         @DisplayName("UT-BR-RC-001: User binding has highest priority")
-        void testResolveCandidates_UserBindingFirst() {
+        void testResolveCandidates_UserBindingFirst() throws AuthenticationException {
             Mockito.when(bindingRegistry.getIntegrationName("alice"))
                     .thenReturn(Optional.of("oauth2_auth"));
             Mockito.when(integrationRegistry.get("oauth2_auth"))
@@ -214,7 +214,7 @@ class BindingResolverTest {
 
         @Test
         @DisplayName("UT-BR-RC-002: Authentication chain in order")
-        void testResolveCandidates_ChainOrder() {
+        void testResolveCandidates_ChainOrder() throws AuthenticationException {
             Mockito.when(bindingRegistry.getIntegrationName(Mockito.anyString()))
                     .thenReturn(Optional.empty());
             Mockito.when(integrationRegistry.getAuthenticationChain())
@@ -232,7 +232,7 @@ class BindingResolverTest {
 
         @Test
         @DisplayName("UT-BR-RC-003: No duplicates in candidates")
-        void testResolveCandidates_NoDuplicates() {
+        void testResolveCandidates_NoDuplicates() throws AuthenticationException {
             Mockito.when(bindingRegistry.getIntegrationName("alice"))
                     .thenReturn(Optional.of("password_auth"));
             Mockito.when(integrationRegistry.get("password_auth"))
@@ -251,7 +251,7 @@ class BindingResolverTest {
 
         @Test
         @DisplayName("UT-BR-RC-004: Empty candidates when no integrations available")
-        void testResolveCandidates_Empty() {
+        void testResolveCandidates_Empty() throws AuthenticationException {
             Mockito.when(bindingRegistry.getIntegrationName(Mockito.anyString()))
                     .thenReturn(Optional.empty());
             Mockito.when(integrationRegistry.getAuthenticationChain())
@@ -265,7 +265,7 @@ class BindingResolverTest {
         }
 
         @Test
-        @DisplayName("UT-BR-RC-005: User binding not found in registry skipped")
+        @DisplayName("UT-BR-RC-005: User binding not found in registry throws exception")
         void testResolveCandidates_UserBindingNotFound() {
             Mockito.when(bindingRegistry.getIntegrationName("alice"))
                     .thenReturn(Optional.of("nonexistent"));
@@ -276,15 +276,14 @@ class BindingResolverTest {
             Mockito.when(integrationRegistry.getDefaultPasswordIntegration())
                     .thenReturn(null);
 
-            List<AuthenticationIntegration> candidates = resolver.resolveCandidates("alice", testRequest);
-
-            Assertions.assertEquals(1, candidates.size());
-            Assertions.assertEquals(passwordIntegration, candidates.get(0));
+            AuthenticationException ex = Assertions.assertThrows(AuthenticationException.class, () ->
+                    resolver.resolveCandidates("alice", testRequest));
+            Assertions.assertTrue(ex.getMessage().contains("Bound integration not found"));
         }
 
         @Test
         @DisplayName("UT-BR-RC-006: Null integrations filtered out")
-        void testResolveCandidates_NullsFiltered() {
+        void testResolveCandidates_NullsFiltered() throws AuthenticationException {
             Mockito.when(bindingRegistry.getIntegrationName(Mockito.anyString()))
                     .thenReturn(Optional.empty());
             Mockito.when(integrationRegistry.getAuthenticationChain())
@@ -369,7 +368,7 @@ class BindingResolverTest {
 
         @Test
         @DisplayName("UT-BR-E-001: Resolve with empty username")
-        void testResolve_EmptyUsername() {
+        void testResolve_EmptyUsername() throws AuthenticationException {
             Mockito.when(bindingRegistry.getIntegrationName(""))
                     .thenReturn(Optional.empty());
             Mockito.when(integrationRegistry.getAuthenticationChain())
@@ -385,7 +384,7 @@ class BindingResolverTest {
 
         @Test
         @DisplayName("UT-BR-E-002: Resolve with very long authentication chain")
-        void testResolve_LongChain() {
+        void testResolve_LongChain() throws AuthenticationException {
             AuthenticationIntegration[] integrations = new AuthenticationIntegration[100];
             for (int i = 0; i < 100; i++) {
                 integrations[i] = AuthenticationIntegration.builder()

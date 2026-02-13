@@ -15,21 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.authentication.handler;
-
-import org.apache.doris.authentication.AuthenticationIntegration;
-import org.apache.doris.authentication.Identity;
+package org.apache.doris.authentication;
 
 /**
- * Default user resolver that does nothing.
+ * Authentication exception.
  *
- * <p>This is used when no custom user resolver is configured.
- * It simply returns null, indicating no user resolution is performed.
+ * <p>Used as a failure reason inside {@link AuthenticationResult} when status is FAILURE.
+ * Expected authentication failures should be returned via {@link AuthenticationResult#failure}
+ * rather than thrown. Throw this exception only for internal/plugin errors (e.g. configuration
+ * problems, dependency outages).
  */
-public class NoopUserResolver implements UserResolver {
+public class AuthenticationException extends Exception {
 
-    @Override
-    public Object resolveUser(Identity identity, AuthenticationIntegration integration) {
-        return null;
+    public AuthenticationException(String message) {
+        super(message);
+    }
+
+    public AuthenticationException(Throwable cause) {
+        super(cause);
+    }
+
+    public AuthenticationException(String message, Throwable cause) {
+        super(message, cause);
     }
 }

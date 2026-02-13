@@ -130,7 +130,6 @@ class LdapAuthenticationPluginIntegrationTest {
                 .name("test_ldap")
                 .type("ldap")
                 .properties(config)
-                .enabled(true)
                 .build();
 
         // Initialize plugin
@@ -380,36 +379,6 @@ class LdapAuthenticationPluginIntegrationTest {
         AuthenticationResult result = customPlugin.authenticate(request, customIntegration);
 
         Assertions.assertTrue(result.isSuccess());
-    }
-
-    // ==================== Health Check Tests ====================
-
-    @Test
-    @DisplayName("Should pass health check with running LDAP server")
-    void testHealthCheckSuccess() {
-        boolean healthy = plugin.healthCheck(integration);
-        Assertions.assertTrue(healthy, "Health check should pass with running LDAP server");
-    }
-
-    @Test
-    @DisplayName("Should fail health check with stopped LDAP server")
-    void testHealthCheckFailure() throws Exception {
-        // Create integration pointing to non-existent server
-        Map<String, String> config = new HashMap<>();
-        config.put("server", "ldap://localhost:99999");
-        config.put("base_dn", "dc=example,dc=com");
-
-        AuthenticationIntegration badIntegration = AuthenticationIntegration.builder()
-                .name("bad_ldap")
-                .type("ldap")
-                .properties(config)
-                .build();
-
-        LdapAuthenticationPlugin badPlugin = new LdapAuthenticationPlugin();
-        badPlugin.initialize(badIntegration);
-
-        boolean healthy = badPlugin.healthCheck(badIntegration);
-        Assertions.assertFalse(healthy, "Health check should fail with unreachable server");
     }
 
     // ==================== Concurrent Authentication Tests ====================

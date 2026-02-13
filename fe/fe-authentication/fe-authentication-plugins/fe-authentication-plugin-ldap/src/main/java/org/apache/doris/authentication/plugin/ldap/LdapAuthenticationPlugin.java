@@ -35,7 +35,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * LDAP authentication plugin.
@@ -58,7 +57,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>Configuration example:
  * <pre>
- * CREATE AUTHENTICATION PROFILE corp_ldap
+ * CREATE AUTHENTICATION INTEGRATION corp_ldap
  *   TYPE = 'ldap'
  *   WITH (
  *     'server' = 'ldap://ldap.example.com:389',
@@ -77,8 +76,8 @@ public class LdapAuthenticationPlugin implements AuthenticationPlugin {
 
     public static final String PLUGIN_NAME = "ldap";
 
-    // Per-integration LDAP client cache (integrationName -> LdapClient)
-    private final Map<String, LdapClient> clientCache = new ConcurrentHashMap<>();
+    // One plugin instance serves one AuthenticationIntegration.
+    private volatile LdapClient ldapClient;
 
     @Override
     public String name() {
@@ -93,7 +92,7 @@ public class LdapAuthenticationPlugin implements AuthenticationPlugin {
     @Override
     public boolean supports(AuthenticationRequest request) {
         // LDAP requires clear text password
-        return request.getCredentialType() == CredentialType.CLEAR_TEXT_PASSWORD;
+        return CredentialType.CLEAR_TEXT_PASSWORD.equalsIgnoreCase(request.getCredentialType());
     }
 
     @Override
@@ -119,8 +118,7 @@ public class LdapAuthenticationPlugin implements AuthenticationPlugin {
         String password = new String(credentialBytes, StandardCharsets.UTF_8);
 
         // Get or create LDAP client for this integration
-        String integrationName = integration.getName();
-        LdapClient ldapClient = getOrCreateClient(integrationName, integration.getProperties());
+        LdapClient ldapClient = getOrCreateClient(integration.getProperties());
 
         try {
             // Step 1: Check if user exists in LDAP
@@ -188,62 +186,50 @@ public class LdapAuthenticationPlugin implements AuthenticationPlugin {
 
     @Override
     public void initialize(AuthenticationIntegration integration) throws AuthenticationException {
-        String integrationName = integration.getName();
         try {
-            LdapClient client = new LdapClient(integration.getProperties());
-            clientCache.put(integrationName, client);
-            LOG.info("LDAP client initialized for integration: {}", integrationName);
+            closeClientIfExists();
+            ldapClient = createClient(integration.getProperties());
+            LOG.info("LDAP client initialized for integration: {}", integration.getName());
         } catch (Exception e) {
             throw new AuthenticationException("Failed to initialize LDAP client: " + e.getMessage(), e);
         }
     }
 
     @Override
-    public boolean healthCheck(AuthenticationIntegration integration) {
-        String integrationName = integration.getName();
-        LdapClient client = clientCache.get(integrationName);
-        if (client == null) {
-            return false;
-        }
-        try {
-            return client.healthCheck();
-        } catch (Exception e) {
-            LOG.warn("LDAP health check failed for integration: {}", integrationName, e);
-            return false;
-        }
-    }
-
-    @Override
     public void reload(AuthenticationIntegration integration) throws AuthenticationException {
-        String integrationName = integration.getName();
-        LOG.info("Reloading LDAP client for integration: {}", integrationName);
-
-        // Close existing client
-        LdapClient oldClient = clientCache.remove(integrationName);
-        if (oldClient != null) {
-            oldClient.close();
-        }
-
-        // Re-initialize with new config
+        LOG.info("Reloading LDAP client for integration: {}", integration.getName());
         initialize(integration);
     }
 
     @Override
     public void close() {
-        LOG.info("Closing LDAP plugin, cleaning up {} client(s)", clientCache.size());
-        clientCache.values().forEach(LdapClient::close);
-        clientCache.clear();
+        closeClientIfExists();
     }
 
-    private LdapClient getOrCreateClient(String integrationName, Map<String, String> config)
+    private LdapClient getOrCreateClient(Map<String, String> config)
             throws AuthenticationException {
-        return clientCache.computeIfAbsent(integrationName, k -> {
-            try {
-                return createClient(config);
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to create LDAP client: " + e.getMessage(), e);
+        LdapClient localClient = ldapClient;
+        if (localClient != null) {
+            return localClient;
+        }
+        synchronized (this) {
+            if (ldapClient == null) {
+                try {
+                    ldapClient = createClient(config);
+                } catch (Exception e) {
+                    throw new AuthenticationException("Failed to create LDAP client: " + e.getMessage(), e);
+                }
             }
-        });
+            return ldapClient;
+        }
+    }
+
+    private void closeClientIfExists() {
+        LdapClient oldClient = ldapClient;
+        ldapClient = null;
+        if (oldClient != null) {
+            oldClient.close();
+        }
     }
 
     /**

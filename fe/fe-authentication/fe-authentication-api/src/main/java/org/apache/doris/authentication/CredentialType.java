@@ -18,15 +18,19 @@
 package org.apache.doris.authentication;
 
 /**
- * Credential type enumeration.
+ * Credential type constants (string-based for extensibility).
  */
-public enum CredentialType {
-    MYSQL_NATIVE_PASSWORD,   // MySQL native password (scrambled)
-    CLEAR_TEXT_PASSWORD,     // Clear-text password
-    KERBEROS_TOKEN,          // Kerberos ticket
-    OAUTH_TOKEN,             // OAuth/OIDC Access Token
-    OIDC_ID_TOKEN,           // OIDC ID Token
-    X509_CERTIFICATE,        // X.509 client certificate
-    JWT_TOKEN,               // JWT Token
-    SAML_ASSERTION           // SAML assertion
+public final class CredentialType {
+
+    public static final String MYSQL_NATIVE_PASSWORD = "MYSQL_NATIVE_PASSWORD";
+    public static final String CLEAR_TEXT_PASSWORD = "CLEAR_TEXT_PASSWORD";
+    public static final String KERBEROS_TOKEN = "KERBEROS_TOKEN";
+    public static final String OAUTH_TOKEN = "OAUTH_TOKEN";
+    public static final String OIDC_ID_TOKEN = "OIDC_ID_TOKEN";
+    public static final String X509_CERTIFICATE = "X509_CERTIFICATE";
+    public static final String JWT_TOKEN = "JWT_TOKEN";
+    public static final String SAML_ASSERTION = "SAML_ASSERTION";
+
+    private CredentialType() {
+    }
 }

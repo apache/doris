@@ -97,7 +97,9 @@ public interface AuthenticationPlugin extends Plugin {
      * @param request authentication request (contains username, credential, source IP, etc.)
      * @param integration authentication configuration instance (contains plugin configuration)
      * @return authentication result (contains Principal or error message)
-     * @throws AuthenticationException if authentication process encounters an error
+     * @throws AuthenticationException for internal/plugin errors (e.g. misconfiguration,
+     *         dependency outages). Expected authentication failures (e.g. invalid credentials)
+     *         should return {@link AuthenticationResult#failure(AuthenticationException)} instead.
      */
     AuthenticationResult authenticate(AuthenticationRequest request, AuthenticationIntegration integration)
             throws AuthenticationException;
@@ -122,16 +124,6 @@ public interface AuthenticationPlugin extends Plugin {
      */
     default void initialize(AuthenticationIntegration integration) throws AuthenticationException {
         // Default: no initialization
-    }
-
-    /**
-     * Health check (called periodically).
-     *
-     * @param integration configuration instance
-     * @return true if healthy, false otherwise
-     */
-    default boolean healthCheck(AuthenticationIntegration integration) {
-        return true;
     }
 
     /**

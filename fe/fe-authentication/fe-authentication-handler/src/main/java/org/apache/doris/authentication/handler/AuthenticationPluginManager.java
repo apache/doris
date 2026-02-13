@@ -21,14 +21,20 @@ import org.apache.doris.authentication.AuthenticationException;
 import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.spi.AuthenticationPlugin;
 import org.apache.doris.authentication.spi.AuthenticationPluginFactory;
-import org.apache.doris.extension.loader.ChildFirstClassLoader;
-import org.apache.doris.extension.loader.PluginLoader;
-import org.apache.doris.extension.spi.PluginDescriptor;
-import org.apache.doris.extension.spi.PluginException;
-import org.apache.doris.extension.spi.PluginFactory;
+import org.apache.doris.extension.loader.ClassLoadingPolicy;
+import org.apache.doris.extension.loader.DirectoryPluginRuntimeManager;
+import org.apache.doris.extension.loader.LoadFailure;
+import org.apache.doris.extension.loader.LoadReport;
+import org.apache.doris.extension.loader.PluginHandle;
 
-import java.net.URL;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.io.Closeable;
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -39,18 +45,23 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Manager for authentication plugins.
  *
- * <p>Handles plugin instance lifecycle: creation, caching, health checks, reloading.
- * Uses {@link ServiceLoader} for classpath plugins and {@link PluginLoader}
- * for external plugins.</p>
- *
- * <p>Design per auth.md:
+ * <p>Responsibilities:
  * <ul>
- *   <li>Plugins are identified by string name (not enum)</li>
- *   <li>Plugin instances are cached per integration name</li>
- *   <li>Factories are discovered via ServiceLoader</li>
+ *   <li>Discover built-in and external {@link AuthenticationPluginFactory}</li>
+ *   <li>Create and cache {@link AuthenticationPlugin} instances by integration name</li>
+ *   <li>Expose plugin lookup for {@link AuthenticationService}</li>
+ * </ul>
+ *
+ * <p>V1 scope:
+ * <ul>
+ *   <li>Supports external plugin loading via plugin roots</li>
+ *   <li>Does not support plugin reload/unload</li>
  * </ul>
  */
 public class AuthenticationPluginManager {
+    private static final Logger LOG = LogManager.getLogger(AuthenticationPluginManager.class);
+    private static final List<String> AUTH_PARENT_FIRST_PREFIXES =
+            Collections.singletonList("org.apache.doris.authentication.");
 
     /** Factories by plugin name (e.g., "ldap", "oidc", "password") */
     private final Map<String, AuthenticationPluginFactory> factories = new ConcurrentHashMap<>();
@@ -58,29 +69,25 @@ public class AuthenticationPluginManager {
     /** Plugin instances by integration name */
     private final Map<String, AuthenticationPlugin> pluginByIntegration = new ConcurrentHashMap<>();
 
-    /** Integration snapshots for reload detection */
-    private final Map<String, AuthenticationIntegration> integrationSnapshot = new ConcurrentHashMap<>();
-
-    /** External classloaders by plugin name */
-    private final Map<String, ClassLoader> externalClassLoaders = new ConcurrentHashMap<>();
-
-    private final PluginLoader pluginLoader;
+    private final DirectoryPluginRuntimeManager<AuthenticationPluginFactory> runtimeManager;
+    private final ClassLoadingPolicy classLoadingPolicy;
 
     public AuthenticationPluginManager() {
-        this(new PluginLoader(defaultParentFirstPackages()));
+        this(new DirectoryPluginRuntimeManager<AuthenticationPluginFactory>());
     }
 
-    public AuthenticationPluginManager(PluginLoader pluginLoader) {
-        this.pluginLoader = Objects.requireNonNull(pluginLoader, "pluginLoader");
-        // Discover factories via ServiceLoader
-        ServiceLoader.load(AuthenticationPluginFactory.class).forEach(factory ->
-                factories.put(factory.name(), factory));
+    public AuthenticationPluginManager(DirectoryPluginRuntimeManager<AuthenticationPluginFactory> runtimeManager) {
+        this(runtimeManager, new ClassLoadingPolicy(AUTH_PARENT_FIRST_PREFIXES));
     }
 
-    private static List<String> defaultParentFirstPackages() {
-        List<String> packages = new ArrayList<>(ChildFirstClassLoader.DEFAULT_PARENT_FIRST_PACKAGES);
-        packages.add("org.apache.doris.authentication.");
-        return packages;
+    public AuthenticationPluginManager(DirectoryPluginRuntimeManager<AuthenticationPluginFactory> runtimeManager,
+            ClassLoadingPolicy classLoadingPolicy) {
+        this.runtimeManager = Objects.requireNonNull(runtimeManager, "runtimeManager");
+        this.classLoadingPolicy = classLoadingPolicy != null
+                ? classLoadingPolicy
+                : ClassLoadingPolicy.defaultPolicy();
+
+        ServiceLoader.load(AuthenticationPluginFactory.class).forEach(factory -> factories.put(factory.name(), factory));
     }
 
     /**
@@ -94,60 +101,77 @@ public class AuthenticationPluginManager {
     }
 
     /**
-     * Register an external plugin factory by descriptor and classloader.
+     * Load external authentication plugins from plugin roots using directory convention:
+     * pluginDir/*.jar + pluginDir/lib/*.jar.
      *
-     * @param descriptor plugin descriptor
-     * @param classLoader classloader for the plugin
-     * @throws AuthenticationException if registration fails
-     */
-    public void registerExternalFactory(PluginDescriptor descriptor,
-            ClassLoader classLoader) throws AuthenticationException {
-        Objects.requireNonNull(descriptor, "descriptor");
-        Objects.requireNonNull(classLoader, "classLoader");
-        PluginFactory factory;
-        try {
-            factory = pluginLoader.loadFactory(descriptor, classLoader);
-        } catch (PluginException e) {
-            throw new AuthenticationException(
-                    "Failed to load plugin factory: " + descriptor.getFactoryClass(), e);
-        }
-        if (!(factory instanceof AuthenticationPluginFactory)) {
-            throw new AuthenticationException(
-                    "Factory is not AuthenticationPluginFactory: " + factory.getClass().getName());
-        }
-        AuthenticationPluginFactory authFactory = (AuthenticationPluginFactory) factory;
-        factories.put(authFactory.name(), authFactory);
-        externalClassLoaders.put(authFactory.name(), classLoader);
-    }
-
-    /**
-     * Convenience method to register external factory using plugin URLs.
+     * <p>Behavior:
+     * <ul>
+     *   <li>Only direct subdirectories under each root are treated as plugin directories.</li>
+     *   <li>Single directory failure does not stop other directories from loading.</li>
+     *   <li>If no external plugin is loaded and all discovered directories fail, throws exception.</li>
+     * </ul>
      *
-     * @param descriptor plugin descriptor
-     * @param urls URLs for the plugin classloader
+     * @param pluginRoots plugin root directories
      * @param parent parent classloader
-     * @throws AuthenticationException if registration fails
+     * @throws AuthenticationException when all discovered plugin directories fail to load
      */
-    public void registerExternalFactory(PluginDescriptor descriptor, URL[] urls, ClassLoader parent)
-            throws AuthenticationException {
-        ClassLoader classLoader = pluginLoader.createClassLoader(urls, parent);
-        registerExternalFactory(descriptor, classLoader);
+    public void loadAll(List<Path> pluginRoots, ClassLoader parent) throws AuthenticationException {
+        Objects.requireNonNull(pluginRoots, "pluginRoots");
+        Objects.requireNonNull(parent, "parent");
+
+        LoadReport<AuthenticationPluginFactory> report = runtimeManager.loadAll(
+                pluginRoots,
+                parent,
+                AuthenticationPluginFactory.class,
+                classLoadingPolicy);
+
+        for (LoadFailure failure : report.getFailures()) {
+            LOG.warn("Skip plugin directory due to load failure: pluginDir={}, stage={}, message={}",
+                    failure.getPluginDir(), failure.getStage(), failure.getMessage(), failure.getCause());
+        }
+
+        int loadedPlugins = 0;
+        for (PluginHandle<AuthenticationPluginFactory> handle : report.getSuccesses()) {
+            String pluginName = handle.getPluginName();
+            AuthenticationPluginFactory existing = factories.putIfAbsent(pluginName, handle.getFactory());
+            if (existing != null) {
+                closeClassLoaderQuietly(handle.getClassLoader());
+                LOG.warn("Skip duplicated plugin name: {} from directory {}", pluginName, handle.getPluginDir());
+                continue;
+            }
+            loadedPlugins++;
+            LOG.info("Loaded external authentication plugin: name={}, pluginDir={}, jarCount={}",
+                    pluginName, handle.getPluginDir(), handle.getResolvedJars().size());
+        }
+
+        LoadFailure firstNonConflictFailure = firstNonConflictFailure(report.getFailures());
+        if (report.getDirsScanned() > 0 && loadedPlugins == 0 && firstNonConflictFailure != null) {
+            throw new AuthenticationException(
+                    "Failed to load any external plugin from pluginRoots: stage="
+                            + firstNonConflictFailure.getStage()
+                            + ", pluginDir=" + firstNonConflictFailure.getPluginDir()
+                            + ", message=" + firstNonConflictFailure.getMessage(),
+                    firstNonConflictFailure.getCause());
+        }
     }
 
-    /**
-     * Remove a factory by plugin name and close its classloader if external.
-     *
-     * @param pluginName the plugin name
-     */
-    public void removeFactory(String pluginName) {
-        factories.remove(pluginName);
-        ClassLoader classLoader = externalClassLoaders.remove(pluginName);
-        if (classLoader instanceof java.net.URLClassLoader) {
-            try {
-                ((java.net.URLClassLoader) classLoader).close();
-            } catch (Exception ignored) {
-                // best-effort close
+    private static LoadFailure firstNonConflictFailure(List<LoadFailure> failures) {
+        for (LoadFailure failure : failures) {
+            if (!LoadFailure.STAGE_CONFLICT.equals(failure.getStage())) {
+                return failure;
             }
+        }
+        return null;
+    }
+
+    private static void closeClassLoaderQuietly(ClassLoader classLoader) {
+        if (!(classLoader instanceof Closeable)) {
+            return;
+        }
+        try {
+            ((Closeable) classLoader).close();
+        } catch (IOException ignored) {
+            // Best effort close.
         }
     }
 
@@ -191,7 +215,6 @@ public class AuthenticationPluginManager {
             }
             AuthenticationPlugin plugin = createAndInit(integration);
             pluginByIntegration.put(integration.getName(), plugin);
-            integrationSnapshot.put(integration.getName(), integration);
             return plugin;
         }
     }
@@ -209,10 +232,10 @@ public class AuthenticationPluginManager {
     }
 
     /**
-     * Reload plugin for the given integration.
+     * Refresh plugin instance for one integration by evicting cache and recreating.
      *
      * @param integration authentication integration
-     * @throws AuthenticationException if reload fails
+     * @throws AuthenticationException if plugin creation fails
      */
     public void reloadPlugin(AuthenticationIntegration integration) throws AuthenticationException {
         removePlugin(integration.getName());
@@ -229,19 +252,6 @@ public class AuthenticationPluginManager {
         if (plugin != null) {
             plugin.close();
         }
-        integrationSnapshot.remove(integrationName);
-    }
-
-    /**
-     * Perform health check on all plugins.
-     */
-    public void healthCheckAll() {
-        pluginByIntegration.forEach((integrationName, plugin) -> {
-            AuthenticationIntegration integration = integrationSnapshot.get(integrationName);
-            if (integration != null) {
-                plugin.healthCheck(integration);
-            }
-        });
     }
 
     /**
@@ -268,6 +278,5 @@ public class AuthenticationPluginManager {
     public void clearCache() {
         pluginByIntegration.values().forEach(AuthenticationPlugin::close);
         pluginByIntegration.clear();
-        integrationSnapshot.clear();
     }
 }

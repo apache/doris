@@ -32,14 +32,14 @@ import java.util.Optional;
  * <p>Example SQL:
  * <pre>{@code
  * -- Create two LDAP integrations with different configurations
- * CREATE AUTHENTICATION PROFILE corp_ldap
+ * CREATE AUTHENTICATION INTEGRATION corp_ldap
  *   TYPE = 'ldap'
  *   WITH (
  *     'server' = 'ldap://corp.example.com:389',
  *     'base_dn' = 'dc=corp,dc=example,dc=com'
  *   );
  *
- * CREATE AUTHENTICATION PROFILE partner_ldap
+ * CREATE AUTHENTICATION INTEGRATION partner_ldap
  *   TYPE = 'ldap'
  *   WITH (
  *     'server' = 'ldap://partner.example.com:389',
@@ -66,9 +66,6 @@ public final class AuthenticationIntegration {
     /** Plugin-specific configuration properties */
     private final Map<String, String> properties;
 
-    /** Whether this integration is enabled */
-    private final boolean enabled;
-
     /** Optional comment/description */
     private final String comment;
 
@@ -76,7 +73,6 @@ public final class AuthenticationIntegration {
         this.name = Objects.requireNonNull(builder.name, "name is required");
         this.type = Objects.requireNonNull(builder.type, "type is required");
         this.properties = Collections.unmodifiableMap(new HashMap<>(builder.properties));
-        this.enabled = builder.enabled;
         this.comment = builder.comment;
     }
 
@@ -129,15 +125,6 @@ public final class AuthenticationIntegration {
     }
 
     /**
-     * Returns whether this integration is enabled.
-     *
-     * @return true if enabled
-     */
-    public boolean isEnabled() {
-        return enabled;
-    }
-
-    /**
      * Returns the optional comment.
      *
      * @return optional comment
@@ -168,7 +155,6 @@ public final class AuthenticationIntegration {
         return "AuthenticationIntegration{"
                 + "name='" + name + '\''
                 + ", type='" + type + '\''
-                + ", enabled=" + enabled
                 + ", properties=" + properties.size() + " entries"
                 + '}';
     }
@@ -192,7 +178,6 @@ public final class AuthenticationIntegration {
                 .name(name)
                 .type(type)
                 .properties(properties)
-                .enabled(enabled)
                 .comment(comment);
     }
 
@@ -203,7 +188,6 @@ public final class AuthenticationIntegration {
         private String name;
         private String type;
         private Map<String, String> properties = new HashMap<>();
-        private boolean enabled = true;
         private String comment;
 
         private Builder() {
@@ -251,17 +235,6 @@ public final class AuthenticationIntegration {
          */
         public Builder property(String key, String value) {
             this.properties.put(key, value);
-            return this;
-        }
-
-        /**
-         * Sets the enabled flag.
-         *
-         * @param enabled whether enabled
-         * @return this builder
-         */
-        public Builder enabled(boolean enabled) {
-            this.enabled = enabled;
             return this;
         }
 

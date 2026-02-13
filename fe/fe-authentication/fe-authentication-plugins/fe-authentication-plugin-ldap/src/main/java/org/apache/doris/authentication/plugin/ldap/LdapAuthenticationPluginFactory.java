@@ -29,9 +29,6 @@ import org.apache.doris.authentication.spi.AuthenticationPluginFactory;
  */
 public class LdapAuthenticationPluginFactory implements AuthenticationPluginFactory {
 
-    // Singleton instance (plugins are stateless, client cache is per-integration)
-    private static final LdapAuthenticationPlugin INSTANCE = new LdapAuthenticationPlugin();
-
     @Override
     public String name() {
         return LdapAuthenticationPlugin.PLUGIN_NAME;
@@ -39,6 +36,7 @@ public class LdapAuthenticationPluginFactory implements AuthenticationPluginFact
 
     @Override
     public AuthenticationPlugin create() {
-        return INSTANCE;
+        // One plugin instance per AuthenticationIntegration.
+        return new LdapAuthenticationPlugin();
     }
 }

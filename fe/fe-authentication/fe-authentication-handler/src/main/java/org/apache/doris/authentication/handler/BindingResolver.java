@@ -39,6 +39,9 @@ import java.util.Optional;
  *   <li>Default password integration (fallback)</li>
  * </ol>
  *
+ * <p>If a user binding exists but the referenced integration is missing,
+ * resolution fails with an {@link AuthenticationException}.
+ *
  * <p>Design per auth.md: simplified model without role bindings and priority.
  */
 public class BindingResolver {
@@ -84,16 +87,23 @@ public class BindingResolver {
      * @param username the username
      * @param request the authentication request
      * @return list of candidate integrations in priority order
+     * @throws AuthenticationException if a user binding points to a missing integration
      */
     public List<AuthenticationIntegration> resolveCandidates(String username,
-            AuthenticationRequest request) {
+            AuthenticationRequest request) throws AuthenticationException {
         Map<String, AuthenticationIntegration> candidates = new LinkedHashMap<>();
 
         // 1. User binding - check if user has explicit binding
         Optional<String> boundIntegration = bindingRegistry.getIntegrationName(username);
         if (boundIntegration.isPresent()) {
-            integrationRegistry.get(boundIntegration.get())
-                    .ifPresent(integration -> addCandidate(candidates, integration));
+            String integrationName = boundIntegration.get();
+            Optional<AuthenticationIntegration> integration = integrationRegistry.get(integrationName);
+            if (integration.isPresent()) {
+                addCandidate(candidates, integration.get());
+            } else {
+                throw new AuthenticationException("Bound integration not found: " + integrationName
+                        + " for user: " + username);
+            }
         }
 
         // 2. Authentication chain - try integrations in defined order

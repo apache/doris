@@ -20,7 +20,6 @@ package org.apache.doris.authentication.handler;
 import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationResult;
 import org.apache.doris.authentication.BasicPrincipal;
-import org.apache.doris.authentication.Subject;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
@@ -49,17 +48,12 @@ class AuthenticationOutcomeTest {
                 .build();
 
         AuthenticationResult result = AuthenticationResult.success(principal);
-        Subject subject = Subject.builder()
-                .principal(principal)
-                .build();
 
-        AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result, subject);
+        AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result);
 
         Assertions.assertNotNull(outcome);
         Assertions.assertEquals(integration, outcome.getIntegration());
         Assertions.assertEquals(result, outcome.getAuthResult());
-        Assertions.assertTrue(outcome.getSubject().isPresent());
-        Assertions.assertEquals(subject, outcome.getSubject().get());
         Assertions.assertTrue(outcome.isSuccess());
         Assertions.assertFalse(outcome.isFailure());
         Assertions.assertFalse(outcome.isContinue());
@@ -76,43 +70,16 @@ class AuthenticationOutcomeTest {
 
         AuthenticationResult result = AuthenticationResult.failure("Invalid password");
 
-        AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result, null);
+        AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result);
 
         Assertions.assertNotNull(outcome);
-        Assertions.assertFalse(outcome.getSubject().isPresent());
         Assertions.assertTrue(outcome.isFailure());
         Assertions.assertFalse(outcome.isSuccess());
         Assertions.assertFalse(outcome.isContinue());
     }
 
     @Test
-    @DisplayName("UT-AO-003: Create outcome with all fields")
-    void testCreate_AllFields() {
-        AuthenticationIntegration integration = AuthenticationIntegration.builder()
-                .name("test_integration")
-                .type("ldap")
-                .properties(new HashMap<>())
-                .build();
-
-        BasicPrincipal principal = BasicPrincipal.builder()
-                .name("bob")
-                .authenticator("test_integration")
-                .build();
-
-        AuthenticationResult result = AuthenticationResult.success(principal);
-        Subject subject = Subject.builder()
-                .principal(principal)
-                .build();
-        Object resolvedUser = new Object();
-
-        AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result, subject, resolvedUser);
-
-        Assertions.assertTrue(outcome.getResolvedUser().isPresent());
-        Assertions.assertEquals(resolvedUser, outcome.getResolvedUser().get());
-    }
-
-    @Test
-    @DisplayName("UT-AO-004: Get principal from result")
+    @DisplayName("UT-AO-003: Get principal from result")
     void testGetPrincipal() {
         AuthenticationIntegration integration = AuthenticationIntegration.builder()
                 .name("test")
@@ -127,42 +94,30 @@ class AuthenticationOutcomeTest {
 
         AuthenticationResult result = AuthenticationResult.success(principal);
 
-        AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result, null);
+        AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result);
 
         Assertions.assertTrue(outcome.getPrincipal().isPresent());
         Assertions.assertEquals(principal, outcome.getPrincipal().get());
     }
 
     @Test
-    @DisplayName("UT-AO-005: Get identity from result")
-    void testGetIdentity() {
+    @DisplayName("UT-AO-004: Failure outcome has no principal")
+    void testFailureOutcomeHasNoPrincipal() {
         AuthenticationIntegration integration = AuthenticationIntegration.builder()
                 .name("test")
                 .type("ldap")
                 .properties(new HashMap<>())
                 .build();
 
-        //         Identity identity = Identity.builder()
-        //                 .username("dave")
-        //                 .authenticatorName("test")
-        //                 .authenticatorPluginName("ldap")
-        //                 .build();
+        AuthenticationResult result = AuthenticationResult.failure("invalid credential");
 
-        BasicPrincipal principal = BasicPrincipal.builder()
-                .name("dave")
-                .authenticator("test")
-                .build();
+        AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result);
 
-        AuthenticationResult result = AuthenticationResult.success(principal);
-
-        AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result, null);
-
-        // Note: Identity is stored in AuthenticationResult, availability depends on plugin implementation
-        Assertions.assertNotNull(outcome.getIdentity());
+        Assertions.assertFalse(outcome.getPrincipal().isPresent());
     }
 
     @Test
-    @DisplayName("UT-AO-006: Null integration throws NPE")
+    @DisplayName("UT-AO-005: Null integration throws NPE")
     void testCreate_NullIntegration() {
         BasicPrincipal principal = BasicPrincipal.builder()
                 .name("eve")
@@ -172,11 +127,11 @@ class AuthenticationOutcomeTest {
         AuthenticationResult result = AuthenticationResult.success(principal);
 
         Assertions.assertThrows(NullPointerException.class, () ->
-                AuthenticationOutcome.of(null, result, null));
+                AuthenticationOutcome.of(null, result));
     }
 
     @Test
-    @DisplayName("UT-AO-007: Null result throws NPE")
+    @DisplayName("UT-AO-006: Null result throws NPE")
     void testCreate_NullResult() {
         AuthenticationIntegration integration = AuthenticationIntegration.builder()
                 .name("test")
@@ -185,54 +140,11 @@ class AuthenticationOutcomeTest {
                 .build();
 
         Assertions.assertThrows(NullPointerException.class, () ->
-                AuthenticationOutcome.of(integration, null, null));
+                AuthenticationOutcome.of(integration, null));
     }
 
     @Test
-    @DisplayName("UT-AO-008: Null subject is allowed")
-    void testCreate_NullSubject() {
-        AuthenticationIntegration integration = AuthenticationIntegration.builder()
-                .name("test")
-                .type("password")
-                .properties(new HashMap<>())
-                .build();
-
-        BasicPrincipal principal = BasicPrincipal.builder()
-                .name("frank")
-                .authenticator("test")
-                .build();
-
-        AuthenticationResult result = AuthenticationResult.success(principal);
-
-        AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result, null);
-
-        Assertions.assertNotNull(outcome);
-        Assertions.assertFalse(outcome.getSubject().isPresent());
-    }
-
-    @Test
-    @DisplayName("UT-AO-009: Null resolved user is allowed")
-    void testCreate_NullResolvedUser() {
-        AuthenticationIntegration integration = AuthenticationIntegration.builder()
-                .name("test")
-                .type("password")
-                .properties(new HashMap<>())
-                .build();
-
-        BasicPrincipal principal = BasicPrincipal.builder()
-                .name("grace")
-                .authenticator("test")
-                .build();
-
-        AuthenticationResult result = AuthenticationResult.success(principal);
-
-        AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result, null, null);
-
-        Assertions.assertFalse(outcome.getResolvedUser().isPresent());
-    }
-
-    @Test
-    @DisplayName("UT-AO-010: toString includes key information")
+    @DisplayName("UT-AO-007: toString includes key information")
     void testToString() {
         AuthenticationIntegration integration = AuthenticationIntegration.builder()
                 .name("my_integration")
@@ -247,7 +159,7 @@ class AuthenticationOutcomeTest {
 
         AuthenticationResult result = AuthenticationResult.success(principal);
 
-        AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result, null);
+        AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result);
 
         String str = outcome.toString();
         Assertions.assertTrue(str.contains("my_integration"));
@@ -255,60 +167,7 @@ class AuthenticationOutcomeTest {
     }
 
     @Test
-    @DisplayName("UT-AO-011: Factory method with 3 parameters")
-    void testFactoryMethod_ThreeParams() {
-        AuthenticationIntegration integration = AuthenticationIntegration.builder()
-                .name("test")
-                .type("password")
-                .properties(new HashMap<>())
-                .build();
-
-        BasicPrincipal principal = BasicPrincipal.builder()
-                .name("iris")
-                .authenticator("test")
-                .build();
-
-        AuthenticationResult result = AuthenticationResult.success(principal);
-        Subject subject = Subject.builder()
-                .principal(principal)
-                .build();
-
-        AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result, subject);
-
-        Assertions.assertNotNull(outcome);
-        Assertions.assertTrue(outcome.getSubject().isPresent());
-        Assertions.assertFalse(outcome.getResolvedUser().isPresent());
-    }
-
-    @Test
-    @DisplayName("UT-AO-012: Factory method with 4 parameters")
-    void testFactoryMethod_FourParams() {
-        AuthenticationIntegration integration = AuthenticationIntegration.builder()
-                .name("test")
-                .type("password")
-                .properties(new HashMap<>())
-                .build();
-
-        BasicPrincipal principal = BasicPrincipal.builder()
-                .name("jack")
-                .authenticator("test")
-                .build();
-
-        AuthenticationResult result = AuthenticationResult.success(principal);
-        Subject subject = Subject.builder()
-                .principal(principal)
-                .build();
-        String resolvedUser = "user_object";
-
-        AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result, subject, resolvedUser);
-
-        Assertions.assertTrue(outcome.getSubject().isPresent());
-        Assertions.assertTrue(outcome.getResolvedUser().isPresent());
-        Assertions.assertEquals(resolvedUser, outcome.getResolvedUser().get());
-    }
-
-    @Test
-    @DisplayName("UT-AO-013: Continue status")
+    @DisplayName("UT-AO-008: Continue status")
     void testContinueStatus() {
         AuthenticationIntegration integration = AuthenticationIntegration.builder()
                 .name("test")
@@ -319,7 +178,7 @@ class AuthenticationOutcomeTest {
         byte[] challengeData = "challenge".getBytes();
         AuthenticationResult result = AuthenticationResult.continueWith("state", challengeData);
 
-        AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result, null);
+        AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result);
 
         Assertions.assertTrue(outcome.isContinue());
         Assertions.assertFalse(outcome.isSuccess());

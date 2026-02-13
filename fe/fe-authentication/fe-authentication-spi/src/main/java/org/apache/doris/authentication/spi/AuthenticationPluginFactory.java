@@ -17,7 +17,6 @@
 
 package org.apache.doris.authentication.spi;
 
-import org.apache.doris.extension.spi.PluginDescriptor;
 import org.apache.doris.extension.spi.PluginFactory;
 
 /**
@@ -38,7 +37,7 @@ import org.apache.doris.extension.spi.PluginFactory;
  * <p>Design principles:
  * <ul>
  *   <li>Plugin name is a string (not enum) for extensibility</li>
- *   <li>Factory can return singleton or new instance each time</li>
+ *   <li>Factory should return a new plugin instance for each create() call</li>
  *   <li>Third parties can develop custom plugins without modifying Doris code</li>
  * </ul>
  */
@@ -55,14 +54,9 @@ public interface AuthenticationPluginFactory extends PluginFactory {
 
     /**
      * Create a plugin instance.
-     * Can be singleton or new instance each time.
+     * Should return a new instance so each AuthenticationIntegration can hold an isolated plugin object.
      *
      * @return plugin instance
      */
     AuthenticationPlugin create();
-
-    @Override
-    default AuthenticationPlugin create(PluginDescriptor descriptor) {
-        return create();
-    }
 }

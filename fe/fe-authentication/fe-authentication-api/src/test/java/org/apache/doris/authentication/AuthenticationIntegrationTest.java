@@ -47,7 +47,6 @@ class AuthenticationIntegrationTest {
         Assertions.assertEquals(name, integration.getName());
         Assertions.assertEquals(type, integration.getType());
         Assertions.assertTrue(integration.getProperties().isEmpty());
-        Assertions.assertTrue(integration.isEnabled());
         Assertions.assertFalse(integration.getComment().isPresent());
     }
 
@@ -68,7 +67,6 @@ class AuthenticationIntegrationTest {
                 .name(name)
                 .type(type)
                 .properties(properties)
-                .enabled(false)
                 .comment(comment)
                 .build();
 
@@ -76,7 +74,6 @@ class AuthenticationIntegrationTest {
         Assertions.assertEquals(name, integration.getName());
         Assertions.assertEquals(type, integration.getType());
         Assertions.assertEquals(properties, integration.getProperties());
-        Assertions.assertFalse(integration.isEnabled());
         Assertions.assertTrue(integration.getComment().isPresent());
         Assertions.assertEquals(comment, integration.getComment().get());
     }
@@ -222,7 +219,6 @@ class AuthenticationIntegrationTest {
                 .type("ldap")
                 .property("key1", "value1")
                 .property("key2", "value2")
-                .enabled(true)
                 .build();
 
         // When
@@ -231,7 +227,6 @@ class AuthenticationIntegrationTest {
         // Then
         Assertions.assertTrue(toString.contains("test_ldap"));
         Assertions.assertTrue(toString.contains("ldap"));
-        Assertions.assertTrue(toString.contains("enabled=true"));
         Assertions.assertTrue(toString.contains("2 entries"));
     }
 
@@ -243,21 +238,18 @@ class AuthenticationIntegrationTest {
                 .name("original")
                 .type("ldap")
                 .property("server", "ldap.example.com")
-                .enabled(false)
                 .comment("Original comment")
                 .build();
 
         // When
         AuthenticationIntegration modified = original.toBuilder()
                 .name("modified")
-                .enabled(true)
                 .build();
 
         // Then
         Assertions.assertEquals("modified", modified.getName());
         Assertions.assertEquals("ldap", modified.getType());
         Assertions.assertEquals("ldap.example.com", modified.getProperty("server").get());
-        Assertions.assertTrue(modified.isEnabled());
         Assertions.assertEquals("Original comment", modified.getComment().get());
     }
 }

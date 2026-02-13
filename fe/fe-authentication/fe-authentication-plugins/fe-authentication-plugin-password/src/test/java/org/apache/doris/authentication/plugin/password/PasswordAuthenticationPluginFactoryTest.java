@@ -55,8 +55,8 @@ class PasswordAuthenticationPluginFactoryTest {
     }
 
     @Test
-    @DisplayName("UT-PWD-F-003: Factory should return singleton instance")
-    void testFactorySingleton() {
+    @DisplayName("UT-PWD-F-003: Factory should create new instance per integration")
+    void testFactoryCreatesNewInstance() {
         // Given
         PasswordAuthenticationPluginFactory factory = new PasswordAuthenticationPluginFactory();
 
@@ -65,6 +65,6 @@ class PasswordAuthenticationPluginFactoryTest {
         PasswordAuthenticationPlugin plugin2 = (PasswordAuthenticationPlugin) factory.create();
 
         // Then
-        Assertions.assertSame(plugin1, plugin2, "Factory should return singleton instance for stateless plugin");
+        Assertions.assertNotSame(plugin1, plugin2, "Factory should return distinct instances");
     }
 }

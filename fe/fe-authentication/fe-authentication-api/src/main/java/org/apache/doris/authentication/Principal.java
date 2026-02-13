@@ -85,7 +85,11 @@ public interface Principal {
     }
 
     /**
-     * Returns whether this is a service principal (non-human).
+     * Returns whether this is a service principal (non-human / machine account).
+     *
+     * <p>This flag is intended to distinguish service accounts from human users
+     * for policy and audit purposes. It does NOT refer to Kerberos "service
+     * principal" names.</p>
      *
      * @return true if this is a service account
      */

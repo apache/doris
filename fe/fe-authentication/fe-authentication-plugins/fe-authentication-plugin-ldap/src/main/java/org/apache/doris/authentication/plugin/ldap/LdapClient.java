@@ -211,31 +211,6 @@ public class LdapClient {
     }
 
     /**
-     * Health check - tests LDAP server connectivity.
-     *
-     * @return true if server is reachable
-     */
-    public boolean healthCheck() {
-        try {
-            // Simple search to verify connectivity
-            ldapTemplate.search(
-                    org.springframework.ldap.query.LdapQueryBuilder.query()
-                            .base("")
-                            .filter("(objectClass=*)"),
-                    new AbstractContextMapper<String>() {
-                        @Override
-                        protected String doMapFromContext(DirContextOperations ctx) {
-                            return ctx.getDn().toString();
-                        }
-                    });
-            return true;
-        } catch (Exception e) {
-            LOG.warn("LDAP health check failed", e);
-            return false;
-        }
-    }
-
-    /**
      * Closes the LDAP client and releases resources.
      */
     public void close() {

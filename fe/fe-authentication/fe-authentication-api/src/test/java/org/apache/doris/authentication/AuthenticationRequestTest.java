@@ -36,7 +36,7 @@ class AuthenticationRequestTest {
     void testCreateRequest_RequiredFields() {
         // Given
         String username = "alice";
-        CredentialType credentialType = CredentialType.CLEAR_TEXT_PASSWORD;
+        String credentialType = CredentialType.CLEAR_TEXT_PASSWORD;
         byte[] credential = "password123".getBytes(StandardCharsets.UTF_8);
 
         // When
@@ -58,12 +58,10 @@ class AuthenticationRequestTest {
     void testCreateRequest_AllFields() {
         // Given
         String username = "bob";
-        CredentialType credentialType = CredentialType.MYSQL_NATIVE_PASSWORD;
+        String credentialType = CredentialType.MYSQL_NATIVE_PASSWORD;
         byte[] credential = new byte[]{1, 2, 3, 4};
         String remoteHost = "192.168.1.100";
         int remotePort = 54321;
-        String database = "test_db";
-        String catalog = "internal";
         String clientType = "jdbc";
         Map<String, Object> properties = Map.of("key1", "value1", "key2", 123);
 
@@ -74,8 +72,6 @@ class AuthenticationRequestTest {
                 .credential(credential)
                 .remoteHost(remoteHost)
                 .remotePort(remotePort)
-                .database(database)
-                .catalog(catalog)
                 .clientType(clientType)
                 .properties(properties)
                 .build();
@@ -86,10 +82,6 @@ class AuthenticationRequestTest {
         Assertions.assertArrayEquals(credential, request.getCredential());
         Assertions.assertEquals(remoteHost, request.getRemoteHost());
         Assertions.assertEquals(remotePort, request.getRemotePort());
-        Assertions.assertTrue(request.getDatabase().isPresent());
-        Assertions.assertEquals(database, request.getDatabase().get());
-        Assertions.assertTrue(request.getCatalog().isPresent());
-        Assertions.assertEquals(catalog, request.getCatalog().get());
         Assertions.assertEquals(clientType, request.getClientType());
         Assertions.assertEquals(properties, request.getProperties());
     }

@@ -22,7 +22,7 @@ import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationRequest;
 import org.apache.doris.authentication.AuthenticationResult;
 import org.apache.doris.authentication.CredentialType;
-import org.apache.doris.authentication.Identity;
+import org.apache.doris.authentication.BasicPrincipal;
 import org.apache.doris.authentication.spi.AuthenticationPlugin;
 
 import org.apache.logging.log4j.LogManager;
@@ -103,8 +103,9 @@ public class PasswordAuthenticationPlugin implements AuthenticationPlugin {
 
     @Override
     public boolean supports(AuthenticationRequest request) {
-        CredentialType type = request.getCredentialType();
-        return type == CredentialType.CLEAR_TEXT_PASSWORD || type == CredentialType.MYSQL_NATIVE_PASSWORD;
+        String type = request.getCredentialType();
+        return CredentialType.CLEAR_TEXT_PASSWORD.equalsIgnoreCase(type)
+                || CredentialType.MYSQL_NATIVE_PASSWORD.equalsIgnoreCase(type);
     }
 
     @Override
@@ -120,28 +121,28 @@ public class PasswordAuthenticationPlugin implements AuthenticationPlugin {
         // Check brute-force protection
         if (isAccountLocked(username, integration)) {
             recordFailedAttempt(username, integration);
-            throw new AuthenticationException("Account temporarily locked due to too many failed login attempts");
+            return AuthenticationResult.failure("Account temporarily locked due to too many failed login attempts");
         }
 
         // Get stored password hash
         String storedHash = getStoredPasswordHash(username, integration);
         if (storedHash == null) {
             recordFailedAttempt(username, integration);
-            throw new AuthenticationException("User not found or password not set: " + username);
+            return AuthenticationResult.failure("User not found or password not set: " + username);
         }
 
         // Extract plain password from request
         String plainPassword = extractPlainPassword(request);
         if (plainPassword == null || plainPassword.isEmpty()) {
             recordFailedAttempt(username, integration);
-            throw new AuthenticationException("Password is required");
+            return AuthenticationResult.failure("Password is required");
         }
 
         // Verify password
         boolean passwordMatches = PasswordHasher.verify(plainPassword, storedHash);
         if (!passwordMatches) {
             recordFailedAttempt(username, integration);
-            throw new AuthenticationException("Invalid password for user: " + username);
+            return AuthenticationResult.failure("Invalid password for user: " + username);
         }
 
         // Authentication successful - reset failure count
@@ -154,13 +155,12 @@ public class PasswordAuthenticationPlugin implements AuthenticationPlugin {
             // TODO: Trigger password rehash (requires integration with user management)
         }
 
-        // Create identity
-        Identity identity = Identity.builder()
-                .username(username)
-                .authenticatorName(integration.getName())
-                .authenticatorPluginName(PLUGIN_NAME)
+        // Create principal
+        BasicPrincipal principal = BasicPrincipal.builder()
+                .name(username)
+                .authenticator(integration.getName())
                 .build();
-        return AuthenticationResult.success(identity);
+        return AuthenticationResult.success(principal);
     }
 
     @Override
@@ -189,12 +189,6 @@ public class PasswordAuthenticationPlugin implements AuthenticationPlugin {
     }
 
     @Override
-    public boolean healthCheck(AuthenticationIntegration integration) {
-        // Password plugin is always healthy (no external dependencies)
-        return true;
-    }
-
-    @Override
     public void close() {
         failureTrackers.clear();
     }
@@ -207,10 +201,10 @@ public class PasswordAuthenticationPlugin implements AuthenticationPlugin {
             return null;
         }
 
-        CredentialType type = request.getCredentialType();
-        if (type == CredentialType.CLEAR_TEXT_PASSWORD) {
+        String type = request.getCredentialType();
+        if (CredentialType.CLEAR_TEXT_PASSWORD.equalsIgnoreCase(type)) {
             return new String(credential, StandardCharsets.UTF_8);
-        } else if (type == CredentialType.MYSQL_NATIVE_PASSWORD) {
+        } else if (CredentialType.MYSQL_NATIVE_PASSWORD.equalsIgnoreCase(type)) {
             // For MySQL native password, the credential is already scrambled
             // We need to descramble it (this is a simplified implementation)
             // In production, this should match MySQL's native password protocol

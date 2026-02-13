@@ -284,7 +284,7 @@ class LdapAuthenticationPluginTest {
         void testAuthenticateRejectsNullUsername() {
             // AuthenticationRequest builder throws NPE on null username
             Assertions.assertThrows(NullPointerException.class, () ->
-                AuthenticationRequest.builder()
+                    AuthenticationRequest.builder()
                     .username(null)
                     .credentialType(CredentialType.CLEAR_TEXT_PASSWORD)
                     .credential("password".getBytes(StandardCharsets.UTF_8))
@@ -504,30 +504,6 @@ class LdapAuthenticationPluginTest {
         }
     }
 
-    // ==================== Health Check Tests ====================
-
-    @Nested
-    @DisplayName("Health Check")
-    class HealthCheckTests {
-
-        @Test
-        @DisplayName("Should return false for uninitialized integration")
-        void testHealthCheckUninitializedIntegration() {
-            AuthenticationIntegration integration = createTestIntegration("health_test");
-            Assertions.assertFalse(plugin.healthCheck(integration));
-        }
-
-        @Test
-        @DisplayName("Should not throw exception on health check failure")
-        void testHealthCheckDoesNotThrow() {
-            AuthenticationIntegration integration = createTestIntegration("health_test");
-            Assertions.assertDoesNotThrow(() -> plugin.initialize(integration));
-
-            // Health check will fail (no LDAP server), but should not throw
-            Assertions.assertDoesNotThrow(() -> plugin.healthCheck(integration));
-        }
-    }
-
     // ==================== Edge Cases Tests ====================
 
     @Nested
@@ -662,7 +638,6 @@ class LdapAuthenticationPluginTest {
                 .name(name)
                 .type("ldap")
                 .properties(config)
-                .enabled(true)
                 .build();
     }
 
@@ -697,11 +672,6 @@ class LdapAuthenticationPluginTest {
         @Override
         public java.util.List<String> getGroups(String username) {
             return java.util.Collections.emptyList();
-        }
-
-        @Override
-        public boolean healthCheck() {
-            return true;
         }
     }
 

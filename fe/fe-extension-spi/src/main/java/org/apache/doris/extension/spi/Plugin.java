@@ -23,20 +23,10 @@ package org.apache.doris.extension.spi;
 public interface Plugin extends AutoCloseable {
 
     /**
-     * Initialize the plugin instance with its descriptor.
+     * Initialize the plugin instance with runtime context.
      * Default implementation is a no-op.
      */
-    default void initialize(PluginDescriptor descriptor) {
-    }
-
-    /**
-     * Initialize the plugin instance with runtime context.
-     * Default implementation delegates to {@link #initialize(PluginDescriptor)}.
-     */
     default void initialize(PluginContext context) {
-        if (context != null) {
-            initialize(context.getDescriptor());
-        }
     }
 
     /**

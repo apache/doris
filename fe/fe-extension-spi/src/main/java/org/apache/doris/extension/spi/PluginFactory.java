@@ -34,19 +34,18 @@ public interface PluginFactory {
     /**
      * Create a new plugin instance.
      *
-     * @param descriptor plugin descriptor
      * @return plugin instance
      */
-    Plugin create(PluginDescriptor descriptor);
+    Plugin create();
 
     /**
      * Create a new plugin instance with runtime context.
-     * Default implementation delegates to {@link #create(PluginDescriptor)}.
+     * Default implementation delegates to {@link #create()}.
      *
      * @param context plugin context
      * @return plugin instance
      */
     default Plugin create(PluginContext context) {
-        return create(context.getDescriptor());
+        return create();
     }
 }

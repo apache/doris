@@ -58,8 +58,8 @@ class LdapAuthenticationPluginFactoryTest {
     }
 
     @Test
-    @DisplayName("UT-LDAP-F-003: Factory returns singleton instance")
-    void testFactoryReturnsSingleton() {
+    @DisplayName("UT-LDAP-F-003: Factory creates new instance per integration")
+    void testFactoryCreatesNewInstance() {
         // Given
         LdapAuthenticationPluginFactory factory = new LdapAuthenticationPluginFactory();
 
@@ -70,7 +70,7 @@ class LdapAuthenticationPluginFactoryTest {
         // Then
         Assertions.assertNotNull(plugin1);
         Assertions.assertNotNull(plugin2);
-        Assertions.assertSame(plugin1, plugin2,
-                "Factory should return singleton instance for stateless LDAP plugin");
+        Assertions.assertNotSame(plugin1, plugin2,
+                "Factory should return distinct plugin instances");
     }
 }

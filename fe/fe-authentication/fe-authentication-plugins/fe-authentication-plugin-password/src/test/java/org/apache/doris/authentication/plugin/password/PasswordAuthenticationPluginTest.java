@@ -20,6 +20,7 @@ package org.apache.doris.authentication.plugin.password;
 import org.apache.doris.authentication.AuthenticationException;
 import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationRequest;
+import org.apache.doris.authentication.AuthenticationResult;
 import org.apache.doris.authentication.CredentialType;
 
 import org.junit.jupiter.api.Assertions;
@@ -81,12 +82,6 @@ class PasswordAuthenticationPluginTest {
         @DisplayName("UT-PWD-P-003: Plugin requires clear password")
         void testRequiresClearPassword() {
             Assertions.assertTrue(plugin.requiresClearPassword());
-        }
-
-        @Test
-        @DisplayName("UT-PWD-P-004: Plugin is always healthy")
-        void testHealthCheck() {
-            Assertions.assertTrue(plugin.healthCheck(integration));
         }
     }
 
@@ -346,11 +341,11 @@ class PasswordAuthenticationPluginTest {
                     .credential("password".getBytes(StandardCharsets.UTF_8))
                     .build();
 
-            AuthenticationException ex = Assertions.assertThrows(
-                    AuthenticationException.class,
+            AuthenticationResult result = Assertions.assertDoesNotThrow(
                     () -> plugin.authenticate(request, integration)
             );
-            Assertions.assertTrue(ex.getMessage().contains("User not found"));
+            Assertions.assertTrue(result.isFailure());
+            Assertions.assertTrue(result.getException().getMessage().contains("User not found"));
         }
 
         @Test
@@ -362,7 +357,11 @@ class PasswordAuthenticationPluginTest {
                     .credential(null)
                     .build();
 
-            Assertions.assertThrows(AuthenticationException.class, () -> plugin.authenticate(request, integration));
+            AuthenticationResult result = Assertions.assertDoesNotThrow(
+                    () -> plugin.authenticate(request, integration)
+            );
+            Assertions.assertTrue(result.isFailure());
+            Assertions.assertNotNull(result.getException());
         }
 
         @Test
@@ -374,7 +373,11 @@ class PasswordAuthenticationPluginTest {
                     .credential(new byte[0])
                     .build();
 
-            Assertions.assertThrows(AuthenticationException.class, () -> plugin.authenticate(request, integration));
+            AuthenticationResult result = Assertions.assertDoesNotThrow(
+                    () -> plugin.authenticate(request, integration)
+            );
+            Assertions.assertTrue(result.isFailure());
+            Assertions.assertNotNull(result.getException());
         }
 
         @Test
@@ -386,8 +389,12 @@ class PasswordAuthenticationPluginTest {
                     .credential("testpassword".getBytes(StandardCharsets.UTF_8))
                     .build();
 
-            // Authentication will fail (user not found) but we're testing password extraction
-            Assertions.assertThrows(AuthenticationException.class, () -> plugin.authenticate(request, integration));
+            // Authentication will fail (user not found) but request type should still be accepted.
+            AuthenticationResult result = Assertions.assertDoesNotThrow(
+                    () -> plugin.authenticate(request, integration)
+            );
+            Assertions.assertTrue(result.isFailure());
+            Assertions.assertTrue(result.getException().getMessage().contains("User not found"));
         }
 
         @Test
@@ -399,8 +406,12 @@ class PasswordAuthenticationPluginTest {
                     .credential("scrambled".getBytes(StandardCharsets.UTF_8))
                     .build();
 
-            // Authentication will fail (user not found) but we're testing password extraction
-            Assertions.assertThrows(AuthenticationException.class, () -> plugin.authenticate(request, integration));
+            // Authentication will fail (user not found) but request type should still be accepted.
+            AuthenticationResult result = Assertions.assertDoesNotThrow(
+                    () -> plugin.authenticate(request, integration)
+            );
+            Assertions.assertTrue(result.isFailure());
+            Assertions.assertTrue(result.getException().getMessage().contains("User not found"));
         }
     }
 
@@ -430,15 +441,16 @@ class PasswordAuthenticationPluginTest {
 
             // Attempt 1, 2, 3 - should fail but not lock
             for (int i = 0; i < 3; i++) {
-                Assertions.assertThrows(AuthenticationException.class, () -> plugin.authenticate(request, integration));
+                AuthenticationResult result = plugin.authenticate(request, integration);
+                Assertions.assertTrue(result.isFailure());
+                Assertions.assertFalse(result.getException().getMessage().contains("locked"));
             }
 
             // Attempt 4 - should be locked
-            AuthenticationException ex = Assertions.assertThrows(
-                    AuthenticationException.class,
-                    () -> plugin.authenticate(request, integration)
-            );
-            Assertions.assertTrue(ex.getMessage().contains("locked"), "Should mention account is locked");
+            AuthenticationResult lockedResult = plugin.authenticate(request, integration);
+            Assertions.assertTrue(lockedResult.isFailure());
+            Assertions.assertTrue(lockedResult.getException().getMessage().contains("locked"),
+                    "Should mention account is locked");
         }
 
         @Test
@@ -452,15 +464,18 @@ class PasswordAuthenticationPluginTest {
 
             // Should allow at least 5 attempts before locking (default)
             for (int i = 0; i < 5; i++) {
-                AuthenticationException ex = Assertions.assertThrows(
-                        AuthenticationException.class,
+                AuthenticationResult result = Assertions.assertDoesNotThrow(
                         () -> plugin.authenticate(request, integration)
                 );
-                // First 5 attempts should not mention "locked"
-                if (i < 5) {
-                    Assertions.assertFalse(ex.getMessage().contains("locked"));
-                }
+                Assertions.assertTrue(result.isFailure());
+                Assertions.assertFalse(result.getException().getMessage().contains("locked"));
             }
+
+            AuthenticationResult lockedResult = Assertions.assertDoesNotThrow(
+                    () -> plugin.authenticate(request, integration)
+            );
+            Assertions.assertTrue(lockedResult.isFailure());
+            Assertions.assertTrue(lockedResult.getException().getMessage().contains("locked"));
         }
 
         @Test
@@ -482,25 +497,24 @@ class PasswordAuthenticationPluginTest {
                     .build();
 
             // Trigger lockout
-            Assertions.assertThrows(AuthenticationException.class, () -> plugin.authenticate(request, integration));
-            Assertions.assertThrows(AuthenticationException.class, () -> plugin.authenticate(request, integration));
+            AuthenticationResult first = plugin.authenticate(request, integration);
+            AuthenticationResult second = plugin.authenticate(request, integration);
+            Assertions.assertTrue(first.isFailure());
+            Assertions.assertTrue(second.isFailure());
 
             // Should be locked
-            AuthenticationException ex1 = Assertions.assertThrows(
-                    AuthenticationException.class,
-                    () -> plugin.authenticate(request, integration)
-            );
-            Assertions.assertTrue(ex1.getMessage().contains("locked"));
+            AuthenticationResult locked = plugin.authenticate(request, integration);
+            Assertions.assertTrue(locked.isFailure());
+            Assertions.assertTrue(locked.getException().getMessage().contains("locked"));
 
             // Wait for lockout to expire
             Thread.sleep(1100);
 
             // Should be able to attempt again (will still fail due to wrong password)
-            AuthenticationException ex2 = Assertions.assertThrows(
-                    AuthenticationException.class,
-                    () -> plugin.authenticate(request, integration)
-            );
-            Assertions.assertFalse(ex2.getMessage().contains("locked"), "Lockout should have expired");
+            AuthenticationResult afterExpire = plugin.authenticate(request, integration);
+            Assertions.assertTrue(afterExpire.isFailure());
+            Assertions.assertFalse(afterExpire.getException().getMessage().contains("locked"),
+                    "Lockout should have expired");
         }
     }
 
@@ -520,8 +534,14 @@ class PasswordAuthenticationPluginTest {
                     .build();
 
             // Generate some failures
-            Assertions.assertThrows(AuthenticationException.class, () -> plugin.authenticate(request, integration));
-            Assertions.assertThrows(AuthenticationException.class, () -> plugin.authenticate(request, integration));
+            AuthenticationResult first = Assertions.assertDoesNotThrow(
+                    () -> plugin.authenticate(request, integration)
+            );
+            AuthenticationResult second = Assertions.assertDoesNotThrow(
+                    () -> plugin.authenticate(request, integration)
+            );
+            Assertions.assertTrue(first.isFailure());
+            Assertions.assertTrue(second.isFailure());
 
             // Close plugin
             plugin.close();

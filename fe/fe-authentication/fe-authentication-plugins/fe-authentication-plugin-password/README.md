@@ -107,7 +107,7 @@ SET PASSWORD FOR alice = PASSWORD('ResetP@ssw0rd');
 ### 1. 密码策略
 
 ```sql
--- ✅ 推荐：强密码策略
+-- 推荐：强密码策略
 CREATE AUTHENTICATION INTEGRATION strong_password
   TYPE = 'password'
   WITH (
@@ -119,7 +119,7 @@ CREATE AUTHENTICATION INTEGRATION strong_password
     'password.require_special' = 'true'
   );
 
--- ❌ 不推荐：弱密码策略
+-- 不推荐：弱密码策略
 CREATE AUTHENTICATION INTEGRATION weak_password
   TYPE = 'password'
   WITH (
@@ -131,7 +131,7 @@ CREATE AUTHENTICATION INTEGRATION weak_password
 ### 2. 暴力破解防护
 
 ```sql
--- ✅ 推荐：严格的暴力破解防护
+-- 推荐：严格的暴力破解防护
 CREATE AUTHENTICATION INTEGRATION brute_force_protected
   TYPE = 'password'
   WITH (

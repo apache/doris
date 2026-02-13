@@ -29,7 +29,6 @@ import org.apache.doris.authentication.spi.AuthenticationPluginFactory;
 public class PasswordAuthenticationPluginFactory implements AuthenticationPluginFactory {
 
     private static final String PLUGIN_NAME = "password";
-    private static final PasswordAuthenticationPlugin SINGLETON = new PasswordAuthenticationPlugin();
 
     @Override
     public String name() {
@@ -38,9 +37,8 @@ public class PasswordAuthenticationPluginFactory implements AuthenticationPlugin
 
     @Override
     public AuthenticationPlugin create() {
-        // Return singleton instance since PasswordAuthenticationPlugin is stateless
-        // (failure trackers are stored internally per integration)
-        return SINGLETON;
+        // One plugin instance per AuthenticationIntegration.
+        return new PasswordAuthenticationPlugin();
     }
 
 }
