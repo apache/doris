@@ -920,41 +920,43 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             custom(RuleType.DISTINCT_AGG_STRATEGY_SELECTOR,
                                     () -> DistinctAggStrategySelector.INSTANCE))));
 
-                // Rewrite search function before VariantSubPathPruning
-                // so that ElementAt expressions from search can be processed
-                rewriteJobs.addAll(jobs(
-                        bottomUp(new RewriteSearchToSlots())
-                ));
-
-                if (needSubPathPushDown) {
+                    // Rewrite search function before VariantSubPathPruning
+                    // so that ElementAt expressions from search can be processed
                     rewriteJobs.addAll(jobs(
-                            topic("variant element_at push down",
-                                    custom(RuleType.VARIANT_SUB_PATH_PRUNING, VariantSubPathPruning::new)
-                            )
+                            bottomUp(new RewriteSearchToSlots())
                     ));
-                }
-                rewriteJobs.add(
-                        topic("nested column prune",
-                            custom(RuleType.NESTED_COLUMN_PRUNING, NestedColumnPruning::new)
-                        )
-                );
-                rewriteJobs.addAll(jobs(
-                        topic("rewrite cte sub-tree after sub path push down",
-                                custom(RuleType.CLEAR_CONTEXT_STATUS, ClearContextStatus::new),
-                                custom(RuleType.REWRITE_CTE_CHILDREN,
-                                        () -> new RewriteCteChildren(afterPushDownJobs, runCboRules)
+
+                    if (needSubPathPushDown) {
+                        rewriteJobs.addAll(jobs(
+                                topic("variant element_at push down",
+                                        custom(RuleType.VARIANT_SUB_PATH_PRUNING, VariantSubPathPruning::new)
                                 )
-                        ),
-                        topic("whole plan check",
-                                custom(RuleType.ADJUST_NULLABLE, () -> new AdjustNullable(false))
-                        ),
-                        // NullableDependentExpressionRewrite need to be done after nullable fixed
-                        topic("condition function", bottomUp(ImmutableList.of(
-                                new NullableDependentExpressionRewrite())))
-                ));
-                return rewriteJobs;
-            }
-        );
+                        ));
+                    }
+                    rewriteJobs.add(
+                            topic("nested column prune",
+                                    custom(RuleType.NESTED_COLUMN_PRUNING, NestedColumnPruning::new)
+                            )
+                    );
+                    rewriteJobs.addAll(jobs(
+                                    topic("rewrite cte sub-tree after sub path push down",
+                                            custom(RuleType.CLEAR_CONTEXT_STATUS, ClearContextStatus::new),
+                                            custom(RuleType.REWRITE_CTE_CHILDREN,
+                                                    () -> new RewriteCteChildren(afterPushDownJobs, runCboRules)
+                                            )
+                                    ),
+                                    topic("whole plan check",
+                                            custom(RuleType.ADJUST_NULLABLE, () -> new AdjustNullable(false))
+                                    ),
+                                    // NullableDependentExpressionRewrite need to be done after nullable fixed
+                                    topic("condition function", bottomUp(ImmutableList.of(
+                                            new NullableDependentExpressionRewrite())))
+                            )
+                    );
+                    return rewriteJobs;
+                }
+        ));
+        return builder.build();
     }
 
     @Override
