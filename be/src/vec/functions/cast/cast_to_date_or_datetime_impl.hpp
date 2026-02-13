@@ -629,9 +629,6 @@ FRAC:
         }
         if constexpr (IsDatetime) {
             // convert tz
-            SET_PARAMS_RET_FALSE_IFN(
-                    local_time_zone != nullptr,
-                    "local time zone required for datetime string without timezone");
             cctz::civil_second cs {res.year(), res.month(),  res.day(),
                                    res.hour(), res.minute(), res.second()};
 
@@ -865,9 +862,6 @@ inline bool CastToDateOrDatetime::from_string_non_strict_mode_impl(
         }
         if constexpr (IsDatetime) {
             // convert tz
-            SET_PARAMS_RET_FALSE_IFN(
-                    local_time_zone != nullptr,
-                    "local time zone required for datetime string without timezone");
             cctz::civil_second cs {res.year(), res.month(),  res.day(),
                                    res.hour(), res.minute(), res.second()};
 
