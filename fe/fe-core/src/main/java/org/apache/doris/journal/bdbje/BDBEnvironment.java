@@ -391,7 +391,7 @@ public class BDBEnvironment {
             cursor = db.openCursor(null, null);
             DatabaseEntry key = new DatabaseEntry();
             DatabaseEntry value = new DatabaseEntry();
-            while (cursor.getNext(key, value, LockMode.READ_COMMITTED) == OperationStatus.SUCCESS) {
+            while (cursor.getNext(key, value, LockMode.DEFAULT) == OperationStatus.SUCCESS) {
                 long journalId = idBinding.entryToObject(key);
                 if (journalId > truncateToJournalId) {
                     cursor.delete();
