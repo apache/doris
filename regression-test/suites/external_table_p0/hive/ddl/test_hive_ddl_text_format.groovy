@@ -122,6 +122,54 @@ suite("test_hive_ddl_text_format", "p0,external,hive,external_docker,external_do
             order_qt_different_properties """ select * from text_table_different_properties """
             order_qt_hive_docker_different_properties """ select * from text_table_different_properties order by id; """
 
+            // Reproduce customer dirty tbrq strings in hive text table.
+            String dirty_raw_tbl = "text_tbrq_raw"
+            String dirty_typed_tbl = "text_tbrq_typed"
+            String dirty_tbl_loc = "hdfs://${externalEnvIp}:${hdfs_port}/tmp/hive/text_tbrq_case_${hivePrefix}"
+
+            sql """ drop table if exists ${dirty_raw_tbl} """
+            sql """
+                create table ${dirty_raw_tbl} (
+                    xzqh string,
+                    tbrq string
+                ) ENGINE=hive
+                PROPERTIES (
+                    'file_format'='text',
+                    'location'='${dirty_tbl_loc}'
+                );
+            """
+            sql """
+                insert overwrite table ${dirty_raw_tbl} values
+                    ('qhs', 'hnzqzj-20230718100635-05'),
+                    ('qhs', '2023-07-1e7d713b2e4b8515a'),
+                    ('qhs', '2023-07-18 16:51:270c3a'),
+                    ('qhs', 'D99');
+            """
+            order_qt_dirty_tbrq_raw """
+                select xzqh, tbrq, length(tbrq) as l,
+                       regexp_replace(tbrq, '[-0-9 :.]', '') as junk
+                from ${dirty_raw_tbl}
+                where tbrq is not null
+                  and regexp_replace(tbrq, '[-0-9 :.]', '') != ''
+                order by tbrq;
+            """
+
+            sql """ drop table if exists ${dirty_typed_tbl} """
+            sql """
+                create table ${dirty_typed_tbl} (
+                    xzqh string,
+                    tbrq datetimev2
+                ) ENGINE=hive
+                PROPERTIES (
+                    'file_format'='text',
+                    'location'='${dirty_tbl_loc}'
+                );
+            """
+            // Dirty tbrq data should not cause core. Query must return normally.
+            order_qt_dirty_typed_count """ select count(*) from ${dirty_typed_tbl} """
+            // verify process is still healthy after dirty-data query (no core dump)
+            order_qt_dirty_after_fail """ select count(*) from ${dirty_raw_tbl} """
+
             String serde = "'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe'"
             String input_format = "'org.apache.hadoop.mapred.TextInputFormat'"
             String output_format = "'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'"

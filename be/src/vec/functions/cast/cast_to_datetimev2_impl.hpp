@@ -915,7 +915,6 @@ inline bool CastToDatetimeV2::from_string_non_strict_mode_impl(
         // convert tz
         cctz::civil_second cs {res.year(), res.month(),  res.day(),
                                res.hour(), res.minute(), res.second()};
-
         if constexpr (type == DataTimeCastEnumType::DATE_TIME) {
             // if not timestamptz, the given time is in local_time_zone
             SET_PARAMS_RET_FALSE_IFN(
