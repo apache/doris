@@ -405,6 +405,7 @@ public:
     }
 
 protected:
+    uint32_t _zlib_crc32_hash(uint32_t hash, size_t idx) const;
     uint32_t _crc32c_hash(uint32_t hash, size_t idx) const;
     Container data;
 };
