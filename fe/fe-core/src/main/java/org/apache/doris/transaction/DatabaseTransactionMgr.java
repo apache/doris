@@ -1589,7 +1589,6 @@ public class DatabaseTransactionMgr {
         if (MetricRepo.isInit) {
             MetricRepo.HISTO_TXN_EXEC_LATENCY.update(commitTime - transactionState.getPrepareTime());
         }
-        transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
         transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
@@ -1601,6 +1600,10 @@ public class DatabaseTransactionMgr {
             }
             transactionState.putIdToTableCommitInfo(tableId, tableCommitInfo);
         }
+        // set COMMITTED only after idToTableCommitInfos is fully populated, so that
+        // PublishVersionDaemon (which checks status without synchronized(transactionState))
+        // will never see COMMITTED with empty commit info.
+        transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
         // Update in-memory state only; caller handles edit log persistence
         unprotectUpdateInMemoryState(transactionState, false);
         transactionState.setInvolvedBackends(totalInvolvedBackends);
@@ -1619,7 +1622,6 @@ public class DatabaseTransactionMgr {
         if (MetricRepo.isInit) {
             MetricRepo.HISTO_TXN_EXEC_LATENCY.update(commitTime - transactionState.getPrepareTime());
         }
-        transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
         transactionState.setErrorReplicas(errorReplicaIds);
 
         Map<Long, List<SubTransactionState>> tableToSubTransactionState = new HashMap<>();
@@ -1662,6 +1664,10 @@ public class DatabaseTransactionMgr {
                 transactionState.addSubTxnTableCommitInfo(subTransactionState, tableCommitInfo);
             }
         }
+        // set COMMITTED only after all commit info is fully populated, so that
+        // PublishVersionDaemon (which checks status without synchronized(transactionState))
+        // will never see COMMITTED with empty commit info.
+        transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
         // Update in-memory state only; caller handles edit log persistence
         unprotectUpdateInMemoryState(transactionState, false);
         transactionState.setInvolvedBackends(totalInvolvedBackends);
