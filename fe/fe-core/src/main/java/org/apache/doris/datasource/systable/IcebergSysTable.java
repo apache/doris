@@ -22,58 +22,68 @@ import org.apache.doris.nereids.trees.expressions.functions.table.IcebergMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.tablefunction.IcebergTableValuedFunction;
 
-import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.iceberg.MetadataTableType;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
-import java.util.List;
+import java.util.Collections;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
-// table${sysTable}
-public class IcebergSysTable extends SysTable {
-    private static final Logger LOG = LogManager.getLogger(IcebergSysTable.class);
-    // iceberg system tables:
-    // see @{org.apache.iceberg.MetadataTableType}
-    private static final List<IcebergSysTable> SUPPORTED_ICEBERG_SYS_TABLES = Arrays
-            .stream(MetadataTableType.values())
-            .map(type -> new IcebergSysTable(type.name().toLowerCase()))
-            .collect(Collectors.toList());
+/**
+ * System table type for Iceberg metadata tables.
+ *
+ * <p>Iceberg system tables provide access to table metadata such as
+ * snapshots, history, manifests, files, partitions, etc.
+ *
+ * <p>Iceberg system tables currently use the TVF path (MetadataScanNode).
+ *
+ * @see org.apache.iceberg.MetadataTableType for all supported system table types
+ */
+public class IcebergSysTable extends TvfSysTable {
+
+    private static final String TVF_NAME = "iceberg_meta";
+
+    /**
+     * All supported Iceberg system tables.
+     * Key is the system table name (e.g., "snapshots", "history").
+     */
+    public static final Map<String, SysTable> SUPPORTED_SYS_TABLES = Collections.unmodifiableMap(
+            Arrays.stream(MetadataTableType.values())
+                    .map(type -> new IcebergSysTable(type.name().toLowerCase()))
+                    .collect(Collectors.toMap(SysTable::getSysTableName, Function.identity())));
 
     private final String tableName;
 
     private IcebergSysTable(String tableName) {
-        super(tableName, "iceberg_meta");
+        super(tableName, TVF_NAME);
         this.tableName = tableName;
     }
 
-    public static List<IcebergSysTable> getSupportedIcebergSysTables() {
-        return SUPPORTED_ICEBERG_SYS_TABLES;
+    @Override
+    public String getSysTableName() {
+        return tableName;
     }
 
     @Override
     public TableValuedFunction createFunction(String ctlName, String dbName, String sourceNameWithMetaName) {
-        List<String> nameParts = Lists.newArrayList(ctlName, dbName,
-                getSourceTableName(sourceNameWithMetaName));
-        return IcebergMeta.createIcebergMeta(nameParts, tableName);
+        return IcebergMeta.createIcebergMeta(
+                Lists.newArrayList(ctlName, dbName, getSourceTableName(sourceNameWithMetaName)),
+                getSysTableName());
     }
 
     @Override
     public TableValuedFunctionRefInfo createFunctionRef(String ctlName, String dbName, String sourceNameWithMetaName) {
-        List<String> nameParts = Lists.newArrayList(ctlName, dbName,
-                getSourceTableName(sourceNameWithMetaName));
-        Map<String, String> params = Maps.newHashMap();
-        params.put(IcebergTableValuedFunction.TABLE, Joiner.on(".").join(nameParts));
-        params.put(IcebergTableValuedFunction.QUERY_TYPE, tableName);
+        String tableName = String.format("%s.%s.%s", ctlName, dbName, getSourceTableName(sourceNameWithMetaName));
         try {
+            java.util.Map<String, String> params = Maps.newHashMap();
+            params.put(IcebergTableValuedFunction.TABLE, tableName);
+            params.put(IcebergTableValuedFunction.QUERY_TYPE, getSysTableName());
             return new TableValuedFunctionRefInfo(tvfName, null, params);
         } catch (org.apache.doris.common.AnalysisException e) {
-            LOG.warn("should not happen. {}.{}.{}", ctlName, dbName, sourceNameWithMetaName, e);
-            return null;
+            throw new RuntimeException("Failed to create iceberg_meta tvf ref", e);
         }
     }
 }

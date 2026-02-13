@@ -259,6 +259,13 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(cast_set<int>(buffered_reader_max_threads))
                               .build(&_buffered_reader_prefetch_thread_pool));
 
+    static_cast<void>(ThreadPoolBuilder("SegmentPrefetchThreadPool")
+                              .set_min_threads(cast_set<int>(
+                                      config::segment_prefetch_thread_pool_thread_num_min))
+                              .set_max_threads(cast_set<int>(
+                                      config::segment_prefetch_thread_pool_thread_num_max))
+                              .build(&_segment_prefetch_thread_pool));
+
     static_cast<void>(ThreadPoolBuilder("SendTableStatsThreadPool")
                               .set_min_threads(8)
                               .set_max_threads(32)
@@ -813,6 +820,7 @@ void ExecEnv::destroy() {
         _runtime_query_statistics_mgr->stop_report_thread();
     }
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
+    SAFE_SHUTDOWN(_segment_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
     SAFE_SHUTDOWN(_lazy_release_obj_pool);
     SAFE_SHUTDOWN(_non_block_close_thread_pool);
@@ -874,6 +882,7 @@ void ExecEnv::destroy() {
     _s3_file_system_thread_pool.reset(nullptr);
     _send_table_stats_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
+    _segment_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
     _udf_close_workers_thread_pool.reset(nullptr);

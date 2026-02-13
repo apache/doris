@@ -146,3 +146,36 @@ diff --git a/src/paimon/format/blob/blob_format_writer.cpp b/src/paimon/format/b
      }
  
      // write bin length
+
+--- a/cmake_modules/arrow.diff
++++ b/cmake_modules/arrow.diff
+@@ -196,3 +196,29 @@
+    int64_t pagesize_;
+    ParquetDataPageVersion parquet_data_page_version_;
+    ParquetVersion::type parquet_version_;
++diff --git a/cpp/cmake_modules/ThirdpartyToolchain.cmake b/cpp/cmake_modules/ThirdpartyToolchain.cmake
++index 9df922afa2..5c8b3d4d07 100644
++--- a/cpp/cmake_modules/ThirdpartyToolchain.cmake
+++++ b/cpp/cmake_modules/ThirdpartyToolchain.cmake
++@@ -1789,7 +1789,20 @@ if(ARROW_WITH_THRIFT)
++                     REQUIRED_VERSION
++                     0.11.0)
++ 
++-  string(REPLACE "." ";" Thrift_VERSION_LIST ${Thrift_VERSION})
+++  if(NOT Thrift_VERSION)
+++    if(DEFINED thrift_PC_VERSION AND thrift_PC_VERSION)
+++      set(Thrift_VERSION "${thrift_PC_VERSION}")
+++    elseif(DEFINED ThriftAlt_VERSION AND ThriftAlt_VERSION)
+++      set(Thrift_VERSION "${ThriftAlt_VERSION}")
+++    elseif(DEFINED THRIFT_VERSION AND THRIFT_VERSION)
+++      set(Thrift_VERSION "${THRIFT_VERSION}")
+++    endif()
+++  endif()
+++  if(NOT Thrift_VERSION)
+++    message(FATAL_ERROR "Thrift_VERSION is empty after resolving Thrift dependency")
+++  endif()
+++
+++  string(REPLACE "." ";" Thrift_VERSION_LIST "${Thrift_VERSION}")
++   list(GET Thrift_VERSION_LIST 0 Thrift_VERSION_MAJOR)
++   list(GET Thrift_VERSION_LIST 1 Thrift_VERSION_MINOR)
++   list(GET Thrift_VERSION_LIST 2 Thrift_VERSION_PATCH)

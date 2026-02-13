@@ -42,6 +42,7 @@ import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.systable.SysTableResolver;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
@@ -392,12 +393,32 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private Optional<LogicalPlan> handleMetaTable(TableIf table, UnboundRelation unboundRelation,
             List<String> qualifiedTableName) {
-        Optional<TableValuedFunction> tvf = table.getSysTableFunction(
-                qualifiedTableName.get(0), qualifiedTableName.get(1), qualifiedTableName.get(2));
-        if (tvf.isPresent()) {
-            return Optional.of(new LogicalTVFRelation(unboundRelation.getRelationId(), tvf.get(), ImmutableList.of()));
+        Optional<SysTableResolver.SysTablePlan> sysTablePlanOpt = SysTableResolver.resolveForPlan(
+                table, qualifiedTableName.get(0), qualifiedTableName.get(1), qualifiedTableName.get(2));
+        if (!sysTablePlanOpt.isPresent()) {
+            return Optional.empty();
         }
-        return Optional.empty();
+
+        SysTableResolver.SysTablePlan sysTablePlan = sysTablePlanOpt.get();
+
+        // Native path: create system external table and return LogicalFileScan
+        if (sysTablePlan.isNative()) {
+            List<String> qualifierWithoutTableName = qualifiedTableName.subList(0, qualifiedTableName.size() - 1);
+            ExternalTable sysExternalTable = sysTablePlan.getSysExternalTable();
+            return Optional.of(new LogicalFileScan(
+                    unboundRelation.getRelationId(),
+                    sysExternalTable,
+                    qualifierWithoutTableName,
+                    ImmutableList.of(),
+                    unboundRelation.getTableSample(),
+                    unboundRelation.getTableSnapshot(),
+                    Optional.ofNullable(unboundRelation.getScanParams()),
+                    Optional.empty()));
+        }
+
+        // TVF path: create table-valued function and return LogicalTVFRelation
+        TableValuedFunction tvf = sysTablePlan.getTvf();
+        return Optional.of(new LogicalTVFRelation(unboundRelation.getRelationId(), tvf, ImmutableList.of()));
     }
 
     private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation,

@@ -28,12 +28,14 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import org.apache.commons.collections4.CollectionUtils;
 
+import java.util.Collections;
 import java.util.Set;
 
 /**
@@ -50,8 +52,14 @@ public class UserAuthentication {
         if (connectContext.getSessionVariable().isPlayNereidsDump()) {
             return;
         }
-        String tableName = table.getName();
-        DatabaseIf db = table.getDatabase();
+        TableIf authTable = table;
+        Set<String> authColumns = columns;
+        if (table instanceof PaimonSysExternalTable) {
+            authTable = ((PaimonSysExternalTable) table).getSourceTable();
+            authColumns = Collections.emptySet();
+        }
+        String tableName = authTable.getName();
+        DatabaseIf db = authTable.getDatabase();
         // when table instanceof FunctionGenTable, db will be null
         if (db == null) {
             return;
@@ -86,13 +94,14 @@ public class UserAuthentication {
         }
         String ctlName = catalog.getName();
         AccessControllerManager accessManager = connectContext.getEnv().getAccessManager();
-        if (CollectionUtils.isEmpty(columns)) {
+        if (CollectionUtils.isEmpty(authColumns)) {
             if (!accessManager.checkTblPriv(connectContext, ctlName, dbName, tableName, PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
                         PrivPredicate.SELECT.getPrivs().toString(), tableName);
             }
         } else {
-            accessManager.checkColumnsPriv(connectContext, ctlName, dbName, tableName, columns, PrivPredicate.SELECT);
+            accessManager.checkColumnsPriv(connectContext, ctlName, dbName, tableName, authColumns,
+                    PrivPredicate.SELECT);
         }
     }
 }

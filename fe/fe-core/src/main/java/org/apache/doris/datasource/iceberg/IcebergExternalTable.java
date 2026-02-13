@@ -31,7 +31,7 @@ import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
-import org.apache.doris.datasource.systable.SupportedSysTables;
+import org.apache.doris.datasource.systable.IcebergSysTable;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVRefreshContext;
@@ -278,9 +278,9 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     }
 
     @Override
-    public List<SysTable> getSupportedSysTables() {
+    public Map<String, SysTable> getSupportedSysTables() {
         makeSureInitialized();
-        return SupportedSysTables.ICEBERG_SUPPORTED_SYS_TABLES;
+        return IcebergSysTable.SUPPORTED_SYS_TABLES;
     }
 
     @Override

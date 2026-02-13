@@ -61,8 +61,6 @@ public abstract class TableValuedFunctionIf {
                 return IcebergTableValuedFunction.create(params);
             case HudiTableValuedFunction.NAME:
                 return new HudiTableValuedFunction(params);
-            case PaimonTableValuedFunction.NAME:
-                return PaimonTableValuedFunction.create(params);
             case BackendsTableValuedFunction.NAME:
                 return new BackendsTableValuedFunction(params);
             case FrontendsTableValuedFunction.NAME:
