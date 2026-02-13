@@ -99,16 +99,16 @@ public:
             // LittleEndian::Load32 handles unaligned load + byte-swap on big-endian,
             // ensuring byte[0] is always at LSB for correct CRC byte processing order.
             uint32_t word = LittleEndian::Load32(p) ^ crc;
-            crc = CRC32_TABLE.t[3][(word) & 0xFF] ^ CRC32_TABLE.t[2][(word >> 8) & 0xFF] ^
+            crc = CRC32_TABLE.t[3][(word)&0xFF] ^ CRC32_TABLE.t[2][(word >> 8) & 0xFF] ^
                   CRC32_TABLE.t[1][(word >> 16) & 0xFF] ^ CRC32_TABLE.t[0][(word >> 24) & 0xFF];
         } else if constexpr (sizeof(T) == 8) {
             // 8 bytes: two Slicing-by-4 steps
             uint32_t word = LittleEndian::Load32(p) ^ crc;
-            crc = CRC32_TABLE.t[3][(word) & 0xFF] ^ CRC32_TABLE.t[2][(word >> 8) & 0xFF] ^
+            crc = CRC32_TABLE.t[3][(word)&0xFF] ^ CRC32_TABLE.t[2][(word >> 8) & 0xFF] ^
                   CRC32_TABLE.t[1][(word >> 16) & 0xFF] ^ CRC32_TABLE.t[0][(word >> 24) & 0xFF];
 
             word = LittleEndian::Load32(p + 4) ^ crc;
-            crc = CRC32_TABLE.t[3][(word) & 0xFF] ^ CRC32_TABLE.t[2][(word >> 8) & 0xFF] ^
+            crc = CRC32_TABLE.t[3][(word)&0xFF] ^ CRC32_TABLE.t[2][(word >> 8) & 0xFF] ^
                   CRC32_TABLE.t[1][(word >> 16) & 0xFF] ^ CRC32_TABLE.t[0][(word >> 24) & 0xFF];
         } else {
             // Fallback to zlib for larger/unusual types
