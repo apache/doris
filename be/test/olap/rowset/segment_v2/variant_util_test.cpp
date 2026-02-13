@@ -919,8 +919,8 @@ TEST(VariantUtilTest, SkipPatternPerfCompareOptimizationMatrix) {
                 row, &optimized_no_cache_no_re2set_row, options);
         optimized_no_cache_result.column->serialize_one_row_to_string(row, &optimized_no_cache_row,
                                                                       options);
-        optimized_no_re2set_result.column->serialize_one_row_to_string(row, &optimized_no_re2set_row,
-                                                                       options);
+        optimized_no_re2set_result.column->serialize_one_row_to_string(
+                row, &optimized_no_re2set_row, options);
         optimized_result.column->serialize_one_row_to_string(row, &optimized_row, options);
         if (!found_no_skip_difference && no_skip_row != legacy_row) {
             found_no_skip_difference = true;
