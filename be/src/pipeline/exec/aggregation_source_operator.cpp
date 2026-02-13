@@ -500,9 +500,6 @@ Status AggLocalState::merge_with_serialized_key_helper(vectorized::Block* block)
     for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
         auto col_id = Base::_shared_state->probe_expr_ctxs.size() + i;
         auto column = block->get_by_position(col_id).column;
-        if (column->is_nullable()) {
-            column = ((vectorized::ColumnNullable*)column.get())->get_nested_column_ptr();
-        }
 
         size_t buffer_size =
                 Base::_shared_state->aggregate_evaluators[i]->function()->size_of_data() * rows;
