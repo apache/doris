@@ -36,7 +36,7 @@ suite("test_primary_key_partial_update", "p0") {
                         `test` int(11) NULL COMMENT "null test",
                         `dft` int(11) DEFAULT "4321")
                         UNIQUE KEY(`id`)
-                        CLUSTER BY(`score`, `name`) 
+                        ORDER BY(`score`, `name`) 
                         DISTRIBUTED BY HASH(`id`) BUCKETS 1
                         PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
                         "store_row_column" = "${use_row_store}"); """
@@ -243,7 +243,7 @@ suite("test_primary_key_partial_update", "p0") {
                         `rtime` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
                         `corp_name` VARCHAR(600) NOT NULL
                         ) ENGINE = OLAP UNIQUE KEY(`name`, `userid`)
-                        CLUSTER BY(`userid`) 
+                        ORDER BY(`userid`) 
                         COMMENT 'OLAP'
                         DISTRIBUTED BY HASH(`name`) BUCKETS 10 
                         PROPERTIES ("replication_num" = "1",
@@ -276,7 +276,7 @@ suite("test_primary_key_partial_update", "p0") {
                         `ctime` DATE DEFAULT CURRENT_DATE,
                         `corp_name` VARCHAR(600) NOT NULL
                         ) ENGINE = OLAP UNIQUE KEY(`name`, `userid`) 
-                        CLUSTER BY(`seq`, `name`) 
+                        ORDER BY(`seq`, `name`) 
                         COMMENT 'OLAP'
                         DISTRIBUTED BY HASH(`name`) BUCKETS 10 
                         PROPERTIES ("replication_num" = "1",
@@ -308,7 +308,7 @@ suite("test_primary_key_partial_update", "p0") {
                         `ctime` DATE DEFAULT CURRENT_DATE,
                         `corp_name` VARCHAR(600) NOT NULL
                         ) ENGINE = OLAP UNIQUE KEY(`name`, `userid`) 
-                        CLUSTER BY(`corp_name`, `seq`, `name`) 
+                        ORDER BY(`corp_name`, `seq`, `name`) 
                         COMMENT 'OLAP'
                         DISTRIBUTED BY HASH(`name`) BUCKETS 10 
                         PROPERTIES ("replication_num" = "1",
