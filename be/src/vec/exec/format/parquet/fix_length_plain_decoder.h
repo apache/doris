@@ -37,7 +37,8 @@ public:
     ~FixLengthPlainDecoder() override = default;
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         ColumnSelectVector& select_vector, bool is_dict_filter) override;
+                         ColumnSelectVector& select_vector, bool is_dict_filter,
+                         const uint8_t* filter_data = nullptr) override;
 
     template <bool has_filter>
     Status _decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
@@ -45,6 +46,22 @@ public:
         size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
         if (UNLIKELY(_offset + _type_length * non_null_size > _data->size)) {
             return Status::IOError("Out-of-bounds access in parquet data decoder");
+        }
+
+        // P1-6: Fast path when no nulls and no filter — single memcpy for the entire batch.
+        // This avoids the run loop overhead when the entire batch is one contiguous CONTENT run.
+        if constexpr (!has_filter) {
+            if (select_vector.num_nulls() == 0) {
+                size_t primitive_length = remove_nullable(data_type)->get_size_of_value_in_memory();
+                size_t data_index = doris_column->size() * primitive_length;
+                size_t scale_size = non_null_size * (_type_length / primitive_length);
+                doris_column->resize(doris_column->size() + scale_size);
+                char* raw_data = const_cast<char*>(doris_column->get_raw_data().data);
+                size_t total_bytes = non_null_size * _type_length;
+                memcpy(raw_data + data_index, _data->data + _offset, total_bytes);
+                _offset += total_bytes;
+                return Status::OK();
+            }
         }
 
         size_t primitive_length = remove_nullable(data_type)->get_size_of_value_in_memory();

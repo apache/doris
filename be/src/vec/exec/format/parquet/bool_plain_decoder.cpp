@@ -54,7 +54,8 @@ Status BoolPlainDecoder::skip_values(size_t num_values) {
 }
 
 Status BoolPlainDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                       ColumnSelectVector& select_vector, bool is_dict_filter) {
+                                       ColumnSelectVector& select_vector, bool is_dict_filter,
+                                       const uint8_t* filter_data) {
     if (select_vector.has_filter()) {
         return _decode_values<true>(doris_column, data_type, select_vector, is_dict_filter);
     } else {

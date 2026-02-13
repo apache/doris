@@ -19,6 +19,8 @@
 
 #include <utility>
 
+#include "common/compiler_util.h"
+#include "common/config.h"
 #include "util/coding.h"
 #include "util/rle_encoding.h"
 #include "vec/columns/column.h"
@@ -69,6 +71,12 @@ Status ByteArrayDictDecoder::set_dict(DorisUniqueBufferPtr<uint8_t>& dict, int32
     if (offset_cursor != length) {
         return Status::Corruption("Wrong dictionary data for byte array type");
     }
+    // P1-5: Check if dictionary data exceeds L2 cache threshold.
+    // For string dicts, the relevant size is _dict_items (StringRef array) + _dict_data (string bodies).
+    // Typical L2 cache: 256KB-1MB per core. Use 256KB as conservative threshold.
+    constexpr size_t L2_CACHE_THRESHOLD = 256 * 1024;
+    size_t dict_memory = _dict_items.size() * sizeof(StringRef) + _dict_data.size();
+    _dict_exceeds_l2_cache = dict_memory > L2_CACHE_THRESHOLD;
     return Status::OK();
 }
 
@@ -91,18 +99,21 @@ MutableColumnPtr ByteArrayDictDecoder::convert_dict_column_to_string_column(
 }
 
 Status ByteArrayDictDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                           ColumnSelectVector& select_vector, bool is_dict_filter) {
+                                           ColumnSelectVector& select_vector, bool is_dict_filter,
+                                           const uint8_t* filter_data) {
     if (select_vector.has_filter()) {
-        return _decode_values<true>(doris_column, data_type, select_vector, is_dict_filter);
+        return _decode_values<true>(doris_column, data_type, select_vector, is_dict_filter,
+                                    filter_data);
     } else {
-        return _decode_values<false>(doris_column, data_type, select_vector, is_dict_filter);
+        return _decode_values<false>(doris_column, data_type, select_vector, is_dict_filter,
+                                     nullptr);
     }
 }
 
 template <bool has_filter>
 Status ByteArrayDictDecoder::_decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                            ColumnSelectVector& select_vector,
-                                            bool is_dict_filter) {
+                                            ColumnSelectVector& select_vector, bool is_dict_filter,
+                                            const uint8_t* filter_data) {
     size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
     if (doris_column->is_column_dictionary()) {
         ColumnDictI32& dict_column = assert_cast<ColumnDictI32&>(*doris_column);
@@ -113,6 +124,21 @@ Status ByteArrayDictDecoder::_decode_values(MutableColumnPtr& doris_column, Data
                                               cast_set<uint32_t>(_dict_items.size()));
         }
     }
+
+    // When filter_data is provided and has_filter is true, use lazy index decoding:
+    // decode indexes per-run and skip FILTERED_CONTENT via SkipBatch.
+    // This avoids decoding RLE indexes for rows that will be discarded.
+    if constexpr (has_filter) {
+        if (filter_data != nullptr) {
+            if (doris_column->is_column_dictionary() || is_dict_filter) {
+                // For dict-filter path, we still need all indexes.
+                // Fall through to bulk decode below.
+            } else {
+                return _lazy_decode_string_values(doris_column, select_vector);
+            }
+        }
+    }
+
     _indexes.resize(non_null_size);
     _index_batch_decoder->GetBatch(_indexes.data(), cast_set<uint32_t>(non_null_size));
 
@@ -126,13 +152,42 @@ Status ByteArrayDictDecoder::_decode_values(MutableColumnPtr& doris_column, Data
     while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
-            std::vector<StringRef> string_values;
-            string_values.reserve(run_length);
-            for (size_t i = 0; i < run_length; ++i) {
-                string_values.emplace_back(_dict_items[_indexes[dict_index++]]);
+            if (config::enable_parquet_simd_dict_decode) {
+                // P1-4: Use reusable buffer to avoid per-run heap allocation.
+                _string_values_buf.resize(run_length);
+                constexpr size_t PREFETCH_DISTANCE = 8;
+                for (size_t i = 0; i < run_length; ++i) {
+                    // P1-5: Software prefetch for large dictionaries (separate config)
+                    if (_dict_exceeds_l2_cache && config::enable_parquet_dict_prefetch &&
+                        i + PREFETCH_DISTANCE < run_length) {
+                        PREFETCH(&_dict_items[_indexes[dict_index + PREFETCH_DISTANCE]]);
+                    }
+                    _string_values_buf[i] = _dict_items[_indexes[dict_index++]];
+                }
+                doris_column->insert_many_strings_overflow(_string_values_buf.data(), run_length,
+                                                           _max_value_length);
+            } else if (_dict_exceeds_l2_cache && config::enable_parquet_dict_prefetch) {
+                // P1-5 only: scalar path with software prefetch for large dicts
+                std::vector<StringRef> string_values;
+                string_values.reserve(run_length);
+                constexpr size_t PREFETCH_DISTANCE = 8;
+                for (size_t i = 0; i < run_length; ++i) {
+                    if (i + PREFETCH_DISTANCE < run_length) {
+                        PREFETCH(&_dict_items[_indexes[dict_index + PREFETCH_DISTANCE]]);
+                    }
+                    string_values.emplace_back(_dict_items[_indexes[dict_index++]]);
+                }
+                doris_column->insert_many_strings_overflow(string_values.data(), run_length,
+                                                           _max_value_length);
+            } else {
+                std::vector<StringRef> string_values;
+                string_values.reserve(run_length);
+                for (size_t i = 0; i < run_length; ++i) {
+                    string_values.emplace_back(_dict_items[_indexes[dict_index++]]);
+                }
+                doris_column->insert_many_strings_overflow(string_values.data(), run_length,
+                                                           _max_value_length);
             }
-            doris_column->insert_many_strings_overflow(string_values.data(), run_length,
-                                                       _max_value_length);
             break;
         }
         case ColumnSelectVector::NULL_DATA: {
@@ -151,6 +206,70 @@ Status ByteArrayDictDecoder::_decode_values(MutableColumnPtr& doris_column, Data
     }
     return Status::OK();
 }
+Status ByteArrayDictDecoder::_lazy_decode_string_values(MutableColumnPtr& doris_column,
+                                                        ColumnSelectVector& select_vector) {
+    ColumnSelectVector::DataReadType read_type;
+    while (size_t run_length = select_vector.get_next_run<true>(&read_type)) {
+        switch (read_type) {
+        case ColumnSelectVector::CONTENT: {
+            // Decode only the indexes needed for this CONTENT run.
+            _indexes.resize(run_length);
+            _index_batch_decoder->GetBatch(_indexes.data(), cast_set<uint32_t>(run_length));
+            if (config::enable_parquet_simd_dict_decode) {
+                // P1-4: Reusable buffer + P1-5: software prefetch for lazy path
+                _string_values_buf.resize(run_length);
+                constexpr size_t PREFETCH_DISTANCE = 8;
+                for (size_t i = 0; i < run_length; ++i) {
+                    if (_dict_exceeds_l2_cache && config::enable_parquet_dict_prefetch &&
+                        i + PREFETCH_DISTANCE < run_length) {
+                        PREFETCH(&_dict_items[_indexes[i + PREFETCH_DISTANCE]]);
+                    }
+                    _string_values_buf[i] = _dict_items[_indexes[i]];
+                }
+                doris_column->insert_many_strings_overflow(_string_values_buf.data(), run_length,
+                                                           _max_value_length);
+            } else if (_dict_exceeds_l2_cache && config::enable_parquet_dict_prefetch) {
+                // P1-5 only: scalar path with software prefetch for lazy path
+                std::vector<StringRef> string_values;
+                string_values.reserve(run_length);
+                constexpr size_t PREFETCH_DISTANCE = 8;
+                for (size_t i = 0; i < run_length; ++i) {
+                    if (i + PREFETCH_DISTANCE < run_length) {
+                        PREFETCH(&_dict_items[_indexes[i + PREFETCH_DISTANCE]]);
+                    }
+                    string_values.emplace_back(_dict_items[_indexes[i]]);
+                }
+                doris_column->insert_many_strings_overflow(string_values.data(), run_length,
+                                                           _max_value_length);
+            } else {
+                std::vector<StringRef> string_values;
+                string_values.reserve(run_length);
+                for (size_t i = 0; i < run_length; ++i) {
+                    string_values.emplace_back(_dict_items[_indexes[i]]);
+                }
+                doris_column->insert_many_strings_overflow(string_values.data(), run_length,
+                                                           _max_value_length);
+            }
+            break;
+        }
+        case ColumnSelectVector::NULL_DATA: {
+            doris_column->insert_many_defaults(run_length);
+            break;
+        }
+        case ColumnSelectVector::FILTERED_CONTENT: {
+            // Skip indexes in the RLE stream without decoding them.
+            _index_batch_decoder->SkipBatch(cast_set<uint32_t>(run_length));
+            break;
+        }
+        case ColumnSelectVector::FILTERED_NULL: {
+            // No indexes to skip for null values.
+            break;
+        }
+        }
+    }
+    return Status::OK();
+}
+
 #include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

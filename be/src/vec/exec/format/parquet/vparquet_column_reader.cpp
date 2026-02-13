@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "common/config.h"
 #include "io/fs/tracing_file_reader.h"
 #include "runtime/define_primitive_type.h"
 #include "schema_desc.h"
@@ -394,7 +395,16 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_
                                            _filter_map_index));
         _filter_map_index += num_values;
     }
-    return _chunk_reader->decode_values(data_column, type, select_vector, is_dict_filter);
+    // When filter_ratio is high (low selectivity), enable lazy dict index decoding
+    // by passing a non-null filter_data signal to the decoder. The decoder will then
+    // skip RLE index decoding for FILTERED_CONTENT runs instead of decoding upfront.
+    const uint8_t* filter_data = nullptr;
+    if (config::enable_parquet_lazy_dict_decode && filter_map.has_filter() &&
+        filter_map.filter_ratio() > 0.95) {
+        filter_data = filter_map.filter_map_data();
+    }
+    return _chunk_reader->decode_values(data_column, type, select_vector, is_dict_filter,
+                                        filter_data);
 }
 
 /**

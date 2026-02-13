@@ -26,6 +26,7 @@
 #include <functional>
 #include <utility>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "exec/schema_scanner.h"
 #include "io/file_factory.h"
@@ -558,6 +559,43 @@ Status ParquetReader::set_fill_columns(
     }
     if (_row_id_column_iterator_pair.first != nullptr) {
         _lazy_read_ctx.all_predicate_col_ids.emplace_back(_row_id_column_iterator_pair.second);
+    }
+
+    // P0-3: Identify candidate lazy string columns for deferred dict decode.
+    // A candidate is a lazy read column that is: string-typed slot, BYTE_ARRAY physical type,
+    // and not a complex type. Actual dict-encoding confirmation happens per row group in init().
+    if (config::enable_parquet_lazy_dict_decode_for_lazy_columns &&
+        !_lazy_read_ctx.has_complex_type && _colname_to_slot_id != nullptr &&
+        _tuple_descriptor != nullptr) {
+        for (const auto& lazy_col : _lazy_read_ctx.lazy_read_columns) {
+            auto slot_id_it = _colname_to_slot_id->find(lazy_col);
+            if (slot_id_it == _colname_to_slot_id->end()) {
+                continue;
+            }
+            int slot_id = slot_id_it->second;
+            // Find the SlotDescriptor to check slot type
+            SlotDescriptor* slot = nullptr;
+            for (auto* each : _tuple_descriptor->slots()) {
+                if (each->id() == slot_id) {
+                    slot = each;
+                    break;
+                }
+            }
+            if (slot == nullptr) {
+                continue;
+            }
+            if (!is_string_type(slot->type()->get_primitive_type()) &&
+                !is_var_len_object(slot->type()->get_primitive_type())) {
+                continue;
+            }
+            // Check parquet physical type is BYTE_ARRAY
+            auto file_col_name = _table_info_node_ptr->children_file_column_name(lazy_col);
+            auto* field = schema.get_column(file_col_name);
+            if (field == nullptr || field->physical_type != tparquet::Type::BYTE_ARRAY) {
+                continue;
+            }
+            _lazy_read_ctx.lazy_dict_decode_candidates.emplace_back(lazy_col, slot_id);
+        }
     }
 
     for (auto& kv : _lazy_read_ctx.fill_partition_columns) {

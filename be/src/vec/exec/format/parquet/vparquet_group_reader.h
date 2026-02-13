@@ -21,6 +21,7 @@
 
 #include <limits>
 #include <memory>
+#include <set>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -31,6 +32,7 @@
 #include "olap/id_manager.h"
 #include "olap/utils.h"
 #include "vec/columns/column.h"
+#include "vec/exec/format/parquet/column_read_order_ctx.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exec/format/table/table_format_reader.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -116,6 +118,10 @@ public:
         std::unordered_map<std::string, VExprContextSPtr> missing_columns;
         // should turn off filtering by page index, lazy read and dict filter if having complex type
         bool has_complex_type = false;
+        // P0-3: Candidate lazy string columns for deferred dict decode.
+        // Populated in set_fill_columns(): lazy read columns whose slot type is string/BYTE_ARRAY.
+        // std::pair<col_name, slot_id>
+        std::vector<std::pair<std::string, int>> lazy_dict_decode_candidates;
     };
 
     /**
@@ -214,6 +220,9 @@ private:
                              FilterMap& filter_map);
 
     Status _do_lazy_read(Block* block, size_t batch_size, size_t* read_rows, bool* batch_eof);
+    // Per-column lazy read: reads predicate columns one by one with intermediate filtering.
+    Status _do_lazy_read_per_column(Block* block, size_t batch_size, size_t* read_rows,
+                                    bool* batch_eof);
     Status _rebuild_filter_map(FilterMap& filter_map,
                                DorisUniqueBufferPtr<uint8_t>& filter_map_data,
                                size_t pre_read_rows) const;
@@ -235,6 +244,12 @@ private:
     Status _rewrite_dict_predicates();
     Status _rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id, bool is_nullable);
     void _convert_dict_cols_to_string_cols(Block* block);
+    // P0-3: Convert lazy dict decode columns (ColumnInt32) back to string columns.
+    // Called after filtering so only surviving rows are materialized.
+    void _convert_lazy_dict_cols_to_string_cols(Block* block);
+
+    // Recursively collects all slot IDs referenced by an expression tree.
+    static void _collect_slot_ids_from_expr(const VExpr* expr, std::set<int>& slot_ids);
 
     Status _get_current_batch_row_id(size_t read_rows);
     Status _fill_row_id_columns(Block* block, size_t read_rows, bool is_current_row_ids);
@@ -269,6 +284,10 @@ private:
     VExprContextSPtrs _filter_conjuncts;
     // std::pair<col_name, slot_id>
     std::vector<std::pair<std::string, int>> _dict_filter_cols;
+    // P0-3: Lazy string columns confirmed as fully dict-encoded. These will output
+    // int32 dict codes during Phase 2 read, then be converted back to strings after filtering.
+    // std::pair<col_name, slot_id>
+    std::vector<std::pair<std::string, int>> _lazy_dict_decode_cols;
     RuntimeState* _state = nullptr;
     std::shared_ptr<ObjectPool> _obj_pool;
     const std::set<uint64_t>& _column_ids;
@@ -281,6 +300,17 @@ private:
     std::vector<rowid_t> _current_batch_row_ids;
 
     std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
+
+    // P0-2: Per-column predicate read order optimization
+    // Maps predicate column index (in predicate_columns arrays) to its single-slot conjuncts.
+    // Built from _slot_id_to_filter_conjuncts during init().
+    std::unordered_map<size_t, VExprContextSPtrs> _per_col_conjuncts;
+    // Conjuncts that reference multiple slots or no specific slot (evaluated after all pred cols).
+    VExprContextSPtrs _multi_col_conjuncts;
+    // Adaptive column read order context.
+    std::unique_ptr<ColumnReadOrderCtx> _column_read_order_ctx;
+    // Whether per-column lazy read optimization is active for this row group.
+    bool _enable_per_column_lazy_read = false;
 };
 #include "common/compile_check_end.h"
 

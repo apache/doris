@@ -1595,6 +1595,23 @@ DEFINE_mInt64(compaction_batch_size, "-1");
 // filter wrong data.
 DEFINE_mBool(enable_parquet_page_index, "true");
 
+// Whether to push down filter bitmap to the parquet decoder layer for lazy index decoding.
+DEFINE_mBool(enable_parquet_lazy_dict_decode, "true");
+
+// Whether to enable predicate column read order optimization in parquet lazy read.
+DEFINE_mBool(enable_parquet_predicate_column_reorder, "true");
+
+// Whether to enable lazy dictionary decode for non-predicate (lazy) string columns in parquet.
+DEFINE_mBool(enable_parquet_lazy_dict_decode_for_lazy_columns, "true");
+
+// Whether to enable AVX2 SIMD dict gather in parquet dictionary decoding.
+// Benchmark shows SIMD gather is slower than scalar for most dict sizes on Alder Lake.
+DEFINE_mBool(enable_parquet_simd_dict_decode, "false");
+
+// Whether to enable software prefetch hints for large dictionary decoding in parquet.
+// Benchmark shows software prefetch competes with hardware prefetcher, causing regression.
+DEFINE_mBool(enable_parquet_dict_prefetch, "false");
+
 DEFINE_mBool(ignore_not_found_file_in_external_table, "true");
 
 DEFINE_mBool(enable_hdfs_mem_limiter, "true");

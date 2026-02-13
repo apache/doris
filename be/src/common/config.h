@@ -1666,6 +1666,30 @@ DECLARE_mInt64(compaction_batch_size);
 
 DECLARE_mBool(enable_parquet_page_index);
 
+// Whether to push down filter bitmap to the parquet decoder layer for lazy index decoding.
+// When enabled and selectivity is low, FILTERED_CONTENT runs skip RLE index decoding
+// instead of decoding all indexes upfront.
+DECLARE_mBool(enable_parquet_lazy_dict_decode);
+
+// Whether to enable predicate column read order optimization in parquet lazy read.
+// When enabled, predicate columns are read one by one with intermediate filtering,
+// so highly-selective columns filter rows early, reducing decode work for subsequent columns.
+DECLARE_mBool(enable_parquet_predicate_column_reorder);
+
+// Whether to enable lazy dictionary decode for non-predicate (lazy) string columns in parquet.
+// When enabled, lazy string columns that are fully dictionary-encoded output int32 dict codes
+// during Phase 2 read, then convert to strings only for rows surviving the filter.
+DECLARE_mBool(enable_parquet_lazy_dict_decode_for_lazy_columns);
+
+// Whether to enable AVX2 SIMD dict gather in parquet dictionary decoding.
+// When enabled, INT32/FLOAT uses 8-wide AVX2 gather, INT64/DOUBLE uses 4-wide gather.
+DECLARE_mBool(enable_parquet_simd_dict_decode);
+
+// Whether to enable software prefetch hints for large dictionary decoding in parquet.
+// When enabled and dictionary exceeds L2 cache threshold, prefetch hints are emitted
+// to hide cache miss latency during dict gather (both SIMD and scalar paths).
+DECLARE_mBool(enable_parquet_dict_prefetch);
+
 // Wheather to ignore not found file in external teble(eg, hive)
 // Default is true, if set to false, the not found file will result in query failure.
 DECLARE_mBool(ignore_not_found_file_in_external_table);

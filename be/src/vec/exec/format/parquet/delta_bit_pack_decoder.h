@@ -152,7 +152,8 @@ public:
     }
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         ColumnSelectVector& select_vector, bool is_dict_filter) override {
+                         ColumnSelectVector& select_vector, bool is_dict_filter,
+                         const uint8_t* filter_data = nullptr) override {
         size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
         // decode values
         _values.resize(non_null_size);
@@ -165,7 +166,7 @@ public:
         // set decoded value with fix plain decoder
         RETURN_IF_ERROR(init_values_converter());
         return _type_converted_decoder->decode_values(doris_column, data_type, select_vector,
-                                                      is_dict_filter);
+                                                      is_dict_filter, filter_data);
     }
 
     Status decode(T* buffer, uint32_t num_values, uint32_t* out_num_values) {
@@ -237,7 +238,8 @@ public:
     }
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         ColumnSelectVector& select_vector, bool is_dict_filter) override {
+                         ColumnSelectVector& select_vector, bool is_dict_filter,
+                         const uint8_t* filter_data = nullptr) override {
         if (select_vector.has_filter()) {
             return _decode_values<true>(doris_column, data_type, select_vector, is_dict_filter);
         } else {
@@ -312,7 +314,8 @@ public:
     }
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         ColumnSelectVector& select_vector, bool is_dict_filter) override {
+                         ColumnSelectVector& select_vector, bool is_dict_filter,
+                         const uint8_t* filter_data = nullptr) override {
         if (select_vector.has_filter()) {
             return _decode_values<true>(doris_column, data_type, select_vector, is_dict_filter);
         } else {

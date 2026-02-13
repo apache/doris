@@ -43,11 +43,13 @@ public:
     ~ByteArrayDictDecoder() override = default;
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         ColumnSelectVector& select_vector, bool is_dict_filter) override;
+                         ColumnSelectVector& select_vector, bool is_dict_filter,
+                         const uint8_t* filter_data = nullptr) override;
 
     template <bool has_filter>
     Status _decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                          ColumnSelectVector& select_vector, bool is_dict_filter);
+                          ColumnSelectVector& select_vector, bool is_dict_filter,
+                          const uint8_t* filter_data);
 
     Status set_dict(DorisUniqueBufferPtr<uint8_t>& dict, int32_t length,
                     size_t num_values) override;
@@ -57,10 +59,18 @@ public:
     MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) override;
 
 protected:
+    // Lazy index decoding path: decode indexes per-run, skip FILTERED_CONTENT via SkipBatch.
+    Status _lazy_decode_string_values(MutableColumnPtr& doris_column,
+                                      ColumnSelectVector& select_vector);
+
     // For dictionary encoding
     std::vector<StringRef> _dict_items;
     std::vector<uint8_t> _dict_data;
     size_t _max_value_length;
+    // P1-4: Reusable buffer for string dict gather to avoid per-run heap allocation.
+    std::vector<StringRef> _string_values_buf;
+    // P1-5: Whether dictionary exceeds L2 cache threshold (triggers software prefetching)
+    bool _dict_exceeds_l2_cache = false;
 };
 #include "common/compile_check_end.h"
 
