@@ -389,7 +389,7 @@ public class MetaServiceProxy {
 
     public Cloud.CreateMetaSyncPointResponse createMetaSyncPoint(Cloud.CreateMetaSyncPointRequest request)
             throws RpcException {
-        return w.executeRequest((client) -> client.createMetaSyncPoint(request));
+        return executeWithMetrics("createMetaSyncPoint", (client) -> client.createMetaSyncPoint(request));
     }
 
     public Cloud.BeginSubTxnResponse beginSubTxn(Cloud.BeginSubTxnRequest request)
