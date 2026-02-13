@@ -30,6 +30,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -112,7 +113,8 @@ public class TableQueryPlanAction extends RestBaseController {
             return redirectToHttps(request);
         }
 
-        executeCheckPassword(request, response);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(4);
 
@@ -132,10 +134,10 @@ public class TableQueryPlanAction extends RestBaseController {
                 return ResponseEntityBuilder.badRequest("POST body must contains [sql] root object");
             }
             LOG.info("receive SQL statement [{}] from external service [ user [{}]] for database [{}] table [{}]",
-                    sql, ConnectContext.get().getCurrentUserIdentity(), dbName, tblName);
+                    sql, authInfo.userIdentity, dbName, tblName);
 
             // check privilege for select, otherwise return HTTP 401
-            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), dbName, tblName, PrivPredicate.SELECT);
+            checkTblAuth(authInfo.userIdentity, fullDbName, tblName, PrivPredicate.SELECT);
             Table table;
             try {
                 Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbName);

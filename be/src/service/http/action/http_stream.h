@@ -21,9 +21,10 @@
 
 #include <functional>
 
-#include "load/message_body_sink.h"
-#include "service/http/http_handler.h"
-#include "util/client_cache.h"
+#include "gen_cpp/PlanNodes_types.h"
+#include "http/http_handler_with_auth.h"
+#include "runtime/client_cache.h"
+#include "runtime/message_body_sink.h"
 
 namespace doris {
 
@@ -31,7 +32,7 @@ class ExecEnv;
 class Status;
 class StreamLoadContext;
 
-class HttpStreamAction : public HttpHandler {
+class HttpStreamAction : public HttpHandlerWithAuth {
 public:
     HttpStreamAction(ExecEnv* exec_env);
     ~HttpStreamAction() override;
@@ -53,7 +54,7 @@ private:
     Status _handle_group_commit(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx);
 
 private:
-    ExecEnv* _exec_env;
+    // Note: _exec_env is inherited from HttpHandlerWithAuth
     std::shared_ptr<MetricEntity> _http_stream_entity;
     IntCounter* http_stream_requests_total;
     IntCounter* http_stream_duration_ms;

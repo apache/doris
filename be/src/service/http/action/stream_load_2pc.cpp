@@ -39,7 +39,11 @@
 
 namespace doris {
 
-StreamLoad2PCAction::StreamLoad2PCAction(ExecEnv* exec_env) : _exec_env(exec_env) {}
+StreamLoad2PCAction::StreamLoad2PCAction(ExecEnv* exec_env)
+        : HttpHandlerWithAuth(exec_env, TPrivilegeHier::GLOBAL, TPrivilegeType::LOAD) {
+    // Use LOAD privilege type: requires LOAD permission
+    // Note: _exec_env is set by parent class HttpHandlerWithAuth
+}
 
 void StreamLoad2PCAction::handle(HttpRequest* req) {
     Status status = Status::OK();

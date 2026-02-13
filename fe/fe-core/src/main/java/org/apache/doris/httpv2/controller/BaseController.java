@@ -198,6 +198,7 @@ public class BaseController {
         public String remoteIp;
         public String password;
         public String cluster;
+        public UserIdentity userIdentity;  // Add this field for convenient parameter passing
 
         @Override
         public String toString() {
