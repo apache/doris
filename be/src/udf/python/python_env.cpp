@@ -288,4 +288,46 @@ Status PythonVersionManager::init(PythonEnvType env_type, const fs::path& python
     return Status::OK();
 }
 
+Status list_installed_packages(const PythonVersion& version,
+                               std::vector<std::pair<std::string, std::string>>* packages) {
+    DCHECK(packages != nullptr);
+    if (!version.is_valid()) {
+        return Status::InvalidArgument("Invalid python version: {}", version.to_string());
+    }
+
+    // Run pip list --format=json to get installed packages
+    std::string cmd =
+            fmt::format("\"{}\" -m pip list --format=json 2>/dev/null", version.executable_path);
+    FILE* pipe = popen(cmd.c_str(), "r");
+    if (!pipe) {
+        return Status::InternalError("Failed to run pip list for python version: {}",
+                                     version.full_version);
+    }
+
+    std::string result;
+    char buf[4096];
+    while (fgets(buf, sizeof(buf), pipe)) {
+        result += buf;
+    }
+    int ret = pclose(pipe);
+    if (ret != 0) {
+        return Status::InternalError(
+                "pip list failed for python version: {}, exit code: {}, output: {}",
+                version.full_version, ret, result);
+    }
+
+    // Parse JSON output: [{"name": "pkg", "version": "1.0"}, ...]
+    // Simple JSON parsing without external library
+    // Each entry looks like: {"name": "package_name", "version": "1.2.3"}
+    static std::regex entry_re(
+            R"REGEX(\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"version"\s*:\s*"([^"]+)"\s*\})REGEX");
+    auto begin = std::sregex_iterator(result.begin(), result.end(), entry_re);
+    auto end = std::sregex_iterator();
+    for (auto it = begin; it != end; ++it) {
+        packages->emplace_back((*it)[1].str(), (*it)[2].str());
+    }
+
+    return Status::OK();
+}
+
 } // namespace doris
