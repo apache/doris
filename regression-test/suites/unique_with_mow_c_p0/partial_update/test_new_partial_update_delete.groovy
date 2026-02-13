@@ -83,7 +83,7 @@ suite('test_new_partial_update_delete') {
                     `c3` int,
                     `c4` int
                     )UNIQUE KEY(k1)
-                CLUSTER BY(c4, c2)    
+                ORDER BY(c4, c2)    
                 DISTRIBUTED BY HASH(k1) BUCKETS 1
                 PROPERTIES (
                     "disable_auto_compaction" = "true",

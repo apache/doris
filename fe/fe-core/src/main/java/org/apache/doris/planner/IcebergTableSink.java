@@ -89,6 +89,12 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         if (explainLevel == TExplainLevel.BRIEF) {
             return strBuilder.toString();
         }
+        Table icebergTable = targetTable.getIcebergTable();
+        strBuilder.append(prefix).append("Table: ").append(icebergTable.name()).append("\n");
+        if (icebergTable.sortOrder().isSorted()) {
+            strBuilder.append(prefix).append(targetTable.getSortOrderSql()).append("\n");
+        }
+
         // TODO: explain partitions
         return strBuilder.toString();
     }

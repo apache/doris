@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS catalog_page (
     cp_type varchar(100)
 )
 UNIQUE KEY(cp_catalog_page_sk, cp_catalog_page_id)
-CLUSTER BY(cp_department, cp_catalog_number, cp_type)
+ORDER BY(cp_department, cp_catalog_number, cp_type)
 DISTRIBUTED BY HASH(cp_catalog_page_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"

@@ -39,7 +39,7 @@ suite("test_schema_change_ck") {
                 `c2` int(11) NULL, 
                 `c3` int(11) NULL
             ) unique KEY(`c1`) 
-            cluster by(`c3`, `c2`) 
+            ORDER BY(`c3`, `c2`) 
             DISTRIBUTED BY HASH(`c1`) BUCKETS 1
             PROPERTIES (
                 "replication_num" = "1",
@@ -56,7 +56,7 @@ suite("test_schema_change_ck") {
             `c2` int(11) NULL, 
             `c3` int(11) NULL
         ) unique KEY(`c1`)
-        cluster by(`c3`, `c2`)
+        ORDER BY(`c3`, `c2`)
         PARTITION BY RANGE(`c1`)
         ( 
             PARTITION `p_10000` VALUES [("0"), ("10000")) 
@@ -200,7 +200,7 @@ suite("test_schema_change_ck") {
             `c4` int(11) NULL,
             `c5` int(11) NULL
         ) unique KEY(`k1`, `k2`)
-        cluster by(`c4`, `c5`)
+        ORDER BY(`c4`, `c5`)
         DISTRIBUTED BY HASH(`k1`) BUCKETS 1
         ROLLUP (
             r1 (k2, k1, c4, c3)

@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS customer_address (
     ca_location_type char(20)
 )
 UNIQUE KEY(ca_address_sk)
-CLUSTER BY(ca_address_id, ca_address_sk, ca_street_number)
+ORDER BY(ca_address_id, ca_address_sk, ca_street_number)
 DISTRIBUTED BY HASH(ca_address_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"

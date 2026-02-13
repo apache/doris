@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS store (
     s_tax_percentage decimal(5,2)
 )
 UNIQUE KEY(s_store_sk)
-CLUSTER BY(s_company_id, s_store_id)
+ORDER BY(s_company_id, s_store_id)
 DISTRIBUTED BY HASH(s_store_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"

@@ -2106,7 +2106,7 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean isClusterKeyEnabled() {
-        return getFeConfig("random_add_cluster_keys_for_mow").equals("true")
+        return getFeConfig("random_add_order_by_keys_for_mow").equals("true")
     }
 
     boolean enableStoragevault() {

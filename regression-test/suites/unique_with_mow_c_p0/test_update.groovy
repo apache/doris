@@ -29,7 +29,7 @@ suite("test_update") {
             `c` int NOT NULL
         ) ENGINE=OLAP
         UNIQUE KEY(`a`)
-        CLUSTER BY (`b`)
+        ORDER BY (`b`)
         DISTRIBUTED BY HASH(`a`) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
