@@ -45,6 +45,10 @@ import java.util.jar.JarFile;
  */
 public class ChildFirstClassLoader extends URLClassLoader {
 
+    // Hadoop metrics2 classes must use parent-first delegation so that all ClassLoaders
+    // share the main ClassLoader's NopMetricsSystem, preventing per-ClassLoader metrics leak.
+    private static final String HADOOP_METRICS_PREFIX = "org.apache.hadoop.metrics2.";
+
     // A list of URLs pointing to JAR files
     private final List<URL> jarURLs;
 
@@ -79,6 +83,10 @@ public class ChildFirstClassLoader extends URLClassLoader {
      */
     @Override
     protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+        // Parent-first for Hadoop metrics2 — share NopMetricsSystem from main ClassLoader
+        if (name.startsWith(HADOOP_METRICS_PREFIX)) {
+            return super.loadClass(name, resolve);
+        }
         // Child-First mechanism: try to find the class locally first
         try {
             return findClass(name);

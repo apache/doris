@@ -54,6 +54,7 @@ public class TrinoConnectorPluginManager implements PluginInstaller {
             .add("org.openjdk.jol.")
             .add("io.opentelemetry.api.")
             .add("io.opentelemetry.context.")
+            .add("org.apache.hadoop.metrics2.")
             .build();
 
     private final ConcurrentMap<ConnectorName, ConnectorFactory> connectorFactories = new ConcurrentHashMap();
