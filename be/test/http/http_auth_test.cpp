@@ -88,4 +88,69 @@ TEST_F(HttpAuthTest, enable_all_http_auth) {
     }
 }
 
+// Test NONE privilege type optimization - should bypass FE RPC call
+TEST_F(HttpAuthTest, privilege_type_none) {
+    Defer defer {[]() { config::enable_all_http_auth = false; }};
+    config::enable_all_http_auth = true;
+
+    // Create handler with NONE privilege type (like HealthAction)
+    HttpAuthTestHandler none_handler(nullptr, TPrivilegeHier::GLOBAL, TPrivilegeType::NONE);
+
+    // NONE type should bypass auth check even when enable_all_http_auth=true
+    // This avoids unnecessary FE RPC calls for public APIs
+    auto evhttp_req = evhttp_request_new(nullptr, nullptr);
+    HttpRequest req(evhttp_req);
+    // No authorization header, no params - but should still pass with NONE type
+    EXPECT_EQ(none_handler.on_header(&req), 0);
+    evhttp_request_free(evhttp_req);
+}
+
+// Test LOAD privilege type
+TEST_F(HttpAuthTest, privilege_type_load) {
+    // Create handler with LOAD privilege type (like StreamLoadAction)
+    HttpAuthTestHandler load_handler(nullptr, TPrivilegeHier::GLOBAL, TPrivilegeType::LOAD);
+
+    // When enable_all_http_auth=false, should pass without auth
+    config::enable_all_http_auth = false;
+    auto evhttp_req = evhttp_request_new(nullptr, nullptr);
+    HttpRequest req(evhttp_req);
+    EXPECT_EQ(load_handler.on_header(&req), 0);
+    evhttp_request_free(evhttp_req);
+}
+
+// Test different privilege types are distinct
+TEST_F(HttpAuthTest, privilege_types_distinct) {
+    Defer defer {[]() { config::enable_all_http_auth = false; }};
+    config::enable_all_http_auth = true;
+
+    // Create handlers with different privilege types
+    HttpAuthTestHandler admin_handler(nullptr, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
+    HttpAuthTestHandler load_handler(nullptr, TPrivilegeHier::GLOBAL, TPrivilegeType::LOAD);
+    HttpAuthTestHandler none_handler(nullptr, TPrivilegeHier::GLOBAL, TPrivilegeType::NONE);
+
+    // NONE type should always pass when enable_all_http_auth=true
+    {
+        auto evhttp_req = evhttp_request_new(nullptr, nullptr);
+        HttpRequest req(evhttp_req);
+        EXPECT_EQ(none_handler.on_header(&req), 0);
+        evhttp_request_free(evhttp_req);
+    }
+
+    // ADMIN and LOAD types should fail without proper auth
+    // (In real scenario, they would call FE to check privileges)
+    {
+        auto evhttp_req = evhttp_request_new(nullptr, nullptr);
+        HttpRequest req(evhttp_req);
+        // No auth header - should fail
+        EXPECT_EQ(admin_handler.on_header(&req), -1);
+    }
+
+    {
+        auto evhttp_req = evhttp_request_new(nullptr, nullptr);
+        HttpRequest req(evhttp_req);
+        // No auth header - should fail
+        EXPECT_EQ(load_handler.on_header(&req), -1);
+    }
+}
+
 } // namespace doris

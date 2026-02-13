@@ -36,13 +36,22 @@ HttpHandlerWithAuth::HttpHandlerWithAuth(ExecEnv* exec_env, TPrivilegeHier::type
 
 int HttpHandlerWithAuth::on_header(HttpRequest* req) {
     //if u return value isn't 0,u should `send_reply`,Avoid requesting links that never return.
-    TCheckAuthRequest auth_request;
-    TCheckAuthResult auth_result;
-    AuthInfo auth_info;
 
+    // If HTTP auth is globally disabled, skip all checks (backward compatibility)
     if (!config::enable_all_http_auth) {
         return 0;
     }
+
+    // If privilege type is NONE, skip auth (public APIs like health/metrics)
+    // This optimization avoids unnecessary RPC calls to FE
+    if (_type == TPrivilegeType::NONE) {
+        return 0;
+    }
+
+    // Parse HTTP Basic Auth
+    TCheckAuthRequest auth_request;
+    TCheckAuthResult auth_result;
+    AuthInfo auth_info;
 
     if (!parse_basic_auth(*req, &auth_info)) {
         LOG(WARNING) << "parse basic authorization failed"

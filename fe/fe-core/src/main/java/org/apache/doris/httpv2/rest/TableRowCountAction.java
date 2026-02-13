@@ -23,6 +23,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DorisHttpException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -53,13 +54,14 @@ public class TableRowCountAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             @PathVariable(value = TABLE_KEY) final String tblName,
             HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(4);
         try {
             String fullDbName = getFullDbName(dbName);
             // check privilege for select, otherwise return HTTP 401
-            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SELECT);
+            checkTblAuth(authInfo.userIdentity, fullDbName, tblName, PrivPredicate.SELECT);
             OlapTable olapTable;
             try {
                 Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);

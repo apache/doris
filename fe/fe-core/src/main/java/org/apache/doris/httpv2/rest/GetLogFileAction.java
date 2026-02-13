@@ -18,6 +18,7 @@
 package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -77,8 +78,8 @@ public class GetLogFileAction extends RestBaseController {
         if (!Config.enable_get_log_file_api) {
             return ResponseEntityBuilder.badRequest("feature disabled");
         }
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
 
         String logType = request.getParameter("type");
         String logFile = request.getParameter("file");

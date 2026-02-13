@@ -18,6 +18,7 @@
 package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.util.LoadSubmitter;
 import org.apache.doris.httpv2.util.TmpFileMgr;
@@ -79,14 +80,15 @@ public class UploadAction extends RestBaseController {
             return redirectToHttps(request);
         }
 
-        checkWithCookie(request, response, false);
+        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
+        checkAdminAuth(authInfo.userIdentity);
 
         if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
         }
 
         String fullDbName = getFullDbName(dbName);
-        checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.LOAD);
+        checkTblAuth(authInfo.userIdentity, fullDbName, tblName, PrivPredicate.LOAD);
 
         String columnSeparator = request.getParameter(PARAM_COLUMN_SEPARATOR);
         if (Strings.isNullOrEmpty(columnSeparator)) {
@@ -143,7 +145,7 @@ public class UploadAction extends RestBaseController {
         }
 
         String fullDbName = getFullDbName(dbName);
-        checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.LOAD);
+        checkTblAuth(authInfo.userIdentity, fullDbName, tblName, PrivPredicate.LOAD);
 
         String fileIdStr = request.getParameter(PARAM_FILE_ID);
         if (Strings.isNullOrEmpty(fileIdStr)) {
@@ -192,14 +194,15 @@ public class UploadAction extends RestBaseController {
             @PathVariable(value = TABLE_KEY) String tblName,
             HttpServletRequest request, HttpServletResponse response) {
 
-        checkWithCookie(request, response, false);
+        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
+        checkAdminAuth(authInfo.userIdentity);
 
         if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
         }
 
         String fullDbName = getFullDbName(dbName);
-        checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.LOAD);
+        checkTblAuth(authInfo.userIdentity, fullDbName, tblName, PrivPredicate.LOAD);
 
         String fileIdStr = request.getParameter(PARAM_FILE_ID);
         String fileUUIDStr = request.getParameter(PARAM_FILE_UUID);
@@ -236,14 +239,15 @@ public class UploadAction extends RestBaseController {
             @PathVariable(value = TABLE_KEY) String tblName,
             HttpServletRequest request, HttpServletResponse response) {
 
-        checkWithCookie(request, response, false);
+        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
+        checkAdminAuth(authInfo.userIdentity);
 
         if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
         }
 
         String fullDbName = getFullDbName(dbName);
-        checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.LOAD);
+        checkTblAuth(authInfo.userIdentity, fullDbName, tblName, PrivPredicate.LOAD);
 
         String fileIdStr = request.getParameter(PARAM_FILE_ID);
         if (Strings.isNullOrEmpty(fileIdStr)) {

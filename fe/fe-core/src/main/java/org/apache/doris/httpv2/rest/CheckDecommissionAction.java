@@ -20,9 +20,9 @@ package org.apache.doris.httpv2.rest;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
@@ -57,8 +57,8 @@ public class CheckDecommissionAction extends RestBaseController {
     @RequestMapping(path = "/api/check_decommission", method = RequestMethod.GET)
     public Object execute(HttpServletRequest request, HttpServletResponse response) {
         //check user auth
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.OPERATOR);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkGlobalAuth(authInfo.userIdentity, PrivPredicate.OPERATOR);
 
         String hostPorts = request.getParameter(HOST_PORTS);
         if (Strings.isNullOrEmpty(hostPorts)) {

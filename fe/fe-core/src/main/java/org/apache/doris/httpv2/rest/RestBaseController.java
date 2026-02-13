@@ -76,6 +76,11 @@ public class RestBaseController extends BaseController {
         ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
         // check password
         UserIdentity currentUser = checkPassword(authInfo);
+
+        // Store UserIdentity in authInfo for convenient parameter passing
+        authInfo.userIdentity = currentUser;
+
+        // Set ConnectContext for backward compatibility
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setRemoteIP(authInfo.remoteIp);
@@ -304,6 +309,19 @@ public class RestBaseController extends BaseController {
         } catch (Exception e) {
             LOG.warn(e);
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
+    }
+
+    /**
+     * Check if admin privilege is required.
+     * When enable_all_http_auth is enabled, check if the user has admin privilege.
+     * If not authorized, throws UnauthorizedException.
+     *
+     * @param userIdentity The user identity to check
+     */
+    protected void checkAdminAuth(UserIdentity userIdentity) throws UnauthorizedException {
+        if (Config.enable_all_http_auth) {
+            checkGlobalAuth(userIdentity, org.apache.doris.mysql.privilege.PrivPredicate.ADMIN);
         }
     }
 }

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.util.ExecutionResultSet;
 import org.apache.doris.httpv2.util.StatementSubmitter;
@@ -91,9 +92,10 @@ public class StmtExecutionAction extends RestBaseController {
         }
 
         ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
+        checkAdminAuth(authInfo.userIdentity);
         String fullDbName = getFullDbName(dbName);
         if (Config.enable_all_http_auth) {
-            checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.ADMIN);
+            checkDbAuth(authInfo.userIdentity, fullDbName, PrivPredicate.ADMIN);
         }
 
         if (ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
@@ -136,7 +138,8 @@ public class StmtExecutionAction extends RestBaseController {
             return redirectToHttps(request);
         }
 
-        checkWithCookie(request, response, false);
+        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
+        checkAdminAuth(authInfo.userIdentity);
 
         if (ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             ns = InternalCatalog.INTERNAL_CATALOG_NAME;
