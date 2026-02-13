@@ -46,8 +46,7 @@ using namespace std::chrono;
 
 namespace doris::cloud {
 
-static constexpr std::string_view kMetaSyncPointDummyKey =
-        "__meta_service_sync_point_dummy_key__";
+static constexpr std::string_view kMetaSyncPointDummyKey = "__meta_service_sync_point_dummy_key__";
 
 struct TableStats {
     int64_t updated_row_count = 0;
