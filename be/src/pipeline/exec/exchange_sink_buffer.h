@@ -263,16 +263,16 @@ void transmit_blockv2(PBackendService_Stub* stub,
                                                          ExchangeSendCallback<PTransmitDataResult>>>
                               closure);
 #endif
-class ExchangeSinkBuffer : public HasTaskExecutionCtx {
+class ExchangeSinkBuffer : std::enable_shared_from_this<ExchangeSinkBuffer> {
 public:
     ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, PlanNodeId node_id,
                        RuntimeState* state, const std::vector<InstanceLoId>& sender_ins_ids);
 #ifdef BE_TEST
     ExchangeSinkBuffer(RuntimeState* state, int64_t sinknum)
-            : HasTaskExecutionCtx(state), _state(state), _exchange_sink_num(sinknum) {};
+            : _state(state), _exchange_sink_num(sinknum) {};
 #endif
 
-    ~ExchangeSinkBuffer() override = default;
+    ~ExchangeSinkBuffer() = default;
 
     void construct_request(TUniqueId);
 

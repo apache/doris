@@ -314,24 +314,24 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
         if (config::execution_ignore_eovercrowded) {
             send_callback->cntl_->ignore_eovercrowded();
         }
-        send_callback->addFailedHandler([&, weak_task_ctx = weak_task_exec_ctx()](
-                                                RpcInstance* ins, const std::string& err) {
-            auto task_lock = weak_task_ctx.lock();
-            if (task_lock == nullptr) {
-                // This means ExchangeSinkBuffer Ojbect already destroyed, not need run failed any more.
-                return;
-            }
-            // attach task for memory tracker and query id when core
-            SCOPED_ATTACH_TASK(_state);
-            _failed(ins->id, err);
-        });
+        send_callback->addFailedHandler(
+                [&, weak_sink_buffer = weak_from_this()](RpcInstance* ins, const std::string& err) {
+                    auto sink_buffer_lock = weak_sink_buffer.lock();
+                    if (sink_buffer_lock == nullptr) {
+                        // This means ExchangeSinkBuffer Ojbect already destroyed, not need run failed any more.
+                        return;
+                    }
+                    // attach task for memory tracker and query id when core
+                    SCOPED_ATTACH_TASK(_state);
+                    _failed(ins->id, err);
+                });
         send_callback->start_rpc_time = GetCurrentTimeNanos();
-        send_callback->addSuccessHandler([&, weak_task_ctx = weak_task_exec_ctx()](
+        send_callback->addSuccessHandler([&, weak_sink_buffer = weak_from_this()](
                                                  RpcInstance* ins_ptr, const bool& eos,
                                                  const PTransmitDataResult& result,
                                                  const int64_t& start_rpc_time) {
-            auto task_lock = weak_task_ctx.lock();
-            if (task_lock == nullptr) {
+            auto sink_buffer_lock = weak_sink_buffer.lock();
+            if (sink_buffer_lock == nullptr) {
                 // This means ExchangeSinkBuffer Ojbect already destroyed, not need run failed any more.
                 return;
             }
@@ -443,24 +443,24 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
         if (config::execution_ignore_eovercrowded) {
             send_callback->cntl_->ignore_eovercrowded();
         }
-        send_callback->addFailedHandler([&, weak_task_ctx = weak_task_exec_ctx()](
-                                                RpcInstance* ins, const std::string& err) {
-            auto task_lock = weak_task_ctx.lock();
-            if (task_lock == nullptr) {
-                // This means ExchangeSinkBuffer Ojbect already destroyed, not need run failed any more.
-                return;
-            }
-            // attach task for memory tracker and query id when core
-            SCOPED_ATTACH_TASK(_state);
-            _failed(ins->id, err);
-        });
+        send_callback->addFailedHandler(
+                [&, weak_sink_buffer = weak_from_this()](RpcInstance* ins, const std::string& err) {
+                    auto sink_buffer_lock = weak_sink_buffer.lock();
+                    if (sink_buffer_lock == nullptr) {
+                        // This means ExchangeSinkBuffer Ojbect already destroyed, not need run failed any more.
+                        return;
+                    }
+                    // attach task for memory tracker and query id when core
+                    SCOPED_ATTACH_TASK(_state);
+                    _failed(ins->id, err);
+                });
         send_callback->start_rpc_time = GetCurrentTimeNanos();
-        send_callback->addSuccessHandler([&, weak_task_ctx = weak_task_exec_ctx()](
+        send_callback->addSuccessHandler([&, weak_sink_buffer = weak_from_this()](
                                                  RpcInstance* ins_ptr, const bool& eos,
                                                  const PTransmitDataResult& result,
                                                  const int64_t& start_rpc_time) {
-            auto task_lock = weak_task_ctx.lock();
-            if (task_lock == nullptr) {
+            auto sink_buffer_lock = weak_sink_buffer.lock();
+            if (sink_buffer_lock == nullptr) {
                 // This means ExchangeSinkBuffer Ojbect already destroyed, not need run failed any more.
                 return;
             }
@@ -584,11 +584,8 @@ void ExchangeSinkBuffer::_turn_off_channel(RpcInstance& ins,
         return;
     }
     ins.rpc_channel_is_turn_off = true;
-    auto weak_task_ctx = weak_task_exec_ctx();
-    if (auto pip_ctx = weak_task_ctx.lock()) {
-        for (auto& parent : _parents) {
-            parent->on_channel_finished(ins.id);
-        }
+    for (auto& parent : _parents) {
+        parent->on_channel_finished(ins.id);
     }
 }
 
