@@ -302,6 +302,11 @@ void ColumnMap::update_hash_with_value(size_t n, SipHash& hash) const {
     }
 }
 
+// Suppress GCC false positive -Wmaybe-uninitialized after inlining XXH3_64bits_withSeed
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
 void ColumnMap::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                          const uint8_t* __restrict null_data) const {
     auto& offsets = get_offsets();
@@ -332,6 +337,9 @@ void ColumnMap::update_xxHash_with_value(size_t start, size_t end, uint64_t& has
         }
     }
 }
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 void ColumnMap::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                       const uint8_t* __restrict null_data) const {
