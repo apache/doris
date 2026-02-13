@@ -272,8 +272,6 @@ public:
             : _state(state), _exchange_sink_num(sinknum) {};
 #endif
 
-    ~ExchangeSinkBuffer() = default;
-
     void construct_request(TUniqueId);
 
     Status add_block(vectorized::Channel* channel, TransmitInfo&& request);
