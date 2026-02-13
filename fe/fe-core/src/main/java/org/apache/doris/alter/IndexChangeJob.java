@@ -344,7 +344,7 @@ public class IndexChangeJob implements Writable {
             if (!FeConstants.runningUnitTest) {
                 AgentTaskExecutor.submit(invertedIndexBatchTask);
             }
-        } catch(Exception e) {
+        } catch (Exception e) {
             LOG.error("run job {} failed due to {}", jobId, e);
             throw new AlterCancelException(e.getMessage());
         } finally {
