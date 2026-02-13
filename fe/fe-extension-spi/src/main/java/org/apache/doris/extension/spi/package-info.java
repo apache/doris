@@ -16,6 +16,16 @@
 // under the License.
 
 /**
- * Extension SPI contracts for the Doris FE plugin system.
+ * Stable extension SPI contracts for Doris FE plugin ecosystem.
+ *
+ * <p>This package defines the minimal contracts shared by FE plugin domains:
+ * {@link org.apache.doris.extension.spi.Plugin},
+ * {@link org.apache.doris.extension.spi.PluginFactory},
+ * {@link org.apache.doris.extension.spi.PluginContext}, and
+ * {@link org.apache.doris.extension.spi.PluginException}.
+ *
+ * <p>Only contracts are defined here. Runtime concerns such as directory
+ * scanning, classloader lifecycle, and plugin discovery/registry are provided
+ * by {@code org.apache.doris.extension.loader}.
  */
 package org.apache.doris.extension.spi;

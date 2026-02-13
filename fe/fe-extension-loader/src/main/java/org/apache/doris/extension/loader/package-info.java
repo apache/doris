@@ -16,6 +16,21 @@
 // under the License.
 
 /**
- * Plugin loading infrastructure for the Doris FE extension system.
+ * Runtime loading infrastructure for Doris FE extension plugins.
+ *
+ * <p>This package provides directory-driven plugin loading for FE runtime:
+ * scanning plugin roots, resolving plugin jars, creating classloaders with
+ * child-first policy (plus configurable parent-first prefixes), discovering
+ * typed factories via {@code ServiceLoader}, and exposing standardized load
+ * outcomes via {@link org.apache.doris.extension.loader.LoadReport},
+ * {@link org.apache.doris.extension.loader.LoadFailure}, and
+ * {@link org.apache.doris.extension.loader.PluginHandle}.
+ *
+ * <p>Current runtime scope is load-only: {@code loadAll}, {@code get}, and
+ * {@code list}. Runtime {@code reload}/{@code unload}, automatic directory
+ * watch, and remote repository download/verification are out of scope.
+ *
+ * <p>This package provides generic runtime capability only and does not carry
+ * business-domain semantics.
  */
 package org.apache.doris.extension.loader;

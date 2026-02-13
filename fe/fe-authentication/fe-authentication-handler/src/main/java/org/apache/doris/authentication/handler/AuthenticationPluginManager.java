@@ -87,7 +87,8 @@ public class AuthenticationPluginManager {
                 ? classLoadingPolicy
                 : ClassLoadingPolicy.defaultPolicy();
 
-        ServiceLoader.load(AuthenticationPluginFactory.class).forEach(factory -> factories.put(factory.name(), factory));
+        ServiceLoader.load(AuthenticationPluginFactory.class)
+                .forEach(factory -> factories.put(factory.name(), factory));
     }
 
     /**
