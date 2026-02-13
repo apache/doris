@@ -23,6 +23,7 @@
 #include <parallel_hashmap/phmap.h>
 #include <stddef.h>
 
+#include <cstdint>
 #include <list>
 #include <memory>
 #include <optional>
@@ -105,6 +106,16 @@ void writeValueAsJsonb(const Element& element, JsonbWriter& writer) {
     }
 }
 
+#ifdef BE_TEST
+struct SkipCacheStats {
+    uint64_t lookup_count = 0;
+    uint64_t hit_count = 0;
+    uint64_t miss_count = 0;
+    uint64_t insert_count = 0;
+    uint64_t evict_count = 0;
+};
+#endif
+
 struct ParseConfig {
     bool enable_flatten_nested = false;
     enum class ParseTo {
@@ -116,8 +127,15 @@ struct ParseConfig {
     const std::vector<std::pair<std::string, PatternTypePB>>* skip_path_patterns = nullptr;
     // pre-compiled skip matcher for hot parsing path
     std::shared_ptr<const variant_util::CompiledSkipMatcher> compiled_skip_matcher = nullptr;
-    // per-parse cache size for "path -> skip result", 0 means disabled
+    // max entries for "path -> skip result" cache, 0 means disabled
     uint16_t skip_result_cache_capacity = 256;
+    // if true, first effective row learns cache size (capped at 16384) and rounds it up to a
+    // power of two, then reuses learned size.
+    bool adaptive_skip_result_cache_capacity = false;
+#ifdef BE_TEST
+    // optional cache stats for tests/observability
+    SkipCacheStats* skip_cache_stats = nullptr;
+#endif
 };
 /// Result of parsing of a document.
 /// Contains all paths extracted from document
@@ -135,12 +153,14 @@ public:
     std::optional<ParseResult> parse(const char* begin, size_t length, const ParseConfig& config);
 
 private:
-    struct ParseContext {
-        struct SkipCacheEntry {
-            bool is_skipped = false;
-            std::list<std::string>::iterator lru_it;
-        };
+    using SkipCacheLru = std::list<std::string>;
+    struct SkipCacheEntry {
+        bool is_skipped = false;
+        SkipCacheLru::iterator lru_it;
+    };
+    using SkipCache = phmap::flat_hash_map<std::string_view, SkipCacheEntry>;
 
+    struct ParseContext {
         PathInDataBuilder builder;
         std::vector<PathInData::Parts> paths;
         std::vector<Field> values;
@@ -151,10 +171,14 @@ private:
         const std::vector<std::pair<std::string, PatternTypePB>>* skip_path_patterns = nullptr;
         // pre-compiled skip matcher (nullptr means use skip_path_patterns fallback)
         const variant_util::CompiledSkipMatcher* skip_matcher = nullptr;
-        // max entries for skip result cache in one parse invocation
+        // max entries for skip result cache
         uint16_t skip_result_cache_capacity = 0;
-        phmap::flat_hash_map<std::string, SkipCacheEntry> skip_cache;
-        std::list<std::string> skip_cache_lru;
+        bool skip_cache_unbounded = false;
+        SkipCache* skip_cache = nullptr;
+        SkipCacheLru* skip_cache_lru = nullptr;
+#ifdef BE_TEST
+        SkipCacheStats* skip_cache_stats = nullptr;
+#endif
         // incrementally maintained dot-separated path for skip matching
         std::string current_path;
     };
@@ -190,8 +214,17 @@ private:
     void traverseAsJsonb(const Element& element, JsonbWriter& writer);
     void traverseObjectAsJsonb(const JSONObject& object, JsonbWriter& writer);
     void traverseArrayAsJsonb(const JSONArray& array, JsonbWriter& writer);
+    void prepare_skip_cache(const ParseConfig& config, ParseContext& context);
+    void reset_skip_cache();
 
     ParserImpl parser;
+    SkipCache skip_cache;
+    SkipCacheLru skip_cache_lru;
+    std::shared_ptr<const variant_util::CompiledSkipMatcher> skip_cache_matcher_holder;
+    const std::vector<std::pair<std::string, PatternTypePB>>* skip_cache_patterns = nullptr;
+    uint16_t skip_cache_config_capacity = 0;
+    bool skip_cache_adaptive = false;
+    size_t skip_cache_learned_capacity = 0;
 };
 
 } // namespace doris::vectorized
