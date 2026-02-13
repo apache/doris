@@ -95,7 +95,7 @@ uint32_t zlib_crc32_reference(const T& value, uint32_t seed) {
 }
 
 /*
-todo: fix those caeses when we have new release verseion do not consider the compatibility issue
+todo: fix those cases when we have a new release version; do not consider the compatibility issue
 use following code to replace the old crc32c_fixed function in hash_util.hpp
 template <typename T>
 static uint32_t crc32c_fixed(const T& value, uint32_t hash) {
