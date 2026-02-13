@@ -421,6 +421,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     if (config::is_cloud_mode()) {
         RETURN_IF_ERROR(_packed_file_manager->init());
         _packed_file_manager->start_background_manager();
+
+        // Start cluster info background worker for compaction read-write separation
+        static_cast<CloudClusterInfo*>(_cluster_info)->start_bg_worker();
     }
 
     _index_policy_mgr = new IndexPolicyMgr();
@@ -810,6 +813,11 @@ void ExecEnv::destroy() {
 
     // _id_manager must be destoried before tablet schema cache
     SAFE_DELETE(_id_manager);
+
+    // Stop cluster info background worker before storage engine is destroyed
+    if (config::is_cloud_mode() && _cluster_info) {
+        static_cast<CloudClusterInfo*>(_cluster_info)->stop_bg_worker();
+    }
 
     // StorageEngine must be destoried before _cache_manager destory
     SAFE_STOP(_storage_engine);

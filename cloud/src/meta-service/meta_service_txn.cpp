@@ -40,6 +40,7 @@
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versioned_value.h"
+#include "resource-manager/resource_manager.h"
 
 using namespace std::chrono;
 
@@ -1180,6 +1181,48 @@ void scan_tmp_rowset(
     return;
 }
 
+// Update the last active cluster info for a tablet
+void update_tablet_last_active_cluster(const StatsTabletKeyInfo& info,
+                                       const std::string& cluster_id,
+                                       std::unique_ptr<Transaction>& txn, MetaServiceCode& code,
+                                       std::string& msg) {
+    if (cluster_id.empty()) {
+        return;
+    }
+
+    std::string key;
+    stats_tablet_key(info, &key);
+    std::string val;
+    TxnErrorCode err = txn->get(key, &val);
+    if (err != TxnErrorCode::TXN_OK) {
+        // If tablet stats not found, skip (will be created later)
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            return;
+        }
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get tablet stats for cluster update, err={} tablet_id={}", err,
+                          std::get<4>(info));
+        return;
+    }
+
+    TabletStatsPB stats_pb;
+    if (!stats_pb.ParseFromString(val)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("malformed tablet stats value for cluster update, key={}", hex(key));
+        return;
+    }
+
+    stats_pb.set_last_active_cluster_id(cluster_id);
+    stats_pb.set_last_active_time_ms(::time(nullptr) * 1000);
+    // Clear the mtime when updating cluster to allow dynamic filling on next get_rowset
+    stats_pb.clear_last_active_cluster_status_mtime_ms();
+
+    stats_pb.SerializeToString(&val);
+    txn->put(key, val);
+    LOG(INFO) << "update last_active_cluster, key=" << hex(key) << " cluster_id=" << cluster_id
+              << " tablet_id=" << std::get<4>(info);
+}
+
 void update_tablet_stats(const StatsTabletKeyInfo& info, const TabletStats& stats,
                          std::unique_ptr<Transaction>& txn, MetaServiceCode& code,
                          std::string& msg) {
@@ -1847,6 +1890,14 @@ void MetaServiceImpl::commit_txn_immediately(
                       << " versioned tablet stats, txn_id=" << txn_id;
         }
 
+        // Get cluster_id for updating last active cluster.
+        // Use load_cluster_id stored in TxnInfoPB by prepare_rowset (called by BE),
+        // because commit_txn is called by FE whose cloud_unique_id resolves to SQL server cluster.
+        std::string requester_cluster_id;
+        if (txn_info.has_load_cluster_id()) {
+            requester_cluster_id = txn_info.load_cluster_id();
+        }
+
         // Update stats of affected tablet
         for (auto& [tablet_id, stats] : tablet_stats) {
             DCHECK(tablet_ids.count(tablet_id));
@@ -1855,6 +1906,12 @@ void MetaServiceImpl::commit_txn_immediately(
                                      tablet_idx.partition_id(), tablet_id};
             update_tablet_stats(info, stats, txn, code, msg);
             if (code != MetaServiceCode::OK) return;
+
+            // Update last active cluster if load has data
+            if (!requester_cluster_id.empty() && stats.num_segs > 0) {
+                update_tablet_last_active_cluster(info, requester_cluster_id, txn, code, msg);
+                if (code != MetaServiceCode::OK) return;
+            }
 
             if (is_versioned_write) {
                 TabletStatsPB stats_pb = existing_versioned_stats[tablet_id];
@@ -2925,6 +2982,13 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                       << " versioned tablet stats, txn_id=" << txn_id;
         }
 
+        // Get cluster_id for updating last active cluster.
+        // Use load_cluster_id stored in TxnInfoPB by prepare_rowset (called by BE).
+        std::string requester_cluster_id_ev;
+        if (txn_info.has_load_cluster_id()) {
+            requester_cluster_id_ev = txn_info.load_cluster_id();
+        }
+
         // Update stats of affected tablet
         for (auto& [tablet_id, stats] : tablet_stats) {
             DCHECK(tablet_ids.count(tablet_id));
@@ -2933,6 +2997,12 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                                      tablet_idx.partition_id(), tablet_id};
             update_tablet_stats(info, stats, txn, code, msg);
             if (code != MetaServiceCode::OK) return;
+
+            // Update last active cluster if load has data
+            if (!requester_cluster_id_ev.empty() && stats.num_segs > 0) {
+                update_tablet_last_active_cluster(info, requester_cluster_id_ev, txn, code, msg);
+                if (code != MetaServiceCode::OK) return;
+            }
 
             if (is_versioned_write) {
                 TabletStatsPB stats_pb = existing_versioned_stats[tablet_id];

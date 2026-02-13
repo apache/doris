@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
+import org.apache.doris.nereids.trees.plans.commands.info.SortFieldInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -355,7 +356,17 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         properties.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
         PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(createTableInfo.getPartitionDesc(),
                 schema);
-        catalog.createTable(getTableIdentifier(dbName, tableName), schema, partitionSpec, properties);
+        // Build and create table with optional sort order
+        org.apache.iceberg.SortOrder sortOrder = buildSortOrder(createTableInfo.getSortOrderFields(), schema);
+        if (sortOrder != null && !sortOrder.isUnsorted()) {
+            catalog.buildTable(getTableIdentifier(dbName, tableName), schema)
+                    .withPartitionSpec(partitionSpec)
+                    .withProperties(properties)
+                    .withSortOrder(sortOrder)
+                    .create();
+        } else {
+            catalog.createTable(getTableIdentifier(dbName, tableName), schema, partitionSpec, properties);
+        }
         return false;
     }
 
@@ -1011,6 +1022,34 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
         ViewCatalog viewCatalog = (ViewCatalog) catalog;
         viewCatalog.dropView(getTableIdentifier(remoteDbName, remoteViewName));
+    }
+
+    /**
+     * Build Iceberg SortOrder from SortFieldInfo list
+     */
+    private org.apache.iceberg.SortOrder buildSortOrder(List<SortFieldInfo> sortFields, Schema schema) {
+        if (sortFields == null || sortFields.isEmpty()) {
+            return null;
+        }
+
+        org.apache.iceberg.SortOrder.Builder builder = org.apache.iceberg.SortOrder.builderFor(schema);
+        for (SortFieldInfo sortField : sortFields) {
+            String columnName = sortField.getColumnName();
+            if (sortField.isAscending()) {
+                if (sortField.isNullFirst()) {
+                    builder.asc(columnName, org.apache.iceberg.NullOrder.NULLS_FIRST);
+                } else {
+                    builder.asc(columnName, org.apache.iceberg.NullOrder.NULLS_LAST);
+                }
+            } else {
+                if (sortField.isNullFirst()) {
+                    builder.desc(columnName, org.apache.iceberg.NullOrder.NULLS_FIRST);
+                } else {
+                    builder.desc(columnName, org.apache.iceberg.NullOrder.NULLS_LAST);
+                }
+            }
+        }
+        return builder.build();
     }
 }
 

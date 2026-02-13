@@ -28,7 +28,7 @@ import java.util.List;
 public class KeysDesc {
     private KeysType type;
     private List<String> keysColumnNames;
-    private List<String> clusterKeysColumnNames;
+    private List<String> orderByKeysColumnNames;
 
     public KeysDesc() {
         this.type = KeysType.AGG_KEYS;
@@ -40,9 +40,9 @@ public class KeysDesc {
         this.keysColumnNames = keysColumnNames;
     }
 
-    public KeysDesc(KeysType type, List<String> keysColumnNames, List<String> clusterKeyColumnNames) {
+    public KeysDesc(KeysType type, List<String> keysColumnNames, List<String> orderByKeysColumnNames) {
         this(type, keysColumnNames);
-        this.clusterKeysColumnNames = clusterKeyColumnNames;
+        this.orderByKeysColumnNames = orderByKeysColumnNames;
     }
 
     public KeysType getKeysType() {
@@ -53,8 +53,8 @@ public class KeysDesc {
         return keysColumnNames.size();
     }
 
-    public List<String> getClusterKeysColumnNames() {
-        return clusterKeysColumnNames;
+    public List<String> getOrderByKeysColumnNames() {
+        return orderByKeysColumnNames;
     }
 
     public boolean containsCol(String colName) {
@@ -107,39 +107,39 @@ public class KeysDesc {
             }
         }
 
-        if (clusterKeysColumnNames != null) {
-            analyzeClusterKeys(cols);
+        if (orderByKeysColumnNames != null) {
+            analyzeOrderByKeys(cols);
         }
     }
 
-    private void analyzeClusterKeys(List<ColumnDef> cols) throws AnalysisException {
+    private void analyzeOrderByKeys(List<ColumnDef> cols) throws AnalysisException {
         if (type != KeysType.UNIQUE_KEYS) {
-            throw new AnalysisException("Cluster keys only support unique keys table");
+            throw new AnalysisException("Order by keys only support unique keys table");
         }
-        // check that cluster keys is not duplicated
-        for (int i = 0; i < clusterKeysColumnNames.size(); i++) {
-            String name = clusterKeysColumnNames.get(i);
+        // check that order by keys is not duplicated
+        for (int i = 0; i < orderByKeysColumnNames.size(); i++) {
+            String name = orderByKeysColumnNames.get(i);
             for (int j = 0; j < i; j++) {
-                if (clusterKeysColumnNames.get(j).equalsIgnoreCase(name)) {
-                    throw new AnalysisException("Duplicate cluster key column[" + name + "].");
+                if (orderByKeysColumnNames.get(j).equalsIgnoreCase(name)) {
+                    throw new AnalysisException("Duplicate order by key column[" + name + "].");
                 }
             }
         }
-        // check that cluster keys is not equal to primary keys
-        int minKeySize = Math.min(keysColumnNames.size(), clusterKeysColumnNames.size());
+        // check that order by keys is not equal to primary keys
+        int minKeySize = Math.min(keysColumnNames.size(), orderByKeysColumnNames.size());
         boolean sameKey = true;
         for (int i = 0; i < minKeySize; i++) {
-            if (!keysColumnNames.get(i).equalsIgnoreCase(clusterKeysColumnNames.get(i))) {
+            if (!keysColumnNames.get(i).equalsIgnoreCase(orderByKeysColumnNames.get(i))) {
                 sameKey = false;
                 break;
             }
         }
-        if (sameKey && !Config.random_add_cluster_keys_for_mow) {
+        if (sameKey && !Config.random_add_order_by_keys_for_mow) {
             throw new AnalysisException("Unique keys and cluster keys should be different.");
         }
         // check that cluster key column exists
-        for (int i = 0; i < clusterKeysColumnNames.size(); i++) {
-            String name = clusterKeysColumnNames.get(i);
+        for (int i = 0; i < orderByKeysColumnNames.size(); i++) {
+            String name = orderByKeysColumnNames.get(i);
             for (int j = 0; j < cols.size(); j++) {
                 if (cols.get(j).getName().equalsIgnoreCase(name)) {
                     cols.get(j).setClusterKeyId(i);
@@ -164,10 +164,10 @@ public class KeysDesc {
             i++;
         }
         stringBuilder.append(")");
-        if (clusterKeysColumnNames != null) {
-            stringBuilder.append("\nCLUSTER BY (");
+        if (orderByKeysColumnNames != null) {
+            stringBuilder.append("\nORDER BY (");
             i = 0;
-            for (String columnName : clusterKeysColumnNames) {
+            for (String columnName : orderByKeysColumnNames) {
                 if (i != 0) {
                     stringBuilder.append(", ");
                 }

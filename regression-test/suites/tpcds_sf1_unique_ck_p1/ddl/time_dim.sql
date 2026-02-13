@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS time_dim (
     t_meal_time char(20)
 )
 UNIQUE KEY(t_time_sk)
-CLUSTER BY(t_time_id)
+ORDER BY(t_time_id)
 DISTRIBUTED BY HASH(t_time_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"

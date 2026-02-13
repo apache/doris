@@ -246,6 +246,21 @@ public:
     int64_t alter_version() const { return _alter_version; }
     void set_alter_version(int64_t alter_version) { _alter_version = alter_version; }
 
+    // Last active cluster info for compaction read-write separation
+    std::string last_active_cluster_id() const {
+        std::shared_lock lock(_cluster_info_mutex);
+        return _last_active_cluster_id;
+    }
+    int64_t last_active_time_ms() const {
+        std::shared_lock lock(_cluster_info_mutex);
+        return _last_active_time_ms;
+    }
+    void set_last_active_cluster_info(const std::string& cluster_id, int64_t time_ms) {
+        std::unique_lock lock(_cluster_info_mutex);
+        _last_active_cluster_id = cluster_id;
+        _last_active_time_ms = time_ms;
+    }
+
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
 
     inline Version max_version() const {
@@ -482,6 +497,11 @@ private:
 
     mutable std::shared_mutex _warmed_up_rowsets_mutex;
     std::unordered_set<RowsetId> _warmed_up_rowsets;
+
+    // Cluster info for compaction read-write separation
+    mutable std::shared_mutex _cluster_info_mutex;
+    std::string _last_active_cluster_id;
+    int64_t _last_active_time_ms {0};
 };
 
 using CloudTabletSPtr = std::shared_ptr<CloudTablet>;
