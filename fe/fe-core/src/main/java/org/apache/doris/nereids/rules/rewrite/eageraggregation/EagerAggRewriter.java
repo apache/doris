@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -49,6 +50,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -131,6 +133,42 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             }
             if (joinType.isLeftOuterJoin()) {
                 toRight = false;
+            }
+            if (!toLeft && !toRight && !pushHere) {
+                return join;
+            }
+        }
+
+        // Do not push count(*)/count(literal)/count(preserved_side_col) to the nullable side of outer joins.
+        // count(*) counts all physical rows, including null-extended rows from the outer join.
+        // After pushdown to the nullable side, unmatched rows produce NULL for the pre-aggregated count,
+        // and ifnull(sum(NULL), 0) = 0, which loses the count of unmatched rows.
+        // However, count(nullable_side_col) is safe to push down because for unmatched rows,
+        // nullable_side_col IS NULL, so the original count is 0, matching ifnull(sum(NULL), 0) = 0.
+        if (!join.getJoinType().isInnerJoin() && !join.getJoinType().isCrossJoin()) {
+            JoinType joinType = join.getJoinType();
+            for (AggregateFunction aggFunc : context.getAggFunctions()) {
+                if (aggFunc instanceof Count) {
+                    Set<Slot> countInputSlots = aggFunc.getInputSlots();
+                    // Determine which side is nullable
+                    boolean leftIsNullable = joinType.isRightOuterJoin() || joinType.isFullOuterJoin();
+                    boolean rightIsNullable = joinType.isLeftOuterJoin() || joinType.isFullOuterJoin();
+                    // Check if we're pushing to a nullable side without referencing its columns
+                    if (toLeft && leftIsNullable) {
+                        boolean hasLeftInput = countInputSlots.stream()
+                                .anyMatch(slot -> join.left().getOutputSet().contains(slot));
+                        if (!hasLeftInput) {
+                            toLeft = false;
+                        }
+                    }
+                    if (toRight && rightIsNullable) {
+                        boolean hasRightInput = countInputSlots.stream()
+                                .anyMatch(slot -> join.right().getOutputSet().contains(slot));
+                        if (!hasRightInput) {
+                            toRight = false;
+                        }
+                    }
+                }
             }
             if (!toLeft && !toRight && !pushHere) {
                 return join;
