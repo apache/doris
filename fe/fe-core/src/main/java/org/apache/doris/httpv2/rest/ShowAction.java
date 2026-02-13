@@ -32,6 +32,7 @@ import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.HAProtocol;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.Storage;
@@ -77,8 +78,8 @@ public class ShowAction extends RestBaseController {
     @RequestMapping(path = "/api/show_meta_info", method = RequestMethod.GET)
     public Object show_meta_info(HttpServletRequest request, HttpServletResponse response) {
         if (Config.enable_all_http_auth) {
-            executeCheckPassword(request, response);
-            checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+            ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+            checkAdminAuth(authInfo.userIdentity);
         }
 
         String action = request.getParameter("action");
@@ -106,9 +107,9 @@ public class ShowAction extends RestBaseController {
         if (needRedirect(request.getScheme())) {
             return redirectToHttps(request);
         }
-        executeCheckPassword(request, response);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
         // check authority
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        checkAdminAuth(authInfo.userIdentity);
 
         String path = request.getParameter("path");
         String forward = request.getParameter("forward");
@@ -151,8 +152,8 @@ public class ShowAction extends RestBaseController {
     @RequestMapping(path = "/api/show_runtime_info", method = RequestMethod.GET)
     public Object show_runtime_info(HttpServletRequest request, HttpServletResponse response) {
         if (Config.enable_all_http_auth) {
-            executeCheckPassword(request, response);
-            checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+            ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+            checkAdminAuth(authInfo.userIdentity);
         }
 
         HashMap<String, String> feInfo = new HashMap<String, String>();
@@ -177,8 +178,8 @@ public class ShowAction extends RestBaseController {
     @RequestMapping(path = "/api/show_data", method = RequestMethod.GET)
     public Object show_data(HttpServletRequest request, HttpServletResponse response) {
         if (Config.enable_all_http_auth) {
-            executeCheckPassword(request, response);
-            checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+            ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+            checkAdminAuth(authInfo.userIdentity);
         }
 
         Map<String, Long> oneEntry = Maps.newHashMap();
@@ -208,8 +209,9 @@ public class ShowAction extends RestBaseController {
 
     @RequestMapping(path = "/api/show_table_data", method = RequestMethod.GET)
     public Object show_table_data(HttpServletRequest request, HttpServletResponse response) {
+        ActionAuthorizationInfo authInfo = null;
         if (Config.enable_all_http_auth) {
-            executeCheckPassword(request, response);
+            authInfo = executeCheckPassword(request, response);
         }
         String dbName = request.getParameter(DB_KEY);
         String tableName = request.getParameter(TABLE_KEY);
@@ -224,14 +226,14 @@ public class ShowAction extends RestBaseController {
         if (dbName != null) {
             String fullDbName = getFullDbName(dbName);
             if (!StringUtils.isEmpty(tableName) && Config.enable_all_http_auth) {
-                checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tableName, PrivPredicate.SHOW);
+                checkTblAuth(authInfo.userIdentity, fullDbName, tableName, PrivPredicate.SHOW);
             }
 
             DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(fullDbName);
             if (db == null) {
                 return ResponseEntityBuilder.okWithCommonError("database " + fullDbName + " not found.");
             }
-            Map<String, Long> tablesEntry = getDataSizeOfTables(db, tableName, singleReplicaBool);
+            Map<String, Long> tablesEntry = getDataSizeOfTables(db, tableName, singleReplicaBool, authInfo);
             oneEntry.put(ClusterNamespace.getNameFromFullName(fullDbName), tablesEntry);
         } else {
             for (long dbId : Env.getCurrentInternalCatalog().getDbIds()) {
@@ -240,12 +242,12 @@ public class ShowAction extends RestBaseController {
                     continue;
                 }
                 if (Config.enable_all_http_auth && !Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get().getCurrentUserIdentity(),
+                        .checkTblPriv(authInfo.userIdentity,
                                 InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), tableName,
                                 PrivPredicate.SHOW)) {
                     continue;
                 }
-                Map<String, Long> tablesEntry = getDataSizeOfTables(db, tableName, singleReplicaBool);
+                Map<String, Long> tablesEntry = getDataSizeOfTables(db, tableName, singleReplicaBool, authInfo);
                 oneEntry.put(ClusterNamespace.getNameFromFullName(db.getFullName()), tablesEntry);
             }
         }
@@ -333,15 +335,16 @@ public class ShowAction extends RestBaseController {
         return totalSize;
     }
 
-    private Map<String, Long> getDataSizeOfTables(DatabaseIf db, String tableName, boolean singleReplica) {
+    private Map<String, Long> getDataSizeOfTables(DatabaseIf db, String tableName, boolean singleReplica,
+            ActionAuthorizationInfo authInfo) {
         Map<String, Long> oneEntry = Maps.newHashMap();
         db.readLock();
         try {
             if (Strings.isNullOrEmpty(tableName)) {
                 List<Table> tables = db.getTables();
                 for (Table table : tables) {
-                    if (Config.enable_all_http_auth && !Env.getCurrentEnv().getAccessManager()
-                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(),
+                    if (Config.enable_all_http_auth && authInfo != null && !Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(authInfo.userIdentity, InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(),
                                     table.getName(),
                                     PrivPredicate.SHOW)) {
                         continue;

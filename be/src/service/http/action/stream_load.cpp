@@ -90,7 +90,9 @@ static const std::string ASYNC_MODE = "async_mode";
 TStreamLoadPutResult k_stream_load_put_result;
 #endif
 
-StreamLoadAction::StreamLoadAction(ExecEnv* exec_env) : _exec_env(exec_env) {
+StreamLoadAction::StreamLoadAction(ExecEnv* exec_env)
+        : HttpHandlerWithAuth(exec_env, TPrivilegeHier::GLOBAL, TPrivilegeType::LOAD) {
+    // Use LOAD privilege type: requires LOAD permission
     _stream_load_entity =
             DorisMetrics::instance()->metric_registry()->register_entity("stream_load");
     INT_COUNTER_METRIC_REGISTER(_stream_load_entity, streaming_load_requests_total);

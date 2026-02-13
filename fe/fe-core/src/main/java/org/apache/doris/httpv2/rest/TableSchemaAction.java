@@ -34,6 +34,7 @@ import org.apache.doris.common.DorisHttpException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.response.GsonSchemaResponse;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -102,7 +103,8 @@ public class TableSchemaAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             @PathVariable(value = TABLE_KEY) final String tblName,
             HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(2);
 
@@ -113,7 +115,7 @@ public class TableSchemaAction extends RestBaseController {
         try {
             String fullDbName = getFullDbName(dbName);
             // check privilege for select, otherwise return 401 HTTP status
-            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), catalogName, fullDbName, tblName,
+            checkTblAuth(authInfo.userIdentity, catalogName, fullDbName, tblName,
                     PrivPredicate.SELECT);
             TableIf table;
             try {
@@ -206,7 +208,8 @@ public class TableSchemaAction extends RestBaseController {
             @PathVariable(value = DB_KEY) String dbName,
             @PathVariable(value = TABLE_KEY) String tableName,
             HttpServletRequest request, HttpServletResponse response, @RequestBody String body) {
-        executeCheckPassword(request, response);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
         String fullDbName = getFullDbName(dbName);
         OlapTable table;
         try {
@@ -252,7 +255,8 @@ public class TableSchemaAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             @PathVariable(value = TABLE_KEY) final String tblName,
             HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
         GsonSchemaResponse gsonSchemaResponse = new GsonSchemaResponse();
         if (StringUtils.isBlank(catalogName)) {
             catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
@@ -260,7 +264,7 @@ public class TableSchemaAction extends RestBaseController {
 
         try {
             String fullDbName = getFullDbName(dbName);
-            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), catalogName, fullDbName, tblName,
+            checkTblAuth(authInfo.userIdentity, catalogName, fullDbName, tblName,
                     PrivPredicate.SELECT);
             TableIf table;
             try {
