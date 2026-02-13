@@ -277,6 +277,8 @@ suite("test_search_multi_field") {
     """
 
     // ============ Test 21: best_fields with Lucene mode ============
+    // In lucene mode, best_fields uses per-clause expansion (matching ES query_string),
+    // so id=1 and id=9 both match (terms can be across different fields)
     qt_multi_field_best_fields_lucene """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
