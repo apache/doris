@@ -41,7 +41,64 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * Directory-based plugin runtime manager.
+ * Directory-driven plugin runtime manager for Doris FE.
+ *
+ * <p>This class is the generic runtime entry point used by FE business modules
+ * (authentication, authorization, protocol extensions, etc.) to load external
+ * plugin factories from one or more plugin root directories.
+ *
+ * <h2>Responsibilities</h2>
+ *
+ * <p>The {@link #loadAll(List, ClassLoader, Class, ClassLoadingPolicy)} flow:
+ * <ol>
+ *   <li>Scans each root in {@code pluginRoots} and treats its direct
+ *       subdirectories as plugin directories.</li>
+ *   <li>Resolves plugin jars using the convention:
+ *       {@code pluginDir/*.jar + pluginDir/lib/*.jar}.</li>
+ *   <li>Creates a per-plugin classloader (child-first by default) with a
+ *       configurable parent-first package-prefix policy.</li>
+ *   <li>Discovers exactly one typed factory via {@link java.util.ServiceLoader}
+ *       (for example, {@code AuthenticationPluginFactory}).</li>
+ *   <li>Validates and records load outcomes and returns a {@link LoadReport}
+ *       with successes and failures.</li>
+ * </ol>
+ *
+ * <p>The {@link #get(String)} and {@link #list()} methods provide read-only
+ * access to successfully loaded plugin handles.
+ *
+ * <h2>Non-Goals / Out of Scope</h2>
+ *
+ * <p>This manager intentionally does not:
+ * <ol>
+ *   <li>Instantiate business plugins (it loads factories, not plugin instances).</li>
+ *   <li>Provide runtime {@code reload}/{@code unload} semantics.</li>
+ *   <li>Watch directories for changes or download plugins from remote repositories.</li>
+ * </ol>
+ *
+ * <h2>Failure Semantics</h2>
+ *
+ * <p>Failures are staged for observability and troubleshooting:
+ * {@code scan}, {@code resolve}, {@code createClassLoader}, {@code discover},
+ * {@code instantiate}, and {@code conflict}. Per-directory failures do not stop
+ * other directories from loading.
+ *
+ * <h2>Conflict Strategy</h2>
+ *
+ * <p>If multiple plugin directories yield the same {@code factory.name()}:
+ * the first successfully loaded one is kept, later ones are recorded as
+ * {@code conflict} and their classloaders are closed to avoid resource leakage.
+ *
+ * <h2>Classloading Notes</h2>
+ *
+ * <p>Child-first classloading isolates plugin dependencies from FE's process
+ * classpath. Parent-first prefixes ensure core API/SPI types are loaded from
+ * a single source to avoid type-isolation issues such as {@link ClassCastException}.
+ *
+ * <h2>Thread Safety</h2>
+ *
+ * <p>The manager stores loaded handles in a concurrent map. The load lifecycle
+ * is guarded by a lock to prevent concurrent {@code loadAll} invocations from
+ * interleaving and producing inconsistent outcomes.
  */
 public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
 
