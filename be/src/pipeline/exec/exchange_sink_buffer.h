@@ -263,7 +263,7 @@ void transmit_blockv2(PBackendService_Stub* stub,
                                                          ExchangeSendCallback<PTransmitDataResult>>>
                               closure);
 #endif
-class ExchangeSinkBuffer : std::enable_shared_from_this<ExchangeSinkBuffer> {
+class ExchangeSinkBuffer : public std::enable_shared_from_this<ExchangeSinkBuffer> {
 public:
     ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, PlanNodeId node_id,
                        RuntimeState* state, const std::vector<InstanceLoId>& sender_ins_ids);
