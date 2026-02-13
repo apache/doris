@@ -306,7 +306,8 @@ if (COMPILER_GCC)
                         -Wno-nonnull
                         -Wno-stringop-overread
                         -Wno-stringop-overflow
-                        -Wno-array-bounds)
+                        -Wno-array-bounds
+                        -Wno-maybe-uninitialized)
 endif ()
 
 if (COMPILER_CLANG)

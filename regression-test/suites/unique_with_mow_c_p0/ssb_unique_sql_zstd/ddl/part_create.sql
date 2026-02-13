@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS `part` (
   `p_container` varchar(11) NOT NULL COMMENT ""
 )
 UNIQUE KEY (`p_partkey`)
-CLUSTER BY (`p_category`, `p_brand`, `p_size`)
+ORDER BY (`p_category`, `p_brand`, `p_size`)
 DISTRIBUTED BY HASH(`p_partkey`) BUCKETS 10
 PROPERTIES (
 "compression"="zstd",

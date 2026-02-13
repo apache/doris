@@ -995,6 +995,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.SetUserPropertyVarOp;
 import org.apache.doris.nereids.trees.plans.commands.info.SetVarOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ShowCreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.SimpleColumnDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.SortFieldInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.StepPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.WarmUpItem;
@@ -3965,6 +3966,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             partitionInfo = PartitionTableInfo.EMPTY;
         }
 
+        // parse sort items
+        List<SortFieldInfo> sortFields = parseSortItems(ctx.sortItems);
+
         if (ctx.columnDefs() != null) {
             if (ctx.query() != null) {
                 throw new AnalysisException("Should not define the entire column in CTAS");
@@ -3987,7 +3991,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     ctx.rollupDefs() != null ? visitRollupDefs(ctx.rollupDefs()) : ImmutableList.of(),
                     properties,
                     extProperties,
-                    ctx.clusterKeys != null ? visitIdentifierList(ctx.clusterKeys) : ImmutableList.of()));
+                    sortFields));
         } else if (ctx.query() != null) {
             return new CreateTableCommand(Optional.of(visitQuery(ctx.query())), new CreateTableInfo(
                     ctx.EXISTS() != null,
@@ -4006,7 +4010,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     ctx.rollupDefs() != null ? visitRollupDefs(ctx.rollupDefs()) : ImmutableList.of(),
                     properties,
                     extProperties,
-                    ctx.clusterKeys != null ? visitIdentifierList(ctx.clusterKeys) : ImmutableList.of()));
+                    sortFields));
         } else {
             throw new AnalysisException("Should contain at least one column in a table");
         }
@@ -9792,5 +9796,53 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public AlterTableOp visitDropBranchClause(DorisParser.DropBranchClauseContext ctx) {
         return new DropBranchOp(ctx.name.getText(), ctx.EXISTS() != null);
+    }
+
+    /**
+     * Parse sort items from ANTLR context to SortFieldInfo list.
+     * Used for Iceberg table ORDER BY clause.
+     *
+     * @param sortItemContexts List of sortItem contexts from grammar
+     * @return List of SortFieldInfo containing column name, sort order, and null order
+     */
+    private List<SortFieldInfo> parseSortItems(List<DorisParser.SortItemContext> sortItemContexts) {
+        if (sortItemContexts == null || sortItemContexts.isEmpty()) {
+            return ImmutableList.of();
+        }
+
+        ImmutableList.Builder<SortFieldInfo> sortFields = ImmutableList.builder();
+        for (DorisParser.SortItemContext sortItemContext : sortItemContexts) {
+            Expression expression = typedVisit(sortItemContext.expression());
+
+            // Extract column name from expression
+            String columnName;
+            if (expression instanceof UnboundSlot) {
+                UnboundSlot slot = (UnboundSlot) expression;
+                // Get the last part of the nameParts as column name
+                columnName = slot.getNameParts().get(slot.getNameParts().size() - 1);
+            } else {
+                throw new AnalysisException("ORDER BY clause only supports column references, got: "
+                    + expression.getClass().getSimpleName());
+            }
+
+            // Determine sort order (default is ASC)
+            boolean isAscending = sortItemContext.DESC() == null;
+
+            // Determine null order
+            // Default: NULLS FIRST for ASC, NULLS LAST for DESC
+            boolean isNullFirst;
+            if (sortItemContext.FIRST() != null) {
+                isNullFirst = true;
+            } else if (sortItemContext.LAST() != null) {
+                isNullFirst = false;
+            } else {
+                // Use default behavior
+                isNullFirst = isAscending;
+            }
+
+            sortFields.add(new SortFieldInfo(columnName, isAscending, isNullFirst));
+        }
+
+        return sortFields.build();
     }
 }

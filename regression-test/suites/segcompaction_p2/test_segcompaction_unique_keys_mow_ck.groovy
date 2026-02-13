@@ -43,7 +43,7 @@ suite("test_segcompaction_unique_keys_mow_ck") {
                 `col_40` VARCHAR(20),`col_41` VARCHAR(20),`col_42` VARCHAR(20),`col_43` VARCHAR(20),`col_44` VARCHAR(20),
                 `col_45` VARCHAR(20),`col_46` VARCHAR(20),`col_47` VARCHAR(20),`col_48` VARCHAR(20),`col_49` VARCHAR(20)
                 )
-            UNIQUE KEY(`col_0`) cluster by(`col_1`) DISTRIBUTED BY HASH(`col_0`) BUCKETS 1
+            UNIQUE KEY(`col_0`) ORDER BY(`col_1`) DISTRIBUTED BY HASH(`col_0`) BUCKETS 1
             PROPERTIES (
                 """ + (i == 1 ? "\"function_column.sequence_col\"='col_0', " : "") +
                 """

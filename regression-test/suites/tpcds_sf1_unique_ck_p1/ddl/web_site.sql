@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS web_site (
     web_tax_percentage decimal(5,2)
 )
 UNIQUE KEY(web_site_sk)
-CLUSTER BY(web_company_id, web_site_id)
+ORDER BY(web_company_id, web_site_id)
 DISTRIBUTED BY HASH(web_site_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"

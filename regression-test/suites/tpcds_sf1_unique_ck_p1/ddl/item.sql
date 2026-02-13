@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS item (
     i_product_name char(50)
 )
 UNIQUE KEY(i_item_sk)
-CLUSTER BY(i_item_id, i_item_sk, i_brand)
+ORDER BY(i_item_id, i_item_sk, i_brand)
 DISTRIBUTED BY HASH(i_item_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"

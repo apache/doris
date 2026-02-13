@@ -4037,9 +4037,9 @@ public class Env {
                     }
                 }
                 sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
-                // show cluster keys
+                // show order keys
                 if (!clusterKeysColumnNamesToId.isEmpty()) {
-                    sb.append("\n").append("CLUSTER BY (`");
+                    sb.append("\n").append("ORDER BY (`");
                     sb.append(Joiner.on("`, `").join(clusterKeysColumnNamesToId.values())).append("`)");
                 }
             }
@@ -4264,6 +4264,9 @@ public class Env {
         } else if (table.getType() == TableType.ICEBERG_EXTERNAL_TABLE) {
             addTableComment(table, sb);
             IcebergExternalTable icebergExternalTable = (IcebergExternalTable) table;
+            if (icebergExternalTable.hasSortOrder()) {
+                sb.append("\n").append(icebergExternalTable.getSortOrderSql());
+            }
             sb.append("\nLOCATION '").append(icebergExternalTable.location()).append("'");
             sb.append("\nPROPERTIES (");
             Iterator<Entry<String, String>> iterator = icebergExternalTable.properties().entrySet().iterator();
@@ -4446,9 +4449,9 @@ public class Env {
                     }
                 }
                 sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
-                // show cluster keys
+                // show order keys
                 if (!clusterKeysColumnNamesToId.isEmpty()) {
-                    sb.append("\n").append("CLUSTER BY (`");
+                    sb.append("\n").append("ORDER BY (`");
                     sb.append(Joiner.on("`, `").join(clusterKeysColumnNamesToId.values())).append("`)");
                 }
             }
@@ -4679,6 +4682,9 @@ public class Env {
         } else if (table.getType() == TableType.ICEBERG_EXTERNAL_TABLE) {
             addTableComment(table, sb);
             IcebergExternalTable icebergExternalTable = (IcebergExternalTable) table;
+            if (icebergExternalTable.hasSortOrder()) {
+                sb.append("\n").append(icebergExternalTable.getSortOrderSql());
+            }
             sb.append("\nLOCATION '").append(icebergExternalTable.location()).append("'");
             sb.append("\nPROPERTIES (");
             Iterator<Entry<String, String>> iterator = icebergExternalTable.properties().entrySet().iterator();
@@ -5383,7 +5389,7 @@ public class Env {
                     break;
                 }
             }
-            if (sameKey && !Config.random_add_cluster_keys_for_mow) {
+            if (sameKey && !Config.random_add_order_by_keys_for_mow) {
                 throw new DdlException(shortKeyColumnCount + " short keys is a part of unique keys");
             }
         }
