@@ -139,6 +139,30 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
     }
 
     @Test
+    void testNotPushCountStarToNullableSideOfOuterJoin() {
+        // count(*)/count(1) counts all physical rows including null-extended rows.
+        // Pushing it to the nullable side loses the count of unmatched rows:
+        //   original: count(*) on unmatched row = 1
+        //   pushed:   ifnull(sum(NULL), 0) = 0  (wrong!)
+        // So count(*)/count(1) must NOT be pushed to the nullable side.
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            // LEFT JOIN: right side (t1) is nullable, count(*) should NOT push to right
+            String sql = "select count(1), t2.id2 from t2 left join t1"
+                    + " on t2.name = t1.name group by t2.id2";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(any(), logicalAggregate()))
+                    .printlnTree();
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    @Test
     void testPushDownCountWithIfChildShouldNotDecompose() {
         // Count(If(cond, a, b)) should NOT be decomposed into Count(a) and Count(b)
         // in the SumIf path, because the replacement logic cannot match decomposed
