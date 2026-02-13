@@ -174,7 +174,7 @@ public:
     MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
              bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info,
-             const std::shared_ptr<ResourceContext>& resource_ctx);
+             const std::shared_ptr<ResourceContext>& resource_ctx, int64_t rows_of_segment = 0);
     ~MemTable();
 
     int64_t tablet_id() const { return _tablet_id; }
@@ -229,6 +229,8 @@ private:
     UniqueKeyUpdateModePB _partial_update_mode {UniqueKeyUpdateModePB::UPSERT};
     const KeysType _keys_type;
     std::shared_ptr<TabletSchema> _tablet_schema;
+    // Maximum rows per segment, 0 means no limit (use memory-based flush)
+    int64_t _rows_of_segment = 0;
 
     std::shared_ptr<RowInBlockComparator> _vec_row_comparator;
 

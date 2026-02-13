@@ -291,6 +291,16 @@ Status Merger::vertical_compact_one_group(
     reader_params.return_columns = column_group;
     reader_params.origin_return_columns = &reader_params.return_columns;
     reader_params.batch_size = batch_size;
+    // If max_rows_per_segment is set, we use it to limit the rows read each time.
+    if (max_rows_per_segment > 0) {
+        reader_params.batch_size =
+                std::min(reader_params.batch_size, static_cast<int64_t>(max_rows_per_segment));
+        LOG_INFO("Set batch size for vertical compaction")
+                .tag("tablet_id", tablet->tablet_id())
+                .tag("batch_size", reader_params.batch_size)
+                .tag("max_rows_per_segment", max_rows_per_segment);
+    }
+
     RETURN_IF_ERROR(reader.init(reader_params, sample_info));
 
     vectorized::Block block = tablet_schema.create_block(reader_params.return_columns);

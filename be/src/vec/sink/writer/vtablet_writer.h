@@ -621,8 +621,7 @@ private:
 } // namespace doris
 
 namespace doris::vectorized {
-//
-// write result to file
+// write result to remote tablet through multiple NodeChannels
 class VTabletWriter final : public AsyncResultWriter {
 public:
     VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,

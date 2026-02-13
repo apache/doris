@@ -81,6 +81,11 @@ Status CloudRowsetBuilder::init() {
         return Status::InternalError("vault id not found, maybe not sync, vault id {}",
                                      _req.storage_vault_id);
     }
+    // Set max_rows_per_segment from tablet property if configured
+    if (_tablet->tablet_meta()->rows_of_segment() > 0) {
+        context.max_rows_per_segment = static_cast<uint32_t>(std::min(
+                _tablet->tablet_meta()->rows_of_segment(), static_cast<int64_t>(UINT32_MAX)));
+    }
 
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
 

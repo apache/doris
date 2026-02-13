@@ -54,6 +54,7 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
     private int enableSingleReplicaCompaction = -1;
     private int skipWriteIndexOnLoad = -1;
     private int disableAutoCompaction = -1;
+    private long rowsOfSegment = -1; // < 0 means not to update, >= 0 means update to this value
 
     public UpdateTabletMetaInfoTask(long backendId, Set<Pair<Long, Integer>> tableIdWithSchemaHash) {
         super(null, backendId, TTaskType.UPDATE_TABLET_META_INFO,
@@ -89,13 +90,15 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                                     Map<String, Long> timeSeriesCompactionConfig,
                                     int enableSingleReplicaCompaction,
                                     int skipWriteIndexOnLoad,
-                                    int disableAutoCompaction) {
+                                    int disableAutoCompaction,
+                                    long rowsOfSegment) {
         this(backendId, tableIdWithSchemaHash, inMemory, storagePolicyId, binlogConfig, latch);
         this.compactionPolicy = compactionPolicy;
         this.timeSeriesCompactionConfig = timeSeriesCompactionConfig;
         this.enableSingleReplicaCompaction = enableSingleReplicaCompaction;
         this.skipWriteIndexOnLoad = skipWriteIndexOnLoad;
         this.disableAutoCompaction = disableAutoCompaction;
+        this.rowsOfSegment = rowsOfSegment;
     }
 
     public void countDownLatch(long backendId, Set<Pair<Long, Integer>> tablets) {
@@ -178,6 +181,9 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                 }
                 if (disableAutoCompaction >= 0) {
                     metaInfo.setDisableAutoCompaction(disableAutoCompaction > 0);
+                }
+                if (rowsOfSegment >= 0) {
+                    metaInfo.setRowsOfSegment(rowsOfSegment);
                 }
                 updateTabletMetaInfoReq.addToTabletMetaInfos(metaInfo);
             }

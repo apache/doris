@@ -75,6 +75,14 @@ Status VerticalBetaRowsetWriter<T>::add_columns(const vectorized::Block* block,
             (has_cluster_key && _segment_writers[_cur_writer_idx]->primary_keys_size() >
                                         config::mow_primary_key_index_max_size_in_memory)) {
             // segment is full, need flush columns and create new segment writer
+            LOG(INFO) << "vertical writer segment needs flush: tablet_id=" << context.tablet_id
+                      << ", segment_idx=" << _cur_writer_idx << ", num_rows_written="
+                      << _segment_writers[_cur_writer_idx]->num_rows_written()
+                      << ", max_rows_per_segment=" << max_rows_per_segment << ", reason="
+                      << (_segment_writers[_cur_writer_idx]->num_rows_written() >
+                                          max_rows_per_segment
+                                  ? "row_limit"
+                                  : "primary_key_index_limit");
             RETURN_IF_ERROR(_flush_columns(_segment_writers[_cur_writer_idx].get(), true));
 
             std::unique_ptr<segment_v2::SegmentWriter> writer;
