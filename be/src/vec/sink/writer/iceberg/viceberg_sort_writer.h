@@ -106,7 +106,7 @@ public:
             !_sorter->merge_sort_state()->get_sorted_block().empty()) {
             if (_sorted_streams.empty()) {
                 // data remaining in memory
-                RETURN_IF_ERROR(_sorter->_do_sort());
+                RETURN_IF_ERROR(_sorter->do_sort());
                 RETURN_IF_ERROR(_sorter->prepare_for_read(false));
                 RETURN_IF_ERROR(_write_sorted_data());
                 return Status::OK();
@@ -152,7 +152,7 @@ private:
 
     // have enought data, flush in-memory sorted data to file
     Status _flush_to_file() {
-        RETURN_IF_ERROR(_sorter->_do_sort());
+        RETURN_IF_ERROR(_sorter->do_sort());
         RETURN_IF_ERROR(_sorter->prepare_for_read(false));
         RETURN_IF_ERROR(_write_sorted_data());
         RETURN_IF_ERROR(_close_current_writer_and_open_next());

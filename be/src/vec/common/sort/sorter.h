@@ -204,7 +204,7 @@ public:
 
     auto merge_sort_state() { return _state.get(); }
 
-    Status _do_sort();
+    Status do_sort();
 
 private:
     bool _reach_limit() {

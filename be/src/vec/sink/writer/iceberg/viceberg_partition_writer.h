@@ -71,7 +71,7 @@ public:
 private:
     std::string _get_target_file_name();
 
-    TIcebergCommitData _build_iceberg_commit_data();
+    Status _build_iceberg_commit_data(TIcebergCommitData* commit_data);
 
     std::string _get_file_extension(TFileFormatType::type file_format_type,
                                     TFileCompressType::type write_compress_type);
