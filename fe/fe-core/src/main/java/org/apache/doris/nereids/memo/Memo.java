@@ -22,6 +22,7 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
 import org.apache.doris.nereids.metrics.consumer.LogConsumer;
@@ -41,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
@@ -359,6 +361,64 @@ public class Memo {
     public Plan copyOut(Group group, boolean includeGroupExpression) {
         GroupExpression logicalExpression = group.getFirstLogicalExpression();
         return copyOut(logicalExpression, includeGroupExpression);
+    }
+    public Plan copyOutBestLogicalPlan() {
+        return copyOutBestLogicalPlan(root, PhysicalProperties.ANY);
+    }
+
+    private Plan copyOutBestLogicalPlan(Group rootGroup, PhysicalProperties physicalProperties) {
+        try {
+            GroupExpression groupExpression = rootGroup.getBestPlan(physicalProperties);
+            if (groupExpression != null) {
+                if ((groupExpression.getPlan() instanceof PhysicalDistribute
+                        && rootGroup.getEnforcerSpecs().containsKey(
+                        ((PhysicalDistribute<?>) groupExpression.getPlan()).getDistributionSpec()))
+                        || rootGroup.getEnforcers().containsKey(groupExpression)) {
+                    rootGroup.addChosenEnforcerId(groupExpression.getId().asInt());
+                    rootGroup.addChosenEnforcerProperties(physicalProperties);
+                } else {
+                    rootGroup.setChosenProperties(physicalProperties);
+                    rootGroup.setChosenGroupExpressionId(groupExpression.getId().asInt());
+                }
+                List<PhysicalProperties> inputPropertiesList = groupExpression.getInputPropertiesList(physicalProperties);
+                List<Plan> planChildren = Lists.newArrayList();
+                for (int i = 0; i < groupExpression.arity(); i++) {
+                    planChildren.add(copyOutBestLogicalPlan(groupExpression.child(i), inputPropertiesList.get(i)));
+                }
+                Plan bestLogicalPlan = rootGroup.getBestLogicalPlan(groupExpression);
+                if (bestLogicalPlan != null) {
+                    if (bestLogicalPlan instanceof LogicalJoin) {
+                        ((LogicalJoin) bestLogicalPlan).getJoinReorderContext().clear();
+                    }
+                    return bestLogicalPlan.withChildren(planChildren);
+                } else {
+                    Preconditions.checkState(planChildren.size() == 1,
+                            "plan must have only 1 child, plan -> " + planChildren);
+                    if (planChildren.get(0) instanceof LogicalJoin) {
+                        ((LogicalJoin) planChildren.get(0)).getJoinReorderContext().clear();
+                    }
+                    return planChildren.get(0);
+                }
+            } else {
+                Preconditions.checkArgument(!rootGroup.getLogicalExpressions().isEmpty(),
+                        "There should be more than one Logical Expression in Group");
+                groupExpression = rootGroup.getLogicalExpression();
+                int arity = groupExpression.arity();
+                List<Plan> planChildren = new ArrayList<>(arity);
+                for (int i = 0; i < arity; i++) {
+                    planChildren.add(copyOutBestLogicalPlan(groupExpression.child(i), physicalProperties));
+                }
+                if (groupExpression.getPlan() instanceof LogicalJoin) {
+                    ((LogicalJoin) groupExpression.getPlan()).getJoinReorderContext().clear();
+                }
+                return groupExpression.getPlan().withChildren(planChildren);
+            }
+        } catch (Exception e) {
+            if (e instanceof AnalysisException && e.getMessage().contains("Failed to choose best plan")) {
+                throw e;
+            }
+            throw new AnalysisException("Failed to choose best plan: " + e.getMessage(), e);
+        }
     }
 
     /**
