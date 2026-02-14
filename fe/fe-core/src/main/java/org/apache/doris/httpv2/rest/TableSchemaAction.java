@@ -39,7 +39,6 @@ import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.response.GsonSchemaResponse;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;

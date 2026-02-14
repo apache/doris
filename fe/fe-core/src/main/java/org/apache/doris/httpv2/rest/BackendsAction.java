@@ -18,11 +18,8 @@
 package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 
 import com.fasterxml.jackson.annotation.JsonProperty;

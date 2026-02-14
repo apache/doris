@@ -36,7 +36,6 @@ import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.Storage;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -343,10 +342,10 @@ public class ShowAction extends RestBaseController {
             if (Strings.isNullOrEmpty(tableName)) {
                 List<Table> tables = db.getTables();
                 for (Table table : tables) {
-                    if (Config.enable_all_http_auth && authInfo != null && !Env.getCurrentEnv().getAccessManager()
-                            .checkTblPriv(authInfo.userIdentity, InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(),
-                                    table.getName(),
-                                    PrivPredicate.SHOW)) {
+                    if (Config.enable_all_http_auth && authInfo != null
+                            && !Env.getCurrentEnv().getAccessManager().checkTblPriv(
+                                    authInfo.userIdentity, InternalCatalog.INTERNAL_CATALOG_NAME,
+                                    db.getFullName(), table.getName(), PrivPredicate.SHOW)) {
                         continue;
                     }
                     Map<String, Long> tableEntry = getDataSizeOfTable(table, singleReplica);
