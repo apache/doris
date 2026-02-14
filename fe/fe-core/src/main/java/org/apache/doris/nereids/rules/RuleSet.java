@@ -94,6 +94,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalResultSinkToPhysical
 import org.apache.doris.nereids.rules.implementation.LogicalSchemaScanToPhysicalSchemaScan;
 import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalQuickSort;
 import org.apache.doris.nereids.rules.implementation.LogicalTVFRelationToPhysicalTVFRelation;
+import org.apache.doris.nereids.rules.implementation.LogicalTVFTableSinkToPhysicalTVFTableSink;
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalUnionToPhysicalUnion;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow;
@@ -233,6 +234,7 @@ public class RuleSet {
             .add(new LogicalDeferMaterializeResultSinkToPhysicalDeferMaterializeResultSink())
             .add(new LogicalDictionarySinkToPhysicalDictionarySink())
             .add(new LogicalBlackholeSinkToPhysicalBlackholeSink())
+            .add(new LogicalTVFTableSinkToPhysicalTVFTableSink())
             .build();
 
     // left-zig-zag tree is used when column stats are not available.
