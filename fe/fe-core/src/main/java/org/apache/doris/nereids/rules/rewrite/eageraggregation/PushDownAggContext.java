@@ -37,7 +37,13 @@ import java.util.stream.Collectors;
  */
 public class PushDownAggContext {
     public static final int BIG_JOIN_BUILD_SIZE = 400_000;
+    // count(if(...)): if(...) push down as a whole
+    // sum/min/max(if(truePart, elsePart)): if(...) can be split to sum(truePart) and sum(elsePart)
     public final boolean hasDecomposedAggIf;
+    // When aggFunc(if(...)) is present, pushing down the null-supplemented side of the outer join is avoided.
+    // This is because null values are highly error-prone,
+    // so the push-down operation is not performed during hashCaseWhen.
+    public final boolean hasCaseWhen;
     private final List<AggregateFunction> aggFunctions;
     private final List<SlotReference> groupKeys;
     private final HashMap<AggregateFunction, Alias> aliasMap;
@@ -53,7 +59,7 @@ public class PushDownAggContext {
      */
     public PushDownAggContext(List<AggregateFunction> aggFunctions,
             List<SlotReference> groupKeys, Map<AggregateFunction, Alias> aliasMap, CascadesContext cascadesContext,
-            boolean passThroughBigJoin, boolean hasDecomposedAggIf) {
+            boolean passThroughBigJoin, boolean hasDecomposedAggIf, boolean hasCaseWhen) {
         this.groupKeys = groupKeys.stream().distinct().collect(Collectors.toList());
         this.aggFunctions = ImmutableList.copyOf(aggFunctions);
         this.cascadesContext = cascadesContext;
@@ -80,6 +86,7 @@ public class PushDownAggContext {
                 .collect(ImmutableSet.toImmutableSet());
         this.passThroughBigJoin = passThroughBigJoin;
         this.hasDecomposedAggIf = hasDecomposedAggIf;
+        this.hasCaseWhen = hasCaseWhen;
     }
 
     /**
@@ -93,7 +100,7 @@ public class PushDownAggContext {
 
     public PushDownAggContext passThroughBigJoin() {
         return new PushDownAggContext(aggFunctions, groupKeys, aliasMap, cascadesContext,
-                true, hasDecomposedAggIf);
+                true, hasDecomposedAggIf, hasCaseWhen);
     }
 
     public HashMap<AggregateFunction, Alias> getAliasMap() {
@@ -110,7 +117,7 @@ public class PushDownAggContext {
 
     public PushDownAggContext withGroupKeys(List<SlotReference> groupKeys) {
         return new PushDownAggContext(aggFunctions, groupKeys, aliasMap,
-                cascadesContext, passThroughBigJoin, hasDecomposedAggIf);
+                cascadesContext, passThroughBigJoin, hasDecomposedAggIf, hasCaseWhen);
     }
 
     public Set<Slot> getAggFunctionsInputSlots() {
