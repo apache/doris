@@ -70,7 +70,6 @@ public class MCInsertExecutor extends BaseExternalTableInsertExecutor {
     @Override
     protected void doBeforeCommit() throws UserException {
         MCTransaction transaction = (MCTransaction) transactionManager.getTransaction(txnId);
-        this.loadedRows = transaction.getUpdateCnt();
         transaction.finishInsert();
     }
 
