@@ -19,6 +19,7 @@
 
 #include <gen_cpp/DataSinks_types.h>
 
+#include <atomic>
 #include <set>
 #include <unordered_map>
 
@@ -86,6 +87,9 @@ private:
 
     // Write output expr contexts (after removing partition columns)
     VExprContextSPtrs _write_output_vexpr_ctxs;
+
+    // Atomic block_id counter: each partition writer gets a unique block_id
+    std::atomic<int64_t> _next_block_id {0};
 
     size_t _row_count = 0;
     int64_t _send_data_ns = 0;

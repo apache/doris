@@ -21,6 +21,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.maxcompute.MCTransaction;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
+import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.MaxComputeTableSink;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.TransactionType;
 
@@ -33,6 +37,9 @@ public class MCInsertExecutor extends BaseExternalTableInsertExecutor {
 
     private static final Logger LOG = LogManager.getLogger(MCInsertExecutor.class);
 
+    // Saved during finalizeSink() so we can inject writeSessionId before execution
+    private MaxComputeTableSink mcTableSink;
+
     public MCInsertExecutor(ConnectContext ctx, MaxComputeExternalTable table,
                             String labelName, NereidsPlanner planner,
                             Optional<InsertCommandContext> insertCtx,
@@ -41,9 +48,23 @@ public class MCInsertExecutor extends BaseExternalTableInsertExecutor {
     }
 
     @Override
+    protected void finalizeSink(PlanFragment fragment, DataSink sink, PhysicalSink physicalSink) {
+        // Let parent call bindDataSink() to build the Thrift sink
+        super.finalizeSink(fragment, sink, physicalSink);
+        // Save reference so beforeExec() can inject writeSessionId later
+        mcTableSink = (MaxComputeTableSink) sink;
+    }
+
+    @Override
     protected void beforeExec() throws UserException {
+        // 1. Create Storage API write session as part of the transaction
         MCTransaction transaction = (MCTransaction) transactionManager.getTransaction(txnId);
         transaction.beginInsert((MaxComputeExternalTable) table, insertCtx);
+
+        // 2. Inject writeSessionId into the Thrift sink before fragments are sent to BE
+        if (mcTableSink != null) {
+            mcTableSink.setWriteSessionId(transaction.getWriteSessionId());
+        }
     }
 
     @Override

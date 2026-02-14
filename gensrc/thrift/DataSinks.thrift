@@ -491,9 +491,10 @@ struct TTVFTableSink {
 struct TMCCommitData {
     1: optional string session_id
     2: optional string partition_spec    // "key1=val1/key2=val2" format, empty for non-partitioned
-    3: optional list<i64> block_ids      // successfully written block IDs
+    3: optional list<i64> block_ids      // successfully written block IDs (legacy, unused with Storage API)
     4: optional i64 row_count
     5: optional i64 written_bytes
+    6: optional string commit_message    // Base64 serialized WriterCommitMessage from Storage API
 }
 
 struct TMaxComputeTableSink {
@@ -511,6 +512,7 @@ struct TMaxComputeTableSink {
     12: optional i32 read_timeout
     13: optional i32 retry_count
     14: optional list<string> partition_columns  // partition column names for dynamic partition
+    15: optional string write_session_id          // Storage API write session ID
 }
 
 struct TDataSink {

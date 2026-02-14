@@ -68,19 +68,9 @@ TMCCommitData VMCPartitionWriter::_build_mc_commit_data() {
     // Get statistics from Java side via JNI getStatistics()
     if (_jni_format_transformer) {
         auto statistics = _jni_format_transformer->get_statistics();
-        auto it = statistics.find("mc_session_id");
-        if (it != statistics.end()) {
-            commit_data.__set_session_id(it->second);
-        }
-        it = statistics.find("mc_block_ids");
+        auto it = statistics.find("mc_commit_message");
         if (it != statistics.end() && !it->second.empty()) {
-            std::vector<int64_t> block_ids;
-            std::stringstream ss(it->second);
-            std::string token;
-            while (std::getline(ss, token, ',')) {
-                block_ids.push_back(std::stoll(token));
-            }
-            commit_data.__set_block_ids(block_ids);
+            commit_data.__set_commit_message(it->second);
         }
         it = statistics.find("bytes:WrittenBytes");
         if (it != statistics.end()) {

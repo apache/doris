@@ -46,7 +46,6 @@ public class MaxComputeTableSink extends BaseExternalTableDataSink {
 
     @Override
     protected Set<TFileFormatType> supportedFileFormatTypes() {
-        // MC handles file format internally via Tunnel SDK
         return new HashSet<>();
     }
 
@@ -92,16 +91,23 @@ public class MaxComputeTableSink extends BaseExternalTableDataSink {
             if (staticPartitionSpec != null && !staticPartitionSpec.isEmpty()) {
                 tSink.setStaticPartitionSpec(staticPartitionSpec);
             }
-            // Session ID (pre-created by FE for non-partitioned / static partition)
-            if (mcCtx.getSessionId() != null && !mcCtx.getSessionId().isEmpty()) {
-                tSink.setSessionId(mcCtx.getSessionId());
-            }
-            // Block ID allocation
-            tSink.setBlockIdStart(mcCtx.getBlockIdStart());
-            tSink.setBlockIdCount(mcCtx.getBlockIdCount());
         }
+
+        // Note: writeSessionId is set later by MCInsertExecutor.beforeExec()
+        // after MCTransaction.beginInsert() creates the Storage API session.
 
         tDataSink = new TDataSink(TDataSinkType.MAXCOMPUTE_TABLE_SINK);
         tDataSink.setMaxComputeTableSink(tSink);
+    }
+
+    /**
+     * Called by MCInsertExecutor.beforeExec() to inject the writeSessionId
+     * after MCTransaction.beginInsert() creates the Storage API session.
+     * This must be called before fragments are sent to BE (i.e., before execImpl).
+     */
+    public void setWriteSessionId(String writeSessionId) {
+        if (tDataSink != null && tDataSink.isSetMaxComputeTableSink()) {
+            tDataSink.getMaxComputeTableSink().setWriteSessionId(writeSessionId);
+        }
     }
 }

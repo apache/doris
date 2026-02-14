@@ -21,34 +21,54 @@ import org.apache.doris.common.jni.JniWriter;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.VectorTable;
 
-import com.aliyun.odps.Column;
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsType;
-import com.aliyun.odps.PartitionSpec;
-import com.aliyun.odps.TableSchema;
 import com.aliyun.odps.account.Account;
 import com.aliyun.odps.account.AliyunAccount;
-import com.aliyun.odps.data.Record;
-import com.aliyun.odps.data.RecordWriter;
-import com.aliyun.odps.tunnel.Configuration;
-import com.aliyun.odps.tunnel.TableTunnel;
+import com.aliyun.odps.table.configuration.RestOptions;
+import com.aliyun.odps.table.configuration.WriterOptions;
+import com.aliyun.odps.table.enviroment.Credentials;
+import com.aliyun.odps.table.enviroment.EnvironmentSettings;
+import com.aliyun.odps.table.write.BatchWriter;
+import com.aliyun.odps.table.write.TableBatchWriteSession;
+import com.aliyun.odps.table.write.TableWriteSessionBuilder;
+import com.aliyun.odps.table.write.WriterAttemptId;
+import com.aliyun.odps.table.write.WriterCommitMessage;
+import com.aliyun.odps.type.TypeInfo;
 import com.google.common.base.Strings;
+import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.BigIntVector;
+import org.apache.arrow.vector.BitVector;
+import org.apache.arrow.vector.DateDayVector;
+import org.apache.arrow.vector.DecimalVector;
+import org.apache.arrow.vector.Float4Vector;
+import org.apache.arrow.vector.Float8Vector;
+import org.apache.arrow.vector.IntVector;
+import org.apache.arrow.vector.SmallIntVector;
+import org.apache.arrow.vector.TimeStampMilliVector;
+import org.apache.arrow.vector.TinyIntVector;
+import org.apache.arrow.vector.VarBinaryVector;
+import org.apache.arrow.vector.VarCharVector;
+import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.log4j.Logger;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.ObjectOutputStream;
 import java.math.BigDecimal;
-import java.sql.Timestamp;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
 /**
- * MaxComputeJniWriter writes C++ Block data to MaxCompute tables via Tunnel SDK.
+ * MaxComputeJniWriter writes C++ Block data to MaxCompute tables via Storage API (Arrow).
  * Loaded by C++ as: org/apache/doris/maxcompute/MaxComputeJniWriter
  */
 public class MaxComputeJniWriter extends JniWriter {
@@ -60,9 +80,8 @@ public class MaxComputeJniWriter extends JniWriter {
     private static final String QUOTA = "quota";
     private static final String PROJECT = "project";
     private static final String TABLE = "table";
-    private static final String SESSION_ID = "session_id";
-    private static final String BLOCK_ID_START = "block_id_start";
-    private static final String BLOCK_ID_COUNT = "block_id_count";
+    private static final String WRITE_SESSION_ID = "write_session_id";
+    private static final String BLOCK_ID = "block_id";
     private static final String PARTITION_SPEC = "partition_spec";
     private static final String CONNECT_TIMEOUT = "connect_timeout";
     private static final String READ_TIMEOUT = "read_timeout";
@@ -74,22 +93,20 @@ public class MaxComputeJniWriter extends JniWriter {
     private final String project;
     private final String tableName;
     private final String quota;
-    private String sessionId;
-    private long blockIdStart;
-    private long blockIdCount;
+    private String writeSessionId;
+    private long blockId;
     private String partitionSpec;
     private int connectTimeout;
     private int readTimeout;
     private int retryCount;
 
-    // SDK objects
-    private Odps odps;
-    private TableTunnel tunnel;
-    private TableTunnel.UploadSession uploadSession;
-    private RecordWriter recordWriter;
-    private TableSchema tableSchema;
-    private long currentBlockId;
-    private List<Long> committedBlockIds = new ArrayList<>();
+    // Storage API objects
+    private TableBatchWriteSession writeSession;
+    private BatchWriter<VectorSchemaRoot> batchWriter;
+    private BufferAllocator allocator;
+    private List<TypeInfo> columnTypeInfos;
+    private List<String> columnNames;
+    private WriterCommitMessage commitMessage;
 
     // Statistics
     private long writtenRows = 0;
@@ -103,9 +120,9 @@ public class MaxComputeJniWriter extends JniWriter {
         this.project = Objects.requireNonNull(params.get(PROJECT), "required property '" + PROJECT + "'.");
         this.tableName = Objects.requireNonNull(params.get(TABLE), "required property '" + TABLE + "'.");
         this.quota = params.getOrDefault(QUOTA, "");
-        this.sessionId = params.getOrDefault(SESSION_ID, "");
-        this.blockIdStart = Long.parseLong(params.getOrDefault(BLOCK_ID_START, "0"));
-        this.blockIdCount = Long.parseLong(params.getOrDefault(BLOCK_ID_COUNT, "20000"));
+        this.writeSessionId = Objects.requireNonNull(params.get(WRITE_SESSION_ID),
+                "required property '" + WRITE_SESSION_ID + "'.");
+        this.blockId = Long.parseLong(params.getOrDefault(BLOCK_ID, "0"));
         this.partitionSpec = params.getOrDefault(PARTITION_SPEC, "");
         this.connectTimeout = Integer.parseInt(params.getOrDefault(CONNECT_TIMEOUT, "10"));
         this.readTimeout = Integer.parseInt(params.getOrDefault(READ_TIMEOUT, "120"));
@@ -116,44 +133,55 @@ public class MaxComputeJniWriter extends JniWriter {
     public void open() throws IOException {
         try {
             Account account = new AliyunAccount(accessKey, secretKey);
-            odps = new Odps(account);
+            Odps odps = new Odps(account);
             odps.setDefaultProject(project);
             odps.setEndpoint(endpoint);
 
-            tunnel = new TableTunnel(odps);
-            if (!Strings.isNullOrEmpty(quota)) {
-                tunnel.getConfig().setQuotaName(quota);
+            Credentials credentials = Credentials.newBuilder().withAccount(odps.getAccount())
+                    .withAppAccount(odps.getAppAccount()).build();
+
+            RestOptions restOptions = RestOptions.newBuilder()
+                    .withConnectTimeout(connectTimeout)
+                    .withReadTimeout(readTimeout)
+                    .withRetryTimes(retryCount).build();
+
+            EnvironmentSettings settings = EnvironmentSettings.newBuilder()
+                    .withCredentials(credentials)
+                    .withServiceEndpoint(odps.getEndpoint())
+                    .withQuotaName(Strings.isNullOrEmpty(quota) ? null : quota)
+                    .withRestOptions(restOptions)
+                    .build();
+
+            // Restore the write session created by FE
+            writeSession = new TableWriteSessionBuilder()
+                    .identifier(com.aliyun.odps.table.TableIdentifier.of(project, tableName))
+                    .withSessionId(writeSessionId)
+                    .withSettings(settings)
+                    .buildBatchWriteSession();
+
+            // Get schema info for type mapping
+            com.aliyun.odps.table.DataSchema dataSchema = writeSession.requiredSchema();
+            columnTypeInfos = new java.util.ArrayList<>();
+            columnNames = new java.util.ArrayList<>();
+            for (com.aliyun.odps.Column col : dataSchema.getColumns()) {
+                columnTypeInfos.add(col.getTypeInfo());
+                columnNames.add(col.getName());
             }
 
-            if (!Strings.isNullOrEmpty(sessionId)) {
-                // Restore existing session created by FE (non-partitioned / static partition)
-                if (!Strings.isNullOrEmpty(partitionSpec)) {
-                    uploadSession = tunnel.getUploadSession(project, tableName,
-                            new PartitionSpec(partitionSpec), sessionId);
-                } else {
-                    uploadSession = tunnel.getUploadSession(project, tableName, sessionId);
-                }
-            } else {
-                // Create new session (dynamic partition scenario)
-                if (!Strings.isNullOrEmpty(partitionSpec)) {
-                    uploadSession = tunnel.createUploadSession(project, tableName,
-                            new PartitionSpec(partitionSpec));
-                } else {
-                    uploadSession = tunnel.createUploadSession(project, tableName);
-                }
-                sessionId = uploadSession.getId();
-            }
+            allocator = new RootAllocator(Long.MAX_VALUE);
 
-            tableSchema = uploadSession.getSchema();
-            currentBlockId = blockIdStart;
-            recordWriter = uploadSession.openRecordWriter(currentBlockId);
-            committedBlockIds.add(currentBlockId);
+            // Create Arrow writer for this block
+            WriterOptions writerOptions = WriterOptions.newBuilder()
+                    .withSettings(settings)
+                    .build();
+            batchWriter = writeSession.createArrowWriter(blockId,
+                    WriterAttemptId.of(0), writerOptions);
 
             LOG.info("MaxComputeJniWriter opened: project=" + project + ", table=" + tableName
-                    + ", sessionId=" + sessionId + ", partitionSpec=" + partitionSpec
-                    + ", blockIdStart=" + blockIdStart + ", blockIdCount=" + blockIdCount);
+                    + ", writeSessionId=" + writeSessionId + ", partitionSpec=" + partitionSpec
+                    + ", blockId=" + blockId);
         } catch (Exception e) {
-            String errorMsg = "Failed to open MaxCompute upload session for table " + project + "." + tableName;
+            String errorMsg = "Failed to open MaxCompute write session for table " + project + "." + tableName;
             LOG.error(errorMsg, e);
             throw new IOException(errorMsg, e);
         }
@@ -169,21 +197,17 @@ public class MaxComputeJniWriter extends JniWriter {
 
         try {
             Object[][] data = inputTable.getMaterializedData();
-            List<Column> columns = tableSchema.getColumns();
 
-            for (int row = 0; row < numRows; row++) {
-                Record record = uploadSession.newRecord();
-                for (int col = 0; col < numCols && col < columns.size(); col++) {
-                    Object val = data[col][row];
-                    if (val == null) {
-                        record.set(col, null);
-                        continue;
-                    }
-                    setRecordValue(record, col, columns.get(col), val);
-                }
-                recordWriter.write(record);
+            // Get a pre-allocated VectorSchemaRoot from the batch writer
+            VectorSchemaRoot root = batchWriter.newElement();
+            root.setRowCount(numRows);
+
+            for (int col = 0; col < numCols && col < columnTypeInfos.size(); col++) {
+                OdpsType odpsType = columnTypeInfos.get(col).getOdpsType();
+                fillArrowVector(root, col, odpsType, data[col], numRows);
             }
 
+            batchWriter.write(root);
             writtenRows += numRows;
         } catch (Exception e) {
             String errorMsg = "Failed to write data to MaxCompute table " + project + "." + tableName;
@@ -192,92 +216,223 @@ public class MaxComputeJniWriter extends JniWriter {
         }
     }
 
-    private void setRecordValue(Record record, int idx, Column column, Object val) {
-        OdpsType type = column.getTypeInfo().getOdpsType();
-        switch (type) {
-            case BOOLEAN:
-                record.setBoolean(idx, (Boolean) val);
-                break;
-            case TINYINT:
-                record.set(idx, ((Number) val).byteValue());
-                break;
-            case SMALLINT:
-                record.set(idx, ((Number) val).shortValue());
-                break;
-            case INT:
-                record.set(idx, ((Number) val).intValue());
-                break;
-            case BIGINT:
-                record.setBigint(idx, ((Number) val).longValue());
-                break;
-            case FLOAT:
-                record.set(idx, ((Number) val).floatValue());
-                break;
-            case DOUBLE:
-                record.setDouble(idx, ((Number) val).doubleValue());
-                break;
-            case DECIMAL:
-                if (val instanceof BigDecimal) {
-                    record.setDecimal(idx, (BigDecimal) val);
-                } else {
-                    record.setDecimal(idx, new BigDecimal(val.toString()));
+    private void fillArrowVector(VectorSchemaRoot root, int colIdx, OdpsType odpsType,
+                                  Object[] colData, int numRows) {
+        switch (odpsType) {
+            case BOOLEAN: {
+                BitVector vec = (BitVector) root.getVector(colIdx);
+                vec.allocateNew(numRows);
+                for (int i = 0; i < numRows; i++) {
+                    if (colData[i] == null) {
+                        vec.setNull(i);
+                    } else {
+                        vec.set(i, (Boolean) colData[i] ? 1 : 0);
+                    }
                 }
+                vec.setValueCount(numRows);
                 break;
+            }
+            case TINYINT: {
+                TinyIntVector vec = (TinyIntVector) root.getVector(colIdx);
+                vec.allocateNew(numRows);
+                for (int i = 0; i < numRows; i++) {
+                    if (colData[i] == null) {
+                        vec.setNull(i);
+                    } else {
+                        vec.set(i, ((Number) colData[i]).byteValue());
+                    }
+                }
+                vec.setValueCount(numRows);
+                break;
+            }
+            case SMALLINT: {
+                SmallIntVector vec = (SmallIntVector) root.getVector(colIdx);
+                vec.allocateNew(numRows);
+                for (int i = 0; i < numRows; i++) {
+                    if (colData[i] == null) {
+                        vec.setNull(i);
+                    } else {
+                        vec.set(i, ((Number) colData[i]).shortValue());
+                    }
+                }
+                vec.setValueCount(numRows);
+                break;
+            }
+            case INT: {
+                IntVector vec = (IntVector) root.getVector(colIdx);
+                vec.allocateNew(numRows);
+                for (int i = 0; i < numRows; i++) {
+                    if (colData[i] == null) {
+                        vec.setNull(i);
+                    } else {
+                        vec.set(i, ((Number) colData[i]).intValue());
+                    }
+                }
+                vec.setValueCount(numRows);
+                break;
+            }
+            case BIGINT: {
+                BigIntVector vec = (BigIntVector) root.getVector(colIdx);
+                vec.allocateNew(numRows);
+                for (int i = 0; i < numRows; i++) {
+                    if (colData[i] == null) {
+                        vec.setNull(i);
+                    } else {
+                        vec.set(i, ((Number) colData[i]).longValue());
+                    }
+                }
+                vec.setValueCount(numRows);
+                break;
+            }
+            case FLOAT: {
+                Float4Vector vec = (Float4Vector) root.getVector(colIdx);
+                vec.allocateNew(numRows);
+                for (int i = 0; i < numRows; i++) {
+                    if (colData[i] == null) {
+                        vec.setNull(i);
+                    } else {
+                        vec.set(i, ((Number) colData[i]).floatValue());
+                    }
+                }
+                vec.setValueCount(numRows);
+                break;
+            }
+            case DOUBLE: {
+                Float8Vector vec = (Float8Vector) root.getVector(colIdx);
+                vec.allocateNew(numRows);
+                for (int i = 0; i < numRows; i++) {
+                    if (colData[i] == null) {
+                        vec.setNull(i);
+                    } else {
+                        vec.set(i, ((Number) colData[i]).doubleValue());
+                    }
+                }
+                vec.setValueCount(numRows);
+                break;
+            }
+            case DECIMAL: {
+                DecimalVector vec = (DecimalVector) root.getVector(colIdx);
+                vec.allocateNew(numRows);
+                for (int i = 0; i < numRows; i++) {
+                    if (colData[i] == null) {
+                        vec.setNull(i);
+                    } else {
+                        BigDecimal bd = (colData[i] instanceof BigDecimal)
+                                ? (BigDecimal) colData[i]
+                                : new BigDecimal(colData[i].toString());
+                        vec.set(i, bd);
+                    }
+                }
+                vec.setValueCount(numRows);
+                break;
+            }
             case STRING:
             case VARCHAR:
-            case CHAR:
-                if (val instanceof byte[]) {
-                    record.setString(idx, new String((byte[]) val));
-                } else {
-                    record.setString(idx, val.toString());
+            case CHAR: {
+                VarCharVector vec = (VarCharVector) root.getVector(colIdx);
+                vec.allocateNew(numRows);
+                for (int i = 0; i < numRows; i++) {
+                    if (colData[i] == null) {
+                        vec.setNull(i);
+                    } else {
+                        byte[] bytes;
+                        if (colData[i] instanceof byte[]) {
+                            bytes = (byte[]) colData[i];
+                        } else {
+                            bytes = colData[i].toString().getBytes(StandardCharsets.UTF_8);
+                        }
+                        vec.set(i, bytes);
+                    }
                 }
+                vec.setValueCount(numRows);
                 break;
-            case DATE:
-                if (val instanceof LocalDate) {
-                    java.sql.Date sqlDate = java.sql.Date.valueOf((LocalDate) val);
-                    record.setDatetime(idx, sqlDate);
-                } else {
-                    record.setString(idx, val.toString());
+            }
+            case DATE: {
+                DateDayVector vec = (DateDayVector) root.getVector(colIdx);
+                vec.allocateNew(numRows);
+                for (int i = 0; i < numRows; i++) {
+                    if (colData[i] == null) {
+                        vec.setNull(i);
+                    } else if (colData[i] instanceof LocalDate) {
+                        vec.set(i, (int) ((LocalDate) colData[i]).toEpochDay());
+                    } else {
+                        vec.set(i, (int) LocalDate.parse(colData[i].toString()).toEpochDay());
+                    }
                 }
+                vec.setValueCount(numRows);
                 break;
+            }
             case DATETIME:
-            case TIMESTAMP:
-                if (val instanceof LocalDateTime) {
-                    LocalDateTime ldt = (LocalDateTime) val;
-                    Timestamp ts = Timestamp.valueOf(ldt);
-                    record.setDatetime(idx, ts);
-                } else if (val instanceof Timestamp) {
-                    record.setDatetime(idx, (Timestamp) val);
-                } else {
-                    record.setString(idx, val.toString());
+            case TIMESTAMP: {
+                TimeStampMilliVector vec = (TimeStampMilliVector) root.getVector(colIdx);
+                vec.allocateNew(numRows);
+                for (int i = 0; i < numRows; i++) {
+                    if (colData[i] == null) {
+                        vec.setNull(i);
+                    } else if (colData[i] instanceof LocalDateTime) {
+                        long millis = ((LocalDateTime) colData[i])
+                                .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+                        vec.set(i, millis);
+                    } else if (colData[i] instanceof java.sql.Timestamp) {
+                        vec.set(i, ((java.sql.Timestamp) colData[i]).getTime());
+                    } else {
+                        long millis = LocalDateTime.parse(colData[i].toString())
+                                .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+                        vec.set(i, millis);
+                    }
                 }
+                vec.setValueCount(numRows);
                 break;
-            case BINARY:
-                if (val instanceof byte[]) {
-                    record.setString(idx, new String((byte[]) val));
-                } else {
-                    record.setString(idx, val.toString());
+            }
+            case BINARY: {
+                VarBinaryVector vec = (VarBinaryVector) root.getVector(colIdx);
+                vec.allocateNew(numRows);
+                for (int i = 0; i < numRows; i++) {
+                    if (colData[i] == null) {
+                        vec.setNull(i);
+                    } else if (colData[i] instanceof byte[]) {
+                        vec.set(i, (byte[]) colData[i]);
+                    } else {
+                        vec.set(i, colData[i].toString().getBytes(StandardCharsets.UTF_8));
+                    }
                 }
+                vec.setValueCount(numRows);
                 break;
-            default:
-                record.setString(idx, val.toString());
+            }
+            default: {
+                // Fallback: write as VarChar
+                VarCharVector vec = (VarCharVector) root.getVector(colIdx);
+                vec.allocateNew(numRows);
+                for (int i = 0; i < numRows; i++) {
+                    if (colData[i] == null) {
+                        vec.setNull(i);
+                    } else {
+                        vec.set(i, colData[i].toString().getBytes(StandardCharsets.UTF_8));
+                    }
+                }
+                vec.setValueCount(numRows);
                 break;
+            }
         }
     }
 
     @Override
     public void close() throws IOException {
         try {
-            if (recordWriter != null) {
-                recordWriter.close();
-                recordWriter = null;
+            if (batchWriter != null) {
+                commitMessage = batchWriter.commit();
+                batchWriter = null;
             }
-            LOG.info("MaxComputeJniWriter closed: sessionId=" + sessionId
+            if (allocator != null) {
+                allocator.close();
+                allocator = null;
+            }
+            LOG.info("MaxComputeJniWriter closed: writeSessionId=" + writeSessionId
                     + ", partitionSpec=" + partitionSpec
                     + ", writtenRows=" + writtenRows
-                    + ", committedBlockIds=" + committedBlockIds);
+                    + ", blockId=" + blockId);
         } catch (Exception e) {
-            String errorMsg = "Failed to close MaxCompute record writer";
+            String errorMsg = "Failed to close MaxCompute arrow writer";
             LOG.error(errorMsg, e);
             throw new IOException(errorMsg, e);
         }
@@ -286,16 +441,21 @@ public class MaxComputeJniWriter extends JniWriter {
     @Override
     public Map<String, String> getStatistics() {
         Map<String, String> stats = new HashMap<>();
-        stats.put("mc_session_id", sessionId);
         stats.put("mc_partition_spec", partitionSpec != null ? partitionSpec : "");
-        StringBuilder blockIdsStr = new StringBuilder();
-        for (int i = 0; i < committedBlockIds.size(); i++) {
-            if (i > 0) {
-                blockIdsStr.append(",");
+
+        // Serialize WriterCommitMessage to Base64
+        if (commitMessage != null) {
+            try {
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                ObjectOutputStream oos = new ObjectOutputStream(baos);
+                oos.writeObject(commitMessage);
+                oos.close();
+                stats.put("mc_commit_message", Base64.getEncoder().encodeToString(baos.toByteArray()));
+            } catch (IOException e) {
+                LOG.error("Failed to serialize WriterCommitMessage", e);
             }
-            blockIdsStr.append(committedBlockIds.get(i));
         }
-        stats.put("mc_block_ids", blockIdsStr.toString());
+
         stats.put("counter:WrittenRows", String.valueOf(writtenRows));
         stats.put("bytes:WrittenBytes", String.valueOf(writtenBytes));
         stats.put("timer:WriteTime", String.valueOf(writeTime));

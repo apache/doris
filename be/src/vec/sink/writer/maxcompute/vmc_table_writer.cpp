@@ -107,12 +107,8 @@ std::map<std::string, std::string> VMCTableWriter::_build_base_writer_params() {
     if (_mc_sink.__isset.project) params["project"] = _mc_sink.project;
     if (_mc_sink.__isset.table_name) params["table"] = _mc_sink.table_name;
     if (_mc_sink.__isset.quota) params["quota"] = _mc_sink.quota;
-    if (_mc_sink.__isset.session_id) params["session_id"] = _mc_sink.session_id;
-    if (_mc_sink.__isset.block_id_start) {
-        params["block_id_start"] = std::to_string(_mc_sink.block_id_start);
-    }
-    if (_mc_sink.__isset.block_id_count) {
-        params["block_id_count"] = std::to_string(_mc_sink.block_id_count);
+    if (_mc_sink.__isset.write_session_id) {
+        params["write_session_id"] = _mc_sink.write_session_id;
     }
     if (_mc_sink.__isset.connect_timeout) {
         params["connect_timeout"] = std::to_string(_mc_sink.connect_timeout);
@@ -130,13 +126,8 @@ std::shared_ptr<VMCPartitionWriter> VMCTableWriter::_create_partition_writer(
         const std::string& partition_spec) {
     auto params = _build_base_writer_params();
     params["partition_spec"] = partition_spec;
-    // For dynamic partition, clear session_id so Java side creates a new session
-    if (!_has_static_partition && !_partition_column_names.empty()) {
-        params["session_id"] = "";
-        // Dynamic partition: each partition has its own session, block_id starts from 0
-        params["block_id_start"] = "0";
-        params["block_id_count"] = "20000";
-    }
+    // Each partition writer gets a unique block_id from the atomic counter
+    params["block_id"] = std::to_string(_next_block_id.fetch_add(1));
     return std::make_shared<VMCPartitionWriter>(_state, _write_output_vexpr_ctxs, partition_spec,
                                                 std::move(params));
 }

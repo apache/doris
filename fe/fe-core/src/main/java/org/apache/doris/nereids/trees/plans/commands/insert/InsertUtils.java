@@ -40,6 +40,7 @@ import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundInlineTable;
 import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
+import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -593,6 +594,8 @@ public class InsertUtils {
             unboundTableSink = (UnboundDictionarySink<? extends Plan>) plan;
         } else if (plan instanceof UnboundBlackholeSink) {
             unboundTableSink = (UnboundBlackholeSink<? extends Plan>) plan;
+        } else if (plan instanceof UnboundMaxComputeTableSink) {
+            unboundTableSink = (UnboundMaxComputeTableSink<? extends Plan>) plan;
         } else {
             throw new AnalysisException(
                     "the root of plan only accept Olap, Dictionary, Hive, Iceberg or Jdbc table sink, but it is "

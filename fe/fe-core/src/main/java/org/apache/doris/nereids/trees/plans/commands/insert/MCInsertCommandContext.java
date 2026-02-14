@@ -28,6 +28,7 @@ public class MCInsertCommandContext extends BaseExternalTableInsertCommandContex
     private String sessionId;
     private long blockIdStart;
     private long blockIdCount;
+    private String writeSessionId;
 
     public MCInsertCommandContext() {
     }
@@ -62,5 +63,13 @@ public class MCInsertCommandContext extends BaseExternalTableInsertCommandContex
 
     public void setBlockIdCount(long blockIdCount) {
         this.blockIdCount = blockIdCount;
+    }
+
+    public String getWriteSessionId() {
+        return writeSessionId;
+    }
+
+    public void setWriteSessionId(String writeSessionId) {
+        this.writeSessionId = writeSessionId;
     }
 }

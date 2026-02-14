@@ -24,15 +24,20 @@ import org.apache.doris.nereids.trees.plans.commands.insert.MCInsertCommandConte
 import org.apache.doris.thrift.TMCCommitData;
 import org.apache.doris.transaction.Transaction;
 
-import com.aliyun.odps.Odps;
 import com.aliyun.odps.PartitionSpec;
-import com.aliyun.odps.account.AliyunAccount;
-import com.aliyun.odps.tunnel.TableTunnel;
+import com.aliyun.odps.table.TableIdentifier;
+import com.aliyun.odps.table.configuration.DynamicPartitionOptions;
+import com.aliyun.odps.table.write.TableBatchWriteSession;
+import com.aliyun.odps.table.write.TableWriteSessionBuilder;
+import com.aliyun.odps.table.write.WriterCommitMessage;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.HashMap;
+import java.io.ByteArrayInputStream;
+import java.io.ObjectInputStream;
+import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -46,10 +51,8 @@ public class MCTransaction implements Transaction {
     private MaxComputeExternalTable table;
     private final List<TMCCommitData> commitDataList = Lists.newArrayList();
 
-    // For non-partitioned / static partition: FE pre-creates session
-    private TableTunnel tunnel;
-    private TableTunnel.UploadSession uploadSession;
-    private String preCreatedSessionId;
+    // Storage API write session ID (created in beginInsert, used in finishInsert)
+    private String writeSessionId;
 
     public MCTransaction(MaxComputeExternalCatalog catalog) {
         this.catalog = catalog;
@@ -65,11 +68,8 @@ public class MCTransaction implements Transaction {
         this.table = (MaxComputeExternalTable) dorisTable;
 
         try {
-            Odps odps = new Odps(new AliyunAccount(catalog.getAccessKey(), catalog.getSecretKey()));
-            odps.setDefaultProject(catalog.getDefaultProject());
-            odps.setEndpoint(catalog.getEndpoint());
-
-            tunnel = new TableTunnel(odps);
+            TableIdentifier tableId = TableIdentifier.of(
+                    catalog.getDefaultProject(), table.getName());
 
             boolean isDynamicPartition = !table.getPartitionColumns().isEmpty();
             boolean isStaticPartition = false;
@@ -86,89 +86,62 @@ public class MCTransaction implements Transaction {
                 }
             }
 
-            // Pre-create session for non-partitioned or static partition tables
-            if (!isDynamicPartition || isStaticPartition) {
-                String project = catalog.getDefaultProject();
-                String tableName = table.getName();
-                if (isStaticPartition) {
-                    PartitionSpec partSpec = new PartitionSpec(staticPartitionSpecStr);
-                    uploadSession = tunnel.createUploadSession(project, tableName, partSpec);
-                } else {
-                    uploadSession = tunnel.createUploadSession(project, tableName);
-                }
-                preCreatedSessionId = uploadSession.getId();
-                LOG.info("Pre-created MC UploadSession: {} for table {}.{}",
-                        preCreatedSessionId, project, tableName);
+            TableWriteSessionBuilder builder = new TableWriteSessionBuilder()
+                    .identifier(tableId)
+                    .withSettings(catalog.getSettings());
 
-                // Set session ID back to context
-                if (ctx.isPresent() && ctx.get() instanceof MCInsertCommandContext) {
-                    ((MCInsertCommandContext) ctx.get()).setSessionId(preCreatedSessionId);
-                }
+            if (isStaticPartition) {
+                builder.partition(new PartitionSpec(staticPartitionSpecStr));
+            } else if (isDynamicPartition) {
+                builder.withDynamicPartitionOptions(DynamicPartitionOptions.createDefault());
             }
+
+            TableBatchWriteSession writeSession = builder.buildBatchWriteSession();
+            writeSessionId = writeSession.getId();
+
+            LOG.info("Created MC Storage API write session: {} for table {}.{}",
+                    writeSessionId, catalog.getDefaultProject(), table.getName());
         } catch (Exception e) {
             throw new UserException("Failed to begin insert for MaxCompute table "
                     + dorisTable.getName() + ": " + e.getMessage(), e);
         }
     }
 
+    public String getWriteSessionId() {
+        return writeSessionId;
+    }
+
     public void finishInsert() throws UserException {
-        // Commit all sessions reported by BEs
-        Map<String, List<TMCCommitData>> sessionGroups = new HashMap<>();
-        synchronized (this) {
-            for (TMCCommitData data : commitDataList) {
-                String sid = data.isSetSessionId() ? data.getSessionId() : preCreatedSessionId;
-                sessionGroups.computeIfAbsent(sid, k -> Lists.newArrayList()).add(data);
-            }
-        }
-
         try {
-            Odps odps = new Odps(new AliyunAccount(catalog.getAccessKey(), catalog.getSecretKey()));
-            odps.setDefaultProject(catalog.getDefaultProject());
-            odps.setEndpoint(catalog.getEndpoint());
-            TableTunnel commitTunnel = new TableTunnel(odps);
-
-            for (Map.Entry<String, List<TMCCommitData>> entry : sessionGroups.entrySet()) {
-                String sessionId = entry.getKey();
-                List<TMCCommitData> dataList = entry.getValue();
-
-                // Collect all block IDs for this session
-                List<Long> allBlockIds = Lists.newArrayList();
-                for (TMCCommitData data : dataList) {
-                    if (data.isSetBlockIds()) {
-                        allBlockIds.addAll(data.getBlockIds());
+            // Collect all WriterCommitMessages from BEs
+            List<WriterCommitMessage> allMessages = new ArrayList<>();
+            synchronized (this) {
+                for (TMCCommitData data : commitDataList) {
+                    if (data.isSetCommitMessage() && !data.getCommitMessage().isEmpty()) {
+                        byte[] bytes = Base64.getDecoder().decode(data.getCommitMessage());
+                        ByteArrayInputStream bais = new ByteArrayInputStream(bytes);
+                        ObjectInputStream ois = new ObjectInputStream(bais);
+                        WriterCommitMessage msg = (WriterCommitMessage) ois.readObject();
+                        ois.close();
+                        allMessages.add(msg);
                     }
                 }
-
-                // Determine partition spec from commit data
-                String partitionSpec = null;
-                for (TMCCommitData data : dataList) {
-                    if (data.isSetPartitionSpec() && !data.getPartitionSpec().isEmpty()) {
-                        partitionSpec = data.getPartitionSpec();
-                        break;
-                    }
-                }
-
-                // Get or restore the upload session
-                TableTunnel.UploadSession session;
-                String project = catalog.getDefaultProject();
-                String tableName = table.getName();
-                if (partitionSpec != null && !partitionSpec.isEmpty()) {
-                    // Convert "key1=val1/key2=val2" to PartitionSpec
-                    String specStr = partitionSpec.replace("/", ",");
-                    PartitionSpec pSpec = new PartitionSpec(specStr);
-                    session = commitTunnel.getUploadSession(project, tableName, pSpec, sessionId);
-                } else {
-                    session = commitTunnel.getUploadSession(project, tableName, sessionId);
-                }
-
-                // Commit the session with block IDs
-                Long[] blockArray = allBlockIds.toArray(new Long[0]);
-                session.commit(blockArray);
-                LOG.info("Committed MC session {} with {} blocks for table {}.{}",
-                        sessionId, blockArray.length, project, tableName);
             }
+
+            // Restore session and commit all messages
+            TableIdentifier tableId = TableIdentifier.of(
+                    catalog.getDefaultProject(), table.getName());
+            TableBatchWriteSession commitSession = new TableWriteSessionBuilder()
+                    .identifier(tableId)
+                    .withSessionId(writeSessionId)
+                    .withSettings(catalog.getSettings())
+                    .buildBatchWriteSession();
+
+            commitSession.commit(allMessages.toArray(new WriterCommitMessage[0]));
+            LOG.info("Committed MC write session {} with {} messages for table {}.{}",
+                    writeSessionId, allMessages.size(), catalog.getDefaultProject(), table.getName());
         } catch (Exception e) {
-            throw new UserException("Failed to commit MaxCompute upload sessions: " + e.getMessage(), e);
+            throw new UserException("Failed to commit MaxCompute write session: " + e.getMessage(), e);
         }
     }
 
@@ -179,7 +152,7 @@ public class MCTransaction implements Transaction {
 
     @Override
     public void rollback() {
-        // MC sessions auto-expire after 24h if not committed; no explicit rollback needed
+        // MC sessions auto-expire if not committed; no explicit rollback needed
         LOG.info("MCTransaction rollback called; uncommitted sessions will auto-expire.");
     }
 

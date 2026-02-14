@@ -234,6 +234,7 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
                 props.getOrDefault(MCProperties.ENABLE_NAMESPACE_SCHEMA, MCProperties.DEFAULT_ENABLE_NAMESPACE_SCHEMA));
         mcStructureHelper = McStructureHelper.getHelper(enableNamespaceSchema, defaultProject);
 
+        initPreExecutionAuthenticator();
         metadataOps = ExternalMetadataOperations.newMaxComputeMetadataOps(this, odps);
         transactionManager = TransactionManagerFactory.createMCTransactionManager(this);
     }
