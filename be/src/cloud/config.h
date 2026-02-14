@@ -191,6 +191,17 @@ DECLARE_mBool(enable_standby_passive_compaction);
 
 DECLARE_mDouble(standby_compaction_version_ratio);
 
+// Compaction read-write separation: only the "last active" cluster (the one that most recently
+// performed load) is allowed to compact a tablet
+DECLARE_mBool(enable_compaction_rw_separation);
+// Timeout in ms for takeover when last active cluster becomes unavailable (default 5 min)
+DECLARE_mInt64(compaction_cluster_takeover_timeout_ms);
+// Interval in seconds to refresh cluster status cache for compaction read-write separation
+DECLARE_mInt64(cluster_status_cache_refresh_interval_sec);
+// When version count exceeds this ratio of max_tablet_version_num, force compaction
+// even on read-only clusters (safety valve to prevent unbounded version growth)
+DECLARE_mDouble(compaction_rw_separation_version_threshold_ratio);
+
 DECLARE_mBool(enable_cache_read_from_peer);
 
 DECLARE_mInt64(cache_read_from_peer_expired_seconds);

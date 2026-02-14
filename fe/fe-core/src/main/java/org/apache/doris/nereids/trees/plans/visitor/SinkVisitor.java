@@ -23,6 +23,7 @@ import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
+import org.apache.doris.nereids.analyzer.UnboundTVFTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalBlackholeSink;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
@@ -46,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTableSink;
 
 /**
@@ -91,6 +94,10 @@ public interface SinkVisitor<R, C> {
 
     default R visitUnboundBlackholeSink(UnboundBlackholeSink<? extends Plan> unboundBlackholeSink, C context) {
         return visitLogicalSink(unboundBlackholeSink, context);
+    }
+
+    default R visitUnboundTVFTableSink(UnboundTVFTableSink<? extends Plan> unboundTVFTableSink, C context) {
+        return visitLogicalSink(unboundTVFTableSink, context);
     }
 
     // *******************************
@@ -139,6 +146,11 @@ public interface SinkVisitor<R, C> {
         return visitLogicalSink(logicalBlackholeSink, context);
     }
 
+    default R visitLogicalTVFTableSink(
+            LogicalTVFTableSink<? extends Plan> logicalTVFTableSink, C context) {
+        return visitLogicalSink(logicalTVFTableSink, context);
+    }
+
     // *******************************
     // physical
     // *******************************
@@ -183,5 +195,10 @@ public interface SinkVisitor<R, C> {
     default R visitPhysicalDeferMaterializeResultSink(
             PhysicalDeferMaterializeResultSink<? extends Plan> sink, C context) {
         return visitPhysicalSink(sink, context);
+    }
+
+    default R visitPhysicalTVFTableSink(
+            PhysicalTVFTableSink<? extends Plan> tvfTableSink, C context) {
+        return visitPhysicalSink(tvfTableSink, context);
     }
 }

@@ -32,6 +32,7 @@ import org.apache.doris.nereids.StatementContext.TableFrom;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
+import org.apache.doris.nereids.analyzer.UnboundTVFTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -139,6 +140,10 @@ public class CollectRelation implements AnalysisRuleFactory {
     }
 
     private Plan collectFromUnboundSink(MatchingContext<UnboundLogicalSink<Plan>> ctx) {
+        // TVF sink (local/s3/hdfs) is not a real table, skip table collection
+        if (ctx.root instanceof UnboundTVFTableSink) {
+            return null;
+        }
         List<String> nameParts = ctx.root.getNameParts();
         switch (nameParts.size()) {
             case 1:

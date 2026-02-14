@@ -47,6 +47,7 @@ header:
     - "fe/fe-core/src/main/java/software/amazon/awssdk/core/client/builder/SdkDefaultClientBuilder.java"
     - "fe/fe-core/src/main/antlr4/org/apache/doris/nereids/JavaLexer.g4"
     - "fe/fe-core/src/main/antlr4/org/apache/doris/nereids/JavaParser.g4"
+    - "fe/.idea/vcs.xml"
     - "be/dict/ik/*"
     - "be/dict/pinyin/*"
     - "be/src/common/signal_handler.h"

@@ -134,7 +134,11 @@ optSpecBranch
     ;
 
 supportedDmlStatement
-    : explain? cte? INSERT (INTO | OVERWRITE TABLE)
+    : explain? cte? INSERT INTO tvfName=identifier
+        LEFT_PAREN tvfProperties=propertyItemList RIGHT_PAREN
+        (WITH LABEL labelName=identifier)?
+        query                                                          #insertIntoTVF
+    | explain? cte? INSERT (INTO | OVERWRITE TABLE)
         (tableName=multipartIdentifier (optSpecBranch)? | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
         partitionSpec?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define

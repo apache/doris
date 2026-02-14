@@ -82,9 +82,6 @@ public:
     Status execute_batch_add_selected(Block* block, size_t offset, AggregateDataPtr* places,
                                       Arena& arena);
 
-    Status streaming_agg_serialize(Block* block, BufferWritable& buf, const size_t num_rows,
-                                   Arena& arena);
-
     Status streaming_agg_serialize_to_column(Block* block, MutableColumnPtr& dst,
                                              const size_t num_rows, Arena& arena);
 

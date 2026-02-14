@@ -101,6 +101,7 @@
 #include "pipeline/exec/spill_sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_operator.h"
 #include "pipeline/exec/table_function_operator.h"
+#include "pipeline/exec/tvf_table_sink_operator.h"
 #include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/exec/union_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
@@ -1190,6 +1191,14 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         }
 
         _sink.reset(new BlackholeSinkOperatorX(next_sink_operator_id()));
+        break;
+    }
+    case TDataSinkType::TVF_TABLE_SINK: {
+        if (!thrift_sink.__isset.tvf_table_sink) {
+            return Status::InternalError("Missing TVF table sink.");
+        }
+        _sink = std::make_shared<TVFTableSinkOperatorX>(pool, next_sink_operator_id(), row_desc,
+                                                        output_exprs);
         break;
     }
     default:

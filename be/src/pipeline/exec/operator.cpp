@@ -81,6 +81,7 @@
 #include "pipeline/exec/spill_sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_operator.h"
 #include "pipeline/exec/table_function_operator.h"
+#include "pipeline/exec/tvf_table_sink_operator.h"
 #include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/exec/union_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
@@ -818,6 +819,7 @@ DECLARE_OPERATOR(ResultFileSinkLocalState)
 DECLARE_OPERATOR(OlapTableSinkLocalState)
 DECLARE_OPERATOR(OlapTableSinkV2LocalState)
 DECLARE_OPERATOR(HiveTableSinkLocalState)
+DECLARE_OPERATOR(TVFTableSinkLocalState)
 DECLARE_OPERATOR(IcebergTableSinkLocalState)
 DECLARE_OPERATOR(SpillIcebergTableSinkLocalState)
 DECLARE_OPERATOR(AnalyticSinkLocalState)
@@ -940,6 +942,7 @@ template class AsyncWriterSink<doris::vectorized::VHiveTableWriter, HiveTableSin
 template class AsyncWriterSink<doris::vectorized::VIcebergTableWriter, IcebergTableSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VIcebergTableWriter,
                                SpillIcebergTableSinkOperatorX>;
+template class AsyncWriterSink<doris::vectorized::VTVFTableWriter, TVFTableSinkOperatorX>;
 
 #ifdef BE_TEST
 template class OperatorX<DummyOperatorLocalState>;

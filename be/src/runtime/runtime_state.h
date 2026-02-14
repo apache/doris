@@ -570,6 +570,11 @@ public:
         return _query_options.__isset.enable_parallel_scan && _query_options.enable_parallel_scan;
     }
 
+    bool enable_aggregate_function_null_v2() const {
+        return _query_options.__isset.enable_aggregate_function_null_v2 &&
+               _query_options.enable_aggregate_function_null_v2;
+    }
+
     bool is_read_csv_empty_line_as_null() const {
         return _query_options.__isset.read_csv_empty_line_as_null &&
                _query_options.read_csv_empty_line_as_null;
