@@ -238,7 +238,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     // Call parent's auth check first
     int ret = HttpHandlerWithAuth::on_header(req);
     if (ret != 0) {
-        return ret;  // Auth failed, return error
+        return ret; // Auth failed, return error
     }
 
     // Continue with stream load specific header processing
