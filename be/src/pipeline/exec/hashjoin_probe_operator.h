@@ -156,7 +156,8 @@ public:
                _join_distribution == TJoinDistributionType::COLOCATE;
     }
     bool followed_by_shuffled_operator() const override {
-        return is_shuffled_operator() && !is_colocated_operator();
+        return (is_shuffled_operator() && !is_colocated_operator()) ||
+               _followed_by_shuffled_operator;
     }
 
     bool need_finalize_variant_column() const { return _need_finalize_variant_column; }
