@@ -23,7 +23,6 @@ import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.util.LoadSubmitter;
 import org.apache.doris.httpv2.util.TmpFileMgr;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
