@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -121,8 +122,8 @@ public class HttpApiAuthTest {
         } catch (UnauthorizedException e) {
             // Expected exception
             Assert.assertTrue("Error message should mention privilege",
-                    e.getMessage().toLowerCase().contains("privilege") ||
-                            e.getMessage().toLowerCase().contains("permission"));
+                    e.getMessage().toLowerCase().contains("privilege")
+                            || e.getMessage().toLowerCase().contains("permission"));
         }
     }
 
