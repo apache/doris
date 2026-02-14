@@ -37,6 +37,7 @@ package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -146,6 +147,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
 
         Set<AggregateFunction> aggFunctions = Sets.newHashSet();
         boolean hasDecomposedAggIf = false;
+        boolean hasCaseWhen = false;
         Map<NamedExpression, List<AggregateFunction>> aggFunctionsForOutputExpressions = Maps.newHashMap();
         for (NamedExpression aggOutput : agg.getOutputExpressions()) {
             List<AggregateFunction> funcs = Lists.newArrayList();
@@ -156,6 +158,9 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                     return agg;
                 }
                 if (pushDownAggFunctionSet.contains(aggFunction.getClass())) {
+                    if (!hasCaseWhen && aggFunction.anyMatch(e -> e instanceof CaseWhen)) {
+                        hasCaseWhen = true;
+                    }
                     if (aggFunction.arity() > 0 && aggFunction.child(0) instanceof If
                             && !(aggFunction instanceof Count)) {
                         // Decompose Sum/Max/Min(If(cond, a, b)) into separate agg functions.
@@ -199,7 +204,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
         }
 
         PushDownAggContext pushDownContext = new PushDownAggContext(new ArrayList<>(aggFunctions),
-                groupKeys, null, context.getCascadesContext(), false, hasDecomposedAggIf);
+                groupKeys, null, context.getCascadesContext(), false, hasDecomposedAggIf, hasCaseWhen);
         if (!pushDownContext.isValid()) {
             return agg;
         }

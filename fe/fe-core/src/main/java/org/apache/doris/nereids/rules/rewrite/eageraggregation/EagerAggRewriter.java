@@ -109,21 +109,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             }
         }
         // Do not push aggregation to the nullable side of outer joins when agg function contains case-when.
-        //    plan1:
-        //    agg(max(case when t1.a is null then 1 else null end))
-        //       --> right join on false
-        //          --> t1
-        //          --> t2
-        //    =>
-        //    plan2:
-        //    agg(max(x))
-        //    --> right join on false
-        //            --> agg((case when t1.a is null when 1 else null end) as x)
-        //            --> t2
-        // this transform is incorrect, because right join condition is false, then x is null,
-        // and the output is max(null)=null.
-        // but the output of plan1 should be 1
-        if (context.hasDecomposedAggIf) {
+        // CaseWhen expressions may produce non-null values from null-padded rows (e.g., WHEN col IS NULL THEN -54),
+        // so pre-aggregation before the join loses those contributions.
+        if (context.hasDecomposedAggIf || context.hasCaseWhen) {
             JoinType joinType = join.getJoinType();
             if (joinType.isFullOuterJoin()) {
                 return join;
@@ -271,7 +259,8 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             aggFunctions.add(newAggFunc);
         }
         return new PushDownAggContext(aggFunctions, groupKeys, aliasMap,
-                context.getCascadesContext(), context.isPassThroughBigJoin(), context.hasDecomposedAggIf);
+                context.getCascadesContext(), context.isPassThroughBigJoin(),
+                context.hasDecomposedAggIf, context.hasCaseWhen);
     }
 
     private boolean canPushThroughProject(LogicalProject<? extends Plan> project, PushDownAggContext context) {
@@ -374,7 +363,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                     .collect(Collectors.toList());
             PushDownAggContext contextForChild = new PushDownAggContext(aggFunctionsForChild, groupKeysForChild,
                     aliasMapForChild, context.getCascadesContext(),
-                    context.isPassThroughBigJoin(), context.hasDecomposedAggIf);
+                    context.isPassThroughBigJoin(), context.hasDecomposedAggIf, context.hasCaseWhen);
             childrenContext.add(contextForChild);
             if (contextForChild.isValid()) {
                 Plan newChild = child.accept(this, contextForChild);
