@@ -55,8 +55,7 @@ public:
     Status close(Status) override;
 
 private:
-    std::shared_ptr<VMCPartitionWriter> _create_partition_writer(
-            const std::string& partition_spec);
+    std::shared_ptr<VMCPartitionWriter> _create_partition_writer(const std::string& partition_spec);
 
     std::map<std::string, std::string> _build_base_writer_params();
 

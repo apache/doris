@@ -24,17 +24,16 @@
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/sink/writer/maxcompute/vmc_partition_writer.h"
-
 #include "vec/runtime/vjni_format_transformer.h"
+#include "vec/sink/writer/maxcompute/vmc_partition_writer.h"
 
 namespace doris {
 namespace vectorized {
 #include "common/compile_check_begin.h"
 
 VMCTableWriter::VMCTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_expr_ctxs,
-                                std::shared_ptr<pipeline::Dependency> dep,
-                                std::shared_ptr<pipeline::Dependency> fin_dep)
+                               std::shared_ptr<pipeline::Dependency> dep,
+                               std::shared_ptr<pipeline::Dependency> fin_dep)
         : AsyncResultWriter(output_expr_ctxs, dep, fin_dep),
           _t_sink(t_sink),
           _mc_sink(_t_sink.max_compute_table_sink) {
@@ -143,8 +142,7 @@ std::string VMCTableWriter::_get_partition_spec(const Block& block, int row_idx)
         ss << _partition_column_names[i] << "=";
 
         if (col_ptr->is_nullable()) {
-            const auto* nullable_col =
-                    static_cast<const ColumnNullable*>(col_ptr.get());
+            const auto* nullable_col = static_cast<const ColumnNullable*>(col_ptr.get());
             if (nullable_col->is_null_at(row_idx)) {
                 ss << "__HIVE_DEFAULT_PARTITION__";
                 continue;
@@ -208,8 +206,8 @@ Status VMCTableWriter::write(RuntimeState* state, vectorized::Block& block) {
         std::string partition_key = _has_static_partition ? _static_partition_spec : "";
         auto it = _partitions_to_writers.find(partition_key);
         if (it == _partitions_to_writers.end()) {
-            auto writer = _create_partition_writer(
-                    _has_static_partition ? _static_partition_spec : "");
+            auto writer =
+                    _create_partition_writer(_has_static_partition ? _static_partition_spec : "");
             RETURN_IF_ERROR(writer->open());
             _partitions_to_writers.insert({partition_key, writer});
             it = _partitions_to_writers.find(partition_key);
@@ -228,8 +226,9 @@ Status VMCTableWriter::write(RuntimeState* state, vectorized::Block& block) {
         if (writer_iter == _partitions_to_writers.end()) {
             if (_partitions_to_writers.size() + 1 >
                 config::table_sink_partition_write_max_partition_nums_per_writer) {
-                return Status::InternalError("Too many open partitions {}",
-                                             config::table_sink_partition_write_max_partition_nums_per_writer);
+                return Status::InternalError(
+                        "Too many open partitions {}",
+                        config::table_sink_partition_write_max_partition_nums_per_writer);
             }
             auto writer = _create_partition_writer(partition_spec);
             RETURN_IF_ERROR(writer->open());
@@ -265,8 +264,8 @@ Status VMCTableWriter::close(Status status) {
         for (const auto& [partition_spec, writer] : _partitions_to_writers) {
             Status st = writer->close(status);
             if (!st.ok()) {
-                LOG(WARNING) << "VMCPartitionWriter close failed for partition "
-                             << partition_spec << ": " << st.to_string();
+                LOG(WARNING) << "VMCPartitionWriter close failed for partition " << partition_spec
+                             << ": " << st.to_string();
                 if (result_status.ok()) {
                     result_status = st;
                 }

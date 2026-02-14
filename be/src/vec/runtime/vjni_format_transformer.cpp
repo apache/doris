@@ -145,7 +145,9 @@ std::map<std::string, std::string> VJniFormatTransformer::get_statistics() {
     }
 
     Jni::LocalObject stats_map;
-    if (!_jni_writer_obj.call_object_method(env, _jni_writer_get_statistics).call(&stats_map).ok()) {
+    if (!_jni_writer_obj.call_object_method(env, _jni_writer_get_statistics)
+                 .call(&stats_map)
+                 .ok()) {
         return result;
     }
     if (stats_map.uninitialized()) {

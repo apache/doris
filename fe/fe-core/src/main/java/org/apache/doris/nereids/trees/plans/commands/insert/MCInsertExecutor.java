@@ -33,6 +33,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Optional;
 
+/**
+ * MCInsertExecutor for MaxCompute external table insert.
+ */
 public class MCInsertExecutor extends BaseExternalTableInsertExecutor {
 
     private static final Logger LOG = LogManager.getLogger(MCInsertExecutor.class);

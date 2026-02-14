@@ -18,7 +18,6 @@
 package org.apache.doris.maxcompute;
 
 import org.apache.doris.common.jni.JniWriter;
-import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.VectorTable;
 
 import com.aliyun.odps.Odps;
