@@ -80,20 +80,21 @@ suite("test_http_api_auth", "docker") {
         }
 
         // ========== Test Scenario 2: enable_all_http_auth = true - Public APIs ==========
+        // Health and Metrics endpoints are always public (no auth required)
         sql """ADMIN SET FRONTEND CONFIG ("enable_all_http_auth" = "true")"""
 
-        // FE Health - no auth returns 401 in JSON body
+        // FE Health - still accessible without auth (public endpoint)
         httpTest {
             endpoint feHost
             uri "/api/health"
             op "get"
             check { code, body ->
-                assertEquals(200, code)  // HTTP code is always 200
-                checkJsonCode(body, 401)  // JSON body code is 401
+                assertEquals(200, code)
+                checkJsonCode(body, 0)  // Health is always public
             }
         }
 
-        // FE Health - normal user can access
+        // FE Health - also works with auth
         httpTest {
             endpoint feHost
             uri "/api/health"
@@ -105,31 +106,18 @@ suite("test_http_api_auth", "docker") {
             }
         }
 
-        // FE Health - admin user can access
-        httpTest {
-            endpoint feHost
-            uri "/api/health"
-            op "get"
-            basicAuthorization "admin_user", "admin_password"
-            check { code, body ->
-                assertEquals(200, code)
-                checkJsonCode(body, 0)
-            }
-        }
-
-        // FE Metrics - no auth returns 401 in JSON body
+        // FE Metrics - still accessible without auth (public endpoint)
         httpTest {
             endpoint feHost
             uri "/metrics"
             op "get"
             check { code, body ->
                 assertEquals(200, code)
-                // metrics endpoint may return plain text error or JSON
-                assertTrue(body.contains("401") || body.contains("Unauthorized") || body.contains("doris_"))
+                assertTrue(body.contains("doris_"))  // Metrics is always public
             }
         }
 
-        // FE Metrics - normal user can access
+        // FE Metrics - also works with auth
         httpTest {
             endpoint feHost
             uri "/metrics"
@@ -180,9 +168,33 @@ suite("test_http_api_auth", "docker") {
             }
         }
 
-        // ========== Test Scenario 4: Wrong Credentials ==========
+        // ========== Test Scenario 4: Wrong Credentials on Admin APIs ==========
 
-        // Test wrong password returns 401 in JSON body
+        // Test wrong password returns 401 on admin API
+        httpTest {
+            endpoint feHost
+            uri "/api/backends"
+            op "get"
+            basicAuthorization "admin_user", "wrong_password"
+            check { code, body ->
+                assertEquals(200, code)
+                checkJsonCode(body, 401)
+            }
+        }
+
+        // Test non-existent user returns 401 on admin API
+        httpTest {
+            endpoint feHost
+            uri "/api/backends"
+            op "get"
+            basicAuthorization "non_existent_user", "password"
+            check { code, body ->
+                assertEquals(200, code)
+                checkJsonCode(body, 401)
+            }
+        }
+
+        // Health endpoint works even with wrong credentials (public endpoint)
         httpTest {
             endpoint feHost
             uri "/api/health"
@@ -190,19 +202,7 @@ suite("test_http_api_auth", "docker") {
             basicAuthorization "test_user", "wrong_password"
             check { code, body ->
                 assertEquals(200, code)
-                checkJsonCode(body, 401)
-            }
-        }
-
-        // Test non-existent user returns 401 in JSON body
-        httpTest {
-            endpoint feHost
-            uri "/api/health"
-            op "get"
-            basicAuthorization "non_existent_user", "password"
-            check { code, body ->
-                assertEquals(200, code)
-                checkJsonCode(body, 401)
+                checkJsonCode(body, 0)  // Health is always public
             }
         }
 
