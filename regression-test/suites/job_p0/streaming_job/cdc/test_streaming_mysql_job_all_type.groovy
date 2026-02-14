@@ -140,7 +140,7 @@ suite("test_streaming_mysql_job_all_type", "p0,external,mysql,external_docker,ex
            sql """insert into ${mysqlDb}.${table1} values (2,100,100000,1000000000,100000000000,12345,12345.67,123456789.12345,12345678901234567890.1234567890,123456789012345678901234567890.123456789012345678901234567890,12345.6789,123.456,true,-10,-1000,-100000,-100000000,-1000000000000,-12345.6789,-123.456,-12345,-12345.67,-123456789.12345,-12345678901234567890.1234567890,-123456789012345678901234567890.123456789012345678901234567890,2024,'12:34:56','12:34:56.789','12:34:56.789123','2024-01-01','2024-01-01 12:34:56','2024-01-01 12:34:56','2024-01-01 12:34:56.789','2024-01-01 12:34:56.789123','hello','hello123','this is a text field','this is a blob','{"id":10,"name":"mock"}','Option2',b'101010','bin_data_123','varbin_data','Value2');"""
        }
 
-       sleep(30000); // wait for cdc incremental data
+       sleep(60000); // wait for cdc incremental data
 
        // check incremental data
        qt_select_all_types_null2 """select * from ${currentDb}.${table1} order by 1;"""

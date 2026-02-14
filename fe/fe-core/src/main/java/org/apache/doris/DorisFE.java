@@ -66,6 +66,7 @@ import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Random;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -118,9 +119,6 @@ public class DorisFE {
 
     // entrance for doris frontend
     public static void start(String dorisHomeDir, String pidDir, String[] args, StartupOptions options) {
-        if (System.getenv("DORIS_LOG_TO_STDERR") != null) {
-            Log4jConfig.foreground = true;
-        }
         if (Strings.isNullOrEmpty(dorisHomeDir)) {
             System.err.println("env DORIS_HOME is not set.");
             return;
@@ -153,6 +151,11 @@ public class DorisFE {
                 throw new IllegalArgumentException("Java version doesn't match");
             }
 
+            // Set foreground flag after Config.init() but before Log4jConfig class loading,
+            // so that Log4jConfig's static block can read the correct config values (e.g. log_rollover_strategy).
+            if (System.getenv("DORIS_LOG_TO_STDERR") != null) {
+                Log4jConfig.foreground = true;
+            }
             Log4jConfig.initLogging(dorisHomeDir + "/conf/");
             // Add shutdown hook for graceful exit
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
@@ -260,6 +263,7 @@ public class DorisFE {
             startMonitor();
 
             serverReady.set(true);
+
             // JVM will exit when shutdown hook is completed
             while (true) {
                 Thread.sleep(2000);
@@ -589,9 +593,14 @@ public class DorisFE {
         // Keep global fuzzy knobs that are not session-based.
         if (Config.fuzzy_test_type.equalsIgnoreCase("daily")
                 || Config.fuzzy_test_type.equalsIgnoreCase("rqg")) {
-            Config.random_add_cluster_keys_for_mow = (LocalDate.now().getDayOfMonth() % 2 == 0);
-            LOG.info("fuzzy set random_add_cluster_keys_for_mow={}", Config.random_add_cluster_keys_for_mow);
+            Config.random_add_order_by_keys_for_mow = (LocalDate.now().getDayOfMonth() % 2 == 0);
+            LOG.info("fuzzy set random_add_order_by_keys_for_mow={}", Config.random_add_order_by_keys_for_mow);
         }
+
+        Config.enable_txn_log_outside_lock = new Random().nextBoolean();
+        LOG.info("fuzzy set enable_txn_log_outside_lock={}", Config.enable_txn_log_outside_lock);
+        Config.enable_batch_editlog = new Random().nextBoolean();
+        LOG.info("fuzzy set enable_batch_editlog={}", Config.enable_batch_editlog);
 
         setFuzzyForCatalog();
     }

@@ -39,7 +39,7 @@ private:
     struct less;
 
 public:
-    using value_type = typename PrimitiveTypeTraits<TYPE_VARBINARY>::ColumnItemType;
+    using value_type = typename PrimitiveTypeTraits<TYPE_VARBINARY>::CppType;
     using Container = PaddedPODArray<doris::StringView>;
 
 private:
@@ -77,8 +77,7 @@ public:
     char* alloc(size_t length) { return _arena.alloc(length); }
 
     void insert(const Field& x) override {
-        const auto& value =
-                vectorized::get<const typename PrimitiveTypeTraits<TYPE_VARBINARY>::CppType&>(x);
+        const auto& value = x.get<TYPE_VARBINARY>();
         insert_data(value.data(), value.size());
     }
 

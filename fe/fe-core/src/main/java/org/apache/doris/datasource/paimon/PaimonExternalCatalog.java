@@ -23,19 +23,21 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.metacache.CacheSpec;
+import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractPaimonProperties;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.catalog.Catalog;
-import org.apache.paimon.catalog.Catalog.TableNotExistException;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 // The subclasses of this class are all deprecated, only for meta persistence compatibility.
 public class PaimonExternalCatalog extends ExternalCatalog {
@@ -45,6 +47,9 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     public static final String PAIMON_HMS = "hms";
     public static final String PAIMON_DLF = "dlf";
     public static final String PAIMON_REST = "rest";
+    public static final String PAIMON_TABLE_CACHE_ENABLE = "meta.cache.paimon.table.enable";
+    public static final String PAIMON_TABLE_CACHE_TTL_SECOND = "meta.cache.paimon.table.ttl-second";
+    public static final String PAIMON_TABLE_CACHE_CAPACITY = "meta.cache.paimon.table.capacity";
     protected String catalogType;
     protected Catalog catalog;
 
@@ -62,6 +67,7 @@ public class PaimonExternalCatalog extends ExternalCatalog {
         catalogType = paimonProperties.getPaimonCatalogType();
         catalog = createCatalog();
         initPreExecutionAuthenticator();
+        metadataOps = ExternalMetadataOperations.newPaimonMetaOps(this, catalog);
     }
 
     @Override
@@ -76,49 +82,16 @@ public class PaimonExternalCatalog extends ExternalCatalog {
         return catalogType;
     }
 
-    protected List<String> listDatabaseNames() {
-        try {
-            return executionAuthenticator.execute(() -> new ArrayList<>(catalog.listDatabases()));
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to list databases names, catalog name: " + getName(), e);
-        }
-    }
-
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
-        try {
-            return executionAuthenticator.execute(() -> {
-                try {
-                    catalog.getTable(Identifier.create(dbName, tblName));
-                    return true;
-                } catch (TableNotExistException e) {
-                    return false;
-                }
-            });
-
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to check table existence, catalog name: " + getName()
-                    + "error message is:" + ExceptionUtils.getRootCauseMessage(e), e);
-        }
+        return metadataOps.tableExist(dbName, tblName);
     }
 
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
-        try {
-            return executionAuthenticator.execute(() -> {
-                List<String> tableNames = null;
-                try {
-                    tableNames = catalog.listTables(dbName);
-                } catch (Catalog.DatabaseNotExistException e) {
-                    LOG.warn("DatabaseNotExistException", e);
-                }
-                return tableNames;
-            });
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to list table names, catalog name: " + getName(), e);
-        }
+        return metadataOps.listTableNames(dbName);
     }
 
     public List<Partition> getPaimonPartitions(NameMapping nameMapping) {
@@ -188,7 +161,25 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     @Override
     public void checkProperties() throws DdlException {
         super.checkProperties();
+        CacheSpec.checkBooleanProperty(catalogProperty.getOrDefault(PAIMON_TABLE_CACHE_ENABLE, null),
+                PAIMON_TABLE_CACHE_ENABLE);
+        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(PAIMON_TABLE_CACHE_TTL_SECOND, null),
+                -1L, PAIMON_TABLE_CACHE_TTL_SECOND);
+        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(PAIMON_TABLE_CACHE_CAPACITY, null),
+                0L, PAIMON_TABLE_CACHE_CAPACITY);
         catalogProperty.checkMetaStoreAndStorageProperties(AbstractPaimonProperties.class);
+    }
+
+    @Override
+    public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
+        super.notifyPropertiesUpdated(updatedProps);
+        String tableCacheEnable = updatedProps.getOrDefault(PAIMON_TABLE_CACHE_ENABLE, null);
+        String tableCacheTtl = updatedProps.getOrDefault(PAIMON_TABLE_CACHE_TTL_SECOND, null);
+        String tableCacheCapacity = updatedProps.getOrDefault(PAIMON_TABLE_CACHE_CAPACITY, null);
+        if (Objects.nonNull(tableCacheEnable) || Objects.nonNull(tableCacheTtl)
+                || Objects.nonNull(tableCacheCapacity)) {
+            PaimonUtils.getPaimonMetadataCache(this).init();
+        }
     }
 
     @Override

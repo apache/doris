@@ -44,13 +44,14 @@ namespace doris::segment_v2 {
 Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_uid,
                                         vectorized::PathInData path,
                                         const SubcolumnColumnMetaInfo::Node* node,
-                                        std::unique_ptr<SubstreamIterator>&& sparse_reader,
+                                        std::unique_ptr<SubstreamIterator>&& binary_column_reader,
                                         std::unique_ptr<SubstreamIterator>&& root_column_reader,
                                         ColumnReaderCache* column_reader_cache,
-                                        OlapReaderStatistics* stats) {
+                                        OlapReaderStatistics* stats, ReadType read_type) {
     // None leave node need merge with root
-    std::unique_ptr<HierarchicalDataIterator> stream_iter(new HierarchicalDataIterator(path));
-    if (node != nullptr) {
+    std::unique_ptr<HierarchicalDataIterator> stream_iter(
+            new HierarchicalDataIterator(path, read_type));
+    if (node != nullptr && read_type == ReadType::SUBCOLUMNS_AND_SPARSE) {
         std::vector<const SubcolumnColumnMetaInfo::Node*> leaves;
         vectorized::PathsInData leaves_paths;
         SubcolumnColumnMetaInfo::get_leaves_of_node(node, leaves, leaves_paths);
@@ -66,7 +67,7 @@ Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_
     // need read from root column if not null
     stream_iter->_root_reader = std::move(root_column_reader);
     // need read from sparse column if not null
-    stream_iter->_sparse_column_reader = std::move(sparse_reader);
+    stream_iter->_binary_column_reader = std::move(binary_column_reader);
     stream_iter->_stats = stats;
     *reader = std::move(stream_iter);
 
@@ -83,9 +84,9 @@ Status HierarchicalDataIterator::init(const ColumnIteratorOptions& opts) {
         RETURN_IF_ERROR(_root_reader->iterator->init(opts));
         _root_reader->inited = true;
     }
-    if (_sparse_column_reader && !_sparse_column_reader->inited) {
-        RETURN_IF_ERROR(_sparse_column_reader->iterator->init(opts));
-        _sparse_column_reader->inited = true;
+    if (!_binary_column_reader->inited) {
+        RETURN_IF_ERROR(_binary_column_reader->iterator->init(opts));
+        _binary_column_reader->inited = true;
     }
     return Status::OK();
 }
@@ -99,10 +100,8 @@ Status HierarchicalDataIterator::seek_to_ordinal(ordinal_t ord) {
         DCHECK(_root_reader->inited);
         RETURN_IF_ERROR(_root_reader->iterator->seek_to_ordinal(ord));
     }
-    if (_sparse_column_reader) {
-        DCHECK(_sparse_column_reader->inited);
-        RETURN_IF_ERROR(_sparse_column_reader->iterator->seek_to_ordinal(ord));
-    }
+    DCHECK(_binary_column_reader->inited);
+    RETURN_IF_ERROR(_binary_column_reader->iterator->seek_to_ordinal(ord));
     return Status::OK();
 }
 
@@ -162,6 +161,39 @@ Status HierarchicalDataIterator::add_stream(int32_t col_uid,
 
 ordinal_t HierarchicalDataIterator::get_current_ordinal() const {
     return (*_substream_reader.begin())->data.iterator->get_current_ordinal();
+}
+
+Status HierarchicalDataIterator::init_prefetcher(const SegmentPrefetchParams& params) {
+    RETURN_IF_ERROR(tranverse([&](SubstreamReaderTree::Node& node) {
+        RETURN_IF_ERROR(node.data.iterator->init_prefetcher(params));
+        return Status::OK();
+    }));
+    if (_root_reader) {
+        DCHECK(_root_reader->inited);
+        RETURN_IF_ERROR(_root_reader->iterator->init_prefetcher(params));
+    }
+    if (_binary_column_reader) {
+        DCHECK(_binary_column_reader->inited);
+        RETURN_IF_ERROR(_binary_column_reader->iterator->init_prefetcher(params));
+    }
+    return Status::OK();
+}
+
+void HierarchicalDataIterator::collect_prefetchers(
+        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+        PrefetcherInitMethod init_method) {
+    static_cast<void>(tranverse([&](SubstreamReaderTree::Node& node) {
+        node.data.iterator->collect_prefetchers(prefetchers, init_method);
+        return Status::OK();
+    }));
+    if (_root_reader) {
+        DCHECK(_root_reader->inited);
+        _root_reader->iterator->collect_prefetchers(prefetchers, init_method);
+    }
+    if (_binary_column_reader) {
+        DCHECK(_binary_column_reader->inited);
+        _binary_column_reader->iterator->collect_prefetchers(prefetchers, init_method);
+    }
 }
 
 Status HierarchicalDataIterator::_process_sub_columns(
@@ -318,24 +350,25 @@ Status HierarchicalDataIterator::_process_sparse_column(
         vectorized::ColumnVariant& container_variant, size_t nrows) {
     using namespace vectorized;
     container_variant.clear_sparse_column();
-    if (!_sparse_column_reader) {
-        container_variant.get_sparse_column()->assume_mutable()->resize(
-                container_variant.get_sparse_column()->size() + nrows);
-        ENABLE_CHECK_CONSISTENCY(&container_variant);
-        return Status::OK();
-    }
     // process sparse column
     if (_path.get_parts().empty()) {
-        // directly use sparse column if access root
-        container_variant.set_sparse_column(_sparse_column_reader->column->get_ptr());
+        if (_read_type == ReadType::SUBCOLUMNS_AND_SPARSE) {
+            container_variant.set_sparse_column(_binary_column_reader->column->get_ptr());
+            container_variant.get_doc_value_column()->assume_mutable()->resize(nrows);
+        } else if (_read_type == ReadType::DOC_VALUE_COLUMN) {
+            container_variant.set_doc_value_column(_binary_column_reader->column->get_ptr());
+            container_variant.get_sparse_column()->assume_mutable()->resize(nrows);
+        } else {
+            return Status::InternalError("Invalid read type {}", _read_type);
+        }
         ENABLE_CHECK_CONSISTENCY(&container_variant);
+        return Status::OK();
     } else {
         const auto& offsets =
-                assert_cast<const ColumnMap&>(*_sparse_column_reader->column).get_offsets();
+                assert_cast<const ColumnMap&>(*_binary_column_reader->column).get_offsets();
         /// Check if there is no data in shared data in current range.
         if (offsets.back() == offsets[-1]) {
-            container_variant.get_sparse_column()->assume_mutable()->resize(
-                    container_variant.get_sparse_column()->size() + nrows);
+            container_variant.get_sparse_column()->assume_mutable()->resize(nrows);
         } else {
             // Read for variant sparse column
             // Example path: a.b
@@ -346,7 +379,7 @@ Status HierarchicalDataIterator::_process_sparse_column(
             // c : int|123
             // d : string|"456"
             const auto& sparse_data_map =
-                    assert_cast<const ColumnMap&>(*_sparse_column_reader->column);
+                    assert_cast<const ColumnMap&>(*_binary_column_reader->column);
             const auto& src_sparse_data_offsets = sparse_data_map.get_offsets();
             const auto& src_sparse_data_paths =
                     assert_cast<const ColumnString&>(sparse_data_map.get_keys());
@@ -390,15 +423,16 @@ Status HierarchicalDataIterator::_process_sparse_column(
                         // Case 1: subcolumn already created, append this row's value into it.
                         if (auto it = subcolumns_from_sparse_column.find(sub_path);
                             it != subcolumns_from_sparse_column.end()) {
-                            it->second.deserialize_from_sparse_column(&src_sparse_data_values,
+                            it->second.deserialize_from_binary_column(&src_sparse_data_values,
                                                                       lower_bound_index);
                         }
                         // Case 2: subcolumn not created yet and we still have quota → create it and insert.
-                        else if (subcolumns_from_sparse_column.size() < count) {
+                        else if (subcolumns_from_sparse_column.size() < count ||
+                                 container_variant.max_subcolumns_count() == 0) {
                             // Initialize subcolumn with current logical row index i to align sizes.
                             ColumnVariant::Subcolumn subcolumn(/*size*/ i, /*is_nullable*/ true,
                                                                false);
-                            subcolumn.deserialize_from_sparse_column(&src_sparse_data_values,
+                            subcolumn.deserialize_from_binary_column(&src_sparse_data_values,
                                                                      lower_bound_index);
                             subcolumns_from_sparse_column.emplace(sub_path, std::move(subcolumn));
                         }
@@ -423,7 +457,7 @@ Status HierarchicalDataIterator::_process_sparse_column(
                             //     return Status::InternalError("Failed to add subcolumn for sparse column");
                             // }
                         }
-                        container_variant.get_subcolumn({})->deserialize_from_sparse_column(
+                        container_variant.get_subcolumn({})->deserialize_from_binary_column(
                                 &src_sparse_data_values, lower_bound_index);
                     }
                 }
@@ -454,6 +488,7 @@ Status HierarchicalDataIterator::_process_sparse_column(
                 }
             }
         }
+        container_variant.get_doc_value_column()->assume_mutable()->resize(nrows);
     }
     ENABLE_CHECK_CONSISTENCY(&container_variant);
     return Status::OK();
@@ -468,9 +503,7 @@ Status HierarchicalDataIterator::_init_null_map_and_clear_columns(
         return Status::OK();
     }));
     container->clear();
-    if (_sparse_column_reader) {
-        _sparse_column_reader->column->clear();
-    }
+    _binary_column_reader->column->clear();
     if (_root_reader) {
         if (_root_reader->column->is_nullable()) {
             // fill nullmap

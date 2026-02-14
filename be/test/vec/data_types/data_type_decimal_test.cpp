@@ -430,21 +430,21 @@ TEST_F(DataTypeDecimalTest, ser_deser) {
             }
         }
     };
-    test_func(dt_decimal32_1, *column_decimal32_1, USE_CONST_SERDE);
-    test_func(dt_decimal32_2, *column_decimal32_2, USE_CONST_SERDE);
-    test_func(dt_decimal32_3, *column_decimal32_3, USE_CONST_SERDE);
-    test_func(dt_decimal32_4, *column_decimal32_4, USE_CONST_SERDE);
-    test_func(dt_decimal32_5, *column_decimal32_5, USE_CONST_SERDE);
-    test_func(dt_decimal64_1, *column_decimal64_1, USE_CONST_SERDE);
-    test_func(dt_decimal64_2, *column_decimal64_2, USE_CONST_SERDE);
-    test_func(dt_decimal64_3, *column_decimal64_3, USE_CONST_SERDE);
-    test_func(dt_decimal128v2, *column_decimal128_v2, USE_CONST_SERDE);
-    test_func(dt_decimal128v3_1, *column_decimal128v3_1, USE_CONST_SERDE);
-    test_func(dt_decimal128v3_2, *column_decimal128v3_2, USE_CONST_SERDE);
-    test_func(dt_decimal128v3_3, *column_decimal128v3_3, USE_CONST_SERDE);
-    test_func(dt_decimal256_1, *column_decimal256_1, USE_CONST_SERDE);
-    test_func(dt_decimal256_2, *column_decimal256_2, USE_CONST_SERDE);
-    test_func(dt_decimal256_3, *column_decimal256_3, USE_CONST_SERDE);
+    test_func(dt_decimal32_1, *column_decimal32_1, BeExecVersionManager::max_be_exec_version);
+    test_func(dt_decimal32_2, *column_decimal32_2, BeExecVersionManager::max_be_exec_version);
+    test_func(dt_decimal32_3, *column_decimal32_3, BeExecVersionManager::max_be_exec_version);
+    test_func(dt_decimal32_4, *column_decimal32_4, BeExecVersionManager::max_be_exec_version);
+    test_func(dt_decimal32_5, *column_decimal32_5, BeExecVersionManager::max_be_exec_version);
+    test_func(dt_decimal64_1, *column_decimal64_1, BeExecVersionManager::max_be_exec_version);
+    test_func(dt_decimal64_2, *column_decimal64_2, BeExecVersionManager::max_be_exec_version);
+    test_func(dt_decimal64_3, *column_decimal64_3, BeExecVersionManager::max_be_exec_version);
+    test_func(dt_decimal128v2, *column_decimal128_v2, BeExecVersionManager::max_be_exec_version);
+    test_func(dt_decimal128v3_1, *column_decimal128v3_1, BeExecVersionManager::max_be_exec_version);
+    test_func(dt_decimal128v3_2, *column_decimal128v3_2, BeExecVersionManager::max_be_exec_version);
+    test_func(dt_decimal128v3_3, *column_decimal128v3_3, BeExecVersionManager::max_be_exec_version);
+    test_func(dt_decimal256_1, *column_decimal256_1, BeExecVersionManager::max_be_exec_version);
+    test_func(dt_decimal256_2, *column_decimal256_2, BeExecVersionManager::max_be_exec_version);
+    test_func(dt_decimal256_3, *column_decimal256_3, BeExecVersionManager::max_be_exec_version);
 }
 TEST_F(DataTypeDecimalTest, to_pb_column_meta) {
     auto test_func = [](auto dt, PGenericType_TypeId expected_type) {
@@ -465,7 +465,7 @@ TEST_F(DataTypeDecimalTest, get_default) {
         using DataType = decltype(dt);
         using ColumnType = typename DataType::ColumnType;
         auto default_field = dt.get_default();
-        auto decimal_field = default_field.template get<typename ColumnType::value_type>();
+        auto decimal_field = default_field.template get<DataType::PType>();
         EXPECT_EQ(decimal_field, typename ColumnType::value_type());
     };
     test_func(dt_decimal32_1);
@@ -482,7 +482,6 @@ TEST_F(DataTypeDecimalTest, get_field) {
     std::string line;
     auto test_func = [&](auto dt, const std::string& input_data_file_name) {
         using DataType = decltype(dt);
-        using ColumnType = typename DataType::ColumnType;
         {
             expr_node.decimal_literal.value = "abc";
             EXPECT_THROW(dt.get_field(expr_node), Exception);
@@ -505,7 +504,7 @@ TEST_F(DataTypeDecimalTest, get_field) {
             }
             expr_node.decimal_literal.value = line;
             auto field = dt.get_field(expr_node);
-            auto decimal_field = field.template get<typename ColumnType::value_type>();
+            auto decimal_field = field.template get<DataType::PType>();
             res.push_back(decimal_field.to_string(dt.get_scale()));
         }
         check_or_generate_res_file(output_file, {res});

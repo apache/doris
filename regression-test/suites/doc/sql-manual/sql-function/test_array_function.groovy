@@ -445,21 +445,6 @@ suite("test_array_function_doc", "p0") {
         exception "countequal does not support types: ARRAY<ARRAY<TINYINT>>"
     }
 
-    test {
-        sql """ SELECT ARRAY_SORTBY(array(array(1, 2), array(3, 4)), array(1, 2)); """
-        exception "array_reverse_sort does not support types: ARRAY<ARRAY<TINYINT>>"
-    }
-
-    test {
-        sql """ SELECT ARRAY_SORT(array(array(1, 2), array(3, 4))); """
-        exception "array_sort does not support types: ARRAY<ARRAY<TINYINT>>"
-    }
-
-    test {
-        sql """ SELECT ARRAY_REVERSE_SORT(array(array(1, 2), array(3, 4))); """
-        exception "array_reverse_sort does not support types: ARRAY<ARRAY<TINYINT>>"
-    }
-
     qt_sql """ SELECT ARRAY_REMOVE(ARRAY(1, 2, 3, 2, null), 2); """
     qt_sql """ SELECT ARRAY_REMOVE(array_int, 2) from ${tableName}; """
 
@@ -531,4 +516,8 @@ suite("test_array_function_doc", "p0") {
     qt_sql """ SELECT ARRAY_REMOVE(array_datetime, null) from ${tableName}; """
     qt_sql """ SELECT ARRAY_REMOVE(array_ipv4, null) from ${tableName}; """
     qt_sql """ SELECT ARRAY_REMOVE(array_ipv6, null) from ${tableName}; """
+
+    qt_sql """ SELECT ARRAY_SORTBY(x -> x[1], [[1,2],[3,4]]); """
+    qt_sql """ SELECT ARRAY_SORT([[1,2],[3,4]]); """
+    qt_sql """ SELECT ARRAY_REVERSE_SORT([[1,2],[3,4]]); """
 }

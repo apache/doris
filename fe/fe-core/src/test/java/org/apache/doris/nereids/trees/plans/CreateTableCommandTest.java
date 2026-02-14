@@ -1081,6 +1081,39 @@ public class CreateTableCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testVariantFieldPatternDictCompressionValidation() {
+        String invalidSql = "create table test.tbl_variant_dict_invalid\n"
+                + "(k1 int, v variant<\n"
+                + "    MATCH_NAME 'metrics.score' : int\n"
+                + "> null,\n"
+                + "INDEX idx_v (v) USING INVERTED PROPERTIES(\n"
+                + "    \"field_pattern\" = \"metrics.score\",\n"
+                + "    \"dict_compression\" = \"true\"\n"
+                + "))\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'inverted_index_storage_format' = 'V3');";
+
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class, () -> createTable(invalidSql));
+        Assertions.assertTrue(ex.getMessage().contains("invalid INVERTED index: field pattern: metrics.score"));
+        Assertions.assertTrue(ex.getMessage().contains("dict_compression can only be set for StringType columns"));
+
+        String validSql = "create table test.tbl_variant_dict_valid\n"
+                + "(k1 int, v variant<\n"
+                + "    MATCH_NAME 'metrics.score' : string\n"
+                + "> null,\n"
+                + "INDEX idx_v (v) USING INVERTED PROPERTIES(\n"
+                + "    \"field_pattern\" = \"metrics.score\",\n"
+                + "    \"dict_compression\" = \"true\"\n"
+                + "))\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'inverted_index_storage_format' = 'V3');";
+
+        Assertions.assertDoesNotThrow(() -> createTable(validSql));
+    }
+
+    @Test
     public void testMTMVRejectVarbinary() throws Exception {
         String mv = "CREATE MATERIALIZED VIEW mv_vb\n"
                 + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"

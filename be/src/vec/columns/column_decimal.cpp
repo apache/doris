@@ -239,15 +239,14 @@ void ColumnDecimal<T>::update_crc32c_batch(uint32_t* __restrict hashes,
 template <PrimitiveType T>
 void ColumnDecimal<T>::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
                                             const uint8_t* __restrict null_map) const {
-    auto s = size();
     if (null_map) {
-        for (size_t i = 0; i < s; ++i) {
+        for (size_t i = start; i < end; ++i) {
             if (null_map[i] == 0) {
                 hash = HashUtil::crc32c_fixed(data[i], hash);
             }
         }
     } else {
-        for (size_t i = 0; i < s; ++i) {
+        for (size_t i = start; i < end; ++i) {
             hash = HashUtil::crc32c_fixed(data[i], hash);
         }
     }
@@ -537,12 +536,20 @@ void ColumnDecimal<T>::replace_column_null_data(const uint8_t* __restrict null_m
 }
 
 template <PrimitiveType T>
-ColumnDecimal<T>::CppNativeType ColumnDecimal<T>::get_intergral_part(size_t n) const {
-    return data[n].value / DataTypeDecimal<value_type::PType>::get_scale_multiplier(scale);
+typename ColumnDecimal<T>::CppNativeType ColumnDecimal<T>::get_intergral_part(size_t n) const {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return data[n].value() / DataTypeDecimal<T>::get_scale_multiplier(scale);
+    } else {
+        return data[n].value / DataTypeDecimal<T>::get_scale_multiplier(scale);
+    }
 }
 template <PrimitiveType T>
-ColumnDecimal<T>::CppNativeType ColumnDecimal<T>::get_fractional_part(size_t n) const {
-    return data[n].value % DataTypeDecimal<value_type::PType>::get_scale_multiplier(scale);
+typename ColumnDecimal<T>::CppNativeType ColumnDecimal<T>::get_fractional_part(size_t n) const {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return data[n].value() % DataTypeDecimal<T>::get_scale_multiplier(scale);
+    } else {
+        return data[n].value % DataTypeDecimal<T>::get_scale_multiplier(scale);
+    }
 }
 
 template class ColumnDecimal<TYPE_DECIMAL32>;

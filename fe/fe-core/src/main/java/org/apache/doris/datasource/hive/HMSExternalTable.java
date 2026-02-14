@@ -40,7 +40,6 @@ import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheKey;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSchemaCacheKey;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
@@ -49,7 +48,8 @@ import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.datasource.systable.SupportedSysTables;
+import org.apache.doris.datasource.systable.IcebergSysTable;
+import org.apache.doris.datasource.systable.PartitionsSysTable;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.fs.FileSystemDirectoryLister;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
@@ -724,7 +724,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             String fieldName = field.getName().toLowerCase(Locale.ROOT);
             String defaultValue = colDefaultValues.getOrDefault(fieldName, null);
             columns.add(new Column(fieldName,
-                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(), catalog.getEnableMappingVarbinary()),
+                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(), catalog.getEnableMappingVarbinary(),
+                            catalog.getEnableMappingTimestampTz()),
                     true, null,
                     true, defaultValue, field.getComment(), true, -1));
         }
@@ -814,8 +815,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 if (GlobalVariable.enableFetchIcebergStats) {
                     return StatisticsUtil.getIcebergColumnStats(colName,
                             Env.getCurrentEnv().getExtMetaCacheMgr()
-                                .getIcebergMetadataCache((IcebergExternalCatalog) this.getCatalog())
-                                .getIcebergTable(this));
+                                    .getIcebergMetadataCache(this.getCatalog())
+                                    .getIcebergTable(this));
                 } else {
                     break;
                 }
@@ -1150,7 +1151,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             return HudiUtils.getHudiMvccSnapshot(tableSnapshot, this);
         } else if (getDlaType() == DLAType.ICEBERG) {
             return new IcebergMvccSnapshot(
-                    IcebergUtils.getIcebergSnapshotCacheValue(tableSnapshot, this, scanParams));
+                    IcebergUtils.getSnapshotCacheValue(tableSnapshot, this, scanParams));
         } else {
             return new EmptyMvccSnapshot();
         }
@@ -1180,17 +1181,17 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public List<SysTable> getSupportedSysTables() {
+    public Map<String, SysTable> getSupportedSysTables() {
         makeSureInitialized();
         switch (dlaType) {
             case HIVE:
-                return SupportedSysTables.HIVE_SUPPORTED_SYS_TABLES;
+                return PartitionsSysTable.HIVE_SUPPORTED_SYS_TABLES;
             case ICEBERG:
-                return SupportedSysTables.ICEBERG_SUPPORTED_SYS_TABLES;
+                return IcebergSysTable.SUPPORTED_SYS_TABLES;
             case HUDI:
-                return SupportedSysTables.HUDI_SUPPORTED_SYS_TABLES;
+                return Collections.emptyMap();
             default:
-                return Lists.newArrayList();
+                return Collections.emptyMap();
         }
     }
 

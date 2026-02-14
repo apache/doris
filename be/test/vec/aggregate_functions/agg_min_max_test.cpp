@@ -105,23 +105,30 @@ TEST_P(AggMinMaxTest, min_max_decimal_test) {
     // Check result.
     ColumnDecimal128V2 ans(0, 9);
     agg_function->insert_result_into(place, ans);
-    EXPECT_EQ(min_max_type == "min" ? 0 : agg_test_batch_size - 1, ans.get_element(0).value);
+    EXPECT_EQ(min_max_type == "min" ? 0 : agg_test_batch_size - 1, ans.get_element(0).value());
     agg_function->destroy(place);
 
     auto dst = agg_function->create_serialize_column();
     agg_function->streaming_agg_serialize_to_column(column, dst, agg_test_batch_size, arena);
 
     std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data() * agg_test_batch_size]);
-    AggregateDataPtr places = memory2.get();
-    agg_function->deserialize_from_column(places, *dst, arena, agg_test_batch_size);
+    std::unique_ptr<char[]> memory2_tmp(
+            new char[agg_function->size_of_data() * agg_test_batch_size]);
+    std::vector<AggregateDataPtr> places(agg_test_batch_size);
+    for (size_t i = 0; i != agg_test_batch_size; ++i) {
+        places[i] = memory2.get() + agg_function->size_of_data() * i;
+        agg_function->create(places[i]);
+    }
+    agg_function->deserialize_and_merge_vec(places.data(), 0, memory2_tmp.get(), dst.get(), arena,
+                                            agg_test_batch_size);
 
     ColumnDecimal128V2 result(0, 9);
     for (size_t i = 0; i != agg_test_batch_size; ++i) {
-        agg_function->insert_result_into(places + agg_function->size_of_data() * i, result);
+        agg_function->insert_result_into(places[i], result);
     }
 
     for (size_t i = 0; i != agg_test_batch_size; ++i) {
-        EXPECT_EQ(i, result.get_element(i).value);
+        EXPECT_EQ(i, result.get_element(i).value());
     }
 }
 

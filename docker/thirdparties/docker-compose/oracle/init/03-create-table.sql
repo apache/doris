@@ -263,3 +263,8 @@ CREATE TABLE doris_test.varbinary_test(
 "NAME" VARCHAR2(20),
 "BLOB_COL" BLOB
 );
+
+CREATE TABLE doris_test.ltz_test (
+    id     NUMBER,
+    ts_ltz TIMESTAMP WITH LOCAL TIME ZONE
+);

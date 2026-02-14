@@ -489,7 +489,10 @@ public abstract class DataType {
                         ((org.apache.doris.catalog.VariantType) type).getVariantMaxSubcolumnsCount(),
                         ((org.apache.doris.catalog.VariantType) type).getEnableTypedPathsToSparse(),
                         ((org.apache.doris.catalog.VariantType) type).getVariantMaxSparseColumnStatisticsSize(),
-                        ((org.apache.doris.catalog.VariantType) type).getVariantSparseHashShardCount());
+                        ((org.apache.doris.catalog.VariantType) type).getVariantSparseHashShardCount(),
+                        ((org.apache.doris.catalog.VariantType) type).getEnableVariantDocMode(),
+                        ((org.apache.doris.catalog.VariantType) type).getvariantDocMaterializationMinRows(),
+                        ((org.apache.doris.catalog.VariantType) type).getVariantDocShardCount());
             }
             return VariantType.INSTANCE;
         } else {
@@ -545,6 +548,10 @@ public abstract class DataType {
             return false;
         }
         return true;
+    }
+
+    public boolean equalsForRecursiveCte(Object o) {
+        return equals(o);
     }
 
     @Override

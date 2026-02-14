@@ -29,6 +29,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.datasource.systable.SysTable;
+import org.apache.doris.datasource.systable.TvfSysTable;
 import org.apache.doris.info.TableValuedFunctionRefInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
@@ -450,8 +451,7 @@ public interface TableIf {
         HUDI, JDBC,
         TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE,
         ICEBERG_EXTERNAL_TABLE, TEST_EXTERNAL_TABLE, PAIMON_EXTERNAL_TABLE, MAX_COMPUTE_EXTERNAL_TABLE,
-        HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE, LAKESOUl_EXTERNAL_TABLE, DICTIONARY, DORIS_EXTERNAL_TABLE,
-        RECURSIVE_CTE_TEMP_TABLE;
+        HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE, LAKESOUl_EXTERNAL_TABLE, DICTIONARY, DORIS_EXTERNAL_TABLE;
 
         public String toEngineName() {
             switch (this) {
@@ -488,12 +488,12 @@ public interface TableIf {
                 case ICEBERG:
                 case ICEBERG_EXTERNAL_TABLE:
                     return "iceberg";
+                case PAIMON_EXTERNAL_TABLE:
+                    return "paimon";
                 case DICTIONARY:
                     return "dictionary";
                 case DORIS_EXTERNAL_TABLE:
                     return "External_Doris";
-                case RECURSIVE_CTE_TEMP_TABLE:
-                    return "RecursiveCteTempTable";
                 default:
                     return null;
             }
@@ -533,7 +533,6 @@ public interface TableIf {
                 case MATERIALIZED_VIEW:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
                 case DORIS_EXTERNAL_TABLE:
-                case RECURSIVE_CTE_TEMP_TABLE:
                     return "BASE TABLE";
                 default:
                     return null;
@@ -604,44 +603,65 @@ public interface TableIf {
         return false;
     }
 
-    default List<SysTable> getSupportedSysTables() {
-        return Lists.newArrayList();
+    /**
+     * Get the map of supported system table types for this table.
+     * Key is the system table name (e.g., "snapshots", "partitions").
+     *
+     * @return map of system table name to SysTable
+     */
+    default Map<String, SysTable> getSupportedSysTables() {
+        return Collections.emptyMap();
     }
 
     /**
-     * Get TableValuedFunction by tableNameWithSysTableName
+     * Find the SysTable that matches the given table name.
+     * Uses O(1) map lookup after extracting the system table name suffix.
      *
-     * @param ctlName
-     * @param dbName
-     * @param tableNameWithSysTableName: eg: table$partitions
-     * @return
+     * @param tableNameWithSysTableName e.g., "table$partitions"
+     * @return the matching SysTable, or empty if not found
+     */
+    default Optional<SysTable> findSysTable(String tableNameWithSysTableName) {
+        String sysTableName = SysTable.getTableNameWithSysTableName(tableNameWithSysTableName).second;
+        if (sysTableName.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(getSupportedSysTables().get(sysTableName));
+    }
+
+    /**
+     * Get TableValuedFunction by tableNameWithSysTableName.
+     * Only works for system tables that use TVF path (TvfSysTable).
+     *
+     * @param ctlName catalog name
+     * @param dbName database name
+     * @param tableNameWithSysTableName source table name with system table suffix (e.g., "table$partitions")
+     * @return the TableValuedFunction if found and the system table uses TVF path, empty otherwise
      */
     default Optional<TableValuedFunction> getSysTableFunction(
             String ctlName, String dbName, String tableNameWithSysTableName) {
-        for (SysTable sysTable : getSupportedSysTables()) {
-            if (sysTable.containsMetaTable(tableNameWithSysTableName)) {
-                return Optional.of(sysTable.createFunction(ctlName, dbName,
-                        tableNameWithSysTableName));
-            }
+        Optional<SysTable> sysTableTypeOpt = findSysTable(tableNameWithSysTableName);
+        if (sysTableTypeOpt.isPresent() && sysTableTypeOpt.get() instanceof TvfSysTable) {
+            TvfSysTable tvfType = (TvfSysTable) sysTableTypeOpt.get();
+            return Optional.of(tvfType.createFunction(ctlName, dbName, tableNameWithSysTableName));
         }
         return Optional.empty();
     }
 
     /**
-     * Get TableValuedFunctionRef by tableNameWithSysTableName
+     * Get TableValuedFunctionRef by tableNameWithSysTableName.
+     * Only works for system tables that use TVF path (TvfSysTable).
      *
-     * @param ctlName
-     * @param dbName
-     * @param tableNameWithSysTableName: eg: table$partitions
-     * @return
+     * @param ctlName catalog name
+     * @param dbName database name
+     * @param tableNameWithSysTableName source table name with system table suffix (e.g., "table$partitions")
+     * @return the TableValuedFunctionRefInfo if found and the system table uses TVF path, empty otherwise
      */
     default Optional<TableValuedFunctionRefInfo> getSysTableFunctionRef(
             String ctlName, String dbName, String tableNameWithSysTableName) {
-        for (SysTable sysTable : getSupportedSysTables()) {
-            if (sysTable.containsMetaTable(tableNameWithSysTableName)) {
-                return Optional.of(sysTable.createFunctionRef(ctlName, dbName,
-                        tableNameWithSysTableName));
-            }
+        Optional<SysTable> sysTableTypeOpt = findSysTable(tableNameWithSysTableName);
+        if (sysTableTypeOpt.isPresent() && sysTableTypeOpt.get() instanceof TvfSysTable) {
+            TvfSysTable tvfType = (TvfSysTable) sysTableTypeOpt.get();
+            return Optional.of(tvfType.createFunctionRef(ctlName, dbName, tableNameWithSysTableName));
         }
         return Optional.empty();
     }

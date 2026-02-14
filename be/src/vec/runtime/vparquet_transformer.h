@@ -97,7 +97,7 @@ public:
 
     VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                         const VExprContextSPtrs& output_vexpr_ctxs,
-                        const std::vector<TParquetSchema>& parquet_schemas, bool output_object_data,
+                        std::vector<TParquetSchema> parquet_schemas, bool output_object_data,
                         const ParquetFileOptions& parquet_options,
                         const std::string* iceberg_schema_json = nullptr);
 
@@ -123,7 +123,7 @@ private:
     std::shared_ptr<arrow::Schema> _arrow_schema;
 
     std::vector<std::string> _column_names;
-    const std::vector<TParquetSchema>* _parquet_schemas = nullptr;
+    std::vector<TParquetSchema> _parquet_schemas;
     const ParquetFileOptions _parquet_options;
     const std::string* _iceberg_schema_json;
     uint64_t _write_size = 0;

@@ -500,9 +500,6 @@ Status AggLocalState::merge_with_serialized_key_helper(vectorized::Block* block)
     for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
         auto col_id = Base::_shared_state->probe_expr_ctxs.size() + i;
         auto column = block->get_by_position(col_id).column;
-        if (column->is_nullable()) {
-            column = ((vectorized::ColumnNullable*)column.get())->get_nested_column_ptr();
-        }
 
         size_t buffer_size =
                 Base::_shared_state->aggregate_evaluators[i]->function()->size_of_data() * rows;
@@ -541,6 +538,14 @@ size_t AggSourceOperatorX::get_estimated_memory_size_for_merging(RuntimeState* s
             local_state._shared_state->agg_data->method_variant);
     size += local_state._shared_state->aggregate_data_container->estimate_memory(rows);
     return size;
+}
+
+Status AggSourceOperatorX::reset_hash_table(RuntimeState* state) {
+    auto& local_state = get_local_state(state);
+    auto& ss = *local_state.Base::_shared_state;
+    RETURN_IF_ERROR(ss.reset_hash_table());
+    ss.agg_arena_pool.clear(true);
+    return Status::OK();
 }
 
 void AggLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* places,

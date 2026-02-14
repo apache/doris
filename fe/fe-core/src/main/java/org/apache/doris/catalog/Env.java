@@ -68,6 +68,7 @@ import org.apache.doris.common.publish.TopicPublisher;
 import org.apache.doris.common.publish.TopicPublisherThread;
 import org.apache.doris.common.publish.WorkloadGroupPublisher;
 import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.MasterDaemon;
@@ -94,6 +95,7 @@ import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
 import org.apache.doris.dictionary.DictionaryManager;
@@ -1090,6 +1092,29 @@ public class Env {
     private void unlock() {
         if (lock.isHeldByCurrentThread()) {
             this.lock.unlock();
+        }
+    }
+
+    // Block the caller while holding the global env lock when the given debug point is enabled.
+    // Used to simulate a stuck import path that drags other operations waiting on the same lock.
+    public void debugBlockAllOnGlobalLock(String debugPointName) {
+        if (!DebugPointUtil.isEnable(debugPointName)) {
+            return;
+        }
+        try {
+            lock.lock();
+            LOG.info("debug point {} enabled, block and hold env lock", debugPointName);
+            while (DebugPointUtil.isEnable(debugPointName)) {
+                Thread.sleep(1000);
+            }
+            LOG.info("debug point {} cleared, release env lock", debugPointName);
+        } catch (InterruptedException e) {
+            LOG.warn("debug point {} interrupted while blocking env lock", debugPointName);
+            Thread.currentThread().interrupt();
+        } finally {
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
         }
     }
 
@@ -3714,7 +3739,7 @@ public class Env {
         sb.append(olapTable.getInvertedIndexFileStorageFormat()).append("\"");
 
         // compression type
-        if (olapTable.getCompressionType() != TCompressionType.LZ4F) {
+        if (olapTable.getCompressionType() != TCompressionType.valueOf(Config.default_compression_type)) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COMPRESSION).append("\" = \"");
             sb.append(olapTable.getCompressionType()).append("\"");
         }
@@ -4012,9 +4037,9 @@ public class Env {
                     }
                 }
                 sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
-                // show cluster keys
+                // show order keys
                 if (!clusterKeysColumnNamesToId.isEmpty()) {
-                    sb.append("\n").append("CLUSTER BY (`");
+                    sb.append("\n").append("ORDER BY (`");
                     sb.append(Joiner.on("`, `").join(clusterKeysColumnNamesToId.values())).append("`)");
                 }
             }
@@ -4239,6 +4264,9 @@ public class Env {
         } else if (table.getType() == TableType.ICEBERG_EXTERNAL_TABLE) {
             addTableComment(table, sb);
             IcebergExternalTable icebergExternalTable = (IcebergExternalTable) table;
+            if (icebergExternalTable.hasSortOrder()) {
+                sb.append("\n").append(icebergExternalTable.getSortOrderSql());
+            }
             sb.append("\nLOCATION '").append(icebergExternalTable.location()).append("'");
             sb.append("\nPROPERTIES (");
             Iterator<Entry<String, String>> iterator = icebergExternalTable.properties().entrySet().iterator();
@@ -4421,9 +4449,9 @@ public class Env {
                     }
                 }
                 sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
-                // show cluster keys
+                // show order keys
                 if (!clusterKeysColumnNamesToId.isEmpty()) {
-                    sb.append("\n").append("CLUSTER BY (`");
+                    sb.append("\n").append("ORDER BY (`");
                     sb.append(Joiner.on("`, `").join(clusterKeysColumnNamesToId.values())).append("`)");
                 }
             }
@@ -4654,6 +4682,9 @@ public class Env {
         } else if (table.getType() == TableType.ICEBERG_EXTERNAL_TABLE) {
             addTableComment(table, sb);
             IcebergExternalTable icebergExternalTable = (IcebergExternalTable) table;
+            if (icebergExternalTable.hasSortOrder()) {
+                sb.append("\n").append(icebergExternalTable.getSortOrderSql());
+            }
             sb.append("\nLOCATION '").append(icebergExternalTable.location()).append("'");
             sb.append("\nPROPERTIES (");
             Iterator<Entry<String, String>> iterator = icebergExternalTable.properties().entrySet().iterator();
@@ -4667,7 +4698,14 @@ public class Env {
             sb.append("\n)");
         } else if (table.getType() == TableType.PAIMON_EXTERNAL_TABLE) {
             addTableComment(table, sb);
-            PaimonExternalTable paimonExternalTable = (PaimonExternalTable) table;
+            PaimonExternalTable paimonExternalTable;
+            if (table instanceof PaimonExternalTable) {
+                paimonExternalTable = (PaimonExternalTable) table;
+            } else if (table instanceof PaimonSysExternalTable) {
+                paimonExternalTable = ((PaimonSysExternalTable) table).getSourceTable();
+            } else {
+                throw new RuntimeException("Unexpected Paimon table type: " + table.getClass().getSimpleName());
+            }
             Map<String, String> properties = paimonExternalTable.getTableProperties();
             sb.append("\nLOCATION '").append(properties.getOrDefault("path", "")).append("'");
             sb.append("\nPROPERTIES (");
@@ -5351,7 +5389,7 @@ public class Env {
                     break;
                 }
             }
-            if (sameKey && !Config.random_add_cluster_keys_for_mow) {
+            if (sameKey && !Config.random_add_order_by_keys_for_mow) {
                 throw new DdlException(shortKeyColumnCount + " short keys is a part of unique keys");
             }
         }
@@ -7389,4 +7427,3 @@ public class Env {
 
     protected void cloneClusterSnapshot() throws Exception {}
 }
-

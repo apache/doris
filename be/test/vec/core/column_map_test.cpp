@@ -78,9 +78,9 @@ TEST(ColumnMapTest2, StringKeyTest) {
                                       indices.data() + indices.size());
     EXPECT_EQ(col_map_str32.size(), 2);
 
-    auto map = get<Map>(col_map_str32[0]);
-    auto k = get<Array>(map[0]);
-    auto v = get<Array>(map[1]);
+    auto map = col_map_str32[0].get<TYPE_MAP>();
+    auto k = map[0].get<TYPE_ARRAY>();
+    auto v = map[1].get<TYPE_ARRAY>();
     EXPECT_EQ(k.size(), 3);
     for (size_t i = 0; i < k.size(); ++i) {
         EXPECT_EQ(k[i], k1[i]);
@@ -90,9 +90,9 @@ TEST(ColumnMapTest2, StringKeyTest) {
         EXPECT_EQ(v[i], v1[i]);
     }
 
-    map = get<Map>(col_map_str32[1]);
-    k = get<Array>(map[0]);
-    v = get<Array>(map[1]);
+    map = col_map_str32[1].get<TYPE_MAP>();
+    k = map[0].get<TYPE_ARRAY>();
+    v = map[1].get<TYPE_ARRAY>();
     EXPECT_EQ(k.size(), 3);
     for (size_t i = 0; i < k.size(); ++i) {
         EXPECT_EQ(k[i], k3[i]);
@@ -316,35 +316,35 @@ TEST(ColumnMapTest2, StringKeyTestDuplicatedKeysNestedMap) {
     ASSERT_EQ(string_keys.get_element(0), "a");
     ASSERT_EQ(string_keys.get_element(1), "aa");
 
-    auto map_value1 = get<Array>(map_values[0]);
-    auto map_value2 = get<Array>(map_values[1]);
+    auto map_value1 = map_values[0].get<TYPE_MAP>();
+    auto map_value2 = map_values[1].get<TYPE_MAP>();
 
     ASSERT_EQ(map_value1.size(), 2);
     ASSERT_EQ(map_value2.size(), 2);
 
     // keys
-    auto v1_keys = get<Array>(map_value1[0]);
+    auto v1_keys = map_value1[0].get<TYPE_ARRAY>();
     ASSERT_EQ(v1_keys.size(), 3);
-    ASSERT_EQ(get<std::string>(v1_keys[0]), "a");
-    ASSERT_EQ(get<std::string>(v1_keys[1]), "b");
-    ASSERT_EQ(get<std::string>(v1_keys[2]), "c");
+    ASSERT_EQ(v1_keys[0].get<TYPE_STRING>(), "a");
+    ASSERT_EQ(v1_keys[1].get<TYPE_STRING>(), "b");
+    ASSERT_EQ(v1_keys[2].get<TYPE_STRING>(), "c");
 
-    auto v2_keys = get<Array>(map_value2[0]);
+    auto v2_keys = map_value2[0].get<TYPE_ARRAY>();
     ASSERT_EQ(v2_keys.size(), 2);
-    ASSERT_EQ(get<std::string>(v2_keys[0]), "aa");
-    ASSERT_EQ(get<std::string>(v2_keys[1]), "cc");
+    ASSERT_EQ(v2_keys[0].get<TYPE_STRING>(), "aa");
+    ASSERT_EQ(v2_keys[1].get<TYPE_STRING>(), "cc");
 
     // values
-    auto v1_values = get<Array>(map_value1[1]);
+    auto v1_values = map_value1[1].get<TYPE_ARRAY>();
     ASSERT_EQ(v1_values.size(), 3);
-    ASSERT_EQ(get<int32_t>(v1_values[0]), 4);
-    ASSERT_EQ(get<int32_t>(v1_values[1]), 5);
-    ASSERT_EQ(get<int32_t>(v1_values[2]), 6);
+    ASSERT_EQ(v1_values[0].get<TYPE_INT>(), 4);
+    ASSERT_EQ(v1_values[1].get<TYPE_INT>(), 5);
+    ASSERT_EQ(v1_values[2].get<TYPE_INT>(), 6);
 
-    auto v2_values = get<Array>(map_value2[1]);
+    auto v2_values = map_value2[1].get<TYPE_ARRAY>();
     ASSERT_EQ(v2_values.size(), 2);
-    ASSERT_EQ(get<int32_t>(v2_values[0]), 11);
-    ASSERT_EQ(get<int32_t>(v2_values[1]), 333);
+    ASSERT_EQ(v2_values[0].get<TYPE_INT>(), 11);
+    ASSERT_EQ(v2_values[1].get<TYPE_INT>(), 333);
 };
 
 TEST(ColumnMapTest2, StringValueTest) {
@@ -391,9 +391,9 @@ TEST(ColumnMapTest2, StringValueTest) {
                                       indices.data() + indices.size());
     EXPECT_EQ(col_map_str32.size(), 2);
 
-    auto map = get<Map>(col_map_str32[0]);
-    auto k = get<Array>(map[0]);
-    auto v = get<Array>(map[1]);
+    auto map = col_map_str32[0].get<TYPE_MAP>();
+    auto k = map[0].get<TYPE_ARRAY>();
+    auto v = map[1].get<TYPE_ARRAY>();
     EXPECT_EQ(k.size(), 3);
     for (size_t i = 0; i < k.size(); ++i) {
         EXPECT_EQ(k[i], k1[i]);
@@ -403,9 +403,9 @@ TEST(ColumnMapTest2, StringValueTest) {
         EXPECT_EQ(v[i], v1[i]);
     }
 
-    map = get<Map>(col_map_str32[1]);
-    k = get<Array>(map[0]);
-    v = get<Array>(map[1]);
+    map = col_map_str32[1].get<TYPE_MAP>();
+    k = map[0].get<TYPE_ARRAY>();
+    v = map[1].get<TYPE_ARRAY>();
     EXPECT_EQ(k.size(), 3);
     for (size_t i = 0; i < k.size(); ++i) {
         EXPECT_EQ(k[i], k3[i]);

@@ -24,6 +24,7 @@
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
 #include <fcntl.h>
+#include <fmt/core.h>
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
         !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
 #include <gperftools/malloc_extension.h> // IWYU pragma: keep
@@ -51,6 +52,7 @@
 #include "olap/tablet_schema_cache.h"
 #include "olap/utils.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "util/concurrency_stats.h"
 #include "util/jni-util.h"
 
 #if defined(LEAK_SANITIZER)
@@ -76,9 +78,11 @@
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
 #include "service/http_service.h"
+#include "udf/python/python_env.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
 #include "util/mem_info.h"
+#include "util/string_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
@@ -499,6 +503,70 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (doris::config::enable_python_udf_support) {
+        if (std::string python_udf_root_path =
+                    fmt::format("{}/lib/udf/python", std::getenv("DORIS_HOME"));
+            !std::filesystem::exists(python_udf_root_path)) {
+            std::filesystem::create_directories(python_udf_root_path);
+        }
+
+        // Normalize and trim all Python-related config parameters
+        std::string python_env_mode =
+                std::string(doris::trim(doris::to_lower(doris::config::python_env_mode)));
+        std::string python_conda_root_path =
+                std::string(doris::trim(doris::config::python_conda_root_path));
+        std::string python_venv_root_path =
+                std::string(doris::trim(doris::config::python_venv_root_path));
+        std::string python_venv_interpreter_paths =
+                std::string(doris::trim(doris::config::python_venv_interpreter_paths));
+
+        if (python_env_mode == "conda") {
+            if (python_conda_root_path.empty()) {
+                LOG(ERROR)
+                        << "Python conda root path is empty, please set `python_conda_root_path` "
+                           "or set `enable_python_udf_support` to `false`";
+                exit(1);
+            }
+            LOG(INFO) << "Doris backend python version manager is initialized. Python conda "
+                         "root path: "
+                      << python_conda_root_path;
+            status = doris::PythonVersionManager::instance().init(doris::PythonEnvType::CONDA,
+                                                                  python_conda_root_path, "");
+        } else if (python_env_mode == "venv") {
+            if (python_venv_root_path.empty()) {
+                LOG(ERROR)
+                        << "Python venv root path is empty, please set `python_venv_root_path` or "
+                           "set `enable_python_udf_support` to `false`";
+                exit(1);
+            }
+            if (python_venv_interpreter_paths.empty()) {
+                LOG(ERROR)
+                        << "Python interpreter paths is empty, please set "
+                           "`python_venv_interpreter_paths` or set `enable_python_udf_support` to "
+                           "`false`";
+                exit(1);
+            }
+            LOG(INFO) << "Doris backend python version manager is initialized. Python venv "
+                         "root path: "
+                      << python_venv_root_path
+                      << ", python interpreter paths: " << python_venv_interpreter_paths;
+            status = doris::PythonVersionManager::instance().init(doris::PythonEnvType::VENV,
+                                                                  python_venv_root_path,
+                                                                  python_venv_interpreter_paths);
+        } else {
+            status = Status::InvalidArgument(
+                    "Python env mode is invalid, should be `conda` or `venv`. If you don't want to "
+                    "enable the Python UDF function, please set `enable_python_udf_support` to "
+                    "`false`");
+        }
+
+        if (!status.ok()) {
+            LOG(ERROR) << "Failed to initialize python version manager: " << status;
+            exit(1);
+        }
+        LOG(INFO) << doris::PythonVersionManager::instance().to_string();
+    }
+
     // Doris own signal handler must be register after jvm is init.
     // Or our own sig-handler for SIGINT & SIGTERM will not be chained ...
     // https://www.oracle.com/java/technologies/javase/signals.html
@@ -532,6 +600,9 @@ int main(int argc, char** argv) {
         std::cerr << "failed to init doris storage engine, res=" << status;
         return 0;
     }
+
+    // Start concurrency stats manager
+    doris::ConcurrencyStatsManager::instance().start();
 
     // begin to start services
     doris::ThriftRpcHelper::setup(exec_env);

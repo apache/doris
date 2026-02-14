@@ -40,7 +40,6 @@ class IColumn;
 class DataTypeVarbinary : public IDataType {
 public:
     using ColumnType = ColumnVarbinary;
-    using FieldType = StringViewField;
 
     static constexpr PrimitiveType PType = TYPE_VARBINARY;
 

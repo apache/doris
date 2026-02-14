@@ -73,28 +73,10 @@ suite("test_paimon_system_table_auth", "p0,external,doris,external_docker,extern
 
         // Test that user without table permission cannot query system tables
         connect(user, "${pwd}", context.config.jdbcUrl) {
-            // Test snapshots system table via paimon_meta function
-            test {
-                  sql """
-                     select * from paimon_meta(
-                                                 "table" = "${catalog_name}.${db_name}.${tableName}",
-                                                 "query_type" = "snapshots");
-                  """
-                  exception "denied"
-            }
             // Test snapshots system table via direct access
             test {
                   sql """
                      select * from ${catalog_name}.${db_name}.${tableName}\$snapshots
-                  """
-                  exception "denied"
-            }
-            // Test files system table via paimon_meta function
-            test {
-                  sql """
-                     select * from paimon_meta(
-                                                 "table" = "${catalog_name}.${db_name}.${tableName}",
-                                                 "query_type" = "files");
                   """
                   exception "denied"
             }
@@ -105,28 +87,10 @@ suite("test_paimon_system_table_auth", "p0,external,doris,external_docker,extern
                   """
                   exception "denied"
             }
-            // Test schemas system table via paimon_meta function
-            test {
-                  sql """
-                     select * from paimon_meta(
-                                                 "table" = "${catalog_name}.${db_name}.${tableName}",
-                                                 "query_type" = "schemas");
-                  """
-                  exception "denied"
-            }
             // Test schemas system table via direct access
             test {
                   sql """
                      select * from ${catalog_name}.${db_name}.${tableName}\$schemas
-                  """
-                  exception "denied"
-            }
-            // Test partitions system table via paimon_meta function
-            test {
-                  sql """
-                     select * from paimon_meta(
-                                                 "table" = "${catalog_name}.${db_name}.${tableName}",
-                                                 "query_type" = "partitions");
                   """
                   exception "denied"
             }
@@ -142,36 +106,10 @@ suite("test_paimon_system_table_auth", "p0,external,doris,external_docker,extern
         // Grant permission and verify user can query system tables
         sql """GRANT SELECT_PRIV ON ${catalog_name}.${db_name}.${tableName} TO '${user}'@'%'"""
         connect(user, "${pwd}", context.config.jdbcUrl) {
-            // Test snapshots system table with permission
-            sql """
-               select * from paimon_meta(
-                                   "table" = "${catalog_name}.${db_name}.${tableName}",
-                                   "query_type" = "snapshots");
-            """
+            // Test system tables with permission
             sql """select * from ${catalog_name}.${db_name}.${tableName}\$snapshots"""
-            
-            // Test files system table with permission
-            sql """
-               select * from paimon_meta(
-                                   "table" = "${catalog_name}.${db_name}.${tableName}",
-                                   "query_type" = "files");
-            """
             sql """select * from ${catalog_name}.${db_name}.${tableName}\$files"""
-            
-            // Test schemas system table with permission
-            sql """
-               select * from paimon_meta(
-                                   "table" = "${catalog_name}.${db_name}.${tableName}",
-                                   "query_type" = "schemas");
-            """
             sql """select * from ${catalog_name}.${db_name}.${tableName}\$schemas"""
-            
-            // Test partitions system table with permission
-            sql """
-               select * from paimon_meta(
-                                   "table" = "${catalog_name}.${db_name}.${tableName}",
-                                   "query_type" = "partitions");
-            """
             sql """select * from ${catalog_name}.${db_name}.${tableName}\$partitions"""
         }
         try_sql("DROP USER '${user}'@'%'")
@@ -188,4 +126,3 @@ suite("test_paimon_system_table_auth", "p0,external,doris,external_docker,extern
         }
     }
 }
-

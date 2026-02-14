@@ -25,6 +25,7 @@
 #include <s2/s2cap.h>
 #include <s2/s2earth.h>
 #include <s2/s2edge_crosser.h>
+#include <s2/s2edge_distances.h>
 #include <s2/s2latlng.h>
 #include <s2/s2loop.h>
 #include <s2/s2point.h>
@@ -38,6 +39,7 @@
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <cmath>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 #include <utility>
 #include <vector>
@@ -1628,6 +1630,375 @@ std::string GeoShape::as_binary(GeoShape* rhs) {
         return res;
     }
     return res;
+}
+
+// Helper function to compute distance from a point to a line segment
+double distance_point_to_segment(const S2Point& point, const S2Point& line_start,
+                                 const S2Point& line_end) {
+    S1Angle angle = S2::GetDistance(point, line_start, line_end);
+    return S2Earth::ToMeters(angle);
+}
+
+// Helper function to compute distance from a point to a polyline
+double distance_point_to_polyline(const S2Point& point, const S2Polyline* polyline) {
+    if (polyline->num_vertices() == 0) {
+        return std::numeric_limits<double>::max();
+    }
+    if (polyline->num_vertices() == 1) {
+        return S2Earth::GetDistanceMeters(point, polyline->vertex(0));
+    }
+
+    S1Angle min_angle = S1Angle::Infinity();
+    for (int i = 0; i < polyline->num_vertices() - 1; ++i) {
+        const S2Point& p1 = polyline->vertex(i);
+        const S2Point& p2 = polyline->vertex(i + 1);
+
+        S1Angle dist = S2::GetDistance(point, p1, p2);
+        if (dist < min_angle) {
+            min_angle = dist;
+        }
+    }
+
+    return S2Earth::ToMeters(min_angle);
+}
+
+// Helper function to compute distance from a point to a polygon
+double distance_point_to_polygon(const S2Point& point, const S2Polygon* polygon) {
+    // Check if point is inside polygon
+    if (polygon->Contains(point)) {
+        return 0.0;
+    }
+
+    // Find minimum distance to polygon boundary
+    S1Angle min_angle = S1Angle::Infinity();
+
+    for (int i = 0; i < polygon->num_loops(); ++i) {
+        const S2Loop* loop = polygon->loop(i);
+
+        for (int j = 0; j < loop->num_vertices(); ++j) {
+            const S2Point& p1 = loop->vertex(j);
+            const S2Point& p2 = loop->vertex((j + 1) % loop->num_vertices());
+
+            S1Angle dist = S2::GetDistance(point, p1, p2);
+            if (dist < min_angle) {
+                min_angle = dist;
+            }
+        }
+    }
+
+    return S2Earth::ToMeters(min_angle);
+}
+
+double GeoPoint::Length() const {
+    // Point has no length
+    return 0.0;
+}
+
+double GeoLine::Length() const {
+    // GeoLine is always valid with at least 2 vertices (guaranteed by constructor)
+    double total_length = 0.0;
+    for (int i = 0; i < _polyline->num_vertices() - 1; ++i) {
+        const S2Point& p1 = _polyline->vertex(i);
+        const S2Point& p2 = _polyline->vertex(i + 1);
+
+        S2LatLng lat_lng1(p1);
+        S2LatLng lat_lng2(p2);
+
+        // Calculate distance in meters using S2Earth
+        double distance = S2Earth::GetDistanceMeters(lat_lng1, lat_lng2);
+        total_length += distance;
+    }
+
+    return total_length;
+}
+
+double GeoPolygon::Length() const {
+    // GeoPolygon is always valid with at least one loop (guaranteed by constructor)
+    double perimeter = 0.0;
+
+    for (int loop_idx = 0; loop_idx < _polygon->num_loops(); ++loop_idx) {
+        const S2Loop* loop = _polygon->loop(loop_idx);
+        for (int i = 0; i < loop->num_vertices(); ++i) {
+            const S2Point& p1 = loop->vertex(i);
+            const S2Point& p2 = loop->vertex((i + 1) % loop->num_vertices());
+
+            S2LatLng lat_lng1(p1);
+            S2LatLng lat_lng2(p2);
+
+            // Calculate distance in meters using S2Earth
+            double distance = S2Earth::GetDistanceMeters(lat_lng1, lat_lng2);
+            perimeter += distance;
+        }
+    }
+
+    return perimeter;
+}
+
+double GeoMultiPolygon::Length() const {
+    double total_length = 0.0;
+
+    // Calculate the perimeter of all polygons
+    for (const auto& polygon : _polygons) {
+        total_length += polygon->Length();
+    }
+
+    return total_length;
+}
+
+double GeoCircle::Length() const {
+    // GeoCircle is always valid (guaranteed by constructor)
+    // Get the radius in meters
+    double radius_meters = S2Earth::ToMeters(_cap->radius());
+
+    // Calculate circumference: 2 * pi * r
+    return 2.0 * M_PI * radius_meters;
+}
+
+double GeoPoint::Distance(const GeoShape* rhs) const {
+    // rhs is guaranteed to be valid by StDistance (functions_geo.cpp)
+    switch (rhs->type()) {
+    case GEO_SHAPE_POINT: {
+        const GeoPoint* point = static_cast<const GeoPoint*>(rhs);
+        S2LatLng this_ll = S2LatLng(*_point);
+        S2LatLng other_ll = S2LatLng(*point->point());
+        return S2Earth::GetDistanceMeters(this_ll, other_ll);
+    }
+    case GEO_SHAPE_LINE_STRING: {
+        const GeoLine* line = static_cast<const GeoLine*>(rhs);
+        return distance_point_to_polyline(*_point, line->polyline());
+    }
+    case GEO_SHAPE_POLYGON: {
+        const GeoPolygon* polygon = static_cast<const GeoPolygon*>(rhs);
+        return distance_point_to_polygon(*_point, polygon->polygon());
+    }
+    case GEO_SHAPE_CIRCLE: {
+        const GeoCircle* circle = static_cast<const GeoCircle*>(rhs);
+        S2LatLng this_ll = S2LatLng(*_point);
+        S2LatLng center_ll = S2LatLng(circle->circle()->center());
+        double dist_to_center = S2Earth::GetDistanceMeters(this_ll, center_ll);
+        double circle_radius = S2Earth::ToMeters(circle->circle()->radius());
+
+        // Distance from point to circle is distance to center minus radius
+        if (dist_to_center <= circle_radius + TOLERANCE) {
+            return 0.0; // Point is inside or on the circle boundary
+        }
+        return dist_to_center - circle_radius;
+    }
+    case GEO_SHAPE_MULTI_POLYGON: {
+        return rhs->Distance(this); // Delegate to MultiPolygon's implementation
+    }
+    default:
+        return -1.0;
+    }
+}
+
+double GeoLine::Distance(const GeoShape* rhs) const {
+    // rhs is guaranteed to be valid by StDistance (functions_geo.cpp)
+    switch (rhs->type()) {
+    case GEO_SHAPE_POINT: {
+        return rhs->Distance(this); // Reuse Point's Distance implementation
+    }
+    case GEO_SHAPE_LINE_STRING: {
+        const GeoLine* other_line = static_cast<const GeoLine*>(rhs);
+        if (_polyline->Intersects(*other_line->polyline())) {
+            return 0.0;
+        }
+        double min_distance = std::numeric_limits<double>::max();
+
+        // Check distance from each vertex of this line to other line
+        for (int i = 0; i < _polyline->num_vertices(); ++i) {
+            double dist = distance_point_to_polyline(_polyline->vertex(i), other_line->polyline());
+            min_distance = std::min(min_distance, dist);
+        }
+
+        // Check distance from each vertex of other line to this line
+        for (int i = 0; i < other_line->polyline()->num_vertices(); ++i) {
+            double dist =
+                    distance_point_to_polyline(other_line->polyline()->vertex(i), _polyline.get());
+            min_distance = std::min(min_distance, dist);
+        }
+
+        // Handle touching case: if min_distance is within tolerance, lines are touching
+        if (min_distance <= TOLERANCE) {
+            return 0.0;
+        }
+        return min_distance;
+    }
+    case GEO_SHAPE_POLYGON: {
+        return rhs->Distance(this); // Delegate to Polygon's implementation
+    }
+    case GEO_SHAPE_CIRCLE: {
+        return rhs->Distance(this); // Delegate to Circle's implementation
+    }
+    case GEO_SHAPE_MULTI_POLYGON: {
+        return rhs->Distance(this); // Delegate to MultiPolygon's implementation
+    }
+    default:
+        return -1.0;
+    }
+}
+
+double GeoPolygon::Distance(const GeoShape* rhs) const {
+    // rhs is guaranteed to be valid by StDistance (functions_geo.cpp)
+    switch (rhs->type()) {
+    case GEO_SHAPE_POINT: {
+        return rhs->Distance(this); // Reuse Point's Distance implementation
+    }
+    case GEO_SHAPE_LINE_STRING: {
+        const GeoLine* line = static_cast<const GeoLine*>(rhs);
+        if (_polygon->Intersects(*line->polyline())) {
+            return 0.0;
+        }
+        double min_distance = std::numeric_limits<double>::max();
+
+        // Check distance from each vertex of line to polygon
+        for (int i = 0; i < line->polyline()->num_vertices(); ++i) {
+            double dist = distance_point_to_polygon(line->polyline()->vertex(i), _polygon.get());
+            min_distance = std::min(min_distance, dist);
+        }
+
+        // Check distance from each polygon vertex to line
+        for (int i = 0; i < _polygon->num_loops(); ++i) {
+            const S2Loop* loop = _polygon->loop(i);
+            for (int j = 0; j < loop->num_vertices(); ++j) {
+                double dist = distance_point_to_polyline(loop->vertex(j), line->polyline());
+                min_distance = std::min(min_distance, dist);
+            }
+        }
+
+        // Handle touching case: if min_distance is within tolerance, they are touching
+        if (min_distance <= TOLERANCE) {
+            return 0.0;
+        }
+        return min_distance;
+    }
+    case GEO_SHAPE_POLYGON: {
+        const GeoPolygon* other = static_cast<const GeoPolygon*>(rhs);
+        if (_polygon->Intersects(*other->polygon())) {
+            return 0.0;
+        }
+        double min_distance = std::numeric_limits<double>::max();
+
+        // Check distance from each vertex of this polygon to other polygon
+        for (int i = 0; i < _polygon->num_loops(); ++i) {
+            const S2Loop* loop = _polygon->loop(i);
+            for (int j = 0; j < loop->num_vertices(); ++j) {
+                double dist = distance_point_to_polygon(loop->vertex(j), other->polygon());
+                min_distance = std::min(min_distance, dist);
+            }
+        }
+
+        // Check distance from each vertex of other polygon to this polygon
+        for (int i = 0; i < other->polygon()->num_loops(); ++i) {
+            const S2Loop* loop = other->polygon()->loop(i);
+            for (int j = 0; j < loop->num_vertices(); ++j) {
+                double dist = distance_point_to_polygon(loop->vertex(j), _polygon.get());
+                min_distance = std::min(min_distance, dist);
+            }
+        }
+
+        // Handle touching case: if min_distance is within tolerance, polygons are touching
+        if (min_distance <= TOLERANCE) {
+            return 0.0;
+        }
+        return min_distance;
+    }
+    case GEO_SHAPE_CIRCLE: {
+        return rhs->Distance(this); // Delegate to Circle's implementation
+    }
+    case GEO_SHAPE_MULTI_POLYGON: {
+        return rhs->Distance(this); // Delegate to MultiPolygon's implementation
+    }
+    default:
+        return -1.0;
+    }
+}
+
+double GeoMultiPolygon::Distance(const GeoShape* rhs) const {
+    // rhs is guaranteed to be valid by StDistance (functions_geo.cpp)
+    double min_distance = std::numeric_limits<double>::max();
+
+    // Calculate minimum distance from any polygon to the other shape
+    for (const auto& polygon : _polygons) {
+        double dist = polygon->Distance(rhs);
+        if (dist >= 0) {
+            min_distance = std::min(min_distance, dist);
+        }
+    }
+
+    return (min_distance == std::numeric_limits<double>::max()) ? -1.0 : min_distance;
+}
+
+double GeoCircle::Distance(const GeoShape* rhs) const {
+    // Both rhs and self are guaranteed to be valid by StDistance (functions_geo.cpp)
+    double circle_radius = S2Earth::ToMeters(_cap->radius());
+
+    switch (rhs->type()) {
+    case GEO_SHAPE_POINT: {
+        return rhs->Distance(this); // Reuse Point's Distance implementation
+    }
+    case GEO_SHAPE_LINE_STRING: {
+        const GeoLine* line = static_cast<const GeoLine*>(rhs);
+        double min_distance = std::numeric_limits<double>::max();
+
+        // Find minimum distance from circle center to line
+        for (int i = 0; i < line->polyline()->num_vertices() - 1; ++i) {
+            double dist = distance_point_to_segment(_cap->center(), line->polyline()->vertex(i),
+                                                    line->polyline()->vertex(i + 1));
+            min_distance = std::min(min_distance, dist);
+        }
+
+        if (min_distance <= circle_radius + TOLERANCE) {
+            return 0.0;
+        }
+        return min_distance - circle_radius;
+    }
+    case GEO_SHAPE_POLYGON: {
+        const GeoPolygon* polygon = static_cast<const GeoPolygon*>(rhs);
+
+        // If center is inside polygon, distance is 0
+        if (polygon->polygon()->Contains(_cap->center())) {
+            return 0.0;
+        }
+
+        // Find minimum distance from circle center to polygon boundary
+        double min_distance = std::numeric_limits<double>::max();
+
+        for (int i = 0; i < polygon->polygon()->num_loops(); ++i) {
+            const S2Loop* loop = polygon->polygon()->loop(i);
+            for (int j = 0; j < loop->num_vertices(); ++j) {
+                double dist =
+                        distance_point_to_segment(_cap->center(), loop->vertex(j),
+                                                  loop->vertex((j + 1) % loop->num_vertices()));
+                min_distance = std::min(min_distance, dist);
+            }
+        }
+
+        if (min_distance <= circle_radius + TOLERANCE) {
+            return 0.0;
+        }
+        return min_distance - circle_radius;
+    }
+    case GEO_SHAPE_CIRCLE: {
+        const GeoCircle* other = static_cast<const GeoCircle*>(rhs);
+        double other_radius = S2Earth::ToMeters(other->circle()->radius());
+        S2LatLng this_center_ll = S2LatLng(_cap->center());
+        S2LatLng other_center_ll = S2LatLng(other->circle()->center());
+        double dist_centers = S2Earth::GetDistanceMeters(this_center_ll, other_center_ll);
+
+        // Distance between circles is distance between centers minus sum of radii
+        double sum_radii = circle_radius + other_radius;
+        if (dist_centers <= sum_radii + TOLERANCE) {
+            return 0.0; // Circles intersect or touch
+        }
+        return dist_centers - sum_radii;
+    }
+    case GEO_SHAPE_MULTI_POLYGON: {
+        return rhs->Distance(this); // Delegate to MultiPolygon's implementation
+    }
+    default:
+        return -1.0;
+    }
 }
 
 #include "common/compile_check_avoid_end.h"

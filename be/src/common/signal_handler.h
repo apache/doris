@@ -244,9 +244,6 @@ void DumpTimeInfo() {
     formatter.AppendString("-");
     formatter.AppendUint64(query_id_lo, 16);
     formatter.AppendString(" ***\n");
-    formatter.AppendString("*** is nereids: ");
-    formatter.AppendUint64(is_nereids, 10);
-    formatter.AppendString(" ***\n");
     formatter.AppendString("*** tablet id: ");
     formatter.AppendUint64(tablet_id, 10);
     formatter.AppendString(" ***\n");

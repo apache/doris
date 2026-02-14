@@ -39,7 +39,7 @@ suite("test_iceberg_manifest_cache", "p0,external,doris,external_docker,external
                     "s3.secret_key" = "password",
                     "s3.endpoint" = "http://${externalEnvIp}:${minioPort}",
                     "s3.region" = "us-east-1",
-                    "iceberg.manifest.cache.enable" = "true"
+                    "meta.cache.iceberg.manifest.enable" = "true"
                 );
             """
 
@@ -54,7 +54,7 @@ suite("test_iceberg_manifest_cache", "p0,external,doris,external_docker,external
                     "s3.secret_key" = "password",
                     "s3.endpoint" = "http://${externalEnvIp}:${minioPort}",
                     "s3.region" = "us-east-1",
-                    "iceberg.manifest.cache.enable" = "false"
+                    "meta.cache.iceberg.manifest.enable" = "false"
                 );
             """
 
@@ -116,4 +116,3 @@ suite("test_iceberg_manifest_cache", "p0,external,doris,external_docker,external
         }
     }
 }
-

@@ -1222,65 +1222,6 @@ void Dwarf::findInlinedSubroutineDieForAddress(const CompilationUnit& cu, const 
         /// If set to true we stop parsing DWARF.
         bool die_for_inline_broken = false;
 
-        auto get_function_name = [&](const CompilationUnit& srcu, uint64_t die_offset) {
-            Die decl_die = getDieAtOffset(srcu, die_offset);
-            auto& die_to_look_for_name = decl_die;
-
-            Die def_die;
-            // Jump to the actual function definition instead of declaration for name
-            // and line info.
-            // DW_AT_specification: Incomplete, non-defining, or separate declaration
-            // corresponding to a declaration
-            auto offset = getAttribute<uint64_t>(srcu, decl_die, DW_AT_specification);
-            if (offset) {
-                /// FIXME: actually it's a bug in our DWARF parser.
-                ///
-                /// Most of the times compilation unit offset (srcu.offset) is some big number inside .debug_info (like 434782255).
-                /// Offset of DIE definition is some small relative number to srcu.offset (like 3518).
-                /// However in some unknown cases offset looks like global, non relative number (like 434672579) and in this
-                /// case we obviously doing something wrong parsing DWARF.
-                ///
-                /// What is important -- this bug? reproduces only with -flto=thin in release mode.
-                /// Also llvm-dwarfdump --verify ./clickhouse says that our DWARF is ok, so it's another prove
-                /// that we just doing something wrong.
-                ///
-                /// FIXME: Currently we just give up parsing DWARF for inlines when we got into this situation.
-                if (srcu.offset + offset.value() >= info_.size()) {
-                    die_for_inline_broken = true;
-                } else {
-                    def_die = getDieAtOffset(srcu, srcu.offset + offset.value());
-                    die_to_look_for_name = def_die;
-                }
-            }
-
-            std::string_view name;
-
-            if (die_for_inline_broken) {
-                return name;
-            }
-
-            // The file and line will be set in the next inline subroutine based on
-            // its DW_AT_call_file and DW_AT_call_line.
-            forEachAttribute(srcu, die_to_look_for_name, [&](const Attribute& attr) {
-                switch (attr.spec.name) {
-                case DW_AT_linkage_name:
-                    name = std::get<std::string_view>(attr.attr_value);
-                    break;
-                case DW_AT_name:
-                    // NOTE: when DW_AT_linkage_name and DW_AT_name match, dwarf
-                    // emitters omit DW_AT_linkage_name (to save space). If present
-                    // DW_AT_linkage_name should always be preferred (mangled C++ name
-                    // vs just the function name).
-                    if (name.empty()) {
-                        name = std::get<std::string_view>(attr.attr_value);
-                    }
-                    break;
-                }
-                return true;
-            });
-            return name;
-        };
-
         // DW_AT_abstract_origin is a reference. There a 3 types of references:
         // - the reference can identify any debugging information entry within the
         //   compilation unit (DW_FORM_ref1, DW_FORM_ref2, DW_FORM_ref4,
@@ -1294,10 +1235,10 @@ void Dwarf::findInlinedSubroutineDieForAddress(const CompilationUnit& cu, const 
         //   has been placed in its own type unit.
         //   Not applicable for DW_AT_abstract_origin.
         location.name = (*abstract_origin_ref_type != DW_FORM_ref_addr)
-                                ? get_function_name(cu, cu.offset + *abstract_origin)
-                                : get_function_name(findCompilationUnit(*abstract_origin),
-                                                    *abstract_origin);
-
+                                ? getFunctionNameFromDie(cu, cu.offset + *abstract_origin,
+                                                         die_for_inline_broken)
+                                : getFunctionNameFromDie(findCompilationUnit(*abstract_origin),
+                                                         *abstract_origin, die_for_inline_broken);
         /// FIXME: see comment above
         if (die_for_inline_broken) {
             return false;
@@ -1310,6 +1251,66 @@ void Dwarf::findInlinedSubroutineDieForAddress(const CompilationUnit& cu, const 
 
         return false;
     });
+}
+
+std::string_view Dwarf::getFunctionNameFromDie(const CompilationUnit& srcu, uint64_t die_offset,
+                                               bool& die_for_inline_broken) const {
+    Die decl_die = getDieAtOffset(srcu, die_offset);
+    auto& die_to_look_for_name = decl_die;
+
+    Die def_die;
+    // Jump to the actual function definition instead of declaration for name
+    // and line info.
+    // DW_AT_specification: Incomplete, non-defining, or separate declaration
+    // corresponding to a declaration
+    auto offset = getAttribute<uint64_t>(srcu, decl_die, DW_AT_specification);
+    if (offset) {
+        /// FIXME: actually it's a bug in our DWARF parser.
+        ///
+        /// Most of the times compilation unit offset (srcu.offset) is some big number inside .debug_info (like 434782255).
+        /// Offset of DIE definition is some small relative number to srcu.offset (like 3518).
+        /// However in some unknown cases offset looks like global, non relative number (like 434672579) and in this
+        /// case we obviously doing something wrong parsing DWARF.
+        ///
+        /// What is important -- this bug? reproduces only with -flto=thin in release mode.
+        /// Also llvm-dwarfdump --verify ./clickhouse says that our DWARF is ok, so it's another prove
+        /// that we just doing something wrong.
+        ///
+        /// FIXME: Currently we just give up parsing DWARF for inlines when we got into this situation.
+        if (srcu.offset + offset.value() >= info_.size()) {
+            die_for_inline_broken = true;
+        } else {
+            def_die = getDieAtOffset(srcu, srcu.offset + offset.value());
+            die_to_look_for_name = def_die;
+        }
+    }
+
+    std::string_view name;
+
+    if (die_for_inline_broken) {
+        return name;
+    }
+
+    // The file and line will be set in the next inline subroutine based on
+    // its DW_AT_call_file and DW_AT_call_line.
+    forEachAttribute(srcu, die_to_look_for_name, [&](const Attribute& attr) {
+        switch (attr.spec.name) {
+        case DW_AT_linkage_name:
+            name = std::get<std::string_view>(attr.attr_value);
+            break;
+        case DW_AT_name:
+            // NOTE: when DW_AT_linkage_name and DW_AT_name match, dwarf
+            // emitters omit DW_AT_linkage_name (to save space). If present
+            // DW_AT_linkage_name should always be preferred (mangled C++ name
+            // vs just the function name).
+            if (name.empty()) {
+                name = std::get<std::string_view>(attr.attr_value);
+            }
+            break;
+        }
+        return true;
+    });
+    return name;
 }
 
 bool Dwarf::findAddress(uintptr_t address, LocationInfo& locationInfo, LocationInfoMode mode,

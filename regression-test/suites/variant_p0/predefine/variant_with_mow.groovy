@@ -16,6 +16,7 @@
 // under the License.
 
 suite("variant_predefine_with_mow") {
+    sql """ set default_variant_enable_doc_mode = false """
     sql "DROP TABLE IF EXISTS var_mow"
     sql """
         CREATE TABLE `var_mow` (
@@ -64,7 +65,7 @@ suite("variant_predefine_with_mow") {
     sql """ insert into var_mow values(944935252, '2', 1, 1, 'TRUE', 1741682404960657985, 1741682404960657985, 0, '{"a": 49, "b": 59, "c": 69, "d": 79, "e": 89, "f": 99, "g": 109, "h": 119, "i": 129, "j": 139}'); """
     sql """ insert into var_mow values(944935253, '2', 1, 1, 'TRUE', 1741682404960657985, 1741682404960657985, 0, '{"a": 50, "b": 60, "c": 70, "d": 80, "e": 90, "f": 100, "g": 110, "h": 120, "i": 130, "j": 140}'); """
 
-    trigger_and_wait_compaction("var_mow", "full")
+    trigger_and_wait_compaction("var_mow", "full", 1800)
 
     qt_sql """ select objectId from var_mow objects_alias where objects_alias.portalid = 944935233 and objects_alias.objectTypeId = '2' limit 100 """
     // topn two phase enabled

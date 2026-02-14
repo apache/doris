@@ -17,18 +17,25 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import org.apache.commons.collections4.CollectionUtils;
 
+import java.util.Collections;
 import java.util.Set;
 
 /**
@@ -45,26 +52,56 @@ public class UserAuthentication {
         if (connectContext.getSessionVariable().isPlayNereidsDump()) {
             return;
         }
-        String tableName = table.getName();
-        DatabaseIf db = table.getDatabase();
-        // when table instanceof FunctionGenTable,db will be null
+        TableIf authTable = table;
+        Set<String> authColumns = columns;
+        if (table instanceof PaimonSysExternalTable) {
+            authTable = ((PaimonSysExternalTable) table).getSourceTable();
+            authColumns = Collections.emptySet();
+        }
+        String tableName = authTable.getName();
+        DatabaseIf db = authTable.getDatabase();
+        // when table instanceof FunctionGenTable, db will be null
         if (db == null) {
             return;
         }
-        String dbName = db.getFullName();
+        String dbName = ClusterNamespace.getNameFromFullName(db.getFullName());
+
+        // Special handling: cluster snapshot related tables in information_schema
+        // require privilege based on configuration
+        if (dbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)
+                && (tableName.equalsIgnoreCase("cluster_snapshots")
+                    || tableName.equalsIgnoreCase("cluster_snapshot_properties"))) {
+            if ("admin".equalsIgnoreCase(Config.cluster_snapshot_min_privilege)) {
+                // When configured as admin, check ADMIN privilege
+                if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(connectContext, PrivPredicate.ADMIN)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                            PrivPredicate.ADMIN.getPrivs().toString());
+                }
+            } else {
+                // Default or configured as root, check if user is root
+                UserIdentity currentUser = connectContext.getCurrentUserIdentity();
+                if (currentUser == null || !currentUser.isRootUser()) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                            "root privilege");
+                }
+            }
+            return; // privilege check passed, allow access
+        }
+
         CatalogIf catalog = db.getCatalog();
         if (catalog == null) {
             return;
         }
         String ctlName = catalog.getName();
         AccessControllerManager accessManager = connectContext.getEnv().getAccessManager();
-        if (CollectionUtils.isEmpty(columns)) {
+        if (CollectionUtils.isEmpty(authColumns)) {
             if (!accessManager.checkTblPriv(connectContext, ctlName, dbName, tableName, PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
                         PrivPredicate.SELECT.getPrivs().toString(), tableName);
             }
         } else {
-            accessManager.checkColumnsPriv(connectContext, ctlName, dbName, tableName, columns, PrivPredicate.SELECT);
+            accessManager.checkColumnsPriv(connectContext, ctlName, dbName, tableName, authColumns,
+                    PrivPredicate.SELECT);
         }
     }
 }

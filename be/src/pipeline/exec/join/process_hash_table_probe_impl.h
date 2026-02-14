@@ -210,6 +210,22 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
 
 template <int JoinOpType>
 template <typename HashTableType>
+void ProcessHashTableProbe<JoinOpType>::process_direct_return(
+        HashTableType& hash_table_ctx, vectorized::MutableBlock& mutable_block,
+        vectorized::Block* output_block, uint32_t probe_rows) {
+    _probe_indexs.resize(probe_rows);
+    auto* probe_indexs_data = _probe_indexs.get_data().data();
+    for (uint32_t i = 0; i < probe_rows; i++) {
+        probe_indexs_data[i] = i;
+    }
+    auto& mcol = mutable_block.mutable_columns();
+    probe_side_output_column(mcol);
+    output_block->swap(mutable_block.to_block());
+    _parent->_probe_index = probe_rows;
+}
+
+template <int JoinOpType>
+template <typename HashTableType>
 Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
                                                   const uint8_t* null_map,
                                                   vectorized::MutableBlock& mutable_block,
@@ -793,6 +809,10 @@ struct ExtractType<T(U)> {
             ExtractType<void(T)>::Type & hash_table_ctx, const uint8_t* null_map,                  \
             vectorized::MutableBlock& mutable_block, vectorized::Block* output_block,              \
             uint32_t probe_rows, bool is_mark_join);                                               \
+    template void                                                                                  \
+    ProcessHashTableProbe<JoinOpType>::process_direct_return<ExtractType<void(T)>::Type>(          \
+            ExtractType<void(T)>::Type & hash_table_ctx, vectorized::MutableBlock & mutable_block, \
+            vectorized::Block * output_block, uint32_t probe_rows);                                \
     template Status ProcessHashTableProbe<JoinOpType>::finish_probing<ExtractType<void(T)>::Type>( \
             ExtractType<void(T)>::Type & hash_table_ctx, vectorized::MutableBlock & mutable_block, \
             vectorized::Block * output_block, bool* eos, bool is_mark_join);

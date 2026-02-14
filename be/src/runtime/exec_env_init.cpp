@@ -102,6 +102,7 @@
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/point_query_executor.h"
+#include "udf/python/python_server.h"
 #include "util/bfd_parser.h"
 #include "util/bit_util.h"
 #include "util/brpc_client_cache.h"
@@ -258,6 +259,13 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(cast_set<int>(buffered_reader_max_threads))
                               .build(&_buffered_reader_prefetch_thread_pool));
 
+    static_cast<void>(ThreadPoolBuilder("SegmentPrefetchThreadPool")
+                              .set_min_threads(cast_set<int>(
+                                      config::segment_prefetch_thread_pool_thread_num_min))
+                              .set_max_threads(cast_set<int>(
+                                      config::segment_prefetch_thread_pool_thread_num_max))
+                              .build(&_segment_prefetch_thread_pool));
+
     static_cast<void>(ThreadPoolBuilder("SendTableStatsThreadPool")
                               .set_min_threads(8)
                               .set_max_threads(32)
@@ -413,6 +421,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     if (config::is_cloud_mode()) {
         RETURN_IF_ERROR(_packed_file_manager->init());
         _packed_file_manager->start_background_manager();
+
+        // Start cluster info background worker for compaction read-write separation
+        static_cast<CloudClusterInfo*>(_cluster_info)->start_bg_worker();
     }
 
     _index_policy_mgr = new IndexPolicyMgr();
@@ -803,6 +814,11 @@ void ExecEnv::destroy() {
     // _id_manager must be destoried before tablet schema cache
     SAFE_DELETE(_id_manager);
 
+    // Stop cluster info background worker before storage engine is destroyed
+    if (config::is_cloud_mode() && _cluster_info) {
+        static_cast<CloudClusterInfo*>(_cluster_info)->stop_bg_worker();
+    }
+
     // StorageEngine must be destoried before _cache_manager destory
     SAFE_STOP(_storage_engine);
     _storage_engine.reset();
@@ -812,6 +828,7 @@ void ExecEnv::destroy() {
         _runtime_query_statistics_mgr->stop_report_thread();
     }
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
+    SAFE_SHUTDOWN(_segment_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
     SAFE_SHUTDOWN(_lazy_release_obj_pool);
     SAFE_SHUTDOWN(_non_block_close_thread_pool);
@@ -873,6 +890,7 @@ void ExecEnv::destroy() {
     _s3_file_system_thread_pool.reset(nullptr);
     _send_table_stats_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
+    _segment_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
     _udf_close_workers_thread_pool.reset(nullptr);
@@ -926,6 +944,7 @@ void ExecEnv::destroy() {
     _s_tracking_memory = false;
 
     clear_storage_resource();
+    PythonServerManager::instance().shutdown();
     LOG(INFO) << "Doris exec envorinment is destoried.";
 }
 

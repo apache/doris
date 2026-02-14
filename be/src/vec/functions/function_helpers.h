@@ -86,13 +86,13 @@ const ColumnConst* check_and_get_column_const_string_or_fixedstring(const IColum
 /// Transform anything to Field.
 template <PrimitiveType T>
     requires(!is_decimal(T))
-Field to_field(const typename PrimitiveTypeTraits<T>::ColumnItemType& x) {
+Field to_field(const typename PrimitiveTypeTraits<T>::CppType& x) {
     return Field::create_field<T>(typename PrimitiveTypeTraits<T>::CppType(x));
 }
 
 template <PrimitiveType T>
     requires(is_decimal(T))
-Field to_field(const typename PrimitiveTypeTraits<T>::ColumnItemType& x, UInt32 scale) {
+Field to_field(const typename PrimitiveTypeTraits<T>::CppType& x, UInt32 scale) {
     return Field::create_field<T>(typename PrimitiveTypeTraits<T>::CppType(x, scale));
 }
 

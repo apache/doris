@@ -408,6 +408,11 @@ class PODArray : public PODArrayBase<sizeof(T), initial_bytes, TAllocator, pad_r
 protected:
     using Base = PODArrayBase<sizeof(T), initial_bytes, TAllocator, pad_right_, pad_left_>;
 
+    static_assert(std::is_trivially_destructible_v<T>,
+                  "PODArray can only be used with POD types or types with trivial destructor");
+    static_assert(std::is_trivially_copyable_v<T>,
+                  "PODArray can only be used with POD types or types with trivial copy");
+
     T* t_start() { return reinterpret_cast<T*>(this->c_start); }
     T* t_end() { return reinterpret_cast<T*>(this->c_end); }
 

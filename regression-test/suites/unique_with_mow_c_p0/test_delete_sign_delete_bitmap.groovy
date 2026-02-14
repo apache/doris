@@ -26,7 +26,7 @@ suite('test_delete_sign_delete_bitmap') {
 //            `c3` int,
 //            `c4` int
 //            )UNIQUE KEY(k1)
-//            CLUSTER BY(c1, c2)
+//            ORDER BY(c1, c2)
 //        DISTRIBUTED BY HASH(k1) BUCKETS 1
 //        PROPERTIES (
 //            "enable_unique_key_merge_on_write" = "true",
@@ -68,7 +68,7 @@ suite('test_delete_sign_delete_bitmap') {
 //            `c3` int,
 //            `c4` int
 //            )UNIQUE KEY(k1)
-//            CLUSTER BY(c4, c3)
+//            ORDER BY(c4, c3)
 //        DISTRIBUTED BY HASH(k1) BUCKETS 1
 //        PROPERTIES (
 //            "enable_unique_key_merge_on_write" = "true",

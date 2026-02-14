@@ -30,7 +30,8 @@ class PaimonReader : public TableFormatReader, public TableSchemaChangeHelper {
 public:
     PaimonReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                  RuntimeState* state, const TFileScanRangeParams& params,
-                 const TFileRangeDesc& range, io::IOContext* io_ctx, FileMetaCache* meta_cache);
+                 const TFileRangeDesc& range, ShardedKVCache* kv_cache, io::IOContext* io_ctx,
+                 FileMetaCache* meta_cache);
 
     ~PaimonReader() override = default;
 
@@ -42,8 +43,12 @@ protected:
     struct PaimonProfile {
         RuntimeProfile::Counter* num_delete_rows;
         RuntimeProfile::Counter* delete_files_read_time;
+        RuntimeProfile::Counter* parse_deletion_vector_time;
     };
-    std::vector<int64_t> _delete_rows;
+    // _delete_rows from kv_cache.
+    const std::vector<int64_t>* _delete_rows = nullptr;
+    // owned by scan node
+    ShardedKVCache* _kv_cache;
     PaimonProfile _paimon_profile;
 
     virtual void set_delete_rows() = 0;
@@ -54,14 +59,15 @@ public:
     ENABLE_FACTORY_CREATOR(PaimonOrcReader);
     PaimonOrcReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                     RuntimeState* state, const TFileScanRangeParams& params,
-                    const TFileRangeDesc& range, io::IOContext* io_ctx, FileMetaCache* meta_cache)
-            : PaimonReader(std::move(file_format_reader), profile, state, params, range, io_ctx,
-                           meta_cache) {};
+                    const TFileRangeDesc& range, ShardedKVCache* kv_cache, io::IOContext* io_ctx,
+                    FileMetaCache* meta_cache)
+            : PaimonReader(std::move(file_format_reader), profile, state, params, range, kv_cache,
+                           io_ctx, meta_cache) {};
     ~PaimonOrcReader() final = default;
 
     void set_delete_rows() final {
         (reinterpret_cast<OrcReader*>(_file_format_reader.get()))
-                ->set_position_delete_rowids(&_delete_rows);
+                ->set_position_delete_rowids(_delete_rows);
     }
 
     Status init_reader(
@@ -90,15 +96,15 @@ public:
     ENABLE_FACTORY_CREATOR(PaimonParquetReader);
     PaimonParquetReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                         RuntimeState* state, const TFileScanRangeParams& params,
-                        const TFileRangeDesc& range, io::IOContext* io_ctx,
-                        FileMetaCache* meta_cache)
-            : PaimonReader(std::move(file_format_reader), profile, state, params, range, io_ctx,
-                           meta_cache) {};
+                        const TFileRangeDesc& range, ShardedKVCache* kv_cache,
+                        io::IOContext* io_ctx, FileMetaCache* meta_cache)
+            : PaimonReader(std::move(file_format_reader), profile, state, params, range, kv_cache,
+                           io_ctx, meta_cache) {};
     ~PaimonParquetReader() final = default;
 
     void set_delete_rows() final {
         (reinterpret_cast<ParquetReader*>(_file_format_reader.get()))
-                ->set_delete_rows(&_delete_rows);
+                ->set_delete_rows(_delete_rows);
     }
 
     Status init_reader(

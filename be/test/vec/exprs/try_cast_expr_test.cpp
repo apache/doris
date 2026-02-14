@@ -20,11 +20,11 @@
 #include <memory>
 
 #include "runtime/primitive_type.h"
-#include "udf/udf.h"
 #include "vec/columns/column_nothing.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/exprs/function_context.h"
 #include "vec/exprs/vcast_expr.h"
 
 namespace doris::vectorized {
@@ -141,8 +141,8 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block, size_t count,
-                          ColumnPtr& result_column) const override {
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override {
         auto int_type = std::make_shared<DataTypeInt32>();
         auto int_column = int_type->create_column();
         for (int i = 0; i < 3; i++) {

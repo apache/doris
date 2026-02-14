@@ -66,14 +66,16 @@ using PathsWithColumnAndType = std::vector<PathWithColumnAndType>;
 // Reader for hierarchical data for variant, merge with root(sparse encoded columns)
 class HierarchicalDataIterator : public ColumnIterator {
 public:
-    // Currently two types of read, merge sparse columns with root columns, or read directly
-    enum class ReadType { MERGE_ROOT, READ_DIRECT };
-
+    enum class ReadType {
+        SUBCOLUMNS_AND_SPARSE = 0,
+        DOC_VALUE_COLUMN = 1,
+    };
     static Status create(ColumnIteratorUPtr* reader, int32_t col_uid, vectorized::PathInData path,
                          const SubcolumnColumnMetaInfo::Node* target_node,
                          std::unique_ptr<SubstreamIterator>&& sparse_reader,
                          std::unique_ptr<SubstreamIterator>&& root_column_reader,
-                         ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats);
+                         ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats,
+                         ReadType read_type);
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -89,15 +91,21 @@ public:
     Status add_stream(int32_t col_uid, const SubcolumnColumnMetaInfo::Node* node,
                       ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats);
 
+    Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    void collect_prefetchers(
+            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+            PrefetcherInitMethod init_method) override;
+
 private:
     SubstreamReaderTree _substream_reader;
     std::unique_ptr<SubstreamIterator> _root_reader;
-    std::unique_ptr<SubstreamIterator> _sparse_column_reader;
+    std::unique_ptr<SubstreamIterator> _binary_column_reader;
     size_t _rows_read = 0;
     vectorized::PathInData _path;
     OlapReaderStatistics* _stats = nullptr;
-
-    HierarchicalDataIterator(const vectorized::PathInData& path) : _path(path) {}
+    ReadType _read_type = ReadType::SUBCOLUMNS_AND_SPARSE;
+    HierarchicalDataIterator(const vectorized::PathInData& path, ReadType read_type)
+            : _path(path), _read_type(read_type) {}
 
     template <typename NodeFunction>
     Status tranverse(NodeFunction&& node_func) {
@@ -156,12 +164,12 @@ private:
         }));
 
         // read sparse column
-        if (_sparse_column_reader) {
+        if (_binary_column_reader) {
             SCOPED_RAW_TIMER(&_stats->variant_scan_sparse_column_timer_ns);
-            int64_t curr_size = _sparse_column_reader->column->byte_size();
-            RETURN_IF_ERROR(read_func(*_sparse_column_reader, {}, nullptr));
+            int64_t curr_size = _binary_column_reader->column->byte_size();
+            RETURN_IF_ERROR(read_func(*_binary_column_reader, {}, nullptr));
             _stats->variant_scan_sparse_column_bytes +=
-                    _sparse_column_reader->column->byte_size() - curr_size;
+                    _binary_column_reader->column->byte_size() - curr_size;
         }
 
         MutableColumnPtr container;

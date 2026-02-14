@@ -372,7 +372,7 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr,
                                    RuntimeState* state, const TUniqueId& fragment_instance_id,
                                    PlanNodeId dest_node_id, int num_senders, bool is_merging,
                                    RuntimeProfile* profile, size_t data_queue_capacity)
-        : HasTaskExecutionCtx(state, false),
+        : HasTaskExecutionCtx(state),
           _mgr(stream_mgr),
           _memory_used_counter(memory_used_counter),
           _resource_ctx(state->get_query_ctx()->resource_ctx()),

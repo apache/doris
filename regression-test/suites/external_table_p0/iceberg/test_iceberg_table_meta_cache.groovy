@@ -21,7 +21,7 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
 
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        for (String hivePrefix : ["hive2"]) {
+        for (String hivePrefix : ["hive3"]) {
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
             String hmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
@@ -36,7 +36,8 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
                 'iceberg.catalog.type'='hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}',
                 'fs.defaultFS' = '${default_fs}',
-                'warehouse' = '${warehouse}'
+                'warehouse' = '${warehouse}',
+                'meta.cache.iceberg.manifest.enable' = 'true'
             );
             """
             sql """switch ${catalog_name}"""
@@ -64,7 +65,7 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
             sql """select * from test_iceberg_meta_cache_db.sales"""
             sql """drop table test_iceberg_meta_cache_db.sales"""
 
-            // 2. test catalog with iceberg.table.meta.cache.ttl-second
+            // 2. test catalog with meta.cache.iceberg.table.ttl-second
             sql """drop catalog if exists ${catalog_name_no_cache};"""
             test {
                 sql """
@@ -74,7 +75,8 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
                     'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}',
                     'fs.defaultFS' = '${default_fs}',
                     'warehouse' = '${warehouse}',
-                    'iceberg.table.meta.cache.ttl-second' = '-2'
+                    'meta.cache.iceberg.manifest.enable' = 'false',
+                    'meta.cache.iceberg.table.ttl-second' = '-2'
                 );
                 """
                 exception "is wrong"
@@ -88,7 +90,8 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}',
                 'fs.defaultFS' = '${default_fs}',
                 'warehouse' = '${warehouse}',
-                'iceberg.table.meta.cache.ttl-second' = '0'
+                'meta.cache.iceberg.manifest.enable' = 'false',
+                'meta.cache.iceberg.table.ttl-second' = '0'
             );
             """
             sql """switch ${catalog_name_no_cache}"""
@@ -122,7 +125,8 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
                 'iceberg.catalog.type'='hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}',
                 'fs.defaultFS' = '${default_fs}',
-                'warehouse' = '${warehouse}'
+                'warehouse' = '${warehouse}',
+                'meta.cache.iceberg.manifest.enable' = 'false'
             );
             """
             sql """switch ${catalog_name_no_cache}"""
@@ -143,11 +147,11 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
             sql """select * from test_iceberg_meta_cache_db.sales"""
             // alter wrong catalog property
             test {
-                sql """alter catalog ${catalog_name_no_cache} set properties ("iceberg.table.meta.cache.ttl-second" = "-2")"""
+                sql """alter catalog ${catalog_name_no_cache} set properties ("meta.cache.iceberg.table.ttl-second" = "-2")"""
                 exception "is wrong"
             }
             // alter catalog property, disable meta cache
-            sql """alter catalog ${catalog_name_no_cache} set properties ("iceberg.table.meta.cache.ttl-second" = "0")"""
+            sql """alter catalog ${catalog_name_no_cache} set properties ("meta.cache.iceberg.table.ttl-second" = "0")"""
             // select 2 rows
             sql """select * from test_iceberg_meta_cache_db.sales"""
             // insert into new value
@@ -165,4 +169,3 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
         }
     }
 }
-

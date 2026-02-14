@@ -49,9 +49,9 @@ class ColumnVector;
 
 template <PrimitiveType T>
 struct AggregateFunctionSumData {
-    typename PrimitiveTypeTraits<T>::ColumnItemType sum {};
+    typename PrimitiveTypeTraits<T>::CppType sum {};
 
-    NO_SANITIZE_UNDEFINED void add(typename PrimitiveTypeTraits<T>::ColumnItemType value) {
+    NO_SANITIZE_UNDEFINED void add(typename PrimitiveTypeTraits<T>::CppType value) {
 #ifdef __clang__
 #pragma clang fp reassociate(on)
 #endif
@@ -64,7 +64,7 @@ struct AggregateFunctionSumData {
 
     void read(BufferReadable& buf) { buf.read_binary(sum); }
 
-    typename PrimitiveTypeTraits<T>::ColumnItemType get() const { return sum; }
+    typename PrimitiveTypeTraits<T>::CppType get() const { return sum; }
 };
 
 template <PrimitiveType T, PrimitiveType TResult, typename Data>
@@ -109,7 +109,7 @@ public:
         const auto& column =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         this->data(place).add(
-                typename PrimitiveTypeTraits<TResult>::ColumnItemType(column.get_data()[row_num]));
+                typename PrimitiveTypeTraits<TResult>::CppType(column.get_data()[row_num]));
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).sum = {}; }
@@ -131,13 +131,6 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& column = assert_cast<ColVecResult&>(to);
         column.get_data().push_back(this->data(place).get());
-    }
-
-    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena&,
-                                 size_t num_rows) const override {
-        auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
-        auto* data = col.get_data().data();
-        memcpy(places, data, sizeof(Data) * num_rows);
     }
 
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
@@ -164,17 +157,7 @@ public:
         auto* dst_data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
             auto& state = *reinterpret_cast<Data*>(&dst_data[sizeof(Data) * i]);
-            state.sum = typename PrimitiveTypeTraits<TResult>::ColumnItemType(src_data[i]);
-        }
-    }
-
-    void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
-                                           Arena&) const override {
-        auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
-        const size_t num_rows = column.size();
-        auto* data = reinterpret_cast<const Data*>(col.get_data().data());
-        for (size_t i = 0; i != num_rows; ++i) {
-            this->data(place).sum += data[i].sum;
+            state.sum = typename PrimitiveTypeTraits<TResult>::CppType(src_data[i]);
         }
     }
 
@@ -193,15 +176,17 @@ public:
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const IColumn* column, Arena& arena,
                                    const size_t num_rows) const override {
-        this->deserialize_from_column(rhs, *column, arena, num_rows);
-        this->merge_vec(places, offset, rhs, arena, num_rows);
+        const auto& col = assert_cast<const ColumnFixedLengthObject&>(*column);
+        const auto* data = col.get_data().data();
+        this->merge_vec(places, offset, AggregateDataPtr(data), arena, num_rows);
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
                                             AggregateDataPtr rhs, const IColumn* column,
                                             Arena& arena, const size_t num_rows) const override {
-        this->deserialize_from_column(rhs, *column, arena, num_rows);
-        this->merge_vec_selected(places, offset, rhs, arena, num_rows);
+        const auto& col = assert_cast<const ColumnFixedLengthObject&>(*column);
+        const auto* data = col.get_data().data();
+        this->merge_vec_selected(places, offset, AggregateDataPtr(data), arena, num_rows);
     }
 
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
@@ -244,12 +229,12 @@ public:
             auto incoming_pos = frame_end - 1;
             if (!previous_is_nul && outcoming_pos >= partition_start &&
                 outcoming_pos < partition_end) {
-                this->data(place).add(typename PrimitiveTypeTraits<TResult>::ColumnItemType(
-                        -data[outcoming_pos]));
+                this->data(place).add(
+                        typename PrimitiveTypeTraits<TResult>::CppType(-data[outcoming_pos]));
             }
             if (!end_is_nul && incoming_pos >= partition_start && incoming_pos < partition_end) {
                 this->data(place).add(
-                        typename PrimitiveTypeTraits<TResult>::ColumnItemType(data[incoming_pos]));
+                        typename PrimitiveTypeTraits<TResult>::CppType(data[incoming_pos]));
             }
         } else {
             this->add_range_single_place(partition_start, partition_end, frame_start, frame_end,
@@ -273,8 +258,8 @@ public:
             const auto& column =
                     assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
             for (size_t row_num = current_frame_start; row_num < current_frame_end; ++row_num) {
-                this->data(place).add(typename PrimitiveTypeTraits<TResult>::ColumnItemType(
-                        column.get_data()[row_num]));
+                this->data(place).add(
+                        typename PrimitiveTypeTraits<TResult>::CppType(column.get_data()[row_num]));
             }
             *use_null_result = false;
             *could_use_previous_result = true;

@@ -165,7 +165,6 @@ VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWri
                                          const iceberg::Schema* iceberg_schema)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _column_names(std::move(column_names)),
-          _parquet_schemas(nullptr),
           _parquet_options(parquet_options),
           _iceberg_schema_json(iceberg_schema_json),
           _iceberg_schema(iceberg_schema) {
@@ -174,12 +173,12 @@ VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWri
 
 VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                                          const VExprContextSPtrs& output_vexpr_ctxs,
-                                         const std::vector<TParquetSchema>& parquet_schemas,
+                                         std::vector<TParquetSchema> parquet_schemas,
                                          bool output_object_data,
                                          const ParquetFileOptions& parquet_options,
                                          const std::string* iceberg_schema_json)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
-          _parquet_schemas(&parquet_schemas),
+          _parquet_schemas(std::move(parquet_schemas)),
           _parquet_options(parquet_options),
           _iceberg_schema_json(iceberg_schema_json) {
     _iceberg_schema = nullptr;
@@ -228,9 +227,9 @@ Status VParquetTransformer::_parse_schema() {
             std::shared_ptr<arrow::DataType> type;
             RETURN_IF_ERROR(convert_to_arrow_type(_output_vexpr_ctxs[i]->root()->data_type(), &type,
                                                   _state->timezone()));
-            if (_parquet_schemas != nullptr) {
+            if (!_parquet_schemas.empty()) {
                 std::shared_ptr<arrow::Field> field =
-                        arrow::field(_parquet_schemas->operator[](i).schema_column_name, type,
+                        arrow::field(_parquet_schemas[i].schema_column_name, type,
                                      _output_vexpr_ctxs[i]->root()->is_nullable());
                 fields.emplace_back(field);
             } else {

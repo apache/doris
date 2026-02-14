@@ -55,7 +55,7 @@ Status FunctionAIClassify::build_prompt(const Block& block, const ColumnNumbers&
     for (size_t i = start; i < end; ++i) {
         Field field;
         data.get(i, field);
-        label_values.emplace_back(field.get<String>());
+        label_values.emplace_back(field.template get<TYPE_STRING>());
     }
 
     std::string labels_str = "[";
@@ -97,7 +97,7 @@ Status FunctionAIExtract::build_prompt(const Block& block, const ColumnNumbers& 
     for (size_t i = start; i < end; ++i) {
         Field field;
         data.get(i, field);
-        label_values.emplace_back(field.get<String>());
+        label_values.emplace_back(field.template get<TYPE_STRING>());
     }
 
     std::string labels_str = "[";
@@ -148,7 +148,7 @@ Status FunctionAIMask::build_prompt(const Block& block, const ColumnNumbers& arg
     for (size_t i = start; i < end; ++i) {
         Field field;
         data.get(i, field);
-        label_values.emplace_back(field.get<String>());
+        label_values.emplace_back(field.template get<TYPE_STRING>());
     }
 
     std::string labels_str = "[";

@@ -78,6 +78,10 @@ suite("test_routine_load_timeout_value","nonConcurrent") {
         // create table
         def jobName = "test_routine_load_timeout_value"
         def tableName = "test_routine_load_timeout_value"
+
+        // Set routine_load_adaptive_min_batch_interval_sec to a small value to avoid affecting timeout test
+        sql "ADMIN SET FRONTEND CONFIG ('routine_load_adaptive_min_batch_interval_sec' = '5')"
+
         try {
             sql """
             CREATE TABLE IF NOT EXISTS ${tableName}
@@ -210,6 +214,8 @@ suite("test_routine_load_timeout_value","nonConcurrent") {
         } finally {
             sql "stop routine load for ${jobName}"
             sql "DROP TABLE IF EXISTS ${tableName} FORCE"
+            // Restore routine_load_adaptive_min_batch_interval_sec to default value
+            sql "ADMIN SET FRONTEND CONFIG ('routine_load_adaptive_min_batch_interval_sec' = '360')"
         }
     }
 }

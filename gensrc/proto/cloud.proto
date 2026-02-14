@@ -506,6 +506,13 @@ message TxnInfoPB {
     // TODO: There are more fields TBD
     optional bool versioned_write = 19;  // versioned write, don't need to write RecycleTxnPB again
     optional bool versioned_read = 20;  // whether to read versioned keys
+    // When enabled, defer deleting pending delete bitmaps until lazy commit completes.
+    // This is used for lazy commit to reduce contention during transaction commit.
+    // The delete bitmap locks will be extended and removed during lazy commit phase.
+    optional bool defer_deleting_pending_delete_bitmaps = 21;
+    // The cluster_id of the compute cluster that performed the load
+    // Set by FE during begin_txn, used by commit_txn for compaction read-write separation
+    optional string load_cluster_id = 22;
 }
 
 // For check txn conflict and txn timeout
@@ -884,6 +891,17 @@ message TabletStatsPB {
     optional int64 last_full_compaction_time_ms = 13;
     optional int64 index_size = 14;
     optional int64 segment_size = 15;
+    // The cluster ID that most recently performed load or compaction on this tablet
+    optional string last_active_cluster_id = 16;
+    // Timestamp (ms) when the last_active_cluster was updated
+    optional int64 last_active_time_ms = 17;
+    // Current status of the last_active_cluster (filled by MS at get_rowset time)
+    // NORMAL means available, other states (SUSPENDED/MANUAL_SHUTDOWN) or UNKNOWN means unavailable
+    optional ClusterStatus last_active_cluster_status = 18;
+    // Timestamp for timeout judgment
+    // - Normal case: dynamically filled with ClusterPB.mtime (not persisted)
+    // - Deleted case: persisted when first detected as deleted, reused thereafter
+    optional int64 last_active_cluster_status_mtime_ms = 19;
 }
 
 message ObjectFilePB {
@@ -1107,6 +1125,19 @@ message AbortTxnWithCoordinatorResponse {
     optional MetaServiceResponseStatus status = 1;
 }
 
+message GetPrepareTxnByCoordinatorRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional string ip = 2;
+    optional int64 id = 3;
+    optional int64 start_time = 4;
+    optional string request_ip = 5;
+}
+
+message GetPrepareTxnByCoordinatorResponse {
+    optional MetaServiceResponseStatus status = 1;
+    repeated TxnInfoPB txn_infos = 2;
+}
+
 message CheckTxnConflictRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 db_id = 2;
@@ -1321,6 +1352,8 @@ message GetRowsetResponse {
     optional SchemaCloudDictionary schema_dict = 4;
     // The current max version of the partition
     optional int64 partition_max_version = 5;
+    // The cluster_id of the requester
+    optional string requester_cluster_id = 6;
 }
 
 message GetSchemaDictRequest {
@@ -1507,6 +1540,8 @@ message GetClusterStatusResponse {
     }
     optional MetaServiceResponseStatus status = 1;
     repeated GetClusterStatusResponseDetail details = 2;
+    // The cluster_id of the requesting node (resolved from cloud_unique_id)
+    optional string requester_cluster_id = 3;
 }
 
 message GetClusterResponse {
@@ -1757,6 +1792,7 @@ enum MetaServiceCode {
     TABLET_NOT_FOUND = 2011;
     STALE_TABLET_CACHE = 2012;
     STALE_PREPARE_ROWSET = 2013;
+    TXN_ALREADY_COMMITED = 2014;
 
     CLUSTER_NOT_FOUND = 3001;
     ALREADY_EXISTED = 3002;
@@ -2204,6 +2240,7 @@ service MetaService {
     rpc begin_sub_txn(BeginSubTxnRequest) returns (BeginSubTxnResponse);
     rpc abort_sub_txn(AbortSubTxnRequest) returns (AbortSubTxnResponse);
     rpc abort_txn_with_coordinator(AbortTxnWithCoordinatorRequest) returns (AbortTxnWithCoordinatorResponse);
+    rpc get_prepare_txn_by_coordinator(GetPrepareTxnByCoordinatorRequest) returns (GetPrepareTxnByCoordinatorResponse);
 
     rpc get_version(GetVersionRequest) returns (GetVersionResponse);
     rpc create_tablets(CreateTabletsRequest) returns (CreateTabletsResponse);

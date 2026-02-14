@@ -1,0 +1,181 @@
+diff --git a/cmake_modules/BuildUtils.cmake b/cmake_modules/BuildUtils.cmake
+index 74654a4..4065297 100644
+--- a/cmake_modules/BuildUtils.cmake
++++ b/cmake_modules/BuildUtils.cmake
+@@ -55,12 +55,18 @@ function(add_paimon_lib LIB_NAME)
+     # Necessary to make static linking into other shared libraries work properly
+     set_property(TARGET ${LIB_NAME}_objlib PROPERTY POSITION_INDEPENDENT_CODE 1)
+     if(ARG_DEPENDENCIES)
+-        # Avoid add_dependencies on non-existent targets (e.g. when building static only).
++        # In static-only builds, some dependency names are still declared as
++        # *_shared. Map them to *_static when the shared target is unavailable.
+         set(_paimon_objlib_deps)
+         foreach(_paimon_dep IN LISTS ARG_DEPENDENCIES)
+-            if(TARGET ${_paimon_dep})
+-                list(APPEND _paimon_objlib_deps ${_paimon_dep})
++            set(_paimon_mapped_dep "${_paimon_dep}")
++            if(NOT TARGET ${_paimon_mapped_dep} AND _paimon_dep MATCHES "_shared$")
++                string(REGEX REPLACE "_shared$" "_static" _paimon_mapped_dep "${_paimon_dep}")
+             endif()
++            if(TARGET ${_paimon_mapped_dep})
++                list(APPEND _paimon_objlib_deps ${_paimon_mapped_dep})
++            endif()
++            unset(_paimon_mapped_dep)
+         endforeach()
+         if(_paimon_objlib_deps)
+             add_dependencies(${LIB_NAME}_objlib ${_paimon_objlib_deps})
+
+diff --git a/cmake_modules/ThirdpartyToolchain.cmake b/cmake_modules/ThirdpartyToolchain.cmake
+--- a/cmake_modules/ThirdpartyToolchain.cmake
++++ b/cmake_modules/ThirdpartyToolchain.cmake
+@@ -909,9 +909,6 @@ macro(build_orc)
+         "-DCMAKE_CXX_FLAGS=${ORC_CMAKE_CXX_FLAGS}"
+         "-DCMAKE_C_FLAGS=${ORC_CMAKE_C_FLAGS}"
+         "-DCMAKE_CXX_FLAGS_${UPPERCASE_BUILD_TYPE}=${ORC_CMAKE_CXX_FLAGS}"
+-        "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-rpath=${ORC_RPATH}"
+-        "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-rpath=${ORC_RPATH}"
+-        "-DCMAKE_MODULE_LINKER_FLAGS=-Wl,-rpath=${ORC_RPATH}"
+         "-DSNAPPY_HOME=${ORC_SNAPPY_ROOT}"
+         "-DLZ4_HOME=${ORC_LZ4_ROOT}"
+         "-DZSTD_HOME=${ORC_ZSTD_ROOT}"
+@@ -923,6 +920,13 @@ macro(build_orc)
+         -DBUILD_TOOLS=OFF
+         -DBUILD_CPP_ENABLE_METRICS=ON)
+ 
++    if(ORC_RPATH)
++        list(APPEND ORC_CMAKE_ARGS
++             "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-rpath,${ORC_RPATH}"
++             "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-rpath,${ORC_RPATH}"
++             "-DCMAKE_MODULE_LINKER_FLAGS=-Wl,-rpath,${ORC_RPATH}")
++    endif()
++
+     set(PATCH_FILE "${CMAKE_CURRENT_LIST_DIR}/orc.diff")
+     externalproject_add(orc_ep
+                         URL ${ORC_SOURCE_URL}
+
+diff --git a/cmake_modules/ThirdpartyToolchain.cmake b/cmake_modules/ThirdpartyToolchain.cmake
+--- a/cmake_modules/ThirdpartyToolchain.cmake
++++ b/cmake_modules/ThirdpartyToolchain.cmake
+@@ -1024,6 +1024,14 @@ macro(build_arrow)
+         "-DCMAKE_C_FLAGS=${ARROW_CMAKE_C_FLAGS}"
+         "-DCMAKE_CXX_FLAGS_${UPPERCASE_BUILD_TYPE}=${ARROW_CMAKE_CXX_FLAGS}"
+         -DARROW_DEPENDENCY_USE_SHARED=OFF
++        # Avoid forcing CONDA dependency mode when CONDA_PREFIX is present.
++        # AUTO keeps the normal "find system first, fallback to bundled"
++        # behavior and prevents accidental pickup of conda's thrift/zstd.
++        -DARROW_DEPENDENCY_SOURCE=AUTO
++        # Isolate from user/system CMake package registries to improve
++        # reproducibility in CI and local mixed environments.
++        -DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF
++        -DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF
+         -DARROW_BUILD_SHARED=OFF
+         -DARROW_BUILD_STATIC=ON
+         -DARROW_BUILD_TESTS=OFF
+
+diff --git a/cmake_modules/ThirdpartyToolchain.cmake b/cmake_modules/ThirdpartyToolchain.cmake
+--- a/cmake_modules/ThirdpartyToolchain.cmake
++++ b/cmake_modules/ThirdpartyToolchain.cmake
+@@ -761,6 +761,9 @@ macro(build_protobuf)
+     get_target_property(THIRDPARTY_ZLIB_INCLUDE_DIR zlib INTERFACE_INCLUDE_DIRECTORIES)
+     get_filename_component(THIRDPARTY_ZLIB_ROOT "${THIRDPARTY_ZLIB_INCLUDE_DIR}"
+                            DIRECTORY)
++    set(THIRDPARTY_ZLIB_STATIC_LIB
++        "${THIRDPARTY_ZLIB_ROOT}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}z${CMAKE_STATIC_LIBRARY_SUFFIX}"
++    )
+ 
+     # Strip lto flags (which may be added by dh_auto_configure)
+     # See https://github.com/protocolbuffers/protobuf/issues/7092
+@@ -778,6 +781,10 @@ macro(build_protobuf)
+         "-DCMAKE_CXX_FLAGS=${PROTOBUF_CXX_FLAGS}"
+         "-DCMAKE_C_FLAGS=${PROTOBUF_C_FLAGS}"
+         "-DZLIB_ROOT=${THIRDPARTY_ZLIB_ROOT}"
++        "-DZLIB_INCLUDE_DIR=${THIRDPARTY_ZLIB_INCLUDE_DIR}"
++        "-DZLIB_LIBRARY=${THIRDPARTY_ZLIB_STATIC_LIB}"
++        "-DZLIB_LIBRARY_RELEASE=${THIRDPARTY_ZLIB_STATIC_LIB}"
++        "-DZLIB_LIBRARY_DEBUG=${THIRDPARTY_ZLIB_STATIC_LIB}"
+         -Dprotobuf_BUILD_TESTS=OFF
+         -Dprotobuf_DEBUG_POSTFIX=)
+     set(PROTOBUF_CONFIGURE SOURCE_SUBDIR "cmake" CMAKE_ARGS ${PROTOBUF_CMAKE_ARGS})
+
+diff --git a/src/paimon/common/logging/logging.cpp b/src/paimon/common/logging/logging.cpp
+--- a/src/paimon/common/logging/logging.cpp
++++ b/src/paimon/common/logging/logging.cpp
+@@ -83,7 +83,7 @@ std::unique_ptr<Logger> Logger::GetLogger(const std::string& path) {
+     }
+     std::unique_lock<std::shared_mutex> ulock(getRegistryLock());
+     if (!google::IsGoogleLoggingInitialized()) {
+-        google::InitGoogleLogging(program_invocation_name);
++        google::InitGoogleLogging("paimon-cpp");
+     }
+     return std::make_unique<GlogAdaptor>();
+ }
+
+diff --git a/src/paimon/common/memory/memory_pool.cpp b/src/paimon/common/memory/memory_pool.cpp
+--- a/src/paimon/common/memory/memory_pool.cpp
++++ b/src/paimon/common/memory/memory_pool.cpp
+@@ -55,7 +55,7 @@ void* MemoryPoolImpl::Malloc(uint64_t size, uint64_t alignment) {
+     return memptr;
+ }
+ 
+-void* MemoryPoolImpl::Realloc(void* p, size_t old_size, size_t new_size, size_t alignment) {
++void* MemoryPoolImpl::Realloc(void* p, size_t old_size, size_t new_size, uint64_t alignment) {
+     if (alignment == 0) {
+         void* memptr = ::realloc(p, new_size);
+         total_allocated_size.fetch_add(new_size - old_size);
+
+diff --git a/src/paimon/format/blob/blob_format_writer.cpp b/src/paimon/format/blob/blob_format_writer.cpp
+--- a/src/paimon/format/blob/blob_format_writer.cpp
++++ b/src/paimon/format/blob/blob_format_writer.cpp
+@@ -138,7 +138,8 @@ Status BlobFormatWriter::WriteBlob(std::string_view blob_data) {
+     }
+     PAIMON_ASSIGN_OR_RAISE(uint64_t file_length, in->Length());
+     uint64_t total_read_length = 0;
+-    uint32_t read_len = std::min(file_length, tmp_buffer_->size());
++    uint32_t read_len =
++        static_cast<uint32_t>(std::min<uint64_t>(file_length, tmp_buffer_->size()));
+     while (read_len > 0) {
+         PAIMON_ASSIGN_OR_RAISE(int32_t actual_read_len, in->Read(tmp_buffer_->data(), read_len));
+         if (static_cast<uint32_t>(actual_read_len) != read_len) {
+@@ -149,7 +150,8 @@ Status BlobFormatWriter::WriteBlob(std::string_view blob_data) {
+         }
+         PAIMON_RETURN_NOT_OK(WriteWithCrc32(tmp_buffer_->data(), actual_read_len));
+         total_read_length += actual_read_len;
+-        read_len = std::min(file_length - total_read_length, tmp_buffer_->size());
++        read_len = static_cast<uint32_t>(
++            std::min<uint64_t>(file_length - total_read_length, tmp_buffer_->size()));
+     }
+ 
+     // write bin length
+
+--- a/cmake_modules/arrow.diff
++++ b/cmake_modules/arrow.diff
+@@ -196,3 +196,29 @@
+    int64_t pagesize_;
+    ParquetDataPageVersion parquet_data_page_version_;
+    ParquetVersion::type parquet_version_;
++diff --git a/cpp/cmake_modules/ThirdpartyToolchain.cmake b/cpp/cmake_modules/ThirdpartyToolchain.cmake
++index 9df922afa2..5c8b3d4d07 100644
++--- a/cpp/cmake_modules/ThirdpartyToolchain.cmake
+++++ b/cpp/cmake_modules/ThirdpartyToolchain.cmake
++@@ -1789,7 +1789,20 @@ if(ARROW_WITH_THRIFT)
++                     REQUIRED_VERSION
++                     0.11.0)
++ 
++-  string(REPLACE "." ";" Thrift_VERSION_LIST ${Thrift_VERSION})
+++  if(NOT Thrift_VERSION)
+++    if(DEFINED thrift_PC_VERSION AND thrift_PC_VERSION)
+++      set(Thrift_VERSION "${thrift_PC_VERSION}")
+++    elseif(DEFINED ThriftAlt_VERSION AND ThriftAlt_VERSION)
+++      set(Thrift_VERSION "${ThriftAlt_VERSION}")
+++    elseif(DEFINED THRIFT_VERSION AND THRIFT_VERSION)
+++      set(Thrift_VERSION "${THRIFT_VERSION}")
+++    endif()
+++  endif()
+++  if(NOT Thrift_VERSION)
+++    message(FATAL_ERROR "Thrift_VERSION is empty after resolving Thrift dependency")
+++  endif()
+++
+++  string(REPLACE "." ";" Thrift_VERSION_LIST "${Thrift_VERSION}")
++   list(GET Thrift_VERSION_LIST 0 Thrift_VERSION_MAJOR)
++   list(GET Thrift_VERSION_LIST 1 Thrift_VERSION_MINOR)
++   list(GET Thrift_VERSION_LIST 2 Thrift_VERSION_PATCH)

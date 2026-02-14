@@ -19,6 +19,7 @@
 
 #include <assert.h>
 #include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
 
@@ -32,6 +33,7 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/consts.h"
@@ -39,6 +41,8 @@
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "io/cache/cached_remote_file_reader.h"
+#include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "olap/bloom_filter_predicate.h"
 #include "olap/collection_similarity.h"
@@ -61,8 +65,10 @@
 #include "olap/rowset/segment_v2/index_reader_helper.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "olap/rowset/segment_v2/ordinal_page_index.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
+#include "olap/rowset/segment_v2/segment_prefetcher.h"
 #include "olap/rowset/segment_v2/variant/variant_column_reader.h"
 #include "olap/rowset/segment_v2/virtual_column_iterator.h"
 #include "olap/schema.h"
@@ -75,6 +81,7 @@
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "util/concurrency_stats.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/key_util.h"
@@ -87,7 +94,6 @@
 #include "vec/columns/column_variant.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/schema_util.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -411,7 +417,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
             if (int32_t uid = col->get_unique_id(); !_variant_sparse_column_cache.contains(uid)) {
                 DCHECK(uid >= 0);
                 _variant_sparse_column_cache.emplace(uid,
-                                                     std::make_unique<PathToSparseColumnCache>());
+                                                     std::make_unique<PathToBinaryColumnCache>());
             }
         }
     }
@@ -543,7 +549,91 @@ Status SegmentIterator::_lazy_init(vectorized::Block* block) {
     }
 
     _lazy_inited = true;
+
+    _init_segment_prefetchers();
+
     return Status::OK();
+}
+
+void SegmentIterator::_init_segment_prefetchers() {
+    SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_segment_prefetchers_timer_ns);
+    if (!config::is_cloud_mode()) {
+        return;
+    }
+    static std::vector<ReaderType> supported_reader_types {
+            ReaderType::READER_QUERY, ReaderType::READER_BASE_COMPACTION,
+            ReaderType::READER_CUMULATIVE_COMPACTION, ReaderType::READER_FULL_COMPACTION};
+    if (std::ranges::none_of(supported_reader_types,
+                             [&](ReaderType t) { return _opts.io_ctx.reader_type == t; })) {
+        return;
+    }
+    // Initialize segment prefetcher for predicate and non-predicate columns
+    bool is_query = (_opts.io_ctx.reader_type == ReaderType::READER_QUERY);
+    bool enable_prefetch = is_query ? config::enable_query_segment_file_cache_prefetch
+                                    : config::enable_compaction_segment_file_cache_prefetch;
+    LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
+            "[verbose] SegmentIterator _init_segment_prefetchers, is_query={}, enable_prefetch={}, "
+            "_row_bitmap.isEmpty()={}, row_bitmap.cardinality()={}, tablet={}, rowset={}, "
+            "segment={}, predicate_column_ids={}, common_expr_column_ids={}",
+            is_query, enable_prefetch, _row_bitmap.isEmpty(), _row_bitmap.cardinality(),
+            _opts.tablet_id, _opts.rowset_id.to_string(), segment_id(),
+            fmt::join(_predicate_column_ids, ","), fmt::join(_common_expr_column_ids, ","));
+    if (enable_prefetch && !_row_bitmap.isEmpty()) {
+        int window_size =
+                1 + (is_query ? config::query_segment_file_cache_prefetch_block_size
+                              : config::compaction_segment_file_cache_prefetch_block_size);
+        LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
+                "[verbose] SegmentIterator prefetch config: window_size={}", window_size);
+        if (window_size > 0 &&
+            !_column_iterators.empty()) { // ensure init_iterators has been called
+            SegmentPrefetcherConfig prefetch_config(window_size,
+                                                    config::file_cache_each_block_size);
+            for (auto cid : _schema->column_ids()) {
+                auto& column_iter = _column_iterators[cid];
+                if (column_iter == nullptr) {
+                    continue;
+                }
+                const auto* tablet_column = _schema->column(cid);
+                SegmentPrefetchParams params {
+                        .config = prefetch_config,
+                        .read_options = _opts,
+                };
+                LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
+                        "[verbose] SegmentIterator init_segment_prefetchers, "
+                        "tablet={}, rowset={}, segment={}, column_id={}, col_name={}, type={}",
+                        _opts.tablet_id, _opts.rowset_id.to_string(), segment_id(), cid,
+                        tablet_column->name(), tablet_column->type());
+                Status st = column_iter->init_prefetcher(params);
+                if (!st.ok()) {
+                    LOG_IF(WARNING, config::enable_segment_prefetch_verbose_log) << fmt::format(
+                            "[verbose] failed to init prefetcher for column_id={}, "
+                            "tablet={}, rowset={}, segment={}, error={}",
+                            cid, _opts.tablet_id, _opts.rowset_id.to_string(), segment_id(),
+                            st.to_string());
+                }
+            }
+
+            // for compaction, it's guaranteed that all rows are read, so we can prefetch all data blocks
+            PrefetcherInitMethod init_method = (is_query && _row_bitmap.cardinality() < num_rows())
+                                                       ? PrefetcherInitMethod::FROM_ROWIDS
+                                                       : PrefetcherInitMethod::ALL_DATA_BLOCKS;
+            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>> prefetchers;
+            for (const auto& column_iter : _column_iterators) {
+                if (column_iter != nullptr) {
+                    column_iter->collect_prefetchers(prefetchers, init_method);
+                }
+            }
+            for (auto& [method, prefetcher_vec] : prefetchers) {
+                if (method == PrefetcherInitMethod::ALL_DATA_BLOCKS) {
+                    for (auto* prefetcher : prefetcher_vec) {
+                        prefetcher->build_all_data_blocks();
+                    }
+                } else if (method == PrefetcherInitMethod::FROM_ROWIDS && !prefetcher_vec.empty()) {
+                    SegmentPrefetcher::build_blocks_by_rowids(_row_bitmap, prefetcher_vec);
+                }
+            }
+        }
+    }
 }
 
 Status SegmentIterator::_get_row_ranges_by_keys() {
@@ -728,6 +818,13 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
         _opts.stats->rows_conditions_filtered += (pre_size - _row_bitmap.cardinality());
     }
 
+    DBUG_EXECUTE_IF("bloom_filter_must_filter_data", {
+        if (_opts.stats->rows_bf_filtered == 0) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "Bloom filter did not filter the data.");
+        }
+    })
+
     // TODO(hkp): calculate filter rate to decide whether to
     // use zone map/bloom filter/secondary index or not.
     return Status::OK();
@@ -905,13 +1002,6 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         pre_size = condition_row_ranges->count();
         RowRanges::ranges_intersection(*condition_row_ranges, bf_row_ranges, condition_row_ranges);
         _opts.stats->rows_bf_filtered += (pre_size - condition_row_ranges->count());
-
-        DBUG_EXECUTE_IF("bloom_filter_must_filter_data", {
-            if (pre_size - condition_row_ranges->count() == 0) {
-                return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                        "Bloom filter did not filter the data.");
-            }
-        })
     }
 
     {
@@ -1205,10 +1295,14 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
     // Then, return false.
     const auto& column = _opts.tablet_schema->column(cid);
     // Different subcolumns may share the same parent_unique_id, so we choose to abandon this optimization.
-    if (column.is_extracted_column()) {
+    if (column.is_extracted_column() &&
+        _opts.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX) {
         return true;
     }
     int32_t unique_id = column.unique_id();
+    if (unique_id < 0) {
+        unique_id = column.parent_unique_id();
+    }
     if ((_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid] &&
          !_output_columns.contains(unique_id)) ||
         (_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid] &&
@@ -2051,6 +2145,11 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint16
             "[{}]",
             nrows_read, is_continuous, fmt::join(_predicate_column_ids, ","));
 
+    LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
+            "[verbose] SegmentIterator::_read_columns_by_index read {} rowids, continuous: {}, "
+            "rowids: [{}...{}]",
+            nrows_read, is_continuous, nrows_read > 0 ? _block_rowids[0] : 0,
+            nrows_read > 0 ? _block_rowids[nrows_read - 1] : 0);
     for (auto cid : _predicate_column_ids) {
         auto& column = _current_return_columns[cid];
         VLOG_DEBUG << fmt::format("Reading column {}, col_name {}", cid,
@@ -2386,8 +2485,8 @@ Status SegmentIterator::_convert_to_expected_type(const std::vector<ColumnId>& c
             vectorized::ColumnPtr expected;
             vectorized::ColumnPtr original =
                     _current_return_columns[i]->assume_mutable()->get_ptr();
-            RETURN_IF_ERROR(vectorized::schema_util::cast_column({original, file_column_type, ""},
-                                                                 expected_type, &expected));
+            RETURN_IF_ERROR(vectorized::variant_util::cast_column({original, file_column_type, ""},
+                                                                  expected_type, &expected));
             _current_return_columns[i] = expected->assume_mutable();
             _converted_column_ids[i] = true;
             VLOG_DEBUG << fmt::format(
@@ -2415,6 +2514,8 @@ Status SegmentIterator::copy_column_data_by_selector(vectorized::IColumn* input_
 }
 
 Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
+    SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().segment_iterator_next_batch);
+
     bool is_mem_reuse = block->mem_reuse();
     DCHECK(is_mem_reuse);
 
@@ -2877,8 +2978,11 @@ void SegmentIterator::_calculate_expr_in_remaining_conjunct_root() {
                         }
                     }
                 }
-                if (child->is_slot_ref()) {
-                    auto* column_slot_ref = assert_cast<vectorized::VSlotRef*>(child.get());
+                // Example: CAST(v['a'] AS VARCHAR) MATCH 'hello', do not add CAST expr to index tracking.
+                auto expr_without_cast = vectorized::VExpr::expr_without_cast(child);
+                if (expr_without_cast->is_slot_ref() && expr->op() != TExprOpcode::CAST) {
+                    auto* column_slot_ref =
+                            assert_cast<vectorized::VSlotRef*>(expr_without_cast.get());
                     _common_expr_index_exec_status[_schema->column_id(column_slot_ref->column_id())]
                                                   [expr.get()] = false;
                     _common_expr_to_slotref_map[root_expr_ctx.get()][column_slot_ref->column_id()] =

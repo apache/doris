@@ -56,11 +56,11 @@ Status VMapLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc,
                 VExpr::expr_without_cast(_children[idx + 1]));
         val_literal->get_column_ptr()->get(0, vf);
 
-        keys.get<Array>().push_back(kf);
-        values.get<Array>().push_back(vf);
+        keys.get<TYPE_ARRAY>().push_back(kf);
+        values.get<TYPE_ARRAY>().push_back(vf);
     }
-    map.get<Map>().push_back(keys);
-    map.get<Map>().push_back(values);
+    map.get<TYPE_MAP>().push_back(keys);
+    map.get<TYPE_MAP>().push_back(values);
 
     _column_ptr = _data_type->create_column_const(1, map);
     return Status::OK();

@@ -39,7 +39,7 @@ class Arena;
 template <PrimitiveType T>
 struct AggregateFunctionArrayAggData {
     static constexpr PrimitiveType PType = T;
-    using ElementType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using ElementType = typename PrimitiveTypeTraits<T>::CppType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using Self = AggregateFunctionArrayAggData<T>;
     MutableColumnPtr column_data;
@@ -324,26 +324,11 @@ public:
         this->data(place).insert_result_into(to);
     }
 
-    void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
-                                           Arena& arena) const override {
-        const size_t num_rows = column.size();
-        for (size_t i = 0; i != num_rows; ++i) {
-            this->data(place).deserialize_and_merge(column, i);
-        }
-    }
-
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const IColumn* column, Arena& arena,
                                    const size_t num_rows) const override {
         for (size_t i = 0; i != num_rows; ++i) {
             this->data(places[i] + offset).deserialize_and_merge(*column, i);
-        }
-    }
-
-    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena& arena,
-                                 size_t num_rows) const override {
-        for (size_t i = 0; i != num_rows; ++i) {
-            this->data(places).deserialize_and_merge(column, i);
         }
     }
 

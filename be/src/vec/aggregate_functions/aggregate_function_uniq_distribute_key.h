@@ -50,10 +50,9 @@ class BufferWritable;
 template <PrimitiveType T>
 struct AggregateFunctionUniqDistributeKeyData {
     static constexpr bool is_string_key = is_string_type(T);
-    using Key =
-            std::conditional_t<is_string_key, UInt128,
-                               std::conditional_t<T == TYPE_BOOLEAN, UInt8,
-                                                  typename PrimitiveTypeTraits<T>::CppNativeType>>;
+    using Key = std::conditional_t<
+            is_string_key, UInt128,
+            std::conditional_t<T == TYPE_BOOLEAN, UInt8, typename PrimitiveTypeTraits<T>::CppType>>;
     using Hash = std::conditional_t<is_string_key, UInt128TrivialHash, HashCRC32<Key>>;
 
     using Set = flat_hash_set<Key, Hash>;
@@ -80,7 +79,7 @@ class AggregateFunctionUniqDistributeKey final
           NullableAggregateFunction {
 public:
     using KeyType = std::conditional_t<is_string_type(T), UInt128,
-                                       typename PrimitiveTypeTraits<T>::ColumnItemType>;
+                                       typename PrimitiveTypeTraits<T>::CppType>;
     AggregateFunctionUniqDistributeKey(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionUniqDistributeKey<T, Data>>(
                       argument_types_) {}
@@ -166,7 +165,7 @@ public:
     }
 
     void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena&,
-                                 size_t num_rows) const override {
+                                 size_t num_rows) const {
         auto data = reinterpret_cast<const UInt64*>(
                 assert_cast<const ColumnFixedLengthObject&>(column).get_data().data());
         for (size_t i = 0; i != num_rows; ++i) {
@@ -197,16 +196,6 @@ public:
         auto* data = reinterpret_cast<UInt64*>(dst_col.get_data().data());
         for (size_t i = 0; i != num_rows; ++i) {
             data[i] = 1;
-        }
-    }
-
-    void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
-                                           Arena&) const override {
-        auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
-        const size_t num_rows = column.size();
-        auto* data = reinterpret_cast<const UInt64*>(col.get_data().data());
-        for (size_t i = 0; i != num_rows; ++i) {
-            AggregateFunctionUniqDistributeKey::data(place).count += data[i];
         }
     }
 

@@ -590,7 +590,7 @@ public:
     //unix_timestamp is called with a timezone argument,
     //it returns seconds of the value of date literal since '1970-01-01 00:00:00' UTC
     bool unix_timestamp(int64_t* timestamp, const std::string& timezone) const;
-    bool unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const;
+    void unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const;
 
     //construct datetime_value from timestamp and timezone
     //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC. negative avaliable.
@@ -811,6 +811,10 @@ private:
               _year(year) {}
 };
 
+static_assert(std::is_trivially_destructible_v<VecDateTimeValue>,
+              "VecDateTimeValue must be trivial destructible");
+static_assert(std::is_trivially_copyable_v<VecDateTimeValue>,
+              "VecDateTimeValue must be trivial copyable");
 inline const VecDateTimeValue VecDateTimeValue::FIRST_DAY(false, TYPE_DATETIME, 0, 0, 0, 1, 1, 1);
 inline const VecDateTimeValue VecDateTimeValue::DEFAULT_VALUE(false, TYPE_DATETIME, 0, 0, 0, 1970,
                                                               1, 1);
@@ -1096,10 +1100,10 @@ public:
     //unix_timestamp is called with a timezone argument,
     //it returns seconds of the value of date literal since '1970-01-01 00:00:00' UTC
     bool unix_timestamp(int64_t* timestamp, const std::string& timezone) const;
-    bool unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const;
+    void unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const;
     //the first arg is result of fixed point
     bool unix_timestamp(std::pair<int64_t, int64_t>* timestamp, const std::string& timezone) const;
-    bool unix_timestamp(std::pair<int64_t, int64_t>* timestamp, const cctz::time_zone& ctz) const;
+    void unix_timestamp(std::pair<int64_t, int64_t>* timestamp, const cctz::time_zone& ctz) const;
 
     //construct datetime_value from timestamp and timezone
     //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC. negative avaliable.
@@ -1471,6 +1475,15 @@ private:
                 uint8_t second, uint32_t microsecond)
             : date_v2_value_(year, month, day, hour, minute, second, microsecond) {}
 };
+
+static_assert(std::is_trivially_destructible_v<DateV2Value<DateV2ValueType>>,
+              "DateV2Value<DateV2ValueType> must be trivial destructible");
+static_assert(std::is_trivially_destructible_v<DateV2Value<DateTimeV2ValueType>>,
+              "DateV2Value<DateTimeV2ValueType> must be trivial destructible");
+static_assert(std::is_trivially_copyable_v<DateV2Value<DateV2ValueType>>,
+              "DateV2Value<DateV2ValueType> must be trivial copyable");
+static_assert(std::is_trivially_copyable_v<DateV2Value<DateTimeV2ValueType>>,
+              "DateV2Value<DateTimeV2ValueType> must be trivial copyable");
 
 template <typename T>
 inline const DateV2Value<T> DateV2Value<T>::FIRST_DAY = DateV2Value<T>(0001, 1, 1, 0, 0, 0, 0);

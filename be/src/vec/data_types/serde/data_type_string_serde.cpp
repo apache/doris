@@ -454,6 +454,20 @@ Status DataTypeStringSerDeBase<ColumnType>::from_string(StringRef& str, IColumn&
     return deserialize_one_cell_from_json(column, slice, options);
 }
 
+template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::from_olap_string(const std::string& str, Field& field,
+                                                             const FormatOptions& options) const {
+    if (cast_set<int>(str.size()) < _len) {
+        DCHECK_EQ(_type, TYPE_CHAR);
+        std::string tmp(_len, '\0');
+        memcpy(tmp.data(), str.data(), str.size());
+        field = Field::create_field<TYPE_CHAR>(std::move(tmp));
+    } else {
+        field = Field::create_field<TYPE_STRING>(str);
+    }
+    return Status::OK();
+}
+
 template class DataTypeStringSerDeBase<ColumnString>;
 template class DataTypeStringSerDeBase<ColumnString64>;
 template class DataTypeStringSerDeBase<ColumnFixedLengthObject>;

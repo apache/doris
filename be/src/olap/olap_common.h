@@ -282,8 +282,6 @@ struct Vertex {
 };
 
 class Field;
-class WrapperField;
-using KeyRange = std::pair<WrapperField*, WrapperField*>;
 
 // ReaderStatistics used to collect statistics when scan data from storage
 struct OlapReaderStatistics {
@@ -437,6 +435,7 @@ struct OlapReaderStatistics {
     int64_t segment_iterator_init_timer_ns = 0;
     int64_t segment_iterator_init_return_column_iterators_timer_ns = 0;
     int64_t segment_iterator_init_index_iterators_timer_ns = 0;
+    int64_t segment_iterator_init_segment_prefetchers_timer_ns = 0;
 
     int64_t segment_create_column_readers_timer_ns = 0;
     int64_t segment_load_index_timer_ns = 0;
@@ -448,6 +447,7 @@ struct OlapReaderStatistics {
     int64_t variant_subtree_leaf_iter_count = 0;
     int64_t variant_subtree_hierarchical_iter_count = 0;
     int64_t variant_subtree_sparse_iter_count = 0;
+    int64_t variant_doc_value_column_iter_count = 0;
 };
 
 using ColumnId = uint32_t;

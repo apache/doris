@@ -42,6 +42,7 @@ enum TDataSinkType {
     ICEBERG_TABLE_SINK = 14,
     DICTIONARY_SINK = 15,
     BLACKHOLE_SINK = 16,
+    TVF_TABLE_SINK = 17,
 }
 
 enum TResultSinkType {
@@ -452,6 +453,22 @@ struct TDictionarySink {
 struct TBlackholeSink {
 }
 
+struct TTVFTableSink {
+    1: optional string tvf_name              // "local", "s3", "hdfs"
+    2: optional string file_path
+    3: optional PlanNodes.TFileFormatType file_format
+    4: optional Types.TFileType file_type // FILE_LOCAL, FILE_S3, FILE_HDFS
+    5: optional map<string, string> properties
+    6: optional list<Descriptors.TColumn> columns
+    7: optional string column_separator
+    8: optional string line_delimiter
+    9: optional i64 max_file_size_bytes
+    10: optional bool delete_existing_files
+    11: optional map<string, string> hadoop_config
+    12: optional PlanNodes.TFileCompressType compression_type
+    13: optional i64 backend_id              // local TVF: specify BE
+}
+
 struct TDataSink {
   1: required TDataSinkType type
   2: optional TDataStreamSink stream_sink
@@ -468,4 +485,5 @@ struct TDataSink {
   14: optional TIcebergTableSink iceberg_table_sink
   15: optional TDictionarySink dictionary_sink
   16: optional TBlackholeSink blackhole_sink
+  17: optional TTVFTableSink tvf_table_sink
 }

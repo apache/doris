@@ -132,7 +132,7 @@ Status RowGroupReader::init(
         std::unique_ptr<ParquetColumnReader> reader;
         RETURN_IF_ERROR(ParquetColumnReader::create(
                 _file_reader, field, _row_group_meta, _read_ranges, _ctz, _io_ctx, reader,
-                max_buf_size, col_offsets, false, _column_ids, _filter_column_ids));
+                max_buf_size, col_offsets, _state, false, _column_ids, _filter_column_ids));
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");
@@ -187,6 +187,12 @@ Status RowGroupReader::init(
                                  _lazy_read_ctx.missing_columns_conjuncts.begin(),
                                  _lazy_read_ctx.missing_columns_conjuncts.end());
         RETURN_IF_ERROR(_rewrite_dict_predicates());
+    }
+    // _state is nullptr in some ut.
+    if (_state && _state->enable_adjust_conjunct_order_by_cost()) {
+        std::ranges::sort(_filter_conjuncts, [](const auto& a, const auto& b) {
+            return a->execute_cost() < b->execute_cost();
+        });
     }
     return Status::OK();
 }
@@ -327,9 +333,26 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
         RETURN_IF_ERROR(_fill_row_id_columns(block, *read_rows, false));
 
+#ifndef NDEBUG
+        for (auto col : *block) {
+            col.column->sanity_check();
+            DCHECK(block->rows() == col.column->size())
+                    << absl::Substitute("block rows = $0 , column rows = $1, col name = $2",
+                                        block->rows(), col.column->size(), col.name);
+        }
+#endif
+
         if (block->rows() == 0) {
             _convert_dict_cols_to_string_cols(block);
             *read_rows = block->rows();
+#ifndef NDEBUG
+            for (auto col : *block) {
+                col.column->sanity_check();
+                DCHECK(block->rows() == col.column->size())
+                        << absl::Substitute("block rows = $0 , column rows = $1, col name = $2",
+                                            block->rows(), col.column->size(), col.name);
+            }
+#endif
             return Status::OK();
         }
         {
@@ -373,6 +396,14 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
             }
             _convert_dict_cols_to_string_cols(block);
         }
+#ifndef NDEBUG
+        for (auto col : *block) {
+            col.column->sanity_check();
+            DCHECK(block->rows() == col.column->size())
+                    << absl::Substitute("block rows = $0 , column rows = $1, col name = $2",
+                                        block->rows(), col.column->size(), col.name);
+        }
+#endif
         *read_rows = block->rows();
         return Status::OK();
     }
@@ -441,6 +472,10 @@ Status RowGroupReader::_read_column_data(Block* block,
             return Status::Corruption("Can't read the same number of rows among parquet columns");
         }
         batch_read_rows = col_read_rows;
+
+#ifndef NDEBUG
+        column_ptr->sanity_check();
+#endif
         if (col_eof) {
             has_eof = true;
         }
@@ -485,6 +520,18 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
 
         RETURN_IF_ERROR(_build_pos_delete_filter(pre_read_rows));
 
+#ifndef NDEBUG
+        for (auto col : *block) {
+            if (col.column->size() == 0) { // lazy read column.
+                continue;
+            }
+            col.column->sanity_check();
+            DCHECK(pre_read_rows == col.column->size())
+                    << absl::Substitute("pre_read_rows = $0 , column rows = $1, col name = $2",
+                                        pre_read_rows, col.column->size(), col.name);
+        }
+#endif
+
         bool can_filter_all = false;
         {
             SCOPED_RAW_TIMER(&_predicate_filter_time);
@@ -507,7 +554,6 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
             }
 
             {
-                SCOPED_RAW_TIMER(&_predicate_filter_time);
                 RETURN_IF_ERROR(VExprContext::execute_conjuncts(filter_contexts, &filters, block,
                                                                 &result_filter, &can_filter_all));
             }
@@ -631,6 +677,14 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     *batch_eof = pre_eof;
     RETURN_IF_ERROR(_fill_partition_columns(block, column_size, _lazy_read_ctx.partition_columns));
     RETURN_IF_ERROR(_fill_missing_columns(block, column_size, _lazy_read_ctx.missing_columns));
+#ifndef NDEBUG
+    for (auto col : *block) {
+        col.column->sanity_check();
+        DCHECK(block->rows() == col.column->size())
+                << absl::Substitute("block rows = $0 , column rows = $1, col name = $2",
+                                    block->rows(), col.column->size(), col.name);
+    }
+#endif
     return Status::OK();
 }
 
@@ -902,6 +956,9 @@ Status RowGroupReader::_rewrite_dict_predicates() {
         bool has_dict = false;
         RETURN_IF_ERROR(_column_readers[dict_filter_col_name]->read_dict_values_to_column(
                 dict_value_column, &has_dict));
+#ifndef NDEBUG
+        dict_value_column->sanity_check();
+#endif
         size_t dict_value_column_size = dict_value_column->size();
         DCHECK(has_dict);
         // 2. Build a temp block from the dict string column, then execute conjuncts and filter block.

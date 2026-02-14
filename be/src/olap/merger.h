@@ -81,7 +81,8 @@ public:
             const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
             RowsetWriter* dst_rowset_writer, uint32_t max_rows_per_segment,
             Statistics* stats_output, std::vector<uint32_t> key_group_cluster_key_idxes,
-            int64_t batch_size, CompactionSampleInfo* sample_info);
+            int64_t batch_size, CompactionSampleInfo* sample_info,
+            bool enable_sparse_optimization = false);
 
     // for segcompaction
     static Status vertical_compact_one_group(int64_t tablet_id, ReaderType reader_type,

@@ -307,6 +307,9 @@ Status IndexBuilder::update_inverted_index_info() {
         rowset_meta->set_segments_key_bounds_truncated(
                 input_rowset_meta->is_segments_key_bounds_truncated());
         rowset_meta->set_segments_key_bounds(key_bounds);
+        std::vector<uint32_t> num_segment_rows;
+        input_rowset_meta->get_num_segment_rows(&num_segment_rows);
+        rowset_meta->set_num_segment_rows(num_segment_rows);
         auto output_rowset = output_rs_writer->manual_build(rowset_meta);
         if (input_rowset_meta->has_delete_predicate()) {
             output_rowset->rowset_meta()->set_delete_predicate(

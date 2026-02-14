@@ -24,6 +24,7 @@ import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.constants.MCProperties;
 
 import com.aliyun.odps.Odps;
@@ -231,11 +232,18 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         boolean enableNamespaceSchema = Boolean.parseBoolean(
                 props.getOrDefault(MCProperties.ENABLE_NAMESPACE_SCHEMA, MCProperties.DEFAULT_ENABLE_NAMESPACE_SCHEMA));
         mcStructureHelper = McStructureHelper.getHelper(enableNamespaceSchema, defaultProject);
+
+        metadataOps = ExternalMetadataOperations.newMaxComputeMetadataOps(this, odps);
     }
 
     public Odps getClient() {
         makeSureInitialized();
         return odps;
+    }
+
+    public McStructureHelper getMcStructureHelper() {
+        makeSureInitialized();
+        return mcStructureHelper;
     }
 
     protected List<String> listDatabaseNames() {

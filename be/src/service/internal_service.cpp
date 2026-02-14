@@ -117,7 +117,7 @@
 #include "util/thrift_util.h"
 #include "util/time.h"
 #include "util/uid_util.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/variant_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/format/avro//avro_jni_reader.h"
 #include "vec/exec/format/csv/csv_reader.h"
@@ -671,8 +671,7 @@ void PInternalService::fetch_arrow_data(google::protobuf::RpcController* control
                                         PFetchArrowDataResult* result,
                                         google::protobuf::Closure* done) {
     bool ret = _arrow_flight_work_pool.try_offer([request, result, done]() {
-        brpc::ClosureGuard closure_guard(done);
-        auto ctx = vectorized::GetArrowResultBatchCtx::create_shared(result);
+        auto ctx = vectorized::GetArrowResultBatchCtx::create_shared(result, done);
         TUniqueId unique_id = UniqueId(request->finst_id()).to_thrift(); // query_id or instance_id
         std::shared_ptr<vectorized::ArrowFlightResultBlockBuffer> arrow_buffer;
         auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(unique_id, arrow_buffer);
@@ -825,11 +824,11 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         std::unique_ptr<RuntimeProfile> profile =
                 std::make_unique<RuntimeProfile>("FetchTableSchema");
         std::unique_ptr<vectorized::GenericReader> reader(nullptr);
-        io::IOContext io_ctx;
-        io::FileCacheStatistics file_cache_statis;
-        io_ctx.file_cache_stats = &file_cache_statis;
-        io::FileReaderStats file_reader_stats;
-        io_ctx.file_reader_stats = &file_reader_stats;
+        auto io_ctx = std::make_shared<io::IOContext>();
+        auto file_cache_statis = std::make_shared<io::FileCacheStatistics>();
+        auto file_reader_stats = std::make_shared<io::FileReaderStats>();
+        io_ctx->file_cache_stats = file_cache_statis.get();
+        io_ctx->file_reader_stats = file_reader_stats.get();
         // file_slots is no use, but the lifetime should be longer than reader
         std::vector<SlotDescriptor*> file_slots;
         switch (params.format_type) {
@@ -842,30 +841,30 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         case TFileFormatType::FORMAT_CSV_LZOP:
         case TFileFormatType::FORMAT_CSV_DEFLATE: {
             reader = vectorized::CsvReader::create_unique(nullptr, profile.get(), nullptr, params,
-                                                          range, file_slots, &io_ctx);
+                                                          range, file_slots, io_ctx.get(), io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_TEXT: {
             reader = vectorized::TextReader::create_unique(nullptr, profile.get(), nullptr, params,
-                                                           range, file_slots, &io_ctx);
+                                                           range, file_slots, io_ctx.get());
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
-            reader = vectorized::ParquetReader::create_unique(params, range, &io_ctx, nullptr);
+            reader = vectorized::ParquetReader::create_unique(params, range, io_ctx, nullptr);
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            reader = vectorized::OrcReader::create_unique(params, range, "", &io_ctx);
+            reader = vectorized::OrcReader::create_unique(params, range, "", io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_NATIVE: {
-            reader = vectorized::NativeReader::create_unique(profile.get(), params, range, &io_ctx,
-                                                             nullptr);
+            reader = vectorized::NativeReader::create_unique(profile.get(), params, range,
+                                                             io_ctx.get(), nullptr);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
             reader = vectorized::NewJsonReader::create_unique(profile.get(), params, range,
-                                                              file_slots, &io_ctx);
+                                                              file_slots, io_ctx.get(), io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_AVRO: {
@@ -1206,8 +1205,8 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
             if (!schemas.empty() && st.ok()) {
                 // merge all
                 TabletSchemaSPtr merged_schema;
-                st = vectorized::schema_util::get_least_common_schema(schemas, nullptr,
-                                                                      merged_schema);
+                st = vectorized::variant_util::get_least_common_schema(schemas, nullptr,
+                                                                       merged_schema);
                 if (!st.ok()) {
                     LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
                     st = Status::InternalError("Failed to get least common schema: {}",
@@ -1242,15 +1241,15 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                     }
                     auto tablet = res.value();
                     auto rowsets = tablet->get_snapshot_rowset();
-                    auto schema = vectorized::schema_util::VariantCompactionUtil::
+                    auto schema = vectorized::variant_util::VariantCompactionUtil::
                             calculate_variant_extended_schema(rowsets, tablet->tablet_schema());
                     tablet_schemas.push_back(schema);
                 }
                 if (!tablet_schemas.empty()) {
                     // merge all
                     TabletSchemaSPtr merged_schema;
-                    st = vectorized::schema_util::get_least_common_schema(tablet_schemas, nullptr,
-                                                                          merged_schema);
+                    st = vectorized::variant_util::get_least_common_schema(tablet_schemas, nullptr,
+                                                                           merged_schema);
                     if (!st.ok()) {
                         LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
                         st = Status::InternalError("Failed to get least common schema: {}",
@@ -1280,7 +1279,7 @@ void PInternalService::report_stream_load_status(google::protobuf::RpcController
     if (!stream_load_ctx) {
         st = Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
-    stream_load_ctx->promise.set_value(st);
+    stream_load_ctx->load_status_promise.set_value(st);
     st.to_protobuf(response->mutable_status());
 }
 

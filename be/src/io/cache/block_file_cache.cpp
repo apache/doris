@@ -48,6 +48,7 @@
 #include "io/cache/file_cache_common.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/cache/mem_file_cache_storage.h"
+#include "util/concurrency_stats.h"
 #include "util/runtime_profile.h"
 #include "util/stack_util.h"
 #include "util/stopwatch.hpp"
@@ -141,8 +142,7 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                const FileCacheSettings& cache_settings)
         : _cache_base_path(cache_base_path),
           _capacity(cache_settings.capacity),
-          _max_file_block_size(cache_settings.max_file_block_size),
-          _max_query_cache_size(cache_settings.max_query_cache_size) {
+          _max_file_block_size(cache_settings.max_file_block_size) {
     _cur_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(_cache_base_path.c_str(),
                                                                      "file_cache_cache_size", 0);
     _cache_capacity_metrics = std::make_shared<bvar::Status<size_t>>(
@@ -280,6 +280,12 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     _num_removed_blocks = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                                 "file_cache_num_removed_blocks");
 
+    _no_warmup_num_read_blocks = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_no_warmup_num_read_blocks");
+    _no_warmup_num_hit_blocks = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_no_warmup_num_hit_blocks");
+
+#ifndef BE_TEST
     _num_hit_blocks_5m = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
             _cache_base_path.c_str(), "file_cache_num_hit_blocks_5m", _num_hit_blocks.get(), 300);
     _num_read_blocks_5m = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
@@ -289,12 +295,6 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     _num_read_blocks_1h = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
             _cache_base_path.c_str(), "file_cache_num_read_blocks_1h", _num_read_blocks.get(),
             3600);
-
-    _no_warmup_num_read_blocks = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_no_warmup_num_read_blocks");
-    _no_warmup_num_hit_blocks = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_no_warmup_num_hit_blocks");
-
     _no_warmup_num_hit_blocks_5m = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
             _cache_base_path.c_str(), "file_cache_no_warmup_num_hit_blocks_5m",
             _no_warmup_num_hit_blocks.get(), 300);
@@ -307,6 +307,7 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     _no_warmup_num_read_blocks_1h = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
             _cache_base_path.c_str(), "file_cache_no_warmup_num_read_blocks_1h",
             _no_warmup_num_read_blocks.get(), 3600);
+#endif
 
     _hit_ratio = std::make_shared<bvar::Status<double>>(_cache_base_path.c_str(),
                                                         "file_cache_hit_ratio", 0.0);
@@ -382,7 +383,7 @@ UInt128Wrapper BlockFileCache::hash(const std::string& path) {
 }
 
 BlockFileCache::QueryFileCacheContextHolderPtr BlockFileCache::get_query_context_holder(
-        const TUniqueId& query_id) {
+        const TUniqueId& query_id, int file_cache_query_limit_percent) {
     SCOPED_CACHE_LOCK(_mutex, this);
     if (!config::enable_file_cache_query_limit) {
         return {};
@@ -390,7 +391,7 @@ BlockFileCache::QueryFileCacheContextHolderPtr BlockFileCache::get_query_context
 
     /// if enable_filesystem_query_cache_limit is true,
     /// we create context query for current query.
-    auto context = get_or_set_query_context(query_id, cache_lock);
+    auto context = get_or_set_query_context(query_id, cache_lock, file_cache_query_limit_percent);
     return std::make_unique<QueryFileCacheContextHolder>(query_id, this, context);
 }
 
@@ -410,7 +411,8 @@ void BlockFileCache::remove_query_context(const TUniqueId& query_id) {
 }
 
 BlockFileCache::QueryFileCacheContextPtr BlockFileCache::get_or_set_query_context(
-        const TUniqueId& query_id, std::lock_guard<std::mutex>& cache_lock) {
+        const TUniqueId& query_id, std::lock_guard<std::mutex>& cache_lock,
+        int file_cache_query_limit_percent) {
     if (query_id.lo == 0 && query_id.hi == 0) {
         return nullptr;
     }
@@ -420,7 +422,14 @@ BlockFileCache::QueryFileCacheContextPtr BlockFileCache::get_or_set_query_contex
         return context;
     }
 
-    auto query_context = std::make_shared<QueryFileCacheContext>(_max_query_cache_size);
+    size_t file_cache_query_limit_size = _capacity * file_cache_query_limit_percent / 100;
+    if (file_cache_query_limit_size < 268435456) {
+        LOG(WARNING) << "The user-set file cache query limit (" << file_cache_query_limit_size
+                     << " bytes) is less than the 256MB recommended minimum. "
+                     << "Consider increasing the session variable 'file_cache_query_limit_percent'"
+                     << " from its current value " << file_cache_query_limit_percent << "%.";
+    }
+    auto query_context = std::make_shared<QueryFileCacheContext>(file_cache_query_limit_size);
     auto query_iter = _query_map.emplace(query_id, query_context).first;
     return query_iter->second;
 }
@@ -809,7 +818,9 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
     DCHECK(stats != nullptr);
     MonotonicStopWatch sw;
     sw.start();
+    ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set_wait_lock->increment();
     std::lock_guard cache_lock(_mutex);
+    ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set_wait_lock->decrement();
     stats->lock_wait_timer += sw.elapsed_time();
     FileBlocks file_blocks;
     int64_t duration = 0;
@@ -1219,6 +1230,12 @@ void BlockFileCache::reset_range(const UInt128Wrapper& hash, size_t offset, size
            _files.find(hash)->second.find(offset) != _files.find(hash)->second.end());
     FileBlockCell* cell = get_cell(hash, offset, cache_lock);
     DCHECK(cell != nullptr);
+    if (cell == nullptr) {
+        LOG(WARNING) << "reset_range skipped because cache cell is missing. hash="
+                     << hash.to_string() << " offset=" << offset << " old_size=" << old_size
+                     << " new_size=" << new_size;
+        return;
+    }
     if (cell->queue_iterator) {
         auto& queue = get_queue(cell->file_block->cache_type());
         DCHECK(queue.contains(hash, offset, cache_lock));
@@ -1967,11 +1984,11 @@ void BlockFileCache::run_background_monitor() {
                 _hit_ratio->set_value((double)_num_hit_blocks->get_value() /
                                       (double)_num_read_blocks->get_value());
             }
-            if (_num_read_blocks_5m->get_value() > 0) {
+            if (_num_read_blocks_5m && _num_read_blocks_5m->get_value() > 0) {
                 _hit_ratio_5m->set_value((double)_num_hit_blocks_5m->get_value() /
                                          (double)_num_read_blocks_5m->get_value());
             }
-            if (_num_read_blocks_1h->get_value() > 0) {
+            if (_num_read_blocks_1h && _num_read_blocks_1h->get_value() > 0) {
                 _hit_ratio_1h->set_value((double)_num_hit_blocks_1h->get_value() /
                                          (double)_num_read_blocks_1h->get_value());
             }
@@ -1980,12 +1997,12 @@ void BlockFileCache::run_background_monitor() {
                 _no_warmup_hit_ratio->set_value((double)_no_warmup_num_hit_blocks->get_value() /
                                                 (double)_no_warmup_num_read_blocks->get_value());
             }
-            if (_no_warmup_num_hit_blocks_5m->get_value() > 0) {
+            if (_no_warmup_num_hit_blocks_5m && _no_warmup_num_hit_blocks_5m->get_value() > 0) {
                 _no_warmup_hit_ratio_5m->set_value(
                         (double)_no_warmup_num_hit_blocks_5m->get_value() /
                         (double)_no_warmup_num_read_blocks_5m->get_value());
             }
-            if (_no_warmup_num_hit_blocks_1h->get_value() > 0) {
+            if (_no_warmup_num_hit_blocks_1h && _no_warmup_num_hit_blocks_1h->get_value() > 0) {
                 _no_warmup_hit_ratio_1h->set_value(
                         (double)_no_warmup_num_hit_blocks_1h->get_value() /
                         (double)_no_warmup_num_read_blocks_1h->get_value());

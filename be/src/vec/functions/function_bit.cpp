@@ -142,7 +142,7 @@ private:
 template <PrimitiveType PType>
 struct BitAndImpl {
     static_assert(is_int(PType));
-    using Arg = typename PrimitiveTypeTraits<PType>::CppNativeType;
+    using Arg = typename PrimitiveTypeTraits<PType>::CppType;
     using DataType = typename PrimitiveTypeTraits<PType>::DataType;
     using ColumnType = typename PrimitiveTypeTraits<PType>::ColumnType;
     static constexpr auto name = "bitand";
@@ -154,7 +154,7 @@ struct BitAndImpl {
 template <PrimitiveType PType>
 struct BitOrImpl {
     static_assert(is_int(PType));
-    using Arg = typename PrimitiveTypeTraits<PType>::CppNativeType;
+    using Arg = typename PrimitiveTypeTraits<PType>::CppType;
     using DataType = typename PrimitiveTypeTraits<PType>::DataType;
     using ColumnType = typename PrimitiveTypeTraits<PType>::ColumnType;
     static constexpr auto name = "bitor";
@@ -166,7 +166,7 @@ struct BitOrImpl {
 template <PrimitiveType PType>
 struct BitXorImpl {
     static_assert(is_int(PType));
-    using Arg = typename PrimitiveTypeTraits<PType>::CppNativeType;
+    using Arg = typename PrimitiveTypeTraits<PType>::CppType;
     using DataType = typename PrimitiveTypeTraits<PType>::DataType;
     using ColumnType = typename PrimitiveTypeTraits<PType>::ColumnType;
     static constexpr auto name = "bitxor";
@@ -183,8 +183,8 @@ template <typename A>
 struct BitNotImpl {
     static constexpr PrimitiveType ResultType = NumberTraits::ResultOfBitNot<A>::Type;
 
-    static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
-        return ~static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a);
+    static inline typename PrimitiveTypeTraits<ResultType>::CppType apply(A a) {
+        return ~static_cast<typename PrimitiveTypeTraits<ResultType>::CppType>(a);
     }
 };
 

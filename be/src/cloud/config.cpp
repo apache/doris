@@ -98,7 +98,7 @@ DEFINE_mBool(enable_batch_get_delete_bitmap, "false");
 // to get the remaining rowsets' results.
 DEFINE_mInt64(get_delete_bitmap_bytes_threshold, "524288000"); // 500MB
 
-DEFINE_Bool(enable_cloud_txn_lazy_commit, "false");
+DEFINE_Bool(enable_cloud_txn_lazy_commit, "true");
 
 DEFINE_mInt32(remove_expired_tablet_txn_info_interval_seconds, "300");
 
@@ -110,7 +110,7 @@ DEFINE_mBool(enable_cloud_tablet_report, "true");
 
 DEFINE_mInt32(delete_bitmap_rpc_retry_times, "25");
 
-DEFINE_mInt64(meta_service_rpc_reconnect_interval_ms, "5000");
+DEFINE_mInt64(meta_service_rpc_reconnect_interval_ms, "100");
 
 DEFINE_mInt32(meta_service_conflict_error_retry_times, "10");
 
@@ -135,7 +135,7 @@ DEFINE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms, "120000");
 DEFINE_mBool(enable_warmup_immediately_on_new_rowset, "false");
 
 // Packed file manager config
-DEFINE_mBool(enable_packed_file, "true");
+DEFINE_mBool(enable_packed_file, "false");
 DEFINE_mInt64(packed_file_size_threshold_bytes, "5242880"); // 5MB
 DEFINE_mInt64(packed_file_time_threshold_ms, "100");        // 100ms
 DEFINE_mInt64(packed_file_try_lock_timeout_ms, "5");        // 5ms
@@ -148,12 +148,26 @@ DEFINE_mBool(enable_standby_passive_compaction, "true");
 
 DEFINE_mDouble(standby_compaction_version_ratio, "0.8");
 
+// Compaction read-write separation: only the "last active" cluster (the one that most recently
+// performed load) is allowed to compact a tablet
+DEFINE_mBool(enable_compaction_rw_separation, "true");
+// Timeout in ms for takeover when last active cluster becomes unavailable (default 5 min)
+DEFINE_mInt64(compaction_cluster_takeover_timeout_ms, "300000");
+// Interval in seconds to refresh cluster status cache (default 1 min)
+DEFINE_mInt64(cluster_status_cache_refresh_interval_sec, "60");
+// When version count exceeds this ratio of max_tablet_version_num, force compaction
+// even on read-only clusters (safety valve)
+DEFINE_mDouble(compaction_rw_separation_version_threshold_ratio, "0.8");
+
 DEFINE_mBool(enable_cache_read_from_peer, "true");
 
 // Cache the expiration time of the peer address.
 // This can be configured to be less than the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration.
 // If the value is -1, use the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration as the expiration time.
 DEFINE_mInt64(cache_read_from_peer_expired_seconds, "-1");
+
+DEFINE_mBool(enable_file_cache_write_base_compaction_index_only, "false");
+DEFINE_mBool(enable_file_cache_write_cumu_compaction_index_only, "false");
 
 #include "common/compile_check_end.h"
 } // namespace doris::config

@@ -41,6 +41,35 @@ auto random_column(size_t size) {
             column->insert_value(string);
         }
         return column;
+    } else if constexpr (std::is_same_v<DataType, DataTypeDateV2>) {
+        auto column = ColumnVector<DataType::PType>::create();
+        auto& data = column->get_data();
+        data.resize(size);
+        for (size_t i = 0; i < size; ++i) {
+            uint32_t tmp = i;
+            data[i] = *(typename PrimitiveTypeTraits<DataType::PType>::CppType*)&tmp;
+        }
+        return column;
+    } else if constexpr (std::is_same_v<DataType, DataTypeDateTimeV2> ||
+                         std::is_same_v<DataType, DataTypeTimeStampTz>) {
+        auto column = ColumnVector<DataType::PType>::create();
+        auto& data = column->get_data();
+        data.resize(size);
+        for (size_t i = 0; i < size; ++i) {
+            uint64_t tmp = i;
+            data[i] = *(typename PrimitiveTypeTraits<DataType::PType>::CppType*)&tmp;
+        }
+        return column;
+    } else if constexpr (std::is_same_v<DataType, DataTypeDate> ||
+                         std::is_same_v<DataType, DataTypeDateTime>) {
+        auto column = ColumnVector<DataType::PType>::create();
+        auto& data = column->get_data();
+        data.resize(size);
+        for (size_t i = 0; i < size; ++i) {
+            int64_t tmp = i;
+            data[i] = *(typename PrimitiveTypeTraits<DataType::PType>::CppType*)&tmp;
+        }
+        return column;
     } else {
         auto column = ColumnVector<DataType::PType>::create();
         auto& data = column->get_data();

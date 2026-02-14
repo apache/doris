@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "pipeline/exec/scan_operator.h"
 #include "runtime/descriptors.h"
+#include "util/concurrency_stats.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column_nothing.h"
@@ -77,6 +78,7 @@ Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
 }
 
 Status Scanner::get_block_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().vscanner_get_block);
     auto& row_descriptor = _local_state->_parent->row_descriptor();
     if (_output_row_descriptor) {
         if (_alreay_eos) {
@@ -229,27 +231,17 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
         return Status::OK();
     }
     DCHECK(_applied_rf_num < _total_rf_num);
-
     int arrived_rf_num = 0;
-    RETURN_IF_ERROR(_local_state->_helper.try_append_late_arrival_runtime_filter(
-            _state, &arrived_rf_num, _local_state->_conjuncts,
-            _local_state->_parent->row_descriptor()));
+    RETURN_IF_ERROR(_local_state->update_late_arrival_runtime_filter(_state, arrived_rf_num));
 
     if (arrived_rf_num == _applied_rf_num) {
         // No newly arrived runtime filters, just return;
         return Status::OK();
     }
 
-    // There are newly arrived runtime filters,
-    // renew the _conjuncts
-    if (!_conjuncts.empty()) {
-        _discard_conjuncts();
-    }
-    // Notice that the number of runtime filters may be larger than _applied_rf_num.
-    // But it is ok because it will be updated at next time.
-    RETURN_IF_ERROR(_local_state->_helper.clone_conjunct_ctxs(_state, _conjuncts,
-                                                              _local_state->_conjuncts));
-    _applied_rf_num = arrived_rf_num;
+    // avoid conjunct destroy in used by storage layer
+    _conjuncts.clear();
+    RETURN_IF_ERROR(_local_state->clone_conjunct_ctxs(_conjuncts));
     return Status::OK();
 }
 

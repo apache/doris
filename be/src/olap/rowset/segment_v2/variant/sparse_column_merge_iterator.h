@@ -31,7 +31,7 @@
 #include "olap/iterators.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/stream_reader.h"
-#include "olap/rowset/segment_v2/variant/sparse_column_extract_iterator.h"
+#include "olap/rowset/segment_v2/variant/binary_column_extract_iterator.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
 #include "vec/columns/column.h"
@@ -55,13 +55,13 @@ namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 
 // Implementation for merge processor
-class SparseColumnMergeIterator : public BaseSparseColumnProcessor {
+class SparseColumnMergeIterator : public BaseBinaryColumnProcessor {
 public:
     SparseColumnMergeIterator(const TabletSchema::PathsSetInfo& path_set_info,
-                              SparseColumnCacheSPtr sparse_column_cache,
+                              BinaryColumnCacheSPtr sparse_column_cache,
                               SubstreamReaderTree&& src_subcolumns_for_sparse,
                               const StorageReadOptions* opts)
-            : BaseSparseColumnProcessor(std::move(sparse_column_cache), opts),
+            : BaseBinaryColumnProcessor(std::move(sparse_column_cache), opts),
               _src_subcolumn_map(path_set_info.sub_path_set),
               _src_subcolumns_for_sparse(src_subcolumns_for_sparse) {}
     Status init(const ColumnIteratorOptions& opts) override;

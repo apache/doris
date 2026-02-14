@@ -126,8 +126,10 @@ public:
     void remove_pipeline_context(std::pair<TUniqueId, int> key);
     void remove_query_context(const TUniqueId& key);
 
+    // `is_prepare_success` is used by invoker to ensure callback can be handle correctly (eg. stream_load_executor)
     Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type,
-                              const FinishCallback& cb, const TPipelineFragmentParamsList& parent);
+                              const FinishCallback& cb, const TPipelineFragmentParamsList& parent,
+                              std::shared_ptr<bool> is_prepare_success = nullptr);
 
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
@@ -205,6 +207,19 @@ private:
                                     const TPipelineFragmentParamsList& parent,
                                     QuerySource query_type,
                                     std::shared_ptr<QueryContext>& query_ctx);
+
+    void _collect_timeout_queries_and_brpc_items(
+            std::vector<TUniqueId>& queries_timeout,
+            std::unordered_map<std::shared_ptr<PBackendService_Stub>, BrpcItem>&
+                    brpc_stub_with_queries,
+            timespec now);
+
+    void _collect_invalid_queries(
+            std::vector<TUniqueId>& queries_lost_coordinator,
+            std::vector<TUniqueId>& queries_pipeline_task_leak,
+            const std::map<int64_t, std::unordered_set<TUniqueId>>& running_queries_on_all_fes,
+            const std::map<TNetworkAddress, FrontendInfo>& running_fes,
+            timespec check_invalid_query_last_timestamp);
 
     void _check_brpc_available(const std::shared_ptr<PBackendService_Stub>& brpc_stub,
                                const BrpcItem& brpc_item);

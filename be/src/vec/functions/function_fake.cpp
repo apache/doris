@@ -117,17 +117,20 @@ struct FunctionExplodeMap {
 template <bool AlwaysNullable = false>
 struct FunctionPoseExplode {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        DCHECK(arguments[0]->get_primitive_type() == TYPE_ARRAY)
-                << arguments[0]->get_name() << " not supported";
-        DataTypes fieldTypes(2);
+        DataTypes fieldTypes(arguments.size() + 1);
         fieldTypes[0] = std::make_shared<DataTypeInt32>();
-        fieldTypes[1] =
-                check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type();
+        for (int i = 0; i < arguments.size(); i++) {
+            DCHECK_EQ(arguments[i]->get_primitive_type(), TYPE_ARRAY)
+                    << arguments[i]->get_name() << " not supported";
+            auto nestedType =
+                    check_and_get_data_type<DataTypeArray>(arguments[i].get())->get_nested_type();
+            fieldTypes[i + 1] = make_nullable(nestedType);
+        }
         auto struct_type = std::make_shared<vectorized::DataTypeStruct>(fieldTypes);
         if constexpr (AlwaysNullable) {
             return make_nullable(struct_type);
         } else {
-            return arguments[0]->is_nullable() ? make_nullable(struct_type) : struct_type;
+            return struct_type;
         }
     }
     static DataTypes get_variadic_argument_types() { return {}; }

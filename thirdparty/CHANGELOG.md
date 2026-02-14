@@ -2,6 +2,11 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20260202
+
+- Modified: snappy 1.1.8 -> 1.1.10
+- Modified: xxhash 0.8.1 -> 0.8.3
+
 ## 20151222
 
 - Added: timsort (cpp-TimSort 3.x.y)

@@ -122,7 +122,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/custom_allocator.h"
-#include "vec/common/schema_util.h"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"

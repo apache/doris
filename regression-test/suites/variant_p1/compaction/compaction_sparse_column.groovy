@@ -164,7 +164,7 @@ suite("test_compaction_sparse_column", "p1") {
         def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
         // trigger compactions for all tablets in ${tableName}
-        trigger_and_wait_compaction(tableName, "cumulative")
+        trigger_and_wait_compaction(tableName, "cumulative", 1800)
 
         qt_select_b """ SELECT count(cast(v['b'] as int)) FROM ${tableName};"""
         qt_select_xxxx """ SELECT count(cast(v['xxxx'] as string)) FROM ${tableName};"""

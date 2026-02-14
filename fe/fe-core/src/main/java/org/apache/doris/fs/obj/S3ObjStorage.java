@@ -182,7 +182,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             } while (continuationToken != null);
 
         } catch (NoSuchKeyException e) {
-            return new Status(Status.ErrCode.NOT_FOUND, e.getMessage());
+            return Status.OK;
         } catch (Exception e) {
             return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
         }
@@ -421,10 +421,12 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     @Override
     public RemoteObjects listObjects(String absolutePath, String continuationToken) throws DdlException {
+        String bucket = "";
+        String prefix = "";
         try {
             S3URI uri = S3URI.create(absolutePath, isUsePathStyle, forceParsingByStandardUri);
-            String bucket = uri.getBucket();
-            String prefix = uri.getKey();
+            bucket = uri.getBucket();
+            prefix = uri.getKey();
             ListObjectsV2Request.Builder requestBuilder = ListObjectsV2Request.builder()
                     .bucket(bucket)
                     .prefix(normalizePrefix(prefix));
@@ -438,6 +440,10 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 remoteObjects.add(new RemoteObject(c.key(), relativePath, c.eTag(), c.size()));
             }
             return new RemoteObjects(remoteObjects, response.isTruncated(), response.nextContinuationToken());
+        } catch (NoSuchKeyException e0) {
+            LOG.info("NoSuchKey error when listing objects, treat as empty response. bucket={}, prefix={}",
+                    bucket, prefix);
+            return new RemoteObjects(new ArrayList<>(), false, "");
         } catch (Exception e) {
             LOG.warn(String.format("Failed to list objects for S3: %s", absolutePath), e);
             throw new DdlException("Failed to list objects for S3, Error message: " + Util.getRootCauseMessage(e), e);
@@ -568,6 +574,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         long startTime = System.nanoTime();
         String currentMaxFile = "";
         boolean hasLimits = fileSizeLimit > 0 || fileNumLimit > 0;
+        String bucket = "";
+        String finalPrefix = "";
         try {
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             // Directory bucket check for limit scenario
@@ -575,7 +583,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 throw new RuntimeException("Not support glob with limit for directory bucket");
             }
 
-            String bucket = uri.getBucket();
+            bucket = uri.getBucket();
             String globPath = S3Util.extendGlobs(uri.getKey());
 
             if (LOG.isDebugEnabled()) {
@@ -591,7 +599,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             }
 
             // For Directory Buckets, ensure proper prefix handling using standardized approach
-            String finalPrefix = listPrefix;
+            finalPrefix = listPrefix;
 
             if (!hasLimits && uri.useS3DirectoryBucket()) {
                 String adjustedPrefix = S3URI.getDirectoryPrefixForGlob(listPrefix);
@@ -678,6 +686,10 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 LOG.debug("remotePath:{}, result:{}", remotePath, result);
             }
             return new GlobListResult(Status.OK, currentMaxFile, bucket, finalPrefix);
+        } catch (NoSuchKeyException e0) {
+            LOG.info("NoSuchKey error when listing objects, treat as empty response. bucket={}, prefix={}",
+                    bucket, finalPrefix);
+            return new GlobListResult(Status.OK, "", bucket, finalPrefix);
         } catch (Exception e) {
             LOG.warn("Errors while getting file status", e);
             return new GlobListResult(new Status(Status.ErrCode.COMMON_ERROR,

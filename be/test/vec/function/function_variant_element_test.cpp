@@ -32,14 +32,15 @@ TEST(function_variant_element_test, extract_from_sparse_column) {
     auto [sparse_column_keys, sparse_column_values] =
             variant_ptr->get_sparse_data_paths_and_values();
     auto& sparse_column_offsets = variant_ptr->serialized_sparse_column_offsets();
-    subcolumn.serialize_to_sparse_column(sparse_column_keys, "profile.age", sparse_column_values,
+    subcolumn.serialize_to_binary_column(sparse_column_keys, "profile.age", sparse_column_values,
                                          0);
-    subcolumn.serialize_to_sparse_column(sparse_column_keys, "profile.name", sparse_column_values,
+    subcolumn.serialize_to_binary_column(sparse_column_keys, "profile.name", sparse_column_values,
                                          0);
-    subcolumn.serialize_to_sparse_column(sparse_column_keys, "profile_id", sparse_column_values, 0);
+    subcolumn.serialize_to_binary_column(sparse_column_keys, "profile_id", sparse_column_values, 0);
     sparse_column_offsets.push_back(sparse_column_keys->size());
     variant_ptr->get_subcolumn({})->insert_default();
     variant_ptr->set_num_rows(1);
+    variant_ptr->get_doc_value_column()->assume_mutable()->resize(1);
 
     ColumnPtr result;
     ColumnPtr index_column_ptr = ColumnString::create();

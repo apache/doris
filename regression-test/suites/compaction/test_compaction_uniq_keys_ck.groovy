@@ -62,7 +62,7 @@ suite("test_compaction_uniq_keys_ck") {
                 `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
             UNIQUE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`)
-            CLUSTER BY(`last_visit_date_not_null`, `age`, `sex`, `city`)
+            ORDER BY(`last_visit_date_not_null`, `age`, `sex`, `city`)
             DISTRIBUTED BY HASH(`user_id`)
             PROPERTIES (
                 "replication_num" = "1",

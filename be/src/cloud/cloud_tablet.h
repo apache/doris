@@ -246,6 +246,21 @@ public:
     int64_t alter_version() const { return _alter_version; }
     void set_alter_version(int64_t alter_version) { _alter_version = alter_version; }
 
+    // Last active cluster info for compaction read-write separation
+    std::string last_active_cluster_id() const {
+        std::shared_lock lock(_cluster_info_mutex);
+        return _last_active_cluster_id;
+    }
+    int64_t last_active_time_ms() const {
+        std::shared_lock lock(_cluster_info_mutex);
+        return _last_active_time_ms;
+    }
+    void set_last_active_cluster_info(const std::string& cluster_id, int64_t time_ms) {
+        std::unique_lock lock(_cluster_info_mutex);
+        _last_active_cluster_id = cluster_id;
+        _last_active_time_ms = time_ms;
+    }
+
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
 
     inline Version max_version() const {
@@ -380,6 +395,25 @@ private:
     // used by capture_rs_reader_xxx functions
     bool rowset_is_warmed_up_unlocked(int64_t start_version, int64_t end_version) const;
 
+    // Check if a rowset should be visible but not warmed up within freshness tolerance
+    bool _check_rowset_should_be_visible_but_not_warmed_up(
+            const RowsetMetaSharedPtr& rs_meta, int64_t path_max_version,
+            std::chrono::system_clock::time_point freshness_limit_tp) const;
+
+    // Submit a segment download task for warming up
+    void _submit_segment_download_task(const RowsetSharedPtr& rs,
+                                       const StorageResource* storage_resource, int seg_id,
+                                       int64_t expiration_time);
+
+    // Submit an inverted index download task for warming up
+    void _submit_inverted_index_download_task(const RowsetSharedPtr& rs,
+                                              const StorageResource* storage_resource,
+                                              const io::Path& idx_path, int64_t idx_size,
+                                              int64_t expiration_time);
+
+    // Add rowsets directly with warmup
+    void _add_rowsets_directly(std::vector<RowsetSharedPtr>& rowsets, bool warmup_delta_data);
+
     CloudStorageEngine& _engine;
 
     // this mutex MUST ONLY be used when sync meta
@@ -463,6 +497,11 @@ private:
 
     mutable std::shared_mutex _warmed_up_rowsets_mutex;
     std::unordered_set<RowsetId> _warmed_up_rowsets;
+
+    // Cluster info for compaction read-write separation
+    mutable std::shared_mutex _cluster_info_mutex;
+    std::string _last_active_cluster_id;
+    int64_t _last_active_time_ms {0};
 };
 
 using CloudTabletSPtr = std::shared_ptr<CloudTablet>;

@@ -51,6 +51,9 @@ public:
 
     bool is_blockable() const override;
 
+private:
+    Status _recover_spill_data_from_disk(RuntimeState* state, const UniqueId& query_id);
+
 protected:
     friend class PartitionedAggSourceOperatorX;
     std::unique_ptr<RuntimeState> _runtime_state;
@@ -85,6 +88,12 @@ public:
     bool is_source() const override { return true; }
 
     bool is_serial_operator() const override;
+    void update_operator(const TPlanNode& tnode, bool followed_by_shuffled_operator,
+                         bool require_bucket_distribution) override;
+
+    DataDistribution required_data_distribution(RuntimeState* state) const override;
+    bool is_colocated_operator() const override;
+    bool is_shuffled_operator() const override;
 
 private:
     friend class PartitionedAggLocalState;

@@ -27,7 +27,6 @@ import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.RecursiveCteTempTable;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.SchemaTable.SchemaColumn;
 import org.apache.doris.catalog.TableIf;
@@ -43,6 +42,7 @@ import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.systable.SysTableResolver;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
@@ -91,12 +91,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCteScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWorkTableReference;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.AutoCloseSessionVariable;
@@ -170,37 +170,39 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     leading.putRelationIdAndTableName(Pair.of(consumer.getRelationId(), tableName));
                     leading.getRelationIdToScanMap().put(consumer.getRelationId(), consumer);
                 }
+                if (cascadesContext.getRecursiveCteContext().isPresent()) {
+                    // we are analyzing recursive CTE's recursive child, must inline all used CTEs
+                    cascadesContext.getStatementContext().addToMustLineCTEs(cteContext.getCteId());
+                }
                 return consumer;
             }
         }
-        LogicalPlan scan;
-        if (tableName.equalsIgnoreCase(cascadesContext.getCurrentRecursiveCteName().orElse(""))) {
+        LogicalPlan plan;
+        // check if it is a recursive CTE's name
+        if (cascadesContext.getRecursiveCteContext().isPresent()
+                && cascadesContext.getRecursiveCteContext().get().findCTEContext(tableName).isPresent()) {
             if (cascadesContext.isAnalyzingRecursiveCteAnchorChild()) {
                 throw new AnalysisException(
                         String.format("recursive reference to query %s must not appear within its non-recursive term",
-                                cascadesContext.getCurrentRecursiveCteName().get()));
+                                tableName));
             }
-            ImmutableList.Builder<Column> schema = new ImmutableList.Builder<>();
-            for (Slot slot : cascadesContext.getRecursiveCteOutputs()) {
-                schema.add(new Column(slot.getName(), slot.getDataType().toCatalogDataType(), slot.nullable()));
-            }
-            RecursiveCteTempTable cteTempTable = new RecursiveCteTempTable(tableName, schema.build());
-            scan = new LogicalRecursiveCteScan(cascadesContext.getStatementContext().getNextRelationId(),
-                    cteTempTable, unboundRelation.getNameParts());
+            plan = new LogicalWorkTableReference(cascadesContext.getStatementContext().getNextRelationId(),
+                    cascadesContext.getRecursiveCteContext().get().getCteId(),
+                    cascadesContext.getRecursiveCteOutputs(), unboundRelation.getNameParts());
         } else {
             List<String> tableQualifier = RelationUtil.getQualifierName(
                     cascadesContext.getConnectContext(), unboundRelation.getNameParts());
             TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY,
                     Optional.of(unboundRelation));
 
-            scan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
+            plan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
             if (cascadesContext.isLeadingJoin()) {
                 LeadingHint leading = (LeadingHint) cascadesContext.getHintMap().get("Leading");
                 leading.putRelationIdAndTableName(Pair.of(unboundRelation.getRelationId(), tableName));
-                leading.getRelationIdToScanMap().put(unboundRelation.getRelationId(), scan);
+                leading.getRelationIdToScanMap().put(unboundRelation.getRelationId(), plan);
             }
         }
-        return scan;
+        return plan;
     }
 
     private LogicalPlan bind(CascadesContext cascadesContext, UnboundRelation unboundRelation) {
@@ -391,12 +393,32 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private Optional<LogicalPlan> handleMetaTable(TableIf table, UnboundRelation unboundRelation,
             List<String> qualifiedTableName) {
-        Optional<TableValuedFunction> tvf = table.getSysTableFunction(
-                qualifiedTableName.get(0), qualifiedTableName.get(1), qualifiedTableName.get(2));
-        if (tvf.isPresent()) {
-            return Optional.of(new LogicalTVFRelation(unboundRelation.getRelationId(), tvf.get(), ImmutableList.of()));
+        Optional<SysTableResolver.SysTablePlan> sysTablePlanOpt = SysTableResolver.resolveForPlan(
+                table, qualifiedTableName.get(0), qualifiedTableName.get(1), qualifiedTableName.get(2));
+        if (!sysTablePlanOpt.isPresent()) {
+            return Optional.empty();
         }
-        return Optional.empty();
+
+        SysTableResolver.SysTablePlan sysTablePlan = sysTablePlanOpt.get();
+
+        // Native path: create system external table and return LogicalFileScan
+        if (sysTablePlan.isNative()) {
+            List<String> qualifierWithoutTableName = qualifiedTableName.subList(0, qualifiedTableName.size() - 1);
+            ExternalTable sysExternalTable = sysTablePlan.getSysExternalTable();
+            return Optional.of(new LogicalFileScan(
+                    unboundRelation.getRelationId(),
+                    sysExternalTable,
+                    qualifierWithoutTableName,
+                    ImmutableList.of(),
+                    unboundRelation.getTableSample(),
+                    unboundRelation.getTableSnapshot(),
+                    Optional.ofNullable(unboundRelation.getScanParams()),
+                    Optional.empty()));
+        }
+
+        // TVF path: create table-valued function and return LogicalTVFRelation
+        TableValuedFunction tvf = sysTablePlan.getTvf();
+        return Optional.of(new LogicalTVFRelation(unboundRelation.getRelationId(), tvf, ImmutableList.of()));
     }
 
     private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation,
@@ -417,6 +439,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
         List<String> qualifierWithoutTableName = qualifiedTableName.subList(0, qualifiedTableName.size() - 1);
         cascadesContext.getStatementContext().loadSnapshots(
+                table,
                 unboundRelation.getTableSnapshot(),
                 Optional.ofNullable(unboundRelation.getScanParams()));
         boolean isView = false;

@@ -251,7 +251,7 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         StringBuilder segmentCountBuilder = new StringBuilder();
         StringBuilder tableRowCountBuilder = new StringBuilder();
 
-        Collection<OlapTable.Statistics> values = tabletStatMgr.getCloudTableStatsMap().values();
+        Collection<OlapTable.Statistics> values = tabletStatMgr.getCloudTableStats();
         // calc totalTableSize
         long totalTableSize = 0;
         for (OlapTable.Statistics stats : values) {

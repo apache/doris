@@ -106,12 +106,11 @@ bool SpillSortSinkLocalState::is_blockable() const {
 }
 
 SpillSortSinkOperatorX::SpillSortSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
-                                               const TPlanNode& tnode, const DescriptorTbl& descs,
-                                               bool require_bucket_distribution)
+                                               const TPlanNode& tnode, const DescriptorTbl& descs)
         : DataSinkOperatorX(operator_id, tnode.node_id, dest_id) {
     _spillable = true;
-    _sort_sink_operator = std::make_unique<SortSinkOperatorX>(pool, operator_id, dest_id, tnode,
-                                                              descs, require_bucket_distribution);
+    _sort_sink_operator =
+            std::make_unique<SortSinkOperatorX>(pool, operator_id, dest_id, tnode, descs);
 }
 
 Status SpillSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -230,7 +229,7 @@ Status SpillSortSinkLocalState::_execute_spill_sort(RuntimeState* state, TUnique
         RETURN_IF_ERROR(status);
         block.clear_column_data();
     }
-    parent._sort_sink_operator->reset(_runtime_state.get());
+    RETURN_IF_ERROR(parent._sort_sink_operator->reset(_runtime_state.get()));
 
     return Status::OK();
 }

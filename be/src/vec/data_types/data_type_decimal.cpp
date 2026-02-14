@@ -227,8 +227,14 @@ Status DataTypeDecimal<T>::check_column(const IColumn& column) const {
 template <PrimitiveType T>
 bool DataTypeDecimal<T>::parse_from_string(const std::string& str, FieldType* res) const {
     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-    res->value = StringParser::string_to_decimal<DataTypeDecimalSerDe<T>::get_primitive_type()>(
-            str.c_str(), cast_set<Int32>(str.size()), precision, scale, &result);
+    if constexpr (T == TYPE_DECIMALV2) {
+        *res = DecimalV2Value(
+                StringParser::string_to_decimal<DataTypeDecimalSerDe<T>::get_primitive_type()>(
+                        str.c_str(), cast_set<Int32>(str.size()), precision, scale, &result));
+    } else {
+        res->value = StringParser::string_to_decimal<DataTypeDecimalSerDe<T>::get_primitive_type()>(
+                str.c_str(), cast_set<Int32>(str.size()), precision, scale, &result);
+    }
     return result == StringParser::PARSE_SUCCESS || result == StringParser::PARSE_UNDERFLOW;
 }
 

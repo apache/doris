@@ -25,10 +25,12 @@ import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -94,6 +96,16 @@ public class DateTrunc extends ScalarFunction
     @Override
     public FunctionSignature customSignature() {
         // should never return V1 Type
+        // Handle TimeStampTzType first, before isDateLikeType check
+        // Because getCurrentType() would convert TimeStampTzType to DateTimeV2Type
+        if (getArgument(0).getDataType() instanceof TimeStampTzType) {
+            TimeStampTzType type = (TimeStampTzType) getArgument(0).getDataType();
+            return FunctionSignature.ret(type).args(type, VarcharType.SYSTEM_DEFAULT);
+        } else if (getArgument(1).getDataType() instanceof TimeStampTzType) {
+            TimeStampTzType type = (TimeStampTzType) getArgument(1).getDataType();
+            return FunctionSignature.ret(type).args(VarcharType.SYSTEM_DEFAULT, type);
+        }
+
         if (getArgument(0).getDataType().isDateLikeType()) {
             DataType type = DataType.getCurrentType(getArgument(0).getDataType());
             return FunctionSignature.ret(type).args(type, VarcharType.SYSTEM_DEFAULT);
@@ -107,14 +119,34 @@ public class DateTrunc extends ScalarFunction
         boolean secondArgIsStringLiteral =
                 getArgument(1).isConstant() && getArgument(1) instanceof StringLikeLiteral;
         if (firstArgIsStringLiteral && !secondArgIsStringLiteral) {
+            DataType argType = getArgument(1).getDataType();
+            if (argType instanceof TimeStampTzType) {
+                return FunctionSignature.ret((TimeStampTzType) argType)
+                        .args(VarcharType.SYSTEM_DEFAULT, (TimeStampTzType) argType);
+            }
             return FunctionSignature.ret(DateTimeV2Type.WILDCARD)
                     .args(VarcharType.SYSTEM_DEFAULT, DateTimeV2Type.WILDCARD);
         } else if (!firstArgIsStringLiteral && secondArgIsStringLiteral) {
+            DataType argType = getArgument(0).getDataType();
+            if (argType instanceof TimeStampTzType) {
+                return FunctionSignature.ret((TimeStampTzType) argType)
+                        .args((TimeStampTzType) argType, VarcharType.SYSTEM_DEFAULT);
+            }
             return FunctionSignature.ret(DateTimeV2Type.WILDCARD)
                     .args(DateTimeV2Type.WILDCARD, VarcharType.SYSTEM_DEFAULT);
         } else if (firstArgIsStringLiteral && secondArgIsStringLiteral) {
             boolean timeUnitIsFirst = LEGAL_TIME_UNIT.contains(((StringLikeLiteral) getArgument(0))
                     .getStringValue().toLowerCase());
+            // Check if the datetime string contains timezone information
+            String datetimeStr = timeUnitIsFirst
+                    ? ((StringLikeLiteral) getArgument(1)).getStringValue()
+                    : ((StringLikeLiteral) getArgument(0)).getStringValue();
+            if (DateTimeChecker.hasTimeZone(datetimeStr)) {
+                return timeUnitIsFirst ? FunctionSignature.ret(TimeStampTzType.SYSTEM_DEFAULT)
+                        .args(VarcharType.SYSTEM_DEFAULT, TimeStampTzType.SYSTEM_DEFAULT)
+                        : FunctionSignature.ret(TimeStampTzType.SYSTEM_DEFAULT)
+                                .args(TimeStampTzType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT);
+            }
             return timeUnitIsFirst ? FunctionSignature.ret(DateTimeV2Type.WILDCARD)
                     .args(VarcharType.SYSTEM_DEFAULT, DateTimeV2Type.WILDCARD)
                     : FunctionSignature.ret(DateTimeV2Type.WILDCARD)
