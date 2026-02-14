@@ -770,6 +770,8 @@ public:
 
     DataTypePtr get_return_type() const override { return type; }
 
+    bool is_trivial() const override { return Data::IsFixedLength; }
+
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {
         this->data(place).change_if_better(*columns[0], row_num, arena);
@@ -805,20 +807,6 @@ public:
         this->data(place).insert_result_into(to);
     }
 
-    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena& arena,
-                                 size_t num_rows) const override {
-        if constexpr (Data::IsFixedLength) {
-            const auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
-            auto* column_data = reinterpret_cast<const Data*>(col.get_data().data());
-            Data* data = reinterpret_cast<Data*>(places);
-            for (size_t i = 0; i != num_rows; ++i) {
-                data[i] = column_data[i];
-            }
-        } else {
-            Base::deserialize_from_column(places, column, arena, num_rows);
-        }
-    }
-
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
                              MutableColumnPtr& dst, const size_t num_rows) const override {
         if constexpr (Data::IsFixedLength) {
@@ -847,20 +835,6 @@ public:
         }
     }
 
-    void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
-                                           Arena& arena) const override {
-        if constexpr (Data::IsFixedLength) {
-            const auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
-            auto* column_data = reinterpret_cast<const Data*>(col.get_data().data());
-            const size_t num_rows = column.size();
-            for (size_t i = 0; i != num_rows; ++i) {
-                this->data(place).change_if_better(column_data[i], arena);
-            }
-        } else {
-            Base::deserialize_and_merge_from_column(place, column, arena);
-        }
-    }
-
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
                                                  Arena& arena) const override {
@@ -880,17 +854,29 @@ public:
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const IColumn* column, Arena& arena,
                                    const size_t num_rows) const override {
-        this->deserialize_from_column(rhs, *column, arena, num_rows);
-        DEFER({ this->destroy_vec(rhs, num_rows); });
-        this->merge_vec(places, offset, rhs, arena, num_rows);
+        if constexpr (Data::IsFixedLength) {
+            const auto& col = assert_cast<const ColumnFixedLengthObject&>(*column);
+            const auto* data = col.get_data().data();
+            this->merge_vec(places, offset, AggregateDataPtr(data), arena, num_rows);
+        } else {
+            this->deserialize_vec(rhs, assert_cast<const ColumnString*>(column), arena, num_rows);
+            DEFER({ this->destroy_vec(rhs, num_rows); });
+            this->merge_vec(places, offset, rhs, arena, num_rows);
+        }
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
                                             AggregateDataPtr rhs, const IColumn* column,
                                             Arena& arena, const size_t num_rows) const override {
-        this->deserialize_from_column(rhs, *column, arena, num_rows);
-        DEFER({ this->destroy_vec(rhs, num_rows); });
-        this->merge_vec_selected(places, offset, rhs, arena, num_rows);
+        if constexpr (Data::IsFixedLength) {
+            const auto& col = assert_cast<const ColumnFixedLengthObject&>(*column);
+            const auto* data = col.get_data().data();
+            this->merge_vec_selected(places, offset, AggregateDataPtr(data), arena, num_rows);
+        } else {
+            this->deserialize_vec(rhs, assert_cast<const ColumnString*>(column), arena, num_rows);
+            DEFER({ this->destroy_vec(rhs, num_rows); });
+            this->merge_vec_selected(places, offset, rhs, arena, num_rows);
+        }
     }
 
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
