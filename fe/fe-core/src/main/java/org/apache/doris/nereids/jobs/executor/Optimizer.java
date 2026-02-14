@@ -100,7 +100,10 @@ public class Optimizer {
                 && !cascadesContext.isLeadingDisableJoinReorder()
                 && continuousJoinNum <= sessionVariable.getMaxJoinNumberOfReorder()
                 && isDpHyp;
-//        finalEnableDpHyp = true;
+        if (continuousJoinNum > 0) {
+            finalEnableDpHyp = true;
+        }
+
         cascadesContext.getStatementContext().setDpHyp(finalEnableDpHyp);
         return finalEnableDpHyp;
     }
@@ -112,7 +115,7 @@ public class Optimizer {
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
 
         // 1) copy out logical plan from memo
-        Plan plan = cascadesContext.getMemo().copyOut();
+        Plan plan = cascadesContext.getMemo().copyOutBestLogicalPlan();
 
         // 2) run PushDownExpressionsInHashCondition as a plan rewrite on a temporary context
         org.apache.doris.nereids.CascadesContext tempCtx = CascadesContext.newCurrentTreeContext(cascadesContext);

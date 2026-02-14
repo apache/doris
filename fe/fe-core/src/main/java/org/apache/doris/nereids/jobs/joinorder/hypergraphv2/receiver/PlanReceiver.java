@@ -117,7 +117,10 @@ public class PlanReceiver extends AbstractReceiver {
         }
 
         emitCount += 1;
-        if (emitCount > limit || System.currentTimeMillis() - startTime > timeLimit) {
+//        if (emitCount > limit || System.currentTimeMillis() - startTime > timeLimit) {
+//            return EmitState.FAIL;
+//        }
+        if (emitCount > limit) {
             return EmitState.FAIL;
         }
         edges.addAll(missingEdges);
