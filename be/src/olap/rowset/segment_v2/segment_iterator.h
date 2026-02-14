@@ -514,10 +514,6 @@ private:
 
     // key is column uid, value is the sparse column cache
     std::unordered_map<int32_t, PathToBinaryColumnCacheUPtr> _variant_sparse_column_cache;
-
-    bool _find_condition_cache = false;
-    std::shared_ptr<std::vector<bool>> _condition_cache;
-    static constexpr int CONDITION_CACHE_OFFSET = 2048;
 };
 
 } // namespace segment_v2

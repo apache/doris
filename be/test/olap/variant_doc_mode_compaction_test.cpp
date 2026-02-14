@@ -455,7 +455,7 @@ TEST_F(VariantDocModeCompactionTest, variant_doc_mode_compaction_merge_10_segmen
     CumulativeCompaction cu_compaction(*engine_ref, tablet);
     cu_compaction._input_rowsets = std::move(input_rowsets);
 
-    config::enable_variant_doc_compaction_sparse_write = true;
+    config::enable_variant_doc_sparse_write_subcolumns = true;
     std::cout << "variant start compaction" << std::endl;
     auto start = std::chrono::steady_clock::now();
     auto st = cu_compaction.CompactionMixin::execute_compact();
