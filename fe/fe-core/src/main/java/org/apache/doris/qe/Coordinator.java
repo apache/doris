@@ -39,6 +39,7 @@ import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.hive.HMSTransaction;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
+import org.apache.doris.datasource.maxcompute.MCTransaction;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlCommand;
@@ -2511,6 +2512,10 @@ public class Coordinator implements CoordInterface {
         if (params.isSetIcebergCommitDatas()) {
             ((IcebergTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
                 .updateIcebergCommitData(params.getIcebergCommitDatas());
+        }
+        if (params.isSetMcCommitDatas()) {
+            ((MCTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
+                .updateMCCommitData(params.getMcCommitDatas());
         }
 
         if (ctx.done) {

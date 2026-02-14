@@ -47,6 +47,9 @@ public:
     Status close() override;
     int64_t written_len() override;
 
+    // Retrieve statistics from Java-side writer (calls JniWriter.getStatistics())
+    std::map<std::string, std::string> get_statistics();
+
 private:
     Status _init_jni_writer(JNIEnv* env, int batch_size);
 

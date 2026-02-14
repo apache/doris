@@ -35,6 +35,7 @@ under the License.
         <module>trino-connector-scanner</module>
         <module>hadoop-deps</module>
         <module>java-writer</module>
+        <module>max-compute-writer</module>
     </modules>
 
     <parent>

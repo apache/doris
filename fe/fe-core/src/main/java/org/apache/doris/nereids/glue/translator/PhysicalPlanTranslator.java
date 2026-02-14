@@ -54,6 +54,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hudi.source.HudiScanNode;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.jdbc.sink.JdbcTableSink;
@@ -139,6 +140,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHudiScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
@@ -198,6 +200,7 @@ import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HiveTableSink;
 import org.apache.doris.planner.IcebergTableSink;
+import org.apache.doris.planner.MaxComputeTableSink;
 import org.apache.doris.planner.IntersectNode;
 import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.MaterializationNode;
@@ -581,6 +584,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         IcebergTableSink sink = new IcebergTableSink((IcebergExternalTable) icebergTableSink.getTargetTable());
         rootFragment.setSink(sink);
         sink.setOutputExprs(outputExprs);
+        return rootFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalMaxComputeTableSink(PhysicalMaxComputeTableSink<? extends Plan> mcTableSink,
+                                                          PlanTranslatorContext context) {
+        PlanFragment rootFragment = mcTableSink.child().accept(this, context);
+        rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
+        MaxComputeTableSink sink = new MaxComputeTableSink(
+                (MaxComputeExternalTable) mcTableSink.getTargetTable());
+        rootFragment.setSink(sink);
         return rootFragment;
     }
 

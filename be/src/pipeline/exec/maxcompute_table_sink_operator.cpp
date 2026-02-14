@@ -15,12 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.transaction;
+#include "maxcompute_table_sink_operator.h"
 
-public enum TransactionType {
-    UNKNOWN,
-    HMS,
-    ICEBERG,
-    JDBC,
-    MAXCOMPUTE
+#include "common/status.h"
+
+namespace doris::pipeline {
+#include "common/compile_check_begin.h"
+Status MCTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
+    RETURN_IF_ERROR(Base::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_init_timer);
+    auto& p = _parent->cast<Parent>();
+    RETURN_IF_ERROR(_writer->init_properties(p._pool));
+    return Status::OK();
 }
+
+} // namespace doris::pipeline

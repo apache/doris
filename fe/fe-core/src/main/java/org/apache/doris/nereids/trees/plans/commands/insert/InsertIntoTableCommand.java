@@ -32,6 +32,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.load.loadv2.LoadJob;
@@ -63,6 +64,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
@@ -455,6 +457,21 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                         physicalSink,
                         () -> new IcebergInsertExecutor(ctx, icebergExternalTable, label, planner,
                                 Optional.of(icebergInsertCtx),
+                                emptyInsert, jobId
+                        )
+                );
+            } else if (physicalSink instanceof PhysicalMaxComputeTableSink) {
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
+                MaxComputeExternalTable mcExternalTable = (MaxComputeExternalTable) targetTableIf;
+                MCInsertCommandContext mcInsertCtx = insertCtx
+                        .map(insertCommandContext -> (MCInsertCommandContext) insertCommandContext)
+                        .orElseGet(MCInsertCommandContext::new);
+                return ExecutorFactory.from(
+                        planner,
+                        dataSink,
+                        physicalSink,
+                        () -> new MCInsertExecutor(ctx, mcExternalTable, label, planner,
+                                Optional.of(mcInsertCtx),
                                 emptyInsert, jobId
                         )
                 );

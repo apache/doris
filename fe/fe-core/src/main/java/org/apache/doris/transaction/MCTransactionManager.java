@@ -17,10 +17,20 @@
 
 package org.apache.doris.transaction;
 
-public enum TransactionType {
-    UNKNOWN,
-    HMS,
-    ICEBERG,
-    JDBC,
-    MAXCOMPUTE
+import org.apache.doris.datasource.maxcompute.MCTransaction;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
+
+public class MCTransactionManager extends AbstractExternalTransactionManager<MCTransaction> {
+
+    private final MaxComputeExternalCatalog catalog;
+
+    public MCTransactionManager(MaxComputeExternalCatalog catalog) {
+        super(null);
+        this.catalog = catalog;
+    }
+
+    @Override
+    MCTransaction createTransaction() {
+        return new MCTransaction(catalog);
+    }
 }

@@ -194,7 +194,7 @@ public class MaxComputeMetadataOps implements ExternalMetadataOps {
         }
 
         if (bucketNum != null) {
-            creator.withBucketNum(bucketNum);
+            creator.withDeltaTableBucketNum(bucketNum);
         }
 
         try {
