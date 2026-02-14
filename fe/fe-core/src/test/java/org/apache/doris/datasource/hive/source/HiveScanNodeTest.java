@@ -100,8 +100,10 @@ public class HiveScanNodeTest {
      */
     @Test
     public void testConnectContextPropagationInAsyncThread() throws Exception {
-        // Create a mock ConnectContext
-        ConnectContext parentContext = Mockito.mock(ConnectContext.class);
+        // Use a lightweight mock but let setThreadLocalInfo() run its real logic.
+        // Otherwise, a plain Mockito mock would treat setThreadLocalInfo() as a no-op and
+        // ConnectContext.get() would remain null in async threads.
+        ConnectContext parentContext = Mockito.mock(ConnectContext.class, Mockito.CALLS_REAL_METHODS);
 
         // Set it in the current thread
         parentContext.setThreadLocalInfo();
@@ -150,8 +152,8 @@ public class HiveScanNodeTest {
      */
     @Test
     public void testNestedAsyncConnectContextPropagation() throws Exception {
-        // Create a mock ConnectContext
-        ConnectContext parentContext = Mockito.mock(ConnectContext.class);
+        // Use a lightweight mock but let setThreadLocalInfo() run its real logic.
+        ConnectContext parentContext = Mockito.mock(ConnectContext.class, Mockito.CALLS_REAL_METHODS);
 
         ExecutorService executor = Executors.newFixedThreadPool(2);
         CountDownLatch outerLatch = new CountDownLatch(1);
@@ -220,7 +222,8 @@ public class HiveScanNodeTest {
      */
     @Test
     public void testConnectContextCleanupOnException() throws Exception {
-        ConnectContext parentContext = Mockito.mock(ConnectContext.class);
+        // Let setThreadLocalInfo() run its real logic so this test actually validates cleanup.
+        ConnectContext parentContext = Mockito.mock(ConnectContext.class, Mockito.CALLS_REAL_METHODS);
 
         ExecutorService executor = Executors.newSingleThreadExecutor();
         AtomicReference<ConnectContext> afterExceptionRef = new AtomicReference<>();
