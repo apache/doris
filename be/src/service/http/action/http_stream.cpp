@@ -160,7 +160,7 @@ int HttpStreamAction::on_header(HttpRequest* req) {
     // Call parent's auth check first
     int ret = HttpHandlerWithAuth::on_header(req);
     if (ret != 0) {
-        return ret;  // Auth failed, return error
+        return ret; // Auth failed, return error
     }
 
     http_stream_current_processing->increment(1);
