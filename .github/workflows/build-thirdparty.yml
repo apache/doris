@@ -69,6 +69,7 @@ jobs:
         uses: ./maximize-build-space
         with:
             root-reserve-mb: 4096
+            temp-reserve-mb: 4096
             swap-size-mb: 8192
             remove-dotnet: 'true'
             remove-android: 'true'
