@@ -25,6 +25,8 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import com.google.common.collect.ImmutableMap;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Map;
 
 /**
@@ -36,6 +38,21 @@ public class OSSStorageVault extends StorageVault {
     private Resource resource;
 
     public static final String OSS_ROOT_PATH = "oss.root.path";
+
+    /**
+     * Properties that can be altered for an existing OSS storage vault.
+     * Includes OSS-specific properties but excludes immutable properties like bucket, endpoint, and type.
+     * Note: TYPE is excluded because changing vault type (OSS->S3, etc.) is not supported.
+     */
+    public static final HashSet<String> ALLOW_ALTER_PROPERTIES = new HashSet<>(Arrays.asList(
+            StorageVault.PropertyKey.VAULT_NAME,
+            PropertyKey.ACCESS_KEY,
+            PropertyKey.SECRET_KEY,
+            PropertyKey.SESSION_TOKEN,
+            PropertyKey.MAX_CONNECTIONS,
+            PropertyKey.REQUEST_TIMEOUT_MS,
+            PropertyKey.CONNECTION_TIMEOUT_MS
+    ));
 
     /**
      * Property keys for OSS storage vault configuration.
@@ -88,6 +105,18 @@ public class OSSStorageVault extends StorageVault {
             throw new DdlException("OSS endpoint is required. Please set " + PropertyKey.ENDPOINT);
         }
 
+        // Region validation - warn if not provided as it may be required for some operations
+        String endpoint = properties.get(PropertyKey.ENDPOINT);
+        if (!properties.containsKey(PropertyKey.REGION)
+                || StringUtils.isBlank(properties.get(PropertyKey.REGION))) {
+            // Check if region can be inferred from endpoint
+            if (!canInferRegionFromEndpoint(endpoint)) {
+                throw new DdlException("OSS region cannot be inferred from endpoint '" + endpoint + "'. "
+                        + "Please explicitly set " + PropertyKey.REGION + ". "
+                        + "Example: 'oss.region' = 'cn-hangzhou'");
+            }
+        }
+
         // Bucket is required
         if (!properties.containsKey(PropertyKey.BUCKET)
                 || StringUtils.isBlank(properties.get(PropertyKey.BUCKET))) {
@@ -98,6 +127,17 @@ public class OSSStorageVault extends StorageVault {
         if (!properties.containsKey(PropertyKey.ROOT_PATH)
                 || StringUtils.isBlank(properties.get(PropertyKey.ROOT_PATH))) {
             throw new DdlException("OSS root path is required. Please set " + PropertyKey.ROOT_PATH);
+        }
+
+        // Validate root path format - must not start with '/' to avoid invalid OSS keys
+        String rootPath = properties.get(PropertyKey.ROOT_PATH);
+        if (rootPath.startsWith("/")) {
+            throw new DdlException("OSS root path must not start with '/'. "
+                    + "Use relative path like 'doris/data' instead of '/doris/data'. Got: " + rootPath);
+        }
+        if (rootPath.endsWith("/")) {
+            throw new DdlException("OSS root path must not end with '/'. "
+                    + "Use 'doris/data' instead of 'doris/data/'. Got: " + rootPath);
         }
 
         // Access key and secret key are optional (can use ECS instance profile)
@@ -131,7 +171,8 @@ public class OSSStorageVault extends StorageVault {
     }
 
     /**
-     * Validate timeout property value.
+     * Validate timeout property value (in milliseconds).
+     * Ensures the timeout is a positive integer value in milliseconds.
      */
     private void validateTimeoutProperty(Map<String, String> properties,
             String key, String name) throws DdlException {
@@ -139,11 +180,44 @@ public class OSSStorageVault extends StorageVault {
             try {
                 int timeout = Integer.parseInt(properties.get(key));
                 if (timeout <= 0) {
-                    throw new DdlException(name + " must be positive, got: " + timeout);
+                    throw new DdlException(name + " must be positive (in milliseconds), got: " + timeout);
                 }
             } catch (NumberFormatException e) {
-                throw new DdlException("Invalid " + name + " value: " + properties.get(key));
+                throw new DdlException("Invalid " + name + " value (must be milliseconds as integer): "
+                        + properties.get(key));
             }
         }
+    }
+
+    /**
+     * Check if region can be inferred from the OSS endpoint.
+     * Supports both native OSS and S3-compatible endpoint formats.
+     * Examples:
+     *   - oss-cn-hangzhou.aliyuncs.com → can infer region (native OSS)
+     *   - oss-cn-beijing-internal.aliyuncs.com → can infer region (native OSS VPC)
+     *   - s3.cn-shanghai.aliyuncs.com → can infer region (S3-compatible)
+     *   - custom.example.com → cannot infer region
+     */
+    private boolean canInferRegionFromEndpoint(String endpoint) {
+        if (StringUtils.isBlank(endpoint)) {
+            return false;
+        }
+
+        // Remove protocol if present
+        String host = endpoint.replaceFirst("^https?://", "");
+
+        // Check for standard Alibaba Cloud OSS endpoint patterns
+        // Pattern 1: oss-{region}.aliyuncs.com or oss-{region}-internal.aliyuncs.com (native OSS)
+        if (host.matches("^oss-[a-z0-9-]+(?:-internal)?\\.aliyuncs\\.com$")) {
+            return true;
+        }
+
+        // Pattern 2: s3.{region}.aliyuncs.com (S3-compatible endpoint)
+        if (host.matches("^s3\\.([a-z0-9-]+)\\.aliyuncs\\.com$")) {
+            return true;
+        }
+
+        // Custom endpoints cannot have region inferred
+        return false;
     }
 }

@@ -90,8 +90,9 @@ struct OSSClientConf {
         return fmt::format(
                 "(ak={}, token={}, endpoint={}, region={}, bucket={}, max_connections={}, "
                 "request_timeout_ms={}, connect_timeout_ms={}, cred_provider_type={})",
-                hide_access_key(ak), token, endpoint, region, bucket, max_connections,
-                request_timeout_ms, connect_timeout_ms, static_cast<int>(cred_provider_type));
+                hide_access_key(ak), hide_access_key(token), endpoint, region, bucket,
+                max_connections, request_timeout_ms, connect_timeout_ms,
+                static_cast<int>(cred_provider_type));
     }
 };
 

@@ -32,10 +32,16 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/oss_file_reader.h"
+#include "io/fs/oss_file_writer.h"
 #include "io/fs/remote_file_system.h"
 
 namespace doris::io {
 namespace {
+
+// Multipart copy threshold - files larger than this use multipart copy to avoid timeouts
+constexpr int64_t MULTIPART_COPY_THRESHOLD = 1073741824; // 1GB
+constexpr int64_t MULTIPART_COPY_PART_SIZE = 104857600;  // 100MB per part
 
 #ifndef CHECK_OSS_CLIENT
 #define CHECK_OSS_CLIENT(client)                                 \
@@ -176,14 +182,19 @@ OSSFileSystem::~OSSFileSystem() = default;
 
 Status OSSFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
                                        const FileWriterOptions* opts) {
-    // TODO: Implement OSSFileWriter
-    return Status::NotSupported("OSSFileWriter not implemented yet");
+    auto key = DORIS_TRY(get_oss_key(file));
+    *writer = std::make_unique<OSSFileWriter>(_client, _bucket, key, opts);
+    return Status::OK();
 }
 
 Status OSSFileSystem::open_file_internal(const Path& file, FileReaderSPtr* reader,
                                          const FileReaderOptions& opts) {
-    // TODO: Implement OSSFileReader
-    return Status::NotSupported("OSSFileReader not implemented yet");
+    auto key = DORIS_TRY(get_oss_key(file));
+    int64_t fsize = opts.file_size;
+
+    auto oss_reader = DORIS_TRY(OSSFileReader::create(_client, _bucket, key, fsize));
+    *reader = oss_reader;
+    return Status::OK();
 }
 
 Status OSSFileSystem::create_directory_impl(const Path& dir, bool failed_if_exists) {
@@ -220,7 +231,6 @@ Status OSSFileSystem::delete_directory_impl(const Path& dir) {
         prefix.push_back('/');
     }
 
-    // List and delete all objects with prefix
     bool is_truncated = true;
     std::string marker;
 
@@ -243,7 +253,6 @@ Status OSSFileSystem::delete_directory_impl(const Path& dir) {
         const auto& result = list_outcome.result();
         const auto& objects = result.ObjectSummarys();
 
-        // Delete objects in batch (max 1000 per request)
         if (!objects.empty()) {
             AlibabaCloud::OSS::DeletedKeyList keys;
             for (const auto& obj : objects) {
@@ -259,6 +268,20 @@ Status OSSFileSystem::delete_directory_impl(const Path& dir) {
                                        delete_outcome.error().Code(),
                                        delete_outcome.error().Message());
             }
+
+            // Check for partial failures
+            const auto& delete_result = delete_outcome.result();
+            if (delete_result.FailedKeys().size() > 0) {
+                LOG(WARNING) << "OSS delete directory partial failure: "
+                             << delete_result.FailedKeys().size() << " of " << keys.size()
+                             << " objects failed";
+                for (const auto& failed : delete_result.FailedKeys()) {
+                    LOG(WARNING) << "Failed to delete OSS key '" << failed.Key() << "': "
+                                 << failed.Code() << " - " << failed.Message();
+                }
+                return Status::IOError("delete directory failed for {} objects",
+                                       delete_result.FailedKeys().size());
+            }
         }
 
         is_truncated = result.IsTruncated();
@@ -272,7 +295,6 @@ Status OSSFileSystem::batch_delete_impl(const std::vector<Path>& remote_files) {
     auto client = _client->get();
     CHECK_OSS_CLIENT(client);
 
-    // OSS DeleteObjects can handle up to 1000 keys at most
     constexpr size_t max_delete_batch = 1000;
     auto path_iter = remote_files.begin();
 
@@ -297,6 +319,19 @@ Status OSSFileSystem::batch_delete_impl(const std::vector<Path>& remote_files) {
         if (!outcome.isSuccess()) {
             return Status::IOError("failed to batch delete objects: {} - {}",
                                    outcome.error().Code(), outcome.error().Message());
+        }
+
+        // Check for partial failures (HTTP 200 but some objects failed)
+        const auto& result = outcome.result();
+        if (result.FailedKeys().size() > 0) {
+            LOG(WARNING) << "OSS batch delete partial failure: " << result.FailedKeys().size()
+                         << " of " << keys.size() << " objects failed";
+            for (const auto& failed : result.FailedKeys()) {
+                LOG(WARNING) << "Failed to delete OSS key '" << failed.Key() << "': "
+                             << failed.Code() << " - " << failed.Message();
+            }
+            return Status::IOError("batch delete failed for {} objects",
+                                   result.FailedKeys().size());
         }
     } while (path_iter != remote_files.end());
 
@@ -339,6 +374,11 @@ Status OSSFileSystem::list_impl(const Path& dir, bool only_file, std::vector<Fil
         request.setPrefix(prefix);
         request.setMaxKeys(1000);
 
+        // Use delimiter for non-recursive listing to prevent memory exhaustion
+        if (only_file) {
+            request.setDelimiter("/");
+        }
+
         if (!marker.empty()) {
             request.setMarker(marker);
         }
@@ -365,7 +405,7 @@ Status OSSFileSystem::list_impl(const Path& dir, bool only_file, std::vector<Fil
             }
 
             file_info.file_size = obj.Size();
-            file_info.is_file = true; // OSS objects are always files
+            file_info.is_file = true;
 
             files->push_back(std::move(file_info));
         }
@@ -378,32 +418,87 @@ Status OSSFileSystem::list_impl(const Path& dir, bool only_file, std::vector<Fil
 }
 
 Status OSSFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
-    // OSS doesn't support rename directly, need to copy then delete
     auto client = _client->get();
     CHECK_OSS_CLIENT(client);
 
     auto src_key = DORIS_TRY(get_oss_key(orig_name));
     auto dst_key = DORIS_TRY(get_oss_key(new_name));
 
-    // Copy object
-    AlibabaCloud::OSS::CopyObjectRequest copy_request(_bucket, dst_key);
-    copy_request.setCopySource(_bucket, src_key);
+    // Get source file size to determine copy strategy
+    int64_t file_size = DORIS_TRY(_client->object_file_size(_bucket, src_key));
 
-    auto copy_outcome = client->CopyObject(copy_request);
-    if (!copy_outcome.isSuccess()) {
-        return Status::IOError("failed to copy object from {} to {}: {} - {}",
-                               full_oss_path(src_key), full_oss_path(dst_key),
-                               copy_outcome.error().Code(), copy_outcome.error().Message());
+    if (file_size < MULTIPART_COPY_THRESHOLD) {
+        // Simple copy for files < 1GB
+        AlibabaCloud::OSS::CopyObjectRequest copy_request(_bucket, dst_key);
+        copy_request.setCopySource(_bucket, src_key);
+
+        auto copy_outcome = client->CopyObject(copy_request);
+        if (!copy_outcome.isSuccess()) {
+            return Status::IOError("failed to copy object from {} to {}: {} - {}",
+                                   full_oss_path(src_key), full_oss_path(dst_key),
+                                   copy_outcome.error().Code(),
+                                   copy_outcome.error().Message());
+        }
+    } else {
+        // Multipart copy for large files to avoid timeouts
+        auto init_outcome = client->InitiateMultipartUpload(
+                AlibabaCloud::OSS::InitiateMultipartUploadRequest(_bucket, dst_key));
+        if (!init_outcome.isSuccess()) {
+            return Status::IOError("failed to initiate multipart upload: {} - {}",
+                                   init_outcome.error().Code(),
+                                   init_outcome.error().Message());
+        }
+
+        std::string upload_id = init_outcome.result().UploadId();
+        AlibabaCloud::OSS::PartETagList part_etags;
+
+        // Calculate number of parts
+        int64_t part_count = (file_size + MULTIPART_COPY_PART_SIZE - 1) / MULTIPART_COPY_PART_SIZE;
+
+        // Copy parts
+        for (int64_t i = 0; i < part_count; ++i) {
+            int64_t start_offset = i * MULTIPART_COPY_PART_SIZE;
+            int64_t end_offset = std::min(start_offset + MULTIPART_COPY_PART_SIZE - 1, file_size - 1);
+
+            AlibabaCloud::OSS::UploadPartCopyRequest part_request(_bucket, dst_key, upload_id);
+            part_request.setCopySource(_bucket, src_key);
+            part_request.setPartNumber(i + 1);
+            part_request.setCopySourceRange(start_offset, end_offset);
+
+            auto part_outcome = client->UploadPartCopy(part_request);
+            if (!part_outcome.isSuccess()) {
+                // Abort multipart upload on failure
+                client->AbortMultipartUpload(
+                        AlibabaCloud::OSS::AbortMultipartUploadRequest(_bucket, dst_key,
+                                                                        upload_id));
+                return Status::IOError("failed to copy part {}: {} - {}", i + 1,
+                                       part_outcome.error().Code(),
+                                       part_outcome.error().Message());
+            }
+
+            part_etags.push_back(AlibabaCloud::OSS::PartETag(i + 1, part_outcome.result().ETag()));
+        }
+
+        // Complete multipart upload
+        AlibabaCloud::OSS::CompleteMultipartUploadRequest complete_request(_bucket, dst_key,
+                                                                            part_etags, upload_id);
+        auto complete_outcome = client->CompleteMultipartUpload(complete_request);
+        if (!complete_outcome.isSuccess()) {
+            client->AbortMultipartUpload(
+                    AlibabaCloud::OSS::AbortMultipartUploadRequest(_bucket, dst_key, upload_id));
+            return Status::IOError("failed to complete multipart upload: {} - {}",
+                                   complete_outcome.error().Code(),
+                                   complete_outcome.error().Message());
+        }
     }
 
     // Delete source object
     auto delete_outcome = client->DeleteObject(_bucket, src_key);
-
     if (!delete_outcome.isSuccess()) {
         LOG(WARNING) << "Failed to delete source object after copy: " << src_key << " - "
                      << delete_outcome.error().Code() << ": "
                      << delete_outcome.error().Message();
-        // Don't fail the rename if delete fails, copy succeeded
+        // Don't fail rename if delete fails, copy succeeded
     }
 
     return Status::OK();

@@ -152,7 +152,7 @@ protected:
 
     OSSConf conf_;
     std::shared_ptr<ECSMetadataCredentialsProvider> credentials_provider_;
-    std::unique_ptr<AlibabaCloud::OSS::OssClient> oss_client_;
+    std::shared_ptr<AlibabaCloud::OSS::OssClient> oss_client_;
     mutable std::mutex client_mutex_;
 };
 

@@ -21,7 +21,9 @@
 #include <alibabacloud/oss/client/ClientConfiguration.h>
 #include <bvar/reducer.h>
 #include <gen_cpp/cloud.pb.h>
+#include <time.h>
 
+#include <iomanip>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -29,9 +31,11 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/stopwatch.h"
 #include "common/string_util.h"
 #include "common/util.h"
 #include "cpp/oss_credential_provider.h"
+#include "recycler/util.h"
 
 namespace doris::cloud {
 
@@ -43,6 +47,20 @@ bvar::LatencyRecorder oss_delete_objects_latency("oss_delete_objects");
 bvar::LatencyRecorder oss_head_latency("oss_head");
 bvar::LatencyRecorder oss_list_latency("oss_list");
 } // namespace oss_bvar
+
+// Parse OSS LastModified (ISO 8601 UTC) to Unix timestamp
+static int64_t parse_oss_last_modified(const std::string& last_modified_str) {
+    std::tm tm = {};
+    std::istringstream ss(last_modified_str);
+    ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
+
+    if (ss.fail()) {
+        LOG(WARNING) << "Failed to parse OSS LastModified: " << last_modified_str;
+        return 0;
+    }
+
+    return static_cast<int64_t>(timegm(&tm));  // timegm() for UTC time
+}
 
 // OSS List Iterator implementation
 class OSSListIterator final : public ListIterator {
@@ -85,7 +103,7 @@ public:
         const auto& obj = objects_[current_index_++];
         return FileMeta{.path = get_relative_path(obj.Key()),
                         .size = obj.Size(),
-                        .mtime_s = static_cast<int64_t>(obj.LastModified())};
+                        .mtime_s = parse_oss_last_modified(obj.LastModified())};
     }
 
 private:
@@ -188,7 +206,9 @@ std::optional<OSSConf> OSSConf::from_obj_store_info(const ObjectStoreInfoPB& obj
 }
 
 uint64_t OSSConf::get_hash() const {
-    std::string hash_str = endpoint + bucket + prefix + region;
+    // Include provider_type to ensure different credential types produce different hashes
+    std::string hash_str = endpoint + bucket + prefix + region +
+                           std::to_string(static_cast<int>(provider_type));
     return std::hash<std::string> {}(hash_str);
 }
 
@@ -240,7 +260,7 @@ int OSSAccessor::create_oss_client() {
             auto creds = credentials_provider_->getCredentials();
 
             // Create OSS client with credentials
-            oss_client_ = std::make_unique<AlibabaCloud::OSS::OssClient>(conf_.endpoint, creds,
+            oss_client_ = std::make_shared<AlibabaCloud::OSS::OssClient>(conf_.endpoint, creds,
                                                                           oss_config);
 
             LOG(INFO) << "Created OSS client with INSTANCE_PROFILE credentials for endpoint: "
@@ -250,7 +270,7 @@ int OSSAccessor::create_oss_client() {
             AlibabaCloud::OSS::Credentials creds(conf_.access_key_id, conf_.access_key_secret,
                                                   conf_.security_token);
 
-            oss_client_ = std::make_unique<AlibabaCloud::OSS::OssClient>(conf_.endpoint, creds,
+            oss_client_ = std::make_shared<AlibabaCloud::OSS::OssClient>(conf_.endpoint, creds,
                                                                           oss_config);
 
             LOG(INFO) << "Created OSS client with SIMPLE credentials for endpoint: "
@@ -268,20 +288,28 @@ int OSSAccessor::create_oss_client() {
 }
 
 int OSSAccessor::refresh_client_if_needed() {
-    // For instance profile, credentials may expire, so recreate client
+    // For instance profile, recreate client to refresh credentials (OSS SDK v1.10.1 doesn't support dynamic providers)
     if (conf_.provider_type == OSSConf::CredProviderType::INSTANCE_PROFILE) {
-        // Credentials provider handles caching and refresh internally
-        // We just recreate the client which will fetch fresh credentials if needed
         return create_oss_client();
     }
     return 0;
 }
 
 std::string OSSAccessor::get_key(const std::string& relative_path) const {
-    if (conf_.prefix.empty()) {
-        return relative_path;
+    // Defensive: trim leading '/' from relative_path to prevent invalid keys like "prefix//file.txt"
+    std::string normalized_path = relative_path;
+
+    if (!normalized_path.empty() && normalized_path[0] == '/') {
+        LOG(WARNING) << "OSS relative path should not start with '/': " << relative_path
+                     << ". Auto-trimming leading slash.";
+        normalized_path = normalized_path.substr(1);
     }
-    return conf_.prefix + "/" + relative_path;
+
+    if (conf_.prefix.empty()) {
+        return normalized_path;
+    }
+
+    return conf_.prefix + "/" + normalized_path;
 }
 
 std::string OSSAccessor::to_uri(const std::string& relative_path) const {
@@ -305,8 +333,7 @@ int OSSAccessor::convert_oss_error_code(const std::string& error_code) const {
 }
 
 int OSSAccessor::put_file(const std::string& path, const std::string& content) {
-    bvar::LatencyRecorder recorder;
-    recorder << oss_bvar::oss_put_latency;
+    SCOPED_BVAR_LATENCY(oss_bvar::oss_put_latency);
 
     int ret = refresh_client_if_needed();
     if (ret != 0) {
@@ -333,8 +360,7 @@ int OSSAccessor::put_file(const std::string& path, const std::string& content) {
 }
 
 int OSSAccessor::delete_file(const std::string& path) {
-    bvar::LatencyRecorder recorder;
-    recorder << oss_bvar::oss_delete_object_latency;
+    SCOPED_BVAR_LATENCY(oss_bvar::oss_delete_object_latency);
 
     int ret = refresh_client_if_needed();
     if (ret != 0) {
@@ -360,8 +386,7 @@ int OSSAccessor::delete_file(const std::string& path) {
 }
 
 int OSSAccessor::delete_files(const std::vector<std::string>& paths) {
-    bvar::LatencyRecorder recorder;
-    recorder << oss_bvar::oss_delete_objects_latency;
+    SCOPED_BVAR_LATENCY(oss_bvar::oss_delete_objects_latency);
 
     if (paths.empty()) {
         return 0;
@@ -393,7 +418,19 @@ int OSSAccessor::delete_files(const std::vector<std::string>& paths) {
             return convert_oss_error_code(outcome.error().Code());
         }
 
-        VLOG(1) << "OSS DeleteObjects success: deleted " << (end - i) << " objects";
+        // Check for partial failures (HTTP 200 but some objects failed)
+        const auto& result = outcome.result();
+        if (result.FailedKeys().size() > 0) {
+            LOG(WARNING) << "OSS DeleteObjects partial failure: " << result.FailedKeys().size()
+                         << " of " << keys.size() << " objects failed to delete";
+            for (const auto& failed : result.FailedKeys()) {
+                LOG(WARNING) << "Failed to delete OSS key '" << failed.Key() << "': "
+                             << failed.Code() << " - " << failed.Message();
+            }
+        }
+
+        VLOG(1) << "OSS DeleteObjects success: deleted " << result.DeletedKeys().size()
+                << " objects (" << (end - i) << " requested)";
     }
 
     return 0;
@@ -436,7 +473,7 @@ int OSSAccessor::delete_prefix(const std::string& path_prefix, int64_t expiratio
         for (const auto& obj : objects) {
             // Check expiration time if specified
             if (expiration_time > 0) {
-                int64_t obj_mtime = static_cast<int64_t>(obj.LastModified());
+                int64_t obj_mtime = parse_oss_last_modified(obj.LastModified());
                 if (obj_mtime >= expiration_time) {
                     continue; // Skip objects newer than expiration time
                 }
@@ -459,7 +496,19 @@ int OSSAccessor::delete_prefix(const std::string& path_prefix, int64_t expiratio
                     return convert_oss_error_code(delete_outcome.error().Code());
                 }
 
-                VLOG(1) << "OSS deleted batch of " << keys_to_delete.size() << " objects";
+                // Check for partial failures
+                const auto& del_result = delete_outcome.result();
+                if (del_result.FailedKeys().size() > 0) {
+                    LOG(WARNING) << "OSS DeleteObjects partial failure: "
+                                 << del_result.FailedKeys().size() << " of "
+                                 << keys_to_delete.size() << " objects failed";
+                    for (const auto& failed : del_result.FailedKeys()) {
+                        LOG(WARNING) << "Failed to delete '" << failed.Key() << "': "
+                                     << failed.Code() << " - " << failed.Message();
+                    }
+                }
+
+                VLOG(1) << "OSS deleted batch of " << del_result.DeletedKeys().size() << " objects";
                 keys_to_delete.clear();
             }
         }
@@ -482,7 +531,19 @@ int OSSAccessor::delete_prefix(const std::string& path_prefix, int64_t expiratio
             return convert_oss_error_code(delete_outcome.error().Code());
         }
 
-        VLOG(1) << "OSS deleted final batch of " << keys_to_delete.size() << " objects";
+        // Check for partial failures
+        const auto& del_result = delete_outcome.result();
+        if (del_result.FailedKeys().size() > 0) {
+            LOG(WARNING) << "OSS DeleteObjects partial failure: "
+                         << del_result.FailedKeys().size() << " of "
+                         << keys_to_delete.size() << " objects failed";
+            for (const auto& failed : del_result.FailedKeys()) {
+                LOG(WARNING) << "Failed to delete '" << failed.Key() << "': "
+                             << failed.Code() << " - " << failed.Message();
+            }
+        }
+
+        VLOG(1) << "OSS deleted final batch of " << del_result.DeletedKeys().size() << " objects";
     }
 
     return 0;
@@ -508,8 +569,7 @@ int OSSAccessor::list_all(std::unique_ptr<ListIterator>* res) {
 }
 
 int OSSAccessor::list_prefix(const std::string& path_prefix, std::unique_ptr<ListIterator>* res) {
-    bvar::LatencyRecorder recorder;
-    recorder << oss_bvar::oss_list_latency;
+    SCOPED_BVAR_LATENCY(oss_bvar::oss_list_latency);
 
     int ret = refresh_client_if_needed();
     if (ret != 0) {
@@ -525,8 +585,7 @@ int OSSAccessor::list_prefix(const std::string& path_prefix, std::unique_ptr<Lis
 }
 
 int OSSAccessor::exists(const std::string& path) {
-    bvar::LatencyRecorder recorder;
-    recorder << oss_bvar::oss_head_latency;
+    SCOPED_BVAR_LATENCY(oss_bvar::oss_head_latency);
 
     int ret = refresh_client_if_needed();
     if (ret != 0) {

@@ -19,6 +19,7 @@
 
 #include <curl/curl.h>
 #include <rapidjson/document.h>
+#include <time.h>
 
 #include <iomanip>
 #include <sstream>
@@ -29,6 +30,19 @@
 // Include OSS SDK headers in implementation only
 #include <alibabacloud/oss/auth/Credentials.h>
 #include <alibabacloud/oss/auth/CredentialsProvider.h>
+
+namespace {
+// Mask sensitive credential for logging
+std::string mask_credential(const std::string& cred) {
+    if (cred.empty()) return "";
+    size_t len = cred.length();
+    if (len <= 8) {
+        if (len <= 4) return std::string(len, '*');
+        return cred.substr(0, 2) + std::string(len - 4, '*') + cred.substr(len - 2);
+    }
+    return cred.substr(0, 4) + std::string(len - 8, '*') + cred.substr(len - 4);
+}
+} // namespace
 
 namespace doris {
 
@@ -217,7 +231,7 @@ int ECSMetadataCredentialsProvider::_get_credentials_from_role(const std::string
         return -1;
     }
 
-    // Parse expiration time (ISO 8601 format: "2025-02-10T15:30:00Z")
+    // Parse expiration time (ISO 8601 UTC format: "2025-02-10T15:30:00Z")
     std::tm tm = {};
     std::istringstream ss(expiration_str);
     ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
@@ -227,15 +241,15 @@ int ECSMetadataCredentialsProvider::_get_credentials_from_role(const std::string
         return -1;
     }
 
-    // Convert to system_clock::time_point
-    _expiration = std::chrono::system_clock::from_time_t(std::mktime(&tm));
+    // Use timegm() for UTC time (mktime() assumes local timezone)
+    _expiration = std::chrono::system_clock::from_time_t(timegm(&tm));
 
     // Create new Credentials object
     _cached_credentials = std::make_unique<AlibabaCloud::OSS::Credentials>(
             access_key_id, access_key_secret, security_token);
 
     VLOG(1) << "Parsed OSS credentials from ECS metadata: "
-            << "AccessKeyId=" << access_key_id.substr(0, 8) << "..., "
+            << "AccessKeyId=" << mask_credential(access_key_id) << ", "
             << "Expiration=" << expiration_str;
 
     return 0;
