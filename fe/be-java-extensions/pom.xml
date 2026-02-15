@@ -27,7 +27,7 @@ under the License.
         <module>java-udf</module>
         <module>jdbc-scanner</module>
         <module>paimon-scanner</module>
-        <module>max-compute-scanner</module>
+        <module>max-compute-connector</module>
         <module>avro-scanner</module>
         <!-- lakesoul-scanner module has been deprecated -->
         <!-- <module>lakesoul-scanner</module> -->
@@ -35,7 +35,6 @@ under the License.
         <module>trino-connector-scanner</module>
         <module>hadoop-deps</module>
         <module>java-writer</module>
-        <module>max-compute-writer</module>
     </modules>
 
     <parent>
