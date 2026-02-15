@@ -146,7 +146,17 @@ private:
     std::pair<int64_t, int64_t> _segment_offsets;
     std::vector<RowRanges> _segment_row_ranges;
 
+    // _input_schema: includes return_columns + delete_predicate_columns.
+    // Used by SegmentIterator internally (block_reset creates blocks with this schema),
+    // because SegmentIterator::_init_current_block and _output_non_pred_columns both
+    // index into the block assuming input_schema column count.
+    // e.g. return_columns={k, __ROWID__}, delete_pred on v1 => input_schema={k, __ROWID__, v1}
     SchemaSPtr _input_schema;
+    // _output_schema: includes only return_columns (a subset of input_schema).
+    // Passed to VMergeIterator/VUnionIterator so that copy_rows only copies the columns
+    // the caller actually needs, avoiding OOB access on the destination block which is
+    // sized according to return_columns only.
+    // e.g. return_columns={k, __ROWID__} => output_schema={k, __ROWID__}
     SchemaSPtr _output_schema;
     RowsetReaderContext* _read_context = nullptr;
     BetaRowsetSharedPtr _rowset;

@@ -296,10 +296,9 @@ Status VMergeIteratorContext::init(const StorageReadOptions& opts) {
     _block_row_max = opts.block_row_max;
     _record_rowids = opts.record_rowids;
     // _num_columns is the number of columns to copy in copy_rows().
-    // When output_schema is provided (merge path with possible delete predicates),
-    // use it; otherwise fall back to the full input schema (no extra columns).
-    _num_columns = _output_schema ? cast_set<int>(_output_schema->num_column_ids())
-                                  : cast_set<int>(_iter->schema().num_column_ids());
+    // output_schema only contains return_columns (excludes delete predicate columns),
+    // so copy_rows will only copy the columns the caller actually needs.
+    _num_columns = cast_set<int>(_output_schema->num_column_ids());
     RETURN_IF_ERROR(_load_next_block());
     if (valid()) {
         RETURN_IF_ERROR(advance());
@@ -364,9 +363,9 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
     if (_origin_iters.empty()) {
         return Status::OK();
     }
-    // Use output_schema if provided; otherwise fall back to the underlying iterator's schema
-    // (input schema). The output schema excludes delete predicate columns.
-    _schema = _output_schema ? _output_schema.get() : &(_origin_iters[0]->schema());
+    // Use output_schema to set the schema for this iterator.
+    // The output schema excludes delete predicate columns.
+    _schema = _output_schema.get();
     _record_rowids = opts.record_rowids;
 
     for (auto& iter : _origin_iters) {
@@ -439,8 +438,8 @@ Status VUnionIterator::init(const StorageReadOptions& opts) {
     _read_options = opts;
     _cur_iter = std::move(_origin_iters.back());
     RETURN_IF_ERROR(_cur_iter->init(_read_options));
-    // Use output_schema if provided; otherwise fall back to the underlying iterator's schema.
-    _schema = _output_schema ? _output_schema.get() : &_cur_iter->schema();
+    // Use output_schema to set the schema for this iterator.
+    _schema = _output_schema.get();
     return Status::OK();
 }
 

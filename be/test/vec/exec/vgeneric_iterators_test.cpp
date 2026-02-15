@@ -104,13 +104,14 @@ TEST(VGenericIteratorsTest, AutoIncrement) {
 
 TEST(VGenericIteratorsTest, Union) {
     auto schema = create_schema();
+    auto schema_ptr = std::make_shared<Schema>(schema);
     std::vector<RowwiseIteratorUPtr> inputs;
 
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 100));
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 200));
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 300));
 
-    auto iter = vectorized::new_union_iterator(std::move(inputs), nullptr);
+    auto iter = vectorized::new_union_iterator(std::move(inputs), schema_ptr);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
@@ -148,6 +149,7 @@ TEST(VGenericIteratorsTest, Union) {
 TEST(VGenericIteratorsTest, MergeAgg) {
     EXPECT_TRUE(1);
     auto schema = create_schema();
+    auto schema_ptr = std::make_shared<Schema>(schema);
     std::vector<RowwiseIteratorUPtr> inputs;
 
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 100));
@@ -155,7 +157,7 @@ TEST(VGenericIteratorsTest, MergeAgg) {
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 300));
 
     auto iter = vectorized::new_merge_iterator(std::move(inputs), -1, false, false, nullptr,
-                                                nullptr);
+                                                schema_ptr);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
@@ -198,6 +200,7 @@ TEST(VGenericIteratorsTest, MergeAgg) {
 TEST(VGenericIteratorsTest, MergeUnique) {
     EXPECT_TRUE(1);
     auto schema = create_schema();
+    auto schema_ptr = std::make_shared<Schema>(schema);
     std::vector<RowwiseIteratorUPtr> inputs;
 
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 100));
@@ -205,7 +208,7 @@ TEST(VGenericIteratorsTest, MergeUnique) {
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 300));
 
     auto iter = vectorized::new_merge_iterator(std::move(inputs), -1, true, false, nullptr,
-                                                nullptr);
+                                                schema_ptr);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
@@ -312,6 +315,7 @@ public:
 TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     EXPECT_TRUE(1);
     auto schema = create_schema();
+    auto schema_ptr = std::make_shared<Schema>(schema);
     std::vector<RowwiseIteratorUPtr> inputs;
 
     int seq_column_id = 2;
@@ -328,7 +332,7 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     }
 
     auto iter = vectorized::new_merge_iterator(std::move(inputs), seq_column_id, true, false,
-                                                nullptr, nullptr);
+                                                nullptr, schema_ptr);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
