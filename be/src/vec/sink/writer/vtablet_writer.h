@@ -277,14 +277,8 @@ public:
     void mark_close(bool hang_wait = false);
 
     bool is_closed() const { return _is_closed; }
-    bool is_cancelled() const { return _cancelled; }
-    std::string get_cancel_msg() {
-        std::lock_guard<std::mutex> l(_cancel_msg_lock);
-        if (!_cancel_msg.empty()) {
-            return _cancel_msg;
-        }
-        return fmt::format("{} is cancelled", channel_info());
-    }
+    bool is_cancelled() const { return !_cancel_reason.ok(); }
+    Status cancel_reason() const { return _cancel_reason.status(); }
 
     // two ways to stop channel:
     // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
@@ -297,7 +291,7 @@ public:
 
     Status check_status();
 
-    void cancel(const std::string& cancel_msg);
+    void cancel(const Status& reason);
 
     void time_report(std::unordered_map<int64_t, AddBatchCounter>* add_batch_counter_map,
                      WriterStats* writer_stats) const {
@@ -340,7 +334,7 @@ protected:
     void _open_internal(bool is_incremental);
 
     void _close_check();
-    void _cancel_with_msg(const std::string& msg);
+    void _cancel_with_status(const Status& st);
 
     void _add_block_success_callback(const PTabletWriterAddBlockResult& result,
                                      const WriteBlockCallbackContext& ctx);
@@ -371,9 +365,7 @@ protected:
     uint64_t _close_time_ms = 0;
 
     // user cancel or get some errors
-    std::atomic<bool> _cancelled {false};
-    std::mutex _cancel_msg_lock;
-    std::string _cancel_msg;
+    AtomicStatus _cancel_reason;
 
     // send finished means the consumer thread which send the rpc can exit
     std::atomic<bool> _send_finished {false};

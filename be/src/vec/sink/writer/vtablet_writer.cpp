@@ -293,12 +293,13 @@ Status IndexChannel::check_tablet_filtered_rows_consistency() {
 }
 
 static Status cancel_channel_and_check_intolerable_failure(Status status,
-                                                           const std::string& err_msg,
+                                                           const Status& cancel_reason,
                                                            IndexChannel& ich, VNodeChannel& nch) {
-    LOG(WARNING) << nch.channel_info() << ", close channel failed, err: " << err_msg;
-    ich.mark_as_failed(&nch, err_msg, -1);
+    LOG(WARNING) << nch.channel_info()
+                 << ", close channel failed, err: " << cancel_reason.to_string();
+    ich.mark_as_failed(&nch, cancel_reason.to_string(), -1);
     // cancel the node channel in best effort
-    nch.cancel(err_msg);
+    nch.cancel(cancel_reason);
 
     // check if index has intolerable failure
     if (Status index_st = ich.check_intolerable_failure(); !index_st.ok()) {
@@ -364,7 +365,7 @@ Status IndexChannel::close_wait(
                 std::stringstream unfinished_node_channel_host_str;
                 for (auto& it : unfinished_node_channel_ids) {
                     unfinished_node_channel_host_str << _node_channels[it]->host() << ",";
-                    _node_channels[it]->cancel("timeout");
+                    _node_channels[it]->cancel(Status::TimedOut("timeout"));
                 }
                 LOG(WARNING) << "reach max wait time, max_wait_time_ms: " << max_wait_time_ms
                              << ", cancel unfinished node channel and finish close"
@@ -483,22 +484,6 @@ int64_t IndexChannel::_calc_max_wait_time_ms(
     return max_wait_time_ms;
 }
 
-static Status none_of(std::initializer_list<bool> vars) {
-    bool none = std::none_of(vars.begin(), vars.end(), [](bool var) { return var; });
-    Status st = Status::OK();
-    if (!none) {
-        std::string vars_str;
-        std::for_each(vars.begin(), vars.end(),
-                      [&vars_str](bool var) -> void { vars_str += (var ? "1/" : "0/"); });
-        if (!vars_str.empty()) {
-            vars_str.pop_back(); // 0/1/0/ -> 0/1/0
-        }
-        st = Status::Uninitialized(vars_str);
-    }
-
-    return st;
-}
-
 VNodeChannel::VNodeChannel(VTabletWriter* parent, IndexChannel* index_channel, int64_t node_id,
                            bool is_incremental)
         : _parent(parent),
@@ -523,8 +508,7 @@ void VNodeChannel::clear_all_blocks() {
 
 // we don't need to send tablet_writer_cancel rpc request when
 // init failed, so set _is_closed to true.
-// if "_cancelled" is set to true,
-// no need to set _cancel_msg because the error will be
+// if cancelled, the error will be
 // returned directly via "TabletSink::prepare()" method.
 Status VNodeChannel::init(RuntimeState* state) {
     if (_inited) {
@@ -538,9 +522,10 @@ Status VNodeChannel::init(RuntimeState* state) {
     // get corresponding BE node.
     const auto* node = _parent->_nodes_info->find_node(_node_id);
     if (node == nullptr) {
-        _cancelled = true;
+        auto st = Status::InternalError("unknown node id, id={}", _node_id);
+        _cancel_reason.update(st);
         _is_closed = true;
-        return Status::InternalError("unknown node id, id={}", _node_id);
+        return st;
     }
     _node_info = *node;
 
@@ -553,10 +538,11 @@ Status VNodeChannel::init(RuntimeState* state) {
     _stub = state->exec_env()->brpc_internal_client_cache()->get_client(_node_info.host,
                                                                         _node_info.brpc_port);
     if (_stub == nullptr) {
-        _cancelled = true;
+        auto st = Status::InternalError("Get rpc stub failed, host={}, port={}, info={}",
+                                        _node_info.host, _node_info.brpc_port, channel_info());
+        _cancel_reason.update(st);
         _is_closed = true;
-        return Status::InternalError("Get rpc stub failed, host={}, port={}, info={}",
-                                     _node_info.host, _node_info.brpc_port, channel_info());
+        return st;
     }
 
     _rpc_timeout_ms = state->execution_timeout() * 1000;
@@ -703,7 +689,6 @@ Status VNodeChannel::open_wait() {
                 ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
                         open_callback->cntl_->remote_side());
             }
-            _cancelled = true;
             auto error_code = open_callback->cntl_->ErrorCode();
             auto error_text = open_callback->cntl_->ErrorText();
             if (error_text.find("Reached timeout") != std::string::npos) {
@@ -711,14 +696,16 @@ Status VNodeChannel::open_wait() {
                                 "config `tablet_writer_open_rpc_timeout_sec` if you are sure that "
                                 "your table building and data are reasonable.";
             }
-            return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+            auto st = Status::Error<ErrorCode::INTERNAL_ERROR, false>(
                     "failed to open tablet writer, error={}, error_text={}, info={}",
                     berror(error_code), error_text, channel_info());
+            _cancel_reason.update(st);
+            return st;
         }
         status = Status::create(open_callback->response_->status());
 
         if (!status.ok()) {
-            _cancelled = true;
+            _cancel_reason.update(status);
             return status;
         }
     }
@@ -732,22 +719,19 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload)
         return Status::OK();
     }
     // If add_block() when _eos_is_produced==true, there must be sth wrong, we can only mark this channel as failed.
-    auto st = none_of({_cancelled, _eos_is_produced});
-    if (!st.ok()) {
-        if (_cancelled) {
-            std::lock_guard<std::mutex> l(_cancel_msg_lock);
-            return Status::Error<ErrorCode::INTERNAL_ERROR, false>("add row failed. {}",
-                                                                   _cancel_msg);
-        } else {
-            return std::move(st.prepend("already stopped, can't add row. cancelled/eos: "));
-        }
+    if (is_cancelled()) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>("add row failed. {}",
+                                                               _cancel_reason.status().to_string());
+    }
+    if (_eos_is_produced) {
+        return Status::Uninitialized("already stopped, can't add row. eos is produced");
     }
 
     // We use OlapTableSink mem_tracker which has the same ancestor of _plan node,
     // so in the ideal case, mem limit is a matter for _plan node.
     // But there is still some unfinished things, we do mem limit here temporarily.
-    // _cancelled may be set by rpc callback, and it's possible that _cancelled might be set in any of the steps below.
-    // It's fine to do a fake add_block() and return OK, because we will check _cancelled in next add_block() or mark_close().
+    // _cancel_reason may be set by rpc callback, and it's possible that it might be set in any of the steps below.
+    // It's fine to do a fake add_block() and return OK, because we will check _cancel_reason in next add_block() or mark_close().
     constexpr int64_t kBackPressureSleepMs = 10;
     auto* memtable_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
     while (true) {
@@ -763,7 +747,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload)
         bool mem_limit_exceeded = is_exceed_soft_mem_limit ||
                                   current_load_mem_value > _load_mem_limit ||
                                   _pending_batches_bytes > _max_pending_batches_bytes;
-        bool need_back_pressure = !_cancelled && !_state->is_cancelled() &&
+        bool need_back_pressure = !is_cancelled() && !_state->is_cancelled() &&
                                   _pending_batches_num > 0 && mem_limit_exceeded;
         if (!need_back_pressure) {
             break;
@@ -779,7 +763,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload)
     SCOPED_RAW_TIMER(&_stat.append_node_channel_ns);
     st = block->append_to_block_by_selector(_cur_mutable_block.get(), *(payload->first));
     if (!st.ok()) {
-        _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.to_string()));
+        _cancel_with_status(Status::InternalError("{}, err: {}", channel_info(), st.to_string()));
         return st;
     }
     for (auto tablet_id : payload->second) {
@@ -824,7 +808,7 @@ int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
         t.join();
     });
 
-    if (_cancelled || _send_finished) { // not run
+    if (is_cancelled() || _send_finished) { // not run
         return 0;
     }
 
@@ -847,7 +831,8 @@ int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
     if (_pending_batches_num > 0) {
         auto s = thread_pool_token->submit_func([this, state] { try_send_pending_block(state); });
         if (!s.ok()) {
-            _cancel_with_msg("submit send_batch task to send_batch_thread_pool failed");
+            _cancel_with_status(
+                    Status::InternalError("submit send_batch task to send_batch_thread_pool failed"));
             // sending finished. clear in flight
             _send_block_callback->clear_in_flight();
         }
@@ -859,15 +844,12 @@ int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
     return _send_finished ? 0 : 1;
 }
 
-void VNodeChannel::_cancel_with_msg(const std::string& msg) {
-    LOG(WARNING) << "cancel node channel " << channel_info() << ", error message: " << msg;
-    {
-        std::lock_guard<std::mutex> l(_cancel_msg_lock);
-        if (_cancel_msg.empty()) {
-            _cancel_msg = msg;
-        }
+void VNodeChannel::_cancel_with_status(const Status& st) {
+    if (!st.is<ErrorCode::FINISHED>()) {
+        LOG(WARNING) << "cancel node channel " << channel_info()
+                     << ", error message: " << st.to_string();
     }
-    _cancelled = true;
+    _cancel_reason.update(st);
 }
 
 void VNodeChannel::_refresh_back_pressure_version_wait_time(
@@ -1095,7 +1077,7 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
 
         Status st = _index_channel->check_intolerable_failure();
         if (!st.ok()) {
-            _cancel_with_msg(st.to_string());
+            _cancel_with_status(st);
         } else if (ctx._is_last_rpc) {
             bool skip_tablet_info = false;
             DBUG_EXECUTE_IF("VNodeChannel.add_block_success_callback.incomplete_commit_info",
@@ -1142,8 +1124,8 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
             _add_batches_finished = true;
         }
     } else {
-        _cancel_with_msg(fmt::format("{}, add batch req success but status isn't ok, err: {}",
-                                     channel_info(), status.to_string()));
+        _cancel_with_status(Status::InternalError("{}, add batch req success but status isn't ok, err: {}",
+                                                    channel_info(), status.to_string()));
     }
 
     if (result.has_execution_time_us()) {
@@ -1185,7 +1167,7 @@ void VNodeChannel::_add_block_failed_callback(const WriteBlockCallbackContext& c
     }
     Status st = _index_channel->check_intolerable_failure();
     if (!st.ok()) {
-        _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.to_string()));
+        _cancel_with_status(Status::InternalError("{}, err: {}", channel_info(), st.to_string()));
     } else if (ctx._is_last_rpc) {
         // if this is last rpc, will must set _add_batches_finished. otherwise, node channel's close_wait
         // will be blocked.
@@ -1193,9 +1175,9 @@ void VNodeChannel::_add_block_failed_callback(const WriteBlockCallbackContext& c
     }
 }
 
-// When _cancelled is true, we still need to send a tablet_writer_cancel
+// When is_cancelled() is true, we still need to send a tablet_writer_cancel
 // rpc request to truly release the load channel
-void VNodeChannel::cancel(const std::string& cancel_msg) {
+void VNodeChannel::cancel(const Status& reason) {
     if (_is_closed) {
         // skip the channels that have been canceled or close_wait.
         return;
@@ -1208,7 +1190,7 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
     }};
     // we don't need to wait last rpc finished, cause closure's release/reset will join.
     // But do we need brpc::StartCancel(call_id)?
-    _cancel_with_msg(cancel_msg);
+    _cancel_with_status(reason);
     // if not inited, _stub will be nullptr, skip sending cancel rpc
     if (!_inited) {
         return;
@@ -1218,7 +1200,7 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
     request->set_allocated_id(&_parent->_load_id);
     request->set_index_id(_index_channel->_index_id);
     request->set_sender_id(_parent->_sender_id);
-    request->set_cancel_reason(cancel_msg);
+    request->set_cancel_reason(reason.to_string());
 
     auto cancel_callback = DummyBrpcCallback<PTabletWriterCancelResult>::create_shared();
     auto closure = AutoReleaseClosure<
@@ -1248,32 +1230,28 @@ Status VNodeChannel::close_wait(RuntimeState* state, bool* is_closed) {
 
     *is_closed = true;
 
-    auto st = none_of({_cancelled, !_eos_is_produced});
-    if (!st.ok()) {
-        if (_cancelled) {
-            std::lock_guard<std::mutex> l(_cancel_msg_lock);
-            return Status::Error<ErrorCode::INTERNAL_ERROR, false>("wait close failed. {}",
-                                                                   _cancel_msg);
-        } else {
-            return std::move(
-                    st.prepend("already stopped, skip waiting for close. cancelled/!eos: "));
-        }
+    if (is_cancelled()) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                "wait close failed. {}", _cancel_reason.status().to_string());
+    }
+    if (!_eos_is_produced) {
+        return Status::Uninitialized(
+                "already stopped, skip waiting for close. eos is not produced");
     }
 
     DBUG_EXECUTE_IF("VNodeChannel.close_wait.cancelled", {
-        _cancelled = true;
-        _cancel_msg = "injected cancel";
+        _cancel_with_status(Status::InternalError("injected cancel"));
     });
 
     if (state->is_cancelled()) {
-        _cancel_with_msg(state->cancel_reason().to_string());
+        _cancel_with_status(state->cancel_reason());
     }
 
     // Waiting for finished until _add_batches_finished changed by rpc's finished callback.
     // it may take a long time, so we couldn't set a timeout
     // For pipeline engine, the close is called in async writer's process block method,
     // so that it will not block pipeline thread.
-    if (!_add_batches_finished && !_cancelled && !state->is_cancelled()) {
+    if (!_add_batches_finished && !is_cancelled() && !state->is_cancelled()) {
         *is_closed = false;
         return Status::OK();
     }
@@ -1284,7 +1262,11 @@ Status VNodeChannel::close_wait(RuntimeState* state, bool* is_closed) {
 Status VNodeChannel::after_close_handle(
         RuntimeState* state, WriterStats* writer_stats,
         std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map) {
-    Status st = Status::Error<ErrorCode::INTERNAL_ERROR, false>(get_cancel_msg());
+    Status st = cancel_reason();
+    if (st.ok()) {
+        st = Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                "{} is cancelled", channel_info());
+    }
     _close_time_ms = UnixMillis() - _close_time_ms;
 
     if (_add_batches_finished) {
@@ -1307,7 +1289,13 @@ Status VNodeChannel::after_close_handle(
 }
 
 Status VNodeChannel::check_status() {
-    return none_of({_cancelled, !_eos_is_produced});
+    if (is_cancelled()) {
+        return _cancel_reason.status();
+    }
+    if (!_eos_is_produced) {
+        return Status::Uninitialized("eos is not produced");
+    }
+    return Status::OK();
 }
 
 void VNodeChannel::_close_check() {
@@ -1317,8 +1305,7 @@ void VNodeChannel::_close_check() {
 }
 
 void VNodeChannel::mark_close(bool hang_wait) {
-    auto st = none_of({_cancelled, _eos_is_produced});
-    if (!st.ok()) {
+    if (is_cancelled() || _eos_is_produced) {
         return;
     }
 
@@ -1736,7 +1723,7 @@ void VTabletWriter::_build_tablet_replica_info(const int64_t tablet_id,
 void VTabletWriter::_cancel_all_channel(Status status) {
     for (const auto& index_channel : _channels) {
         index_channel->for_each_node_channel([&status](const std::shared_ptr<VNodeChannel>& ch) {
-            ch->cancel(status.to_string());
+            ch->cancel(status);
         });
     }
     LOG(INFO) << fmt::format(
@@ -1804,7 +1791,7 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
                             ch->mark_close(true);
                             if (ch->is_cancelled()) {
                                 status = cancel_channel_and_check_intolerable_failure(
-                                        std::move(status), ch->get_cancel_msg(), *index_channel,
+                                        std::move(status), ch->cancel_reason(), *index_channel,
                                         *ch);
                             }
                         });
@@ -1831,7 +1818,7 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
                             ch->mark_close();
                             if (ch->is_cancelled()) {
                                 status = cancel_channel_and_check_intolerable_failure(
-                                        std::move(status), ch->get_cancel_msg(), *index_channel,
+                                        std::move(status), ch->cancel_reason(), *index_channel,
                                         *ch);
                             }
                         });
@@ -1846,7 +1833,7 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
                             ch->mark_close();
                             if (ch->is_cancelled()) {
                                 status = cancel_channel_and_check_intolerable_failure(
-                                        std::move(status), ch->get_cancel_msg(), *index_channel,
+                                        std::move(status), ch->cancel_reason(), *index_channel,
                                         *ch);
                             }
                         });
