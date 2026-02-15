@@ -149,12 +149,15 @@ Status VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
     if (_cur_batch_num == 0) {
         return Status::OK();
     }
+    size_t output_cols = _output_schema->num_column_ids();
+    DCHECK_EQ(src.columns(), output_cols);
+    DCHECK_EQ(dst.columns(), output_cols);
 
     // copy a row to dst block column by column
     size_t start = _index_in_block - _cur_batch_num + 1 - advanced;
 
     RETURN_IF_CATCH_EXCEPTION({
-        for (size_t i = 0; i < _num_columns; ++i) {
+        for (size_t i = 0; i < output_cols; ++i) {
             auto& s_col = src.get_by_position(i);
             auto& d_col = dst.get_by_position(i);
 
