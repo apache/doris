@@ -147,15 +147,14 @@ private:
     std::vector<RowRanges> _segment_row_ranges;
 
     // _input_schema: includes return_columns + delete_predicate_columns.
-    // Used by SegmentIterator internally (block_reset creates blocks with this schema),
-    // because SegmentIterator::_init_current_block and _output_non_pred_columns both
-    // index into the block assuming input_schema column count.
+    // Used by SegmentIterator internally (iter->schema() returns this). SegmentIterator
+    // handles the extra delete predicate columns through _current_return_columns and
+    // _evaluate_short_circuit_predicate(), independent of the block structure.
     // e.g. return_columns={c1, c2}, delete_pred on c3 => input_schema={c1, c2, c3}
     SchemaSPtr _input_schema;
     // _output_schema: includes only return_columns (a subset of input_schema).
-    // Passed to VMergeIterator/VUnionIterator so that copy_rows only copies the columns
-    // the caller actually needs, avoiding OOB access on the destination block which is
-    // sized according to return_columns only.
+    // Passed to VMergeIterator/VUnionIterator. block_reset() builds the internal block
+    // with this schema, and copy_rows() copies exactly these columns to the destination.
     // e.g. return_columns={c1, c2} => output_schema={c1, c2}
     SchemaSPtr _output_schema;
     RowsetReaderContext* _read_context = nullptr;

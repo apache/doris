@@ -98,20 +98,20 @@ Status VStatisticsIterator::next_batch(Block* block) {
     return Status::EndOfFile("End of VStatisticsIterator");
 }
 
-// Use _iter->schema() (input schema) to build the block, NOT the output schema.
-// The input schema includes all columns the SegmentIterator needs to fill, which may be
-// a superset of the output schema. For example, with a delete predicate "DELETE WHERE c3='foo'":
-//   - input schema  = {c1, c2, c3}  — c3 is needed for delete predicate evaluation
-//   - output schema = {c1, c2}      — c3 is not returned to the caller
-// SegmentIterator::_init_current_block() indexes into the block by input schema positions,
-// and _output_non_pred_columns() checks block->columns() to decide whether to output
-// the delete predicate column. So the block must match the input schema.
+// Build the block using the output schema, which contains only the columns
+// the caller requested (return_columns). Delete predicate columns are excluded
+// because SegmentIterator handles them independently:
+//   - _init_current_block() skips predicate columns (including delete predicates)
+//     via the _is_pred_column[cid] check, so it never accesses the block by those positions.
+//   - _output_non_pred_columns() checks loc < block->columns() before filling any column,
+//     so delete predicate columns (whose loc exceeds block->columns()) are simply skipped.
+//   - Delete predicate evaluation happens entirely through _current_return_columns and
+//     _evaluate_short_circuit_predicate(), which are independent of the block structure.
 Status VMergeIteratorContext::block_reset(const std::shared_ptr<Block>& block) {
     if (!block->columns()) {
-        const Schema& schema = _iter->schema();
-        const auto& column_ids = schema.column_ids();
-        for (size_t i = 0; i < schema.num_column_ids(); ++i) {
-            auto column_desc = schema.column(column_ids[i]);
+        const auto& column_ids = _output_schema->column_ids();
+        for (size_t i = 0; i < _output_schema->num_column_ids(); ++i) {
+            auto column_desc = _output_schema->column(column_ids[i]);
             auto data_type = Schema::get_data_type_ptr(*column_desc);
             if (data_type == nullptr) {
                 return Status::RuntimeError("invalid data type");
@@ -151,20 +151,14 @@ bool VMergeIteratorContext::compare(const VMergeIteratorContext& rhs) const {
     return result;
 }
 
-// Copy rows from the internal _block (built with input schema) to the destination block
-// (built with output schema). Only copy the first _output_schema->num_column_ids() columns,
-// which corresponds to the output schema. The source _block may have more columns than the
-// destination when delete predicates add extra columns. For example:
-//   - src (_block):  {c1, c2, c3}  — 3 columns (input schema, c3 for delete predicate)
-//   - dst (block):   {c1, c2}      — 2 columns (output schema)
-// We must NOT iterate over all src columns, otherwise we'd access dst out of bounds.
+// Copy rows from the internal _block to the destination block.
+// Both blocks are built with the output schema (return_columns only), so they
+// have the same number of columns. We iterate over _output_schema->num_column_ids()
+// columns to copy from src to dst.
 Status VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
     Block& src = *_block;
     Block& dst = *block;
-    // src (_block) is built by block_reset() using the input schema, which may include
-    // delete predicate columns beyond the output schema. e.g. input={c1,c2,c3}, output={c1,c2}.
-    DCHECK_GE(src.columns(), _output_schema->num_column_ids());
-    // dst is built by the caller using the output schema (return_columns only).
+    DCHECK_EQ(src.columns(), _output_schema->num_column_ids());
     DCHECK_EQ(dst.columns(), _output_schema->num_column_ids());
     if (_cur_batch_num == 0) {
         return Status::OK();
