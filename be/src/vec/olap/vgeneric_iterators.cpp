@@ -353,8 +353,7 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
     for (auto& iter : _origin_iters) {
         auto ctx = std::make_shared<VMergeIteratorContext>(std::move(iter), _sequence_id_idx,
                                                            _is_unique, _is_reverse,
-                                                           opts.read_orderby_key_columns,
-                                                           _schema);
+                                                           opts.read_orderby_key_columns, _schema);
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;
@@ -375,7 +374,8 @@ public:
     // Iterators' ownership it transferred to this class.
     // This class will delete all iterators when destructs
     // Client should not use iterators anymore.
-    VUnionIterator(std::vector<RowwiseIteratorUPtr>&& v) : _origin_iters(std::move(v)) {}
+    VUnionIterator(std::vector<RowwiseIteratorUPtr>&& v, const Schema* output_schema)
+            : _schema(output_schema), _origin_iters(std::move(v)) {}
 
     ~VUnionIterator() override = default;
 
@@ -394,7 +394,7 @@ public:
     }
 
 private:
-    const Schema* _schema = nullptr;
+    const Schema* _schema = nullptr; // output schema
     RowwiseIteratorUPtr _cur_iter = nullptr;
     StorageReadOptions _read_options;
     std::vector<RowwiseIteratorUPtr> _origin_iters;
@@ -404,6 +404,7 @@ Status VUnionIterator::init(const StorageReadOptions& opts) {
     if (_origin_iters.empty()) {
         return Status::OK();
     }
+    DCHECK(_schema != nullptr);
 
     // we use back() and pop_back() of std::vector to handle each iterator,
     // so reverse the vector here to keep result block of next_batch to be
@@ -413,7 +414,6 @@ Status VUnionIterator::init(const StorageReadOptions& opts) {
     _read_options = opts;
     _cur_iter = std::move(_origin_iters.back());
     RETURN_IF_ERROR(_cur_iter->init(_read_options));
-    _schema = &_cur_iter->schema();
     return Status::OK();
 }
 
@@ -429,6 +429,7 @@ Status VUnionIterator::next_batch(Block* block) {
                 _cur_iter = nullptr;
             }
         } else {
+            DCHECK_EQ(block->columns(), _schema->num_column_ids());
             return st;
         }
     }
@@ -453,11 +454,12 @@ RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr>&& inputs
                                             is_reverse, merged_rows, output_schema);
 }
 
-RowwiseIteratorUPtr new_union_iterator(std::vector<RowwiseIteratorUPtr>&& inputs) {
+RowwiseIteratorUPtr new_union_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,
+                                       const Schema* output_schema) {
     if (inputs.size() == 1) {
         return std::move(inputs[0]);
     }
-    return std::make_unique<VUnionIterator>(std::move(inputs));
+    return std::make_unique<VUnionIterator>(std::move(inputs), output_schema);
 }
 
 RowwiseIterator* new_vstatistics_iterator(std::shared_ptr<Segment> segment, const Schema& schema) {

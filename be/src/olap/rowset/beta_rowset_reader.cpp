@@ -340,7 +340,7 @@ Status BetaRowsetReader::_init_iterator() {
             // reverse iterators to read backward for ORDER BY key DESC
             std::reverse(iterators.begin(), iterators.end());
         }
-        _iterator = vectorized::new_union_iterator(std::move(iterators));
+        _iterator = vectorized::new_union_iterator(std::move(iterators), _output_schema.get());
     }
 
     auto s = _iterator->init(_read_options);
