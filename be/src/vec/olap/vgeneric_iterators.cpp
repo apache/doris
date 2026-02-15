@@ -344,13 +344,14 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
     if (_origin_iters.empty()) {
         return Status::OK();
     }
-    _schema = &(_origin_iters[0]->schema());
+    DCHECK(_schema != nullptr);
     _record_rowids = opts.record_rowids;
 
     for (auto& iter : _origin_iters) {
         auto ctx = std::make_shared<VMergeIteratorContext>(std::move(iter), _sequence_id_idx,
                                                            _is_unique, _is_reverse,
-                                                           opts.read_orderby_key_columns);
+                                                           opts.read_orderby_key_columns,
+                                                           _schema);
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;
@@ -441,12 +442,12 @@ Status VUnionIterator::current_block_row_locations(std::vector<RowLocation>* loc
 
 RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,
                                        int sequence_id_idx, bool is_unique, bool is_reverse,
-                                       uint64_t* merged_rows) {
+                                       uint64_t* merged_rows, const Schema* output_schema) {
     // when the size of inputs is 1, we also need to use VMergeIterator, because the
     // next_block_view function only be implemented in VMergeIterator. The reason why
     // the size of inputs is 1 is that the segment was filtered out by zone map or others.
     return std::make_unique<VMergeIterator>(std::move(inputs), sequence_id_idx, is_unique,
-                                            is_reverse, merged_rows);
+                                            is_reverse, merged_rows, output_schema);
 }
 
 RowwiseIteratorUPtr new_union_iterator(std::vector<RowwiseIteratorUPtr>&& inputs) {

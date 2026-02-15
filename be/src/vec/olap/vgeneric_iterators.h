@@ -87,12 +87,13 @@ private:
 class VMergeIteratorContext {
 public:
     VMergeIteratorContext(RowwiseIteratorUPtr&& iter, int sequence_id_idx, bool is_unique,
-                          bool is_reverse, std::vector<uint32_t>* read_orderby_key_columns)
+                          bool is_reverse, std::vector<uint32_t>* read_orderby_key_columns,
+                          const Schema* output_schema)
             : _iter(std::move(iter)),
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
               _is_reverse(is_reverse),
-              _num_columns(cast_set<int>(_iter->schema().num_column_ids())),
+              _num_columns(cast_set<int>(output_schema->num_column_ids())),
               _num_key_columns(cast_set<int>(_iter->schema().num_key_columns())),
               _compare_columns(read_orderby_key_columns) {}
 
@@ -193,8 +194,9 @@ class VMergeIterator : public RowwiseIterator {
 public:
     // VMergeIterator takes the ownership of input iterators
     VMergeIterator(std::vector<RowwiseIteratorUPtr>&& iters, int sequence_id_idx, bool is_unique,
-                   bool is_reverse, uint64_t* merged_rows)
+                   bool is_reverse, uint64_t* merged_rows, const Schema* output_schema)
             : _origin_iters(std::move(iters)),
+              _schema(output_schema),
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
               _is_reverse(is_reverse),
@@ -294,7 +296,7 @@ private:
     // It will be released after '_merge_heap' has been built.
     std::vector<RowwiseIteratorUPtr> _origin_iters;
 
-    const Schema* _schema = nullptr;
+    const Schema* _schema = nullptr; // output schema
 
     struct VMergeContextComparator {
         bool operator()(const std::shared_ptr<VMergeIteratorContext>& lhs,
@@ -326,7 +328,7 @@ private:
 // should delete returned iterator after usage.
 RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,
                                        int sequence_id_idx, bool is_unique, bool is_reverse,
-                                       uint64_t* merged_rows);
+                                       uint64_t* merged_rows, const Schema* output_schema);
 
 // Create a union iterator for input iterators. Union iterator will read
 // input iterators one by one.
