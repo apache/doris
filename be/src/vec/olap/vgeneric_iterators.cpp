@@ -396,7 +396,7 @@ public:
     // This class will delete all iterators when destructs
     // Client should not use iterators anymore.
     VUnionIterator(std::vector<RowwiseIteratorUPtr>&& v, SchemaSPtr output_schema)
-            : _origin_iters(std::move(v)), _output_schema(std::move(output_schema)) {}
+            : _output_schema(std::move(output_schema)), _origin_iters(std::move(v)) {}
 
     ~VUnionIterator() override = default;
 
