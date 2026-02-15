@@ -18,10 +18,7 @@
 #include "vmc_table_writer.h"
 
 #include "runtime/runtime_state.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
 #include "vec/core/materialize_block.h"
-#include "vec/data_types/serde/data_type_serde.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vjni_format_transformer.h"
@@ -71,21 +68,19 @@ Status VMCTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
         _static_partition_spec = ss.str();
     }
 
-    // Build write output expr contexts (all columns for now)
-    // For dynamic partition, partition columns are at the end of the output block
-    // and need to be excluded from the data written to MC
+    // Build write output expr contexts
     for (int i = 0; i < _vec_output_expr_ctxs.size(); i++) {
         _write_output_vexpr_ctxs.emplace_back(_vec_output_expr_ctxs[i]);
     }
 
-    // If we have dynamic partition columns, find their indices and mark them for exclusion
-    if (!_partition_column_names.empty() && !_has_static_partition) {
-        // Partition columns are the last N columns in the output block
+    // For static partition, partition columns need to be excluded from the data written to MC.
+    // For dynamic partition, MaxCompute Storage API (with DynamicPartitionOptions) expects
+    // partition column values in the Arrow data, so we keep them.
+    if (!_partition_column_names.empty() && _has_static_partition) {
         size_t total_cols = _vec_output_expr_ctxs.size();
         size_t num_partition_cols = _partition_column_names.size();
         size_t data_cols = total_cols - num_partition_cols;
         for (size_t i = data_cols; i < total_cols; i++) {
-            _partition_column_indices.push_back(static_cast<int>(i));
             _non_write_columns_indices.insert(i);
         }
         // Rebuild write output expr contexts without partition columns
@@ -131,63 +126,6 @@ std::shared_ptr<VMCPartitionWriter> VMCTableWriter::_create_partition_writer(
                                                 std::move(params));
 }
 
-std::string VMCTableWriter::_get_partition_spec(const Block& block, int row_idx) {
-    std::stringstream ss;
-    for (int i = 0; i < _partition_column_indices.size(); i++) {
-        int col_idx = _partition_column_indices[i];
-        const auto& column = block.get_by_position(col_idx);
-        auto col_ptr = column.column->convert_to_full_column_if_const();
-
-        if (i > 0) ss << "/";
-        ss << _partition_column_names[i] << "=";
-
-        if (col_ptr->is_nullable()) {
-            const auto* nullable_col = static_cast<const ColumnNullable*>(col_ptr.get());
-            if (nullable_col->is_null_at(row_idx)) {
-                ss << "__HIVE_DEFAULT_PARTITION__";
-                continue;
-            }
-            col_ptr = nullable_col->get_nested_column_ptr();
-        }
-
-        // Get string representation of the partition value
-        std::string val;
-        if (auto* str_col = check_and_get_column<ColumnString>(col_ptr.get())) {
-            auto sv = str_col->get_data_at(row_idx);
-            val = std::string(sv.data, sv.size);
-        } else {
-            // For non-string types, use the column's string representation
-            vectorized::DataTypeSerDe::FormatOptions fmt_opts;
-            val = column.type->to_string(*col_ptr, row_idx, fmt_opts);
-        }
-        ss << val;
-    }
-    return ss.str();
-}
-
-Status VMCTableWriter::_filter_block(doris::vectorized::Block& block,
-                                     const vectorized::IColumn::Filter* filter,
-                                     doris::vectorized::Block* output_block) {
-    const ColumnsWithTypeAndName& columns_with_type_and_name =
-            block.get_columns_with_type_and_name();
-    vectorized::ColumnsWithTypeAndName result_columns;
-    for (const auto& col : columns_with_type_and_name) {
-        result_columns.emplace_back(col.column->clone_resized(col.column->size()), col.type,
-                                    col.name);
-    }
-    *output_block = {std::move(result_columns)};
-
-    std::vector<uint32_t> columns_to_filter;
-    int column_to_keep = output_block->columns();
-    columns_to_filter.resize(column_to_keep);
-    for (uint32_t i = 0; i < column_to_keep; ++i) {
-        columns_to_filter[i] = i;
-    }
-
-    Block::filter_block_internal(output_block, columns_to_filter, *filter);
-    return Status::OK();
-}
-
 Status VMCTableWriter::write(RuntimeState* state, vectorized::Block& block) {
     SCOPED_RAW_TIMER(&_send_data_ns);
     if (block.rows() == 0) {
@@ -201,59 +139,32 @@ Status VMCTableWriter::write(RuntimeState* state, vectorized::Block& block) {
 
     _row_count += output_block.rows();
 
-    // Case 1: Non-partitioned table or static partition
-    if (_partition_column_indices.empty()) {
-        std::string partition_key = _has_static_partition ? _static_partition_spec : "";
-        auto it = _partitions_to_writers.find(partition_key);
+    // Case 1: Static partition - strip partition columns and write to specific partition writer
+    if (_has_static_partition) {
+        auto it = _partitions_to_writers.find(_static_partition_spec);
         if (it == _partitions_to_writers.end()) {
-            auto writer =
-                    _create_partition_writer(_has_static_partition ? _static_partition_spec : "");
+            auto writer = _create_partition_writer(_static_partition_spec);
             RETURN_IF_ERROR(writer->open());
-            _partitions_to_writers.insert({partition_key, writer});
-            it = _partitions_to_writers.find(partition_key);
+            _partitions_to_writers.insert({_static_partition_spec, writer});
+            it = _partitions_to_writers.find(_static_partition_spec);
         }
-        // Erase partition columns if any (for static partition case)
         output_block.erase(_non_write_columns_indices);
         return it->second->write(output_block);
     }
 
-    // Case 2: Dynamic partition - dispatch rows to partition writers
-    std::unordered_map<std::shared_ptr<VMCPartitionWriter>, IColumn::Filter> writer_positions;
-
-    for (int i = 0; i < output_block.rows(); ++i) {
-        std::string partition_spec = _get_partition_spec(output_block, i);
-        auto writer_iter = _partitions_to_writers.find(partition_spec);
-        if (writer_iter == _partitions_to_writers.end()) {
-            if (_partitions_to_writers.size() + 1 >
-                config::table_sink_partition_write_max_partition_nums_per_writer) {
-                return Status::InternalError(
-                        "Too many open partitions {}",
-                        config::table_sink_partition_write_max_partition_nums_per_writer);
-            }
-            auto writer = _create_partition_writer(partition_spec);
-            RETURN_IF_ERROR(writer->open());
-            _partitions_to_writers.insert({partition_spec, writer});
-            writer_iter = _partitions_to_writers.find(partition_spec);
-        }
-        auto& writer = writer_iter->second;
-        auto pos_iter = writer_positions.find(writer);
-        if (pos_iter == writer_positions.end()) {
-            IColumn::Filter filter(output_block.rows(), 0);
-            filter[i] = 1;
-            writer_positions.insert({writer, std::move(filter)});
-        } else {
-            pos_iter->second[i] = 1;
-        }
+    // Case 2: Dynamic partition or non-partitioned table
+    // For dynamic partitions, MaxCompute Storage API (with DynamicPartitionOptions) expects
+    // partition column values in the Arrow data and handles routing internally.
+    // So we send the full block including partition columns to a single writer.
+    std::string partition_key = "";
+    auto it = _partitions_to_writers.find(partition_key);
+    if (it == _partitions_to_writers.end()) {
+        auto writer = _create_partition_writer("");
+        RETURN_IF_ERROR(writer->open());
+        _partitions_to_writers.insert({partition_key, writer});
+        it = _partitions_to_writers.find(partition_key);
     }
-
-    // Erase partition columns, then write filtered blocks to each partition writer
-    output_block.erase(_non_write_columns_indices);
-    for (auto& [writer, filter] : writer_positions) {
-        Block filtered_block;
-        RETURN_IF_ERROR(_filter_block(output_block, &filter, &filtered_block));
-        RETURN_IF_ERROR(writer->write(filtered_block));
-    }
-    return Status::OK();
+    return it->second->write(output_block);
 }
 
 Status VMCTableWriter::close(Status status) {

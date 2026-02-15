@@ -59,12 +59,6 @@ private:
 
     std::map<std::string, std::string> _build_base_writer_params();
 
-    std::string _get_partition_spec(const Block& block, int row_idx);
-
-    static Status _filter_block(doris::vectorized::Block& block,
-                                const vectorized::IColumn::Filter* filter,
-                                doris::vectorized::Block* output_block);
-
     TDataSink _t_sink;
     const TMaxComputeTableSink& _mc_sink;
     RuntimeState* _state = nullptr;
@@ -72,8 +66,6 @@ private:
     // partition_spec -> writer mapping
     std::unordered_map<std::string, std::shared_ptr<VMCPartitionWriter>> _partitions_to_writers;
 
-    // Partition column indices in the output block (for dynamic partition)
-    std::vector<int> _partition_column_indices;
     // Partition column names
     std::vector<std::string> _partition_column_names;
 
