@@ -94,7 +94,7 @@ public:
               _is_unique(is_unique),
               _is_reverse(is_reverse),
               _output_schema(std::move(output_schema)),
-              _num_key_columns(cast_set<int>(_iter->schema().num_key_columns())),
+              _num_key_columns(cast_set<int>(_output_schema->num_key_columns())),
               _compare_columns(read_orderby_key_columns) {}
 
     VMergeIteratorContext(const VMergeIteratorContext&) = delete;
