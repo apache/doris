@@ -87,12 +87,13 @@ private:
 class VMergeIteratorContext {
 public:
     VMergeIteratorContext(RowwiseIteratorUPtr&& iter, int sequence_id_idx, bool is_unique,
-                          bool is_reverse, std::vector<uint32_t>* read_orderby_key_columns)
+                          bool is_reverse, std::vector<uint32_t>* read_orderby_key_columns,
+                          SchemaSPtr output_schema)
             : _iter(std::move(iter)),
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
               _is_reverse(is_reverse),
-              _num_columns(cast_set<int>(_iter->schema().num_column_ids())),
+              _output_schema(std::move(output_schema)),
               _num_key_columns(cast_set<int>(_iter->schema().num_key_columns())),
               _compare_columns(read_orderby_key_columns) {}
 
@@ -103,6 +104,20 @@ public:
 
     ~VMergeIteratorContext() = default;
 
+    // Reset (or initialize) the internal _block using the *input* schema from the underlying
+    // SegmentIterator (_iter->schema()), NOT the output schema.
+    //
+    // The input schema may contain extra columns that are not in the output schema, such as
+    // delete predicate columns. For example, if the query reads columns {k, __ROWID__} but
+    // there is a delete predicate on column v1 (e.g., "DELETE FROM t WHERE v1 = 'foo'"), then:
+    //   - input schema  (iter->schema) = {k, __ROWID__, v1}   (3 columns)
+    //   - output schema                = {k, __ROWID__}       (2 columns)
+    //
+    // SegmentIterator internally relies on the block having all input schema columns:
+    //   - _init_current_block() accesses block->get_by_position(i) for all columns in input schema
+    //   - _output_non_pred_columns() uses block->columns() to decide whether to fill delete
+    //     predicate columns
+    // Therefore block_reset must create the block with the full input schema.
     Status block_reset(const std::shared_ptr<Block>& block);
 
     // Initialize this context and will prepare data for current_row()
@@ -110,6 +125,11 @@ public:
 
     bool compare(const VMergeIteratorContext& rhs) const;
 
+    // Copy rows from internal _block (which has input schema columns) to the destination block
+    // (which has output schema columns). Only the first _output_schema->num_column_ids() columns
+    // are copied, skipping any extra columns (e.g., delete predicate columns) that exist in
+    // _block but not in the destination.
+    //
     // `advanced = false` when current block finished
     // when input argument type is block, we do not process same_bit,
     // this case we only need merge and return ordered data (VCollectIterator::_topn_next), data mode is dup/mow can guarantee all rows are different
@@ -175,6 +195,16 @@ private:
     size_t _index_in_block = -1;
     // 4096 minus 16 + 16 bytes padding that in padding pod array
     int _block_row_max = 4064;
+    // The output schema defines which columns to copy to the caller's dst block.
+    // It may have fewer columns than _iter->schema() (the input schema) when delete
+    // predicates add extra columns. For example:
+    //   - _iter->schema() (input)  = {k, __ROWID__, v1}  — v1 for "DELETE WHERE v1='foo'"
+    //   - _output_schema           = {k, __ROWID__}      — only the requested columns
+    // block_reset() uses _iter->schema() to build _block (SegmentIterator needs all columns),
+    // while copy_rows() uses _num_columns (from _output_schema) to copy only the output columns.
+    SchemaSPtr _output_schema;
+    // Number of columns in the output schema. Used as the loop bound in copy_rows() to avoid
+    // accessing columns in the dst block that don't exist (when input schema > output schema).
     int _num_columns;
     int _num_key_columns;
     std::vector<uint32_t>* _compare_columns;
@@ -193,12 +223,13 @@ class VMergeIterator : public RowwiseIterator {
 public:
     // VMergeIterator takes the ownership of input iterators
     VMergeIterator(std::vector<RowwiseIteratorUPtr>&& iters, int sequence_id_idx, bool is_unique,
-                   bool is_reverse, uint64_t* merged_rows)
+                   bool is_reverse, uint64_t* merged_rows, SchemaSPtr output_schema)
             : _origin_iters(std::move(iters)),
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
               _is_reverse(is_reverse),
-              _merged_rows(merged_rows) {}
+              _merged_rows(merged_rows),
+              _output_schema(std::move(output_schema)) {}
 
     ~VMergeIterator() override = default;
 
@@ -295,6 +326,9 @@ private:
     std::vector<RowwiseIteratorUPtr> _origin_iters;
 
     const Schema* _schema = nullptr;
+    // The output schema (excludes delete predicate columns). Passed down to each
+    // VMergeIteratorContext to control how many columns copy_rows() copies.
+    SchemaSPtr _output_schema;
 
     struct VMergeContextComparator {
         bool operator()(const std::shared_ptr<VMergeIteratorContext>& lhs,
@@ -326,13 +360,14 @@ private:
 // should delete returned iterator after usage.
 RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,
                                        int sequence_id_idx, bool is_unique, bool is_reverse,
-                                       uint64_t* merged_rows);
+                                       uint64_t* merged_rows, SchemaSPtr output_schema);
 
 // Create a union iterator for input iterators. Union iterator will read
 // input iterators one by one.
 //
 // Inputs iterators' ownership is taken by created union iterator.
-RowwiseIteratorUPtr new_union_iterator(std::vector<RowwiseIteratorUPtr>&& inputs);
+RowwiseIteratorUPtr new_union_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,
+                                      SchemaSPtr output_schema);
 
 // Create an auto increment iterator which returns num_rows data in format of schema.
 // This class aims to be used in unit test.

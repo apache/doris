@@ -147,6 +147,7 @@ private:
     std::vector<RowRanges> _segment_row_ranges;
 
     SchemaSPtr _input_schema;
+    SchemaSPtr _output_schema;
     RowsetReaderContext* _read_context = nullptr;
     BetaRowsetSharedPtr _rowset;
 
