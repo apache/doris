@@ -161,6 +161,11 @@ bool VMergeIteratorContext::compare(const VMergeIteratorContext& rhs) const {
 Status VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
     Block& src = *_block;
     Block& dst = *block;
+    // src (_block) is built by block_reset() using the input schema, which may include
+    // delete predicate columns beyond the output schema. e.g. input={c1,c2,c3}, output={c1,c2}.
+    DCHECK_GE(src.columns(), _output_schema->num_column_ids());
+    // dst is built by the caller using the output schema (return_columns only).
+    DCHECK_EQ(dst.columns(), _output_schema->num_column_ids());
     if (_cur_batch_num == 0) {
         return Status::OK();
     }
