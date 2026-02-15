@@ -362,10 +362,9 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
     _record_rowids = opts.record_rowids;
 
     for (auto& iter : _origin_iters) {
-        auto ctx = std::make_shared<VMergeIteratorContext>(std::move(iter), _sequence_id_idx,
-                                                           _is_unique, _is_reverse,
-                                                           opts.read_orderby_key_columns,
-                                                           _output_schema);
+        auto ctx = std::make_shared<VMergeIteratorContext>(
+                std::move(iter), _sequence_id_idx, _is_unique, _is_reverse,
+                opts.read_orderby_key_columns, _output_schema);
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;

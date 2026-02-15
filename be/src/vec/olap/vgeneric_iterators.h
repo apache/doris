@@ -363,7 +363,7 @@ RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr>&& inputs
 //
 // Inputs iterators' ownership is taken by created union iterator.
 RowwiseIteratorUPtr new_union_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,
-                                      SchemaSPtr output_schema);
+                                       SchemaSPtr output_schema);
 
 // Create an auto increment iterator which returns num_rows data in format of schema.
 // This class aims to be used in unit test.
