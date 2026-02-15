@@ -418,18 +418,7 @@ int OSSAccessor::delete_files(const std::vector<std::string>& paths) {
             return convert_oss_error_code(outcome.error().Code());
         }
 
-        // Check for partial failures (HTTP 200 but some objects failed)
-        const auto& result = outcome.result();
-        if (result.FailedKeys().size() > 0) {
-            LOG(WARNING) << "OSS DeleteObjects partial failure: " << result.FailedKeys().size()
-                         << " of " << keys.size() << " objects failed to delete";
-            for (const auto& failed : result.FailedKeys()) {
-                LOG(WARNING) << "Failed to delete OSS key '" << failed.Key() << "': "
-                             << failed.Code() << " - " << failed.Message();
-            }
-        }
-
-        VLOG(1) << "OSS DeleteObjects success: deleted " << result.DeletedKeys().size()
+        VLOG(1) << "OSS DeleteObjects success: deleted " << outcome.result().keyList().size()
                 << " objects (" << (end - i) << " requested)";
     }
 
@@ -496,19 +485,8 @@ int OSSAccessor::delete_prefix(const std::string& path_prefix, int64_t expiratio
                     return convert_oss_error_code(delete_outcome.error().Code());
                 }
 
-                // Check for partial failures
-                const auto& del_result = delete_outcome.result();
-                if (del_result.FailedKeys().size() > 0) {
-                    LOG(WARNING) << "OSS DeleteObjects partial failure: "
-                                 << del_result.FailedKeys().size() << " of "
-                                 << keys_to_delete.size() << " objects failed";
-                    for (const auto& failed : del_result.FailedKeys()) {
-                        LOG(WARNING) << "Failed to delete '" << failed.Key() << "': "
-                                     << failed.Code() << " - " << failed.Message();
-                    }
-                }
-
-                VLOG(1) << "OSS deleted batch of " << del_result.DeletedKeys().size() << " objects";
+                VLOG(1) << "OSS deleted batch of " << delete_outcome.result().keyList().size()
+                        << " objects";
                 keys_to_delete.clear();
             }
         }
@@ -531,19 +509,8 @@ int OSSAccessor::delete_prefix(const std::string& path_prefix, int64_t expiratio
             return convert_oss_error_code(delete_outcome.error().Code());
         }
 
-        // Check for partial failures
-        const auto& del_result = delete_outcome.result();
-        if (del_result.FailedKeys().size() > 0) {
-            LOG(WARNING) << "OSS DeleteObjects partial failure: "
-                         << del_result.FailedKeys().size() << " of "
-                         << keys_to_delete.size() << " objects failed";
-            for (const auto& failed : del_result.FailedKeys()) {
-                LOG(WARNING) << "Failed to delete '" << failed.Key() << "': "
-                             << failed.Code() << " - " << failed.Message();
-            }
-        }
-
-        VLOG(1) << "OSS deleted final batch of " << del_result.DeletedKeys().size() << " objects";
+        VLOG(1) << "OSS deleted final batch of " << delete_outcome.result().keyList().size()
+                << " objects";
     }
 
     return 0;

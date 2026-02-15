@@ -169,11 +169,7 @@ Status OSSFileWriter::_upload_part(int part_num, const char* data, size_t size) 
 
     oss_bytes_written_total << size;
 
-    // Store completed part info
-    AlibabaCloud::OSS::Part part;
-    part.SetPartNumber(part_num);
-    part.SetETag(outcome.result().ETag());
-    part.SetSize(size);
+    AlibabaCloud::OSS::Part part(part_num, outcome.result().ETag());
 
     std::lock_guard<std::mutex> lock(_completed_lock);
     _completed_parts.push_back(part);

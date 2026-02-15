@@ -110,7 +110,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     @Getter
     @ConnectorProperty(names = {"oss.connection.request.timeout", "s3.connection.request.timeout"}, required = false,
             description = "Request timeout in milliseconds. Default: 10000 (10 seconds)")
-    protected String requestTimeoutMs = "10000";
+    protected String requestTimeoutS = "10000";
 
     /**
      * The timeout (in milliseconds) for establishing a connection to the object storage system.
@@ -120,7 +120,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     @Getter
     @ConnectorProperty(names = {"oss.connection.timeout", "s3.connection.timeout"}, required = false,
             description = "Connection timeout in milliseconds. Default: 10000 (10 seconds)")
-    protected String connectionTimeoutMs = "10000";
+    protected String connectionTimeoutS = "10000";
 
     /**
      * Flag indicating whether to use path-style URLs for the object storage system.
@@ -453,14 +453,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
             builder.setSk(secretKey);
         }
 
-        // Session Token (for temporary credentials from ECS instance profile)
-        String sessionToken = Stream.of(SESSION_TOKEN_KEY, "session_token")
-                .map(properties::get)
-                .filter(StringUtils::isNotBlank)
-                .findFirst()
-                .orElse(null);
-        // Note: Session token is not stored in ObjectStoreInfoPB
-        // It's managed at runtime by ECSMetadataCredentialsProvider
+        // Session token managed at runtime by ECSMetadataCredentialsProvider, not stored in protobuf
 
         // Root Path (prefix)
         String rootPath = Stream.of(ROOT_PATH_KEY, "s3.root.path", "root.path")

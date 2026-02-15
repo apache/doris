@@ -268,20 +268,6 @@ Status OSSFileSystem::delete_directory_impl(const Path& dir) {
                                        delete_outcome.error().Code(),
                                        delete_outcome.error().Message());
             }
-
-            // Check for partial failures
-            const auto& delete_result = delete_outcome.result();
-            if (delete_result.FailedKeys().size() > 0) {
-                LOG(WARNING) << "OSS delete directory partial failure: "
-                             << delete_result.FailedKeys().size() << " of " << keys.size()
-                             << " objects failed";
-                for (const auto& failed : delete_result.FailedKeys()) {
-                    LOG(WARNING) << "Failed to delete OSS key '" << failed.Key() << "': "
-                                 << failed.Code() << " - " << failed.Message();
-                }
-                return Status::IOError("delete directory failed for {} objects",
-                                       delete_result.FailedKeys().size());
-            }
         }
 
         is_truncated = result.IsTruncated();
@@ -319,19 +305,6 @@ Status OSSFileSystem::batch_delete_impl(const std::vector<Path>& remote_files) {
         if (!outcome.isSuccess()) {
             return Status::IOError("failed to batch delete objects: {} - {}",
                                    outcome.error().Code(), outcome.error().Message());
-        }
-
-        // Check for partial failures (HTTP 200 but some objects failed)
-        const auto& result = outcome.result();
-        if (result.FailedKeys().size() > 0) {
-            LOG(WARNING) << "OSS batch delete partial failure: " << result.FailedKeys().size()
-                         << " of " << keys.size() << " objects failed";
-            for (const auto& failed : result.FailedKeys()) {
-                LOG(WARNING) << "Failed to delete OSS key '" << failed.Key() << "': "
-                             << failed.Code() << " - " << failed.Message();
-            }
-            return Status::IOError("batch delete failed for {} objects",
-                                   result.FailedKeys().size());
         }
     } while (path_iter != remote_files.end());
 
@@ -450,7 +423,7 @@ Status OSSFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
         }
 
         std::string upload_id = init_outcome.result().UploadId();
-        AlibabaCloud::OSS::PartETagList part_etags;
+        AlibabaCloud::OSS::PartList part_etags;
 
         // Calculate number of parts
         int64_t part_count = (file_size + MULTIPART_COPY_PART_SIZE - 1) / MULTIPART_COPY_PART_SIZE;
@@ -460,8 +433,8 @@ Status OSSFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
             int64_t start_offset = i * MULTIPART_COPY_PART_SIZE;
             int64_t end_offset = std::min(start_offset + MULTIPART_COPY_PART_SIZE - 1, file_size - 1);
 
-            AlibabaCloud::OSS::UploadPartCopyRequest part_request(_bucket, dst_key, upload_id);
-            part_request.setCopySource(_bucket, src_key);
+            AlibabaCloud::OSS::UploadPartCopyRequest part_request(_bucket, dst_key, _bucket, src_key);
+            part_request.setUploadId(upload_id);
             part_request.setPartNumber(i + 1);
             part_request.setCopySourceRange(start_offset, end_offset);
 
@@ -476,7 +449,7 @@ Status OSSFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
                                        part_outcome.error().Message());
             }
 
-            part_etags.push_back(AlibabaCloud::OSS::PartETag(i + 1, part_outcome.result().ETag()));
+            part_etags.push_back(AlibabaCloud::OSS::Part(i + 1, part_outcome.result().ETag()));
         }
 
         // Complete multipart upload

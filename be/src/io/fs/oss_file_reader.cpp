@@ -143,11 +143,8 @@ Status OSSFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_re
         oss_file_reader_read_counter << 1;
 
         AlibabaCloud::OSS::GetObjectRequest request(_bucket, _key);
-
-        // OSS SDK requires range as string "bytes=start-end"
-        std::stringstream range_str;
-        range_str << "bytes=" << offset << "-" << (offset + bytes_req - 1);
-        request.setRange(range_str.str());
+        request.setRange(static_cast<int64_t>(offset),
+                         static_cast<int64_t>(offset + bytes_req - 1));
 
         auto outcome = client->GetObject(request);
         _oss_stats.total_get_request_counter++;
