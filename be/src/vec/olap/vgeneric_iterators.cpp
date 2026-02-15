@@ -150,7 +150,10 @@ Status VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
         return Status::OK();
     }
     size_t output_cols = _output_schema->num_column_ids();
-    DCHECK_EQ(src.columns(), output_cols);
+    // src block may contain extra columns (e.g. delete-predicate columns) because 
+    // SegmentIterator reads with input_schema = return_columns + delete columns 
+    // to evaluate row filtering. We should only copy the requested output columns.
+    DCHECK_GE(src.columns(), output_cols);
     DCHECK_EQ(dst.columns(), output_cols);
 
     // copy a row to dst block column by column
@@ -429,7 +432,6 @@ Status VUnionIterator::next_batch(Block* block) {
                 _cur_iter = nullptr;
             }
         } else {
-            DCHECK_EQ(block->columns(), _schema->num_column_ids());
             return st;
         }
     }
