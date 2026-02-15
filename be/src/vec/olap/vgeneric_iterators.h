@@ -108,10 +108,10 @@ public:
     // SegmentIterator (_iter->schema()), NOT the output schema.
     //
     // The input schema may contain extra columns that are not in the output schema, such as
-    // delete predicate columns. For example, if the query reads columns {k, __ROWID__} but
-    // there is a delete predicate on column v1 (e.g., "DELETE FROM t WHERE v1 = 'foo'"), then:
-    //   - input schema  (iter->schema) = {k, __ROWID__, v1}   (3 columns)
-    //   - output schema                = {k, __ROWID__}       (2 columns)
+    // delete predicate columns. For example, if the query reads columns {c1, c2} but
+    // there is a delete predicate on column c3 (e.g., "DELETE FROM t WHERE c3 = 'foo'"), then:
+    //   - input schema  (iter->schema) = {c1, c2, c3}   (3 columns)
+    //   - output schema                = {c1, c2}       (2 columns)
     //
     // SegmentIterator internally relies on the block having all input schema columns:
     //   - _init_current_block() accesses block->get_by_position(i) for all columns in input schema
@@ -198,14 +198,11 @@ private:
     // The output schema defines which columns to copy to the caller's dst block.
     // It may have fewer columns than _iter->schema() (the input schema) when delete
     // predicates add extra columns. For example:
-    //   - _iter->schema() (input)  = {k, __ROWID__, v1}  — v1 for "DELETE WHERE v1='foo'"
-    //   - _output_schema           = {k, __ROWID__}      — only the requested columns
+    //   - _iter->schema() (input)  = {c1, c2, c3}  — c3 for "DELETE WHERE c3='foo'"
+    //   - _output_schema           = {c1, c2}      — only the requested columns
     // block_reset() uses _iter->schema() to build _block (SegmentIterator needs all columns),
-    // while copy_rows() uses _num_columns (from _output_schema) to copy only the output columns.
-    SchemaSPtr _output_schema;
-    // Number of columns in the output schema. Used as the loop bound in copy_rows() to avoid
-    // accessing columns in the dst block that don't exist (when input schema > output schema).
-    int _num_columns;
+    // while copy_rows() uses _output_schema->num_column_ids() to copy only the output columns.
+    const SchemaSPtr _output_schema;
     int _num_key_columns;
     std::vector<uint32_t>* _compare_columns;
     std::vector<RowLocation> _block_row_locations;
@@ -241,7 +238,7 @@ public:
     }
     Status next_batch(BlockView* block_view) override { return _next_batch(block_view); }
 
-    const Schema& schema() const override { return *_schema; }
+    const Schema& schema() const override { return *_output_schema; }
 
     Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override {
         DCHECK(_record_rowids);
@@ -325,10 +322,9 @@ private:
     // It will be released after '_merge_heap' has been built.
     std::vector<RowwiseIteratorUPtr> _origin_iters;
 
-    const Schema* _schema = nullptr;
     // The output schema (excludes delete predicate columns). Passed down to each
     // VMergeIteratorContext to control how many columns copy_rows() copies.
-    SchemaSPtr _output_schema;
+    const SchemaSPtr _output_schema;
 
     struct VMergeContextComparator {
         bool operator()(const std::shared_ptr<VMergeIteratorContext>& lhs,

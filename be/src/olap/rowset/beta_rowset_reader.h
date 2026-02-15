@@ -150,13 +150,13 @@ private:
     // Used by SegmentIterator internally (block_reset creates blocks with this schema),
     // because SegmentIterator::_init_current_block and _output_non_pred_columns both
     // index into the block assuming input_schema column count.
-    // e.g. return_columns={k, __ROWID__}, delete_pred on v1 => input_schema={k, __ROWID__, v1}
+    // e.g. return_columns={c1, c2}, delete_pred on c3 => input_schema={c1, c2, c3}
     SchemaSPtr _input_schema;
     // _output_schema: includes only return_columns (a subset of input_schema).
     // Passed to VMergeIterator/VUnionIterator so that copy_rows only copies the columns
     // the caller actually needs, avoiding OOB access on the destination block which is
     // sized according to return_columns only.
-    // e.g. return_columns={k, __ROWID__} => output_schema={k, __ROWID__}
+    // e.g. return_columns={c1, c2} => output_schema={c1, c2}
     SchemaSPtr _output_schema;
     RowsetReaderContext* _read_context = nullptr;
     BetaRowsetSharedPtr _rowset;

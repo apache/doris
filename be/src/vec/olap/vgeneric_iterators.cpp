@@ -100,9 +100,9 @@ Status VStatisticsIterator::next_batch(Block* block) {
 
 // Use _iter->schema() (input schema) to build the block, NOT the output schema.
 // The input schema includes all columns the SegmentIterator needs to fill, which may be
-// a superset of the output schema. For example, with a delete predicate "DELETE WHERE v1='foo'":
-//   - input schema  = {k, __ROWID__, v1}  — v1 is needed for delete predicate evaluation
-//   - output schema = {k, __ROWID__}      — v1 is not returned to the caller
+// a superset of the output schema. For example, with a delete predicate "DELETE WHERE c3='foo'":
+//   - input schema  = {c1, c2, c3}  — c3 is needed for delete predicate evaluation
+//   - output schema = {c1, c2}      — c3 is not returned to the caller
 // SegmentIterator::_init_current_block() indexes into the block by input schema positions,
 // and _output_non_pred_columns() checks block->columns() to decide whether to output
 // the delete predicate column. So the block must match the input schema.
@@ -152,11 +152,11 @@ bool VMergeIteratorContext::compare(const VMergeIteratorContext& rhs) const {
 }
 
 // Copy rows from the internal _block (built with input schema) to the destination block
-// (built with output schema). Only copy the first _num_columns columns, which corresponds
-// to the output schema. The source _block may have more columns than the destination when
-// delete predicates add extra columns. For example:
-//   - src (_block):  {k, __ROWID__, v1}  — 3 columns (input schema, v1 for delete predicate)
-//   - dst (block):   {k, __ROWID__}      — 2 columns (output schema)
+// (built with output schema). Only copy the first _output_schema->num_column_ids() columns,
+// which corresponds to the output schema. The source _block may have more columns than the
+// destination when delete predicates add extra columns. For example:
+//   - src (_block):  {c1, c2, c3}  — 3 columns (input schema, c3 for delete predicate)
+//   - dst (block):   {c1, c2}      — 2 columns (output schema)
 // We must NOT iterate over all src columns, otherwise we'd access dst out of bounds.
 Status VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
     Block& src = *_block;
@@ -169,7 +169,7 @@ Status VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
     size_t start = _index_in_block - _cur_batch_num + 1 - advanced;
 
     RETURN_IF_CATCH_EXCEPTION({
-        for (size_t i = 0; i < _num_columns; ++i) {
+        for (size_t i = 0; i < _output_schema->num_column_ids(); ++i) {
             auto& s_col = src.get_by_position(i);
             auto& d_col = dst.get_by_position(i);
 
@@ -295,10 +295,6 @@ Status VAutoIncrementIterator::init(const StorageReadOptions& opts) {
 Status VMergeIteratorContext::init(const StorageReadOptions& opts) {
     _block_row_max = opts.block_row_max;
     _record_rowids = opts.record_rowids;
-    // _num_columns is the number of columns to copy in copy_rows().
-    // output_schema only contains return_columns (excludes delete predicate columns),
-    // so copy_rows will only copy the columns the caller actually needs.
-    _num_columns = cast_set<int>(_output_schema->num_column_ids());
     RETURN_IF_ERROR(_load_next_block());
     if (valid()) {
         RETURN_IF_ERROR(advance());
@@ -363,9 +359,6 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
     if (_origin_iters.empty()) {
         return Status::OK();
     }
-    // Use output_schema to set the schema for this iterator.
-    // The output schema excludes delete predicate columns.
-    _schema = _output_schema.get();
     _record_rowids = opts.record_rowids;
 
     for (auto& iter : _origin_iters) {
@@ -407,7 +400,7 @@ public:
 
     Status next_batch(Block* block) override;
 
-    const Schema& schema() const override { return *_schema; }
+    const Schema& schema() const override { return *_output_schema; }
 
     Status current_block_row_locations(std::vector<RowLocation>* locations) override;
 
@@ -418,8 +411,7 @@ public:
     }
 
 private:
-    const Schema* _schema = nullptr;
-    SchemaSPtr _output_schema;
+    const SchemaSPtr _output_schema;
     RowwiseIteratorUPtr _cur_iter = nullptr;
     StorageReadOptions _read_options;
     std::vector<RowwiseIteratorUPtr> _origin_iters;
@@ -438,8 +430,6 @@ Status VUnionIterator::init(const StorageReadOptions& opts) {
     _read_options = opts;
     _cur_iter = std::move(_origin_iters.back());
     RETURN_IF_ERROR(_cur_iter->init(_read_options));
-    // Use output_schema to set the schema for this iterator.
-    _schema = _output_schema.get();
     return Status::OK();
 }
 
