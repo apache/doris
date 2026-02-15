@@ -154,9 +154,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _input_schema = std::make_shared<Schema>(_read_context->tablet_schema->columns(), read_columns);
 
     // output schema must match return_columns (excludes extra columns like delete-predicate columns)
-    _output_schema =
-            std::make_shared<Schema>(_read_context->tablet_schema->columns(),
-                                     *(_read_context->return_columns));
+    _output_schema = std::make_shared<Schema>(_read_context->tablet_schema->columns(),
+                                              *(_read_context->return_columns));
     if (_read_context->predicates != nullptr) {
         _read_options.column_predicates.insert(_read_options.column_predicates.end(),
                                                _read_context->predicates->begin(),

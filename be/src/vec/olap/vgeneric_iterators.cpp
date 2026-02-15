@@ -150,8 +150,8 @@ Status VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
         return Status::OK();
     }
     size_t output_cols = _output_schema->num_column_ids();
-    // src block may contain extra columns (e.g. delete-predicate columns) because 
-    // SegmentIterator reads with input_schema = return_columns + delete columns 
+    // src block may contain extra columns (e.g. delete-predicate columns) because
+    // SegmentIterator reads with input_schema = return_columns + delete columns
     // to evaluate row filtering. We should only copy the requested output columns.
     DCHECK_GE(src.columns(), output_cols);
     DCHECK_EQ(dst.columns(), output_cols);
