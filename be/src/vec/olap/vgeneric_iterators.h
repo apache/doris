@@ -222,11 +222,11 @@ public:
     VMergeIterator(std::vector<RowwiseIteratorUPtr>&& iters, int sequence_id_idx, bool is_unique,
                    bool is_reverse, uint64_t* merged_rows, SchemaSPtr output_schema)
             : _origin_iters(std::move(iters)),
+              _output_schema(std::move(output_schema)),
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
               _is_reverse(is_reverse),
-              _merged_rows(merged_rows),
-              _output_schema(std::move(output_schema)) {}
+              _merged_rows(merged_rows) {}
 
     ~VMergeIterator() override = default;
 
