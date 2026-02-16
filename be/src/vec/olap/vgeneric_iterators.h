@@ -128,7 +128,8 @@ public:
     bool compare(const VMergeIteratorContext& rhs) const;
 
     // Copy rows from internal _block to the destination block.
-    // Both blocks have the same columns (output schema = return_columns only).
+    // Both blocks have _output_schema columns (return_columns only).
+    // Only _output_schema->num_column_ids() columns are copied.
     //
     // `advanced = false` when current block finished
     // when input argument type is block, we do not process same_bit,

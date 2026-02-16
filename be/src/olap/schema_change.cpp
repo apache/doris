@@ -572,7 +572,14 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
     bool eof = false;
     do {
         auto new_block = vectorized::Block::create_unique(new_tablet_schema->create_block());
-        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block(false));
+        // create_block() skips dropped columns (from light-weight schema change).
+        // Dropped columns are only needed for delete predicate evaluation, which
+        // SegmentIterator handles internally — it creates temporary columns for
+        // predicate columns not present in the block (via `i >= block->columns()`
+        // guard in _init_current_block). If dropped columns were included here,
+        // the block would have more columns than VMergeIterator's output_schema
+        // expects, causing DCHECK failures in copy_rows.
+        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
 
         Status st = next_batch(rowset_reader, ref_block.get(), _row_same_bit);
         if (!st) {
@@ -641,7 +648,14 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
 
     bool eof = false;
     do {
-        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block(false));
+        // create_block() skips dropped columns (from light-weight schema change).
+        // Dropped columns are only needed for delete predicate evaluation, which
+        // SegmentIterator handles internally — it creates temporary columns for
+        // predicate columns not present in the block (via `i >= block->columns()`
+        // guard in _init_current_block). If dropped columns were included here,
+        // the block would have more columns than VMergeIterator's output_schema
+        // expects, causing DCHECK failures in copy_rows.
+        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
         Status st = next_batch(rowset_reader, ref_block.get(), _row_same_bit);
         if (!st) {
             if (st.is<ErrorCode::END_OF_FILE>()) {
