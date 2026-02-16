@@ -327,13 +327,6 @@ if (ENABLE_HDFS_STORAGE_VAULT)
         -ljvm)
 endif()
 
-if(BUILD_OSS STREQUAL "ON")
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-        ${THIRDPARTY_DIR}/lib/libalibabacloud-oss-cpp-sdk.a
-        ${THIRDPARTY_DIR}/lib/libapr-1.a
-        ${THIRDPARTY_DIR}/lib/libaprutil-1.a)
-endif()
-
 if (NOT (USE_LIBCPP AND COMPILER_CLANG))
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -lstdc++fs)
 endif()

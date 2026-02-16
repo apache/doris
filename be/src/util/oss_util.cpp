@@ -24,6 +24,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "cpp/oss_credential_provider.h"
+#include "util/s3_util.h"
 
 namespace doris {
 
@@ -36,26 +37,6 @@ bvar::LatencyRecorder oss_head_latency("oss_head");
 bvar::LatencyRecorder oss_list_latency("oss_list");
 bvar::LatencyRecorder oss_multi_part_upload_latency("oss_multi_part_upload");
 } // namespace oss_bvar
-
-std::string hide_access_key(const std::string& ak) {
-    if (ak.empty()) {
-        return "";
-    }
-
-    std::string key = ak;
-    size_t key_len = key.length();
-
-    // Show first 4 and last 4 chars, mask the rest
-    if (key_len <= 8) {
-        // For short keys, show first 2 and last 2
-        if (key_len <= 4) {
-            return std::string(key_len, '*');
-        }
-        return key.substr(0, 2) + std::string(key_len - 4, '*') + key.substr(key_len - 2);
-    }
-
-    return key.substr(0, 4) + std::string(key_len - 8, '*') + key.substr(key_len - 4);
-}
 
 OSSConf OSSConf::get_oss_conf(const cloud::ObjectStoreInfoPB& obj_info) {
     OSSConf conf;

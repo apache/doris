@@ -27,6 +27,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "util/s3_util.h"
 #include "vec/common/string_ref.h"
 
 // Forward declare OSS SDK types
@@ -37,6 +38,9 @@ class OssClient;
 } // namespace AlibabaCloud
 
 namespace doris {
+
+// Forward declaration (defined in s3_util.cpp)
+std::string hide_access_key(const std::string& ak);
 
 class ECSMetadataCredentialsProvider;
 
@@ -49,8 +53,6 @@ extern bvar::LatencyRecorder oss_head_latency;
 extern bvar::LatencyRecorder oss_list_latency;
 extern bvar::LatencyRecorder oss_multi_part_upload_latency;
 } // namespace oss_bvar
-
-std::string hide_access_key(const std::string& ak);
 
 // OSS Client Configuration
 struct OSSClientConf {

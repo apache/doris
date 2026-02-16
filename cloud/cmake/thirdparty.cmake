@@ -107,6 +107,13 @@ add_thirdparty(lzma LIB64)
 add_thirdparty(idn LIB64)
 add_thirdparty(gsasl)
 # end krb5 libs
+# begin oss libs
+if(BUILD_OSS STREQUAL "ON")
+    add_thirdparty(alibabacloud-oss-cpp-sdk LIB64)
+    add_thirdparty(apr-1)
+    add_thirdparty(aprutil-1)
+endif()
+# end oss libs
 # begin azure libs
 if(BUILD_AZURE STREQUAL "ON")
     add_thirdparty(azure-core)
