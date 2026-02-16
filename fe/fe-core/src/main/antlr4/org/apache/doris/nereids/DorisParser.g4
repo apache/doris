@@ -2030,6 +2030,10 @@ nonReserved
     | DAYOFWEEK
     | DAYOFYEAR
     | DAYS
+    | DAY_HOUR
+    | DAY_MICROSECOND
+    | DAY_MINUTE
+    | DAY_SECOND
     | DECIMAL
     | DECIMALV2
     | DECIMALV3
@@ -2094,6 +2098,9 @@ nonReserved
     | HOTSPOT
     | HOUR
     | HOURS
+    | HOUR_MICROSECOND
+    | HOUR_MINUTE
+    | HOUR_SECOND
     | HUB
     | IDENTIFIED
     | IGNORE
@@ -2150,6 +2157,8 @@ nonReserved
     | MIN
     | MINUTE
     | MINUTES
+    | MINUTE_MICROSECOND
+    | MINUTE_SECOND
     | MOD_ALT
     | MODIFY
     | MONTH
@@ -2243,6 +2252,7 @@ nonReserved
     | SCHEDULER
     | SCHEMA
     | SECOND
+    | SECOND_MICROSECOND
     | MICROSECOND
     | SEPARATOR
     | SERIALIZABLE
@@ -2312,5 +2322,6 @@ nonReserved
     | WEEK
     | WORK
     | YEAR
+    | YEAR_MONTH
 //--DEFAULT-NON-RESERVED-END
     ;
