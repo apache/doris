@@ -2083,8 +2083,19 @@ Status SegmentIterator::_output_non_pred_columns(vectorized::Block* block) {
     RETURN_IF_ERROR(_convert_to_expected_type(_non_predicate_columns));
     for (auto cid : _non_predicate_columns) {
         auto loc = _schema_block_id_map[cid];
-        // if loc > block->columns() means the column is delete column and should
-        // not output by block, so just skip the column.
+        // Whether a delete predicate column gets output depends on how the caller builds
+        // the block passed to next_batch(). Both calling paths now build the block with
+        // only the output schema (return_columns), so delete predicate columns are skipped:
+        //
+        // 1) VMergeIterator path: block_reset() builds _block using the output schema
+        //    (return_columns only), e.g. block has 2 columns {c1, c2}.
+        //    Here loc=2 for delete predicate c3, block->columns()=2, so loc < block->columns()
+        //    is false, and c3 is skipped.
+        //
+        // 2) VUnionIterator path: the caller's block is built with only return_columns
+        //    (output schema), e.g. block has 2 columns {c1, c2}.
+        //    Here loc=2 for c3, block->columns()=2, so loc < block->columns() is false,
+        //    and c3 is skipped — same behavior as the VMergeIterator path.
         if (loc < block->columns()) {
             bool column_in_block_is_nothing =
                     vectorized::check_and_get_column<const vectorized::ColumnNothing>(

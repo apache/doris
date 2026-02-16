@@ -152,8 +152,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     // create segment iterators
     VLOG_NOTICE << "read columns size: " << read_columns.size();
     _input_schema = std::make_shared<Schema>(_read_context->tablet_schema->columns(), read_columns);
-
-    // output schema must match return_columns (excludes extra columns like delete-predicate columns)
+    // output_schema only contains return_columns (excludes extra columns like delete-predicate columns).
+    // It is used by merge/union iterators to determine how many columns to copy to the output block.
     _output_schema = std::make_shared<Schema>(_read_context->tablet_schema->columns(),
                                               *(_read_context->return_columns));
     if (_read_context->predicates != nullptr) {
