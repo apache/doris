@@ -935,6 +935,27 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
     // dropped column during light weight schema change.
     // But the tablet schema in base tablet maybe not the latest from FE, so that if fe pass through
     // a tablet schema, then use request schema.
+    //
+    // return_columns does NOT include dropped columns. It is computed here BEFORE
+    // merge_dropped_columns() appends dropped columns to _base_tablet_schema below.
+    // This means return_columns only covers the original (non-dropped) columns.
+    //
+    // This is important because:
+    // - BetaRowsetReader builds _output_schema from return_columns, which determines the
+    //   number of columns in ref_block (via create_block() which also skips dropped cols).
+    // - VMergeIterator's copy_rows iterates over _output_schema columns, so ref_block
+    //   must match _output_schema exactly.
+    // - Dropped columns are only needed for delete predicate evaluation, and SegmentIterator
+    //   handles them internally (creates temporary columns for predicate columns not present
+    //   in the block via `i >= block->columns()` guard in _init_current_block).
+    //
+    // Example: table has columns [k1, v1, v2], then DROP COLUMN v1, then
+    //   DELETE FROM t WHERE v1 = 'x' was issued before the drop.
+    //   - _base_tablet_schema after merge_dropped_columns: [k1, v2, v1(DROPPED)]
+    //   - return_columns (computed before merge): [0, 1] → [k1, v2]
+    //   - _output_schema / ref_block columns: [k1, v2] (2 columns)
+    //   - SegmentIterator reads v1 internally for delete predicate, but does not
+    //     output it to ref_block. copy_rows only iterates 2 columns — no OOB access.
     size_t num_cols =
             request.columns.empty() ? _base_tablet_schema->num_columns() : request.columns.size();
     return_columns.resize(num_cols);
