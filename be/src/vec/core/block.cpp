@@ -964,6 +964,13 @@ Status MutableBlock::add_rows(const Block* block, const uint32_t* row_begin,
             auto& dst = _columns[i];
             const auto& src = *src_col.column.get();
             DCHECK_GE(src.size(), row_end - row_begin);
+            if (UNLIKELY(src.size() < static_cast<size_t>(row_end - row_begin))) {
+                throw doris::Exception(
+                        doris::ErrorCode::INTERNAL_ERROR,
+                        "MutableBlock::add_rows: source column size {} is less than the number "
+                        "of indices {}",
+                        src.size(), row_end - row_begin);
+            }
             dst->insert_indices_from(src, row_begin, row_end);
         }
     });

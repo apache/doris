@@ -238,7 +238,28 @@ void ColumnStr<T>::insert_many_from(const IColumn& src, size_t position, size_t 
 template <typename T>
 void ColumnStr<T>::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                                        const uint32_t* indices_end) {
+    if (indices_begin == indices_end) {
+        return;
+    }
+
     auto do_insert = [&](const auto& src_str) {
+        const auto src_size = src_str.get_offsets().size();
+        if (src_size == 0) {
+            throw doris::Exception(
+                    doris::ErrorCode::INTERNAL_ERROR,
+                    "insert_indices_from: source column is empty but indices are provided");
+        }
+
+        // Validate that all indices are within the valid range [0, src_size).
+        for (const auto* x = indices_begin; x != indices_end; ++x) {
+            if (UNLIKELY(*x >= src_size)) {
+                throw doris::Exception(
+                        doris::ErrorCode::INTERNAL_ERROR,
+                        "insert_indices_from: index out of bound, index={}, src_size={}", *x,
+                        src_size);
+            }
+        }
+
         const auto* __restrict src_offset_data = src_str.get_offsets().data();
 
         auto old_char_size = chars.size();

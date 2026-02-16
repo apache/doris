@@ -944,6 +944,71 @@ TEST_F(ColumnStringTest, insert_indices_from) {
     test_func(column_str64, column_str32_json);
     test_func(column_str64, column_str64_json);
 }
+// Test for issue #60713: SIGSEGV when insert_indices_from receives out-of-bounds indices
+TEST_F(ColumnStringTest, insert_indices_from_out_of_bounds) {
+    // Test 1: Out-of-bounds index should throw an exception, not crash
+    {
+        auto source_column = ColumnString::create();
+        source_column->insert_data("hello", 5);
+        source_column->insert_data("world", 5);
+
+        auto target_column = ColumnString::create();
+        // Index 999 is way out of bounds (source only has 2 rows)
+        std::vector<uint32_t> indices = {0, 999};
+        EXPECT_THROW(target_column->insert_indices_from(*source_column, indices.data(),
+                                                        indices.data() + indices.size()),
+                     Exception);
+    }
+    // Test 2: Index exactly at source size should throw (valid range is [0, size-1])
+    {
+        auto source_column = ColumnString::create();
+        source_column->insert_data("abc", 3);
+        source_column->insert_data("def", 3);
+        source_column->insert_data("ghi", 3);
+
+        auto target_column = ColumnString::create();
+        // Index 3 is out of bounds (valid indices: 0, 1, 2)
+        std::vector<uint32_t> indices = {0, 1, 3};
+        EXPECT_THROW(target_column->insert_indices_from(*source_column, indices.data(),
+                                                        indices.data() + indices.size()),
+                     Exception);
+    }
+    // Test 3: Empty source column with non-empty indices should throw
+    {
+        auto source_column = ColumnString::create(); // empty!
+        auto target_column = ColumnString::create();
+        std::vector<uint32_t> indices = {0};
+        EXPECT_THROW(target_column->insert_indices_from(*source_column, indices.data(),
+                                                        indices.data() + indices.size()),
+                     Exception);
+    }
+    // Test 4: Empty indices on empty source should NOT throw (no-op)
+    {
+        auto source_column = ColumnString::create();
+        auto target_column = ColumnString::create();
+        std::vector<uint32_t> indices;
+        // This should be a no-op, not a crash
+        target_column->insert_indices_from(*source_column, indices.data(), indices.data());
+        EXPECT_EQ(target_column->size(), 0);
+    }
+    // Test 5: Valid indices should still work correctly
+    {
+        auto source_column = ColumnString::create();
+        source_column->insert_data("aaa", 3);
+        source_column->insert_data("bb", 2);
+        source_column->insert_data("cccc", 4);
+
+        auto target_column = ColumnString::create();
+        std::vector<uint32_t> indices = {2, 0, 1, 0};
+        target_column->insert_indices_from(*source_column, indices.data(),
+                                           indices.data() + indices.size());
+        EXPECT_EQ(target_column->size(), 4);
+        EXPECT_EQ(target_column->get_data_at(0).to_string(), "cccc");
+        EXPECT_EQ(target_column->get_data_at(1).to_string(), "aaa");
+        EXPECT_EQ(target_column->get_data_at(2).to_string(), "bb");
+        EXPECT_EQ(target_column->get_data_at(3).to_string(), "aaa");
+    }
+}
 TEST_F(ColumnStringTest, filter) {
     column_string_common_test(assert_column_vector_filter_callback, true);
     {
