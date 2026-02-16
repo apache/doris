@@ -88,12 +88,12 @@ class VMergeIteratorContext {
 public:
     VMergeIteratorContext(RowwiseIteratorUPtr&& iter, int sequence_id_idx, bool is_unique,
                           bool is_reverse, std::vector<uint32_t>* read_orderby_key_columns,
-                          const Schema* output_schema)
+                          SchemaSPtr output_schema)
             : _iter(std::move(iter)),
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
               _is_reverse(is_reverse),
-              _output_schema(output_schema),
+              _output_schema(std::move(output_schema)),
               _num_key_columns(cast_set<int>(_iter->schema().num_key_columns())),
               _compare_columns(read_orderby_key_columns) {}
 
@@ -176,7 +176,7 @@ private:
     size_t _index_in_block = -1;
     // 4096 minus 16 + 16 bytes padding that in padding pod array
     int _block_row_max = 4064;
-    const Schema* _output_schema = nullptr;
+    SchemaSPtr _output_schema;
     int _num_key_columns;
     std::vector<uint32_t>* _compare_columns;
     std::vector<RowLocation> _block_row_locations;
@@ -194,9 +194,9 @@ class VMergeIterator : public RowwiseIterator {
 public:
     // VMergeIterator takes the ownership of input iterators
     VMergeIterator(std::vector<RowwiseIteratorUPtr>&& iters, int sequence_id_idx, bool is_unique,
-                   bool is_reverse, uint64_t* merged_rows, const Schema* output_schema)
+                   bool is_reverse, uint64_t* merged_rows, SchemaSPtr output_schema)
             : _origin_iters(std::move(iters)),
-              _schema(output_schema),
+              _schema(std::move(output_schema)),
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
               _is_reverse(is_reverse),
@@ -296,7 +296,7 @@ private:
     // It will be released after '_merge_heap' has been built.
     std::vector<RowwiseIteratorUPtr> _origin_iters;
 
-    const Schema* _schema = nullptr; // output schema
+    SchemaSPtr _schema; // output schema
 
     struct VMergeContextComparator {
         bool operator()(const std::shared_ptr<VMergeIteratorContext>& lhs,
@@ -328,14 +328,14 @@ private:
 // should delete returned iterator after usage.
 RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,
                                        int sequence_id_idx, bool is_unique, bool is_reverse,
-                                       uint64_t* merged_rows, const Schema* output_schema);
+                                       uint64_t* merged_rows, SchemaSPtr output_schema);
 
 // Create a union iterator for input iterators. Union iterator will read
 // input iterators one by one.
 //
 // Inputs iterators' ownership is taken by created union iterator.
 RowwiseIteratorUPtr new_union_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,
-                                       const Schema* output_schema);
+                                       SchemaSPtr output_schema);
 
 // Create an auto increment iterator which returns num_rows data in format of schema.
 // This class aims to be used in unit test.
