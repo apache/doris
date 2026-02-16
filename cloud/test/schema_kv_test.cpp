@@ -29,6 +29,7 @@
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_schema.h"
 #include "meta-store/blob_message.h"
+#include "meta-store/codec.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
@@ -768,8 +769,8 @@ TEST(SchemaKVTest, InsertExistedRowsetTest) {
     check_get_tablet(meta_service.get(), 10005, 2);
 }
 
-static void check_schema(MetaServiceProxy* meta_service, int64_t tablet_id,
-                         int32_t schema_version) {
+static void check_schema(MetaServiceProxy* meta_service, int64_t tablet_id, int32_t schema_version,
+                         bool expected_disable_auto_compaction = false) {
     brpc::Controller cntl;
     GetTabletRequest req;
     GetTabletResponse res;
@@ -780,6 +781,9 @@ static void check_schema(MetaServiceProxy* meta_service, int64_t tablet_id,
     EXPECT_TRUE(res.tablet_meta().has_schema()) << tablet_id;
     EXPECT_EQ(res.tablet_meta().schema_version(), schema_version) << tablet_id;
     EXPECT_EQ(res.tablet_meta().schema().column_size(), 10) << tablet_id;
+    EXPECT_EQ(res.tablet_meta().schema().disable_auto_compaction(),
+              expected_disable_auto_compaction)
+            << tablet_id;
 };
 
 static void update_tablet(MetaServiceProxy* meta_service, int64_t tablet_id) {
@@ -813,7 +817,7 @@ TEST(AlterSchemaKVTest, AlterDisableAutoCompactionTest) {
         check_get_tablet(meta_service.get(), 10005, 2);
 
         update_tablet(meta_service.get(), 10005);
-        check_schema(meta_service.get(), 10005, 2);
+        check_schema(meta_service.get(), 10005, 2, true);
     }
 
     //case 2 config::write_schema_kv = false;
@@ -835,7 +839,7 @@ TEST(AlterSchemaKVTest, AlterDisableAutoCompactionTest) {
         check_get_tablet(meta_service.get(), 10005, 2);
 
         update_tablet(meta_service.get(), 10005);
-        check_schema(meta_service.get(), 10005, 2);
+        check_schema(meta_service.get(), 10005, 2, true);
     }
 
     //case 3 config::write_schema_kv = false, create tablet, config::write_schema_kv = true;
@@ -857,7 +861,7 @@ TEST(AlterSchemaKVTest, AlterDisableAutoCompactionTest) {
         check_get_tablet(meta_service.get(), 10005, 2);
         config::write_schema_kv = true;
         update_tablet(meta_service.get(), 10005);
-        check_schema(meta_service.get(), 10005, 2);
+        check_schema(meta_service.get(), 10005, 2, true);
     }
 
     //case 4 config::write_schema_kv = false, create tablet, config::write_schema_kv = true;
@@ -882,7 +886,158 @@ TEST(AlterSchemaKVTest, AlterDisableAutoCompactionTest) {
         check_get_tablet(meta_service.get(), 10005, 2);
         config::write_schema_kv = true;
         update_tablet(meta_service.get(), 10005);
-        check_schema(meta_service.get(), 10005, 2);
+        check_schema(meta_service.get(), 10005, 2, true);
+    }
+}
+
+// Helper: count the number of blob chunks for a given base key.
+static int count_blob_chunks(Transaction* txn, const std::string& base_key) {
+    std::string begin_key = base_key;
+    std::string end_key = base_key;
+    encode_int64(INT64_MAX, &end_key);
+    std::unique_ptr<RangeGetIterator> iter;
+    auto err = txn->get(begin_key, end_key, &iter);
+    EXPECT_EQ(err, TxnErrorCode::TXN_OK);
+    if (err != TxnErrorCode::TXN_OK) return -1;
+    int count = 0;
+    while (iter->has_next()) {
+        iter->next();
+        ++count;
+    }
+    return count;
+}
+
+// Verify that ValueBuf::remove() before blob_put is necessary to clean up
+// orphaned blob chunks when the number of chunks decreases.
+TEST(AlterSchemaKVTest, BlobRemoveBeforeOverwriteTest) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    constexpr int64_t db_id = 4000;
+    constexpr int64_t table_id = 40001;
+    constexpr int64_t index_id = 40002;
+    constexpr int64_t partition_id = 40003;
+    constexpr int64_t tablet_id = 40004;
+    constexpr int32_t schema_version = 0;
+
+    config::write_schema_kv = true;
+    config::meta_schema_value_version = 1;
+
+    // Create a tablet with a normal 10-column schema.
+    ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), db_id, table_id, index_id,
+                                          partition_id, tablet_id, next_rowset_id(),
+                                          schema_version));
+    check_get_tablet(meta_service.get(), tablet_id, schema_version);
+
+    // Compute the schema KV key.
+    auto schema_key = meta_schema_key({instance_id, index_id, schema_version});
+
+    // Overwrite the schema KV with a small split_size to create 3 blob chunks.
+    // The normal schema (~120 bytes) with split_size=50 yields 3 chunks.
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        // First remove existing blob chunks
+        ValueBuf old_val;
+        ASSERT_EQ(cloud::blob_get(txn.get(), schema_key, &old_val), TxnErrorCode::TXN_OK);
+        old_val.remove(txn.get());
+        // Write with small split_size to create 3 chunks
+        doris::TabletSchemaCloudPB schema;
+        ASSERT_TRUE(old_val.to_pb(&schema));
+        std::string serialized = schema.SerializeAsString();
+        size_t split_size = (serialized.size() / 3) + 1; // ensures exactly 3 chunks
+        cloud::blob_put(txn.get(), schema_key, schema, config::meta_schema_value_version,
+                        split_size);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Verify we now have 3 blob chunks.
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        EXPECT_EQ(count_blob_chunks(txn.get(), schema_key), 3);
+    }
+
+    // Case 1: update_tablet WITH remove (default behavior).
+    // The remove cleans up old 3 chunks, then blob_put writes 1 chunk
+    // (with default split_size=90KB, the ~120 byte schema fits in 1 chunk).
+    update_tablet(meta_service.get(), tablet_id);
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        EXPECT_EQ(count_blob_chunks(txn.get(), schema_key), 1)
+                << "With remove: should have 1 chunk (old 3 cleaned up)";
+        // Verify schema is correct
+        ValueBuf val;
+        ASSERT_EQ(cloud::blob_get(txn.get(), schema_key, &val), TxnErrorCode::TXN_OK);
+        doris::TabletSchemaCloudPB schema;
+        ASSERT_TRUE(val.to_pb(&schema));
+        EXPECT_TRUE(schema.disable_auto_compaction());
+    }
+    check_schema(meta_service.get(), tablet_id, schema_version, true);
+
+    // Reset: overwrite schema KV again with 3 blob chunks and
+    // disable_auto_compaction=false so update_tablet will modify it again.
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ValueBuf old_val;
+        ASSERT_EQ(cloud::blob_get(txn.get(), schema_key, &old_val), TxnErrorCode::TXN_OK);
+        old_val.remove(txn.get());
+        doris::TabletSchemaCloudPB schema;
+        ASSERT_TRUE(old_val.to_pb(&schema));
+        schema.set_disable_auto_compaction(false);
+        std::string serialized = schema.SerializeAsString();
+        size_t split_size = (serialized.size() / 3) + 1;
+        cloud::blob_put(txn.get(), schema_key, schema, config::meta_schema_value_version,
+                        split_size);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        EXPECT_EQ(count_blob_chunks(txn.get(), schema_key), 3);
+    }
+
+    // Case 2: update_tablet WITHOUT remove (inject skip via sync point).
+    // This simulates what would happen if we didn't have the remove logic.
+    sp->set_call_back("update_tablet::skip_schema_remove",
+                      [](auto&& args) { *try_any_cast<bool*>(args[0]) = true; });
+    update_tablet(meta_service.get(), tablet_id);
+    sp->clear_call_back("update_tablet::skip_schema_remove");
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        int chunks = count_blob_chunks(txn.get(), schema_key);
+        EXPECT_EQ(chunks, 3) << "Without remove: should have 3 chunks (2 orphaned + 1 overwritten)";
+        // blob_get reads all 3 chunks and concatenates them, producing
+        // corrupted data that cannot be parsed correctly.
+        ValueBuf val;
+        ASSERT_EQ(cloud::blob_get(txn.get(), schema_key, &val), TxnErrorCode::TXN_OK);
+        doris::TabletSchemaCloudPB schema;
+        // The deserialized schema may parse but contain garbage from
+        // orphaned chunks, or the column count will be wrong.
+        if (val.to_pb(&schema)) {
+            // If it parses, the data is corrupted - the column count or
+            // content won't match the expected schema.
+            LOG(INFO) << "Without remove: parsed schema has " << schema.column_size()
+                      << " columns (expected 10), disable_auto_compaction="
+                      << schema.disable_auto_compaction();
+        } else {
+            LOG(INFO) << "Without remove: schema parse failed as expected (corrupted data)";
+        }
     }
 }
 

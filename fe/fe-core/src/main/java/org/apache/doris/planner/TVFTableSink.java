@@ -31,6 +31,7 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TTVFTableSink;
+import org.apache.doris.thrift.TTVFWriterType;
 
 import com.google.common.collect.Maps;
 
@@ -150,6 +151,15 @@ public class TVFTableSink extends DataSink {
         // Set hadoop config for hdfs/s3 (BE uses this for file writer creation)
         if (!tvfName.equals("local")) {
             tSink.setHadoopConfig(backendConnectProps);
+        }
+
+        // Set writer_type: JNI if writer_class is specified, otherwise NATIVE
+        String writerClass = properties.get("writer_class");
+        if (writerClass != null) {
+            tSink.setWriterType(TTVFWriterType.JNI);
+            tSink.setWriterClass(writerClass);
+        } else {
+            tSink.setWriterType(TTVFWriterType.NATIVE);
         }
 
         tDataSink = new TDataSink(TDataSinkType.TVF_TABLE_SINK);

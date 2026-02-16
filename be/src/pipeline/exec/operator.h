@@ -169,12 +169,14 @@ public:
      */
     [[nodiscard]] virtual bool is_shuffled_operator() const { return false; }
     /**
-     * Return True if this operator is followed by a shuffled operator.
+     * For multiple children's operators, return true if this is a shuffled operator or this is followed by a shuffled operator (HASH JOIN and SET OPERATION).
+     *
+     * For single child's operators, return true if this operator is followed by a shuffled operator.
      * For example, in the plan fragment:
      *   `UNION` -> `SHUFFLED HASH JOIN`
      * The `SHUFFLED HASH JOIN` is a shuffled operator so the UNION operator is followed by a shuffled operator.
      */
-    [[nodiscard]] bool followed_by_shuffled_operator() const {
+    [[nodiscard]] virtual bool followed_by_shuffled_operator() const {
         return _followed_by_shuffled_operator;
     }
     /**

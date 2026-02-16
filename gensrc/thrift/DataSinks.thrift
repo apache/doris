@@ -453,6 +453,11 @@ struct TDictionarySink {
 struct TBlackholeSink {
 }
 
+enum TTVFWriterType {
+    NATIVE = 0,
+    JNI = 1
+}
+
 struct TTVFTableSink {
     1: optional string tvf_name              // "local", "s3", "hdfs"
     2: optional string file_path
@@ -467,6 +472,8 @@ struct TTVFTableSink {
     11: optional map<string, string> hadoop_config
     12: optional PlanNodes.TFileCompressType compression_type
     13: optional i64 backend_id              // local TVF: specify BE
+    14: optional TTVFWriterType writer_type   // NATIVE or JNI
+    15: optional string writer_class          // Java class name (required when writer_type=JNI)
 }
 
 struct TDataSink {
