@@ -1340,4 +1340,53 @@ TEST(BlockTest, others) {
     ASSERT_TRUE(dumped_names.empty()) << "Dumped names: " << dumped_names;
 }
 
+TEST(BlockTest, add_rows_out_of_bounds_index) {
+    // Test that MutableBlock::add_rows properly detects out-of-bounds row indices
+    // instead of causing a SIGSEGV crash. Reproduces the scenario from issue #60713.
+
+    // Create a source block with a string column containing 5 rows
+    auto strcol = vectorized::ColumnString::create();
+    strcol->insert_data("hello", 5);
+    strcol->insert_data("world", 5);
+    strcol->insert_data("foo", 3);
+    strcol->insert_data("bar", 3);
+    strcol->insert_data("baz", 3);
+    vectorized::DataTypePtr string_type(std::make_shared<vectorized::DataTypeString>());
+    vectorized::ColumnWithTypeAndName test_col(strcol->get_ptr(), string_type, "test_string");
+    vectorized::Block src_block({test_col});
+    ASSERT_EQ(src_block.rows(), 5);
+
+    // Test 1: Valid indices should work fine
+    {
+        auto dst_block = src_block.clone_empty();
+        vectorized::MutableBlock mutable_block(std::move(dst_block));
+        std::vector<uint32_t> valid_indices = {0, 2, 4};
+        auto st = mutable_block.add_rows(&src_block, valid_indices.data(),
+                                         valid_indices.data() + valid_indices.size());
+        ASSERT_TRUE(st.ok()) << "Valid indices should succeed: " << st.to_string();
+        ASSERT_EQ(mutable_block.rows(), 3);
+    }
+
+    // Test 2: Out-of-bounds index should return error, not crash
+    {
+        auto dst_block = src_block.clone_empty();
+        vectorized::MutableBlock mutable_block(std::move(dst_block));
+        std::vector<uint32_t> invalid_indices = {0, 1, 999}; // 999 is out of bounds
+        auto st = mutable_block.add_rows(&src_block, invalid_indices.data(),
+                                         invalid_indices.data() + invalid_indices.size());
+        // Should fail with an error instead of SIGSEGV
+        ASSERT_FALSE(st.ok()) << "Out-of-bounds index should fail";
+    }
+
+    // Test 3: Index equal to size (off-by-one) should also fail
+    {
+        auto dst_block = src_block.clone_empty();
+        vectorized::MutableBlock mutable_block(std::move(dst_block));
+        std::vector<uint32_t> boundary_indices = {0, 5}; // 5 == src_block.rows(), out of bounds
+        auto st = mutable_block.add_rows(&src_block, boundary_indices.data(),
+                                         boundary_indices.data() + boundary_indices.size());
+        ASSERT_FALSE(st.ok()) << "Index equal to row count should fail";
+    }
+}
+
 } // namespace doris

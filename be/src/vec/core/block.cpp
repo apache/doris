@@ -958,12 +958,27 @@ Status MutableBlock::add_rows(const Block* block, const uint32_t* row_begin,
             DCHECK_EQ(columns(), column_offset->size());
         }
         const auto& block_data = block->get_columns_with_type_and_name();
+
+        // Validate all row indices before processing any column.
+        // All columns in a block share the same row count, so we only need to
+        // check against the first column's size.
+        if (row_begin != row_end && !block_data.empty()) {
+            const auto src_rows = block_data[0].column->size();
+            for (const auto* p = row_begin; p != row_end; ++p) {
+                if (UNLIKELY(*p >= src_rows)) {
+                    throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                           "MutableBlock::add_rows: row index {} is out of bounds "
+                                           "for source block with {} rows",
+                                           *p, src_rows);
+                }
+            }
+        }
+
         for (size_t i = 0; i < _columns.size(); ++i) {
             const auto& src_col = column_offset ? block_data[(*column_offset)[i]] : block_data[i];
             DCHECK_EQ(_data_types[i]->get_name(), src_col.type->get_name());
             auto& dst = _columns[i];
             const auto& src = *src_col.column.get();
-            DCHECK_GE(src.size(), row_end - row_begin);
             dst->insert_indices_from(src, row_begin, row_end);
         }
     });
