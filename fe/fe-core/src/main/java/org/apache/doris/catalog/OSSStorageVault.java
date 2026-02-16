@@ -62,7 +62,7 @@ public class OSSStorageVault extends StorageVault {
         // Basic OSS configuration
         public static final String ENDPOINT = "oss.endpoint";
         public static final String REGION = "oss.region";
-        public static final String BUCKET = "bucket";
+        public static final String BUCKET = "oss.bucket";
         public static final String ROOT_PATH = OSS_ROOT_PATH;
 
         // Authentication - optional for ECS instance profile

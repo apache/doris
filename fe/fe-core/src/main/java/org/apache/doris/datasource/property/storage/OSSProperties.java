@@ -192,7 +192,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         return propertiesObj;
     }
 
-    protected static boolean guessIsMe(Map<String, String> origProps) {
+    public static boolean guessIsMe(Map<String, String> origProps) {
         String value = Stream.of("oss.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT",
                         "dlf.endpoint", "dlf.catalog.endpoint", "fs.oss.endpoint", "fs.oss.accessKeyId")
                 .map(origProps::get)
@@ -467,12 +467,14 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
             builder.setPrefix(rootPath);
         }
 
-        // Bucket
-        if (properties.containsKey(BUCKET_KEY)) {
-            String bucket = properties.get(BUCKET_KEY);
-            if (StringUtils.isNotBlank(bucket)) {
-                builder.setBucket(bucket);
-            }
+        // Bucket - try multiple property keys for compatibility
+        String bucket = Stream.of(BUCKET_KEY, "bucket")
+                .map(properties::get)
+                .filter(StringUtils::isNotBlank)
+                .findFirst()
+                .orElse(null);
+        if (bucket != null) {
+            builder.setBucket(bucket);
         }
 
         // Credential Provider Type

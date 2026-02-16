@@ -74,9 +74,6 @@ public class OSSResource extends Resource {
         Preconditions.checkState(newProperties != null);
         this.properties = Maps.newHashMap(newProperties);
 
-        // check required properties
-        S3Properties.requiredS3PingProperties(properties);
-
         boolean needCheck = isNeedCheck(properties);
         if (LOG.isDebugEnabled()) {
             LOG.debug("oss info need check validity : {}", needCheck);
@@ -87,9 +84,6 @@ public class OSSResource extends Resource {
             String rootPath = properties.get(OSSProperties.ROOT_PATH_KEY);
             pingOSS(bucketName, rootPath, properties);
         }
-
-        // optional properties
-        S3Properties.optionalS3Property(properties);
     }
 
     protected static void pingOSS(String bucketName, String rootPath,
@@ -118,7 +112,6 @@ public class OSSResource extends Resource {
             LOG.debug("oss info need check validity : {}", needCheck);
         }
         if (needCheck) {
-            S3Properties.requiredS3PingProperties(this.properties);
             Map<String, String> changedProperties = new HashMap<>(this.properties);
             changedProperties.putAll(newProperties);
             String bucketName = newProperties.getOrDefault(OSSProperties.BUCKET_KEY,

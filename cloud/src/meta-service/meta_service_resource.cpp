@@ -1107,24 +1107,33 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
     auto& [ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style, role_arn,
            external_id] = obj_desc;
 
+    // Check credential configuration
+    bool is_instance_profile = obj.has_cred_provider_type() &&
+                                obj.cred_provider_type() == cloud::CredProviderTypePB::INSTANCE_PROFILE;
+
     if (!obj.has_role_arn()) {
-        if (!obj.has_ak() || !obj.has_sk()) {
+        // For INSTANCE_PROFILE, ak/sk are optional (obtained from instance metadata)
+        // For other modes, ak/sk are required
+        if (!is_instance_profile && (!obj.has_ak() || !obj.has_sk())) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 obj info err " + proto_to_json(*request);
             LOG(INFO) << msg;
             return -1;
         }
 
-        std::string plain_ak = obj.has_ak() ? obj.ak() : "";
-        std::string plain_sk = obj.has_sk() ? obj.sk() : "";
-        auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair,
-                                        code, msg);
-        if (ret != 0) {
-            return -1;
-        }
+        // Only encrypt ak/sk if they are provided
+        if (obj.has_ak() && obj.has_sk()) {
+            std::string plain_ak = obj.ak();
+            std::string plain_sk = obj.sk();
+            auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair,
+                                           code, msg);
+            if (ret != 0) {
+                return -1;
+            }
 
-        ak = cipher_ak_sk_pair.first;
-        sk = cipher_ak_sk_pair.second;
+            ak = cipher_ak_sk_pair.first;
+            sk = cipher_ak_sk_pair.second;
+        }
     } else {
         if (obj.has_ak() || obj.has_sk()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
