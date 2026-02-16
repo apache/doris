@@ -1245,6 +1245,94 @@ public final class MetricRepo {
         };
         cached.addLabel(new MetricLabel("name", "cached"));
         DORIS_METRIC_REGISTER.addSystemMetrics(cached);
+
+        // CPU Usage Percent
+        GaugeMetric<Double> cpuUsagePercent = (GaugeMetric<Double>) new GaugeMetric<Double>(
+                "cpu", MetricUnit.PERCENT, "Overall CPU usage percentage") {
+            @Override
+            public Double getValue() {
+                return SYSTEM_METRICS.cpuUsagePercent;
+            }
+        };
+        cpuUsagePercent.addLabel(new MetricLabel("name", "cpu_usage_percent"));
+        DORIS_METRIC_REGISTER.addSystemMetrics(cpuUsagePercent);
+
+        // CPU User Percent
+        GaugeMetric<Double> cpuUserPercent = (GaugeMetric<Double>) new GaugeMetric<Double>(
+                "cpu", MetricUnit.PERCENT, "CPU time spent in user mode") {
+            @Override
+            public Double getValue() {
+                return SYSTEM_METRICS.cpuUserPercent;
+            }
+        };
+        cpuUserPercent.addLabel(new MetricLabel("name", "cpu_user_percent"));
+        DORIS_METRIC_REGISTER.addSystemMetrics(cpuUserPercent);
+
+        // CPU System Percent
+        GaugeMetric<Double> cpuSystemPercent = (GaugeMetric<Double>) new GaugeMetric<Double>(
+                "cpu", MetricUnit.PERCENT, "CPU time spent in system mode") {
+            @Override
+            public Double getValue() {
+                return SYSTEM_METRICS.cpuSystemPercent;
+            }
+        };
+        cpuSystemPercent.addLabel(new MetricLabel("name", "cpu_system_percent"));
+        DORIS_METRIC_REGISTER.addSystemMetrics(cpuSystemPercent);
+
+        // CPU IOWait Percent
+        GaugeMetric<Double> cpuIowaitPercent = (GaugeMetric<Double>) new GaugeMetric<Double>(
+                "cpu", MetricUnit.PERCENT, "CPU time spent waiting for I/O") {
+            @Override
+            public Double getValue() {
+                return SYSTEM_METRICS.cpuIowaitPercent;
+            }
+        };
+        cpuIowaitPercent.addLabel(new MetricLabel("name", "cpu_iowait_percent"));
+        DORIS_METRIC_REGISTER.addSystemMetrics(cpuIowaitPercent);
+
+        // CPU Steal Percent
+        GaugeMetric<Double> cpuStealPercent = (GaugeMetric<Double>) new GaugeMetric<Double>(
+                "cpu", MetricUnit.PERCENT, "CPU time stolen by hypervisor") {
+            @Override
+            public Double getValue() {
+                return SYSTEM_METRICS.cpuStealPercent;
+            }
+        };
+        cpuStealPercent.addLabel(new MetricLabel("name", "cpu_steal_percent"));
+        DORIS_METRIC_REGISTER.addSystemMetrics(cpuStealPercent);
+
+        // Context Switches
+        GaugeMetric<Long> contextSwitches = (GaugeMetric<Long>) new GaugeMetric<Long>(
+                "cpu", MetricUnit.NOUNIT, "Number of context switches") {
+            @Override
+            public Long getValue() {
+                return SYSTEM_METRICS.ctxt;
+            }
+        };
+        contextSwitches.addLabel(new MetricLabel("name", "context_switches"));
+        DORIS_METRIC_REGISTER.addSystemMetrics(contextSwitches);
+
+        // Processes Running
+        GaugeMetric<Long> procsRunning = (GaugeMetric<Long>) new GaugeMetric<Long>(
+                "cpu", MetricUnit.NOUNIT, "Number of processes in runnable state") {
+            @Override
+            public Long getValue() {
+                return SYSTEM_METRICS.procsRunning;
+            }
+        };
+        procsRunning.addLabel(new MetricLabel("name", "procs_running"));
+        DORIS_METRIC_REGISTER.addSystemMetrics(procsRunning);
+
+        // Processes Blocked
+        GaugeMetric<Long> procsBlocked = (GaugeMetric<Long>) new GaugeMetric<Long>(
+                "cpu", MetricUnit.NOUNIT, "Number of processes blocked waiting for I/O") {
+            @Override
+            public Long getValue() {
+                return SYSTEM_METRICS.procsBlocked;
+            }
+        };
+        procsBlocked.addLabel(new MetricLabel("name", "procs_blocked"));
+        DORIS_METRIC_REGISTER.addSystemMetrics(procsBlocked);
     }
 
     // to generate the metrics related to tablets of each backends
