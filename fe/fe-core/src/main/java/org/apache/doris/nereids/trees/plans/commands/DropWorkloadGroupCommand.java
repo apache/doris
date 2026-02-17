@@ -62,7 +62,9 @@ public class DropWorkloadGroupCommand extends DropCommand {
         if (Config.isCloudMode()) {
             String originCgStr = computeGroup;
             if (StringUtils.isEmpty(computeGroup)) {
-                computeGroup = Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME;
+                // Use the same fallback logic as query execution:
+                // session variable -> context cache -> user property -> policy-based selection.
+                computeGroup = ctx.getCloudCluster();
             }
             String clusterId = ((CloudSystemInfoService) Env.getCurrentEnv().getClusterInfo()).getCloudClusterIdByName(
                     computeGroup);

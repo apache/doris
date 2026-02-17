@@ -97,8 +97,13 @@ public class CreateWorkloadGroupCommand extends Command implements ForwardWithSy
         validate(ctx);
 
         if (StringUtils.isEmpty(computeGroup)) {
-            computeGroup = Config.isCloudMode() ? Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME
-                    : Tag.DEFAULT_BACKEND_TAG.value;
+            if (Config.isCloudMode()) {
+                // Use the same fallback logic as query execution:
+                // session variable -> context cache -> user property -> policy-based selection.
+                computeGroup = ctx.getCloudCluster();
+            } else {
+                computeGroup = Tag.DEFAULT_BACKEND_TAG.value;
+            }
         } else if (Config.isNotCloudMode()) {
             try {
                 FeNameFormat.checkCommonName("Workload group's compute group", computeGroup);
