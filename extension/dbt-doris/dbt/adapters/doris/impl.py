@@ -20,38 +20,33 @@
 
 from dbt.adapters.sql import SQLAdapter
 
-from concurrent.futures import Future
 from enum import Enum
 from typing import (
     Any,
-    Callable,
     Dict,
-    Iterable,
-    Iterator,
     List,
-    Mapping,
     Optional,
     Set,
-    Tuple,
-    Type,
-    Union,
+    Tuple
 )
 
 import agate
 import dbt.exceptions
-from dbt.adapters.base.impl import _expect_row_value, catch_as_completed
 from dbt.adapters.base.relation import InformationSchema, BaseRelation
 from dbt.adapters.doris.column import DorisColumn
 from dbt.adapters.doris.connections import DorisConnectionManager
 from dbt.adapters.doris.relation import DorisRelation
 from dbt.adapters.protocol import AdapterConfig
 from dbt.adapters.sql.impl import LIST_RELATIONS_MACRO_NAME, LIST_SCHEMAS_MACRO_NAME
-from dbt_common.clients.agate_helper import table_from_rows
 from dbt.contracts.graph.manifest import Manifest
 from dbt.adapters.contracts.relation import RelationType
-from dbt_common.utils import executor
 from dbt.adapters.doris.doris_column_item import DorisColumnItem
+from dbt_common.exceptions import CompilationError
 
+from dbt.adapters.events.logging import AdapterLogger
+
+
+logger = AdapterLogger(__name__)
 
 class Engine(str, Enum):
     olap = "olap"
@@ -139,48 +134,6 @@ class DorisAdapter(SQLAdapter):
 
         return relations
 
-    def get_catalog(self, manifest):
-        schema_map = self._get_catalog_schemas(manifest)
-
-        with executor(self.config) as tpe:
-            futures: List[Future[agate.Table]] = []
-            for info, schemas in schema_map.items():
-                for schema in schemas:
-                    futures.append(
-                        tpe.submit_connected(
-                            self,
-                            schema,
-                            self._get_one_catalog,
-                            info,
-                            [schema],
-                            manifest,
-                        )
-                    )
-            catalogs, exceptions = catch_as_completed(futures)
-        return catalogs, exceptions
-
-    @classmethod
-    def _catalog_filter_schemas(cls, manifest: Manifest) -> Callable[[agate.Row], bool]:
-        schemas = frozenset((None, s.lower()) for d, s in manifest.get_used_schemas())
-
-        def _(row: agate.Row) -> bool:
-            table_database = _expect_row_value("table_database", row)
-            table_schema = _expect_row_value("table_schema", row)
-            if table_schema is None:
-                return False
-            return (table_database, table_schema.lower()) in schemas
-
-        return _
-
-    @classmethod
-    def _catalog_filter_table(cls, table: agate.Table, manifest: Manifest) -> agate.Table:
-        table = table_from_rows(
-            table.rows,
-            table.column_names,
-            text_only_columns=["table_schema", "table_name"],
-        )
-        return table.where(cls._catalog_filter_schemas(manifest))
-
     def _get_one_catalog(
             self,
             information_schema: InformationSchema,
@@ -188,7 +141,7 @@ class DorisAdapter(SQLAdapter):
             manifest: Manifest,
     ) -> agate.Table:
         if len(schemas) != 1:
-            dbt.exceptions.raise_compiler_error(
+            CompilationError(
                 f"Expected only one schema in Doris _get_one_catalog, found " f"{schemas}"
             )
 
