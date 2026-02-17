@@ -43,7 +43,23 @@ OSSConf OSSConf::get_oss_conf(const cloud::ObjectStoreInfoPB& obj_info) {
     conf.bucket = obj_info.bucket();
     conf.prefix = obj_info.prefix();
 
-    conf.client_conf.endpoint = obj_info.endpoint();
+    // Handle endpoint scheme - default to HTTPS if not specified
+    std::string endpoint = obj_info.endpoint();
+    std::string scheme;
+
+    if (endpoint.starts_with("https://")) {
+        scheme = "HTTPS";
+    } else if (endpoint.starts_with("http://")) {
+        scheme = "HTTP";
+    } else {
+        // No scheme specified - default to HTTPS for security and KMS bucket compatibility
+        endpoint = "https://" + endpoint;
+        scheme = "HTTPS (default)";
+    }
+
+    LOG(INFO) << "OSS endpoint scheme: " << scheme << ", endpoint: " << endpoint;
+
+    conf.client_conf.endpoint = endpoint;
     conf.client_conf.region = obj_info.region();
     conf.client_conf.bucket = obj_info.bucket();
 

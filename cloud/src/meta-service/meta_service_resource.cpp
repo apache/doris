@@ -186,6 +186,13 @@ int decrypt_instance_info(InstanceInfoPB& instance, const std::string& instance_
 
 static int decrypt_and_update_ak_sk(ObjectStoreInfoPB& obj_info, MetaServiceCode& code,
                                     std::string& msg) {
+    // Skip decryption if credentials are empty
+    // This handles INSTANCE_PROFILE vaults (ECS metadata) and broken legacy vaults
+    // Empty credentials = nothing to decrypt = safe to skip
+    if (obj_info.ak().empty() || obj_info.sk().empty()) {
+        return 0;
+    }
+
     if (obj_info.has_encryption_info()) {
         AkSkPair plain_ak_sk_pair;
         if (int ret = decrypt_ak_sk_helper(obj_info.ak(), obj_info.sk(), obj_info.encryption_info(),
@@ -688,25 +695,39 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
             return;
         }
     } else {
-        // ATTN: prefix may be empty
-        if (plain_ak.empty() || plain_sk.empty() || bucket.empty() || endpoint.empty() ||
-            region.empty() || !obj->has_provider() || external_endpoint.empty()) {
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "s3 conf info err, please check it";
-            return;
-        }
+        // Check if this is INSTANCE_PROFILE without role_arn (ECS instance metadata mode)
+        bool is_instance_profile = obj->has_cred_provider_type() &&
+                                    obj->cred_provider_type() == CredProviderTypePB::INSTANCE_PROFILE;
 
-        EncryptionInfoPB encryption_info;
-        AkSkPair cipher_ak_sk_pair;
-        auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair,
-                                        code, msg);
-        TEST_SYNC_POINT_CALLBACK("create_object_info_with_encrypt", &ret, &code, &msg);
-        if (ret != 0) {
-            return;
+        if (!is_instance_profile) {
+            // For non-INSTANCE_PROFILE modes, ak/sk are required
+            if (plain_ak.empty() || plain_sk.empty() || bucket.empty() || endpoint.empty() ||
+                region.empty() || !obj->has_provider() || external_endpoint.empty()) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = "s3 conf info err, please check it";
+                return;
+            }
+
+            EncryptionInfoPB encryption_info;
+            AkSkPair cipher_ak_sk_pair;
+            auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair,
+                                            code, msg);
+            TEST_SYNC_POINT_CALLBACK("create_object_info_with_encrypt", &ret, &code, &msg);
+            if (ret != 0) {
+                return;
+            }
+            obj->set_ak(std::move(cipher_ak_sk_pair.first));
+            obj->set_sk(std::move(cipher_ak_sk_pair.second));
+            obj->mutable_encryption_info()->CopyFrom(encryption_info);
+        } else {
+            // INSTANCE_PROFILE without role_arn - validate basic requirements
+            if (bucket.empty() || endpoint.empty() || region.empty() || !obj->has_provider()) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = "s3 conf info err, please check it";
+                return;
+            }
+            // Don't set ak/sk/encryption_info for INSTANCE_PROFILE without credentials
         }
-        obj->set_ak(std::move(cipher_ak_sk_pair.first));
-        obj->set_sk(std::move(cipher_ak_sk_pair.second));
-        obj->mutable_encryption_info()->CopyFrom(encryption_info);
     }
 
     obj->set_bucket(bucket);
@@ -1173,9 +1194,18 @@ static ObjectStoreInfoPB object_info_pb_factory(ObjectStorageDesc& obj_desc,
     }
 
     if (!obj.has_role_arn()) {
-        last_item.set_ak(std::move(cipher_ak_sk_pair.first));
-        last_item.set_sk(std::move(cipher_ak_sk_pair.second));
-        last_item.mutable_encryption_info()->CopyFrom(encryption_info);
+        // Only set ak/sk and encryption_info if they are actually provided
+        // For INSTANCE_PROFILE without credentials, skip ak/sk/encryption_info entirely
+        if (!cipher_ak_sk_pair.first.empty() || !cipher_ak_sk_pair.second.empty()) {
+            last_item.set_ak(std::move(cipher_ak_sk_pair.first));
+            last_item.set_sk(std::move(cipher_ak_sk_pair.second));
+            last_item.mutable_encryption_info()->CopyFrom(encryption_info);
+        }
+        // Set INSTANCE_PROFILE if neither role_arn nor ak/sk are provided
+        if (obj.has_cred_provider_type() &&
+            obj.cred_provider_type() == CredProviderTypePB::INSTANCE_PROFILE) {
+            last_item.set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+        }
     } else {
         last_item.set_role_arn(role_arn);
         last_item.set_external_id(external_id);
@@ -1331,8 +1361,17 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             return;
         }
         // ATTN: prefix may be empty
-        if (((ak.empty() || sk.empty()) && role_arn.empty()) || bucket.empty() ||
-            endpoint.empty() || region.empty()) {
+        // Check credential configuration
+        bool is_instance_profile = obj.has_cred_provider_type() &&
+                                    obj.cred_provider_type() == CredProviderTypePB::INSTANCE_PROFILE;
+
+        // For INSTANCE_PROFILE, credentials are obtained from instance metadata service
+        // For other modes, either ak/sk or role_arn is required
+        bool has_valid_credentials = is_instance_profile ||
+                                     (!ak.empty() && !sk.empty()) ||
+                                     !role_arn.empty();
+
+        if (!has_valid_credentials || bucket.empty() || endpoint.empty() || region.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 conf info err, please check it";
             return;

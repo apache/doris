@@ -65,6 +65,7 @@
 #include "util/client_cache.h"
 #include "util/network_util.h"
 #include "util/s3_util.h"
+#include "util/oss_util.h"
 #include "util/thrift_rpc_helper.h"
 
 namespace doris::cloud {
@@ -1550,9 +1551,22 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool
 
     *is_vault_mode = resp.enable_storage_vault();
 
+    // Helper lambda to add object store vault with correct provider routing
+    // OSS vaults use native Alibaba Cloud OSS SDK (ECSMetadataCredentialsProvider)
+    // Other providers (S3, COS, OBS, etc.) use S3-compatible SDK
     auto add_obj_store = [&vault_infos](const auto& obj_store) {
-        vault_infos->emplace_back(obj_store.id(), S3Conf::get_s3_conf(obj_store),
-                                  StorageVaultPB_PathFormat {});
+        // Check provider type and route to appropriate client
+        if (obj_store.provider() == cloud::ObjectStoreInfoPB::OSS) {
+            // Use native OSS SDK with Alibaba Cloud ECS metadata endpoint (100.100.100.200)
+            vault_infos->emplace_back(obj_store.id(), OSSConf::get_oss_conf(obj_store),
+                                      StorageVaultPB_PathFormat {});
+            VLOG(1) << "Routing vault " << obj_store.id() << " to native OSS client";
+        } else {
+            // Use S3-compatible SDK (for S3, COS, OBS, BOS, GCP, Azure, etc.)
+            vault_infos->emplace_back(obj_store.id(), S3Conf::get_s3_conf(obj_store),
+                                      StorageVaultPB_PathFormat {});
+            VLOG(1) << "Routing vault " << obj_store.id() << " to S3-compatible client";
+        }
     };
 
     std::ranges::for_each(resp.obj_info(), add_obj_store);
