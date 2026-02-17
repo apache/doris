@@ -1113,6 +1113,112 @@ public class SearchDslParserTest {
     }
 
     @Test
+    public void testMultiFieldExplicitFieldInFieldsList() {
+        // Bug fix: explicit field prefix should NOT be expanded even when the field IS in the fields list
+        // ES query_string always respects explicit "field:term" syntax regardless of the fields parameter.
+        // "title:music AND content:history" with fields=["title","content"]
+        // → title:music AND content:history (NOT expanded to multi-field OR)
+        String dsl = "title:music AND content:history";
+        String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"cross_fields\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
+
+        // First child: title:music - NOT expanded
+        QsNode first = plan.getRoot().getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.TERM, first.getType());
+        Assertions.assertEquals("title", first.getField());
+        Assertions.assertEquals("music", first.getValue());
+
+        // Second child: content:history - NOT expanded
+        QsNode second = plan.getRoot().getChildren().get(1);
+        Assertions.assertEquals(QsClauseType.TERM, second.getType());
+        Assertions.assertEquals("content", second.getField());
+        Assertions.assertEquals("history", second.getValue());
+    }
+
+    @Test
+    public void testMultiFieldExplicitFieldInFieldsListBestFields() {
+        // Same test as above but with best_fields type
+        String dsl = "title:music AND content:history";
+        String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"best_fields\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        // best_fields wraps in OR for multi-field, but explicit fields should be preserved in each copy
+        QsNode root = plan.getRoot();
+        Assertions.assertEquals(QsClauseType.OR, root.getType());
+        Assertions.assertEquals(2, root.getChildren().size());
+
+        // Each OR branch should have AND(title:music, content:history) - both explicit fields preserved
+        for (QsNode branch : root.getChildren()) {
+            Assertions.assertEquals(QsClauseType.AND, branch.getType());
+            Assertions.assertEquals(2, branch.getChildren().size());
+
+            QsNode titleNode = branch.getChildren().get(0);
+            Assertions.assertEquals("title", titleNode.getField());
+            Assertions.assertEquals("music", titleNode.getValue());
+
+            QsNode contentNode = branch.getChildren().get(1);
+            Assertions.assertEquals("content", contentNode.getField());
+            Assertions.assertEquals("history", contentNode.getValue());
+        }
+    }
+
+    @Test
+    public void testMultiFieldMixedExplicitAndBareQuery() {
+        // "title:football AND american" with fields=["title","content"]
+        // → title:football AND (title:american OR content:american)
+        // title:football should NOT be expanded; "american" (bare) should be expanded
+        String dsl = "title:football AND american";
+        String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"cross_fields\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
+
+        // First child: title:football - NOT expanded (explicit field)
+        QsNode first = plan.getRoot().getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.TERM, first.getType());
+        Assertions.assertEquals("title", first.getField());
+        Assertions.assertEquals("football", first.getValue());
+
+        // Second child: (title:american OR content:american) - expanded (bare term)
+        QsNode second = plan.getRoot().getChildren().get(1);
+        Assertions.assertEquals(QsClauseType.OR, second.getType());
+        Assertions.assertEquals(2, second.getChildren().size());
+    }
+
+    @Test
+    public void testMultiFieldLuceneModeExplicitFieldInFieldsList() {
+        // Lucene mode: "title:music AND content:history" with fields=["title","content"]
+        // Explicit fields should be preserved, not expanded
+        String dsl = "title:music AND content:history";
+        String options = "{\"fields\":[\"title\",\"content\"],\"default_operator\":\"and\","
+                + "\"mode\":\"lucene\",\"type\":\"cross_fields\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        QsNode root = plan.getRoot();
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, root.getType());
+        Assertions.assertEquals(2, root.getChildren().size());
+
+        // Both children should be leaf TERM nodes (not expanded to OCCUR_BOOLEAN wrappers)
+        QsNode first = root.getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.TERM, first.getType());
+        Assertions.assertEquals("title", first.getField());
+        Assertions.assertEquals("music", first.getValue());
+
+        QsNode second = root.getChildren().get(1);
+        Assertions.assertEquals(QsClauseType.TERM, second.getType());
+        Assertions.assertEquals("content", second.getField());
+        Assertions.assertEquals("history", second.getValue());
+    }
+
+    @Test
     public void testMultiFieldWithWildcard() {
         // Test: "hello*" + fields=["title","content"]
         String dsl = "hello*";

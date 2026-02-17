@@ -22,6 +22,7 @@ import org.apache.doris.nereids.search.SearchParser;
 import org.apache.doris.nereids.search.SearchParserBaseVisitor;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -826,6 +827,8 @@ public class SearchDslParser {
                 if (result == null) {
                     throw new RuntimeException("Invalid search value");
                 }
+                // Mark as explicit field - user wrote "field:term" syntax
+                result.setExplicitField(true);
                 return result;
             } finally {
                 // Restore previous context
@@ -1123,6 +1126,15 @@ public class SearchDslParser {
         private final Integer minimumShouldMatch;
 
         /**
+         * Whether the field was explicitly specified in the DSL syntax (e.g., title:music)
+         * vs assigned from default field for bare queries (e.g., music).
+         * Used internally by MultiFieldExpander to avoid expanding explicit field prefixes.
+         * Not serialized to JSON since it's only needed during FE-side AST expansion.
+         */
+        @JsonIgnore
+        private boolean explicitField;
+
+        /**
          * Constructor for JSON deserialization
          *
          * @param type the clause type
@@ -1224,6 +1236,23 @@ public class SearchDslParser {
 
         public Integer getMinimumShouldMatch() {
             return minimumShouldMatch;
+        }
+
+        /**
+         * Returns whether the field was explicitly specified in the DSL syntax.
+         */
+        public boolean isExplicitField() {
+            return explicitField;
+        }
+
+        /**
+         * Sets whether the field was explicitly specified in the DSL syntax.
+         * @param explicitField true if field was explicitly specified (e.g., title:music)
+         * @return this node for method chaining
+         */
+        public QsNode setExplicitField(boolean explicitField) {
+            this.explicitField = explicitField;
+            return this;
         }
 
         /**
@@ -1391,11 +1420,8 @@ public class SearchDslParser {
 
             // Check if this is a leaf node (no children)
             if (isLeafNode(node)) {
-                // Check if the node has an explicit field that's NOT in the fields list
-                // If so, don't expand but still return a copy
-                String nodeField = node.getField();
-                if (nodeField != null && !nodeField.isEmpty() && !fields.contains(nodeField)) {
-                    // Explicit field not in expansion list - return a copy preserving all fields
+                // If the user explicitly wrote "field:term" syntax, respect it - don't expand
+                if (node.isExplicitField()) {
                     return new QsNode(
                             node.getType(),
                             node.getField(),
@@ -1473,16 +1499,8 @@ public class SearchDslParser {
                 return new QsNode(QsClauseType.MATCH_ALL_DOCS, (List<QsNode>) null);
             }
             if (isLeafNode(node)) {
-                // Check if the node has an explicit field that's NOT in the fields list
-                String nodeField = node.getField();
-                String targetField;
-                if (nodeField != null && !nodeField.isEmpty() && !fields.contains(nodeField)) {
-                    // Explicit field not in expansion list - preserve original field
-                    targetField = nodeField;
-                } else {
-                    // Use new field
-                    targetField = field;
-                }
+                // If the user explicitly wrote "field:term" syntax, preserve original field
+                String targetField = node.isExplicitField() ? node.getField() : field;
 
                 // Create a complete copy of the leaf node
                 QsNode copy = new QsNode(
@@ -1493,6 +1511,7 @@ public class SearchDslParser {
                         node.getOccur(),
                         node.getMinimumShouldMatch()
                 );
+                copy.setExplicitField(node.isExplicitField());
                 return copy;
             }
 
@@ -1527,15 +1546,8 @@ public class SearchDslParser {
                 return new QsNode(QsClauseType.MATCH_ALL_DOCS, (List<QsNode>) null);
             }
             if (isLeafNode(node)) {
-                // Check if the node has an explicit field that's NOT in the fields list
-                String nodeField = node.getField();
-                String targetField;
-                if (nodeField != null && !nodeField.isEmpty() && !fields.contains(nodeField)) {
-                    // Explicit field not in expansion list - preserve original field
-                    targetField = nodeField;
-                } else {
-                    targetField = field;
-                }
+                // If the user explicitly wrote "field:term" syntax, preserve original field
+                String targetField = node.isExplicitField() ? node.getField() : field;
 
                 // Create complete copy
                 return new QsNode(
@@ -2287,7 +2299,10 @@ public class SearchDslParser {
             currentFieldName = fieldPath;
 
             try {
-                return visit(ctx.searchValue());
+                QsNode result = visit(ctx.searchValue());
+                // Mark as explicit field - user wrote "field:term" syntax
+                result.setExplicitField(true);
+                return result;
             } finally {
                 currentFieldName = previousFieldName;
             }
