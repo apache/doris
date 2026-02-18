@@ -37,6 +37,7 @@
 #include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query_helper.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/all_query/all_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/bit_set_query/bit_set_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/boolean_query_builder.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/operator.h"
@@ -48,6 +49,7 @@
 #include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
 #include "olap/rowset/segment_v2/inverted_index_iterator.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "util/string_util.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type_string.h"
@@ -166,7 +168,14 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     resolved.query_type = query_type;
     resolved.inverted_reader = inverted_reader;
     resolved.lucene_reader = reader_holder;
-    resolved.index_properties = inverted_reader->get_index_properties();
+    // Prefer FE-provided index_properties (needed for variant subcolumn field_pattern matching)
+    auto fb_it = _field_binding_map.find(field_name);
+    if (fb_it != _field_binding_map.end() && fb_it->second->__isset.index_properties &&
+        !fb_it->second->index_properties.empty()) {
+        resolved.index_properties = fb_it->second->index_properties;
+    } else {
+        resolved.index_properties = inverted_reader->get_index_properties();
+    }
     resolved.binding_key = binding_key;
     resolved.analyzer_key =
             normalize_analyzer_key(build_analyzer_key_from_properties(resolved.index_properties));
@@ -217,10 +226,22 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     FieldReaderResolver resolver(data_type_with_names, iterators, context,
                                  search_param.field_bindings);
 
+    // Extract default_operator from TSearchParam (default: "or")
+    std::string default_operator = "or";
+    if (search_param.__isset.default_operator && !search_param.default_operator.empty()) {
+        default_operator = search_param.default_operator;
+    }
+    // Extract minimum_should_match from TSearchParam (-1 means not set)
+    int32_t minimum_should_match = -1;
+    if (search_param.__isset.minimum_should_match) {
+        minimum_should_match = search_param.minimum_should_match;
+    }
+
     query_v2::QueryPtr root_query;
     std::string root_binding_key;
     RETURN_IF_ERROR(build_query_recursive(search_param.root, context, resolver, &root_query,
-                                          &root_binding_key));
+                                          &root_binding_key, default_operator,
+                                          minimum_should_match));
     if (root_query == nullptr) {
         LOG(INFO) << "search: Query tree resolved to empty query, dsl:"
                   << search_param.original_dsl;
@@ -429,7 +450,9 @@ Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
                                              const std::shared_ptr<IndexQueryContext>& context,
                                              FieldReaderResolver& resolver,
                                              inverted_index::query_v2::QueryPtr* out,
-                                             std::string* binding_key) const {
+                                             std::string* binding_key,
+                                             const std::string& default_operator,
+                                             int32_t minimum_should_match) const {
     DCHECK(out != nullptr);
     *out = nullptr;
     if (binding_key) {
@@ -437,6 +460,12 @@ Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
     }
 
     const std::string& clause_type = clause.clause_type;
+
+    // Handle MATCH_ALL_DOCS - matches all documents in the segment
+    if (clause_type == "MATCH_ALL_DOCS") {
+        *out = std::make_shared<query_v2::AllQuery>();
+        return Status::OK();
+    }
 
     // Handle OCCUR_BOOLEAN - Lucene-style boolean query with MUST/SHOULD/MUST_NOT
     if (clause_type == "OCCUR_BOOLEAN") {
@@ -452,7 +481,8 @@ Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
                 query_v2::QueryPtr child_query;
                 std::string child_binding_key;
                 RETURN_IF_ERROR(build_query_recursive(child_clause, context, resolver, &child_query,
-                                                      &child_binding_key));
+                                                      &child_binding_key, default_operator,
+                                                      minimum_should_match));
 
                 // Determine occur type from child clause
                 query_v2::Occur occur = query_v2::Occur::MUST; // default
@@ -483,7 +513,8 @@ Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
                 query_v2::QueryPtr child_query;
                 std::string child_binding_key;
                 RETURN_IF_ERROR(build_query_recursive(child_clause, context, resolver, &child_query,
-                                                      &child_binding_key));
+                                                      &child_binding_key, default_operator,
+                                                      minimum_should_match));
                 // Add all children including empty BitSetQuery
                 // BooleanQuery will handle the logic:
                 // - AND with empty bitmap → result is empty
@@ -497,14 +528,17 @@ Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
         return Status::OK();
     }
 
-    return build_leaf_query(clause, context, resolver, out, binding_key);
+    return build_leaf_query(clause, context, resolver, out, binding_key, default_operator,
+                            minimum_should_match);
 }
 
 Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                                         const std::shared_ptr<IndexQueryContext>& context,
                                         FieldReaderResolver& resolver,
                                         inverted_index::query_v2::QueryPtr* out,
-                                        std::string* binding_key) const {
+                                        std::string* binding_key,
+                                        const std::string& default_operator,
+                                        int32_t minimum_should_match) const {
     DCHECK(out != nullptr);
     *out = nullptr;
     if (binding_key) {
@@ -576,7 +610,27 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                 return Status::OK();
             }
 
-            auto builder = create_operator_boolean_query_builder(query_v2::OperatorType::OP_OR);
+            // When minimum_should_match is specified, use OccurBooleanQuery
+            // ES behavior: msm only applies to SHOULD clauses
+            if (minimum_should_match > 0) {
+                auto builder =
+                        segment_v2::inverted_index::query_v2::create_occur_boolean_query_builder();
+                builder->set_minimum_number_should_match(minimum_should_match);
+                query_v2::Occur occur = (default_operator == "and") ? query_v2::Occur::MUST
+                                                                    : query_v2::Occur::SHOULD;
+                for (const auto& term_info : term_infos) {
+                    std::wstring term_wstr = StringHelper::to_wstring(term_info.get_single_term());
+                    builder->add(make_term_query(term_wstr), occur);
+                }
+                *out = builder->build();
+                return Status::OK();
+            }
+
+            // Use default_operator to determine how to combine tokenized terms
+            query_v2::OperatorType op_type = (default_operator == "and")
+                                                     ? query_v2::OperatorType::OP_AND
+                                                     : query_v2::OperatorType::OP_OR;
+            auto builder = create_operator_boolean_query_builder(op_type);
             for (const auto& term_info : term_infos) {
                 std::wstring term_wstr = StringHelper::to_wstring(term_info.get_single_term());
                 builder->add(make_term_query(term_wstr), binding.binding_key);
@@ -716,20 +770,50 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
             return Status::OK();
         }
         if (clause_type == "PREFIX") {
-            *out = std::make_shared<query_v2::WildcardQuery>(context, field_wstr, value);
+            // Apply lowercase only if:
+            // 1. There's a parser/analyzer (otherwise lower_case has no effect on indexing)
+            // 2. lower_case is explicitly set to "true"
+            bool has_parser = inverted_index::InvertedIndexAnalyzer::should_analyzer(
+                    binding.index_properties);
+            std::string lowercase_setting =
+                    get_parser_lowercase_from_properties(binding.index_properties);
+            bool should_lowercase = has_parser && (lowercase_setting == INVERTED_INDEX_PARSER_TRUE);
+            std::string pattern = should_lowercase ? to_lower(value) : value;
+            *out = std::make_shared<query_v2::WildcardQuery>(context, field_wstr, pattern);
             VLOG_DEBUG << "search: PREFIX clause processed, field=" << field_name << ", pattern='"
-                       << value << "'";
+                       << pattern << "' (original='" << value << "', has_parser=" << has_parser
+                       << ", lower_case=" << lowercase_setting << ")";
             return Status::OK();
         }
 
         if (clause_type == "WILDCARD") {
-            *out = std::make_shared<query_v2::WildcardQuery>(context, field_wstr, value);
+            // Standalone wildcard "*" matches all non-null values for this field
+            // Consistent with ES query_string behavior where field:* becomes FieldExistsQuery
+            if (value == "*") {
+                *out = std::make_shared<query_v2::AllQuery>(field_wstr, true);
+                VLOG_DEBUG << "search: WILDCARD '*' converted to AllQuery(nullable=true), field="
+                           << field_name;
+                return Status::OK();
+            }
+            // Apply lowercase only if:
+            // 1. There's a parser/analyzer (otherwise lower_case has no effect on indexing)
+            // 2. lower_case is explicitly set to "true"
+            bool has_parser = inverted_index::InvertedIndexAnalyzer::should_analyzer(
+                    binding.index_properties);
+            std::string lowercase_setting =
+                    get_parser_lowercase_from_properties(binding.index_properties);
+            bool should_lowercase = has_parser && (lowercase_setting == INVERTED_INDEX_PARSER_TRUE);
+            std::string pattern = should_lowercase ? to_lower(value) : value;
+            *out = std::make_shared<query_v2::WildcardQuery>(context, field_wstr, pattern);
             VLOG_DEBUG << "search: WILDCARD clause processed, field=" << field_name << ", pattern='"
-                       << value << "'";
+                       << pattern << "' (original='" << value << "', has_parser=" << has_parser
+                       << ", lower_case=" << lowercase_setting << ")";
             return Status::OK();
         }
 
         if (clause_type == "REGEXP") {
+            // ES-compatible: regex patterns are NOT lowercased (case-sensitive matching)
+            // This matches ES query_string behavior where regex patterns bypass analysis
             *out = std::make_shared<query_v2::RegexpQuery>(context, field_wstr, value);
             VLOG_DEBUG << "search: REGEXP clause processed, field=" << field_name << ", pattern='"
                        << value << "'";

@@ -136,8 +136,7 @@ TEST_F(OccurBooleanQueryRealIndexTest, NotPhraseQuery) {
 
     auto phrase_query = std::make_shared<PhraseQuery>(context, field, term_infos);
 
-    uint32_t max_doc = reader_holder->maxDoc();
-    auto all_query = std::make_shared<AllQuery>(max_doc);
+    auto all_query = std::make_shared<AllQuery>();
 
     std::vector<std::pair<Occur, QueryPtr>> clauses;
     clauses.emplace_back(Occur::SHOULD, all_query);
@@ -255,8 +254,7 @@ TEST_F(OccurBooleanQueryRealIndexTest, NotPhraseQueryNonExistent) {
 
     auto phrase_query = std::make_shared<PhraseQuery>(context, field, term_infos);
 
-    uint32_t max_doc = reader_holder->maxDoc();
-    auto all_query = std::make_shared<AllQuery>(max_doc);
+    auto all_query = std::make_shared<AllQuery>();
 
     std::vector<std::pair<Occur, QueryPtr>> clauses;
     clauses.emplace_back(Occur::SHOULD, all_query);
@@ -309,8 +307,7 @@ TEST_F(OccurBooleanQueryRealIndexTest, NotPhraseQueryExcludesPartial) {
 
     auto phrase_query = std::make_shared<PhraseQuery>(context, field, term_infos);
 
-    uint32_t max_doc = reader_holder->maxDoc();
-    auto all_query = std::make_shared<AllQuery>(max_doc);
+    auto all_query = std::make_shared<AllQuery>();
 
     std::vector<std::pair<Occur, QueryPtr>> clauses;
     clauses.emplace_back(Occur::SHOULD, all_query);
