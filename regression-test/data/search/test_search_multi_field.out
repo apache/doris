@@ -75,13 +75,10 @@
 
 -- !multi_field_lucene_and_or --
 1	machine learning basics
-4	machine maintenance
-8	cooking machine reviews
 9	machine guide
 
 -- !multi_field_lucene_min_should_1 --
 1	machine learning basics
-8	cooking machine reviews
 9	machine guide
 
 -- !multi_field_lucene_and_not --
@@ -119,6 +116,7 @@
 
 -- !multi_field_best_fields_lucene --
 1	machine learning basics
+9	machine guide
 
 -- !multi_field_cross_fields_lucene --
 1	machine learning basics
