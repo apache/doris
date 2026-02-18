@@ -1618,6 +1618,18 @@ public class SearchDslParserTest {
     }
 
     @Test
+    public void testInvalidMode() {
+        // Test: invalid mode value should throw exception
+        String dsl = "hello";
+        String options = "{\"default_field\":\"title\",\"mode\":\"lucenedfafa\"}";
+
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class, () -> {
+            SearchDslParser.parseDsl(dsl, options);
+        });
+        Assertions.assertTrue(exception.getMessage().contains("'mode' must be 'standard' or 'lucene'"));
+    }
+
+    @Test
     public void testMultiFieldSingleTermSameResultForBothTypes() {
         // Test: single term should have same structure for both types
         // since there's only one term, no difference between best_fields and cross_fields
