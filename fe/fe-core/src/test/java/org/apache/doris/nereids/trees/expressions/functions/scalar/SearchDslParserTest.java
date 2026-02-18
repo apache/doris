@@ -1542,6 +1542,60 @@ public class SearchDslParserTest {
     }
 
     @Test
+    public void testMultiFieldExplicitFieldNotExpanded() {
+        // Bug #1: explicit field prefix (field:term) should NOT be expanded across fields,
+        // even when the field is in the fields list. Matches ES query_string behavior.
+        // "title:music AND content:history" → +title:music +content:history (no expansion)
+        String dsl = "title:music AND content:history";
+        String options = "{\"fields\":[\"title\",\"content\"],\"default_operator\":\"and\",\"mode\":\"lucene\",\"type\":\"best_fields\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        QsNode root = plan.getRoot();
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, root.getType());
+        Assertions.assertEquals(2, root.getChildren().size());
+
+        // First child: title:music - should be a TERM pinned to "title", NOT expanded
+        QsNode musicNode = root.getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.TERM, musicNode.getType());
+        Assertions.assertEquals("title", musicNode.getField());
+        Assertions.assertEquals("music", musicNode.getValue());
+
+        // Second child: content:history - should be a TERM pinned to "content", NOT expanded
+        QsNode historyNode = root.getChildren().get(1);
+        Assertions.assertEquals(QsClauseType.TERM, historyNode.getType());
+        Assertions.assertEquals("content", historyNode.getField());
+        Assertions.assertEquals("history", historyNode.getValue());
+    }
+
+    @Test
+    public void testMultiFieldMixedExplicitAndBareTerms() {
+        // "title:football AND american" → +title:football +(title:american | content:american)
+        // Explicit field pinned, bare term expanded
+        String dsl = "title:football AND american";
+        String options = "{\"fields\":[\"title\",\"content\"],\"default_operator\":\"and\",\"mode\":\"lucene\",\"type\":\"best_fields\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        QsNode root = plan.getRoot();
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, root.getType());
+        Assertions.assertEquals(2, root.getChildren().size());
+
+        // First child: title:football - pinned to "title"
+        QsNode footballNode = root.getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.TERM, footballNode.getType());
+        Assertions.assertEquals("title", footballNode.getField());
+        Assertions.assertEquals("football", footballNode.getValue());
+
+        // Second child: american - expanded across [title, content]
+        QsNode americanGroup = root.getChildren().get(1);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, americanGroup.getType());
+        Assertions.assertEquals(2, americanGroup.getChildren().size());
+        Assertions.assertEquals("title", americanGroup.getChildren().get(0).getField());
+        Assertions.assertEquals("content", americanGroup.getChildren().get(1).getField());
+    }
+
+    @Test
     public void testMultiFieldCrossFieldsLuceneMode() {
         // Test: cross_fields with Lucene mode
         String dsl = "hello world";
