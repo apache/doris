@@ -307,6 +307,26 @@ public class SearchDslParser {
     }
 
     /**
+     * Recursively mark all leaf nodes with the given field name and set explicitField=true.
+     * Used for field-grouped queries like title:(rock OR jazz) to ensure all inner leaf nodes
+     * are bound to the group's field and are not re-expanded by MultiFieldExpander.
+     */
+    private static void markExplicitFieldRecursive(QsNode node, String field) {
+        if (node == null) {
+            return;
+        }
+        if (node.getChildren() != null && !node.getChildren().isEmpty()) {
+            for (QsNode child : node.getChildren()) {
+                markExplicitFieldRecursive(child, field);
+            }
+        } else {
+            // Leaf node - set field and mark as explicit
+            node.setField(field);
+            node.setExplicitField(true);
+        }
+    }
+
+    /**
      * Common ANTLR parsing helper with visitor pattern.
      * Reduces code duplication across parsing methods.
      *
@@ -743,6 +763,13 @@ public class SearchDslParser {
                 }
                 return result;
             }
+            if (ctx.fieldGroupQuery() != null) {
+                QsNode result = visit(ctx.fieldGroupQuery());
+                if (result == null) {
+                    throw new RuntimeException("Invalid field group query");
+                }
+                return result;
+            }
             if (ctx.fieldQuery() != null) {
                 QsNode result = visit(ctx.fieldQuery());
                 if (result == null) {
@@ -762,18 +789,21 @@ public class SearchDslParser {
 
         @Override
         public QsNode visitBareQuery(SearchParser.BareQueryContext ctx) {
-            // Bare query - uses default field
-            if (defaultField == null || defaultField.isEmpty()) {
+            // Use currentFieldName if inside a field group context (set by visitFieldGroupQuery),
+            // otherwise fall back to the configured defaultField.
+            String effectiveField = (currentFieldName != null && !currentFieldName.isEmpty())
+                    ? currentFieldName : defaultField;
+            if (effectiveField == null || effectiveField.isEmpty()) {
                 throw new SearchDslSyntaxException(
                     "No field specified and no default_field configured. "
                     + "Either use field:value syntax or set default_field in options.");
             }
 
-            fieldNames.add(defaultField);
+            fieldNames.add(effectiveField);
 
-            // Set current field context to default field before visiting search value
+            // Set current field context before visiting search value
             String previousFieldName = currentFieldName;
-            currentFieldName = defaultField;
+            currentFieldName = effectiveField;
 
             try {
                 if (ctx.searchValue() == null) {
@@ -832,6 +862,50 @@ public class SearchDslParser {
                 return result;
             } finally {
                 // Restore previous context
+                currentFieldName = previousFieldName;
+            }
+        }
+
+        @Override
+        public QsNode visitFieldGroupQuery(SearchParser.FieldGroupQueryContext ctx) {
+            if (ctx.fieldPath() == null) {
+                throw new RuntimeException("Invalid field group query: missing field path");
+            }
+
+            // Build complete field path from segments (support field.subcolumn syntax)
+            StringBuilder fullPath = new StringBuilder();
+            List<SearchParser.FieldSegmentContext> segments = ctx.fieldPath().fieldSegment();
+            for (int i = 0; i < segments.size(); i++) {
+                if (i > 0) {
+                    fullPath.append('.');
+                }
+                String segment = segments.get(i).getText();
+                if (segment.startsWith("\"") && segment.endsWith("\"")) {
+                    segment = segment.substring(1, segment.length() - 1);
+                }
+                fullPath.append(segment);
+            }
+
+            String fieldPath = fullPath.toString();
+            fieldNames.add(fieldPath);
+
+            // Set field group context so bare terms inside use this field
+            String previousFieldName = currentFieldName;
+            currentFieldName = fieldPath;
+
+            try {
+                if (ctx.clause() == null) {
+                    throw new RuntimeException("Invalid field group query: missing inner clause");
+                }
+                QsNode result = visit(ctx.clause());
+                if (result == null) {
+                    throw new RuntimeException("Invalid field group query: inner clause returned null");
+                }
+                // Mark all leaf nodes as explicitly bound to this field.
+                // This prevents MultiFieldExpander from re-expanding them across other fields.
+                markExplicitFieldRecursive(result, fieldPath);
+                return result;
+            } finally {
                 currentFieldName = previousFieldName;
             }
         }
@@ -2092,6 +2166,9 @@ public class SearchDslParser {
                 } finally {
                     nestingLevel--;
                 }
+            } else if (atomCtx.fieldGroupQuery() != null) {
+                // Field group query (e.g., title:(rock OR jazz))
+                node = visit(atomCtx.fieldGroupQuery());
             } else if (atomCtx.fieldQuery() != null) {
                 // Field query with explicit field prefix
                 node = visit(atomCtx.fieldQuery());
@@ -2235,6 +2312,9 @@ public class SearchDslParser {
             if (ctx.clause() != null) {
                 return visit(ctx.clause());
             }
+            if (ctx.fieldGroupQuery() != null) {
+                return visit(ctx.fieldGroupQuery());
+            }
             if (ctx.fieldQuery() != null) {
                 return visit(ctx.fieldQuery());
             }
@@ -2246,19 +2326,22 @@ public class SearchDslParser {
 
         @Override
         public QsNode visitBareQuery(SearchParser.BareQueryContext ctx) {
-            // Bare query - uses effective default field (considering override)
+            // Use currentFieldName if inside a field group context (set by visitFieldGroupQuery),
+            // otherwise fall back to the effective default field.
             String defaultField = getEffectiveDefaultField();
-            if (defaultField == null || defaultField.isEmpty()) {
+            String effectiveField = (currentFieldName != null && !currentFieldName.isEmpty())
+                    ? currentFieldName : defaultField;
+            if (effectiveField == null || effectiveField.isEmpty()) {
                 throw new SearchDslSyntaxException(
                     "No field specified and no default_field configured. "
                     + "Either use field:value syntax or set default_field in options.");
             }
 
-            fieldNames.add(defaultField);
+            fieldNames.add(effectiveField);
 
-            // Set current field context to default field before visiting search value
+            // Set current field context before visiting search value
             String previousFieldName = currentFieldName;
-            currentFieldName = defaultField;
+            currentFieldName = effectiveField;
 
             try {
                 if (ctx.searchValue() == null) {
@@ -2304,6 +2387,52 @@ public class SearchDslParser {
                 result.setExplicitField(true);
                 return result;
             } finally {
+                currentFieldName = previousFieldName;
+            }
+        }
+
+        @Override
+        public QsNode visitFieldGroupQuery(SearchParser.FieldGroupQueryContext ctx) {
+            if (ctx.fieldPath() == null) {
+                throw new RuntimeException("Invalid field group query: missing field path");
+            }
+
+            // Build complete field path from segments (support field.subcolumn syntax)
+            StringBuilder fullPath = new StringBuilder();
+            List<SearchParser.FieldSegmentContext> segments = ctx.fieldPath().fieldSegment();
+            for (int i = 0; i < segments.size(); i++) {
+                if (i > 0) {
+                    fullPath.append('.');
+                }
+                String segment = segments.get(i).getText();
+                if (segment.startsWith("\"") && segment.endsWith("\"")) {
+                    segment = segment.substring(1, segment.length() - 1);
+                }
+                fullPath.append(segment);
+            }
+
+            String fieldPath = fullPath.toString();
+            fieldNames.add(fieldPath);
+
+            // Set field group context so bare terms inside use this field
+            String previousFieldName = currentFieldName;
+            currentFieldName = fieldPath;
+            nestingLevel++;
+
+            try {
+                if (ctx.clause() == null) {
+                    throw new RuntimeException("Invalid field group query: missing inner clause");
+                }
+                QsNode result = visit(ctx.clause());
+                if (result == null) {
+                    throw new RuntimeException("Invalid field group query: inner clause returned null");
+                }
+                // Mark all leaf nodes as explicitly bound to this field.
+                // This prevents MultiFieldExpander from re-expanding them across other fields.
+                markExplicitFieldRecursive(result, fieldPath);
+                return result;
+            } finally {
+                nestingLevel--;
                 currentFieldName = previousFieldName;
             }
         }
