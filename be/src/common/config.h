@@ -1589,6 +1589,10 @@ DECLARE_mInt32(s3_read_max_wait_time_ms);
 DECLARE_mBool(enable_s3_object_check_after_upload);
 DECLARE_mInt32(aws_client_request_timeout_ms);
 
+DECLARE_mInt32(max_oss_client_retry);
+DECLARE_mInt32(oss_read_base_wait_time_ms);
+DECLARE_mInt32(oss_read_max_wait_time_ms);
+
 // write as inverted index tmp directory
 DECLARE_String(tmp_file_dir);
 

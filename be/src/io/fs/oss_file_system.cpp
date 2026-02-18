@@ -39,7 +39,6 @@
 namespace doris::io {
 namespace {
 
-// Multipart copy threshold - files larger than this use multipart copy to avoid timeouts
 constexpr int64_t MULTIPART_COPY_THRESHOLD = 1073741824; // 1GB
 constexpr int64_t MULTIPART_COPY_PART_SIZE = 104857600;  // 100MB per part
 
@@ -51,15 +50,12 @@ constexpr int64_t MULTIPART_COPY_PART_SIZE = 104857600;  // 100MB per part
 #endif
 
 Result<std::string> get_oss_key(const Path& full_path) {
-    // Extract key from OSS path: oss://bucket/key
     std::string path_str = full_path.native();
 
-    // Remove oss:// prefix if present
     const std::string oss_prefix = "oss://";
     if (path_str.find(oss_prefix) == 0) {
         path_str = path_str.substr(oss_prefix.length());
 
-        // Find first '/' to separate bucket and key
         size_t pos = path_str.find('/');
         if (pos == std::string::npos) {
             return ""; // No key, just bucket
@@ -71,8 +67,6 @@ Result<std::string> get_oss_key(const Path& full_path) {
 }
 
 } // namespace
-
-// OSSClientHolder implementation
 
 OSSClientHolder::OSSClientHolder(OSSClientConf conf) : _conf(std::move(conf)) {}
 
@@ -92,7 +86,7 @@ Status OSSClientHolder::reset(const OSSClientConf& conf) {
     {
         std::shared_lock lock(_mtx);
         if (conf.get_hash() == _conf.get_hash()) {
-            return Status::OK(); // Same conf
+            return Status::OK();
         }
 
         reset_conf = _conf;
@@ -143,8 +137,6 @@ std::string OSSClientHolder::full_oss_path(std::string_view bucket, std::string_
     return fmt::format("{}/{}/{}", _conf.endpoint, bucket, key);
 }
 
-// OSSFileSystem implementation
-
 std::string OSSFileSystem::full_oss_path(std::string_view key) const {
     return _client->full_oss_path(_bucket, key);
 }
@@ -160,7 +152,6 @@ OSSFileSystem::OSSFileSystem(OSSConf oss_conf, std::string id)
           _bucket(std::move(oss_conf.bucket)),
           _prefix(std::move(oss_conf.prefix)),
           _client(std::make_shared<OSSClientHolder>(std::move(oss_conf.client_conf))) {
-    // Normalize prefix: remove leading and trailing '/'
     if (!_prefix.empty()) {
         size_t start = _prefix.find_first_not_of('/');
         if (start == std::string::npos) {
@@ -198,7 +189,6 @@ Status OSSFileSystem::open_file_internal(const Path& file, FileReaderSPtr* reade
 }
 
 Status OSSFileSystem::create_directory_impl(const Path& dir, bool failed_if_exists) {
-    // OSS doesn't have real directories, they're just prefixes
     return Status::OK();
 }
 
@@ -210,7 +200,6 @@ Status OSSFileSystem::delete_file_impl(const Path& file) {
 
     auto outcome = client->DeleteObject(_bucket, key);
 
-    // OSS DeleteObject returns success even if object doesn't exist
     if (!outcome.isSuccess()) {
         std::string error_code = outcome.error().Code();
         if (error_code != "NoSuchKey") {
@@ -231,6 +220,67 @@ Status OSSFileSystem::delete_directory_impl(const Path& dir) {
         prefix.push_back('/');
     }
 
+    // Abort in-progress multipart uploads
+    {
+        bool is_truncated = true;
+        std::string key_marker;
+        std::string upload_id_marker;
+        int aborted_count = 0;
+
+        while (is_truncated) {
+            AlibabaCloud::OSS::ListMultipartUploadsRequest list_uploads_request(_bucket);
+            list_uploads_request.setPrefix(prefix);
+            list_uploads_request.setMaxUploads(1000);
+
+            if (!key_marker.empty()) {
+                list_uploads_request.setKeyMarker(key_marker);
+            }
+            if (!upload_id_marker.empty()) {
+                list_uploads_request.setUploadIdMarker(upload_id_marker);
+            }
+
+            auto list_uploads_outcome = client->ListMultipartUploads(list_uploads_request);
+            if (!list_uploads_outcome.isSuccess()) {
+                LOG(WARNING) << "Failed to list multipart uploads for prefix " << prefix << ": "
+                             << list_uploads_outcome.error().Code() << " - "
+                             << list_uploads_outcome.error().Message()
+                             << ". Continuing with object deletion.";
+                break; // Don't fail deletion if listing uploads fails
+            }
+
+            const auto& uploads_result = list_uploads_outcome.result();
+            const auto& uploads = uploads_result.MultipartUploadList();
+
+            for (const auto& upload : uploads) {
+                AlibabaCloud::OSS::AbortMultipartUploadRequest abort_request(
+                        _bucket, upload.Key(), upload.UploadId());
+                auto abort_outcome = client->AbortMultipartUpload(abort_request);
+
+                if (!abort_outcome.isSuccess()) {
+                    LOG(WARNING) << "Failed to abort multipart upload: key=" << upload.Key()
+                                 << " upload_id=" << upload.UploadId() << " error="
+                                 << abort_outcome.error().Code() << " - "
+                                 << abort_outcome.error().Message();
+                    // Don't fail directory deletion if abort fails
+                } else {
+                    aborted_count++;
+                    VLOG(1) << "Aborted multipart upload: key=" << upload.Key()
+                            << " upload_id=" << upload.UploadId();
+                }
+            }
+
+            is_truncated = uploads_result.IsTruncated();
+            key_marker = uploads_result.NextKeyMarker();
+            upload_id_marker = uploads_result.NextUploadIdMarker();
+        }
+
+        if (aborted_count > 0) {
+            LOG(INFO) << "Aborted " << aborted_count
+                      << " in-progress multipart uploads under prefix: " << prefix;
+        }
+    }
+
+    // Delete all objects with prefix
     bool is_truncated = true;
     std::string marker;
 
@@ -519,19 +569,53 @@ Status OSSFileSystem::download_impl(const Path& remote_file, const Path& local_f
                                outcome.error().Code(), outcome.error().Message());
     }
 
-    // Write to local file
-    std::ofstream out(local_file.native(), std::ios::binary);
+    // Use temp file + rename pattern to ensure atomicity and proper cleanup on failure
+    std::string temp_file_path = local_file.native() + ".tmp." + std::to_string(getpid());
+
+    // RAII wrapper to ensure temp file cleanup on failure
+    struct TempFileGuard {
+        std::string path;
+        bool success = false;
+
+        ~TempFileGuard() {
+            if (!success && !path.empty()) {
+                // Clean up temp file on failure
+                std::error_code ec;
+                std::filesystem::remove(path, ec);
+                if (ec) {
+                    LOG(WARNING) << "Failed to remove temp file " << path << ": " << ec.message();
+                }
+            }
+        }
+    } temp_guard{temp_file_path};
+
+    // Write to temp file
+    std::ofstream out(temp_file_path, std::ios::binary);
     if (!out) {
-        return Status::IOError("failed to open local file for writing: {}", local_file.native());
+        return Status::IOError("failed to open temp file for writing: {}", temp_file_path);
     }
 
     auto& content_stream = outcome.result().Content();
     out << content_stream->rdbuf();
 
     if (!out.good()) {
-        return Status::IOError("failed to write to local file: {}", local_file.native());
+        return Status::IOError("failed to write to temp file: {}", temp_file_path);
     }
 
+    out.close();
+    if (!out) {
+        return Status::IOError("failed to close temp file: {}", temp_file_path);
+    }
+
+    // Atomically rename temp file to target file
+    std::error_code ec;
+    std::filesystem::rename(temp_file_path, local_file.native(), ec);
+    if (ec) {
+        return Status::IOError("failed to rename temp file {} to {}: {}", temp_file_path,
+                               local_file.native(), ec.message());
+    }
+
+    temp_guard.success = true; // Prevent cleanup of successfully renamed file
     return Status::OK();
 }
 

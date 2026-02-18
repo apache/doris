@@ -26,6 +26,7 @@
 #include <string>
 #include <vector>
 
+#include "cpp/oss_common.h"
 #include "recycler/storage_vault_accessor.h"
 
 // Forward declare OSS SDK types to avoid header dependency in .h
@@ -65,11 +66,7 @@ struct OSSConf {
     std::string access_key_secret;
     std::string security_token;
 
-    enum class CredProviderType {
-        INSTANCE_PROFILE, // Use ECS instance profile
-        SIMPLE,           // Static AK/SK
-    };
-    CredProviderType provider_type = CredProviderType::INSTANCE_PROFILE;
+    OSSCredProviderType provider_type = OSSCredProviderType::INSTANCE_PROFILE;
 
     // Connection settings
     int max_connections = 100;
@@ -154,6 +151,7 @@ protected:
     std::shared_ptr<ECSMetadataCredentialsProvider> credentials_provider_;
     std::shared_ptr<AlibabaCloud::OSS::OssClient> oss_client_;
     mutable std::mutex client_mutex_;
+    std::string _ca_cert_file_path;
 };
 
 } // namespace doris::cloud

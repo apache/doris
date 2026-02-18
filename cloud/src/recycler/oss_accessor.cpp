@@ -34,6 +34,7 @@
 #include "common/stopwatch.h"
 #include "common/string_util.h"
 #include "common/util.h"
+#include "cpp/aws_common.h"
 #include "cpp/oss_credential_provider.h"
 #include "recycler/util.h"
 
@@ -161,7 +162,7 @@ std::optional<OSSConf> OSSConf::from_obj_store_info(const ObjectStoreInfoPB& obj
     }
 
     OSSConf conf;
-    conf.endpoint = obj_info.endpoint();
+    conf.endpoint = normalize_oss_endpoint(obj_info.endpoint());
     conf.bucket = obj_info.bucket();
     conf.prefix = obj_info.prefix();
     conf.region = obj_info.region();
@@ -171,11 +172,11 @@ std::optional<OSSConf> OSSConf::from_obj_store_info(const ObjectStoreInfoPB& obj
         if (obj_info.has_cred_provider_type()) {
             switch (obj_info.cred_provider_type()) {
             case CredProviderTypePB::INSTANCE_PROFILE:
-                conf.provider_type = OSSConf::CredProviderType::INSTANCE_PROFILE;
+                conf.provider_type = OSSCredProviderType::INSTANCE_PROFILE;
                 LOG(INFO) << "Using OSS INSTANCE_PROFILE credential provider";
                 break;
             case CredProviderTypePB::SIMPLE:
-                conf.provider_type = OSSConf::CredProviderType::SIMPLE;
+                conf.provider_type = OSSCredProviderType::SIMPLE;
                 conf.access_key_id = obj_info.ak();
                 conf.access_key_secret = obj_info.sk();
                 // Note: security_token is not read from ObjectStoreInfoPB
@@ -183,20 +184,20 @@ std::optional<OSSConf> OSSConf::from_obj_store_info(const ObjectStoreInfoPB& obj
                 LOG(INFO) << "Using OSS SIMPLE credential provider";
                 break;
             default:
-                conf.provider_type = OSSConf::CredProviderType::INSTANCE_PROFILE;
+                conf.provider_type = OSSCredProviderType::INSTANCE_PROFILE;
                 LOG(INFO) << "Unknown credential provider type, defaulting to INSTANCE_PROFILE";
                 break;
             }
         } else {
             // No credential provider type specified, check if AK/SK provided
             if (!obj_info.ak().empty() && !obj_info.sk().empty()) {
-                conf.provider_type = OSSConf::CredProviderType::SIMPLE;
+                conf.provider_type = OSSCredProviderType::SIMPLE;
                 conf.access_key_id = obj_info.ak();
                 conf.access_key_secret = obj_info.sk();
                 // Note: security_token is not read from ObjectStoreInfoPB
                 LOG(INFO) << "Using OSS SIMPLE credential provider (from AK/SK)";
             } else {
-                conf.provider_type = OSSConf::CredProviderType::INSTANCE_PROFILE;
+                conf.provider_type = OSSCredProviderType::INSTANCE_PROFILE;
                 LOG(INFO) << "No AK/SK provided, using OSS INSTANCE_PROFILE credential provider";
             }
         }
@@ -237,6 +238,9 @@ int OSSAccessor::init() {
         LOG(INFO) << "Alibaba Cloud OSS SDK initialized";
     });
 
+    // Initialize CA certificate path for HTTPS verification
+    _ca_cert_file_path = get_valid_ca_cert_path(doris::cloud::split(config::ca_cert_file_paths, ';'));
+
     return create_oss_client();
 }
 
@@ -249,8 +253,16 @@ int OSSAccessor::create_oss_client() {
     oss_config.connectTimeoutMs = conf_.connect_timeout_ms;
     oss_config.requestTimeoutMs = conf_.request_timeout_ms;
 
+    // Set CA certificate file for HTTPS verification
+    if (_ca_cert_file_path.empty()) {
+        _ca_cert_file_path = get_valid_ca_cert_path(doris::cloud::split(config::ca_cert_file_paths, ';'));
+    }
+    if (!_ca_cert_file_path.empty()) {
+        oss_config.caFile = _ca_cert_file_path;
+    }
+
     try {
-        if (conf_.provider_type == OSSConf::CredProviderType::INSTANCE_PROFILE) {
+        if (conf_.provider_type == OSSCredProviderType::INSTANCE_PROFILE) {
             // Use ECS instance profile credentials
             if (!credentials_provider_) {
                 credentials_provider_ = std::make_shared<ECSMetadataCredentialsProvider>();
@@ -265,7 +277,7 @@ int OSSAccessor::create_oss_client() {
 
             LOG(INFO) << "Created OSS client with INSTANCE_PROFILE credentials for endpoint: "
                       << conf_.endpoint;
-        } else if (conf_.provider_type == OSSConf::CredProviderType::SIMPLE) {
+        } else if (conf_.provider_type == OSSCredProviderType::SIMPLE) {
             // Use static credentials
             AlibabaCloud::OSS::Credentials creds(conf_.access_key_id, conf_.access_key_secret,
                                                   conf_.security_token);
@@ -289,7 +301,7 @@ int OSSAccessor::create_oss_client() {
 
 int OSSAccessor::refresh_client_if_needed() {
     // For instance profile, recreate client to refresh credentials (OSS SDK v1.10.1 doesn't support dynamic providers)
-    if (conf_.provider_type == OSSConf::CredProviderType::INSTANCE_PROFILE) {
+    if (conf_.provider_type == OSSCredProviderType::INSTANCE_PROFILE) {
         return create_oss_client();
     }
     return 0;

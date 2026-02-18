@@ -29,14 +29,23 @@
 #include "common/status.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/path.h"
+#include "io/fs/s3_file_bufferpool.h"
+#include "runtime/exec_env.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 
 namespace doris::io {
 
+// Existing metrics
 bvar::Adder<uint64_t> oss_file_writer_total("oss_file_writer_total_num");
 bvar::Adder<uint64_t> oss_bytes_written_total("oss_file_writer_bytes_written");
 bvar::Adder<uint64_t> oss_file_created_total("oss_file_writer_file_created");
 bvar::Adder<uint64_t> oss_file_being_written("oss_file_writer_file_being_written");
+
+// New async metrics
+bvar::Adder<int64_t> oss_file_writer_async_close_queuing("oss_file_writer_async_close_queuing");
+bvar::Adder<int64_t> oss_file_writer_async_close_processing(
+        "oss_file_writer_async_close_processing");
 
 OSSFileWriter::OSSFileWriter(std::shared_ptr<OSSClientHolder> client, std::string bucket,
                              std::string key, const FileWriterOptions* opts)
@@ -44,15 +53,23 @@ OSSFileWriter::OSSFileWriter(std::shared_ptr<OSSClientHolder> client, std::strin
           _bucket(std::move(bucket)),
           _key(std::move(key)),
           _client(std::move(client)),
-          _buffer_size(config::s3_write_buffer_size) {
+          _buffer_size(config::s3_write_buffer_size),
+          _used_by_oss_committer(opts ? opts->used_by_s3_committer : false) {
     oss_file_writer_total << 1;
     oss_file_being_written << 1;
-    _pending_buf.reserve(_buffer_size);
+
+    _completed_parts.reserve(100);
+
     init_cache_builder(opts, _path);
 }
 
 OSSFileWriter::~OSSFileWriter() {
-    // Abort multipart upload if not completed to prevent orphaned parts
+    if (_countdown_event.count() > 0) {
+        LOG(WARNING) << "OSSFileWriter destroyed with pending async operations, waiting...";
+        _wait_until_finish("~OSSFileWriter");
+    }
+
+    // Abort multipart upload if not completed
     if (state() != State::CLOSED && !_upload_id.empty()) {
         LOG(WARNING) << "OSSFileWriter destroyed without close(), aborting multipart upload: "
                      << _path.native() << " upload_id: " << _upload_id;
@@ -71,24 +88,40 @@ Status OSSFileWriter::appendv(const Slice* data, size_t data_cnt) {
     }
 
     for (size_t i = 0; i < data_cnt; i++) {
-        const char* src = data[i].data;
-        size_t src_size = data[i].size;
+        size_t data_size = data[i].size;
+        const char* data_ptr = data[i].data;
+        size_t pos = 0;
 
-        for (size_t pos = 0; pos < src_size;) {
+        while (pos < data_size) {
             if (_failed) {
                 return _st;
             }
 
-            size_t available = _buffer_size - _pending_buf.size();
-            size_t to_copy = std::min(available, src_size - pos);
+            // Create new buffer if needed
+            if (!_pending_buf) {
+                RETURN_IF_ERROR(_build_upload_buffer());
+            }
 
-            _pending_buf.insert(_pending_buf.end(), src + pos, src + pos + to_copy);
-            pos += to_copy;
-            _bytes_appended += to_copy;
+            size_t remaining = data_size - pos;
+            size_t buffer_remaining = _buffer_size - _pending_buf->get_size();
+            size_t to_append = std::min(remaining, buffer_remaining);
 
-            // Flush when buffer is full
-            if (_pending_buf.size() >= _buffer_size) {
-                RETURN_IF_ERROR(_flush_buffer());
+            Slice s(data_ptr + pos, to_append);
+            RETURN_IF_ERROR(_pending_buf->append_data(s));
+
+            pos += to_append;
+            _bytes_appended += to_append;
+
+            if (_pending_buf->get_size() == _buffer_size) {
+                // Create multipart upload on first buffer flush
+                if (_cur_part_num == 1) {
+                    RETURN_IF_ERROR(_create_multipart_upload());
+                }
+
+                _cur_part_num++;
+                _countdown_event.add_count();
+                RETURN_IF_ERROR(FileBuffer::submit(std::move(_pending_buf)));
+                _pending_buf = nullptr;
             }
         }
     }
@@ -96,28 +129,117 @@ Status OSSFileWriter::appendv(const Slice* data, size_t data_cnt) {
     return Status::OK();
 }
 
-Status OSSFileWriter::_flush_buffer() {
-    if (_pending_buf.empty()) {
-        return Status::OK();
+Status OSSFileWriter::_build_upload_buffer() {
+    auto builder = FileBufferBuilder();
+    builder.set_type(BufferType::UPLOAD)
+            .set_upload_callback([part_num = _cur_part_num, this](UploadFileBuffer& buf) {
+                _upload_one_part(part_num, buf);
+            })
+            .set_file_offset(_bytes_appended)
+            .set_sync_after_complete_task([this](auto&& s) {
+                return _complete_part_task_callback(std::forward<decltype(s)>(s));
+            })
+            .set_is_cancelled([this]() { return _failed.load(); });
+
+    if (cache_builder() != nullptr) {
+        builder.set_allocate_file_blocks_holder(
+                [builder = *cache_builder(), offset = _bytes_appended]() -> FileBlocksHolderPtr {
+                    return builder.allocate_cache_holder(offset, config::s3_write_buffer_size);
+                });
     }
 
-    // First part or small file - need to decide strategy
-    if (_cur_part_num == 1 && _pending_buf.size() < _buffer_size) {
-        // Don't flush yet, wait for close to decide
-        return Status::OK();
-    }
-
-    // Create multipart upload on first flush of full buffer
-    if (_cur_part_num == 1 && _upload_id.empty()) {
-        RETURN_IF_ERROR(_create_multipart_upload());
-    }
-
-    // Upload as part
-    RETURN_IF_ERROR(_upload_part(_cur_part_num, _pending_buf.data(), _pending_buf.size()));
-    _cur_part_num++;
-    _pending_buf.clear();
-
+    RETURN_IF_ERROR(builder.build(&_pending_buf));
     return Status::OK();
+}
+
+void OSSFileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
+    if (buf.is_cancelled()) {
+        LOG(INFO) << "OSS file " << _path.native() << " skip part " << part_num
+                  << " because previous failure";
+        return;
+    }
+
+    // Debug point: Simulate upload failure
+    DBUG_EXECUTE_IF("OSSFileWriter::_upload_one_part.upload_error", {
+        auto fail_part = dp->param<int64_t>("fail_part_num", 0);
+        if (fail_part == 0 || fail_part == part_num) {
+            LOG(WARNING) << "Debug point: Simulating OSS upload failure for part " << part_num;
+            buf.set_status(Status::IOError("Debug OSS upload error for part {}", part_num));
+            return;
+        }
+    });
+
+    // Debug point: Simulate slow upload
+    DBUG_EXECUTE_IF("OSSFileWriter::_upload_one_part.slow_upload", {
+        auto sleep_ms = dp->param<int>("sleep_ms", 1000);
+        LOG(INFO) << "Debug point: Simulating slow OSS upload, sleeping " << sleep_ms << "ms";
+        std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+    });
+
+    auto client = _client->get();
+    if (nullptr == client) {
+        buf.set_status(Status::InternalError("OSS client not initialized"));
+        return;
+    }
+
+    auto stream = buf.get_stream();
+    if (!stream) {
+        buf.set_status(
+                Status::InternalError("Failed to get stream from upload buffer for part {}",
+                                      part_num));
+        return;
+    }
+
+    AlibabaCloud::OSS::UploadPartRequest request(_bucket, _key, stream);
+    request.setPartNumber(part_num);
+    request.setUploadId(_upload_id);
+    request.setContentLength(buf.get_size());
+
+    auto outcome = client->UploadPart(request);
+    if (!outcome.isSuccess()) {
+        std::string err = fmt::format("OSS UploadPart {} failed: {} - {}", part_num,
+                                      outcome.error().Code(), outcome.error().Message());
+        LOG(WARNING) << err << ", path: " << _path.native();
+        buf.set_status(Status::IOError(err));
+        return;
+    }
+
+    oss_bytes_written_total << buf.get_size();
+
+    AlibabaCloud::OSS::Part part(part_num, outcome.result().ETag());
+
+    {
+        std::lock_guard<std::mutex> lock(_completed_lock);
+        _completed_parts.push_back(part);
+    }
+
+    VLOG_DEBUG << "OSS UploadPart " << part_num << " completed: " << _path.native()
+               << " size: " << buf.get_size();
+}
+
+bool OSSFileWriter::_complete_part_task_callback(Status s) {
+    if (!s.ok()) {
+        _failed = true;
+        _st = std::move(s);
+        LOG(WARNING) << "OSS async upload failed: " << _path.native() << " error: " << _st;
+    }
+    _countdown_event.signal();
+    return !s.ok();
+}
+
+void OSSFileWriter::_wait_until_finish(std::string_view task_name) {
+    auto timeout_duration = config::s3_file_writer_log_interval_second;
+    auto msg = fmt::format("OSS file {} still has unfinished async tasks: {}", _path.native(),
+                           task_name);
+    timespec current_time;
+    auto current_time_second = time(nullptr);
+    current_time.tv_sec = current_time_second + timeout_duration;
+    current_time.tv_nsec = 0;
+
+    while (0 != _countdown_event.timed_wait(current_time)) {
+        current_time.tv_sec += timeout_duration;
+        LOG(WARNING) << msg;
+    }
 }
 
 Status OSSFileWriter::_create_multipart_upload() {
@@ -149,7 +271,6 @@ Status OSSFileWriter::_upload_part(int part_num, const char* data, size_t size) 
         return Status::InternalError("OSS client not initialized");
     }
 
-    // Avoid double copy: write directly to stringstream instead of creating intermediate string
     auto content = std::make_shared<std::stringstream>();
     content->write(data, size);
 
@@ -174,8 +295,8 @@ Status OSSFileWriter::_upload_part(int part_num, const char* data, size_t size) 
     std::lock_guard<std::mutex> lock(_completed_lock);
     _completed_parts.push_back(part);
 
-    VLOG_DEBUG << "OSS UploadPart " << part_num << " completed: " << _path.native() << " size: "
-               << size;
+    VLOG_DEBUG << "OSS UploadPart " << part_num << " completed: " << _path.native()
+               << " size: " << size;
 
     return Status::OK();
 }
@@ -186,7 +307,15 @@ Status OSSFileWriter::_complete_multipart_upload() {
         return Status::InternalError("OSS client not initialized");
     }
 
-    // Sort parts by part number
+    // Debug point: Simulate complete multipart failure
+    DBUG_EXECUTE_IF("OSSFileWriter::_complete_multipart_upload.complete_error", {
+        LOG(WARNING) << "Debug point: Simulating OSS complete multipart upload failure";
+        _failed = true;
+        return Status::IOError("Debug OSS complete multipart upload error for path {}",
+                               _path.native());
+    });
+
+    // CRITICAL: Sort parts by part number (OSS requires ascending order)
     std::sort(_completed_parts.begin(), _completed_parts.end(),
               [](const AlibabaCloud::OSS::Part& a, const AlibabaCloud::OSS::Part& b) {
                   return a.PartNumber() < b.PartNumber();
@@ -201,7 +330,6 @@ Status OSSFileWriter::_complete_multipart_upload() {
         std::string err = fmt::format("OSS CompleteMultipartUpload failed: {} - {}",
                                       outcome.error().Code(), outcome.error().Message());
         LOG(WARNING) << err << ", path: " << _path.native();
-        // Abort to clean up parts
         static_cast<void>(_abort_multipart_upload());
         return Status::IOError(err);
     }
@@ -240,17 +368,18 @@ Status OSSFileWriter::_abort_multipart_upload() {
     return Status::OK();
 }
 
-Status OSSFileWriter::_put_object(const char* data, size_t size) {
+Status OSSFileWriter::_put_object(UploadFileBuffer& buf) {
     auto client = _client->get();
     if (!client) {
         return Status::InternalError("OSS client not initialized");
     }
 
-    // Avoid double copy: write directly to stringstream
-    auto content = std::make_shared<std::stringstream>();
-    content->write(data, size);
+    auto stream = buf.get_stream();
+    if (!stream) {
+        return Status::InternalError("Failed to get stream from upload buffer");
+    }
 
-    AlibabaCloud::OSS::PutObjectRequest request(_bucket, _key, content);
+    AlibabaCloud::OSS::PutObjectRequest request(_bucket, _key, stream);
     auto outcome = client->PutObject(request);
 
     if (!outcome.isSuccess()) {
@@ -261,21 +390,73 @@ Status OSSFileWriter::_put_object(const char* data, size_t size) {
         return Status::IOError(err);
     }
 
-    LOG(INFO) << "OSS PutObject completed: " << _path.native() << " size: " << size;
+    LOG(INFO) << "OSS PutObject completed: " << _path.native() << " size: " << buf.get_size();
 
     oss_file_created_total << 1;
-    oss_bytes_written_total << size;
+    oss_bytes_written_total << buf.get_size();
+
+    return Status::OK();
+}
+
+Status OSSFileWriter::_set_upload_to_remote_less_than_buffer_size() {
+    auto* buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
+    if (buf == nullptr) {
+        return Status::InternalError(
+                "Invalid buffer type in _set_upload_to_remote_less_than_buffer_size: expected "
+                "UploadFileBuffer");
+    }
+
+    if (_used_by_oss_committer) {
+        // Committer mode: use multipart (FE needs upload_id and part ETags)
+        buf->set_upload_to_remote([part_num = _cur_part_num, this](UploadFileBuffer& buf) {
+            _upload_one_part(part_num, buf);
+        });
+        DCHECK(_cur_part_num == 1);
+        RETURN_IF_ERROR(_create_multipart_upload());
+    } else {
+        // Normal mode: use PutObject for small files
+        buf->set_upload_to_remote([this](UploadFileBuffer& buf) {
+            Status st = _put_object(buf);
+            if (!st.ok()) {
+                buf.set_status(st);
+            }
+        });
+    }
 
     return Status::OK();
 }
 
 Status OSSFileWriter::close(bool non_block) {
+    std::lock_guard<std::mutex> lock(_close_lock);
+
     if (state() == State::CLOSED) {
         return _st;
     }
 
+    if (state() == State::ASYNC_CLOSING) {
+        if (non_block) {
+            return Status::InternalError("Don't submit async close multiple times");
+        }
+        CHECK(_async_close_pack != nullptr);
+        _st = _async_close_pack->future.get();
+        _async_close_pack = nullptr;
+        _state = State::CLOSED;
+        return _st;
+    }
+
     if (non_block) {
-        LOG(WARNING) << "OSS file writer non-blocking close not yet implemented, using sync close";
+        _state = State::ASYNC_CLOSING;
+        _async_close_pack = std::make_unique<AsyncCloseStatusPack>();
+        _async_close_pack->future = _async_close_pack->promise.get_future();
+
+        oss_file_writer_async_close_queuing << 1;
+
+        return ExecEnv::GetInstance()->non_block_close_thread_pool()->submit_func([this]() {
+            oss_file_writer_async_close_queuing << -1;
+            oss_file_writer_async_close_processing << 1;
+            _async_close_pack->promise.set_value(_close_impl());
+            oss_file_writer_async_close_processing << -1;
+        });
     }
 
     _st = _close_impl();
@@ -284,33 +465,74 @@ Status OSSFileWriter::close(bool non_block) {
 }
 
 Status OSSFileWriter::_close_impl() {
+    if (_countdown_event.count() > 0) {
+        _wait_until_finish("_close_impl");
+    }
+
     if (_failed) {
-        // Abort multipart upload on failure to clean up parts
         if (!_upload_id.empty()) {
             static_cast<void>(_abort_multipart_upload());
         }
         return _st;
     }
 
-    // Case 1: No data written - create empty file
     if (_bytes_appended == 0) {
-        return _put_object("", 0);
+        DCHECK_EQ(_cur_part_num, 1);
+        // Create an empty buffer for PutObject
+        RETURN_IF_ERROR(_build_upload_buffer());
+
+        if (!_used_by_oss_committer) {
+            auto* pending_buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
+            pending_buf->set_upload_to_remote([this](UploadFileBuffer& buf) {
+                Status st = _put_object(buf);
+                if (!st.ok()) {
+                    buf.set_status(st);
+                }
+            });
+        } else {
+            RETURN_IF_ERROR(_create_multipart_upload());
+        }
     }
 
-    // Case 2: Small file (single part) - use PutObject
-    if (_cur_part_num == 1 && _upload_id.empty()) {
-        return _put_object(_pending_buf.data(), _pending_buf.size());
+    if (_cur_part_num == 1 && _pending_buf) {
+        RETURN_IF_ERROR(_set_upload_to_remote_less_than_buffer_size());
     }
 
-    // Case 3: Multipart upload - flush remaining data and complete
-    if (!_pending_buf.empty()) {
-        Status st = _upload_part(_cur_part_num, _pending_buf.data(), _pending_buf.size());
+    if (_pending_buf && _pending_buf->get_size() > 0) {
+        _countdown_event.add_count();
+        Status st = FileBuffer::submit(std::move(_pending_buf));
+        _pending_buf = nullptr;
         if (!st.ok()) {
-            // Abort on failure
-            static_cast<void>(_abort_multipart_upload());
+            if (!_upload_id.empty()) {
+                static_cast<void>(_abort_multipart_upload());
+            }
             return st;
         }
-        _pending_buf.clear();
+
+        _wait_until_finish("last_part");
+
+        if (_failed) {
+            if (!_upload_id.empty()) {
+                static_cast<void>(_abort_multipart_upload());
+            }
+            return _st;
+        }
+    }
+
+    if (_cur_part_num == 1) {
+        _wait_until_finish("PutObject or single part");
+        return _st;
+    }
+
+    _wait_until_finish("Complete multipart");
+
+    if (_used_by_oss_committer) {
+        // OSS committer mode: FE will complete multipart upload
+        oss_file_created_total << 1;
+        LOG(INFO) << "OSS multipart upload parts completed (FE will finish): " << _path.native()
+                  << " parts: " << _completed_parts.size() << " bytes: " << _bytes_appended
+                  << " upload_id: " << _upload_id;
+        return Status::OK();
     }
 
     return _complete_multipart_upload();

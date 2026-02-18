@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <random>
 #include <sstream>
 #include <thread>
 #include <utility>
@@ -36,10 +37,17 @@
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "util/bvar_helper.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 
 namespace doris::io {
+
+namespace {
+// Thread-local random number generator for jitter
+// Using thread_local ensures each thread has its own seeded generator
+thread_local std::mt19937 g_rng(std::random_device{}());
+} // namespace
 
 bvar::Adder<uint64_t> oss_file_reader_read_counter("oss_file_reader", "read_at");
 bvar::Adder<uint64_t> oss_file_reader_total("oss_file_reader", "total_num");
@@ -75,6 +83,8 @@ OSSFileReader::OSSFileReader(std::shared_ptr<OSSClientHolder> client, std::strin
           _key(std::move(key)),
           _client(std::move(client)),
           _profile(profile) {
+    // TODO: Create separate oss_file_open_reading and oss_file_reader_total DorisMetrics
+    // Currently reusing s3 metrics for backward compatibility with dashboards
     DorisMetrics::instance()->s3_file_open_reading->increment(1);
     DorisMetrics::instance()->s3_file_reader_total->increment(1);
     oss_file_reader_total << 1;
@@ -89,6 +99,7 @@ OSSFileReader::~OSSFileReader() {
 Status OSSFileReader::close() {
     bool expected = false;
     if (_closed.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        // TODO: Should decrement oss_file_open_reading DorisMetric instead of s3 metric
         DorisMetrics::instance()->s3_file_open_reading->increment(-1);
     }
     return Status::OK();
@@ -121,9 +132,9 @@ Status OSSFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_re
     }
 
     int retry_count = 0;
-    const int base_wait_time = config::s3_read_base_wait_time_ms;
-    const int max_wait_time = config::s3_read_max_wait_time_ms;
-    const int max_retries = config::max_s3_client_retry;
+    const int base_wait_time = config::oss_read_base_wait_time_ms;
+    const int max_wait_time = config::oss_read_max_wait_time_ms;
+    const int max_retries = config::max_oss_client_retry;
 
     int64_t begin_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                                std::chrono::system_clock::now().time_since_epoch())
@@ -142,6 +153,20 @@ Status OSSFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_re
         *bytes_read = 0;
         oss_file_reader_read_counter << 1;
 
+        // Debug point: Simulate slow read
+        DBUG_EXECUTE_IF("OSSFileReader::read_at_impl.slow_read", {
+            auto sleep_ms = dp->param<int>("sleep_ms", 1000);
+            LOG(INFO) << "Debug point: Simulating slow OSS read, sleeping " << sleep_ms << "ms";
+            std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+        });
+
+        // Debug point: Simulate rate limiting error
+        DBUG_EXECUTE_IF("OSSFileReader::read_at_impl.rate_limit", {
+            LOG(WARNING) << "Debug point: Simulating OSS rate limit error";
+            std::string msg = fmt::format("Debug OSS rate limit error for path {}", _path.native());
+            return Status::IOError(msg);
+        });
+
         AlibabaCloud::OSS::GetObjectRequest request(_bucket, _key);
         request.setRange(static_cast<int64_t>(offset),
                          static_cast<int64_t>(offset + bytes_req - 1));
@@ -149,10 +174,17 @@ Status OSSFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_re
         auto outcome = client->GetObject(request);
         _oss_stats.total_get_request_counter++;
 
+        // Debug point: Simulate read failure
+        DBUG_EXECUTE_IF("OSSFileReader::read_at_impl.read_error", {
+            LOG(WARNING) << "Debug point: Simulating OSS read error";
+            std::string msg = fmt::format("Debug OSS read error for path {}", _path.native());
+            return Status::IOError(msg);
+        });
+
         if (!outcome.isSuccess()) {
             std::string error_code = outcome.error().Code();
 
-            // Handle rate limiting with exponential backoff
+            // Exponential backoff with jitter for rate limiting
             if (error_code == "TooManyRequests" || error_code == "SlowDown") {
                 retry_count++;
                 if (retry_count > max_retries) {
@@ -163,9 +195,10 @@ Status OSSFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_re
                     return Status::IOError(err_msg);
                 }
 
-                // Exponential backoff with jitter to prevent thundering herd
+                // Exponential backoff with jitter
                 int wait_time = std::min(base_wait_time * (1 << retry_count), max_wait_time);
-                int jitter = rand() % 100;
+                std::uniform_int_distribution<int> dist(0, 99);
+                int jitter = dist(g_rng);
                 wait_time += jitter;
 
                 std::this_thread::sleep_for(std::chrono::milliseconds(wait_time));
@@ -179,7 +212,6 @@ Status OSSFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_re
                 continue;
             }
 
-            // Other errors - fail immediately
             std::string err_msg = fmt::format("OSS GetObject failed for {}: {} - {}",
                                               _path.native(), error_code,
                                               outcome.error().Message());
@@ -187,7 +219,6 @@ Status OSSFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_re
             return Status::IOError(err_msg);
         }
 
-        // Read content stream into buffer
         auto& content_stream = outcome.result().Content();
         content_stream->read(to, bytes_req);
         *bytes_read = content_stream->gcount();
@@ -204,6 +235,8 @@ Status OSSFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_re
         _oss_stats.total_bytes_read += bytes_req;
         oss_bytes_read_total << bytes_req;
         oss_bytes_per_read << bytes_req;
+        // TODO: Create separate oss_bytes_read_total DorisMetric to avoid confusing naming
+        // Currently reusing s3_bytes_read_total for backward compatibility with dashboards
         DorisMetrics::instance()->s3_bytes_read_total->increment(bytes_req);
 
         if (retry_count > 0) {
@@ -216,6 +249,29 @@ Status OSSFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_re
     }
 
     return Status::IOError("OSS read failed: max retries exceeded");
+}
+
+void OSSFileReader::_collect_profile_before_close() {
+    if (_profile != nullptr) {
+        const char* oss_profile_name = "OSSProfile";
+        ADD_TIMER(_profile, oss_profile_name);
+        RuntimeProfile::Counter* total_get_request_counter =
+                ADD_CHILD_COUNTER(_profile, "TotalGetRequest", TUnit::UNIT, oss_profile_name);
+        RuntimeProfile::Counter* too_many_request_err_counter =
+                ADD_CHILD_COUNTER(_profile, "TooManyRequestErr", TUnit::UNIT, oss_profile_name);
+        RuntimeProfile::Counter* too_many_request_sleep_time = ADD_CHILD_COUNTER(
+                _profile, "TooManyRequestSleepTime", TUnit::TIME_MS, oss_profile_name);
+        RuntimeProfile::Counter* total_bytes_read =
+                ADD_CHILD_COUNTER(_profile, "TotalBytesRead", TUnit::BYTES, oss_profile_name);
+        RuntimeProfile::Counter* total_get_request_time_ns =
+                ADD_CHILD_TIMER(_profile, "TotalGetRequestTime", oss_profile_name);
+
+        COUNTER_UPDATE(total_get_request_counter, _oss_stats.total_get_request_counter);
+        COUNTER_UPDATE(too_many_request_err_counter, _oss_stats.too_many_request_err_counter);
+        COUNTER_UPDATE(too_many_request_sleep_time, _oss_stats.too_many_request_sleep_time_ms);
+        COUNTER_UPDATE(total_bytes_read, _oss_stats.total_bytes_read);
+        COUNTER_UPDATE(total_get_request_time_ns, _oss_stats.total_get_request_time_ns);
+    }
 }
 
 } // namespace doris::io

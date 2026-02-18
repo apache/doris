@@ -27,6 +27,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "cpp/oss_common.h"
 #include "util/s3_util.h"
 #include "vec/common/string_ref.h"
 
@@ -67,11 +68,7 @@ struct OSSClientConf {
     int request_timeout_ms = 30000;
     int connect_timeout_ms = 10000;
 
-    enum class CredProviderType {
-        SIMPLE,           // Static AK/SK
-        INSTANCE_PROFILE, // ECS instance profile
-    };
-    CredProviderType cred_provider_type = CredProviderType::INSTANCE_PROFILE;
+    OSSCredProviderType cred_provider_type = OSSCredProviderType::INSTANCE_PROFILE;
 
     uint64_t get_hash() const {
         uint64_t hash_code = 0;
@@ -133,6 +130,7 @@ private:
     std::unordered_map<uint64_t, std::shared_ptr<AlibabaCloud::OSS::OssClient>> _cache;
     std::unordered_map<uint64_t, std::shared_ptr<ECSMetadataCredentialsProvider>>
             _credential_providers;
+    std::string _ca_cert_file_path;
 };
 
 } // namespace doris
