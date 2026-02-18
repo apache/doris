@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
@@ -36,8 +37,10 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.policy.DorisDataMaskPolicy;
 import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.PolicyTypeEnum;
@@ -57,15 +60,17 @@ import java.util.Optional;
  */
 public class CreatePolicyCommand extends Command implements ForwardWithSync {
 
-    private final PolicyTypeEnum policyType;
-    private final String policyName;
-    private final boolean ifNotExists;
-    private final TableNameInfo tableNameInfo;
-    private final Optional<FilterType> filterType;
-    private final UserIdentity user;
-    private final String roleName;
-    private final Optional<Expression> wherePredicate;
-    private final Map<String, String> properties;
+    private PolicyTypeEnum policyType;
+    private String policyName;
+    private boolean ifNotExists;
+    private TableNameInfo tableNameInfo;
+    private Optional<FilterType> filterType;
+    private UserIdentity user;
+    private String roleName;
+    private Optional<Expression> wherePredicate;
+    private Map<String, String> properties;
+    private String dataMaskType;
+    private int priority = 0;
 
     /**
      * ctor of this command.
@@ -83,6 +88,23 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
         this.roleName = roleName;
         this.wherePredicate = wherePredicate;
         this.properties = properties;
+    }
+
+    /**
+     * ctor for create data mask policy command.
+     */
+    public CreatePolicyCommand(PolicyTypeEnum policyType, String policyName, boolean ifNotExists,
+                               TableNameInfo tableNameInfo, UserIdentity user, String roleName, String dataMaskType,
+                               int priority) {
+        super(PlanType.CREATE_POLICY_COMMAND);
+        this.policyType = policyType;
+        this.policyName = policyName;
+        this.ifNotExists = ifNotExists;
+        this.tableNameInfo = tableNameInfo;
+        this.user = user;
+        this.roleName = roleName;
+        this.dataMaskType = dataMaskType;
+        this.priority = priority;
     }
 
     public Optional<Expression> getWherePredicate() {
@@ -112,6 +134,18 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
 
     private void validate(ConnectContext ctx) throws AnalysisException {
         switch (policyType) {
+            case DATA_MASK:
+                checkAuthAndAnalyze(ctx);
+                ColumnNameInfo col = (ColumnNameInfo) tableNameInfo;
+                TableIf table = Env.getCurrentEnv().getCatalogMgr()
+                        .getCatalogOrAnalysisException(tableNameInfo.getCtl())
+                        .getDbOrAnalysisException(tableNameInfo.getDb())
+                        .getTableOrAnalysisException(tableNameInfo.getTbl());
+                Column column = table.getColumn(col.getCol());
+                if (column == null) {
+                    throw new AnalysisException("column not exist: " + col.getCol());
+                }
+                break;
             case STORAGE:
                 if (!Config.enable_storage_policy) {
                     throw new AnalysisException("storage policy feature is disabled by default. "
@@ -126,29 +160,7 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
                 }
                 break;
             case ROW:
-            default:
-                // check auth
-                if (!Env.getCurrentEnv().getAccessManager()
-                        .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                            PrivPredicate.GRANT.getPrivs().toString());
-                }
-                tableNameInfo.analyze(ctx);
-                if (user != null) {
-                    user.analyze();
-                    if (user.isRootUser() || user.isAdminUser()) {
-                        throw new AnalysisException("not allow add row policy for system user");
-                    }
-                    if (!Env.getCurrentEnv().getAuth().doesUserExist(user)) {
-                        throw new AnalysisException("user not exist: " + user);
-                    }
-                }
-
-                if (!StringUtils.isEmpty(roleName)) {
-                    if (!Env.getCurrentEnv().getAuth().doesRoleExist(roleName)) {
-                        throw new AnalysisException("role not exist: " + roleName);
-                    }
-                }
+                checkAuthAndAnalyze(ctx);
                 if (!wherePredicate.isPresent()) {
                     throw new AnalysisException("wherePredicate can not be null");
                 }
@@ -161,11 +173,37 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
                         UnboundSlot slot = (UnboundSlot) expr;
                         if (tableIf.getColumn(slot.getName()) == null) {
                             throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                                    "column not exist: " + slot.getName());
+                                "column not exist: " + slot.getName());
                         }
                     }
                 });
+                break;
+            default:
+                throw new AnalysisException("Unknown policy type: " + policyType);
+        }
+    }
 
+    private void checkAuthAndAnalyze(ConnectContext ctx) throws AnalysisException {
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                    PrivPredicate.GRANT.getPrivs().toString());
+        }
+        tableNameInfo.analyze(ctx);
+        if (user != null) {
+            user.analyze();
+            if (user.isRootUser() || user.isAdminUser()) {
+                throw new AnalysisException("not allow add row policy for system user");
+            }
+            if (!Env.getCurrentEnv().getAuth().doesUserExist(user)) {
+                throw new AnalysisException("user not exist: " + user);
+            }
+        }
+
+        if (!StringUtils.isEmpty(roleName)) {
+            if (!Env.getCurrentEnv().getAuth().doesRoleExist(roleName)) {
+                throw new AnalysisException("role not exist: " + roleName);
+            }
         }
     }
 
@@ -181,6 +219,10 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
                         tableNameInfo.getDb(), tableNameInfo.getTbl(), user, roleName,
                         executor.getOriginStmt().originStmt, executor.getOriginStmt().idx, filterType.get(),
                         wherePredicate.get());
+            case DATA_MASK:
+                ColumnNameInfo col = (ColumnNameInfo) tableNameInfo;
+                return new DorisDataMaskPolicy(policyId, policyName, user, roleName,
+                    col.getCtl(), col.getDb(), col.getTbl(), col.getCol(), dataMaskType, priority);
             default:
                 throw new AnalysisException("Unknown policy type: " + policyType);
         }

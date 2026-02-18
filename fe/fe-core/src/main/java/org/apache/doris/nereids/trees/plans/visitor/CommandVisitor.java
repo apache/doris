@@ -107,6 +107,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropCachedStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropDataMaskPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropDictionaryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropEncryptkeyCommand;
@@ -199,6 +200,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDataCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowDataMaskPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDataSkewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDataTypesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDatabaseIdCommand;
@@ -1103,6 +1105,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(alterRepositoryCommand, context);
     }
 
+    default R visitShowDataMaskPolicyCommand(ShowDataMaskPolicyCommand showDataMaskPolicyCommand, C context) {
+        return visitCommand(showDataMaskPolicyCommand, context);
+    }
+
     default R visitShowRowPolicyCommand(ShowRowPolicyCommand showRowPolicyCommand, C context) {
         return visitCommand(showRowPolicyCommand, context);
     }
@@ -1259,6 +1265,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropRowPolicyCommand(DropRowPolicyCommand dropRowPolicyCommand, C context) {
         return visitCommand(dropRowPolicyCommand, context);
+    }
+
+    default R visitDropDataMaskPolicyCommand(DropDataMaskPolicyCommand dropDataMaskPolicyCommand, C context) {
+        return visitCommand(dropDataMaskPolicyCommand, context);
     }
 
     default R visitTransactionBeginCommand(TransactionBeginCommand transactionBeginCommand, C context) {

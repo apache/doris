@@ -49,8 +49,10 @@ public class DropPolicyLog implements Writable {
 
     @SerializedName(value = "ctlName")
     private String ctlName;
+
     @SerializedName(value = "dbName")
     private String dbName;
+
     @SerializedName(value = "tableName")
     private String tableName;
 
@@ -71,8 +73,8 @@ public class DropPolicyLog implements Writable {
         this.policyName = policyName;
     }
 
-    public DropPolicyLog(String ctlName, String dbName, String tableName, PolicyTypeEnum type, String policyName,
-            UserIdentity user, String roleName) {
+    public DropPolicyLog(String ctlName, String dbName, String tableName, PolicyTypeEnum type,
+                         String policyName, UserIdentity user, String roleName) {
         this.ctlName = ctlName;
         this.dbName = dbName;
         this.tableName = tableName;
@@ -80,6 +82,11 @@ public class DropPolicyLog implements Writable {
         this.policyName = policyName;
         this.user = user;
         this.roleName = roleName;
+    }
+
+    public DropPolicyLog(String policyName, PolicyTypeEnum type) {
+        this.policyName = policyName;
+        this.type = type;
     }
 
     @Override
