@@ -1949,4 +1949,89 @@ public class SearchDslParserTest {
         Assertions.assertTrue(hasTerm, "Should contain TERM node for 'Dollar'");
         Assertions.assertTrue(hasMatchAll, "Should contain MATCH_ALL_DOCS node for '*'");
     }
+
+    // ============ Tests for MATCH_ALL_DOCS in multi-field mode ============
+
+    @Test
+    public void testMultiFieldMatchAllDocsBestFieldsLuceneMode() {
+        // Test: "*" with best_fields + lucene mode should produce MATCH_ALL_DOCS
+        // with field bindings for all specified fields (needed for push-down)
+        String dsl = "*";
+        String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"best_fields\","
+                + "\"default_operator\":\"AND\",\"mode\":\"lucene\",\"minimum_should_match\":0}";
+
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.MATCH_ALL_DOCS, plan.getRoot().getType());
+
+        // Must have field bindings for push-down to work
+        Assertions.assertNotNull(plan.getFieldBindings());
+        Assertions.assertFalse(plan.getFieldBindings().isEmpty(),
+                "MATCH_ALL_DOCS in multi-field mode must have field bindings for push-down");
+        Assertions.assertEquals(2, plan.getFieldBindings().size());
+
+        // Verify field names
+        java.util.List<String> bindingNames = plan.getFieldBindings().stream()
+                .map(QsFieldBinding::getFieldName).collect(java.util.stream.Collectors.toList());
+        Assertions.assertTrue(bindingNames.contains("title"));
+        Assertions.assertTrue(bindingNames.contains("content"));
+    }
+
+    @Test
+    public void testMultiFieldMatchAllDocsCrossFieldsLuceneMode() {
+        // Test: "*" with cross_fields + lucene mode
+        String dsl = "*";
+        String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"cross_fields\","
+                + "\"default_operator\":\"AND\",\"mode\":\"lucene\",\"minimum_should_match\":0}";
+
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.MATCH_ALL_DOCS, plan.getRoot().getType());
+
+        // Must have field bindings for push-down
+        Assertions.assertNotNull(plan.getFieldBindings());
+        Assertions.assertFalse(plan.getFieldBindings().isEmpty(),
+                "MATCH_ALL_DOCS in multi-field mode must have field bindings for push-down");
+        Assertions.assertEquals(2, plan.getFieldBindings().size());
+    }
+
+    @Test
+    public void testMultiFieldMatchAllDocsStandardMode() {
+        // Test: "*" with multi-field standard mode (no lucene)
+        String dsl = "*";
+        String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"best_fields\","
+                + "\"default_operator\":\"AND\"}";
+
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+
+        // Must have field bindings for push-down
+        Assertions.assertNotNull(plan.getFieldBindings());
+        Assertions.assertFalse(plan.getFieldBindings().isEmpty(),
+                "MATCH_ALL_DOCS in multi-field standard mode must have field bindings for push-down");
+        Assertions.assertEquals(2, plan.getFieldBindings().size());
+    }
+
+    @Test
+    public void testSingleFieldMatchAllDocsLuceneMode() {
+        // Test: "*" with single default_field + lucene mode should have field binding
+        String dsl = "*";
+        String options = "{\"default_field\":\"title\",\"default_operator\":\"AND\","
+                + "\"mode\":\"lucene\",\"minimum_should_match\":0}";
+
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.MATCH_ALL_DOCS, plan.getRoot().getType());
+
+        // Must have field bindings for push-down
+        Assertions.assertNotNull(plan.getFieldBindings());
+        Assertions.assertFalse(plan.getFieldBindings().isEmpty(),
+                "MATCH_ALL_DOCS with default_field must have field bindings for push-down");
+        Assertions.assertEquals(1, plan.getFieldBindings().size());
+        Assertions.assertEquals("title", plan.getFieldBindings().get(0).getFieldName());
+    }
 }
