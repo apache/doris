@@ -473,6 +473,11 @@ public class SearchDslParser {
 
             // Extract field bindings from expanded AST
             Set<String> fieldNames = collectFieldNames(expandedRoot);
+            // If no fields were collected (e.g., MATCH_ALL_DOCS query that matches all docs
+            // regardless of field), use the original fields list to ensure proper push-down
+            if (fieldNames.isEmpty()) {
+                fieldNames = new LinkedHashSet<>(fields);
+            }
             List<QsFieldBinding> bindings = new ArrayList<>();
             int slotIndex = 0;
             for (String fieldName : fieldNames) {
@@ -553,6 +558,11 @@ public class SearchDslParser {
 
             // Extract field bindings from expanded AST
             Set<String> fieldNames = collectFieldNames(expandedRoot);
+            // If no fields were collected (e.g., MATCH_ALL_DOCS query that matches all docs
+            // regardless of field), use the original fields list to ensure proper push-down
+            if (fieldNames.isEmpty()) {
+                fieldNames = new LinkedHashSet<>(fields);
+            }
             List<QsFieldBinding> bindings = new ArrayList<>();
             int slotIndex = 0;
             for (String fieldName : fieldNames) {
