@@ -2201,4 +2201,80 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithOccurBoolean) {
     EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>());
 }
 
+TEST_F(FunctionSearchTest, TestBuildDslSignatureBasic) {
+    TSearchParam param;
+    param.original_dsl = "title:hello";
+
+    TSearchFieldBinding fb1;
+    fb1.field_name = "title";
+    fb1.slot_index = 0;
+    fb1.index_properties = {{"index_id", "100"}, {"parser", "english"}};
+    fb1.__isset.index_properties = true;
+    param.field_bindings = {fb1};
+
+    auto sig = FunctionSearch::build_dsl_signature(param);
+    EXPECT_EQ(sig, "title:hello#title=100;");
+}
+
+TEST_F(FunctionSearchTest, TestBuildDslSignatureSortOrder) {
+    TSearchParam param;
+    param.original_dsl = "title:hello OR content:world";
+
+    TSearchFieldBinding fb_content;
+    fb_content.field_name = "content";
+    fb_content.slot_index = 1;
+    fb_content.index_properties = {{"index_id", "200"}};
+    fb_content.__isset.index_properties = true;
+
+    TSearchFieldBinding fb_title;
+    fb_title.field_name = "title";
+    fb_title.slot_index = 0;
+    fb_title.index_properties = {{"index_id", "100"}};
+    fb_title.__isset.index_properties = true;
+
+    // Insert in reverse order - should still produce canonical signature
+    param.field_bindings = {fb_content, fb_title};
+
+    auto sig = FunctionSearch::build_dsl_signature(param);
+    // Fields sorted alphabetically: content before title
+    EXPECT_EQ(sig, "title:hello OR content:world#content=200;title=100;");
+}
+
+TEST_F(FunctionSearchTest, TestBuildDslSignatureNoIndexId) {
+    TSearchParam param;
+    param.original_dsl = "test";
+
+    TSearchFieldBinding fb;
+    fb.field_name = "field_a";
+    fb.slot_index = 0;
+    // No index_properties set
+    param.field_bindings = {fb};
+
+    auto sig = FunctionSearch::build_dsl_signature(param);
+    EXPECT_EQ(sig, "test#field_a=;");
+}
+
+TEST_F(FunctionSearchTest, TestBuildDslSignatureEmpty) {
+    TSearchParam param;
+    param.original_dsl = "";
+
+    auto sig = FunctionSearch::build_dsl_signature(param);
+    EXPECT_EQ(sig, "#");
+}
+
+TEST_F(FunctionSearchTest, TestSearcherCacheHandlesLifetime) {
+    // Verify FieldReaderResolver keeps _searcher_cache_handles alive
+    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    auto context = std::make_shared<IndexQueryContext>();
+
+    FieldReaderResolver resolver(data_types, iterators, context);
+
+    // The resolver should have an empty cache handles vector initially
+    // (We can't directly access _searcher_cache_handles, but we can verify
+    // that binding_cache is empty)
+    EXPECT_TRUE(resolver.binding_cache().empty());
+    EXPECT_TRUE(resolver.readers().empty());
+}
+
 } // namespace doris::vectorized

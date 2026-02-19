@@ -165,8 +165,9 @@ void SearchFunctionQueryCache::insert(const CacheKey& key,
     auto cache_value = std::make_unique<SearchFunctionQueryCache::CacheValue>();
     cache_value->result_bitmap = std::move(result_bitmap);
     cache_value->null_bitmap = std::move(null_bitmap);
-    size_t mem_size = cache_value->result_bitmap->getSizeInBytes() +
-                      cache_value->null_bitmap->getSizeInBytes();
+    size_t mem_size =
+            (cache_value->result_bitmap ? cache_value->result_bitmap->getSizeInBytes() : 0) +
+            (cache_value->null_bitmap ? cache_value->null_bitmap->getSizeInBytes() : 0);
     auto* lru_handle = LRUCachePolicy::insert(encoded, cache_value.release(), mem_size, mem_size,
                                               CachePriority::NORMAL);
     *handle = InvertedIndexQueryCacheHandle(this, lru_handle);

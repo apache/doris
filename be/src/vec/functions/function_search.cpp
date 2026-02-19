@@ -60,7 +60,7 @@ namespace doris::vectorized {
 
 // Build canonical DSL signature for SearchFunctionQueryCache key.
 // Includes original DSL + sorted field bindings with index metadata.
-static std::string build_dsl_signature(const TSearchParam& param) {
+std::string FunctionSearch::build_dsl_signature(const TSearchParam& param) {
     std::string sig = param.original_dsl;
     sig += '#';
     // Sort field bindings by field_name for canonical ordering

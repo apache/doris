@@ -201,6 +201,9 @@ public:
     Status collect_all_field_nulls(const TSearchClause& clause,
                                    const std::unordered_map<std::string, IndexIterator*>& iterators,
                                    std::shared_ptr<roaring::Roaring>& null_bitmap) const;
+
+    // Build canonical DSL signature for SearchFunctionQueryCache key.
+    static std::string build_dsl_signature(const TSearchParam& param);
 };
 
 } // namespace doris::vectorized
