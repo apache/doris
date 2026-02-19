@@ -962,17 +962,20 @@ Status MutableBlock::add_rows(const Block* block, const uint32_t* row_begin,
         // Validate all row indices before processing any column.
         // All columns in a block share the same row count, so we only need to
         // check against the first column's size.
-        if (row_begin != row_end && !block_data.empty()) {
-            const auto src_rows = block_data[0].column->size();
-            for (const auto* p = row_begin; p != row_end; ++p) {
-                if (UNLIKELY(*p >= src_rows)) {
-                    throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                           "MutableBlock::add_rows: row index {} is out of bounds "
-                                           "for source block with {} rows",
-                                           *p, src_rows);
-                }
+#ifndef NDEBUG
+    // Validate all row indices before processing any column. O(N) check, so debug only.
+    if (row_begin != row_end && !block_data.empty()) {
+        const auto src_rows = block_data[0].column->size();
+        for (const auto* p = row_begin; p != row_end; ++p) {
+            if (UNLIKELY(*p >= src_rows)) {
+                throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                       "MutableBlock::add_rows: row index {} is out of bounds "
+                                       "for source block with {} rows",
+                                       *p, src_rows);
             }
         }
+    }
+#endif
 
         for (size_t i = 0; i < _columns.size(); ++i) {
             const auto& src_col = column_offset ? block_data[(*column_offset)[i]] : block_data[i];
