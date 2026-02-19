@@ -19,7 +19,7 @@
 // Regex patterns are NOT lowercased (matching ES query_string behavior).
 // Wildcard patterns ARE lowercased (matching ES query_string normalizer behavior).
 
-suite("test_search_regexp_lowercase") {
+suite("test_search_regexp_lowercase", "p0") {
     def tableName = "search_regexp_lowercase_test"
 
     sql "DROP TABLE IF EXISTS ${tableName}"

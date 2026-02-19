@@ -2201,9 +2201,14 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithOccurBoolean) {
     EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>());
 }
 
-TEST_F(FunctionSearchTest, TestBuildDslSignatureBasic) {
+TEST_F(FunctionSearchTest, TestBuildDslSignatureDeterministic) {
     TSearchParam param;
     param.original_dsl = "title:hello";
+    param.root.clause_type = "TERM";
+    param.root.field_name = "title";
+    param.root.__isset.field_name = true;
+    param.root.value = "hello";
+    param.root.__isset.value = true;
 
     TSearchFieldBinding fb1;
     fb1.field_name = "title";
@@ -2212,54 +2217,77 @@ TEST_F(FunctionSearchTest, TestBuildDslSignatureBasic) {
     fb1.__isset.index_properties = true;
     param.field_bindings = {fb1};
 
-    auto sig = FunctionSearch::build_dsl_signature(param);
-    EXPECT_EQ(sig, "title:hello#title=100;");
+    auto sig1 = FunctionSearch::build_dsl_signature(param);
+    auto sig2 = FunctionSearch::build_dsl_signature(param);
+    // Same param must produce identical signature
+    EXPECT_EQ(sig1, sig2);
+    EXPECT_FALSE(sig1.empty());
 }
 
-TEST_F(FunctionSearchTest, TestBuildDslSignatureSortOrder) {
-    TSearchParam param;
-    param.original_dsl = "title:hello OR content:world";
-
-    TSearchFieldBinding fb_content;
-    fb_content.field_name = "content";
-    fb_content.slot_index = 1;
-    fb_content.index_properties = {{"index_id", "200"}};
-    fb_content.__isset.index_properties = true;
-
-    TSearchFieldBinding fb_title;
-    fb_title.field_name = "title";
-    fb_title.slot_index = 0;
-    fb_title.index_properties = {{"index_id", "100"}};
-    fb_title.__isset.index_properties = true;
-
-    // Insert in reverse order - should still produce canonical signature
-    param.field_bindings = {fb_content, fb_title};
-
-    auto sig = FunctionSearch::build_dsl_signature(param);
-    // Fields sorted alphabetically: content before title
-    EXPECT_EQ(sig, "title:hello OR content:world#content=200;title=100;");
-}
-
-TEST_F(FunctionSearchTest, TestBuildDslSignatureNoIndexId) {
-    TSearchParam param;
-    param.original_dsl = "test";
+TEST_F(FunctionSearchTest, TestBuildDslSignatureDifferentDsl) {
+    TSearchParam param1;
+    param1.original_dsl = "title:hello";
+    param1.root.clause_type = "TERM";
 
     TSearchFieldBinding fb;
-    fb.field_name = "field_a";
+    fb.field_name = "title";
     fb.slot_index = 0;
-    // No index_properties set
-    param.field_bindings = {fb};
+    param1.field_bindings = {fb};
 
-    auto sig = FunctionSearch::build_dsl_signature(param);
-    EXPECT_EQ(sig, "test#field_a=;");
+    TSearchParam param2 = param1;
+    param2.original_dsl = "title:world";
+
+    EXPECT_NE(FunctionSearch::build_dsl_signature(param1),
+              FunctionSearch::build_dsl_signature(param2));
+}
+
+TEST_F(FunctionSearchTest, TestBuildDslSignatureDifferentOperator) {
+    TSearchParam param_and;
+    param_and.original_dsl = "hello world";
+    param_and.root.clause_type = "TERM";
+
+    TSearchFieldBinding fb;
+    fb.field_name = "title";
+    fb.slot_index = 0;
+    param_and.field_bindings = {fb};
+    param_and.default_operator = "and";
+    param_and.__isset.default_operator = true;
+
+    TSearchParam param_or = param_and;
+    param_or.default_operator = "or";
+
+    // Different default_operator must produce different signatures
+    EXPECT_NE(FunctionSearch::build_dsl_signature(param_and),
+              FunctionSearch::build_dsl_signature(param_or));
+}
+
+TEST_F(FunctionSearchTest, TestBuildDslSignatureDifferentMinShouldMatch) {
+    TSearchParam param_msm0;
+    param_msm0.original_dsl = "apple banana cherry";
+    param_msm0.root.clause_type = "TERM";
+
+    TSearchFieldBinding fb;
+    fb.field_name = "title";
+    fb.slot_index = 0;
+    param_msm0.field_bindings = {fb};
+    // No minimum_should_match set
+
+    TSearchParam param_msm1 = param_msm0;
+    param_msm1.minimum_should_match = 1;
+    param_msm1.__isset.minimum_should_match = true;
+
+    // Different minimum_should_match must produce different signatures
+    EXPECT_NE(FunctionSearch::build_dsl_signature(param_msm0),
+              FunctionSearch::build_dsl_signature(param_msm1));
 }
 
 TEST_F(FunctionSearchTest, TestBuildDslSignatureEmpty) {
     TSearchParam param;
     param.original_dsl = "";
+    param.root.clause_type = "TERM";
 
     auto sig = FunctionSearch::build_dsl_signature(param);
-    EXPECT_EQ(sig, "#");
+    EXPECT_FALSE(sig.empty());
 }
 
 TEST_F(FunctionSearchTest, TestSearcherCacheHandlesLifetime) {

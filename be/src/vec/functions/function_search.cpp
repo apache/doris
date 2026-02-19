@@ -51,6 +51,7 @@
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_searcher.h"
 #include "util/string_util.h"
+#include "util/thrift_util.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type_string.h"
@@ -59,30 +60,17 @@
 namespace doris::vectorized {
 
 // Build canonical DSL signature for SearchFunctionQueryCache key.
-// Includes original DSL + sorted field bindings with index metadata.
+// Serializes the entire TSearchParam via Thrift binary protocol so that
+// every field (DSL, AST root, field bindings, default_operator,
+// minimum_should_match, etc.) is included automatically.
 std::string FunctionSearch::build_dsl_signature(const TSearchParam& param) {
-    std::string sig = param.original_dsl;
-    sig += '#';
-    // Sort field bindings by field_name for canonical ordering
-    std::vector<const TSearchFieldBinding*> sorted_bindings;
-    sorted_bindings.reserve(param.field_bindings.size());
-    for (const auto& fb : param.field_bindings) {
-        sorted_bindings.push_back(&fb);
-    }
-    std::sort(sorted_bindings.begin(), sorted_bindings.end(),
-              [](const TSearchFieldBinding* a, const TSearchFieldBinding* b) {
-                  return a->field_name < b->field_name;
-              });
-    for (const auto* fb : sorted_bindings) {
-        sig += fb->field_name;
-        sig += '=';
-        if (fb->__isset.index_properties) {
-            auto it = fb->index_properties.find("index_id");
-            if (it != fb->index_properties.end()) {
-                sig += it->second;
-            }
-        }
-        sig += ';';
+    ThriftSerializer ser(false, 1024);
+    auto mutable_param = const_cast<TSearchParam&>(param);
+    std::string sig;
+    auto st = ser.serialize(&mutable_param, &sig);
+    if (UNLIKELY(!st.ok())) {
+        // Fallback: use original_dsl so caching is at least partially functional
+        return param.original_dsl;
     }
     return sig;
 }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_search_exact_basic") {
+suite("test_search_exact_basic", "p0") {
     def tableName = "exact_basic_test"
 
     sql "DROP TABLE IF EXISTS ${tableName}"

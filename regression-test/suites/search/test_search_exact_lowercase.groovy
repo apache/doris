@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_search_exact_lowercase") {
+suite("test_search_exact_lowercase", "p0") {
     def tableName = "exact_lowercase_test"
 
     sql "DROP TABLE IF EXISTS ${tableName}"

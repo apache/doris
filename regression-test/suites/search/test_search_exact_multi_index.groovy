@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_search_exact_multi_index") {
+suite("test_search_exact_multi_index", "p0") {
     def tableName = "exact_multi_index_test"
 
     sql "DROP TABLE IF EXISTS ${tableName}"

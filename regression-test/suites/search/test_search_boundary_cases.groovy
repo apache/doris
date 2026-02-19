@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_search_boundary_cases") {
+suite("test_search_boundary_cases", "p0") {
     def tableName = "search_boundary_test"
 
     sql "DROP TABLE IF EXISTS ${tableName}"

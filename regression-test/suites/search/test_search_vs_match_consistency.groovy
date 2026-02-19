@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_search_vs_match_consistency") {
+suite("test_search_vs_match_consistency", "p0") {
     def tableName = "search_match_consistency_test"
 
     sql "DROP TABLE IF EXISTS ${tableName}"
