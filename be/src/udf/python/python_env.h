@@ -21,6 +21,7 @@
 #include <utility>
 
 #include "common/status.h"
+#include "gen_cpp/BackendService_types.h"
 
 namespace doris {
 
@@ -154,6 +155,11 @@ public:
     PythonEnvType env_type() const { return _env_scanner->env_type(); }
 
     std::string to_string() const { return _env_scanner->to_string(); }
+
+    std::vector<TPythonEnvInfo> env_infos_to_thrift() const;
+
+    std::vector<TPythonPackageInfo> package_infos_to_thrift(
+            const std::vector<std::pair<std::string, std::string>>& packages) const;
 
 private:
     std::unique_ptr<PythonEnvScanner> _env_scanner;

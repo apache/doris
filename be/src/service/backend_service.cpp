@@ -1313,44 +1313,18 @@ void BaseBackendService::test_storage_connectivity(TTestStorageConnectivityRespo
 }
 
 void BaseBackendService::get_python_envs(std::vector<TPythonEnvInfo>& result) {
-    auto& manager = PythonVersionManager::instance();
-    const auto& envs = manager.get_envs();
-
-    std::string env_type_str;
-    switch (manager.env_type()) {
-    case PythonEnvType::CONDA:
-        env_type_str = "conda";
-        break;
-    case PythonEnvType::VENV:
-        env_type_str = "venv";
-        break;
-    }
-
-    for (const auto& env : envs) {
-        TPythonEnvInfo info;
-        info.__set_env_name(env.env_name);
-        info.__set_full_version(env.python_version.full_version);
-        info.__set_env_type(env_type_str);
-        info.__set_base_path(env.python_version.base_path);
-        info.__set_executable_path(env.python_version.executable_path);
-        result.push_back(std::move(info));
-    }
+    result = PythonVersionManager::instance().env_infos_to_thrift();
 }
 
 void BaseBackendService::get_python_packages(std::vector<TPythonPackageInfo>& result,
                                              const std::string& python_version) {
     PythonVersion version;
-    THROW_IF_ERROR(PythonVersionManager::instance().get_version(python_version, &version));
+    auto& manager = PythonVersionManager::instance();
+    THROW_IF_ERROR(manager.get_version(python_version, &version));
 
     std::vector<std::pair<std::string, std::string>> packages;
     THROW_IF_ERROR(list_installed_packages(version, &packages));
-
-    for (const auto& [name, ver] : packages) {
-        TPythonPackageInfo info;
-        info.__set_package_name(name);
-        info.__set_version(ver);
-        result.push_back(std::move(info));
-    }
+    result = manager.package_infos_to_thrift(packages);
 }
 
 #include "common/compile_check_end.h"
