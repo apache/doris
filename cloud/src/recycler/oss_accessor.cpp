@@ -344,6 +344,11 @@ int OSSAccessor::convert_oss_error_code(const std::string& error_code) const {
     return -1; // Generic error
 }
 
+std::shared_ptr<AlibabaCloud::OSS::OssClient> OSSAccessor::get_client() const {
+    std::lock_guard<std::mutex> lock(client_mutex_);
+    return oss_client_;
+}
+
 int OSSAccessor::put_file(const std::string& path, const std::string& content) {
     SCOPED_BVAR_LATENCY(oss_bvar::oss_put_latency);
 
@@ -351,6 +356,8 @@ int OSSAccessor::put_file(const std::string& path, const std::string& content) {
     if (ret != 0) {
         return ret;
     }
+
+    auto client = get_client();
 
     std::string key = get_key(path);
 
@@ -360,7 +367,7 @@ int OSSAccessor::put_file(const std::string& path, const std::string& content) {
 
     AlibabaCloud::OSS::PutObjectRequest request(conf_.bucket, key, content_stream);
 
-    auto outcome = oss_client_->PutObject(request);
+    auto outcome = client->PutObject(request);
     if (!outcome.isSuccess()) {
         LOG(WARNING) << "OSS PutObject failed: " << outcome.error().Code() << " - "
                      << outcome.error().Message() << ", key: " << key;
@@ -379,9 +386,11 @@ int OSSAccessor::delete_file(const std::string& path) {
         return ret;
     }
 
+    auto client = get_client();
+
     std::string key = get_key(path);
 
-    auto outcome = oss_client_->DeleteObject(conf_.bucket, key);
+    auto outcome = client->DeleteObject(conf_.bucket, key);
     if (!outcome.isSuccess()) {
         // OSS DeleteObject returns success even if object doesn't exist
         // Only log real errors
@@ -409,6 +418,8 @@ int OSSAccessor::delete_files(const std::vector<std::string>& paths) {
         return ret;
     }
 
+    auto client = get_client();
+
     // OSS DeleteObjects supports batch delete (max 1000 keys per request)
     const size_t batch_size = 1000;
 
@@ -423,7 +434,7 @@ int OSSAccessor::delete_files(const std::vector<std::string>& paths) {
         AlibabaCloud::OSS::DeleteObjectsRequest request(conf_.bucket);
         request.setKeyList(keys);
 
-        auto outcome = oss_client_->DeleteObjects(request);
+        auto outcome = client->DeleteObjects(request);
         if (!outcome.isSuccess()) {
             LOG(WARNING) << "OSS DeleteObjects failed: " << outcome.error().Code() << " - "
                          << outcome.error().Message();
@@ -443,6 +454,8 @@ int OSSAccessor::delete_prefix(const std::string& path_prefix, int64_t expiratio
         return ret;
     }
 
+    auto client = get_client();
+
     std::string prefix = get_key(path_prefix);
 
     // List all objects with prefix and delete them in batches
@@ -461,7 +474,7 @@ int OSSAccessor::delete_prefix(const std::string& path_prefix, int64_t expiratio
             list_request.setMarker(marker);
         }
 
-        auto outcome = oss_client_->ListObjects(list_request);
+        auto outcome = client->ListObjects(list_request);
         if (!outcome.isSuccess()) {
             LOG(WARNING) << "OSS ListObjects failed: " << outcome.error().Code() << " - "
                          << outcome.error().Message();
@@ -489,7 +502,7 @@ int OSSAccessor::delete_prefix(const std::string& path_prefix, int64_t expiratio
                 AlibabaCloud::OSS::DeleteObjectsRequest delete_request(conf_.bucket);
                 delete_request.setKeyList(batch_keys);
 
-                auto delete_outcome = oss_client_->DeleteObjects(delete_request);
+                auto delete_outcome = client->DeleteObjects(delete_request);
                 if (!delete_outcome.isSuccess()) {
                     LOG(WARNING) << "OSS DeleteObjects failed: "
                                  << delete_outcome.error().Code() << " - "
@@ -514,7 +527,7 @@ int OSSAccessor::delete_prefix(const std::string& path_prefix, int64_t expiratio
         AlibabaCloud::OSS::DeleteObjectsRequest delete_request(conf_.bucket);
         delete_request.setKeyList(batch_keys);
 
-        auto delete_outcome = oss_client_->DeleteObjects(delete_request);
+        auto delete_outcome = client->DeleteObjects(delete_request);
         if (!delete_outcome.isSuccess()) {
             LOG(WARNING) << "OSS DeleteObjects failed: " << delete_outcome.error().Code()
                          << " - " << delete_outcome.error().Message();
@@ -555,9 +568,11 @@ int OSSAccessor::list_prefix(const std::string& path_prefix, std::unique_ptr<Lis
         return ret;
     }
 
+    auto client = get_client();
+
     std::string prefix = get_key(path_prefix);
 
-    *res = std::make_unique<OSSListIterator>(oss_client_, conf_.bucket, prefix,
+    *res = std::make_unique<OSSListIterator>(client, conf_.bucket, prefix,
                                               conf_.prefix.empty() ? 0
                                                                    : conf_.prefix.length() + 1);
     return 0;
@@ -571,10 +586,12 @@ int OSSAccessor::exists(const std::string& path) {
         return ret;
     }
 
+    auto client = get_client();
+
     std::string key = get_key(path);
 
     // Use DoesObjectExist for efficient check
-    bool exists = oss_client_->DoesObjectExist(conf_.bucket, key);
+    bool exists = client->DoesObjectExist(conf_.bucket, key);
 
     VLOG(2) << "OSS exists check: " << key << " -> " << (exists ? "found" : "not found");
 

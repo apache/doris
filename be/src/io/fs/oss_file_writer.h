@@ -35,11 +35,6 @@
 
 namespace doris::io {
 
-struct AsyncCloseStatusPack {
-    std::promise<Status> promise;
-    std::shared_future<Status> future;
-};
-
 class OSSFileWriter final : public FileWriter {
 public:
     OSSFileWriter(std::shared_ptr<OSSClientHolder> client, std::string bucket, std::string key,

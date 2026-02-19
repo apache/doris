@@ -253,19 +253,19 @@ Status OSSFileSystem::delete_directory_impl(const Path& dir) {
 
             for (const auto& upload : uploads) {
                 AlibabaCloud::OSS::AbortMultipartUploadRequest abort_request(
-                        _bucket, upload.Key(), upload.UploadId());
+                        _bucket, upload.Key, upload.UploadId);
                 auto abort_outcome = client->AbortMultipartUpload(abort_request);
 
                 if (!abort_outcome.isSuccess()) {
-                    LOG(WARNING) << "Failed to abort multipart upload: key=" << upload.Key()
-                                 << " upload_id=" << upload.UploadId() << " error="
+                    LOG(WARNING) << "Failed to abort multipart upload: key=" << upload.Key
+                                 << " upload_id=" << upload.UploadId << " error="
                                  << abort_outcome.error().Code() << " - "
                                  << abort_outcome.error().Message();
                     // Don't fail directory deletion if abort fails
                 } else {
                     aborted_count++;
-                    VLOG(1) << "Aborted multipart upload: key=" << upload.Key()
-                            << " upload_id=" << upload.UploadId();
+                    VLOG(1) << "Aborted multipart upload: key=" << upload.Key
+                            << " upload_id=" << upload.UploadId;
                 }
             }
 

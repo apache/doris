@@ -147,6 +147,9 @@ protected:
     // Convert OSS error to return code
     int convert_oss_error_code(const std::string& error_code) const;
 
+    // Get thread-safe copy of OSS client (for internal use by accessor methods)
+    std::shared_ptr<AlibabaCloud::OSS::OssClient> get_client() const;
+
     OSSConf conf_;
     std::shared_ptr<ECSMetadataCredentialsProvider> credentials_provider_;
     std::shared_ptr<AlibabaCloud::OSS::OssClient> oss_client_;

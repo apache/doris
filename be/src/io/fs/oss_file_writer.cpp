@@ -64,10 +64,8 @@ OSSFileWriter::OSSFileWriter(std::shared_ptr<OSSClientHolder> client, std::strin
 }
 
 OSSFileWriter::~OSSFileWriter() {
-    if (_countdown_event.count() > 0) {
-        LOG(WARNING) << "OSSFileWriter destroyed with pending async operations, waiting...";
-        _wait_until_finish("~OSSFileWriter");
-    }
+    // Wait for any pending async operations to complete
+    _wait_until_finish("~OSSFileWriter");
 
     // Abort multipart upload if not completed
     if (state() != State::CLOSED && !_upload_id.empty()) {
@@ -465,9 +463,8 @@ Status OSSFileWriter::close(bool non_block) {
 }
 
 Status OSSFileWriter::_close_impl() {
-    if (_countdown_event.count() > 0) {
-        _wait_until_finish("_close_impl");
-    }
+    // Wait for any pending async operations to complete
+    _wait_until_finish("_close_impl");
 
     if (_failed) {
         if (!_upload_id.empty()) {
