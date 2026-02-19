@@ -108,10 +108,27 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
                 "iterator for field '{}' is not InvertedIndexIterator", field_name);
     }
 
+    // For variant subcolumns, FE resolves the field pattern to a specific index and sends
+    // its index_properties via TSearchFieldBinding. When FE picks an analyzer-based index,
+    // upgrade EQUAL_QUERY to MATCH_ANY_QUERY so select_best_reader picks the FULLTEXT reader
+    // instead of STRING_TYPE. Without this, TERM clauses from lucene-mode DSL would open the
+    // wrong (untokenized) index directory and tokenized search terms would never match.
+    InvertedIndexQueryType effective_query_type = query_type;
+    auto fb_it = _field_binding_map.find(field_name);
+    if (is_variant_sub && fb_it != _field_binding_map.end() &&
+        fb_it->second->__isset.index_properties && !fb_it->second->index_properties.empty()) {
+        if (inverted_index::InvertedIndexAnalyzer::should_analyzer(
+                    fb_it->second->index_properties) &&
+            effective_query_type == InvertedIndexQueryType::EQUAL_QUERY) {
+            effective_query_type = InvertedIndexQueryType::MATCH_ANY_QUERY;
+        }
+    }
+
     Result<InvertedIndexReaderPtr> reader_result;
     const auto& column_type = data_it->second.second;
     if (column_type) {
-        reader_result = inverted_iterator->select_best_reader(column_type, query_type, "");
+        reader_result =
+                inverted_iterator->select_best_reader(column_type, effective_query_type, "");
     } else {
         reader_result = inverted_iterator->select_best_reader("");
     }
@@ -165,11 +182,11 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     resolved.stored_field_name = stored_field_name;
     resolved.stored_field_wstr = StringHelper::to_wstring(resolved.stored_field_name);
     resolved.column_type = column_type;
-    resolved.query_type = query_type;
+    resolved.query_type = effective_query_type;
     resolved.inverted_reader = inverted_reader;
     resolved.lucene_reader = reader_holder;
     // Prefer FE-provided index_properties (needed for variant subcolumn field_pattern matching)
-    auto fb_it = _field_binding_map.find(field_name);
+    // Reuse fb_it from earlier lookup above.
     if (fb_it != _field_binding_map.end() && fb_it->second->__isset.index_properties &&
         !fb_it->second->index_properties.empty()) {
         resolved.index_properties = fb_it->second->index_properties;
