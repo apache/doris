@@ -2221,6 +2221,55 @@ public class SearchDslParserTest {
             Assertions.assertEquals("attrs.color", child.getField());
             Assertions.assertTrue(child.isExplicitField());
         }
+    }
+
+    @Test
+    public void testFieldGroupQueryInnerExplicitFieldPreserved() {
+        // title:(content:foo OR bar) → content:foo stays pinned to "content", bar gets "title"
+        // Inner explicit field binding must NOT be overridden by outer group field
+        String dsl = "title:(content:foo OR bar)";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        QsNode root = plan.getRoot();
+        Assertions.assertEquals(QsClauseType.OR, root.getType());
+        Assertions.assertEquals(2, root.getChildren().size());
+
+        // First child: content:foo - should keep "content" (inner explicit binding)
+        QsNode fooNode = root.getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.TERM, fooNode.getType());
+        Assertions.assertEquals("content", fooNode.getField());
+        Assertions.assertEquals("foo", fooNode.getValue());
+        Assertions.assertTrue(fooNode.isExplicitField());
+
+        // Second child: bar - should get "title" (outer group field)
+        QsNode barNode = root.getChildren().get(1);
+        Assertions.assertEquals(QsClauseType.TERM, barNode.getType());
+        Assertions.assertEquals("title", barNode.getField());
+        Assertions.assertEquals("bar", barNode.getValue());
+        Assertions.assertTrue(barNode.isExplicitField());
+    }
+
+    @Test
+    public void testFieldGroupQueryNotOperatorInside() {
+        // title:(rock OR NOT jazz) → OR(title:rock, NOT(title:jazz))
+        String dsl = "title:(rock OR NOT jazz)";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        QsNode root = plan.getRoot();
+        Assertions.assertEquals(QsClauseType.OR, root.getType());
+        Assertions.assertEquals(2, root.getChildren().size());
+
+        QsNode rockNode = root.getChildren().get(0);
+        Assertions.assertEquals("title", rockNode.getField());
+        Assertions.assertEquals("rock", rockNode.getValue());
+        Assertions.assertTrue(rockNode.isExplicitField());
+
+        QsNode notNode = root.getChildren().get(1);
+        Assertions.assertEquals(QsClauseType.NOT, notNode.getType());
+    }
+
     // ============ Tests for MATCH_ALL_DOCS in multi-field mode ============
     @Test
     public void testMultiFieldMatchAllDocsBestFieldsLuceneMode() {

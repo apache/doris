@@ -62,6 +62,7 @@ import javax.annotation.Nullable;
 public class SearchDslParser {
     private static final Logger LOG = LogManager.getLogger(SearchDslParser.class);
     private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
+    private static final int MAX_FIELD_GROUP_DEPTH = 32;
 
     /**
      * Exception for search DSL syntax errors.
@@ -307,17 +308,34 @@ public class SearchDslParser {
     }
 
     /**
-     * Recursively mark all leaf nodes with the given field name and set explicitField=true.
-     * Used for field-grouped queries like title:(rock OR jazz) to ensure all inner leaf nodes
+     * Recursively mark leaf nodes with the given field name and set explicitField=true.
+     * Used for field-grouped queries like title:(rock OR jazz) to ensure inner leaf nodes
      * are bound to the group's field and are not re-expanded by MultiFieldExpander.
+     *
+     * Skips nodes already marked as explicitField to preserve inner explicit bindings,
+     * e.g., title:(content:foo OR bar) keeps content:foo intact and only sets title on bar.
+     *
+     * @param depth current recursion depth to prevent StackOverflow from malicious input
      */
     private static void markExplicitFieldRecursive(QsNode node, String field) {
+        markExplicitFieldRecursive(node, field, 0);
+    }
+
+    private static void markExplicitFieldRecursive(QsNode node, String field, int depth) {
         if (node == null) {
+            return;
+        }
+        if (depth > MAX_FIELD_GROUP_DEPTH) {
+            throw new SearchDslSyntaxException(
+                    "Field group query nesting too deep (max " + MAX_FIELD_GROUP_DEPTH + ")");
+        }
+        // Skip nodes already explicitly bound to a field (e.g., inner field:term inside a group)
+        if (node.isExplicitField()) {
             return;
         }
         if (node.getChildren() != null && !node.getChildren().isEmpty()) {
             for (QsNode child : node.getChildren()) {
-                markExplicitFieldRecursive(child, field);
+                markExplicitFieldRecursive(child, field, depth + 1);
             }
         } else {
             // Leaf node - set field and mark as explicit
@@ -776,7 +794,7 @@ public class SearchDslParser {
             if (ctx.fieldGroupQuery() != null) {
                 QsNode result = visit(ctx.fieldGroupQuery());
                 if (result == null) {
-                    throw new RuntimeException("Invalid field group query");
+                    throw new SearchDslSyntaxException("Invalid field group query");
                 }
                 return result;
             }
@@ -879,7 +897,7 @@ public class SearchDslParser {
         @Override
         public QsNode visitFieldGroupQuery(SearchParser.FieldGroupQueryContext ctx) {
             if (ctx.fieldPath() == null) {
-                throw new RuntimeException("Invalid field group query: missing field path");
+                throw new SearchDslSyntaxException("Invalid field group query: missing field path");
             }
 
             // Build complete field path from segments (support field.subcolumn syntax)
@@ -905,11 +923,11 @@ public class SearchDslParser {
 
             try {
                 if (ctx.clause() == null) {
-                    throw new RuntimeException("Invalid field group query: missing inner clause");
+                    throw new SearchDslSyntaxException("Invalid field group query: missing inner clause");
                 }
                 QsNode result = visit(ctx.clause());
                 if (result == null) {
-                    throw new RuntimeException("Invalid field group query: inner clause returned null");
+                    throw new SearchDslSyntaxException("Invalid field group query: inner clause returned null");
                 }
                 // Mark all leaf nodes as explicitly bound to this field.
                 // This prevents MultiFieldExpander from re-expanding them across other fields.
@@ -2404,7 +2422,7 @@ public class SearchDslParser {
         @Override
         public QsNode visitFieldGroupQuery(SearchParser.FieldGroupQueryContext ctx) {
             if (ctx.fieldPath() == null) {
-                throw new RuntimeException("Invalid field group query: missing field path");
+                throw new SearchDslSyntaxException("Invalid field group query: missing field path");
             }
 
             // Build complete field path from segments (support field.subcolumn syntax)
@@ -2431,11 +2449,11 @@ public class SearchDslParser {
 
             try {
                 if (ctx.clause() == null) {
-                    throw new RuntimeException("Invalid field group query: missing inner clause");
+                    throw new SearchDslSyntaxException("Invalid field group query: missing inner clause");
                 }
                 QsNode result = visit(ctx.clause());
                 if (result == null) {
-                    throw new RuntimeException("Invalid field group query: inner clause returned null");
+                    throw new SearchDslSyntaxException("Invalid field group query: inner clause returned null");
                 }
                 // Mark all leaf nodes as explicitly bound to this field.
                 // This prevents MultiFieldExpander from re-expanding them across other fields.
