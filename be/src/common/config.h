@@ -1273,6 +1273,9 @@ DECLARE_Int32(inverted_index_query_cache_shards);
 // inverted index match bitmap cache size
 DECLARE_String(inverted_index_query_cache_limit);
 
+// search() function DSL result cache size
+DECLARE_String(search_function_query_cache_limit);
+
 // condition cache limit
 DECLARE_Int16(condition_cache_limit);
 

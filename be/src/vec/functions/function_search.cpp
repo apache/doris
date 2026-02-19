@@ -49,6 +49,7 @@
 #include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
 #include "olap/rowset/segment_v2/inverted_index_iterator.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_searcher.h"
 #include "util/string_util.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/columns_with_type_and_name.h"
@@ -56,6 +57,58 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+
+// Build canonical DSL signature for SearchFunctionQueryCache key.
+// Includes original DSL + sorted field bindings with index metadata.
+static std::string build_dsl_signature(const TSearchParam& param) {
+    std::string sig = param.original_dsl;
+    sig += '#';
+    // Sort field bindings by field_name for canonical ordering
+    std::vector<const TSearchFieldBinding*> sorted_bindings;
+    sorted_bindings.reserve(param.field_bindings.size());
+    for (const auto& fb : param.field_bindings) {
+        sorted_bindings.push_back(&fb);
+    }
+    std::sort(sorted_bindings.begin(), sorted_bindings.end(),
+              [](const TSearchFieldBinding* a, const TSearchFieldBinding* b) {
+                  return a->field_name < b->field_name;
+              });
+    for (const auto* fb : sorted_bindings) {
+        sig += fb->field_name;
+        sig += '=';
+        if (fb->__isset.index_properties) {
+            auto it = fb->index_properties.find("index_id");
+            if (it != fb->index_properties.end()) {
+                sig += it->second;
+            }
+        }
+        sig += ';';
+    }
+    return sig;
+}
+
+// Extract segment path prefix from the first available inverted index iterator.
+// All fields in the same segment share the same path prefix.
+static std::string extract_segment_prefix(
+        const std::unordered_map<std::string, IndexIterator*>& iterators) {
+    for (const auto& [field_name, iter] : iterators) {
+        auto* inv_iter = dynamic_cast<InvertedIndexIterator*>(iter);
+        if (!inv_iter) continue;
+        // Try fulltext reader first, then string type
+        for (auto type :
+             {InvertedIndexReaderType::FULLTEXT, InvertedIndexReaderType::STRING_TYPE}) {
+            IndexReaderType reader_type = type;
+            auto reader = inv_iter->get_reader(reader_type);
+            if (!reader) continue;
+            auto inv_reader = std::dynamic_pointer_cast<InvertedIndexReader>(reader);
+            if (!inv_reader) continue;
+            auto file_reader = inv_reader->get_index_file_reader();
+            if (!file_reader) continue;
+            return file_reader->get_index_path_prefix();
+        }
+    }
+    return "";
+}
 
 Status FieldReaderResolver::resolve(const std::string& field_name,
                                     InvertedIndexQueryType query_type,
@@ -149,33 +202,58 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
                 "index file reader is null for field '{}'", field_name);
     }
 
-    RETURN_IF_ERROR(
-            index_file_reader->init(config::inverted_index_read_buffer_size, _context->io_ctx));
+    // Use InvertedIndexSearcherCache to avoid re-opening index files repeatedly
+    auto index_file_key =
+            index_file_reader->get_index_file_cache_key(&inverted_reader->get_index_meta());
+    InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_key);
+    InvertedIndexCacheHandle searcher_cache_handle;
+    bool cache_hit = InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
+                                                                    &searcher_cache_handle);
 
-    auto directory = DORIS_TRY(
-            index_file_reader->open(&inverted_reader->get_index_meta(), _context->io_ctx));
-
-    lucene::index::IndexReader* raw_reader = nullptr;
-    try {
-        raw_reader = lucene::index::IndexReader::open(
-                directory.get(), config::inverted_index_read_buffer_size, false);
-    } catch (const CLuceneError& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                "failed to open IndexReader for field '{}': {}", field_name, e.what());
+    std::shared_ptr<lucene::index::IndexReader> reader_holder;
+    if (cache_hit) {
+        auto searcher_variant = searcher_cache_handle.get_index_searcher();
+        auto* searcher_ptr = std::get_if<FulltextIndexSearcherPtr>(&searcher_variant);
+        if (searcher_ptr != nullptr && *searcher_ptr != nullptr) {
+            reader_holder = std::shared_ptr<lucene::index::IndexReader>(
+                    (*searcher_ptr)->getReader(),
+                    [](lucene::index::IndexReader*) { /* lifetime managed by searcher cache */ });
+        }
     }
 
-    if (raw_reader == nullptr) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                "IndexReader is null for field '{}'", field_name);
+    if (!reader_holder) {
+        // Cache miss: open directory, build IndexSearcher, insert into cache
+        RETURN_IF_ERROR(
+                index_file_reader->init(config::inverted_index_read_buffer_size, _context->io_ctx));
+        auto directory = DORIS_TRY(
+                index_file_reader->open(&inverted_reader->get_index_meta(), _context->io_ctx));
+
+        auto index_searcher_builder = DORIS_TRY(
+                IndexSearcherBuilder::create_index_searcher_builder(inverted_reader->type()));
+        auto searcher_result =
+                DORIS_TRY(index_searcher_builder->get_index_searcher(directory.get()));
+        auto reader_size = index_searcher_builder->get_reader_size();
+
+        auto* cache_value = new InvertedIndexSearcherCache::CacheValue(std::move(searcher_result),
+                                                                       reader_size, UnixMillis());
+        InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value,
+                                                       &searcher_cache_handle);
+
+        auto new_variant = searcher_cache_handle.get_index_searcher();
+        auto* new_ptr = std::get_if<FulltextIndexSearcherPtr>(&new_variant);
+        if (new_ptr != nullptr && *new_ptr != nullptr) {
+            reader_holder = std::shared_ptr<lucene::index::IndexReader>(
+                    (*new_ptr)->getReader(),
+                    [](lucene::index::IndexReader*) { /* lifetime managed by searcher cache */ });
+        }
+
+        if (!reader_holder) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "failed to build IndexSearcher for field '{}'", field_name);
+        }
     }
 
-    auto reader_holder = std::shared_ptr<lucene::index::IndexReader>(
-            raw_reader, [](lucene::index::IndexReader* reader) {
-                if (reader != nullptr) {
-                    reader->close();
-                    _CLDELETE(reader);
-                }
-            });
+    _searcher_cache_handles.push_back(std::move(searcher_cache_handle));
 
     FieldReaderBinding resolved;
     resolved.logical_field_name = field_name;
@@ -233,6 +311,20 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         bitmap_result = InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(),
                                                   std::make_shared<roaring::Roaring>());
         return Status::OK();
+    }
+
+    // DSL result cache: try to return cached bitmap for this (segment, DSL) pair
+    auto* dsl_cache = SearchFunctionQueryCache::instance();
+    std::string seg_prefix = extract_segment_prefix(iterators);
+    std::string dsl_sig = build_dsl_signature(search_param);
+    SearchFunctionQueryCache::CacheKey dsl_cache_key {seg_prefix, dsl_sig};
+    InvertedIndexQueryCacheHandle dsl_cache_handle;
+    if (dsl_cache && !seg_prefix.empty() && dsl_cache->lookup(dsl_cache_key, &dsl_cache_handle)) {
+        auto* cv = static_cast<SearchFunctionQueryCache::CacheValue*>(dsl_cache_handle.get_value());
+        if (cv != nullptr) {
+            bitmap_result = InvertedIndexResultBitmap(cv->result_bitmap, cv->null_bitmap);
+            return Status::OK();
+        }
     }
 
     auto context = std::make_shared<IndexQueryContext>();
@@ -351,6 +443,13 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
 
     VLOG_TRACE << "search: After mask - result_bitmap="
                << bitmap_result.get_data_bitmap()->cardinality();
+
+    // Insert result into DSL cache for future reuse
+    if (dsl_cache && !seg_prefix.empty()) {
+        InvertedIndexQueryCacheHandle insert_handle;
+        dsl_cache->insert(dsl_cache_key, bitmap_result.get_data_bitmap(),
+                          bitmap_result.get_null_bitmap(), &insert_handle);
+    }
 
     return Status::OK();
 }

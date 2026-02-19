@@ -69,6 +69,7 @@ class PackedFileManager;
 namespace segment_v2 {
 class InvertedIndexSearcherCache;
 class InvertedIndexQueryCache;
+class SearchFunctionQueryCache;
 class ConditionCache;
 class TmpFileDirs;
 class EncodingInfoResolver;
@@ -386,6 +387,9 @@ public:
     segment_v2::InvertedIndexQueryCache* get_inverted_index_query_cache() {
         return _inverted_index_query_cache;
     }
+    segment_v2::SearchFunctionQueryCache* get_search_function_query_cache() {
+        return _search_function_query_cache;
+    }
     segment_v2::ConditionCache* get_condition_cache() { return _condition_cache; }
     segment_v2::EncodingInfoResolver* get_encoding_info_resolver() {
         return _encoding_info_resolver;
@@ -545,6 +549,7 @@ private:
     HeapProfiler* _heap_profiler = nullptr;
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
+    segment_v2::SearchFunctionQueryCache* _search_function_query_cache = nullptr;
     segment_v2::ConditionCache* _condition_cache = nullptr;
     segment_v2::EncodingInfoResolver* _encoding_info_resolver = nullptr;
     QueryCache* _query_cache = nullptr;

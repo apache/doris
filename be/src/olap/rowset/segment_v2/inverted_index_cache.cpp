@@ -141,4 +141,35 @@ void InvertedIndexQueryCache::insert(const CacheKey& key, std::shared_ptr<roarin
     *handle = InvertedIndexQueryCacheHandle(this, lru_handle);
 }
 
+bool SearchFunctionQueryCache::lookup(const CacheKey& key, InvertedIndexQueryCacheHandle* handle) {
+    auto encoded = key.encode();
+    if (encoded.empty()) {
+        return false;
+    }
+    auto* lru_handle = LRUCachePolicy::lookup(encoded);
+    if (lru_handle == nullptr) {
+        return false;
+    }
+    *handle = InvertedIndexQueryCacheHandle(this, lru_handle);
+    return true;
+}
+
+void SearchFunctionQueryCache::insert(const CacheKey& key,
+                                      std::shared_ptr<roaring::Roaring> result_bitmap,
+                                      std::shared_ptr<roaring::Roaring> null_bitmap,
+                                      InvertedIndexQueryCacheHandle* handle) {
+    auto encoded = key.encode();
+    if (encoded.empty()) {
+        return;
+    }
+    auto cache_value = std::make_unique<SearchFunctionQueryCache::CacheValue>();
+    cache_value->result_bitmap = std::move(result_bitmap);
+    cache_value->null_bitmap = std::move(null_bitmap);
+    size_t mem_size = cache_value->result_bitmap->getSizeInBytes() +
+                      cache_value->null_bitmap->getSizeInBytes();
+    auto* lru_handle = LRUCachePolicy::insert(encoded, cache_value.release(), mem_size, mem_size,
+                                              CachePriority::NORMAL);
+    *handle = InvertedIndexQueryCacheHandle(this, lru_handle);
+}
+
 } // namespace doris::segment_v2

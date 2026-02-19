@@ -28,6 +28,7 @@
 #include "gen_cpp/Exprs_types.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/operator_boolean_query.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -121,6 +122,9 @@ private:
     std::vector<std::shared_ptr<lucene::index::IndexReader>> _readers;
     std::unordered_map<std::string, std::shared_ptr<lucene::index::IndexReader>> _binding_readers;
     std::unordered_map<std::wstring, std::shared_ptr<lucene::index::IndexReader>> _field_readers;
+    // Keep searcher cache handles alive for the resolver's lifetime.
+    // This pins cached IndexSearcher entries so extracted IndexReaders remain valid.
+    std::vector<segment_v2::InvertedIndexCacheHandle> _searcher_cache_handles;
 };
 
 class FunctionSearch : public IFunction {

@@ -810,6 +810,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_FALLBACK_ON_MISSING_INVERTED_INDEX = "enable_fallback_on_missing_inverted_index";
     public static final String ENABLE_INVERTED_INDEX_SEARCHER_CACHE = "enable_inverted_index_searcher_cache";
     public static final String ENABLE_INVERTED_INDEX_QUERY_CACHE = "enable_inverted_index_query_cache";
+    public static final String ENABLE_SEARCH_FUNCTION_QUERY_CACHE = "enable_search_function_query_cache";
 
     public static final String IN_LIST_VALUE_COUNT_THRESHOLD = "in_list_value_count_threshold";
 
@@ -3185,6 +3186,12 @@ public class SessionVariable implements Serializable, Writable {
     })
     public boolean enableInvertedIndexQueryCache = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_SEARCH_FUNCTION_QUERY_CACHE, description = {
+        "开启后会缓存 search() 函数 DSL 查询结果",
+        "Enabling this will cache the results of search() function DSL queries."
+    })
+    public boolean enableSearchFunctionQueryCache = true;
+
     @VariableMgr.VarAttr(name = IN_LIST_VALUE_COUNT_THRESHOLD, description = {
         "in 条件 value 数量大于这个 threshold 后将不会走 fast_execute",
         "When the number of values in the IN condition exceeds this threshold,"
@@ -5239,6 +5246,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableFallbackOnMissingInvertedIndex(enableFallbackOnMissingInvertedIndex);
         tResult.setEnableInvertedIndexSearcherCache(enableInvertedIndexSearcherCache);
         tResult.setEnableInvertedIndexQueryCache(enableInvertedIndexQueryCache);
+        tResult.setEnableSearchFunctionQueryCache(enableSearchFunctionQueryCache);
         tResult.setHiveOrcUseColumnNames(hiveOrcUseColumnNames);
         tResult.setHiveParquetUseColumnNames(hiveParquetUseColumnNames);
         tResult.setQuerySlotCount(wgQuerySlotCount);

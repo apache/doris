@@ -66,6 +66,7 @@ public:
     void debug_file_entries();
     std::string get_index_file_cache_key(const TabletIndex* index_meta) const;
     std::string get_index_file_path(const TabletIndex* index_meta) const;
+    const std::string& get_index_path_prefix() const { return _index_path_prefix; }
     Status index_file_exist(const TabletIndex* index_meta, bool* res) const;
     Status has_null(const TabletIndex* index_meta, bool* res) const;
     Result<InvertedIndexDirectoryMap> get_all_directories();

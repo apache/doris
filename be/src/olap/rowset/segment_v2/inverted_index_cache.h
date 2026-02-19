@@ -274,12 +274,63 @@ public:
         return ((InvertedIndexQueryCache::CacheValue*)_cache->value(_handle))->bitmap;
     }
 
+    void* get_value() const {
+        if (!_cache || !_handle) {
+            return nullptr;
+        }
+        return _cache->value(_handle);
+    }
+
 private:
     LRUCachePolicy* _cache = nullptr;
     Cache::Handle* _handle = nullptr;
 
     // Don't allow copy and assign
     DISALLOW_COPY_AND_ASSIGN(InvertedIndexQueryCacheHandle);
+};
+
+// Cache for search() function DSL query results per segment.
+// Caches the final roaring::Roaring bitmap so repeated identical DSL queries
+// against the same segment skip Lucene execution entirely.
+class SearchFunctionQueryCache : public LRUCachePolicy {
+public:
+    using LRUCachePolicy::insert;
+
+    struct CacheKey {
+        std::string segment_prefix; // index_path_prefix, identifies the segment
+        std::string dsl_signature;  // encode(original_dsl, field_bindings)
+
+        std::string encode() const { return segment_prefix + "#" + dsl_signature; }
+    };
+
+    class CacheValue : public LRUCacheValueBase {
+    public:
+        std::shared_ptr<roaring::Roaring> result_bitmap;
+        std::shared_ptr<roaring::Roaring> null_bitmap;
+    };
+
+    static SearchFunctionQueryCache* create_global_cache(size_t capacity,
+                                                         uint32_t num_shards = 16) {
+        return new SearchFunctionQueryCache(capacity, num_shards);
+    }
+
+    static SearchFunctionQueryCache* instance() {
+        return ExecEnv::GetInstance()->get_search_function_query_cache();
+    }
+
+    SearchFunctionQueryCache() = delete;
+
+    SearchFunctionQueryCache(size_t capacity, uint32_t num_shards)
+            : LRUCachePolicy(CachePolicy::CacheType::SEARCH_FUNCTION_QUERY_CACHE, capacity,
+                             LRUCacheType::SIZE, config::inverted_index_cache_stale_sweep_time_sec,
+                             num_shards, /*element_count_capacity*/ 0, /*enable_prune*/ true,
+                             /*is_lru_k*/ true) {}
+
+    bool lookup(const CacheKey& key, InvertedIndexQueryCacheHandle* handle);
+
+    void insert(const CacheKey& key, std::shared_ptr<roaring::Roaring> result_bitmap,
+                std::shared_ptr<roaring::Roaring> null_bitmap,
+                InvertedIndexQueryCacheHandle* handle);
 };
 
 } // namespace segment_v2
