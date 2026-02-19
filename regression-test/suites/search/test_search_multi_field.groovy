@@ -294,6 +294,36 @@ suite("test_search_multi_field") {
         ORDER BY id
     """
 
+    // ============ Test 23: MATCH_ALL_DOCS (*) with best_fields + lucene mode ============
+    // Regression test for DORIS-24536: search('*', ...) with multi-field should not error
+    // "*" is a match-all query that should return all rows
+    qt_multi_field_match_all_best_fields """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*)
+        FROM ${tableName}
+        WHERE search('*', '{"fields":["title","content"],"type":"best_fields","default_operator":"AND","mode":"lucene","minimum_should_match":0}')
+    """
+
+    // ============ Test 24: MATCH_ALL_DOCS (*) with cross_fields + lucene mode ============
+    qt_multi_field_match_all_cross_fields """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*)
+        FROM ${tableName}
+        WHERE search('*', '{"fields":["title","content"],"type":"cross_fields","default_operator":"AND","mode":"lucene","minimum_should_match":0}')
+    """
+
+    // ============ Test 25: MATCH_ALL_DOCS (*) with single default_field + lucene mode ============
+    qt_match_all_single_field """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*)
+        FROM ${tableName}
+        WHERE search('*', '{"default_field":"title","default_operator":"AND","mode":"lucene","minimum_should_match":0}')
+    """
+
+    // ============ Test 26: MATCH_ALL_DOCS (*) with best_fields standard mode (no lucene) ============
+    qt_multi_field_match_all_standard """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*)
+        FROM ${tableName}
+        WHERE search('*', '{"fields":["title","content"],"type":"best_fields","default_operator":"AND"}')
+    """
+
     // Cleanup
     sql "DROP TABLE IF EXISTS ${tableName}"
 }

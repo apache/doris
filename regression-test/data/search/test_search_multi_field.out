@@ -122,3 +122,15 @@
 1	machine learning basics
 9	machine guide
 
+-- !multi_field_match_all_best_fields --
+9
+
+-- !multi_field_match_all_cross_fields --
+9
+
+-- !match_all_single_field --
+9
+
+-- !multi_field_match_all_standard --
+9
+
