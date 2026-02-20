@@ -1848,6 +1848,7 @@ public class SearchDslParser {
                     throw new IllegalArgumentException(
                             "'mode' must be 'standard' or 'lucene', got: " + mode);
                 }
+                this.mode = normalizedMode;
             }
             // Validation: fields and default_field are mutually exclusive
             if (fields != null && !fields.isEmpty()
