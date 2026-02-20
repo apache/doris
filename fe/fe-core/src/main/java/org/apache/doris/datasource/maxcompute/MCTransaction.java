@@ -26,6 +26,8 @@ import org.apache.doris.transaction.Transaction;
 
 import com.aliyun.odps.PartitionSpec;
 import com.aliyun.odps.table.TableIdentifier;
+import com.aliyun.odps.table.configuration.ArrowOptions;
+import com.aliyun.odps.table.configuration.ArrowOptions.TimestampUnit;
 import com.aliyun.odps.table.configuration.DynamicPartitionOptions;
 import com.aliyun.odps.table.write.TableBatchWriteSession;
 import com.aliyun.odps.table.write.TableWriteSessionBuilder;
@@ -68,8 +70,7 @@ public class MCTransaction implements Transaction {
         this.table = (MaxComputeExternalTable) dorisTable;
 
         try {
-            TableIdentifier tableId = TableIdentifier.of(
-                    catalog.getDefaultProject(), table.getName());
+            TableIdentifier tableId = catalog.getOdpsTableIdentifier(table.getDbName(), table.getName());
 
             boolean isDynamicPartition = !table.getPartitionColumns().isEmpty();
             boolean isStaticPartition = false;
@@ -88,7 +89,11 @@ public class MCTransaction implements Transaction {
 
             TableWriteSessionBuilder builder = new TableWriteSessionBuilder()
                     .identifier(tableId)
-                    .withSettings(catalog.getSettings());
+                    .withSettings(catalog.getSettings())
+                    .withArrowOptions(ArrowOptions.newBuilder()
+                            .withDatetimeUnit(TimestampUnit.MILLI)
+                            .withTimestampUnit(TimestampUnit.MILLI)
+                            .build());
 
             if (isStaticPartition) {
                 builder.partition(new PartitionSpec(staticPartitionSpecStr));
@@ -131,8 +136,7 @@ public class MCTransaction implements Transaction {
             long t1 = System.currentTimeMillis();
 
             // Restore session and commit all messages
-            TableIdentifier tableId = TableIdentifier.of(
-                    catalog.getDefaultProject(), table.getName());
+            TableIdentifier tableId = catalog.getOdpsTableIdentifier(table.getDbName(), table.getName());
             TableBatchWriteSession commitSession = new TableWriteSessionBuilder()
                     .identifier(tableId)
                     .withSessionId(writeSessionId)

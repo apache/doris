@@ -24,6 +24,8 @@ import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsType;
 import com.aliyun.odps.account.Account;
 import com.aliyun.odps.account.AliyunAccount;
+import com.aliyun.odps.table.configuration.ArrowOptions;
+import com.aliyun.odps.table.configuration.ArrowOptions.TimestampUnit;
 import com.aliyun.odps.table.configuration.RestOptions;
 import com.aliyun.odps.table.configuration.WriterOptions;
 import com.aliyun.odps.table.enviroment.Credentials;
@@ -37,10 +39,13 @@ import com.aliyun.odps.type.TypeInfo;
 import com.google.common.base.Strings;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.BaseFixedWidthVector;
+import org.apache.arrow.vector.BaseVariableWidthVector;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.BitVector;
 import org.apache.arrow.vector.DateDayVector;
 import org.apache.arrow.vector.DecimalVector;
+import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.Float4Vector;
 import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.IntVector;
@@ -50,6 +55,9 @@ import org.apache.arrow.vector.TinyIntVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.complex.ListVector;
+import org.apache.arrow.vector.complex.MapVector;
+import org.apache.arrow.vector.complex.StructVector;
 import org.apache.log4j.Logger;
 
 import java.io.ByteArrayOutputStream;
@@ -157,6 +165,17 @@ public class MaxComputeJniWriter extends JniWriter {
                     .withSessionId(writeSessionId)
                     .withSettings(settings)
                     .buildBatchWriteSession();
+
+            // SDK skips ArrowOptions when restoring session via withSessionId,
+            // set it via reflection to avoid NPE in ArrowWriterImpl
+            ArrowOptions arrowOptions = ArrowOptions.newBuilder()
+                    .withDatetimeUnit(TimestampUnit.MILLI)
+                    .withTimestampUnit(TimestampUnit.MILLI)
+                    .build();
+            java.lang.reflect.Field arrowField = writeSession.getClass()
+                    .getSuperclass().getDeclaredField("arrowOptions");
+            arrowField.setAccessible(true);
+            arrowField.set(writeSession, arrowOptions);
 
             // Get schema info for type mapping
             com.aliyun.odps.table.DataSchema dataSchema = writeSession.requiredSchema();
@@ -398,6 +417,76 @@ public class MaxComputeJniWriter extends JniWriter {
                 vec.setValueCount(numRows);
                 break;
             }
+            case ARRAY: {
+                ListVector listVec = (ListVector) root.getVector(colIdx);
+                listVec.allocateNew();
+                FieldVector dataVec = listVec.getDataVector();
+                int elemIdx = 0;
+                for (int i = 0; i < numRows; i++) {
+                    if (colData[i] == null) {
+                        listVec.setNull(i);
+                    } else {
+                        List<?> list = (List<?>) colData[i];
+                        listVec.startNewValue(i);
+                        for (Object elem : list) {
+                            writeListElement(dataVec, elemIdx++, elem);
+                        }
+                        listVec.endValue(i, list.size());
+                    }
+                }
+                listVec.setValueCount(numRows);
+                dataVec.setValueCount(elemIdx);
+                break;
+            }
+            case MAP: {
+                MapVector mapVec = (MapVector) root.getVector(colIdx);
+                mapVec.allocateNew();
+                StructVector structVec = (StructVector) mapVec.getDataVector();
+                FieldVector keyVec = structVec.getChildrenFromFields().get(0);
+                FieldVector valVec = structVec.getChildrenFromFields().get(1);
+                int elemIdx = 0;
+                for (int i = 0; i < numRows; i++) {
+                    if (colData[i] == null) {
+                        mapVec.setNull(i);
+                    } else {
+                        Map<?, ?> map = (Map<?, ?>) colData[i];
+                        mapVec.startNewValue(i);
+                        for (Map.Entry<?, ?> entry : map.entrySet()) {
+                            structVec.setIndexDefined(elemIdx);
+                            writeListElement(keyVec, elemIdx, entry.getKey());
+                            writeListElement(valVec, elemIdx, entry.getValue());
+                            elemIdx++;
+                        }
+                        mapVec.endValue(i, map.size());
+                    }
+                }
+                mapVec.setValueCount(numRows);
+                structVec.setValueCount(elemIdx);
+                keyVec.setValueCount(elemIdx);
+                valVec.setValueCount(elemIdx);
+                break;
+            }
+            case STRUCT: {
+                StructVector structVec = (StructVector) root.getVector(colIdx);
+                structVec.allocateNew();
+                for (int i = 0; i < numRows; i++) {
+                    if (colData[i] == null) {
+                        structVec.setNull(i);
+                    } else {
+                        structVec.setIndexDefined(i);
+                        Map<?, ?> struct = (Map<?, ?>) colData[i];
+                        for (FieldVector childVec : structVec.getChildrenFromFields()) {
+                            Object val = struct.get(childVec.getName());
+                            writeListElement(childVec, i, val);
+                        }
+                    }
+                }
+                structVec.setValueCount(numRows);
+                for (FieldVector childVec : structVec.getChildrenFromFields()) {
+                    childVec.setValueCount(numRows);
+                }
+                break;
+            }
             default: {
                 // Fallback: write as VarChar
                 VarCharVector vec = (VarCharVector) root.getVector(colIdx);
@@ -412,6 +501,84 @@ public class MaxComputeJniWriter extends JniWriter {
                 vec.setValueCount(numRows);
                 break;
             }
+        }
+    }
+
+    private void writeListElement(FieldVector vec, int idx, Object elem) {
+        if (elem == null) {
+            if (vec instanceof BaseFixedWidthVector) {
+                ((BaseFixedWidthVector) vec).setNull(idx);
+            } else if (vec instanceof BaseVariableWidthVector) {
+                ((BaseVariableWidthVector) vec).setNull(idx);
+            } else if (vec instanceof StructVector) {
+                ((StructVector) vec).setNull(idx);
+            } else if (vec instanceof MapVector) {
+                ((MapVector) vec).setNull(idx);
+            } else if (vec instanceof ListVector) {
+                ((ListVector) vec).setNull(idx);
+            }
+            return;
+        }
+        if (vec instanceof VarCharVector) {
+            byte[] bytes = elem instanceof byte[] ? (byte[]) elem
+                    : elem.toString().getBytes(StandardCharsets.UTF_8);
+            ((VarCharVector) vec).setSafe(idx, bytes);
+        } else if (vec instanceof IntVector) {
+            ((IntVector) vec).setSafe(idx, ((Number) elem).intValue());
+        } else if (vec instanceof BigIntVector) {
+            ((BigIntVector) vec).setSafe(idx, ((Number) elem).longValue());
+        } else if (vec instanceof Float8Vector) {
+            ((Float8Vector) vec).setSafe(idx, ((Number) elem).doubleValue());
+        } else if (vec instanceof Float4Vector) {
+            ((Float4Vector) vec).setSafe(idx, ((Number) elem).floatValue());
+        } else if (vec instanceof SmallIntVector) {
+            ((SmallIntVector) vec).setSafe(idx, ((Number) elem).shortValue());
+        } else if (vec instanceof TinyIntVector) {
+            ((TinyIntVector) vec).setSafe(idx, ((Number) elem).byteValue());
+        } else if (vec instanceof BitVector) {
+            ((BitVector) vec).setSafe(idx, (Boolean) elem ? 1 : 0);
+        } else if (vec instanceof DecimalVector) {
+            BigDecimal bd = elem instanceof BigDecimal ? (BigDecimal) elem
+                    : new BigDecimal(elem.toString());
+            ((DecimalVector) vec).setSafe(idx, bd);
+        } else if (vec instanceof StructVector) {
+            StructVector structVec = (StructVector) vec;
+            structVec.setIndexDefined(idx);
+            Map<?, ?> struct = (Map<?, ?>) elem;
+            for (FieldVector childVec : structVec.getChildrenFromFields()) {
+                writeListElement(childVec, idx, struct.get(childVec.getName()));
+            }
+        } else if (vec instanceof MapVector) {
+            MapVector mapVec = (MapVector) vec;
+            StructVector entryVec = (StructVector) mapVec.getDataVector();
+            FieldVector keyVec = entryVec.getChildrenFromFields().get(0);
+            FieldVector valVec = entryVec.getChildrenFromFields().get(1);
+            Map<?, ?> map = (Map<?, ?>) elem;
+            int offset = mapVec.startNewValue(idx);
+            int j = 0;
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                entryVec.setIndexDefined(offset + j);
+                writeListElement(keyVec, offset + j, entry.getKey());
+                writeListElement(valVec, offset + j, entry.getValue());
+                j++;
+            }
+            mapVec.endValue(idx, map.size());
+            entryVec.setValueCount(offset + j);
+            keyVec.setValueCount(offset + j);
+            valVec.setValueCount(offset + j);
+        } else if (vec instanceof ListVector) {
+            ListVector listVec = (ListVector) vec;
+            FieldVector dataVec = listVec.getDataVector();
+            List<?> list = (List<?>) elem;
+            int offset = listVec.startNewValue(idx);
+            for (int j = 0; j < list.size(); j++) {
+                writeListElement(dataVec, offset + j, list.get(j));
+            }
+            listVec.endValue(idx, list.size());
+            dataVec.setValueCount(offset + list.size());
+        } else {
+            byte[] bytes = elem.toString().getBytes(StandardCharsets.UTF_8);
+            ((VarCharVector) vec).setSafe(idx, bytes);
         }
     }
 
