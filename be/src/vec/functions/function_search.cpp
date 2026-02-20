@@ -65,11 +65,15 @@ namespace doris::vectorized {
 // minimum_should_match, etc.) is included automatically.
 std::string FunctionSearch::build_dsl_signature(const TSearchParam& param) {
     ThriftSerializer ser(false, 1024);
-    auto mutable_param = const_cast<TSearchParam&>(param);
+    TSearchParam copy = param;
     std::string sig;
-    auto st = ser.serialize(&mutable_param, &sig);
+    auto st = ser.serialize(&copy, &sig);
     if (UNLIKELY(!st.ok())) {
-        // Fallback: use original_dsl so caching is at least partially functional
+        // Fallback: use original_dsl so caching is at least partially functional.
+        // This is a degraded signature — it omits field_bindings, default_operator, etc.,
+        // which may cause cache collisions between different queries sharing the same DSL.
+        LOG(WARNING) << "build_dsl_signature: Thrift serialization failed: " << st.to_string()
+                     << ", falling back to original_dsl: " << param.original_dsl;
         return param.original_dsl;
     }
     return sig;
@@ -95,6 +99,8 @@ static std::string extract_segment_prefix(
             return file_reader->get_index_path_prefix();
         }
     }
+    VLOG_DEBUG << "extract_segment_prefix: no suitable inverted index reader found across "
+               << iterators.size() << " iterators, caching disabled for this query";
     return "";
 }
 
@@ -292,7 +298,7 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         const std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>&
                 data_type_with_names,
         std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
-        InvertedIndexResultBitmap& bitmap_result) const {
+        InvertedIndexResultBitmap& bitmap_result, bool enable_cache) const {
     if (iterators.empty() || data_type_with_names.empty()) {
         LOG(INFO) << "No indexed columns or iterators available, returning empty result, dsl:"
                   << search_param.original_dsl;
@@ -302,16 +308,26 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     }
 
     // DSL result cache: try to return cached bitmap for this (segment, DSL) pair
-    auto* dsl_cache = SearchFunctionQueryCache::instance();
-    std::string seg_prefix = extract_segment_prefix(iterators);
-    std::string dsl_sig = build_dsl_signature(search_param);
-    SearchFunctionQueryCache::CacheKey dsl_cache_key {seg_prefix, dsl_sig};
-    InvertedIndexQueryCacheHandle dsl_cache_handle;
-    if (dsl_cache && !seg_prefix.empty() && dsl_cache->lookup(dsl_cache_key, &dsl_cache_handle)) {
-        auto* cv = static_cast<SearchFunctionQueryCache::CacheValue*>(dsl_cache_handle.get_value());
-        if (cv != nullptr) {
-            bitmap_result = InvertedIndexResultBitmap(cv->result_bitmap, cv->null_bitmap);
-            return Status::OK();
+    auto* dsl_cache = enable_cache ? SearchFunctionQueryCache::instance() : nullptr;
+    std::string seg_prefix;
+    std::string dsl_sig;
+    SearchFunctionQueryCache::CacheKey dsl_cache_key;
+    if (dsl_cache) {
+        seg_prefix = extract_segment_prefix(iterators);
+        dsl_sig = build_dsl_signature(search_param);
+        dsl_cache_key = SearchFunctionQueryCache::CacheKey {seg_prefix, dsl_sig};
+        InvertedIndexQueryCacheHandle dsl_cache_handle;
+        if (!seg_prefix.empty() && dsl_cache->lookup(dsl_cache_key, &dsl_cache_handle)) {
+            auto* cv = dsl_cache_handle.get_value<SearchFunctionQueryCache::CacheValue>();
+            if (cv != nullptr && cv->result_bitmap != nullptr) {
+                // Deep-copy bitmaps so callers (e.g. mask_out_null) cannot mutate
+                // the cached entry in place.
+                bitmap_result = InvertedIndexResultBitmap(
+                        std::make_shared<roaring::Roaring>(*cv->result_bitmap),
+                        cv->null_bitmap ? std::make_shared<roaring::Roaring>(*cv->null_bitmap)
+                                        : nullptr);
+                return Status::OK();
+            }
         }
     }
 
@@ -435,8 +451,12 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     // Insert result into DSL cache for future reuse
     if (dsl_cache && !seg_prefix.empty()) {
         InvertedIndexQueryCacheHandle insert_handle;
-        dsl_cache->insert(dsl_cache_key, bitmap_result.get_data_bitmap(),
-                          bitmap_result.get_null_bitmap(), &insert_handle);
+        dsl_cache->insert(
+                dsl_cache_key, std::make_shared<roaring::Roaring>(*bitmap_result.get_data_bitmap()),
+                bitmap_result.get_null_bitmap()
+                        ? std::make_shared<roaring::Roaring>(*bitmap_result.get_null_bitmap())
+                        : nullptr,
+                &insert_handle);
     }
 
     return Status::OK();

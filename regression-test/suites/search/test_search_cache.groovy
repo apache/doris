@@ -44,8 +44,9 @@ suite("test_search_cache", "p0") {
     """
     sql """sync"""
 
-    // Wait for index building
-    Thread.sleep(10000)
+    // sync ensures data is flushed. Sleep is a best-effort wait for
+    // background index availability; may need to increase under load.
+    Thread.sleep(2000)
 
     // Test 1: Cache consistency - same query returns same results with cache enabled
     def result1 = sql """

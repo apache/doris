@@ -167,7 +167,7 @@ public:
             const std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>&
                     data_type_with_names,
             std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
-            InvertedIndexResultBitmap& bitmap_result) const;
+            InvertedIndexResultBitmap& bitmap_result, bool enable_cache = true) const;
 
     // Public methods for testing
     enum class ClauseTypeCategory {
