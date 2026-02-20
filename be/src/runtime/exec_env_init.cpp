@@ -644,19 +644,6 @@ Status ExecEnv::init_mem_env() {
               << ", origin config value: " << config::inverted_index_query_cache_limit;
 
     // use memory limit
-    int64_t search_function_query_cache_limit =
-            ParseUtil::parse_mem_spec(config::search_function_query_cache_limit,
-                                      MemInfo::mem_limit(), MemInfo::physical_mem(), &is_percent);
-    while (!is_percent && search_function_query_cache_limit > MemInfo::mem_limit() / 2) {
-        search_function_query_cache_limit = search_function_query_cache_limit / 2;
-    }
-    _search_function_query_cache =
-            SearchFunctionQueryCache::create_global_cache(search_function_query_cache_limit, 256);
-    LOG(INFO) << "Search function query cache memory limit: "
-              << PrettyPrinter::print(search_function_query_cache_limit, TUnit::BYTES)
-              << ", origin config value: " << config::search_function_query_cache_limit;
-
-    // use memory limit
     int64_t condition_cache_limit = config::condition_cache_limit * 1024L * 1024L;
     _condition_cache = ConditionCache::create_global_cache(condition_cache_limit);
     LOG(INFO) << "Condition cache memory limit: "
@@ -852,7 +839,6 @@ void ExecEnv::destroy() {
 
     SAFE_DELETE(_load_channel_mgr);
 
-    SAFE_DELETE(_search_function_query_cache);
     SAFE_DELETE(_inverted_index_query_cache);
     SAFE_DELETE(_inverted_index_searcher_cache);
     SAFE_DELETE(_condition_cache);

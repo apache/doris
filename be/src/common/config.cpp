@@ -1243,9 +1243,6 @@ DEFINE_Int32(inverted_index_query_cache_shards, "256");
 // inverted index match bitmap cache size
 DEFINE_String(inverted_index_query_cache_limit, "10%");
 
-// search() function DSL result cache size (percentage of mem_limit, or absolute value like "1G")
-DEFINE_String(search_function_query_cache_limit, "5%");
-
 // condition cache limit
 DEFINE_Int16(condition_cache_limit, "512");
 

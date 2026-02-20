@@ -125,8 +125,8 @@ Status VSearchExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc,
                             VExprContext* context) {
     RETURN_IF_ERROR(VExpr::prepare(state, row_desc, context));
     const auto& query_options = state->query_options();
-    if (query_options.__isset.enable_search_function_query_cache) {
-        _enable_cache = query_options.enable_search_function_query_cache;
+    if (query_options.__isset.enable_inverted_index_query_cache) {
+        _enable_cache = query_options.enable_inverted_index_query_cache;
     }
     return Status::OK();
 }

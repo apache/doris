@@ -26,7 +26,6 @@
 #include <memory>
 #include <roaring/roaring.hh>
 #include <string>
-#include <type_traits>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -275,79 +274,12 @@ public:
         return ((InvertedIndexQueryCache::CacheValue*)_cache->value(_handle))->bitmap;
     }
 
-    // Typed accessor for cache values. The static_assert ensures T derives from
-    // LRUCacheValueBase, but the caller is responsible for using the correct
-    // CacheValue type matching the cache that produced this handle.
-    template <typename T>
-    T* get_value() const {
-        static_assert(std::is_base_of_v<LRUCacheValueBase, T>,
-                      "T must derive from LRUCacheValueBase");
-        if (!_cache || !_handle) {
-            return nullptr;
-        }
-        return static_cast<T*>(_cache->value(_handle));
-    }
-
 private:
     LRUCachePolicy* _cache = nullptr;
     Cache::Handle* _handle = nullptr;
 
     // Don't allow copy and assign
     DISALLOW_COPY_AND_ASSIGN(InvertedIndexQueryCacheHandle);
-};
-
-// Cache for search() function DSL query results per segment.
-// Caches the result bitmap and optional null bitmap per (segment, DSL) pair
-// so repeated identical DSL queries against the same segment skip Lucene execution.
-class SearchFunctionQueryCache : public LRUCachePolicy {
-public:
-    using LRUCachePolicy::insert;
-
-    struct CacheKey {
-        std::string segment_prefix; // index_path_prefix, identifies the segment
-        std::string dsl_signature;  // Thrift-serialized TSearchParam (full query signature)
-
-        // Length-prefix encoding so the key is unambiguous regardless of prefix/signature contents.
-        std::string encode() const {
-            uint32_t prefix_len = static_cast<uint32_t>(segment_prefix.size());
-            std::string key;
-            key.reserve(sizeof(prefix_len) + prefix_len + dsl_signature.size());
-            key.append(reinterpret_cast<const char*>(&prefix_len), sizeof(prefix_len));
-            key.append(segment_prefix);
-            key.append(dsl_signature);
-            return key;
-        }
-    };
-
-    class CacheValue : public LRUCacheValueBase {
-    public:
-        std::shared_ptr<roaring::Roaring> result_bitmap;
-        std::shared_ptr<roaring::Roaring> null_bitmap;
-    };
-
-    static SearchFunctionQueryCache* create_global_cache(size_t capacity, uint32_t num_shards) {
-        return new SearchFunctionQueryCache(capacity, num_shards);
-    }
-
-    static SearchFunctionQueryCache* instance() {
-        return ExecEnv::GetInstance()->get_search_function_query_cache();
-    }
-
-    SearchFunctionQueryCache() = delete;
-
-    // Note: reuses inverted_index_cache_stale_sweep_time_sec for stale sweep interval.
-    // Both caches share similar eviction semantics; add a separate config if needed.
-    SearchFunctionQueryCache(size_t capacity, uint32_t num_shards)
-            : LRUCachePolicy(CachePolicy::CacheType::SEARCH_FUNCTION_QUERY_CACHE, capacity,
-                             LRUCacheType::SIZE, config::inverted_index_cache_stale_sweep_time_sec,
-                             num_shards, /*element_count_capacity*/ 0, /*enable_prune*/ true,
-                             /*is_lru_k*/ true) {}
-
-    bool lookup(const CacheKey& key, InvertedIndexQueryCacheHandle* handle);
-
-    void insert(const CacheKey& key, std::shared_ptr<roaring::Roaring> result_bitmap,
-                std::shared_ptr<roaring::Roaring> null_bitmap,
-                InvertedIndexQueryCacheHandle* handle);
 };
 
 } // namespace segment_v2

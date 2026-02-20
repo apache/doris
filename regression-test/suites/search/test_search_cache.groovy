@@ -50,7 +50,7 @@ suite("test_search_cache", "p0") {
 
     // Test 1: Cache consistency - same query returns same results with cache enabled
     def result1 = sql """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_search_function_query_cache=true) */
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_inverted_index_query_cache=true) */
         id FROM ${tableName}
         WHERE search('title:apple')
         ORDER BY id
@@ -58,7 +58,7 @@ suite("test_search_cache", "p0") {
 
     // Run same query again (should hit cache)
     def result2 = sql """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_search_function_query_cache=true) */
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_inverted_index_query_cache=true) */
         id FROM ${tableName}
         WHERE search('title:apple')
         ORDER BY id
@@ -69,7 +69,7 @@ suite("test_search_cache", "p0") {
 
     // Test 2: Cache disabled returns same results as cache enabled
     def result_no_cache = sql """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_search_function_query_cache=false) */
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_inverted_index_query_cache=false) */
         id FROM ${tableName}
         WHERE search('title:apple')
         ORDER BY id
@@ -78,14 +78,14 @@ suite("test_search_cache", "p0") {
 
     // Test 3: Multi-field query cache consistency
     def mf_result1 = sql """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_search_function_query_cache=true) */
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_inverted_index_query_cache=true) */
         id FROM ${tableName}
         WHERE search('title:cherry OR content:tropical')
         ORDER BY id
     """
 
     def mf_result2 = sql """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_search_function_query_cache=true) */
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_inverted_index_query_cache=true) */
         id FROM ${tableName}
         WHERE search('title:cherry OR content:tropical')
         ORDER BY id
@@ -94,7 +94,7 @@ suite("test_search_cache", "p0") {
 
     // Test 4: Different queries produce different cache entries
     def diff_result = sql """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_search_function_query_cache=true) */
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_inverted_index_query_cache=true) */
         id FROM ${tableName}
         WHERE search('title:banana')
         ORDER BY id
@@ -104,14 +104,14 @@ suite("test_search_cache", "p0") {
 
     // Test 5: AND query - cache vs no-cache consistency
     def and_cached = sql """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_search_function_query_cache=true) */
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_inverted_index_query_cache=true) */
         id, title FROM ${tableName}
         WHERE search('title:apple AND title:cherry')
         ORDER BY id
     """
 
     def and_uncached = sql """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_search_function_query_cache=false) */
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_inverted_index_query_cache=false) */
         id, title FROM ${tableName}
         WHERE search('title:apple AND title:cherry')
         ORDER BY id
@@ -120,14 +120,14 @@ suite("test_search_cache", "p0") {
 
     // Test 6: Complex boolean query - cache vs no-cache consistency
     def complex_cached = sql """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_search_function_query_cache=true) */
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_inverted_index_query_cache=true) */
         id, title FROM ${tableName}
         WHERE search('(title:apple OR title:banana) AND content:fruit')
         ORDER BY id
     """
 
     def complex_uncached = sql """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_search_function_query_cache=false) */
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_inverted_index_query_cache=false) */
         id, title FROM ${tableName}
         WHERE search('(title:apple OR title:banana) AND content:fruit')
         ORDER BY id

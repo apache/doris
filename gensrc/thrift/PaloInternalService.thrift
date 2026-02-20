@@ -438,8 +438,6 @@ struct TQueryOptions {
 
   200: optional bool enable_adjust_conjunct_order_by_cost;
 
-  201: optional bool enable_search_function_query_cache = true;
-
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
