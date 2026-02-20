@@ -113,6 +113,7 @@ public class MCTransaction implements Transaction {
 
     public void finishInsert() throws UserException {
         try {
+            long t0 = System.currentTimeMillis();
             // Collect all WriterCommitMessages from BEs
             List<WriterCommitMessage> allMessages = new ArrayList<>();
             synchronized (this) {
@@ -127,6 +128,7 @@ public class MCTransaction implements Transaction {
                     }
                 }
             }
+            long t1 = System.currentTimeMillis();
 
             // Restore session and commit all messages
             TableIdentifier tableId = TableIdentifier.of(
@@ -136,10 +138,14 @@ public class MCTransaction implements Transaction {
                     .withSessionId(writeSessionId)
                     .withSettings(catalog.getSettings())
                     .buildBatchWriteSession();
+            long t2 = System.currentTimeMillis();
 
             commitSession.commit(allMessages.toArray(new WriterCommitMessage[0]));
-            LOG.info("Committed MC write session {} with {} messages for table {}.{}",
-                    writeSessionId, allMessages.size(), catalog.getDefaultProject(), table.getName());
+            long t3 = System.currentTimeMillis();
+            LOG.info("Committed MC write session {} with {} messages for table {}.{}"
+                            + " Breakdown: deserialize={}ms, restoreSession={}ms, commit={}ms, total={}ms",
+                    writeSessionId, allMessages.size(), catalog.getDefaultProject(), table.getName(),
+                    t1 - t0, t2 - t1, t3 - t2, t3 - t0);
         } catch (Exception e) {
             throw new UserException("Failed to commit MaxCompute write session: " + e.getMessage(), e);
         }
