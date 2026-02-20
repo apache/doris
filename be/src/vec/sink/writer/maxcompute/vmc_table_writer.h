@@ -80,7 +80,10 @@ private:
     VExprContextSPtrs _write_output_vexpr_ctxs;
 
     // Atomic block_id counter: each partition writer gets a unique block_id
+    // Initialized with offset based on per_fragment_instance_idx to avoid collisions
+    // across pipeline instances sharing the same write session.
     std::atomic<int64_t> _next_block_id {0};
+    static constexpr int64_t BLOCK_ID_STRIDE = 100;
 
     size_t _row_count = 0;
     int64_t _send_data_ns = 0;
