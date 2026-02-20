@@ -291,7 +291,7 @@ supportedAlterStatement
     | ALTER COMPUTE GROUP name=identifierOrText
         properties=propertyClause?                                                          #alterComputeGroup
     | ALTER CATALOG name=identifier SET PROPERTIES
-        LEFT_PAREN propertyItemList RIGHT_PAREN                                             #alterCatalogProperties        
+        LEFT_PAREN propertyItemList RIGHT_PAREN                                             #alterCatalogProperties
     | ALTER WORKLOAD POLICY name=identifierOrText
         properties=propertyClause?                                                          #alterWorkloadPolicy
     | ALTER SQL_BLOCK_RULE name=identifier properties=propertyClause?                       #alterSqlBlockRule
@@ -316,7 +316,7 @@ supportedAlterStatement
     | ALTER SYSTEM RENAME COMPUTE GROUP name=identifier newName=identifier                  #alterSystemRenameComputeGroup
     | ALTER RESOURCE name=identifierOrText properties=propertyClause?                       #alterResource
     | ALTER REPOSITORY name=identifier properties=propertyClause?                           #alterRepository
-    | ALTER ROUTINE LOAD FOR name=multipartIdentifier 
+    | ALTER ROUTINE LOAD FOR name=multipartIdentifier
             (loadProperty (COMMA loadProperty)*)?
             properties=propertyClause?
             (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?                 #alterRoutineLoad
@@ -393,7 +393,7 @@ supportedShowStatement
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=identifier)?                                          #showView
     | SHOW PLUGINS                                                                  #showPlugins
-    | SHOW STORAGE (VAULT | VAULTS)                                                 #showStorageVault    
+    | SHOW STORAGE (VAULT | VAULTS)                                                 #showStorageVault
     | SHOW REPOSITORIES                                                             #showRepositories
     | SHOW ENCRYPTKEYS ((FROM | IN) database=multipartIdentifier)?
         (LIKE STRING_LITERAL)?                                                      #showEncryptKeys
@@ -415,7 +415,7 @@ supportedShowStatement
     | SHOW ALL PROPERTIES (LIKE STRING_LITERAL)?                                    #showAllProperties
     | SHOW COLLATION wildWhere?                                                     #showCollation
     | SHOW ROW POLICY (FOR (userIdentify | (ROLE role=identifier)))?                #showRowPolicy
-    | SHOW STORAGE POLICY (USING (FOR policy=identifierOrText)?)?                   #showStoragePolicy   
+    | SHOW STORAGE POLICY (USING (FOR policy=identifierOrText)?)?                   #showStoragePolicy
     | SHOW SQL_BLOCK_RULE (FOR ruleName=identifier)?                                #showSqlBlockRule
     | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
     | SHOW CREATE STORAGE VAULT identifier                                          #showCreateStorageVault
@@ -440,11 +440,11 @@ supportedShowStatement
     | SHOW FRONTENDS name=identifier?                                               #showFrontends
     | SHOW DATABASE databaseId=INTEGER_VALUE                                        #showDatabaseId
     | SHOW FULL? (COLUMNS | FIELDS) (FROM | IN) tableName=multipartIdentifier
-        ((FROM | IN) database=multipartIdentifier)? wildWhere?          #showColumns    
+        ((FROM | IN) database=multipartIdentifier)? wildWhere?          #showColumns
     | SHOW TABLE tableId=INTEGER_VALUE                                              #showTableId
     | SHOW TRASH (ON backend=STRING_LITERAL)?                                       #showTrash
     | SHOW TYPECAST ((FROM | IN) database=identifier)?                              #showTypeCast
-    | SHOW (CLUSTERS | (COMPUTE GROUPS))                                            #showClusters    
+    | SHOW (CLUSTERS | (COMPUTE GROUPS))                                            #showClusters
     | SHOW statementScope? STATUS                                                   #showStatus
     | SHOW WHITELIST                                                                #showWhitelist
     | SHOW TABLETS BELONG
@@ -479,7 +479,7 @@ supportedShowStatement
 
 supportedLoadStatement
     : SYNC                                                                          #sync
-    | SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad    
+    | SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad
     | createRoutineLoad                                                             #createRoutineLoadAlias
     | LOAD mysqlDataDesc
         (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
@@ -948,7 +948,7 @@ supportedSetStatement
     ;
 
 optionWithType
-    : statementScope identifier EQ (expression | DEFAULT | ON | ALL)    #setVariableWithType
+    : statementScope identifier EQ (expression | ON | ALL)              #setVariableWithType
     ;
 
 optionWithoutType
@@ -965,7 +965,7 @@ optionWithoutType
 
 variable
     : (DOUBLEATSIGN (statementScope DOT)?)? identifier EQ
-        (expression | DEFAULT | ON | ALL)                               #setSystemVariable
+        (expression | ON | ALL)                                         #setSystemVariable
     | ATSIGN identifier EQ expression                                   #setUserVariable
     ;
 
@@ -1065,7 +1065,7 @@ dataDesc
 statementScope
     : (GLOBAL | SESSION | LOCAL)
     ;
-    
+
 buildMode
     : BUILD (IMMEDIATE | DEFERRED)
     ;
@@ -1361,7 +1361,7 @@ hintAssignment
     ;
 
 updateAssignment
-    : col=multipartIdentifier EQ (expression | DEFAULT)
+    : col=multipartIdentifier EQ expression
     ;
 
 updateAssignmentSeq
@@ -1607,7 +1607,6 @@ rowConstructor
 
 rowConstructorItem
     : constant // duplicate constant rule for improve the parse of `insert into tbl values`
-    | DEFAULT
     | namedExpression
     ;
 
@@ -1770,6 +1769,7 @@ specifiedPartition
 
 constant
     : NULL                                                                                     #nullLiteral
+    | DEFAULT                                                                                  #defaultLiteral
     | type=(DATE | DATEV1 | DATEV2 | TIMESTAMP) STRING_LITERAL                                 #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
@@ -2037,6 +2037,7 @@ nonReserved
     | DECIMAL
     | DECIMALV2
     | DECIMALV3
+    | DEFAULT
     | DEFERRED
     | DEMAND
     | DIAGNOSE
