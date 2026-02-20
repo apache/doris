@@ -18,7 +18,11 @@
 package org.apache.doris.mysql;
 
 /**
- * according to mysql text protocol ColumnDefinition41. Field should be filled by these attribute.
+ * Field information for MySQL text protocol ColumnDefinition41.
+ *
+ * <p>This class represents the metadata for a result set column as defined
+ * in the MySQL protocol. It contains all the necessary information to
+ * describe a column in a query result.
  */
 public class FieldInfo {
 
@@ -28,6 +32,15 @@ public class FieldInfo {
     private final String name;
     private final String originalName;
 
+    /**
+     * Creates a new field info.
+     *
+     * @param schema        the database/schema name
+     * @param table         the virtual table name (alias)
+     * @param originalTable the original table name
+     * @param name          the column name (alias)
+     * @param originalName  the original column name
+     */
     public FieldInfo(String schema, String table, String originalTable, String name, String originalName) {
         this.schema = schema;
         this.table = table;
@@ -54,5 +67,11 @@ public class FieldInfo {
 
     public String getOriginalName() {
         return originalName;
+    }
+
+    @Override
+    public String toString() {
+        return "FieldInfo{schema='" + schema + "', table='" + table
+            + "', name='" + name + "'}";
     }
 }

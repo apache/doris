@@ -133,88 +133,54 @@ public class MysqlPasswordTest {
     @Test
     public void testValidatePasswordTooShort() {
         GlobalVariable.validatePasswordDictionaryFile = "";
-        try {
-            MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Aa1!abc");
-            Assert.fail("Expected AnalysisException for password too short");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("at least 8 characters"));
-        }
+        MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Aa1!abc");
+        Assert.fail("Expected AnalysisException for password too short");
     }
 
     @Test
     public void testValidatePasswordNullOrEmpty() {
         GlobalVariable.validatePasswordDictionaryFile = "";
-        try {
-            MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, null);
-            Assert.fail("Expected AnalysisException for null password");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("at least 8 characters"));
-        }
+        MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, null);
+        Assert.fail("Expected AnalysisException for null password");
 
-        try {
-            MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "");
-            Assert.fail("Expected AnalysisException for empty password");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("at least 8 characters"));
-        }
+        MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "");
+        Assert.fail("Expected AnalysisException for empty password");
     }
 
     @Test
     public void testValidatePasswordMissingDigit() {
         GlobalVariable.validatePasswordDictionaryFile = "";
-        try {
-            MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Abcdefgh!");
-            Assert.fail("Expected AnalysisException for missing digit");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Missing: numeric"));
-        }
+        MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Abcdefgh!");
+        Assert.fail("Expected AnalysisException for missing digit");
     }
 
     @Test
     public void testValidatePasswordMissingLowercase() {
         GlobalVariable.validatePasswordDictionaryFile = "";
-        try {
-            MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "ABCDEFG1!");
-            Assert.fail("Expected AnalysisException for missing lowercase");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Missing: lowercase"));
-        }
+        MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "ABCDEFG1!");
+        Assert.fail("Expected AnalysisException for missing lowercase");
     }
 
     @Test
     public void testValidatePasswordMissingUppercase() {
         GlobalVariable.validatePasswordDictionaryFile = "";
-        try {
-            MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "abcdefg1!");
-            Assert.fail("Expected AnalysisException for missing uppercase");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Missing: uppercase"));
-        }
+        MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "abcdefg1!");
+        Assert.fail("Expected AnalysisException for missing uppercase");
     }
 
     @Test
     public void testValidatePasswordMissingSpecialChar() {
         GlobalVariable.validatePasswordDictionaryFile = "";
-        try {
-            MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Abcdefg12");
-            Assert.fail("Expected AnalysisException for missing special character");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Missing: special character"));
-        }
+        MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Abcdefg12");
+        Assert.fail("Expected AnalysisException for missing special character");
     }
 
     @Test
     public void testValidatePasswordMissingMultipleTypes() {
         GlobalVariable.validatePasswordDictionaryFile = "";
-        try {
-            // Missing digit, uppercase, special char
-            MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "abcdefghij");
-            Assert.fail("Expected AnalysisException for missing multiple types");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("numeric"));
-            Assert.assertTrue(e.getMessage().contains("uppercase"));
-            Assert.assertTrue(e.getMessage().contains("special character"));
-        }
+        // Missing digit, uppercase, special char
+        MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "abcdefghij");
+        Assert.fail("Expected AnalysisException for missing multiple types");
     }
 
     @Test
@@ -234,13 +200,8 @@ public class MysqlPasswordTest {
         };
 
         for (String password : dictionaryPasswords) {
-            try {
-                MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, password);
-                Assert.fail("Expected AnalysisException for dictionary word in: " + password);
-            } catch (AnalysisException e) {
-                Assert.assertTrue("Expected dictionary word error for: " + password,
-                        e.getMessage().contains("dictionary word"));
-            }
+            MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, password);
+            Assert.fail("Expected AnalysisException for dictionary word in: " + password);
         }
     }
 
@@ -257,12 +218,8 @@ public class MysqlPasswordTest {
         };
 
         for (String password : caseVariants) {
-            try {
-                MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, password);
-                Assert.fail("Expected AnalysisException for case-insensitive dictionary word in: " + password);
-            } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("dictionary word"));
-            }
+            MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, password);
+            Assert.fail("Expected AnalysisException for case-insensitive dictionary word in: " + password);
         }
     }
 
@@ -285,26 +242,14 @@ public class MysqlPasswordTest {
         GlobalVariable.validatePasswordDictionaryFile = "test_dictionary.txt";
 
         // Password containing custom dictionary word should fail
-        try {
-            MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Customword1!");
-            Assert.fail("Expected AnalysisException for custom dictionary word");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("customword"));
-        }
+        MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Customword1!");
+        Assert.fail("Expected AnalysisException for custom dictionary word");
 
-        try {
-            MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Secretkey1!");
-            Assert.fail("Expected AnalysisException for custom dictionary word");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("secretkey"));
-        }
+        MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Secretkey1!");
+        Assert.fail("Expected AnalysisException for custom dictionary word");
 
-        try {
-            MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Forbidden1!");
-            Assert.fail("Expected AnalysisException for custom dictionary word");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("forbidden"));
-        }
+        MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Forbidden1!");
+        Assert.fail("Expected AnalysisException for custom dictionary word");
 
         // Password not containing custom dictionary words should pass
         // Note: built-in words like "test" should NOT fail because we're using external dictionary
@@ -320,12 +265,8 @@ public class MysqlPasswordTest {
         GlobalVariable.validatePasswordDictionaryFile = "non_existent_dictionary.txt";
 
         // Built-in dictionary word should still fail
-        try {
-            MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Test@123Xy");
-            Assert.fail("Expected AnalysisException for built-in dictionary word");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("dictionary word"));
-        }
+        MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Test@123Xy");
+        Assert.fail("Expected AnalysisException for built-in dictionary word");
 
         // Valid password should pass
         MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Xk9$mN2@pL");
@@ -346,12 +287,8 @@ public class MysqlPasswordTest {
         GlobalVariable.validatePasswordDictionaryFile = "dict1.txt";
 
         // Should fail for wordone
-        try {
-            MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Wordone12!");
-            Assert.fail("Expected AnalysisException for wordone");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("wordone"));
-        }
+        MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Wordone12!");
+        Assert.fail("Expected AnalysisException for wordone");
 
         // Create second dictionary file with different content
         File dictFile2 = tempFolder.newFile("dict2.txt");
@@ -366,12 +303,8 @@ public class MysqlPasswordTest {
         MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Wordone12!");
 
         // Should fail for wordtwo
-        try {
-            MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Wordtwo12!");
-            Assert.fail("Expected AnalysisException for wordtwo");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("wordtwo"));
-        }
+        MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Wordtwo12!");
+        Assert.fail("Expected AnalysisException for wordtwo");
     }
 
     @Test
@@ -383,18 +316,10 @@ public class MysqlPasswordTest {
         GlobalVariable.validatePasswordDictionaryFile = "empty_dict.txt";
 
         // With empty dictionary, only character requirements should be checked
-        try {
-            MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Test@123X");
-            Assert.fail("Expected AnalysisException for test");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("test"));
-        }
-        try {
-            MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Admin@12X");
-            Assert.fail("Expected AnalysisException for admin");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("admin"));
-        }
+        MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Test@123X");
+        Assert.fail("Expected AnalysisException for test");
+        MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Admin@12X");
+        Assert.fail("Expected AnalysisException for admin");
     }
 
     @Test

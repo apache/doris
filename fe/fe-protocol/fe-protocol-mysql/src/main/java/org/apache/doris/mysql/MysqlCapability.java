@@ -19,7 +19,14 @@ package org.apache.doris.mysql;
 
 import java.util.EnumSet;
 
-// MySQL protocol capability
+/**
+ * MySQL protocol capability flags.
+ *
+ * <p>This class defines the capability flags used in the MySQL client/server protocol
+ * handshake. These flags indicate which features are supported by the client and server.
+ *
+ * <p>Reference: https://dev.mysql.com/doc/dev/mysql-server/latest/group__group__cs__capabilities__flags.html
+ */
 public class MysqlCapability {
     public static enum Flag {
         CLIENT_LONG_PASSWORD(0x00000001, "CLIENT_LONG_PASSWORD"),
