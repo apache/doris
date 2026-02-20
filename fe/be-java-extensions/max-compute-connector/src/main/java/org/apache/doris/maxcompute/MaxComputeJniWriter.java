@@ -340,7 +340,7 @@ public class MaxComputeJniWriter extends JniWriter {
                         } else {
                             bytes = colData[i].toString().getBytes(StandardCharsets.UTF_8);
                         }
-                        vec.set(i, bytes);
+                        vec.setSafe(i, bytes);
                     }
                 }
                 vec.setValueCount(numRows);
@@ -390,9 +390,9 @@ public class MaxComputeJniWriter extends JniWriter {
                     if (colData[i] == null) {
                         vec.setNull(i);
                     } else if (colData[i] instanceof byte[]) {
-                        vec.set(i, (byte[]) colData[i]);
+                        vec.setSafe(i, (byte[]) colData[i]);
                     } else {
-                        vec.set(i, colData[i].toString().getBytes(StandardCharsets.UTF_8));
+                        vec.setSafe(i, colData[i].toString().getBytes(StandardCharsets.UTF_8));
                     }
                 }
                 vec.setValueCount(numRows);
@@ -406,7 +406,7 @@ public class MaxComputeJniWriter extends JniWriter {
                     if (colData[i] == null) {
                         vec.setNull(i);
                     } else {
-                        vec.set(i, colData[i].toString().getBytes(StandardCharsets.UTF_8));
+                        vec.setSafe(i, colData[i].toString().getBytes(StandardCharsets.UTF_8));
                     }
                 }
                 vec.setValueCount(numRows);
