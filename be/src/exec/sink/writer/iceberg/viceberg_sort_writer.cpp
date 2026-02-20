@@ -17,8 +17,9 @@
 
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
 
-#include "exec/spill/spill_stream.h"
-#include "exec/spill/spill_stream_manager.h"
+#include "exec/spill/spill_file_manager.h"
+#include "exec/spill/spill_file_reader.h"
+#include "exec/spill/spill_file_writer.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 
@@ -110,7 +111,7 @@ Status VIcebergSortWriter::close(const Status& status) {
     // Check if there is any remaining data in the sorter (either unsorted or already sorted blocks)
     if (!_sorter->merge_sort_state()->unsorted_block()->empty() ||
         !_sorter->merge_sort_state()->get_sorted_block().empty()) {
-        if (_sorted_streams.empty()) {
+        if (_sorted_spill_files.empty()) {
             // No spill has occurred, all data is in memory.
             // Sort the remaining data, prepare for reading, and write to file.
             internal_status = _sorter->do_sort();
@@ -134,7 +135,7 @@ Status VIcebergSortWriter::close(const Status& status) {
     }
 
     // Merge all spilled streams using multi-way merge sort and output final sorted data to files
-    if (!_sorted_streams.empty()) {
+    if (!_sorted_spill_files.empty()) {
         internal_status = _combine_files_output();
         if (!internal_status.ok()) {
             return internal_status;
@@ -154,7 +155,7 @@ void VIcebergSortWriter::_update_spill_block_batch_row_count(const Block& block)
     // the optimal batch size for spill operations
     if (rows > 0 && 0 == _avg_row_bytes) {
         _avg_row_bytes = std::max(1UL, block.bytes() / rows);
-        int64_t spill_batch_bytes = _runtime_state->spill_sort_batch_bytes(); // default 8MB
+        int64_t spill_batch_bytes = _runtime_state->spill_buffer_size_bytes(); // default 8MB
         // Calculate how many rows fit in one spill batch (ceiling division)
         _spill_block_batch_row_count = (spill_batch_bytes + _avg_row_bytes - 1) / _avg_row_bytes;
     }
@@ -225,14 +226,18 @@ Status VIcebergSortWriter::_do_spill() {
     // prepare_for_read(is_spill=true) adjusts limit/offset for spill mode
     // and builds the merge tree for reading sorted data
     RETURN_IF_ERROR(_sorter->prepare_for_read(true));
-    int32_t batch_size = _get_spill_batch_size();
 
-    // Register a new spill stream to store the sorted data on disk
-    SpillStreamSPtr spilling_stream;
-    RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
-            _runtime_state, spilling_stream, print_id(_runtime_state->query_id()), "iceberg-sort",
-            1 /* node_id */, batch_size, _runtime_state->spill_sort_batch_bytes(), _profile));
-    _sorted_streams.emplace_back(spilling_stream);
+    // Register a new spill file to store the sorted data on disk
+    SpillFileSPtr spilling_file;
+    auto relative_path = fmt::format("{}/{}-{}-{}-{}", print_id(_runtime_state->query_id()),
+                                     "MultiCastSender", 1 /* node_id */, _runtime_state->task_id(),
+                                     ExecEnv::GetInstance()->spill_file_mgr()->next_id());
+    RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file(relative_path,
+                                                                                spilling_file));
+    _sorted_spill_files.emplace_back(spilling_file);
+
+    SpillFileWriterSPtr writer;
+    RETURN_IF_ERROR(spilling_file->create_writer(_runtime_state, _profile, writer));
 
     // Read sorted data from the sorter in batches and write to the spill stream
     bool eos = false;
@@ -242,7 +247,7 @@ Status VIcebergSortWriter::_do_spill() {
         // instead of C-style cast, which includes bounds checking
         RETURN_IF_ERROR(_sorter->merge_sort_read_for_spill(_runtime_state, &block,
                                                            _get_spill_batch_size(), &eos));
-        RETURN_IF_ERROR(spilling_stream->spill_block(_runtime_state, block, eos));
+        RETURN_IF_ERROR(writer->write_block(_runtime_state, block));
         block.clear_column_data();
     }
     // Reset the sorter to free memory and accept new data
@@ -251,13 +256,13 @@ Status VIcebergSortWriter::_do_spill() {
 }
 
 Status VIcebergSortWriter::_combine_files_output() {
-    // If there are too many spill streams to merge at once (limited by memory),
-    // perform intermediate merges to reduce the number of streams
-    while (_sorted_streams.size() > static_cast<size_t>(_calc_max_merge_streams())) {
+    // If there are too many spill files to merge at once (limited by memory),
+    // perform intermediate merges to reduce the number of files
+    while (_sorted_spill_files.size() > static_cast<size_t>(_calc_max_merge_streams())) {
         RETURN_IF_ERROR(_do_intermediate_merge());
     }
 
-    // Create the final merger that combines all remaining spill streams
+    // Create the final merger that combines all remaining spill files
     RETURN_IF_ERROR(_create_final_merger());
 
     // Read merged sorted data and write to Parquet/ORC files,
@@ -287,36 +292,41 @@ Status VIcebergSortWriter::_do_intermediate_merge() {
     // Merge a subset of streams (non-final merge) to reduce total stream count
     RETURN_IF_ERROR(_create_merger(false, _spill_block_batch_row_count, max_stream_count));
 
-    // Register a new spill stream for the merged output
-    int32_t batch_size = _get_spill_batch_size();
-    SpillStreamSPtr tmp_stream;
-    RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
-            _runtime_state, tmp_stream, print_id(_runtime_state->query_id()), "iceberg-sort-merge",
-            1 /* node_id */, batch_size, _runtime_state->spill_sort_batch_bytes(), _profile));
+    // register new spill stream for merged output
+    SpillFileSPtr tmp_spill_file;
+    auto relative_path = fmt::format("{}/{}-{}-{}-{}", print_id(_runtime_state->query_id()),
+                                     "MultiCastSender", 1 /* node_id */, _runtime_state->task_id(),
+                                     ExecEnv::GetInstance()->spill_file_mgr()->next_id());
+    RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file(relative_path,
+                                                                                tmp_spill_file));
 
-    _sorted_streams.emplace_back(tmp_stream);
+    _sorted_spill_files.emplace_back(tmp_spill_file);
 
-    // Merge the selected streams and write the result to the new spill stream
+    SpillFileWriterSPtr tmp_spill_writer;
+    RETURN_IF_ERROR(tmp_spill_file->create_writer(_runtime_state, _profile, tmp_spill_writer));
+
+    // Merge the selected files and write the result to the new spill file
     bool eos = false;
     Block merge_sorted_block;
     while (!eos && !_runtime_state->is_cancelled()) {
         merge_sorted_block.clear_column_data();
         RETURN_IF_ERROR(_merger->get_next(&merge_sorted_block, &eos));
-        RETURN_IF_ERROR(tmp_stream->spill_block(_runtime_state, merge_sorted_block, eos));
+        RETURN_IF_ERROR(tmp_spill_writer->write_block(_runtime_state, merge_sorted_block));
     }
 
-    // Clean up the streams that were consumed during this intermediate merge
-    for (auto& stream : _current_merging_streams) {
-        ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
+    // Clean up the files that were consumed during this intermediate merge
+    for (auto& file : _current_merging_spill_files) {
+        ExecEnv::GetInstance()->spill_file_mgr()->delete_spill_file(file);
     }
-    _current_merging_streams.clear();
+    _current_merging_spill_files.clear();
     return Status::OK();
 }
 
 int VIcebergSortWriter::_calc_max_merge_streams() const {
     // Calculate the maximum number of streams that can be merged simultaneously
     // based on the available memory limit and per-stream batch size
-    auto count = _runtime_state->spill_sort_mem_limit() / _runtime_state->spill_sort_batch_bytes();
+    auto count = _runtime_state->spill_sort_merge_mem_limit_bytes() /
+                 _runtime_state->spill_buffer_size_bytes();
     if (count > std::numeric_limits<int>::max()) {
         return std::numeric_limits<int>::max();
     }
@@ -329,21 +339,19 @@ Status VIcebergSortWriter::_create_merger(bool is_final_merge, size_t batch_size
     std::vector<BlockSupplier> child_block_suppliers;
     _merger = std::make_unique<VSortedRunMerger>(_sorter->get_sort_description(), batch_size, -1, 0,
                                                  _profile);
-    _current_merging_streams.clear();
+    _current_merging_spill_files.clear();
 
     // For final merge: merge all remaining streams
     // For intermediate merge: merge only num_streams streams
-    size_t streams_to_merge = is_final_merge ? _sorted_streams.size() : num_streams;
+    size_t streams_to_merge = is_final_merge ? _sorted_spill_files.size() : num_streams;
 
-    for (size_t i = 0; i < streams_to_merge && !_sorted_streams.empty(); ++i) {
-        auto stream = _sorted_streams.front();
-        stream->set_read_counters(_profile);
-        _current_merging_streams.emplace_back(stream);
-        // Create a block supplier lambda that reads the next block from the spill stream
-        child_block_suppliers.emplace_back([stream](Block* block, bool* eos) {
-            return stream->read_next_block_sync(block, eos);
-        });
-        _sorted_streams.pop_front();
+    for (size_t i = 0; i < streams_to_merge && !_sorted_spill_files.empty(); ++i) {
+        auto spill_file = _sorted_spill_files.front();
+        _current_merging_spill_files.emplace_back(spill_file);
+        SpillFileReaderSPtr reader = spill_file->create_reader(_runtime_state, _profile);
+        child_block_suppliers.emplace_back(
+                [reader](Block* block, bool* eos) { return reader->read(block, eos); });
+        _sorted_spill_files.pop_front();
     }
 
     RETURN_IF_ERROR(_merger->prepare(child_block_suppliers));
@@ -356,17 +364,17 @@ Status VIcebergSortWriter::_create_final_merger() {
 }
 
 void VIcebergSortWriter::_cleanup_spill_streams() {
-    // Clean up all remaining spill streams to release disk resources
-    for (auto& stream : _sorted_streams) {
-        ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
+    // Clean up all remaining spill files to release disk resources
+    for (auto& file : _sorted_spill_files) {
+        ExecEnv::GetInstance()->spill_file_mgr()->delete_spill_file(file);
     }
-    _sorted_streams.clear();
+    _sorted_spill_files.clear();
 
-    // Also clean up any streams that are currently being merged
-    for (auto& stream : _current_merging_streams) {
-        ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
+    // Also clean up any files that are currently being merged
+    for (auto& file : _current_merging_spill_files) {
+        ExecEnv::GetInstance()->spill_file_mgr()->delete_spill_file(file);
     }
-    _current_merging_streams.clear();
+    _current_merging_spill_files.clear();
 }
 
 #include "common/compile_check_end.h"

@@ -60,9 +60,9 @@ TEST_F(PartitionedAggregationSourceOperatorTest, Init) {
     std::shared_ptr<MockPartitionedAggSharedState> shared_state =
             MockPartitionedAggSharedState::create_shared();
 
-    shared_state->in_mem_shared_state_sptr = std::make_shared<AggSharedState>();
-    shared_state->in_mem_shared_state =
-            reinterpret_cast<AggSharedState*>(shared_state->in_mem_shared_state_sptr.get());
+    shared_state->_in_mem_shared_state_sptr = std::make_shared<AggSharedState>();
+    shared_state->_in_mem_shared_state =
+            reinterpret_cast<AggSharedState*>(shared_state->_in_mem_shared_state_sptr.get());
 
     LocalStateInfo info {
             .parent_profile = _helper.operator_profile.get(),
@@ -138,8 +138,6 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockEmpty) {
             _helper.runtime_state->get_local_state(source_operator->operator_id()));
     ASSERT_TRUE(local_state != nullptr);
 
-    local_state->_copy_shared_spill_profile = false;
-
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
@@ -207,11 +205,9 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlock) {
     st = sink_operator->sink(_helper.runtime_state.get(), &block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
-    ASSERT_GT(sink_operator->revocable_mem_size(_helper.runtime_state.get()), 0);
-
     auto* inner_sink_local_state = reinterpret_cast<AggSinkLocalState*>(
             sink_local_state->_runtime_state->get_sink_local_state());
-    ASSERT_GT(inner_sink_local_state->_get_hash_table_size(), 0);
+    ASSERT_GT(inner_sink_local_state->get_hash_table_size(), 0);
 
     LocalStateInfo info {
             .parent_profile = _helper.operator_profile.get(),
@@ -226,8 +222,6 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlock) {
     auto* local_state = reinterpret_cast<PartitionedAggLocalState*>(
             _helper.runtime_state->get_local_state(source_operator->operator_id()));
     ASSERT_TRUE(local_state != nullptr);
-
-    local_state->_copy_shared_spill_profile = false;
 
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
@@ -295,10 +289,10 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
     st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
-    st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
+    st = sink_operator->revoke_memory(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
 
-    ASSERT_TRUE(shared_state->is_spilled);
+    ASSERT_TRUE(shared_state->_is_spilled);
 
     st = sink_operator->sink(_helper.runtime_state.get(), &block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
@@ -307,7 +301,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
 
     auto* inner_sink_local_state = reinterpret_cast<AggSinkLocalState*>(
             sink_local_state->_runtime_state->get_sink_local_state());
-    ASSERT_EQ(inner_sink_local_state->_get_hash_table_size(), 0);
+    ASSERT_EQ(inner_sink_local_state->get_hash_table_size(), 0);
 
     LocalStateInfo info {
             .parent_profile = _helper.operator_profile.get(),
@@ -322,8 +316,6 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
     auto* local_state = reinterpret_cast<PartitionedAggLocalState*>(
             _helper.runtime_state->get_local_state(source_operator->operator_id()));
     ASSERT_TRUE(local_state != nullptr);
-
-    local_state->_copy_shared_spill_profile = false;
 
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
@@ -396,10 +388,10 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
     st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
-    st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
+    st = sink_operator->revoke_memory(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
 
-    ASSERT_TRUE(shared_state->is_spilled);
+    ASSERT_TRUE(shared_state->_is_spilled);
 
     st = sink_operator->sink(_helper.runtime_state.get(), &block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
@@ -408,7 +400,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
 
     auto* inner_sink_local_state = reinterpret_cast<AggSinkLocalState*>(
             sink_local_state->_runtime_state->get_sink_local_state());
-    ASSERT_EQ(inner_sink_local_state->_get_hash_table_size(), 0);
+    ASSERT_EQ(inner_sink_local_state->get_hash_table_size(), 0);
 
     LocalStateInfo info {
             .parent_profile = _helper.operator_profile.get(),
@@ -424,12 +416,10 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
             _helper.runtime_state->get_local_state(source_operator->operator_id()));
     ASSERT_TRUE(local_state != nullptr);
 
-    local_state->_copy_shared_spill_profile = false;
-
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    SpillableDebugPointHelper dp_helper("fault_inject::spill_stream::read_next_block");
+    SpillableDebugPointHelper dp_helper("fault_inject::spill_file::read_next_block");
 
     block.clear();
     bool eos = false;
@@ -440,5 +430,181 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
     }
 
     ASSERT_FALSE(st.ok());
+}
+
+// Test spill → recover cycle with large data to verify all rows come back.
+TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillLargeData) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+
+    const auto tnode = _helper.create_test_plan_node();
+    auto st = source_operator->init(tnode, _helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+    st = source_operator->prepare(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+
+    st = sink_operator->init(tnode, _helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+    st = sink_operator->prepare(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+
+    auto shared_state = std::dynamic_pointer_cast<PartitionedAggSharedState>(
+            sink_operator->create_shared_state());
+    shared_state->create_source_dependency(source_operator->operator_id(),
+                                           source_operator->node_id(), "PartitionedAggSinkTestDep");
+
+    LocalSinkStateInfo sink_info {.task_idx = 0,
+                                  .parent_profile = _helper.operator_profile.get(),
+                                  .sender_id = 0,
+                                  .shared_state = shared_state.get(),
+                                  .shared_state_map = {},
+                                  .tsink = TDataSink()};
+    st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
+    ASSERT_TRUE(st.ok());
+
+    auto* sink_local_state = reinterpret_cast<PartitionedAggSinkLocalState*>(
+            _helper.runtime_state->get_sink_local_state());
+    ASSERT_TRUE(sink_local_state != nullptr);
+    st = sink_local_state->open(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+
+    // Create data with many distinct values to test larger spill sizes
+    const size_t count = 10000;
+    std::vector<int32_t> data(count);
+    std::iota(data.begin(), data.end(), 0);
+    auto block = ColumnHelper::create_block<DataTypeInt32>(data);
+    block.insert(ColumnHelper::create_column_with_name<DataTypeInt32>(data));
+
+    st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
+    ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
+
+    st = sink_operator->revoke_memory(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
+    ASSERT_TRUE(shared_state->_is_spilled);
+
+    // Sink EOS
+    block.clear_column_data();
+    st = sink_operator->sink(_helper.runtime_state.get(), &block, true);
+    ASSERT_TRUE(st.ok());
+
+    // Now read back via source
+    LocalStateInfo info {.parent_profile = _helper.operator_profile.get(),
+                         .scan_ranges = {},
+                         .shared_state = shared_state.get(),
+                         .shared_state_map = {},
+                         .task_idx = 0};
+    st = source_operator->setup_local_state(_helper.runtime_state.get(), info);
+    ASSERT_TRUE(st.ok());
+
+    auto* local_state = reinterpret_cast<PartitionedAggLocalState*>(
+            _helper.runtime_state->get_local_state(source_operator->operator_id()));
+    ASSERT_TRUE(local_state != nullptr);
+    st = local_state->open(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+
+    block.clear();
+    bool eos = false;
+    size_t rows = 0;
+    while (!eos) {
+        st = source_operator->get_block(_helper.runtime_state.get(), &block, &eos);
+        ASSERT_TRUE(st.ok()) << "get_block failed: " << st.to_string();
+        rows += block.rows();
+        block.clear_column_data();
+    }
+
+    ASSERT_TRUE(eos);
+    // With GROUP BY, all distinct keys should come back
+    ASSERT_EQ(rows, count) << "Expected " << count << " distinct rows";
+
+    st = source_operator->close(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+}
+
+// Test multiple spill+recover cycles: sink → revoke → sink more → revoke → eos → source.
+TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithMultipleSpills) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+
+    const auto tnode = _helper.create_test_plan_node();
+    auto st = source_operator->init(tnode, _helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+    st = source_operator->prepare(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+
+    st = sink_operator->init(tnode, _helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+    st = sink_operator->prepare(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+
+    auto shared_state = std::dynamic_pointer_cast<PartitionedAggSharedState>(
+            sink_operator->create_shared_state());
+    shared_state->create_source_dependency(source_operator->operator_id(),
+                                           source_operator->node_id(), "PartitionedAggSinkTestDep");
+
+    LocalSinkStateInfo sink_info {.task_idx = 0,
+                                  .parent_profile = _helper.operator_profile.get(),
+                                  .sender_id = 0,
+                                  .shared_state = shared_state.get(),
+                                  .shared_state_map = {},
+                                  .tsink = TDataSink()};
+    st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
+    ASSERT_TRUE(st.ok());
+
+    auto* sink_local_state = reinterpret_cast<PartitionedAggSinkLocalState*>(
+            _helper.runtime_state->get_sink_local_state());
+    ASSERT_TRUE(sink_local_state != nullptr);
+    st = sink_local_state->open(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+
+    // Round 1: sink {1,2,3,4} → revoke
+    auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4});
+    block.insert(ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2, 3, 4}));
+    st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
+    ASSERT_TRUE(st.ok());
+    st = sink_operator->revoke_memory(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(shared_state->_is_spilled);
+
+    // Round 2: sink {5,6,7,8} → revoke
+    block = ColumnHelper::create_block<DataTypeInt32>({5, 6, 7, 8});
+    block.insert(ColumnHelper::create_column_with_name<DataTypeInt32>({5, 6, 7, 8}));
+    st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
+    ASSERT_TRUE(st.ok());
+    st = sink_operator->revoke_memory(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+
+    // Sink EOS
+    block.clear_column_data();
+    st = sink_operator->sink(_helper.runtime_state.get(), &block, true);
+    ASSERT_TRUE(st.ok());
+
+    // Read back via source
+    LocalStateInfo info {.parent_profile = _helper.operator_profile.get(),
+                         .scan_ranges = {},
+                         .shared_state = shared_state.get(),
+                         .shared_state_map = {},
+                         .task_idx = 0};
+    st = source_operator->setup_local_state(_helper.runtime_state.get(), info);
+    ASSERT_TRUE(st.ok());
+
+    auto* local_state = reinterpret_cast<PartitionedAggLocalState*>(
+            _helper.runtime_state->get_local_state(source_operator->operator_id()));
+    ASSERT_TRUE(local_state != nullptr);
+    st = local_state->open(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+
+    block.clear();
+    bool eos = false;
+    size_t rows = 0;
+    while (!eos) {
+        st = source_operator->get_block(_helper.runtime_state.get(), &block, &eos);
+        ASSERT_TRUE(st.ok()) << "get_block failed: " << st.to_string();
+        rows += block.rows();
+        block.clear_column_data();
+    }
+
+    ASSERT_TRUE(eos);
+    ASSERT_EQ(rows, 8) << "Should recover all 8 distinct rows from 2 spill rounds";
+
+    st = source_operator->close(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
 }
 } // namespace doris
