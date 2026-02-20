@@ -49,62 +49,66 @@ suite("test_mc_write_insert", "p2,external,maxcompute,external_remote,external_r
     sql """create database ${db}"""
     sql """use ${db}"""
 
-    // Test 1: Basic INSERT INTO with VALUES
-    String tb1 = "basic_insert_${uuid}"
-    sql """DROP TABLE IF EXISTS ${tb1}"""
-    sql """
-    CREATE TABLE ${tb1} (
-        id INT,
-        name STRING,
-        value DOUBLE
-    )
-    """
-    sql """
-    INSERT INTO ${tb1} VALUES
-        (1, 'Alice', 10.5),
-        (2, 'Bob', 20.3),
-        (3, 'Charlie', 30.7)
-    """
-    order_qt_basic_insert """ SELECT * FROM ${tb1} """
+    try {
+        // Test 1: Basic INSERT INTO with VALUES
+        String tb1 = "basic_insert_${uuid}"
+        sql """DROP TABLE IF EXISTS ${tb1}"""
+        sql """
+        CREATE TABLE ${tb1} (
+            id INT,
+            name STRING,
+            value DOUBLE
+        )
+        """
+        sql """
+        INSERT INTO ${tb1} VALUES
+            (1, 'Alice', 10.5),
+            (2, 'Bob', 20.3),
+            (3, 'Charlie', 30.7)
+        """
+        order_qt_basic_insert """ SELECT * FROM ${tb1} """
 
-    // Test 2: INSERT INTO with SELECT
-    String tb2 = "insert_select_${uuid}"
-    sql """DROP TABLE IF EXISTS ${tb2}"""
-    sql """
-    CREATE TABLE ${tb2} (
-        id INT,
-        name STRING,
-        value DOUBLE
-    )
-    """
-    sql """INSERT INTO ${tb2} SELECT * FROM ${tb1}"""
-    order_qt_insert_select """ SELECT * FROM ${tb2} """
+        // Test 2: INSERT INTO with SELECT
+        String tb2 = "insert_select_${uuid}"
+        sql """DROP TABLE IF EXISTS ${tb2}"""
+        sql """
+        CREATE TABLE ${tb2} (
+            id INT,
+            name STRING,
+            value DOUBLE
+        )
+        """
+        sql """INSERT INTO ${tb2} SELECT * FROM ${tb1}"""
+        order_qt_insert_select """ SELECT * FROM ${tb2} """
 
-    // Test 3: INSERT partial columns (unspecified columns should be NULL)
-    String tb3 = "partial_insert_${uuid}"
-    sql """DROP TABLE IF EXISTS ${tb3}"""
-    sql """
-    CREATE TABLE ${tb3} (
-        id INT,
-        name STRING,
-        value DOUBLE,
-        extra STRING
-    )
-    """
-    sql """INSERT INTO ${tb3} (id, name) VALUES (1, 'test1'), (2, 'test2')"""
-    order_qt_partial_insert """ SELECT * FROM ${tb3} """
+        // Test 3: INSERT partial columns (unspecified columns should be NULL)
+        String tb3 = "partial_insert_${uuid}"
+        sql """DROP TABLE IF EXISTS ${tb3}"""
+        sql """
+        CREATE TABLE ${tb3} (
+            id INT,
+            name STRING,
+            value DOUBLE,
+            extra STRING
+        )
+        """
+        sql """INSERT INTO ${tb3} (id, name) VALUES (1, 'test1'), (2, 'test2')"""
+        order_qt_partial_insert """ SELECT * FROM ${tb3} """
 
-    // Test 4: INSERT multiple batches and verify accumulation
-    String tb4 = "multi_batch_${uuid}"
-    sql """DROP TABLE IF EXISTS ${tb4}"""
-    sql """
-    CREATE TABLE ${tb4} (
-        id INT,
-        val STRING
-    )
-    """
-    sql """INSERT INTO ${tb4} VALUES (1, 'batch1')"""
-    sql """INSERT INTO ${tb4} VALUES (2, 'batch2')"""
-    sql """INSERT INTO ${tb4} VALUES (3, 'batch3')"""
-    order_qt_multi_batch """ SELECT * FROM ${tb4} """
+        // Test 4: INSERT multiple batches and verify accumulation
+        String tb4 = "multi_batch_${uuid}"
+        sql """DROP TABLE IF EXISTS ${tb4}"""
+        sql """
+        CREATE TABLE ${tb4} (
+            id INT,
+            val STRING
+        )
+        """
+        sql """INSERT INTO ${tb4} VALUES (1, 'batch1')"""
+        sql """INSERT INTO ${tb4} VALUES (2, 'batch2')"""
+        sql """INSERT INTO ${tb4} VALUES (3, 'batch3')"""
+        order_qt_multi_batch """ SELECT * FROM ${tb4} """
+    } finally {
+        sql """drop database if exists ${mc_catalog_name}.${db}"""
+    }
 }
