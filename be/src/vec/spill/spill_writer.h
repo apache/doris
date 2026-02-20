@@ -34,10 +34,10 @@ class SpillDataDir;
 class SpillWriter {
 public:
     SpillWriter(std::shared_ptr<ResourceContext> resource_context, RuntimeProfile* profile,
-                int64_t id, size_t batch_size, SpillDataDir* data_dir, const std::string& dir)
+                int64_t id, size_t batch_bytes, SpillDataDir* data_dir, const std::string& dir)
             : data_dir_(data_dir),
               stream_id_(id),
-              batch_size_(batch_size),
+              batch_bytes_(batch_bytes),
               _resource_ctx(std::move(resource_context)) {
         // Directory path format specified in SpillStreamManager::register_spill_stream:
         // storage_root/spill/query_id/partitioned_hash_join-node_id-task_id-stream_id/0
@@ -78,7 +78,7 @@ private:
     SpillDataDir* data_dir_ = nullptr;
     std::atomic_bool closed_ = false;
     int64_t stream_id_;
-    size_t batch_size_;
+    size_t batch_bytes_;
     size_t max_sub_block_size_ = 0;
     std::string file_path_;
     std::unique_ptr<doris::io::FileWriter> file_writer_;

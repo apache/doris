@@ -48,7 +48,7 @@ class MockPartitionedAggSharedState : public PartitionedAggSharedState {
     ENABLE_FACTORY_CREATOR(MockPartitionedAggSharedState);
 
 public:
-    MockPartitionedAggSharedState() { is_spilled = false; }
+    MockPartitionedAggSharedState() { _is_spilled = false; }
 };
 
 class MockPartitionedAggSinkLocalState : public PartitionedAggSinkLocalState {

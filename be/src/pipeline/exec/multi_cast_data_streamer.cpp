@@ -118,9 +118,9 @@ Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, vectoriz
             };
 
             l.unlock();
-            SpillRecoverRunnable spill_runnable(state, _source_operator_profiles[sender_idx],
-                                                catch_exception_func);
-            return spill_runnable.run();
+            // spill is synchronous; the profile passed to the runnable was only
+            // used for counters that are now tracked externally, so call helper
+            return run_spill_task(state, catch_exception_func);
         }
 
         auto& pos_to_pull = _sender_pos_to_read[sender_idx];
@@ -209,8 +209,7 @@ Status MultiCastDataStreamer::_trigger_spill_if_need(RuntimeState* state, bool* 
         if (has_reached_end) {
             RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
                     state, spill_stream, print_id(state->query_id()), "MultiCastSender", _node_id,
-                    std::numeric_limits<int32_t>::max(), std::numeric_limits<size_t>::max(),
-                    _sink_operator_profile));
+                    std::numeric_limits<size_t>::max(), _sink_operator_profile));
             for (int i = 0; i < _sender_pos_to_read.size(); ++i) {
                 if (distances[i] < total_count) {
                     auto reader = spill_stream->create_separate_reader();
@@ -258,7 +257,7 @@ Status MultiCastDataStreamer::_start_spill_task(RuntimeState* state,
         }
         VLOG_DEBUG << "Query: " << print_id(state->query_id()) << " multi cast write "
                    << blocks_count << " blocks";
-        return spill_stream->spill_eof();
+        return spill_stream->close();
     };
 
     auto exception_catch_func = [spill_func = std::move(spill_func),
@@ -277,7 +276,7 @@ Status MultiCastDataStreamer::_start_spill_task(RuntimeState* state,
         return status;
     };
 
-    return SpillSinkRunnable(state, nullptr, _sink_operator_profile, exception_catch_func).run();
+    return run_spill_task(state, exception_catch_func);
 }
 
 Status MultiCastDataStreamer::push(RuntimeState* state, doris::vectorized::Block* block, bool eos) {

@@ -195,7 +195,7 @@ PartitionedAggLocalState* PartitionedAggregationTestHelper::create_source_local_
     auto* local_state = local_state_uptr.get();
     shared_state = std::make_shared<MockPartitionedAggSharedState>();
     local_state->_shared_state = shared_state.get();
-    shared_state->is_spilled = true;
+    shared_state->_is_spilled = true;
 
     ADD_TIMER(local_state->common_profile(), "ExecTime");
     local_state->common_profile()->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 0);

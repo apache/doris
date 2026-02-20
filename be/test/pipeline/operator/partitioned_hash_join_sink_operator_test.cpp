@@ -132,10 +132,10 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, InitLocalState) {
 
     local_state->update_memory_usage();
 
-    shared_state->is_spilled = false;
+    shared_state->_is_spilled = false;
     auto reserve_size = local_state->get_reserve_mem_size(_helper.runtime_state.get(), false);
 
-    shared_state->is_spilled = true;
+    shared_state->_is_spilled = true;
     reserve_size = local_state->get_reserve_mem_size(_helper.runtime_state.get(), false);
     ASSERT_EQ(reserve_size,
               sink_operator->_partition_count * vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM);
@@ -143,7 +143,7 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, InitLocalState) {
     auto* finish_dep = local_state->finishdependency();
     ASSERT_TRUE(finish_dep != nullptr);
 
-    shared_state->is_spilled = false;
+    shared_state->_is_spilled = false;
 
     st = local_state->close(_helper.runtime_state.get(), Status::OK());
     ASSERT_TRUE(st) << "close failed: " << st.to_string();
@@ -202,7 +202,7 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, Sink) {
     auto read_dependency =
             Dependency::create_shared(sink_operator->operator_id(), sink_operator->node_id(),
                                       "HashJoinBuildReadDependency", false);
-    sink_local_state->_shared_state->is_spilled = false;
+    sink_local_state->_shared_state->_is_spilled = false;
 
     shared_state->source_deps.emplace_back(read_dependency);
 
@@ -254,7 +254,7 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, SinkEosAndSpill) {
     vectorized::Block block;
 
     // sink empty block
-    sink_local_state->_shared_state->is_spilled = false;
+    sink_local_state->_shared_state->_is_spilled = false;
     ASSERT_EQ(read_dependency->_ready.load(), false);
     st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
     ASSERT_TRUE(st.ok()) << "Sink failed: " << st.to_string();
@@ -265,7 +265,7 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, SinkEosAndSpill) {
     st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
     ASSERT_TRUE(st.ok()) << "Sink failed: " << st.to_string();
 
-    sink_local_state->_shared_state->is_spilled = true;
+    sink_local_state->_shared_state->_is_spilled = true;
     ASSERT_EQ(read_dependency->_ready.load(), false);
     st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
     ASSERT_TRUE(st.ok()) << "Sink failed: " << st.to_string();
@@ -288,11 +288,11 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemoryEmpty) {
     auto* sink_state = _helper.create_sink_local_state(_helper.runtime_state.get(),
                                                        sink_operator.get(), shared_state);
 
-    shared_state->is_spilled = false;
+    shared_state->_is_spilled = false;
     // Expect revoke memory to trigger spilling
     auto status = sink_state->revoke_memory(_helper.runtime_state.get(), nullptr);
     ASSERT_TRUE(status.ok()) << "Revoke memory failed: " << status.to_string();
-    ASSERT_TRUE(sink_state->_shared_state->is_spilled);
+    ASSERT_TRUE(sink_state->_shared_state->_is_spilled);
 }
 
 TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemory) {
@@ -317,24 +317,24 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemory) {
     status = partitioner->prepare(_helper.runtime_state.get(), sink_operator->_child->row_desc());
     ASSERT_TRUE(status.ok()) << "Prepare partitioner failed: " << status.to_string();
     sink_state->_partitioner = std::move(partitioner);
-    sink_state->_shared_state->is_spilled = false;
+    sink_state->_shared_state->_is_spilled = false;
 
     DCHECK_GE(sink_operator->_child->row_desc().get_column_id(1), 0);
 
     for (uint32_t i = 0; i != sink_operator->_partition_count; ++i) {
-        auto& spilling_stream = sink_state->_shared_state->spilled_streams[i];
+        auto& spilling_stream = sink_state->_shared_state->_spilled_streams[i];
         auto st = (ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
                 _helper.runtime_state.get(), spilling_stream,
                 print_id(_helper.runtime_state->query_id()), fmt::format("hash_build_sink_{}", i),
-                sink_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                std::numeric_limits<size_t>::max(), sink_state->operator_profile()));
+                sink_operator->node_id(), std::numeric_limits<size_t>::max(),
+                sink_state->operator_profile()));
         ASSERT_TRUE(st.ok()) << "Register spill stream failed: " << st.to_string();
     }
 
     auto& inner_sink = sink_operator->_inner_sink_operator;
 
     auto inner_sink_local_state = std::make_unique<MockHashJoinBuildSinkLocalState>(
-            inner_sink.get(), sink_state->_shared_state->inner_runtime_state.get());
+            inner_sink.get(), sink_state->_shared_state->_inner_runtime_state.get());
     inner_sink_local_state->_hash_table_memory_usage =
             sink_state->custom_profile()->add_counter("HashTableMemoryUsage", TUnit::BYTES);
     inner_sink_local_state->_build_arena_memory_usage =
@@ -344,7 +344,7 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemory) {
     ASSERT_EQ(block.rows(), 3);
     inner_sink_local_state->_build_side_mutable_block = std::move(block);
 
-    sink_state->_shared_state->inner_runtime_state->emplace_sink_local_state(
+    sink_state->_shared_state->_inner_runtime_state->emplace_sink_local_state(
             0, std::move(inner_sink_local_state));
 
     sink_state->_finish_dependency =
@@ -354,7 +354,7 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemory) {
     // Expect revoke memory to trigger spilling
     status = sink_state->revoke_memory(_helper.runtime_state.get(), nullptr);
     ASSERT_TRUE(status.ok()) << "Revoke memory failed: " << status.to_string();
-    ASSERT_TRUE(sink_state->_shared_state->is_spilled);
+    ASSERT_TRUE(sink_state->_shared_state->_is_spilled);
 
     std::cout << "profile: " << sink_state->operator_profile()->pretty_print() << std::endl;
 
@@ -367,7 +367,7 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemory) {
     vectorized::Block large_block =
             vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(large_data);
 
-    sink_state->_shared_state->partitioned_build_blocks[0] =
+    sink_state->_shared_state->_partitioned_build_blocks[0] =
             vectorized::MutableBlock::create_unique(std::move(large_block));
     status = sink_state->revoke_memory(_helper.runtime_state.get(), nullptr);
     ASSERT_TRUE(status.ok()) << "Revoke memory failed: " << status.to_string();

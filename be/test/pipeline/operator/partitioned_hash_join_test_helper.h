@@ -43,15 +43,15 @@ namespace doris::pipeline {
 class MockPartitionedHashJoinSharedState : public PartitionedHashJoinSharedState {
 public:
     MockPartitionedHashJoinSharedState() {
-        is_spilled = false;
-        inner_runtime_state = nullptr;
-        spilled_streams.clear();
-        partitioned_build_blocks.clear();
+        _is_spilled = false;
+        _inner_runtime_state = nullptr;
+        _spilled_streams.clear();
+        _partitioned_build_blocks.clear();
     }
 
     void init(size_t partition_count) {
-        spilled_streams.resize(partition_count);
-        partitioned_build_blocks.resize(partition_count);
+        _spilled_streams.resize(partition_count);
+        _partitioned_build_blocks.resize(partition_count);
     }
 };
 

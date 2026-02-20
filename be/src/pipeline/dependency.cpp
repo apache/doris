@@ -319,24 +319,9 @@ Status AggSharedState::reset_hash_table() {
 }
 
 void PartitionedAggSharedState::init_spill_params(size_t spill_partition_count) {
-    partition_count = spill_partition_count;
-    max_partition_index = partition_count - 1;
-
-    for (int i = 0; i < partition_count; ++i) {
-        spill_partitions.emplace_back(std::make_shared<AggSpillPartition>());
-    }
-}
-
-void PartitionedAggSharedState::update_spill_stream_profiles(RuntimeProfile* source_profile) {
-    for (auto& partition : spill_partitions) {
-        if (partition->spilling_stream_) {
-            partition->spilling_stream_->update_shared_profiles(source_profile);
-        }
-        for (auto& stream : partition->spill_streams_) {
-            if (stream) {
-                stream->update_shared_profiles(source_profile);
-            }
-        }
+    // create the expected number of spill partitions, but do not store the count
+    for (size_t i = 0; i < spill_partition_count; ++i) {
+        _spill_partitions.emplace_back(std::make_shared<AggSpillPartition>());
     }
 }
 
@@ -349,7 +334,7 @@ Status AggSpillPartition::get_spill_stream(RuntimeState* state, int node_id,
     }
     RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
             state, spilling_stream_, print_id(state->query_id()), "agg", node_id,
-            std::numeric_limits<int32_t>::max(), std::numeric_limits<size_t>::max(), profile));
+            std::numeric_limits<size_t>::max(), profile));
     spill_streams_.emplace_back(spilling_stream_);
     spill_stream = spilling_stream_;
     return Status::OK();
@@ -368,22 +353,14 @@ void PartitionedAggSharedState::close() {
     // need to use CAS instead of only `if (!is_closed)` statement,
     // to avoid concurrent entry of close() both pass the if statement
     bool false_close = false;
-    if (!is_closed.compare_exchange_strong(false_close, true)) {
+    if (!_is_closed.compare_exchange_strong(false_close, true)) {
         return;
     }
-    DCHECK(!false_close && is_closed);
-    for (auto partition : spill_partitions) {
+    DCHECK(!false_close && _is_closed);
+    for (auto partition : _spill_partitions) {
         partition->close();
     }
-    spill_partitions.clear();
-}
-
-void SpillSortSharedState::update_spill_stream_profiles(RuntimeProfile* source_profile) {
-    for (auto& stream : sorted_streams) {
-        if (stream) {
-            stream->update_shared_profiles(source_profile);
-        }
-    }
+    _spill_partitions.clear();
 }
 
 void SpillSortSharedState::close() {
@@ -403,8 +380,6 @@ void SpillSortSharedState::close() {
 MultiCastSharedState::MultiCastSharedState(ObjectPool* pool, int cast_sender_count, int node_id)
         : multi_cast_data_streamer(std::make_unique<pipeline::MultiCastDataStreamer>(
                   pool, cast_sender_count, node_id)) {}
-
-void MultiCastSharedState::update_spill_stream_profiles(RuntimeProfile* source_profile) {}
 
 int AggSharedState::get_slot_column_id(const vectorized::AggFnEvaluator* evaluator) {
     auto ctxs = evaluator->input_exprs_ctxs();

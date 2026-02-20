@@ -93,8 +93,6 @@ public:
             ADD_TIMER_WITH_LEVEL(source_common_profiles[i].get(), "ExecTime", 1);
             ADD_TIMER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillTotalTime", 1);
             ADD_TIMER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillRecoverTime", 1);
-            ADD_COUNTER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillReadTaskWaitInQueueCount",
-                                   TUnit::UNIT, 1);
             ADD_COUNTER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillReadTaskCount",
                                    TUnit::UNIT, 1);
             ADD_TIMER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillReadTaskWaitInQueueTime",

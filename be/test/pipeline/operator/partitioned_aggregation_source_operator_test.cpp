@@ -60,9 +60,9 @@ TEST_F(PartitionedAggregationSourceOperatorTest, Init) {
     std::shared_ptr<MockPartitionedAggSharedState> shared_state =
             MockPartitionedAggSharedState::create_shared();
 
-    shared_state->in_mem_shared_state_sptr = std::make_shared<AggSharedState>();
-    shared_state->in_mem_shared_state =
-            reinterpret_cast<AggSharedState*>(shared_state->in_mem_shared_state_sptr.get());
+    shared_state->_in_mem_shared_state_sptr = std::make_shared<AggSharedState>();
+    shared_state->_in_mem_shared_state =
+            reinterpret_cast<AggSharedState*>(shared_state->_in_mem_shared_state_sptr.get());
 
     LocalStateInfo info {
             .parent_profile = _helper.operator_profile.get(),

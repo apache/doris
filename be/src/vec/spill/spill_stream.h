@@ -39,8 +39,7 @@ public:
     static constexpr size_t MIN_SPILL_WRITE_BATCH_MEM = 32 * 1024;
     static constexpr size_t MAX_SPILL_WRITE_BATCH_MEM = 32 * 1024 * 1024;
     SpillStream(RuntimeState* state, int64_t stream_id, SpillDataDir* data_dir,
-                std::string spill_dir, size_t batch_rows, size_t batch_bytes,
-                RuntimeProfile* profile);
+                std::string spill_dir, size_t batch_bytes, RuntimeProfile* profile);
 
     SpillStream() = delete;
 
@@ -59,15 +58,16 @@ public:
 
     Status spill_block(RuntimeState* state, const Block& block, bool eof);
 
-    Status spill_eof();
+    // Finalizes the write side: flushes the file footer/meta, closes the underlying
+    // file writer, and marks the stream as ready for reading. Idempotent: safe to
+    // call even if the writer has already been closed (writer_ == nullptr).
+    Status close();
 
     Status read_next_block_sync(Block* block, bool* eos);
 
     void set_read_counters(RuntimeProfile* operator_profile) {
         reader_->set_counters(operator_profile);
     }
-
-    void update_shared_profiles(RuntimeProfile* source_op_profile);
 
     SpillReaderUPtr create_separate_reader() const;
 
@@ -88,7 +88,6 @@ private:
     // Directory path format specified in SpillStreamManager::register_spill_stream:
     // storage_root/spill/query_id/partitioned_hash_join-node_id-task_id-stream_id
     std::string spill_dir_;
-    size_t batch_rows_;
     size_t batch_bytes_;
     int64_t total_written_bytes_ = 0;
 
@@ -101,9 +100,7 @@ private:
     TUniqueId query_id_;
 
     RuntimeProfile* profile_ = nullptr;
-    RuntimeProfile::Counter* _current_file_count = nullptr;
     RuntimeProfile::Counter* _total_file_count = nullptr;
-    RuntimeProfile::Counter* _current_file_size = nullptr;
 };
 using SpillStreamSPtr = std::shared_ptr<SpillStream>;
 } // namespace vectorized

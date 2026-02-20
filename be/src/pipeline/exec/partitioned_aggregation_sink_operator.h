@@ -47,9 +47,7 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
 
-    Status revoke_memory(RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context);
-
-    Status _execute_spill_process(RuntimeState* state, size_t size_to_revoke);
+    Status revoke_memory(RuntimeState* state);
 
     Status setup_in_memory_agg_op(RuntimeState* state);
 
@@ -140,16 +138,15 @@ public:
     }
     size_t revocable_mem_size(RuntimeState* state) const override;
 
-    Status revoke_memory(RuntimeState* state,
-                         const std::shared_ptr<SpillContext>& spill_context) override;
+    Status revoke_memory(RuntimeState* state) override;
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
 private:
     friend class PartitionedAggSinkLocalState;
     std::unique_ptr<AggSinkOperatorX> _agg_sink_operator;
-
-    size_t _spill_partition_count = 32;
+    // each operator tracks its own partition count for spilling
+    size_t _partition_count = 32;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

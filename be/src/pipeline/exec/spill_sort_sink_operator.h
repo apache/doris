@@ -44,13 +44,13 @@ public:
 
     Status setup_in_memory_sort_op(RuntimeState* state);
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
-    Status revoke_memory(RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context);
+    Status revoke_memory(RuntimeState* state);
 
 private:
     void _init_counters();
     void update_profile(RuntimeProfile* child_profile);
 
-    Status _execute_spill_sort(RuntimeState* state, TUniqueId query_id);
+    Status _execute_spill_sort(RuntimeState* state);
 
     friend class SpillSortSinkOperatorX;
 
@@ -101,8 +101,7 @@ public:
 
     size_t revocable_mem_size(RuntimeState* state) const override;
 
-    Status revoke_memory(RuntimeState* state,
-                         const std::shared_ptr<SpillContext>& spill_context) override;
+    Status revoke_memory(RuntimeState* state) override;
 
     using DataSinkOperatorX<LocalStateType>::node_id;
     using DataSinkOperatorX<LocalStateType>::operator_id;

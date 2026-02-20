@@ -47,7 +47,7 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
-    Status revoke_memory(RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context);
+    Status revoke_memory(RuntimeState* state);
     size_t revocable_mem_size(RuntimeState* state) const;
     Status terminate(RuntimeState* state) override;
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
@@ -68,17 +68,14 @@ protected:
     Status _partition_block(RuntimeState* state, vectorized::Block* in_block, size_t begin,
                             size_t end);
 
-    Status _revoke_unpartitioned_block(RuntimeState* state,
-                                       const std::shared_ptr<SpillContext>& spill_context);
+    Status _revoke_unpartitioned_block(RuntimeState* state);
 
-    Status _execute_spill_unpartitioned_block(RuntimeState* state, vectorized::Block&& build_block);
+    Status _finish_spilling(RuntimeState* state);
+    // Flush any remaining partitioned in-memory blocks and close spill streams.
+    // Called after revoke operations to guarantee memory is cleared.
+    Status _force_flush_partitions(RuntimeState* state);
 
-    Status _finish_spilling();
-
-    Status _finish_spilling_callback(RuntimeState* state, TUniqueId query_id,
-                                     const std::shared_ptr<SpillContext>& spill_context);
-
-    Status _execute_spill_partitioned_blocks(RuntimeState* state, TUniqueId query_id);
+    Status _execute_spill_partitioned_blocks(RuntimeState* state);
 
     Status _setup_internal_operator(RuntimeState* state);
 
@@ -91,7 +88,6 @@ protected:
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
     std::shared_ptr<Dependency> _finish_dependency;
 
-    RuntimeProfile::Counter* _partition_timer = nullptr;
     RuntimeProfile::Counter* _partition_shuffle_timer = nullptr;
     RuntimeProfile::Counter* _spill_build_timer = nullptr;
     RuntimeProfile::Counter* _in_mem_rows_counter = nullptr;
@@ -102,8 +98,7 @@ class PartitionedHashJoinSinkOperatorX
         : public JoinBuildSinkOperatorX<PartitionedHashJoinSinkLocalState> {
 public:
     PartitionedHashJoinSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
-                                     const TPlanNode& tnode, const DescriptorTbl& descs,
-                                     uint32_t partition_count);
+                                     const TPlanNode& tnode, const DescriptorTbl& descs);
 
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
@@ -120,8 +115,7 @@ public:
 
     size_t revocable_mem_size(RuntimeState* state) const override;
 
-    Status revoke_memory(RuntimeState* state,
-                         const std::shared_ptr<SpillContext>& spill_context) override;
+    Status revoke_memory(RuntimeState* state) override;
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
@@ -176,7 +170,7 @@ private:
     const std::vector<TExpr> _distribution_partition_exprs;
     const TPlanNode _tnode;
     const DescriptorTbl _descriptor_tbl;
-    const uint32_t _partition_count;
+    uint32_t _partition_count;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
 };
 

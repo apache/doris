@@ -74,18 +74,53 @@ Status SpillWriter::write(RuntimeState* state, const Block& block, size_t& writt
     COUNTER_UPDATE(_write_rows_counter, rows);
     COUNTER_UPDATE(_write_block_bytes_counter, block.bytes());
     // file format: block1, block2, ..., blockn, meta
-    if (rows <= batch_size_) {
+    if (block.bytes() <= batch_bytes_) {
+        // If the entire block fits within the writer batch threshold, write it as-is.
         return _write_internal(block, written_bytes);
     } else {
-        auto tmp_block = block.clone_empty();
+        // If the block is larger than batch_bytes_, split it into smaller blocks to
+        // avoid creating an excessively large in-memory serialized buffer.
+        //
+        // Algorithm:
+        // 1) Estimate average bytes per row: avg_row_bytes = block.bytes() / rows.
+        // 2) Compute batch_rows = max(1, batch_bytes_ / avg_row_bytes) — the number of
+        //    rows to include in each smaller block so that the serialized size is
+        //    approximately <= batch_bytes_. This is only an estimate since serialization
+        //    and compression affect final size.
+        // 3) Iterate the source block, copying `batch_rows` rows into a temporary block
+        //    and call _write_internal() for each small block.
+        //
+        // Note: this reduces peak temporary memory and the size of intermediate
+        // protobuf buffers produced during serialization.
+
         const auto& src_data = block.get_columns_with_type_and_name();
 
+        if (rows == 0) {
+            // nothing to write
+            return Status::OK();
+        }
+
+        // estimate avg row size in bytes (use double for division accuracy)
+        double avg_row_bytes = static_cast<double>(block.bytes()) / static_cast<double>(rows);
+        size_t batch_rows = 0;
+        if (avg_row_bytes <= 0) {
+            batch_rows = std::min<size_t>(rows, 4096);
+        } else {
+            batch_rows = static_cast<size_t>(static_cast<double>(batch_bytes_) / avg_row_bytes);
+            if (batch_rows == 0) {
+                batch_rows = 1;
+            }
+            // To avoid the batch rows is too large
+            batch_rows = std::min<size_t>(batch_rows, 4096);
+        }
+
+        auto tmp_block = block.clone_empty();
         for (size_t row_idx = 0; row_idx < rows && !state->is_cancelled();) {
             tmp_block.clear_column_data();
 
             const auto& dst_data = tmp_block.get_columns_with_type_and_name();
 
-            size_t block_rows = std::min(rows - row_idx, batch_size_);
+            size_t block_rows = std::min(rows - row_idx, batch_rows);
             RETURN_IF_CATCH_EXCEPTION({
                 for (size_t col_idx = 0; col_idx < block.columns(); ++col_idx) {
                     dst_data[col_idx].column->assume_mutable()->insert_range_from(

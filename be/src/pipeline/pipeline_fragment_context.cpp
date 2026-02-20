@@ -1405,7 +1405,6 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         if (enable_spill && !is_broadcast_join) {
             auto tnode_ = tnode;
             tnode_.runtime_filters.clear();
-            uint32_t partition_count = _runtime_state->spill_hash_join_partition_count();
             auto inner_probe_operator =
                     std::make_shared<HashJoinProbeOperatorX>(pool, tnode_, 0, descs);
 
@@ -1418,7 +1417,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             RETURN_IF_ERROR(probe_side_inner_sink_operator->init(tnode_, _runtime_state.get()));
 
             auto probe_operator = std::make_shared<PartitionedHashJoinProbeOperatorX>(
-                    pool, tnode_, next_operator_id(), descs, partition_count);
+                    pool, tnode_, next_operator_id(), descs);
             probe_operator->set_inner_operators(probe_side_inner_sink_operator,
                                                 inner_probe_operator);
             op = std::move(probe_operator);
@@ -1434,8 +1433,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             auto inner_sink_operator =
                     std::make_shared<HashJoinBuildSinkOperatorX>(pool, 0, 0, tnode, descs);
             auto sink_operator = std::make_shared<PartitionedHashJoinSinkOperatorX>(
-                    pool, next_sink_operator_id(), op->operator_id(), tnode_, descs,
-                    partition_count);
+                    pool, next_sink_operator_id(), op->operator_id(), tnode_, descs);
             RETURN_IF_ERROR(inner_sink_operator->init(tnode, _runtime_state.get()));
 
             sink_operator->set_inner_operators(inner_sink_operator, inner_probe_operator);

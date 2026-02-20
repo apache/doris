@@ -220,7 +220,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
                 _helper.runtime_state.get(), spill_stream,
                 print_id(_helper.runtime_state->query_id()), sink_operator->get_name(),
                 sink_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                std::numeric_limits<int32_t>::max(), _helper.operator_profile.get());
+                _helper.operator_profile.get());
         ASSERT_TRUE(st.ok()) << "register_spill_stream failed: " << st.to_string();
 
         std::vector<int32_t> data;
@@ -295,6 +295,51 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
     ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();
 
     std::cout << "************** HERE WE GO!!!!!! **************" << std::endl;
+}
+
+// Verify that a normal revoke_memory invocation does not prematurely close the
+// shared state.  Closing is the responsibility of the sink/operator teardown
+// path, not the spill logic itself.
+TEST_F(SpillSortSourceOperatorTest, RevokeMemoryKeepsSharedStateOpen) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+
+    // prepare sink operator and shared state as in other tests
+    auto tnode = _helper.create_test_plan_node();
+    auto shared_state =
+            std::dynamic_pointer_cast<SpillSortSharedState>(sink_operator->create_shared_state());
+    ASSERT_TRUE(shared_state != nullptr);
+
+    // initialize sink
+    auto st = sink_operator->init(tnode, _helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "init failed: " << st.to_string();
+    st = sink_operator->prepare(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "prepare failed: " << st.to_string();
+
+    LocalSinkStateInfo sink_info {0, _helper.operator_profile.get(), -1, shared_state.get(), {},
+                                  {}};
+    st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
+    ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
+
+    auto* sink_local_state = _helper.runtime_state->get_sink_local_state();
+    DCHECK(sink_local_state != nullptr);
+
+    // open the local state to initialize in-memory sorter etc.
+    st = sink_local_state->open(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
+
+    // clear any closure flag before revoking memory
+    shared_state->is_closed = false;
+
+    // call revoke_memory with no data; should succeed and leave shared_state open
+    st = sink_local_state->revoke_memory(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
+    ASSERT_FALSE(shared_state->is_closed) << "shared state was closed by a successful revoke";
+
+    // cleanup
+    st = sink_local_state->close(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();
+    st = sink_operator->close(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();
 }
 
 // Same as `GetBlockWithSpill`, but with a different  `spill_sort_mem_limit` value.
