@@ -851,9 +851,9 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
     }
     {
         task->_operators.front()->cast<DummyOperator>()._revocable_mem_size =
-                SpillStream::MIN_SPILL_WRITE_BATCH_MEM + 1;
+                SpillFile::MIN_SPILL_WRITE_BATCH_MEM + 1;
         task->_sink->cast<DummySinkOperatorX>()._revocable_mem_size =
-                SpillStream::MIN_SPILL_WRITE_BATCH_MEM + 1;
+                SpillFile::MIN_SPILL_WRITE_BATCH_MEM + 1;
     }
     {
         // Reserve failed and but not enable spill disk, so that the query will continue to run.
@@ -1028,9 +1028,9 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL_SPILLABLE) {
     }
     {
         task->_operators.front()->cast<DummyOperator>()._revocable_mem_size =
-                SpillStream::MIN_SPILL_WRITE_BATCH_MEM + 1;
+                SpillFile::MIN_SPILL_WRITE_BATCH_MEM + 1;
         task->_sink->cast<DummySinkOperatorX>()._revocable_mem_size =
-                SpillStream::MIN_SPILL_WRITE_BATCH_MEM + 1;
+                SpillFile::MIN_SPILL_WRITE_BATCH_MEM + 1;
     }
     {
         // Reserve failed and enable spill disk, so that the query be paused.
