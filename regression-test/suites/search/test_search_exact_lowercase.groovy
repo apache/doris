@@ -18,6 +18,9 @@
 suite("test_search_exact_lowercase") {
     def tableName = "exact_lowercase_test"
 
+    // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.
+    sql """ set enable_common_expr_pushdown = true """
+
     sql "DROP TABLE IF EXISTS ${tableName}"
 
     // EXACT on mixed indexes: prefers untokenized, but untokenized index doesn't support lowercase
