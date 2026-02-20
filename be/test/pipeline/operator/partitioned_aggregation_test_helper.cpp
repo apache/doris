@@ -159,6 +159,10 @@ std::tuple<std::shared_ptr<PartitionedAggSourceOperatorX>,
            std::shared_ptr<PartitionedAggSinkOperatorX>>
 PartitionedAggregationTestHelper::create_operators() {
     TPlanNode tnode = create_test_plan_node();
+    TQueryOptions query_options = runtime_state->query_options();
+    query_options.__set_min_revocable_mem(0);
+    runtime_state->set_query_options(query_options);
+
     auto desc_tbl = runtime_state->desc_tbl();
 
     EXPECT_EQ(desc_tbl.get_tuple_descs().size(), 3);
@@ -195,13 +199,12 @@ PartitionedAggLocalState* PartitionedAggregationTestHelper::create_source_local_
     auto* local_state = local_state_uptr.get();
     shared_state = std::make_shared<MockPartitionedAggSharedState>();
     local_state->_shared_state = shared_state.get();
-    shared_state->is_spilled = true;
+    shared_state->_is_spilled = true;
 
     ADD_TIMER(local_state->common_profile(), "ExecTime");
     local_state->common_profile()->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 0);
     local_state->init_spill_read_counters();
     local_state->init_spill_write_counters();
-    local_state->_copy_shared_spill_profile = false;
     local_state->_internal_runtime_profile = std::make_unique<RuntimeProfile>("inner_test");
 
     state->emplace_local_state(probe_operator->operator_id(), std::move(local_state_uptr));
@@ -223,8 +226,6 @@ PartitionedAggSinkLocalState* PartitionedAggregationTestHelper::create_sink_loca
     local_state->_dependency = shared_state->create_sink_dependency(
             sink_operator->dests_id().front(), sink_operator->operator_id(),
             "PartitionedHashJoinTestDep");
-
-    shared_state->setup_shared_profile(local_state->custom_profile());
 
     state->emplace_sink_local_state(sink_operator->operator_id(), std::move(local_state_uptr));
     return local_state;

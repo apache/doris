@@ -21,6 +21,8 @@
 
 #include "common/status.h"
 #include "operator.h"
+#include "vec/spill/spill_file.h"
+#include "vec/spill/spill_file_reader.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -47,21 +49,21 @@ public:
 
     Status setup_in_memory_sort_op(RuntimeState* state);
 
-    Status initiate_merge_sort_spill_streams(RuntimeState* state);
+    Status execute_merge_sort_spill_files(RuntimeState* state);
 
 protected:
     int _calc_spill_blocks_to_merge(RuntimeState* state) const;
-    Status _create_intermediate_merger(int num_blocks,
+    Status _create_intermediate_merger(RuntimeState* state, int num_blocks,
                                        const vectorized::SortDescription& sort_description);
-
-    Status _execute_merge_sort_spill_streams(RuntimeState* state, TUniqueId query_id);
 
     friend class SpillSortSourceOperatorX;
     std::unique_ptr<RuntimeState> _runtime_state;
 
     bool _opened = false;
 
-    std::vector<vectorized::SpillStreamSPtr> _current_merging_streams;
+    std::vector<vectorized::SpillFileSPtr> _current_merging_files;
+    /// Readers held alive during merge; one per SpillFile, reads parts sequentially.
+    std::vector<vectorized::SpillFileReaderSPtr> _current_merging_readers;
     std::unique_ptr<vectorized::VSortedRunMerger> _merger;
 
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;

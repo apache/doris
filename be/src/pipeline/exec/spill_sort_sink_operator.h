@@ -21,6 +21,8 @@
 
 #include "operator.h"
 #include "sort_sink_operator.h"
+#include "vec/spill/spill_file.h"
+#include "vec/spill/spill_file_writer.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -44,13 +46,13 @@ public:
 
     Status setup_in_memory_sort_op(RuntimeState* state);
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
-    Status revoke_memory(RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context);
+    Status revoke_memory(RuntimeState* state);
 
 private:
     void _init_counters();
     void update_profile(RuntimeProfile* child_profile);
 
-    Status _execute_spill_sort(RuntimeState* state, TUniqueId query_id);
+    Status _execute_spill_sort(RuntimeState* state);
 
     friend class SpillSortSinkOperatorX;
 
@@ -59,7 +61,8 @@ private:
 
     RuntimeProfile::Counter* _spill_merge_sort_timer = nullptr;
 
-    vectorized::SpillStreamSPtr _spilling_stream;
+    vectorized::SpillFileSPtr _spilling_file;
+    vectorized::SpillFileWriterSPtr _spilling_writer;
 
     std::atomic<bool> _eos = false;
 };
@@ -101,8 +104,7 @@ public:
 
     size_t revocable_mem_size(RuntimeState* state) const override;
 
-    Status revoke_memory(RuntimeState* state,
-                         const std::shared_ptr<SpillContext>& spill_context) override;
+    Status revoke_memory(RuntimeState* state) override;
 
     using DataSinkOperatorX<LocalStateType>::node_id;
     using DataSinkOperatorX<LocalStateType>::operator_id;

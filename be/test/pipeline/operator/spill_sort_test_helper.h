@@ -39,7 +39,7 @@
 #include "testutil/mock/mock_runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
-#include "vec/spill/spill_stream_manager.h"
+#include "vec/spill/spill_file_manager.h"
 
 namespace doris::pipeline {
 

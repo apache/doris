@@ -118,8 +118,6 @@ TEST_F(SpillSortSourceOperatorTest, GetBlock) {
     auto* local_state = _helper.runtime_state->get_local_state(source_operator->operator_id());
     ASSERT_TRUE(local_state != nullptr);
 
-    shared_state->setup_shared_profile(_helper.operator_profile.get());
-
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
@@ -197,8 +195,6 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
             _helper.runtime_state->get_local_state(source_operator->operator_id()));
     ASSERT_TRUE(local_state != nullptr);
 
-    shared_state->setup_shared_profile(_helper.operator_profile.get());
-
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
@@ -215,13 +211,12 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
 
     // Prepare stored streams
     for (size_t i = 0; i != 4; ++i) {
-        vectorized::SpillStreamSPtr spill_stream;
-        st = ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
-                _helper.runtime_state.get(), spill_stream,
-                print_id(_helper.runtime_state->query_id()), sink_operator->get_name(),
-                sink_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                std::numeric_limits<int32_t>::max(), _helper.operator_profile.get());
-        ASSERT_TRUE(st.ok()) << "register_spill_stream failed: " << st.to_string();
+        vectorized::SpillFileSPtr spill_file;
+        auto relative_path = fmt::format("{}/{}-{}-{}", print_id(_helper.runtime_state->query_id()),
+                                         sink_operator->get_name(), sink_operator->node_id(),
+                                         ExecEnv::GetInstance()->spill_file_mgr()->next_id());
+        st = ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file(relative_path, spill_file);
+        ASSERT_TRUE(st.ok()) << "create_spill_file failed: " << st.to_string();
 
         std::vector<int32_t> data;
         std::vector<int64_t> data2;
@@ -236,10 +231,16 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
                 vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt64>(
                         data2));
 
-        st = spill_stream->spill_block(_helper.runtime_state.get(), input_block, true);
-        ASSERT_TRUE(st.ok()) << "spill_block failed: " << st.to_string();
+        vectorized::SpillFileWriterSPtr writer;
+        st = spill_file->create_writer(_helper.runtime_state.get(), _helper.operator_profile.get(),
+                                       writer);
+        ASSERT_TRUE(st.ok()) << "create_writer failed: " << st.to_string();
+        st = writer->write_block(_helper.runtime_state.get(), input_block);
+        ASSERT_TRUE(st.ok()) << "write_block failed: " << st.to_string();
+        st = writer->close();
+        ASSERT_TRUE(st.ok()) << "close writer failed: " << st.to_string();
 
-        shared_state->sorted_streams.emplace_back(std::move(spill_stream));
+        shared_state->sorted_spill_groups.emplace_back(std::move(spill_file));
     }
 
     std::unique_ptr<vectorized::MutableBlock> mutable_block;
@@ -262,7 +263,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
     }
 
     ASSERT_TRUE(eos);
-    ASSERT_TRUE(shared_state->sorted_streams.empty()) << "sorted_streams is not empty";
+    ASSERT_TRUE(shared_state->sorted_spill_groups.empty()) << "sorted_spill_groups is not empty";
     ASSERT_TRUE(mutable_block) << "mutable_block is null";
     ASSERT_EQ(mutable_block->rows(), 40);
     auto output_block = mutable_block->to_block();
@@ -295,6 +296,51 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
     ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();
 
     std::cout << "************** HERE WE GO!!!!!! **************" << std::endl;
+}
+
+// Verify that a normal revoke_memory invocation does not prematurely close the
+// shared state.  Closing is the responsibility of the sink/operator teardown
+// path, not the spill logic itself.
+TEST_F(SpillSortSourceOperatorTest, RevokeMemoryKeepsSharedStateOpen) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+
+    // prepare sink operator and shared state as in other tests
+    auto tnode = _helper.create_test_plan_node();
+    auto shared_state =
+            std::dynamic_pointer_cast<SpillSortSharedState>(sink_operator->create_shared_state());
+    ASSERT_TRUE(shared_state != nullptr);
+
+    // initialize sink
+    auto st = sink_operator->init(tnode, _helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "init failed: " << st.to_string();
+    st = sink_operator->prepare(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "prepare failed: " << st.to_string();
+
+    LocalSinkStateInfo sink_info {0, _helper.operator_profile.get(), -1, shared_state.get(), {},
+                                  {}};
+    st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
+    ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
+
+    auto* sink_local_state = _helper.runtime_state->get_sink_local_state();
+    DCHECK(sink_local_state != nullptr);
+
+    // open the local state to initialize in-memory sorter etc.
+    st = sink_local_state->open(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
+
+    // clear any closure flag before revoking memory
+    shared_state->is_closed = false;
+
+    // call revoke_memory with no data; should succeed and leave shared_state open
+    st = sink_operator->revoke_memory(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
+    ASSERT_FALSE(shared_state->is_closed) << "shared state was closed by a successful revoke";
+
+    // cleanup
+    st = sink_local_state->close(_helper.runtime_state.get(), Status::OK());
+    ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();
+    st = sink_operator->close(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();
 }
 
 // Same as `GetBlockWithSpill`, but with a different  `spill_sort_mem_limit` value.
@@ -343,8 +389,6 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill2) {
             _helper.runtime_state->get_local_state(source_operator->operator_id()));
     ASSERT_TRUE(local_state != nullptr);
 
-    shared_state->setup_shared_profile(_helper.operator_profile.get());
-
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
@@ -361,13 +405,12 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill2) {
 
     // Prepare stored streams
     for (size_t i = 0; i != 4; ++i) {
-        vectorized::SpillStreamSPtr spill_stream;
-        st = ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
-                _helper.runtime_state.get(), spill_stream,
-                print_id(_helper.runtime_state->query_id()), sink_operator->get_name(),
-                sink_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                std::numeric_limits<int32_t>::max(), _helper.operator_profile.get());
-        ASSERT_TRUE(st.ok()) << "register_spill_stream failed: " << st.to_string();
+        vectorized::SpillFileSPtr spill_file;
+        auto relative_path = fmt::format("{}/{}-{}-{}", print_id(_helper.runtime_state->query_id()),
+                                         sink_operator->get_name(), sink_operator->node_id(),
+                                         ExecEnv::GetInstance()->spill_file_mgr()->next_id());
+        st = ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file(relative_path, spill_file);
+        ASSERT_TRUE(st.ok()) << "create_spill_file failed: " << st.to_string();
 
         std::vector<int32_t> data;
         std::vector<int64_t> data2;
@@ -382,10 +425,16 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill2) {
                 vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt64>(
                         data2));
 
-        st = spill_stream->spill_block(_helper.runtime_state.get(), input_block, true);
-        ASSERT_TRUE(st.ok()) << "spill_block failed: " << st.to_string();
+        vectorized::SpillFileWriterSPtr writer;
+        st = spill_file->create_writer(_helper.runtime_state.get(), _helper.operator_profile.get(),
+                                       writer);
+        ASSERT_TRUE(st.ok()) << "create_writer failed: " << st.to_string();
+        st = writer->write_block(_helper.runtime_state.get(), input_block);
+        ASSERT_TRUE(st.ok()) << "write_block failed: " << st.to_string();
+        st = writer->close();
+        ASSERT_TRUE(st.ok()) << "close writer failed: " << st.to_string();
 
-        shared_state->sorted_streams.emplace_back(std::move(spill_stream));
+        shared_state->sorted_spill_groups.emplace_back(std::move(spill_file));
     }
 
     auto query_options = _helper.runtime_state->query_options();
@@ -412,7 +461,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill2) {
         }
     }
 
-    ASSERT_TRUE(shared_state->sorted_streams.empty()) << "sorted_streams is not empty";
+    ASSERT_TRUE(shared_state->sorted_spill_groups.empty()) << "sorted_spill_groups is not empty";
     ASSERT_TRUE(mutable_block) << "mutable_block is null";
     ASSERT_EQ(mutable_block->rows(), 40);
     auto output_block = mutable_block->to_block();
@@ -490,8 +539,6 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpillError) {
             _helper.runtime_state->get_local_state(source_operator->operator_id()));
     ASSERT_TRUE(local_state != nullptr);
 
-    shared_state->setup_shared_profile(_helper.operator_profile.get());
-
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
@@ -508,13 +555,12 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpillError) {
 
     // Prepare stored streams
     for (size_t i = 0; i != 4; ++i) {
-        vectorized::SpillStreamSPtr spill_stream;
-        st = ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
-                _helper.runtime_state.get(), spill_stream,
-                print_id(_helper.runtime_state->query_id()), sink_operator->get_name(),
-                sink_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                std::numeric_limits<int32_t>::max(), _helper.operator_profile.get());
-        ASSERT_TRUE(st.ok()) << "register_spill_stream failed: " << st.to_string();
+        vectorized::SpillFileSPtr spill_file;
+        auto relative_path = fmt::format("{}/{}-{}-{}", print_id(_helper.runtime_state->query_id()),
+                                         sink_operator->get_name(), sink_operator->node_id(),
+                                         ExecEnv::GetInstance()->spill_file_mgr()->next_id());
+        st = ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file(relative_path, spill_file);
+        ASSERT_TRUE(st.ok()) << "create_spill_file failed: " << st.to_string();
 
         std::vector<int32_t> data;
         std::vector<int64_t> data2;
@@ -529,13 +575,19 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpillError) {
                 vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt64>(
                         data2));
 
-        st = spill_stream->spill_block(_helper.runtime_state.get(), input_block, true);
-        ASSERT_TRUE(st.ok()) << "spill_block failed: " << st.to_string();
+        vectorized::SpillFileWriterSPtr writer;
+        st = spill_file->create_writer(_helper.runtime_state.get(), _helper.operator_profile.get(),
+                                       writer);
+        ASSERT_TRUE(st.ok()) << "create_writer failed: " << st.to_string();
+        st = writer->write_block(_helper.runtime_state.get(), input_block);
+        ASSERT_TRUE(st.ok()) << "write_block failed: " << st.to_string();
+        st = writer->close();
+        ASSERT_TRUE(st.ok()) << "close writer failed: " << st.to_string();
 
-        shared_state->sorted_streams.emplace_back(std::move(spill_stream));
+        shared_state->sorted_spill_groups.emplace_back(std::move(spill_file));
     }
 
-    SpillableDebugPointHelper dp_helper("fault_inject::spill_stream::read_next_block");
+    SpillableDebugPointHelper dp_helper("fault_inject::spill_file::read_next_block");
 
     std::unique_ptr<vectorized::MutableBlock> mutable_block;
     bool eos = false;
@@ -566,6 +618,246 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpillError) {
 
     st = source_operator->close(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();
+}
+
+// Test reading from a single spill file to verify minimal sorted output.
+TEST_F(SpillSortSourceOperatorTest, GetBlockWithSingleSpillFile) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+    ASSERT_TRUE(source_operator != nullptr);
+
+    auto tnode = _helper.create_test_plan_node();
+    auto st = source_operator->init(tnode, _helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "init failed: " << st.to_string();
+
+    st = source_operator->prepare(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "prepare failed: " << st.to_string();
+
+    auto shared_state =
+            std::dynamic_pointer_cast<SpillSortSharedState>(sink_operator->create_shared_state());
+    ASSERT_TRUE(shared_state != nullptr);
+
+    st = sink_operator->init(tnode, _helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "init failed: " << st.to_string();
+    st = sink_operator->prepare(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "prepare failed: " << st.to_string();
+
+    LocalSinkStateInfo sink_info {0, _helper.operator_profile.get(), -1, shared_state.get(), {},
+                                  {}};
+    st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
+    ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
+
+    auto* sink_local_state = _helper.runtime_state->get_sink_local_state();
+    DCHECK(sink_local_state != nullptr);
+    st = sink_local_state->open(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
+
+    LocalStateInfo info {.parent_profile = _helper.operator_profile.get(),
+                         .scan_ranges = {},
+                         .shared_state = shared_state.get(),
+                         .shared_state_map = {},
+                         .task_idx = 0};
+    st = source_operator->setup_local_state(_helper.runtime_state.get(), info);
+    ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
+
+    auto* local_state = reinterpret_cast<SpillSortLocalState*>(
+            _helper.runtime_state->get_local_state(source_operator->operator_id()));
+    ASSERT_TRUE(local_state != nullptr);
+    st = local_state->open(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
+
+    shared_state->is_spilled = true;
+
+    auto* sorter = shared_state->in_mem_shared_state->sorter.get();
+    sorter->_sort_description.resize(sorter->_vsort_exec_exprs.ordering_expr_ctxs().size());
+    for (int i = 0; i < sorter->_sort_description.size(); i++) {
+        sorter->_sort_description[i].column_number = i;
+        sorter->_sort_description[i].direction = 1;
+        sorter->_sort_description[i].nulls_direction = 1;
+    }
+
+    // Create a single spill file with descending data
+    {
+        vectorized::SpillFileSPtr spill_file;
+        auto relative_path = fmt::format("{}/{}-{}-{}", print_id(_helper.runtime_state->query_id()),
+                                         sink_operator->get_name(), sink_operator->node_id(),
+                                         ExecEnv::GetInstance()->spill_file_mgr()->next_id());
+        st = ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file(relative_path, spill_file);
+        ASSERT_TRUE(st.ok()) << "create_spill_file failed: " << st.to_string();
+
+        auto input_block =
+                vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({5, 4, 3, 2, 1});
+        input_block.insert(
+                vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt64>(
+                        {50, 40, 30, 20, 10}));
+
+        vectorized::SpillFileWriterSPtr writer;
+        st = spill_file->create_writer(_helper.runtime_state.get(), _helper.operator_profile.get(),
+                                       writer);
+        ASSERT_TRUE(st.ok());
+        st = writer->write_block(_helper.runtime_state.get(), input_block);
+        ASSERT_TRUE(st.ok());
+        st = writer->close();
+        ASSERT_TRUE(st.ok());
+
+        shared_state->sorted_spill_groups.emplace_back(std::move(spill_file));
+    }
+
+    // Read all blocks from source
+    std::unique_ptr<vectorized::MutableBlock> mutable_block;
+    bool eos = false;
+    while (!eos) {
+        vectorized::Block block;
+        shared_state->spill_block_batch_row_count = 100;
+        st = source_operator->get_block(_helper.runtime_state.get(), &block, &eos);
+        ASSERT_TRUE(st.ok()) << "get_block failed: " << st.to_string();
+        if (block.empty()) {
+            continue;
+        }
+        if (!mutable_block) {
+            mutable_block = vectorized::MutableBlock::create_unique(std::move(block));
+        } else {
+            st = mutable_block->merge(std::move(block));
+            ASSERT_TRUE(st.ok());
+        }
+    }
+
+    ASSERT_TRUE(eos);
+    ASSERT_TRUE(mutable_block) << "mutable_block is null";
+    ASSERT_EQ(mutable_block->rows(), 5);
+
+    auto output_block = mutable_block->to_block();
+    const auto& col1 = output_block.get_by_position(0).column;
+
+    // Verify sorted order (ascending)
+    for (size_t i = 1; i < col1->size(); ++i) {
+        ASSERT_GE(col1->get_int(i), col1->get_int(i - 1));
+    }
+
+    st = local_state->close(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+    st = source_operator->close(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+}
+
+// Test full pipeline: sink data → revoke → read back sorted from source.
+TEST_F(SpillSortSourceOperatorTest, EndToEndSinkAndSource) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+
+    auto tnode = _helper.create_test_plan_node();
+    auto shared_state =
+            std::dynamic_pointer_cast<SpillSortSharedState>(sink_operator->create_shared_state());
+    ASSERT_TRUE(shared_state != nullptr);
+
+    // Initialize and prepare both operators
+    auto st = sink_operator->init(tnode, _helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+    st = sink_operator->prepare(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+
+    st = source_operator->init(tnode, _helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+    st = source_operator->prepare(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+
+    shared_state->create_source_dependency(sink_operator->operator_id(), sink_operator->node_id(),
+                                           "SpillSortSinkOperatorTest");
+
+    // Setup sink local state
+    LocalSinkStateInfo sink_info {0, _helper.operator_profile.get(), -1, shared_state.get(), {},
+                                  {}};
+    st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
+    ASSERT_TRUE(st.ok());
+
+    auto* sink_local_state = reinterpret_cast<SpillSortSinkLocalState*>(
+            _helper.runtime_state->get_sink_local_state());
+    ASSERT_TRUE(sink_local_state != nullptr);
+    st = sink_local_state->open(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+
+    // Setup source local state
+    LocalStateInfo source_info {.parent_profile = _helper.operator_profile.get(),
+                                .scan_ranges = {},
+                                .shared_state = shared_state.get(),
+                                .shared_state_map = {},
+                                .task_idx = 0};
+    st = source_operator->setup_local_state(_helper.runtime_state.get(), source_info);
+    ASSERT_TRUE(st.ok());
+
+    auto* source_local_state = reinterpret_cast<SpillSortLocalState*>(
+            _helper.runtime_state->get_local_state(source_operator->operator_id()));
+    ASSERT_TRUE(source_local_state != nullptr);
+    st = source_local_state->open(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+
+    // Sink batch 1: {5,3,1,4,2} → revoke
+    auto block1 =
+            vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({5, 3, 1, 4, 2});
+    block1.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt64>(
+            {50, 30, 10, 40, 20}));
+    st = sink_operator->sink(_helper.runtime_state.get(), &block1, false);
+    ASSERT_TRUE(st.ok());
+    st = sink_operator->revoke_memory(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+
+    // Sink batch 2: {10,8,6,9,7} → revoke
+    auto block2 =
+            vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({10, 8, 6, 9, 7});
+    block2.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt64>(
+            {100, 80, 60, 90, 70}));
+    st = sink_operator->sink(_helper.runtime_state.get(), &block2, false);
+    ASSERT_TRUE(st.ok());
+
+    // Sink EOS (triggers final revoke since is_spilled)
+    vectorized::Block empty_block;
+    st = sink_operator->sink(_helper.runtime_state.get(), &empty_block, true);
+    ASSERT_TRUE(st.ok());
+
+    ASSERT_TRUE(shared_state->is_spilled);
+    ASSERT_GE(shared_state->sorted_spill_groups.size(), 2u);
+
+    // Read back from source
+    auto* sorter = shared_state->in_mem_shared_state->sorter.get();
+    sorter->_sort_description.resize(sorter->_vsort_exec_exprs.ordering_expr_ctxs().size());
+    for (int i = 0; i < sorter->_sort_description.size(); i++) {
+        sorter->_sort_description[i].column_number = i;
+        sorter->_sort_description[i].direction = 1;
+        sorter->_sort_description[i].nulls_direction = 1;
+    }
+
+    std::unique_ptr<vectorized::MutableBlock> mutable_block;
+    bool eos = false;
+    while (!eos) {
+        vectorized::Block block;
+        shared_state->spill_block_batch_row_count = 100;
+        st = source_operator->get_block(_helper.runtime_state.get(), &block, &eos);
+        ASSERT_TRUE(st.ok()) << "get_block failed: " << st.to_string();
+        if (block.empty()) continue;
+        if (!mutable_block) {
+            mutable_block = vectorized::MutableBlock::create_unique(std::move(block));
+        } else {
+            st = mutable_block->merge(std::move(block));
+            ASSERT_TRUE(st.ok());
+        }
+    }
+
+    ASSERT_TRUE(eos);
+    ASSERT_TRUE(mutable_block);
+    ASSERT_EQ(mutable_block->rows(), 10);
+
+    auto output_block = mutable_block->to_block();
+    const auto& col1 = output_block.get_by_position(0).column;
+
+    // Verify sorted order
+    for (size_t i = 1; i < col1->size(); ++i) {
+        ASSERT_GE(col1->get_int(i), col1->get_int(i - 1))
+                << "Not sorted at index " << i << ": " << col1->get_int(i - 1) << " > "
+                << col1->get_int(i);
+    }
+
+    st = source_local_state->close(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
+    st = source_operator->close(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok());
 }
 
 } // namespace doris::pipeline
