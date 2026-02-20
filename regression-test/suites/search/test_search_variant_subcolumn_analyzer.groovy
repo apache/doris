@@ -34,6 +34,11 @@ suite("test_search_variant_subcolumn_analyzer") {
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
+    // Pin doc_mode to false to prevent CI flakiness from fuzzy testing.
+    // When default_variant_enable_doc_mode=true (randomly set by fuzzy testing),
+    // variant subcolumns are stored in document mode, causing inverted index
+    // iterators to be unavailable in BE for search() evaluation.
+    sql """ set default_variant_enable_doc_mode = false """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 
