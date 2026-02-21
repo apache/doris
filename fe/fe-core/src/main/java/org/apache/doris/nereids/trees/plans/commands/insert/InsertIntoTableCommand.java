@@ -42,7 +42,10 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
+import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -83,11 +86,13 @@ import org.apache.doris.system.Backend;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
@@ -466,6 +471,22 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                 MCInsertCommandContext mcInsertCtx = insertCtx
                         .map(insertCommandContext -> (MCInsertCommandContext) insertCommandContext)
                         .orElseGet(MCInsertCommandContext::new);
+                if (mcInsertCtx.getStaticPartitionSpec() == null
+                        && originLogicalQuery instanceof UnboundMaxComputeTableSink) {
+                    UnboundMaxComputeTableSink<?> mcSink =
+                            (UnboundMaxComputeTableSink<?>) originLogicalQuery;
+                    if (mcSink.hasStaticPartition()) {
+                        Map<String, String> staticSpec = Maps.newHashMap();
+                        for (Map.Entry<String, Expression> e
+                                : mcSink.getStaticPartitionKeyValues().entrySet()) {
+                            if (e.getValue() instanceof Literal) {
+                                staticSpec.put(e.getKey(),
+                                        ((Literal) e.getValue()).getStringValue());
+                            }
+                        }
+                        mcInsertCtx.setStaticPartitionSpec(staticSpec);
+                    }
+                }
                 return ExecutorFactory.from(
                         planner,
                         dataSink,

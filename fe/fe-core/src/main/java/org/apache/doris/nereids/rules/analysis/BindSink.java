@@ -829,9 +829,16 @@ public class BindSink implements AnalysisRuleFactory {
         MaxComputeExternalTable table = pair.second;
         LogicalPlan child = ((LogicalPlan) sink.child());
 
+        Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
+        Set<String> staticPartitionColNames = staticPartitions != null
+                ? staticPartitions.keySet()
+                : Sets.newHashSet();
+
         List<Column> bindColumns;
         if (sink.getColNames().isEmpty()) {
-            bindColumns = table.getBaseSchema(true).stream().collect(ImmutableList.toImmutableList());
+            bindColumns = table.getBaseSchema(true).stream()
+                    .filter(col -> !staticPartitionColNames.contains(col.getName()))
+                    .collect(ImmutableList.toImmutableList());
         } else {
             bindColumns = sink.getColNames().stream().map(cn -> {
                 Column column = table.getColumn(cn);

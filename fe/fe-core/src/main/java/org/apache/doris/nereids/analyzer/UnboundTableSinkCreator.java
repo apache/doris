@@ -104,7 +104,7 @@ public class UnboundTableSinkCreator {
                     dmlCommandType, Optional.empty(), Optional.empty(), plan);
         } else if (curCatalog instanceof MaxComputeExternalCatalog) {
             return new UnboundMaxComputeTableSink<>(nameParts, colNames, hints, partitions,
-                    dmlCommandType, Optional.empty(), Optional.empty(), plan);
+                    dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
         }
         throw new RuntimeException("Load data to " + curCatalog.getClass().getSimpleName() + " is not supported.");
     }
@@ -145,7 +145,7 @@ public class UnboundTableSinkCreator {
                     dmlCommandType, Optional.empty(), Optional.empty(), plan);
         } else if (curCatalog instanceof MaxComputeExternalCatalog && !isAutoDetectPartition) {
             return new UnboundMaxComputeTableSink<>(nameParts, colNames, hints, partitions,
-                    dmlCommandType, Optional.empty(), Optional.empty(), plan);
+                    dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
         }
 
         throw new AnalysisException(

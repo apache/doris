@@ -364,16 +364,18 @@ public class InsertUtils {
         ImmutableList.Builder<List<NamedExpression>> optimizedRowConstructors
                 = ImmutableList.builderWithExpectedSize(unboundInlineTable.getConstantExprsList().size());
         List<Column> columns = table.getBaseSchema(false);
-        if (unboundLogicalSink instanceof UnboundIcebergTableSink
+        Map<String, Expression> staticPartitions = null;
+        if (unboundLogicalSink instanceof UnboundIcebergTableSink) {
+            staticPartitions = ((UnboundIcebergTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
+        } else if (unboundLogicalSink instanceof UnboundMaxComputeTableSink) {
+            staticPartitions = ((UnboundMaxComputeTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
+        }
+        if (staticPartitions != null && !staticPartitions.isEmpty()
                 && CollectionUtils.isEmpty(unboundLogicalSink.getColNames())) {
-            UnboundIcebergTableSink<?> icebergSink = (UnboundIcebergTableSink<?>) unboundLogicalSink;
-            Map<String, Expression> staticPartitions = icebergSink.getStaticPartitionKeyValues();
-            if (staticPartitions != null && !staticPartitions.isEmpty()) {
-                Set<String> staticPartitionColNames = staticPartitions.keySet();
-                columns = columns.stream()
-                        .filter(column -> !staticPartitionColNames.contains(column.getName()))
-                        .collect(ImmutableList.toImmutableList());
-            }
+            Set<String> staticPartitionColNames = staticPartitions.keySet();
+            columns = columns.stream()
+                    .filter(column -> !staticPartitionColNames.contains(column.getName()))
+                    .collect(ImmutableList.toImmutableList());
         }
 
         ConnectContext context = ConnectContext.get();

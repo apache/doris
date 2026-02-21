@@ -25,6 +25,7 @@ import java.util.Map;
 public class MCInsertCommandContext extends BaseExternalTableInsertCommandContext {
 
     private Map<String, String> staticPartitionSpec;
+    private boolean overwrite;
     private String sessionId;
     private long blockIdStart;
     private long blockIdCount;
@@ -39,6 +40,14 @@ public class MCInsertCommandContext extends BaseExternalTableInsertCommandContex
 
     public void setStaticPartitionSpec(Map<String, String> staticPartitionSpec) {
         this.staticPartitionSpec = staticPartitionSpec;
+    }
+
+    public boolean isOverwrite() {
+        return overwrite;
+    }
+
+    public void setOverwrite(boolean overwrite) {
+        this.overwrite = overwrite;
     }
 
     public String getSessionId() {

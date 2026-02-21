@@ -76,15 +76,20 @@ public class MCTransaction implements Transaction {
             boolean isStaticPartition = false;
             String staticPartitionSpecStr = null;
 
+            boolean isOverwrite = false;
             if (ctx.isPresent() && ctx.get() instanceof MCInsertCommandContext) {
                 MCInsertCommandContext mcCtx = (MCInsertCommandContext) ctx.get();
                 Map<String, String> staticSpec = mcCtx.getStaticPartitionSpec();
                 if (staticSpec != null && !staticSpec.isEmpty()) {
                     isStaticPartition = true;
-                    staticPartitionSpecStr = staticSpec.entrySet().stream()
-                            .map(e -> e.getKey() + "=" + e.getValue())
+                    // Must follow table's partition column order
+                    staticPartitionSpecStr = table.getPartitionColumns().stream()
+                            .map(col -> col.getName())
+                            .filter(staticSpec::containsKey)
+                            .map(name -> name + "=" + staticSpec.get(name))
                             .collect(Collectors.joining(","));
                 }
+                isOverwrite = mcCtx.isOverwrite();
             }
 
             TableWriteSessionBuilder builder = new TableWriteSessionBuilder()
@@ -99,6 +104,10 @@ public class MCTransaction implements Transaction {
                 builder.partition(new PartitionSpec(staticPartitionSpecStr));
             } else if (isDynamicPartition) {
                 builder.withDynamicPartitionOptions(DynamicPartitionOptions.createDefault());
+            }
+
+            if (isOverwrite) {
+                builder.overwrite(true);
             }
 
             TableBatchWriteSession writeSession = builder.buildBatchWriteSession();
