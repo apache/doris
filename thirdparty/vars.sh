@@ -440,10 +440,10 @@ SIMDJSON_SOURCE=simdjson-3.11.6
 SIMDJSON_MD5SUM="e7d9c814a4fdd6e47119ce5cf4240f4e"
 
 # nlohmann_json
-NLOHMANN_JSON_DOWNLOAD="https://github.com/nlohmann/json/archive/refs/tags/v3.10.1.tar.gz"
-NLOHMANN_JSON_NAME=json-3.10.1.tar.gz
-NLOHMANN_JSON_SOURCE=json-3.10.1
-NLOHMANN_JSON_MD5SUM="7b369d567afc0dffdcf5800fd9abb836"
+NLOHMANN_JSON_DOWNLOAD="https://github.com/nlohmann/json/archive/refs/tags/v3.11.3.tar.gz"
+NLOHMANN_JSON_NAME=json-3.11.3.tar.gz
+NLOHMANN_JSON_SOURCE=json-3.11.3
+NLOHMANN_JSON_MD5SUM="d603041cbc6051edbaa02ebb82cf0aa9"
 
 # libbacktrace
 LIBBACKTRACE_DOWNLOAD="https://codeload.github.com/ianlancetaylor/libbacktrace/zip/2446c66076480ce07a6bd868badcbceb3eeecc2e"
@@ -517,11 +517,35 @@ LIBUUID_NAME="libuuid-1.0.3.tar.gz"
 LIBUUID_SOURCE="libuuid-1.0.3"
 LIBUUID_MD5SUM="d44d866d06286c08ba0846aba1086d68"
 
-# ali - STS v2 SDK for AssumeRole
+# Alibaba Cloud SDK (old/existing)
 ALI_SDK_DOWNLOAD="https://github.com/aliyun/aliyun-openapi-cpp-sdk/archive/refs/tags/1.36.1586.tar.gz"
 ALI_SDK_NAME="1.36.1586.tar.gz"
 ALI_SDK_SOURCE="aliyun-openapi-cpp-sdk-1.36.1586"
 ALI_SDK_MD5SUM="14623ee8e87c89615477d9bf8cb30bea"
+
+# Alibaba Cloud STS SDK V2 - Component 1: tea-cpp (darabonba_core)
+TEA_CPP_DOWNLOAD="https://github.com/aliyun/tea-cpp/archive/b063160af903fe8385f98a95b77a4a8804e09816.tar.gz"
+TEA_CPP_NAME="tea-cpp-b063160.tar.gz"
+TEA_CPP_SOURCE="tea-cpp-b063160af903fe8385f98a95b77a4a8804e09816"
+TEA_CPP_MD5SUM="aeccc8ef5766f0001f81c6cee659776c"
+
+# Alibaba Cloud STS SDK V2 - Component 2: credentials-cpp
+CREDENTIALS_CPP_DOWNLOAD="https://github.com/aliyun/credentials-cpp/archive/f7584e1827b4672d237448f6c8fe348602edf1ae.tar.gz"
+CREDENTIALS_CPP_NAME="credentials-cpp-f7584e1.tar.gz"
+CREDENTIALS_CPP_SOURCE="credentials-cpp-f7584e1827b4672d237448f6c8fe348602edf1ae"
+CREDENTIALS_CPP_MD5SUM="9ece163713695d54aebabc73f388aef4"
+
+# Alibaba Cloud STS SDK V2 - Component 3: alibabacloud-open-api-v2
+OPENAPI_V2_DOWNLOAD="https://github.com/alibabacloud-sdk-cpp/alibabacloud-open-api-v2/archive/b915b2f8673e4c20aa88c3099f28c654128ee20d.tar.gz"
+OPENAPI_V2_NAME="alibabacloud-open-api-v2-b915b2f.tar.gz"
+OPENAPI_V2_SOURCE="alibabacloud-open-api-v2-b915b2f8673e4c20aa88c3099f28c654128ee20d"
+OPENAPI_V2_MD5SUM="7a1e3307f4b33c6e61810f2c06f74d11"
+
+# Alibaba Cloud STS SDK V2 - Component 4: sts-20150401 (v1.0.9)
+STS_20150401_DOWNLOAD="https://github.com/alibabacloud-sdk-cpp/sts-20150401/archive/refs/tags/1.0.9.tar.gz"
+STS_20150401_NAME="sts-20150401-1.0.9.tar.gz"
+STS_20150401_SOURCE="sts-20150401-1.0.9"
+STS_20150401_MD5SUM="ff8a75c6a8f83b8dd694cfa29171ffc7"
 
 # Apache Portable Runtime (APR) - Required by OSS SDK
 APR_DOWNLOAD="https://dlcdn.apache.org//apr/apr-1.7.6.tar.gz"
@@ -660,6 +684,10 @@ export TP_ARCHIVES=(
     'JSONCPP'
     'LIBUUID'
     'ALI_SDK'
+    'TEA_CPP'
+    'CREDENTIALS_CPP'
+    'OPENAPI_V2'
+    'STS_20150401'
     'OSS'
     'BASE64'
     'AZURE'

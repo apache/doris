@@ -146,6 +146,13 @@ endif()
 
 # Alibaba Cloud OSS SDK
 if(NOT BUILD_OSS STREQUAL "OFF")
+    # STS SDK V2 for AssumeRole (must be before OSS SDK)
+    add_thirdparty(darabonba_core)
+    add_thirdparty(alibabacloud_credentials)
+    add_thirdparty(alibabacloud_open_api_v2)
+    add_thirdparty(alibabacloud_sts20150401)
+
+    # OSS SDK
     add_thirdparty(alibabacloud-oss-cpp-sdk)
     add_thirdparty(apr)
     add_thirdparty(apr-util LIBNAME "lib/libaprutil-1.a")

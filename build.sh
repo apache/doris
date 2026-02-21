@@ -71,7 +71,7 @@ Usage: $0 <options>
     DISABLE_BE_JAVA_EXTENSIONS  If set DISABLE_BE_JAVA_EXTENSIONS=ON, we will do not build binary with java-udf,hadoop-hudi-scanner,jdbc-scanner and so on Default is OFF.
     DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
     DISABLE_BUILD_AZURE         If set DISABLE_BUILD_AZURE=ON, it will not build azure into BE.
-
+    DISABLE_BUILD_OSS           If set DISABLE_BUILD_OSS=ON, it will not build OSS SDK and STS SDK V2 into BE.
   Eg.
     $0                                      build all
     $0 --be                                 build Backend
@@ -186,6 +186,7 @@ PARAMETER_COUNT="$#"
 PARAMETER_FLAG=0
 DENABLE_CLANG_COVERAGE='OFF'
 BUILD_AZURE='ON'
+BUILD_OSS='ON'
 BUILD_UI=1
 if [[ "$#" == 1 ]]; then
     # default
@@ -495,6 +496,10 @@ if [[ "$(echo "${DISABLE_BUILD_JINDOFS}" | tr '[:lower:]' '[:upper:]')" == "ON" 
     BUILD_JINDOFS='OFF'
 else
     BUILD_JINDOFS='ON'
+fi
+
+if [[ -n "${DISABLE_BUILD_OSS}" ]]; then
+    BUILD_OSS='OFF'
 fi
 
 if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then

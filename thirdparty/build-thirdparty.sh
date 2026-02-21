@@ -1862,26 +1862,6 @@ build_libuuid() {
     make install
 }
 
-# ali_sdk
-build_ali_sdk() {
-    build_jsoncpp
-    build_libuuid
-    check_if_source_exist "${ALI_SDK_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${ALI_SDK_SOURCE}"
-    rm -rf "${BUILD_DIR}"
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
-
-    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
-        CXXFLAGS="-I${TP_INCLUDE_DIR}" \
-        LDFLAGS="-L${TP_LIB_DIR}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-        -DBUILD_PRODUCT=core -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
-        -DTP_INSTALL_DIR="${TP_INSTALL_DIR}" ..
-    "${BUILD_SYSTEM}" -j "${PARALLEL}"
-    "${BUILD_SYSTEM}" install
-}
-
 # Apache Portable Runtime (APR) - Required by OSS SDK
 build_apr() {
     # Check if already built
@@ -1944,6 +1924,36 @@ build_apr_util() {
     make install
 }
 
+# Alibaba Cloud SDK (old/existing - kept for compatibility)
+build_ali_sdk() {
+    if [[ "${BUILD_OSS}" == "OFF" ]]; then
+        echo "Skip build Alibaba Cloud SDK (old version)"
+        return
+    fi
+
+    check_if_source_exist "${ALI_SDK_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${ALI_SDK_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" \
+        -DCMAKE_C_COMPILER="${CC:-clang}" \
+        -DCMAKE_CXX_COMPILER="${CXX:-clang++}" \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}" \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DBUILD_SAMPLE=OFF \
+        -DBUILD_TESTS=OFF \
+        -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
+        -DCMAKE_CXX_FLAGS="-fvisibility=hidden -D_GLIBCXX_USE_CXX11_ABI=1" \
+        ..
+
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
 # AliCloud OSS C++ SDK 1.10.1 (V1 only - no V2 exists)
 build_oss() {
     if [[ "${BUILD_OSS}" == "OFF" ]]; then
@@ -1976,6 +1986,126 @@ build_oss() {
         "${BUILD_SYSTEM}" -j "${PARALLEL}"
         "${BUILD_SYSTEM}" install
     fi
+}
+
+# tea-cpp (darabonba_core) - Part of STS SDK V2 for OSS
+build_tea_cpp() {
+    if [[ "${BUILD_OSS}" == "OFF" ]]; then
+        echo "Skip build tea-cpp (STS SDK V2 disabled)"
+        return
+    fi
+
+    check_if_source_exist "${TEA_CPP_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${TEA_CPP_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" \
+        -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}" \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DOPENSSL_ROOT_DIR="${TP_INSTALL_DIR}" \
+        -DCURL_LIBRARY="${TP_LIB_DIR}/libcurl.a" \
+        -DCURL_INCLUDE_DIR="${TP_INCLUDE_DIR}" \
+        -DCMAKE_CXX_STANDARD=20 \
+        -DCMAKE_CXX_STANDARD_REQUIRED=ON \
+        ..
+
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
+# credentials-cpp - Part of STS SDK V2 for OSS
+build_credentials_cpp() {
+    if [[ "${BUILD_OSS}" == "OFF" ]]; then
+        echo "Skip build credentials-cpp (STS SDK V2 disabled)"
+        return
+    fi
+
+    check_if_source_exist "${CREDENTIALS_CPP_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${CREDENTIALS_CPP_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" \
+        -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}" \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DOPENSSL_ROOT_DIR="${TP_INSTALL_DIR}" \
+        -DCURL_LIBRARY="${TP_LIB_DIR}/libcurl.a" \
+        -DCURL_INCLUDE_DIR="${TP_INCLUDE_DIR}" \
+        -DCMAKE_CXX_STANDARD=20 \
+        -DCMAKE_CXX_STANDARD_REQUIRED=ON \
+        ..
+
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
+# alibabacloud-open-api-v2 - Part of STS SDK V2 for OSS
+build_openapi_v2() {
+    if [[ "${BUILD_OSS}" == "OFF" ]]; then
+        echo "Skip build alibabacloud-open-api-v2 (STS SDK V2 disabled)"
+        return
+    fi
+
+    check_if_source_exist "${OPENAPI_V2_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${OPENAPI_V2_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" \
+        -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}" \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DOPENSSL_ROOT_DIR="${TP_INSTALL_DIR}" \
+        -DCURL_LIBRARY="${TP_LIB_DIR}/libcurl.a" \
+        -DCURL_INCLUDE_DIR="${TP_INCLUDE_DIR}" \
+        -DCMAKE_CXX_STANDARD=20 \
+        -DCMAKE_CXX_STANDARD_REQUIRED=ON \
+        ..
+
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
+# sts-20150401 - Part of STS SDK V2 for OSS
+build_sts_20150401() {
+    if [[ "${BUILD_OSS}" == "OFF" ]]; then
+        echo "Skip build sts-20150401 (STS SDK V2 disabled)"
+        return
+    fi
+
+    check_if_source_exist "${STS_20150401_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${STS_20150401_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" \
+        -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}" \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DOPENSSL_ROOT_DIR="${TP_INSTALL_DIR}" \
+        -DCURL_LIBRARY="${TP_LIB_DIR}/libcurl.a" \
+        -DCURL_INCLUDE_DIR="${TP_INCLUDE_DIR}" \
+        -DCMAKE_CXX_STANDARD=20 \
+        -DCMAKE_CXX_STANDARD_REQUIRED=ON \
+        ..
+
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
 }
 
 # base64
@@ -2242,6 +2372,10 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         libdeflate
         streamvbyte
         ali_sdk
+        tea_cpp
+        credentials_cpp
+        openapi_v2
+        sts_20150401
         oss
         base64
         azure
