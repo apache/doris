@@ -94,8 +94,12 @@ public:
 
     // Copy constructor
     InvertedIndexResultBitmap(const InvertedIndexResultBitmap& other)
-            : _data_bitmap(std::make_shared<roaring::Roaring>(*other._data_bitmap)),
-              _null_bitmap(std::make_shared<roaring::Roaring>(*other._null_bitmap)) {}
+            : _data_bitmap(other._data_bitmap
+                                   ? std::make_shared<roaring::Roaring>(*other._data_bitmap)
+                                   : nullptr),
+              _null_bitmap(other._null_bitmap
+                                   ? std::make_shared<roaring::Roaring>(*other._null_bitmap)
+                                   : nullptr) {}
 
     // Move constructor
     InvertedIndexResultBitmap(InvertedIndexResultBitmap&& other) noexcept
@@ -105,8 +109,12 @@ public:
     // Copy assignment operator
     InvertedIndexResultBitmap& operator=(const InvertedIndexResultBitmap& other) {
         if (this != &other) { // Prevent self-assignment
-            _data_bitmap = std::make_shared<roaring::Roaring>(*other._data_bitmap);
-            _null_bitmap = std::make_shared<roaring::Roaring>(*other._null_bitmap);
+            _data_bitmap = other._data_bitmap
+                                   ? std::make_shared<roaring::Roaring>(*other._data_bitmap)
+                                   : nullptr;
+            _null_bitmap = other._null_bitmap
+                                   ? std::make_shared<roaring::Roaring>(*other._null_bitmap)
+                                   : nullptr;
         }
         return *this;
     }
