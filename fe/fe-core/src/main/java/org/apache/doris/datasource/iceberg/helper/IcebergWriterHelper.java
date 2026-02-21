@@ -19,32 +19,45 @@ package org.apache.doris.datasource.iceberg.helper;
 
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.statistics.CommonStatistics;
+import org.apache.doris.thrift.TIcebergColumnStats;
 import org.apache.doris.thrift.TIcebergCommitData;
 
 import com.google.common.base.VerifyException;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.Metrics;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.types.Types;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class IcebergWriterHelper {
+    private static final Logger LOG = LogManager.getLogger(IcebergWriterHelper.class);
 
     private static final int DEFAULT_FILE_COUNT = 1;
 
     public static WriteResult convertToWriterResult(
-            FileFormat format,
-            PartitionSpec spec,
+            Table table,
             List<TIcebergCommitData> commitDataList) {
         List<DataFile> dataFiles = new ArrayList<>();
+
+        // Get table specification information
+        PartitionSpec spec = table.spec();
+        FileFormat fileFormat = IcebergUtils.getFileFormat(table);
+
         for (TIcebergCommitData commitData : commitDataList) {
             //get the files path
             String location = commitData.getFilePath();
@@ -53,7 +66,7 @@ public class IcebergWriterHelper {
             long fileSize = commitData.getFileSize();
             long recordCount = commitData.getRowCount();
             CommonStatistics stat = new CommonStatistics(recordCount, DEFAULT_FILE_COUNT, fileSize);
-
+            Metrics metrics = buildDataFileMetrics(table, fileFormat, commitData);
             Optional<PartitionData> partitionData = Optional.empty();
             //get and check partitionValues when table is partitionedTable
             if (spec.isPartitioned()) {
@@ -67,7 +80,7 @@ public class IcebergWriterHelper {
                 // Convert human-readable partition values to PartitionData
                 partitionData = Optional.of(convertToPartitionData(partitionValues, spec));
             }
-            DataFile dataFile = genDataFile(format, location, spec, partitionData, stat);
+            DataFile dataFile = genDataFile(fileFormat, location, spec, partitionData, stat, metrics);
             dataFiles.add(dataFile);
         }
         return WriteResult.builder()
@@ -81,12 +94,13 @@ public class IcebergWriterHelper {
             String location,
             PartitionSpec spec,
             Optional<PartitionData> partitionData,
-            CommonStatistics statistics) {
+            CommonStatistics statistics, Metrics metrics) {
 
         DataFiles.Builder builder = DataFiles.builder(spec)
                 .withPath(location)
                 .withFileSizeInBytes(statistics.getTotalFileBytes())
                 .withRecordCount(statistics.getRowCount())
+                .withMetrics(metrics)
                 .withFormat(format);
 
         partitionData.ifPresent(builder::withPartition);
@@ -131,5 +145,34 @@ public class IcebergWriterHelper {
         }
 
         return partitionData;
+    }
+
+    private static Metrics buildDataFileMetrics(Table table, FileFormat fileFormat, TIcebergCommitData commitData) {
+        Map<Integer, Long> columnSizes = new HashMap<>();
+        Map<Integer, Long> valueCounts = new HashMap<>();
+        Map<Integer, Long> nullValueCounts = new HashMap<>();
+        Map<Integer, ByteBuffer> lowerBounds = new HashMap<>();
+        Map<Integer, ByteBuffer> upperBounds = new HashMap<>();
+        if (commitData.isSetColumnStats()) {
+            TIcebergColumnStats stats = commitData.column_stats;
+            if (stats.isSetColumnSizes()) {
+                columnSizes = stats.column_sizes;
+            }
+            if (stats.isSetValueCounts()) {
+                valueCounts = stats.value_counts;
+            }
+            if (stats.isSetNullValueCounts()) {
+                nullValueCounts = stats.null_value_counts;
+            }
+            if (stats.isSetLowerBounds()) {
+                lowerBounds = stats.lower_bounds;
+            }
+            if (stats.isSetUpperBounds()) {
+                upperBounds = stats.upper_bounds;
+            }
+        }
+
+        return new Metrics(commitData.getRowCount(), columnSizes, valueCounts,
+                nullValueCounts, null, lowerBounds, upperBounds);
     }
 }
