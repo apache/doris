@@ -36,6 +36,7 @@ suite("test_search_variant_wildcard", "p0") {
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_enable_doc_mode = false """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 
