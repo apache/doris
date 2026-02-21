@@ -18,6 +18,9 @@
 suite("test_search_boundary_cases") {
     def tableName = "search_boundary_test"
 
+    // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.
+    sql """ set enable_common_expr_pushdown = true """
+
     sql "DROP TABLE IF EXISTS ${tableName}"
 
     // Create test table for boundary and edge cases

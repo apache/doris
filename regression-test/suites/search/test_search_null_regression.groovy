@@ -18,6 +18,9 @@
 suite("test_search_null_regression") {
     def tableName = "search_null_regression_test"
 
+    // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.
+    sql """ set enable_common_expr_pushdown = true """
+
     sql "DROP TABLE IF EXISTS ${tableName}"
 
     // Create test table that reproduces the original bug scenarios

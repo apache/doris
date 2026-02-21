@@ -22,6 +22,9 @@
 suite("test_search_regexp_lowercase") {
     def tableName = "search_regexp_lowercase_test"
 
+    // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.
+    sql """ set enable_common_expr_pushdown = true """
+
     sql "DROP TABLE IF EXISTS ${tableName}"
 
     sql """

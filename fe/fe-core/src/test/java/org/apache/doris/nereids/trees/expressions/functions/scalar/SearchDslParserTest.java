@@ -1542,6 +1542,60 @@ public class SearchDslParserTest {
     }
 
     @Test
+    public void testMultiFieldExplicitFieldNotExpanded() {
+        // Bug #1: explicit field prefix (field:term) should NOT be expanded across fields,
+        // even when the field is in the fields list. Matches ES query_string behavior.
+        // "title:music AND content:history" → +title:music +content:history (no expansion)
+        String dsl = "title:music AND content:history";
+        String options = "{\"fields\":[\"title\",\"content\"],\"default_operator\":\"and\",\"mode\":\"lucene\",\"type\":\"best_fields\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        QsNode root = plan.getRoot();
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, root.getType());
+        Assertions.assertEquals(2, root.getChildren().size());
+
+        // First child: title:music - should be a TERM pinned to "title", NOT expanded
+        QsNode musicNode = root.getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.TERM, musicNode.getType());
+        Assertions.assertEquals("title", musicNode.getField());
+        Assertions.assertEquals("music", musicNode.getValue());
+
+        // Second child: content:history - should be a TERM pinned to "content", NOT expanded
+        QsNode historyNode = root.getChildren().get(1);
+        Assertions.assertEquals(QsClauseType.TERM, historyNode.getType());
+        Assertions.assertEquals("content", historyNode.getField());
+        Assertions.assertEquals("history", historyNode.getValue());
+    }
+
+    @Test
+    public void testMultiFieldMixedExplicitAndBareTerms() {
+        // "title:football AND american" → +title:football +(title:american | content:american)
+        // Explicit field pinned, bare term expanded
+        String dsl = "title:football AND american";
+        String options = "{\"fields\":[\"title\",\"content\"],\"default_operator\":\"and\",\"mode\":\"lucene\",\"type\":\"best_fields\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        QsNode root = plan.getRoot();
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, root.getType());
+        Assertions.assertEquals(2, root.getChildren().size());
+
+        // First child: title:football - pinned to "title"
+        QsNode footballNode = root.getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.TERM, footballNode.getType());
+        Assertions.assertEquals("title", footballNode.getField());
+        Assertions.assertEquals("football", footballNode.getValue());
+
+        // Second child: american - expanded across [title, content]
+        QsNode americanGroup = root.getChildren().get(1);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, americanGroup.getType());
+        Assertions.assertEquals(2, americanGroup.getChildren().size());
+        Assertions.assertEquals("title", americanGroup.getChildren().get(0).getField());
+        Assertions.assertEquals("content", americanGroup.getChildren().get(1).getField());
+    }
+
+    @Test
     public void testMultiFieldCrossFieldsLuceneMode() {
         // Test: cross_fields with Lucene mode
         String dsl = "hello world";
@@ -1962,8 +2016,273 @@ public class SearchDslParserTest {
         Assertions.assertTrue(hasMatchAll, "Should contain MATCH_ALL_DOCS node for '*'");
     }
 
-    // ============ Tests for MATCH_ALL_DOCS in multi-field mode ============
+    // ===== Field-Grouped Query Tests =====
+    @Test
+    public void testFieldGroupQuerySimpleOr() {
+        // title:(rock OR jazz) → OR(TERM(title,rock), TERM(title,jazz))
+        // ES semantics: field prefix applies to all terms inside parentheses
+        String dsl = "title:(rock OR jazz)";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
 
+        Assertions.assertNotNull(plan);
+        QsNode root = plan.getRoot();
+        Assertions.assertEquals(QsClauseType.OR, root.getType());
+        Assertions.assertEquals(2, root.getChildren().size());
+
+        QsNode child0 = root.getChildren().get(0);
+        QsNode child1 = root.getChildren().get(1);
+
+        Assertions.assertEquals(QsClauseType.TERM, child0.getType());
+        Assertions.assertEquals("title", child0.getField());
+        Assertions.assertEquals("rock", child0.getValue());
+        Assertions.assertTrue(child0.isExplicitField(), "term should be marked explicit");
+
+        Assertions.assertEquals(QsClauseType.TERM, child1.getType());
+        Assertions.assertEquals("title", child1.getField());
+        Assertions.assertEquals("jazz", child1.getValue());
+        Assertions.assertTrue(child1.isExplicitField(), "term should be marked explicit");
+
+        // Field bindings should include title
+        Assertions.assertEquals(1, plan.getFieldBindings().size());
+        Assertions.assertEquals("title", plan.getFieldBindings().get(0).getFieldName());
+    }
+
+    @Test
+    public void testFieldGroupQueryWithAndOperator() {
+        // title:(rock jazz) with default_operator:AND → AND(TERM(title,rock), TERM(title,jazz))
+        String dsl = "title:(rock jazz)";
+        String options = "{\"default_operator\":\"and\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        QsNode root = plan.getRoot();
+        Assertions.assertEquals(QsClauseType.AND, root.getType());
+        Assertions.assertEquals(2, root.getChildren().size());
+
+        for (QsNode child : root.getChildren()) {
+            Assertions.assertEquals(QsClauseType.TERM, child.getType());
+            Assertions.assertEquals("title", child.getField());
+            Assertions.assertTrue(child.isExplicitField(), "child should be marked explicit");
+        }
+        Assertions.assertEquals("rock", root.getChildren().get(0).getValue());
+        Assertions.assertEquals("jazz", root.getChildren().get(1).getValue());
+    }
+
+    @Test
+    public void testFieldGroupQueryWithPhrase() {
+        // title:("rock and roll" OR jazz) → OR(PHRASE(title,"rock and roll"), TERM(title,jazz))
+        String dsl = "title:(\"rock and roll\" OR jazz)";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        QsNode root = plan.getRoot();
+        Assertions.assertEquals(QsClauseType.OR, root.getType());
+        Assertions.assertEquals(2, root.getChildren().size());
+
+        QsNode phrase = root.getChildren().get(0);
+        QsNode term = root.getChildren().get(1);
+
+        Assertions.assertEquals(QsClauseType.PHRASE, phrase.getType());
+        Assertions.assertEquals("title", phrase.getField());
+        Assertions.assertEquals("rock and roll", phrase.getValue());
+        Assertions.assertTrue(phrase.isExplicitField());
+
+        Assertions.assertEquals(QsClauseType.TERM, term.getType());
+        Assertions.assertEquals("title", term.getField());
+        Assertions.assertEquals("jazz", term.getValue());
+        Assertions.assertTrue(term.isExplicitField());
+    }
+
+    @Test
+    public void testFieldGroupQueryWithWildcardAndRegexp() {
+        // title:(roc* OR /ja../) → OR(PREFIX(title,roc*), REGEXP(title,ja..))
+        String dsl = "title:(roc* OR /ja../)";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        QsNode root = plan.getRoot();
+        Assertions.assertEquals(QsClauseType.OR, root.getType());
+        Assertions.assertEquals(2, root.getChildren().size());
+
+        QsNode prefix = root.getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.PREFIX, prefix.getType());
+        Assertions.assertEquals("title", prefix.getField());
+        Assertions.assertTrue(prefix.isExplicitField());
+
+        QsNode regexp = root.getChildren().get(1);
+        Assertions.assertEquals(QsClauseType.REGEXP, regexp.getType());
+        Assertions.assertEquals("title", regexp.getField());
+        Assertions.assertEquals("ja..", regexp.getValue());
+        Assertions.assertTrue(regexp.isExplicitField());
+    }
+
+    @Test
+    public void testFieldGroupQueryCombinedWithBareQuery() {
+        // title:(rock OR jazz) AND music → combined query
+        // In standard mode with default_field=content: explicit title terms + expanded music
+        String dsl = "title:(rock OR jazz) AND music";
+        String options = "{\"default_field\":\"content\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        QsNode root = plan.getRoot();
+        // Root is AND
+        Assertions.assertEquals(QsClauseType.AND, root.getType());
+        Assertions.assertEquals(2, root.getChildren().size());
+
+        // First child is the OR group from title:(rock OR jazz)
+        QsNode orGroup = root.getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.OR, orGroup.getType());
+        Assertions.assertEquals(2, orGroup.getChildren().size());
+        for (QsNode child : orGroup.getChildren()) {
+            Assertions.assertEquals("title", child.getField());
+            Assertions.assertTrue(child.isExplicitField());
+        }
+
+        // Second child is bare "music" → uses default_field "content"
+        QsNode musicNode = root.getChildren().get(1);
+        Assertions.assertEquals(QsClauseType.TERM, musicNode.getType());
+        Assertions.assertEquals("content", musicNode.getField());
+        Assertions.assertFalse(musicNode.isExplicitField());
+    }
+
+    @Test
+    public void testFieldGroupQueryMultiFieldExplicitNotExpanded() {
+        // title:(rock OR jazz) with fields=[title,content] in cross_fields mode
+        // Explicit title:(rock OR jazz) should NOT be expanded to content
+        String dsl = "title:(rock OR jazz)";
+        String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"cross_fields\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        // Result should preserve title field for rock and jazz (not expand to content)
+        // We verify that "content" is not a field used in the plan
+        boolean hasContentBinding = plan.getFieldBindings().stream()
+                .anyMatch(b -> "content".equals(b.getFieldName()));
+        Assertions.assertFalse(hasContentBinding,
+                "Explicit title:(rock OR jazz) should not expand to content field");
+    }
+
+    @Test
+    public void testFieldGroupQueryLuceneMode() {
+        // title:(rock OR jazz) in lucene mode → OR(SHOULD(title:rock), SHOULD(title:jazz))
+        String dsl = "title:(rock OR jazz)";
+        String options = "{\"mode\":\"lucene\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        QsNode root = plan.getRoot();
+        Assertions.assertNotNull(root);
+
+        // In lucene mode, the inner clause should be an OCCUR_BOOLEAN with SHOULD children
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, root.getType());
+        Assertions.assertEquals(2, root.getChildren().size());
+
+        for (QsNode child : root.getChildren()) {
+            Assertions.assertEquals("title", child.getField());
+            Assertions.assertEquals(QsOccur.SHOULD, child.getOccur());
+        }
+    }
+
+    @Test
+    public void testFieldGroupQueryLuceneModeAndOperator() {
+        // title:(rock AND jazz) in lucene mode → OCCUR_BOOLEAN(MUST(title:rock), MUST(title:jazz))
+        String dsl = "title:(rock AND jazz)";
+        String options = "{\"mode\":\"lucene\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        QsNode root = plan.getRoot();
+        Assertions.assertNotNull(root);
+
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, root.getType());
+        Assertions.assertEquals(2, root.getChildren().size());
+
+        for (QsNode child : root.getChildren()) {
+            Assertions.assertEquals("title", child.getField());
+            Assertions.assertEquals(QsOccur.MUST, child.getOccur());
+        }
+    }
+
+    @Test
+    public void testFieldGroupQueryLuceneModeMultiField() {
+        // title:(rock OR jazz) AND music with fields=[title,content], mode=lucene
+        // title terms are explicit, music expands to both fields
+        String dsl = "title:(rock OR jazz) AND music";
+        String options = "{\"fields\":[\"title\",\"content\"],\"mode\":\"lucene\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertNotNull(plan.getRoot());
+        // Should parse without error and produce a plan
+        Assertions.assertFalse(plan.getFieldBindings().isEmpty());
+    }
+
+    @Test
+    public void testFieldGroupQuerySubcolumnPath() {
+        // attrs.color:(red OR blue) - field group with dot-notation path
+        String dsl = "attrs.color:(red OR blue)";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        QsNode root = plan.getRoot();
+        Assertions.assertEquals(QsClauseType.OR, root.getType());
+        Assertions.assertEquals(2, root.getChildren().size());
+
+        for (QsNode child : root.getChildren()) {
+            Assertions.assertEquals("attrs.color", child.getField());
+            Assertions.assertTrue(child.isExplicitField());
+        }
+    }
+
+    @Test
+    public void testFieldGroupQueryInnerExplicitFieldPreserved() {
+        // title:(content:foo OR bar) → content:foo stays pinned to "content", bar gets "title"
+        // Inner explicit field binding must NOT be overridden by outer group field
+        String dsl = "title:(content:foo OR bar)";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        QsNode root = plan.getRoot();
+        Assertions.assertEquals(QsClauseType.OR, root.getType());
+        Assertions.assertEquals(2, root.getChildren().size());
+
+        // First child: content:foo - should keep "content" (inner explicit binding)
+        QsNode fooNode = root.getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.TERM, fooNode.getType());
+        Assertions.assertEquals("content", fooNode.getField());
+        Assertions.assertEquals("foo", fooNode.getValue());
+        Assertions.assertTrue(fooNode.isExplicitField());
+
+        // Second child: bar - should get "title" (outer group field)
+        QsNode barNode = root.getChildren().get(1);
+        Assertions.assertEquals(QsClauseType.TERM, barNode.getType());
+        Assertions.assertEquals("title", barNode.getField());
+        Assertions.assertEquals("bar", barNode.getValue());
+        Assertions.assertTrue(barNode.isExplicitField());
+    }
+
+    @Test
+    public void testFieldGroupQueryNotOperatorInside() {
+        // title:(rock OR NOT jazz) → OR(title:rock, NOT(title:jazz))
+        String dsl = "title:(rock OR NOT jazz)";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        QsNode root = plan.getRoot();
+        Assertions.assertEquals(QsClauseType.OR, root.getType());
+        Assertions.assertEquals(2, root.getChildren().size());
+
+        QsNode rockNode = root.getChildren().get(0);
+        Assertions.assertEquals("title", rockNode.getField());
+        Assertions.assertEquals("rock", rockNode.getValue());
+        Assertions.assertTrue(rockNode.isExplicitField());
+
+        QsNode notNode = root.getChildren().get(1);
+        Assertions.assertEquals(QsClauseType.NOT, notNode.getType());
+    }
+
+    // ============ Tests for MATCH_ALL_DOCS in multi-field mode ============
     @Test
     public void testMultiFieldMatchAllDocsBestFieldsLuceneMode() {
         // Test: "*" with best_fields + lucene mode should produce MATCH_ALL_DOCS
