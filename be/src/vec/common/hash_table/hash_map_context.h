@@ -612,7 +612,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
                 }
             };
             auto foo = [&]<typename Fixed>(Fixed zero) {
-                if (reinterpret_cast<uintptr_t>(result_data + offset) % sizeof(T) == 0) {
+                if (reinterpret_cast<uintptr_t>(result_data + offset) % alignof(Fixed) == 0) {
                     goo.template operator()<Fixed, true>(zero);
                 } else {
                     goo.template operator()<Fixed, false>(zero);
