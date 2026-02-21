@@ -197,10 +197,6 @@ public:
                             FieldReaderResolver& resolver, inverted_index::query_v2::QueryPtr* out,
                             std::string* binding_key, const std::string& default_operator,
                             int32_t minimum_should_match) const;
-
-    Status collect_all_field_nulls(const TSearchClause& clause,
-                                   const std::unordered_map<std::string, IndexIterator*>& iterators,
-                                   std::shared_ptr<roaring::Roaring>& null_bitmap) const;
 };
 
 } // namespace doris::vectorized

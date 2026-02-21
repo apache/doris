@@ -322,8 +322,21 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
             if (dsl_cache->lookup(dsl_cache_key, &dsl_cache_handle)) {
                 auto cached_bitmap = dsl_cache_handle.get_bitmap();
                 if (cached_bitmap) {
-                    // Cached bitmap is already post-mask_out_null, so no null bitmap needed
-                    bitmap_result = InvertedIndexResultBitmap(cached_bitmap, nullptr);
+                    // Also retrieve cached null bitmap for three-valued SQL logic
+                    // (needed by compound operators NOT, OR, AND in VCompoundPred)
+                    auto null_cache_key = InvertedIndexQueryCache::CacheKey {
+                            seg_prefix, "__search_dsl__", InvertedIndexQueryType::SEARCH_DSL_QUERY,
+                            dsl_sig + "__null"};
+                    InvertedIndexQueryCacheHandle null_cache_handle;
+                    std::shared_ptr<roaring::Roaring> null_bitmap;
+                    if (dsl_cache->lookup(null_cache_key, &null_cache_handle)) {
+                        null_bitmap = null_cache_handle.get_bitmap();
+                    }
+                    if (!null_bitmap) {
+                        null_bitmap = std::make_shared<roaring::Roaring>();
+                    }
+                    bitmap_result =
+                            InvertedIndexResultBitmap(cached_bitmap, std::move(null_bitmap));
                     return Status::OK();
                 }
             }
@@ -448,9 +461,18 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
                << bitmap_result.get_data_bitmap()->cardinality();
 
     // Insert post-mask_out_null result into DSL cache for future reuse
+    // Cache both data bitmap and null bitmap so compound operators (NOT, OR, AND)
+    // can apply correct three-valued SQL logic on cache hit
     if (dsl_cache && cache_usable) {
         InvertedIndexQueryCacheHandle insert_handle;
         dsl_cache->insert(dsl_cache_key, bitmap_result.get_data_bitmap(), &insert_handle);
+        if (bitmap_result.get_null_bitmap()) {
+            auto null_cache_key = InvertedIndexQueryCache::CacheKey {
+                    seg_prefix, "__search_dsl__", InvertedIndexQueryType::SEARCH_DSL_QUERY,
+                    dsl_sig + "__null"};
+            InvertedIndexQueryCacheHandle null_insert_handle;
+            dsl_cache->insert(null_cache_key, bitmap_result.get_null_bitmap(), &null_insert_handle);
+        }
     }
 
     return Status::OK();
@@ -948,37 +970,6 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
 
     LOG(WARNING) << "search: Unexpected clause type '" << clause_type << "', using TERM fallback";
     *out = make_term_query(value_wstr);
-    return Status::OK();
-}
-
-Status FunctionSearch::collect_all_field_nulls(
-        const TSearchClause& clause,
-        const std::unordered_map<std::string, IndexIterator*>& iterators,
-        std::shared_ptr<roaring::Roaring>& null_bitmap) const {
-    // Recursively collect NULL bitmaps from all fields referenced in the query
-    if (clause.__isset.field_name) {
-        const std::string& field_name = clause.field_name;
-        auto it = iterators.find(field_name);
-        if (it != iterators.end() && it->second) {
-            auto has_null_result = it->second->has_null();
-            if (has_null_result.has_value() && has_null_result.value()) {
-                segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-                RETURN_IF_ERROR(it->second->read_null_bitmap(&null_bitmap_cache_handle));
-                auto field_null_bitmap = null_bitmap_cache_handle.get_bitmap();
-                if (field_null_bitmap) {
-                    *null_bitmap |= *field_null_bitmap;
-                }
-            }
-        }
-    }
-
-    // Recurse into child clauses
-    if (clause.__isset.children) {
-        for (const auto& child_clause : clause.children) {
-            RETURN_IF_ERROR(collect_all_field_nulls(child_clause, iterators, null_bitmap));
-        }
-    }
-
     return Status::OK();
 }
 

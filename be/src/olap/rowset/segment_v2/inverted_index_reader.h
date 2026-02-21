@@ -130,11 +130,15 @@ public:
 
     // Operator &=
     InvertedIndexResultBitmap& operator&=(const InvertedIndexResultBitmap& other) {
-        if (_data_bitmap && _null_bitmap && other._data_bitmap && other._null_bitmap) {
-            auto new_null_bitmap = (*_data_bitmap & *other._null_bitmap) |
-                                   (*_null_bitmap & *other._data_bitmap) |
-                                   (*_null_bitmap & *other._null_bitmap);
+        if (_data_bitmap && other._data_bitmap) {
+            const auto& my_null = _null_bitmap ? *_null_bitmap : _empty_bitmap();
+            const auto& ot_null = other._null_bitmap ? *other._null_bitmap : _empty_bitmap();
+            auto new_null_bitmap = (*_data_bitmap & ot_null) | (my_null & *other._data_bitmap) |
+                                   (my_null & ot_null);
             *_data_bitmap &= *other._data_bitmap;
+            if (!_null_bitmap) {
+                _null_bitmap = std::make_shared<roaring::Roaring>();
+            }
             *_null_bitmap = std::move(new_null_bitmap);
         }
         return *this;
@@ -142,7 +146,9 @@ public:
 
     // Operator |=
     InvertedIndexResultBitmap& operator|=(const InvertedIndexResultBitmap& other) {
-        if (_data_bitmap && _null_bitmap && other._data_bitmap && other._null_bitmap) {
+        if (_data_bitmap && other._data_bitmap) {
+            const auto& my_null = _null_bitmap ? *_null_bitmap : _empty_bitmap();
+            const auto& ot_null = other._null_bitmap ? *other._null_bitmap : _empty_bitmap();
             // SQL three-valued logic for OR:
             // - TRUE OR anything = TRUE (not NULL)
             // - FALSE OR NULL = NULL
@@ -150,9 +156,11 @@ public:
             // Result is NULL when the row is NULL on either side while the other side
             // is not TRUE. Rows that become TRUE must be removed from the NULL bitmap.
             *_data_bitmap |= *other._data_bitmap;
-            auto new_null_bitmap =
-                    (*_null_bitmap - *other._data_bitmap) | (*other._null_bitmap - *_data_bitmap);
+            auto new_null_bitmap = (my_null - *other._data_bitmap) | (ot_null - *_data_bitmap);
             new_null_bitmap -= *_data_bitmap;
+            if (!_null_bitmap) {
+                _null_bitmap = std::make_shared<roaring::Roaring>();
+            }
             *_null_bitmap = std::move(new_null_bitmap);
         }
         return *this;
@@ -160,8 +168,12 @@ public:
 
     // NOT operation
     const InvertedIndexResultBitmap& op_not(const roaring::Roaring* universe) const {
-        if (_data_bitmap && _null_bitmap) {
-            *_data_bitmap = *universe - *_data_bitmap - *_null_bitmap;
+        if (_data_bitmap) {
+            if (_null_bitmap) {
+                *_data_bitmap = *universe - *_data_bitmap - *_null_bitmap;
+            } else {
+                *_data_bitmap = *universe - *_data_bitmap;
+            }
             // The _null_bitmap remains unchanged.
         }
         return *this;
@@ -169,10 +181,14 @@ public:
 
     // Operator -=
     InvertedIndexResultBitmap& operator-=(const InvertedIndexResultBitmap& other) {
-        if (_data_bitmap && _null_bitmap && other._data_bitmap && other._null_bitmap) {
+        if (_data_bitmap && other._data_bitmap) {
             *_data_bitmap -= *other._data_bitmap;
-            *_data_bitmap -= *other._null_bitmap;
-            *_null_bitmap -= *other._null_bitmap;
+            if (other._null_bitmap) {
+                *_data_bitmap -= *other._null_bitmap;
+            }
+            if (_null_bitmap && other._null_bitmap) {
+                *_null_bitmap -= *other._null_bitmap;
+            }
         }
         return *this;
     }
@@ -189,6 +205,12 @@ public:
 
     // Check if both bitmaps are empty
     bool is_empty() const { return (_data_bitmap == nullptr && _null_bitmap == nullptr); }
+
+private:
+    static const roaring::Roaring& _empty_bitmap() {
+        static const roaring::Roaring empty;
+        return empty;
+    }
 };
 
 class InvertedIndexReader : public IndexReader {
