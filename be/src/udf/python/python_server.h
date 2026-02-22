@@ -55,20 +55,19 @@ public:
 private:
     /**
      * Start health check background thread (called once by ensure_pool_initialized)
-     * Thread periodically checks process health and recreates dead processes
+     * Thread periodically checks process health and refreshes memory stats
      */
     void _start_health_check_thread();
 
     /**
-     * Start memory monitor background thread
-     * Thread periodically reads /proc/{pid}/statm for each Python process
+     * Check process health and recreate dead processes
      */
-    void _start_memory_monitor_thread();
+    void _check_and_recreate_processes();
 
     /**
-     * Read memory information for a single process from /proc/{pid}/statm
+     * Read resident set size (RSS) for a single process from /proc/{pid}/statm
      */
-    Status _read_process_memory(pid_t pid, size_t* rss_bytes, size_t* vms_bytes);
+    Status _read_process_memory(pid_t pid, size_t* rss_bytes);
 
     /**
      * Refresh memory statistics for all Python processes
@@ -85,11 +84,6 @@ private:
     std::atomic<bool> _shutdown_flag {false};
     std::condition_variable _health_check_cv;
     std::mutex _health_check_mutex;
-
-    // Memory monitoring
-    std::unique_ptr<std::thread> _memory_monitor_thread;
-    std::condition_variable _memory_monitor_cv;
-    std::mutex _memory_monitor_mutex;
     MemTracker _mem_tracker {"PythonUDFProcesses"};
 };
 

@@ -111,7 +111,6 @@ Status PythonServerManager::ensure_pool_initialized(const PythonVersion& version
 
     _initialized_versions.insert(version);
     _start_health_check_thread();
-    _start_memory_monitor_thread();
 
     return Status::OK();
 }
@@ -193,7 +192,7 @@ Status PythonServerManager::fork(const PythonVersion& version, ProcessPtr* proce
 void PythonServerManager::_start_health_check_thread() {
     if (_health_check_thread) return;
 
-    LOG(INFO) << "Starting Python process health check thread (interval: 60 seconds)";
+    LOG(INFO) << "Starting Python process health check thread (interval: 30 seconds)";
 
     _health_check_thread = std::make_unique<std::thread>([this]() {
         // Health check loop
@@ -201,72 +200,70 @@ void PythonServerManager::_start_health_check_thread() {
             // Wait for interval or shutdown signal
             {
                 std::unique_lock<std::mutex> lock(_health_check_mutex);
-                _health_check_cv.wait_for(lock, std::chrono::seconds(60), [this]() {
+                _health_check_cv.wait_for(lock, std::chrono::seconds(30), [this]() {
                     return _shutdown_flag.load(std::memory_order_acquire);
                 });
             }
 
             if (_shutdown_flag.load(std::memory_order_acquire)) break;
 
-            std::lock_guard<std::mutex> lock(_pools_mutex);
-
-            int total_checked = 0;
-            int total_dead = 0;
-            int total_recreated = 0;
-
-            for (auto& [version, pool] : _process_pools) {
-                for (size_t i = 0; i < pool.size(); ++i) {
-                    auto& process = pool[i];
-                    if (!process) continue;
-
-                    total_checked++;
-                    if (!process->is_alive()) {
-                        total_dead++;
-                        LOG(WARNING)
-                                << "Detected dead Python process (pid=" << process->get_child_pid()
-                                << ", version=" << version.to_string() << "), recreating...";
-
-                        ProcessPtr new_process;
-                        Status s = fork(version, &new_process);
-                        if (s.ok()) {
-                            pool[i] = std::move(new_process);
-                            total_recreated++;
-                            LOG(INFO) << "Successfully recreated Python process for version "
-                                      << version.to_string();
-                        } else {
-                            LOG(ERROR) << "Failed to recreate Python process for version "
-                                       << version.to_string() << ": " << s.to_string();
-                            pool.erase(pool.begin() + i);
-                            --i;
-                        }
-                    }
-                }
-            }
-
-            if (total_dead > 0) {
-                LOG(INFO) << "Health check completed: checked=" << total_checked
-                          << ", dead=" << total_dead << ", recreated=" << total_recreated;
-            }
+            _check_and_recreate_processes();
+            _refresh_memory_stats();
         }
 
         LOG(INFO) << "Python process health check thread exiting";
     });
 }
 
+void PythonServerManager::_check_and_recreate_processes() {
+    std::lock_guard<std::mutex> lock(_pools_mutex);
+
+    int total_checked = 0;
+    int total_dead = 0;
+    int total_recreated = 0;
+
+    for (auto& [version, pool] : _process_pools) {
+        for (size_t i = 0; i < pool.size(); ++i) {
+            auto& process = pool[i];
+            if (!process) continue;
+
+            total_checked++;
+            if (!process->is_alive()) {
+                total_dead++;
+                LOG(WARNING) << "Detected dead Python process (pid=" << process->get_child_pid()
+                             << ", version=" << version.to_string() << "), recreating...";
+
+                ProcessPtr new_process;
+                Status s = fork(version, &new_process);
+                if (s.ok()) {
+                    pool[i] = std::move(new_process);
+                    total_recreated++;
+                    LOG(INFO) << "Successfully recreated Python process for version "
+                              << version.to_string();
+                } else {
+                    LOG(ERROR) << "Failed to recreate Python process for version "
+                               << version.to_string() << ": " << s.to_string();
+                    pool.erase(pool.begin() + i);
+                    --i;
+                }
+            }
+        }
+    }
+
+    if (total_dead > 0) {
+        LOG(INFO) << "Health check completed: checked=" << total_checked << ", dead=" << total_dead
+                  << ", recreated=" << total_recreated;
+    }
+}
+
 void PythonServerManager::shutdown() {
-    // Signal health check thread and memory monitor thread to stop
+    // Signal health check thread to stop
     _shutdown_flag.store(true, std::memory_order_release);
     _health_check_cv.notify_one();
-    _memory_monitor_cv.notify_one();
 
     if (_health_check_thread && _health_check_thread->joinable()) {
         _health_check_thread->join();
         _health_check_thread.reset();
-    }
-
-    if (_memory_monitor_thread && _memory_monitor_thread->joinable()) {
-        _memory_monitor_thread->join();
-        _memory_monitor_thread.reset();
     }
 
     // Shutdown all processes
@@ -281,29 +278,7 @@ void PythonServerManager::shutdown() {
     _process_pools.clear();
 }
 
-void PythonServerManager::_start_memory_monitor_thread() {
-    if (_memory_monitor_thread) return;
-
-    _memory_monitor_thread = std::make_unique<std::thread>([this]() {
-        while (!_shutdown_flag.load(std::memory_order_acquire)) {
-            // Wait for interval or shutdown signal
-            {
-                std::unique_lock<std::mutex> lock(_memory_monitor_mutex);
-                _memory_monitor_cv.wait_for(lock, std::chrono::seconds(15), [this]() {
-                    return _shutdown_flag.load(std::memory_order_acquire);
-                });
-            }
-
-            if (_shutdown_flag.load(std::memory_order_acquire)) break;
-
-            _refresh_memory_stats();
-        }
-
-        LOG(INFO) << "Python process memory monitor thread exiting";
-    });
-}
-
-Status PythonServerManager::_read_process_memory(pid_t pid, size_t* rss_bytes, size_t* vms_bytes) {
+Status PythonServerManager::_read_process_memory(pid_t pid, size_t* rss_bytes) {
     // Read from /proc/{pid}/statm
     // Format: size resident shared text lib data dt
     std::string statm_path = fmt::format("/proc/{}/statm", pid);
@@ -313,8 +288,9 @@ Status PythonServerManager::_read_process_memory(pid_t pid, size_t* rss_bytes, s
         return Status::InternalError("Cannot open {}", statm_path);
     }
 
-    size_t vms_pages = 0, rss_pages = 0;
-    statm_file >> vms_pages >> rss_pages;
+    size_t size_pages = 0, rss_pages = 0;
+    // we only care about RSS, read and ignore the total size field
+    statm_file >> size_pages >> rss_pages;
 
     if (statm_file.fail()) {
         return Status::InternalError("Failed to read {}", statm_path);
@@ -323,7 +299,6 @@ Status PythonServerManager::_read_process_memory(pid_t pid, size_t* rss_bytes, s
     // Convert pages to bytes
     long page_size = sysconf(_SC_PAGESIZE);
     *rss_bytes = rss_pages * page_size;
-    *vms_bytes = vms_pages * page_size;
 
     return Status::OK();
 }
@@ -337,8 +312,8 @@ void PythonServerManager::_refresh_memory_stats() {
         for (const auto& process : pool) {
             if (!process || !process->is_alive()) continue;
 
-            size_t rss_bytes = 0, vms_bytes = 0;
-            Status s = _read_process_memory(process->get_child_pid(), &rss_bytes, &vms_bytes);
+            size_t rss_bytes = 0;
+            Status s = _read_process_memory(process->get_child_pid(), &rss_bytes);
 
             if (s.ok()) {
                 total_rss += rss_bytes;
@@ -350,6 +325,12 @@ void PythonServerManager::_refresh_memory_stats() {
     }
     _mem_tracker.set_consumption(total_rss);
     LOG(INFO) << _mem_tracker.log_usage();
+
+    if (config::python_udf_processes_memory_limit_bytes > 0 &&
+        total_rss > config::python_udf_processes_memory_limit_bytes) {
+        LOG(WARNING) << "Python UDF process memory usage exceeds limit: rss_bytes=" << total_rss
+                     << ", limit_bytes=" << config::python_udf_processes_memory_limit_bytes;
+    }
 }
 
 // Explicit template instantiation for UDF, UDAF and UDTF clients
