@@ -17,6 +17,9 @@
 
 #include "viceberg_partition_writer.h"
 
+#include <memory>
+#include <sstream>
+
 #include "io/file_factory.h"
 #include "runtime/runtime_state.h"
 #include "vec/columns/column_map.h"
@@ -47,9 +50,9 @@ VIcebergPartitionWriter::VIcebergPartitionWriter(
           _compress_type(compress_type),
           _hadoop_conf(hadoop_conf) {}
 
-Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) {
+Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profile,
+                                     const RowDescriptor* row_desc) {
     _state = state;
-
     io::FSPropertiesRef fs_properties(_write_info.file_type);
     fs_properties.properties = &_hadoop_conf;
     if (!_write_info.broker_addresses.empty()) {
@@ -83,17 +86,19 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
                                          to_string(_compress_type));
         }
         }
-        ParquetFileOptions parquet_options = {parquet_compression_type,
-                                              TParquetVersion::PARQUET_1_0, false, false};
-        _file_format_transformer.reset(new VParquetTransformer(
+        ParquetFileOptions parquet_options = {.compression_type = parquet_compression_type,
+                                              .parquet_version = TParquetVersion::PARQUET_1_0,
+                                              .parquet_disable_dictionary = false,
+                                              .enable_int96_timestamps = false};
+        _file_format_transformer = std::make_unique<VParquetTransformer>(
                 state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names, false,
-                parquet_options, _iceberg_schema_json, &_schema));
+                parquet_options, _iceberg_schema_json, &_schema);
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_ORC: {
-        _file_format_transformer.reset(
-                new VOrcTransformer(state, _file_writer.get(), _write_output_expr_ctxs, "",
-                                    _write_column_names, false, _compress_type, &_schema));
+        _file_format_transformer = std::make_unique<VOrcTransformer>(
+                state, _file_writer.get(), _write_output_expr_ctxs, "", _write_column_names, false,
+                _compress_type, &_schema, _fs);
         return _file_format_transformer->open();
     }
     default: {
@@ -121,7 +126,8 @@ Status VIcebergPartitionWriter::close(const Status& status) {
         }
     }
     if (status_ok) {
-        auto commit_data = _build_iceberg_commit_data();
+        TIcebergCommitData commit_data;
+        RETURN_IF_ERROR(_build_iceberg_commit_data(&commit_data));
         _state->add_iceberg_commit_datas(commit_data);
     }
     return result_status;
@@ -133,16 +139,28 @@ Status VIcebergPartitionWriter::write(vectorized::Block& block) {
     return Status::OK();
 }
 
-TIcebergCommitData VIcebergPartitionWriter::_build_iceberg_commit_data() {
-    TIcebergCommitData iceberg_commit_data;
-    iceberg_commit_data.__set_file_path(
-            fmt::format("{}/{}", _write_info.original_write_path, _get_target_file_name()));
-    iceberg_commit_data.__set_row_count(_row_count);
+Status VIcebergPartitionWriter::_build_iceberg_commit_data(TIcebergCommitData* commit_data) {
+    DCHECK(commit_data != nullptr);
     DCHECK(_file_format_transformer != nullptr);
-    iceberg_commit_data.__set_file_size(_file_format_transformer->written_len());
-    iceberg_commit_data.__set_file_content(TFileContent::DATA);
-    iceberg_commit_data.__set_partition_values(_partition_values);
-    return iceberg_commit_data;
+
+    commit_data->__set_file_path(
+            fmt::format("{}/{}", _write_info.original_write_path, _get_target_file_name()));
+    commit_data->__set_row_count(_row_count);
+    commit_data->__set_file_size(_file_format_transformer->written_len());
+    commit_data->__set_file_content(TFileContent::DATA);
+    commit_data->__set_partition_values(_partition_values);
+    if (_file_format_type == TFileFormatType::FORMAT_PARQUET) {
+        TIcebergColumnStats column_stats;
+        RETURN_IF_ERROR(static_cast<VParquetTransformer*>(_file_format_transformer.get())
+                                ->collect_file_statistics_after_close(&column_stats));
+        commit_data->__set_column_stats(column_stats);
+    } else if (_file_format_type == TFileFormatType::FORMAT_ORC) {
+        TIcebergColumnStats column_stats;
+        RETURN_IF_ERROR(static_cast<VOrcTransformer*>(_file_format_transformer.get())
+                                ->collect_file_statistics_after_close(&column_stats));
+        commit_data->__set_column_stats(column_stats);
+    }
+    return Status::OK();
 }
 
 std::string VIcebergPartitionWriter::_get_file_extension(

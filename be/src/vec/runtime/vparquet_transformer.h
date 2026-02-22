@@ -111,6 +111,8 @@ public:
 
     int64_t written_len() override;
 
+    Status collect_file_statistics_after_close(TIcebergColumnStats* stats);
+
 private:
     Status _parse_properties();
     Status _parse_schema();
