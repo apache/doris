@@ -21,6 +21,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.ParamRules;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.collect.Maps;
@@ -340,16 +341,24 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     public void toFileIOProperties(List<StorageProperties> storagePropertiesList,
             Map<String, String> fileIOProperties, Configuration conf) {
 
+        AbstractS3CompatibleProperties s3Fallback = null;
+        AbstractS3CompatibleProperties s3Target = null;
         for (StorageProperties storageProperties : storagePropertiesList) {
             if (storageProperties instanceof AbstractS3CompatibleProperties) {
-                // For all S3-compatible storage types, put properties in fileIOProperties map
-                toS3FileIOProperties((AbstractS3CompatibleProperties) storageProperties, fileIOProperties);
+                if (s3Fallback == null) {
+                    s3Fallback = (AbstractS3CompatibleProperties) storageProperties;
+                }
+                if (s3Target == null && !(storageProperties instanceof S3Properties)) {
+                    s3Target = (AbstractS3CompatibleProperties) storageProperties;
+                }
             } else {
-                // For other storage types, just use fileIOProperties map
                 conf.addResource(storageProperties.getHadoopStorageConfig());
             }
         }
-
+        AbstractS3CompatibleProperties chosen = s3Target != null ? s3Target : s3Fallback;
+        if (chosen != null) {
+            toS3FileIOProperties(chosen, fileIOProperties);
+        }
     }
 
     /**
