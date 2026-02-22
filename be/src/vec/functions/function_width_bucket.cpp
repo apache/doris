@@ -68,8 +68,7 @@ public:
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
         ColumnPtr max_value_ptr =
                 block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
-        ColumnPtr num_buckets_ptr =
-                block.get_by_position(arguments[3]).column->convert_to_full_column_if_const();
+        ColumnPtr num_buckets_ptr = block.get_by_position(arguments[3]).column;
         int64_t num_buckets = num_buckets_ptr->get_int(0);
 
         if (num_buckets <= 0) {
