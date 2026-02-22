@@ -38,8 +38,8 @@ import java.util.Map;
 @Disabled("set your aliyun's access key, secret key before running the test")
 public class IcebergDlfRestCatalogTest {
 
-    private String ak = "ak";
-    private String sk = "sk";
+    private String ak = "";
+    private String sk = "";
 
     @Test
     public void testIcebergDlRestCatalog() {
@@ -73,7 +73,7 @@ public class IcebergDlfRestCatalogTest {
     private Catalog initIcebergDlfRestCatalog() {
         Map<String, String> options = Maps.newHashMap();
         options.put(CatalogUtil.ICEBERG_CATALOG_TYPE, CatalogUtil.ICEBERG_CATALOG_TYPE_REST);
-        options.put(CatalogProperties.URI, "http://cn-beijing.dlf.aliyuncs.com/iceberg");
+        options.put(CatalogProperties.URI, "http://cn-beijing-vpc.dlf.aliyuncs.com/iceberg");
         options.put(CatalogProperties.WAREHOUSE_LOCATION, "new_dlf_iceberg_catalog");
         // remove this endpoint prop, or, add https://
         // must set:
@@ -85,7 +85,7 @@ public class IcebergDlfRestCatalogTest {
         // software.amazon.awssdk.regions.providers.AwsProfileRegionProvider@2792b416: No region provided in profile:
         // default, software.amazon.awssdk.regions.providers.InstanceProfileRegionProvider@5cff6b74:
         // Unable to contact EC2 metadata service.]
-        options.put(AwsClientProperties.CLIENT_REGION, "cn-beijing");
+        // options.put(AwsClientProperties.CLIENT_REGION, "cn-beijing");
         // Forbidden: {"message":"Missing Authentication Token"}
         options.put("rest.sigv4-enabled", "true");
         // Forbidden: {"message":"Credential should be scoped to correct service: 'glue'. "}
@@ -97,7 +97,7 @@ public class IcebergDlfRestCatalogTest {
         options.put("rest.secret-access-key", sk);
         // same as AwsClientProperties.CLIENT_REGION, "ap-east-1"
         options.put("rest.signing-region", "cn-beijing");
-        options.put("rest.auth.type", "sigv4");
+        //options.put("rest.auth.type", "sigv4");
 
         // options.put("iceberg.catalog.warehouse", "<accountid>:s3tablescatalog/<table-bucket-name>");
         // 4. Build iceberg catalog

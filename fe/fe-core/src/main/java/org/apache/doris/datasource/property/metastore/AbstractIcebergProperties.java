@@ -114,7 +114,7 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
      * and deleting Iceberg tables.
      */
     public final Catalog initializeCatalog(String catalogName,
-                                                        List<StorageProperties> storagePropertiesList) {
+                                           List<StorageProperties> storagePropertiesList) {
         Map<String, String> catalogProps = new HashMap<>(getOrigProps());
         if (StringUtils.isNotBlank(warehouse)) {
             catalogProps.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
