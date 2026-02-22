@@ -341,6 +341,10 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     public void toFileIOProperties(List<StorageProperties> storagePropertiesList,
             Map<String, String> fileIOProperties, Configuration conf) {
 
+        // We only support one S3-compatible storage property for FileIO configuration.
+        // When multiple AbstractS3CompatibleProperties exist, prefer the first non-S3Properties one,
+        // because a non-S3 type (e.g. OSSProperties, COSProperties) indicates the user has explicitly
+        // specified a concrete S3-compatible storage, which should take priority over the generic S3Properties.
         AbstractS3CompatibleProperties s3Fallback = null;
         AbstractS3CompatibleProperties s3Target = null;
         for (StorageProperties storageProperties : storagePropertiesList) {
