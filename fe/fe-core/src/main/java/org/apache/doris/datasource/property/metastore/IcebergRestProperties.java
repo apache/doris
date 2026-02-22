@@ -306,6 +306,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     private void addGlueRestCatalogProperties() {
         if (Strings.isNotBlank(icebergRestSigningName)) {
+            // signing-name is case sensible, do not use lowercase()
             icebergRestCatalogProperties.put("rest.signing-name", icebergRestSigningName);
             icebergRestCatalogProperties.put("rest.sigv4-enabled", icebergRestSigV4Enabled);
             icebergRestCatalogProperties.put("rest.access-key-id", icebergRestAccessKeyId);
