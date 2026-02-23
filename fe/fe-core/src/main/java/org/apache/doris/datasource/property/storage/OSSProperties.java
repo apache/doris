@@ -179,6 +179,8 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     public static final String SESSION_TOKEN_KEY = "oss.session_token";
     public static final String ROOT_PATH_KEY = "oss.root.path";
     public static final String BUCKET_KEY = "bucket";
+    public static final String ROLE_ARN_KEY = "oss.role_arn";
+    public static final String EXTERNAL_ID_KEY = "oss.external_id";
 
     protected OSSProperties(Map<String, String> origProps) {
         super(Type.OSS, origProps);
@@ -477,12 +479,37 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
             builder.setBucket(bucket);
         }
 
-        // Credential Provider Type
-        // If no AK/SK provided, assume INSTANCE_PROFILE (ECS role)
-        if (StringUtils.isBlank(accessKey) || StringUtils.isBlank(secretKey)) {
+        // AssumeRole configuration - matches S3 pattern (lines 628-634 of S3Properties.java)
+        // When role_arn is present, automatically set INSTANCE_PROFILE as base credential provider
+        String roleArn = Stream.of(ROLE_ARN_KEY, "oss.role_arn", "s3.role_arn")
+                .map(properties::get)
+                .filter(StringUtils::isNotBlank)
+                .findFirst()
+                .orElse(null);
+
+        if (roleArn != null) {
+            builder.setRoleArn(roleArn);
+
+            // Set external_id if provided (for cross-account AssumeRole security)
+            String externalId = Stream.of(EXTERNAL_ID_KEY, "oss.external_id", "s3.external_id")
+                    .map(properties::get)
+                    .filter(StringUtils::isNotBlank)
+                    .findFirst()
+                    .orElse(null);
+            if (externalId != null) {
+                builder.setExternalId(externalId);
+            }
+
+            // When role_arn is present, use INSTANCE_PROFILE as base credentials for AssumeRole
+            // This matches S3 behavior: instance profile credentials → AssumeRole API → temporary credentials
             builder.setCredProviderType(Cloud.CredProviderTypePB.INSTANCE_PROFILE);
         } else {
-            builder.setCredProviderType(Cloud.CredProviderTypePB.SIMPLE);
+            // No role_arn: determine credential provider type based on whether AK/SK are provided
+            if (StringUtils.isBlank(accessKey) || StringUtils.isBlank(secretKey)) {
+                builder.setCredProviderType(Cloud.CredProviderTypePB.INSTANCE_PROFILE);
+            } else {
+                builder.setCredProviderType(Cloud.CredProviderTypePB.SIMPLE);
+            }
         }
 
         return builder;

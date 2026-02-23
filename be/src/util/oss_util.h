@@ -44,6 +44,8 @@ namespace doris {
 std::string hide_access_key(const std::string& ak);
 
 class ECSMetadataCredentialsProvider;
+class OSSSTSCredentialProvider;
+class OSSDefaultCredentialsProvider;
 
 namespace oss_bvar {
 extern bvar::LatencyRecorder oss_get_latency;
@@ -63,12 +65,14 @@ struct OSSClientConf {
     std::string sk;
     std::string token;
     std::string bucket;
+    std::string role_arn;      // For STS AssumeRole
+    std::string external_id;   // For STS AssumeRole (cross-account security)
 
     int max_connections = 100;
     int request_timeout_ms = 30000;
     int connect_timeout_ms = 10000;
 
-    OSSCredProviderType cred_provider_type = OSSCredProviderType::INSTANCE_PROFILE;
+    OSSCredProviderType cred_provider_type = OSSCredProviderType::DEFAULT;
 
     uint64_t get_hash() const {
         uint64_t hash_code = 0;
@@ -78,6 +82,8 @@ struct OSSClientConf {
         hash_code ^= crc32_hash(endpoint);
         hash_code ^= crc32_hash(region);
         hash_code ^= crc32_hash(bucket);
+        hash_code ^= crc32_hash(role_arn);
+        hash_code ^= crc32_hash(external_id);
         hash_code ^= max_connections;
         hash_code ^= request_timeout_ms;
         hash_code ^= connect_timeout_ms;
@@ -87,11 +93,11 @@ struct OSSClientConf {
 
     std::string to_string() const {
         return fmt::format(
-                "(ak={}, token={}, endpoint={}, region={}, bucket={}, max_connections={}, "
-                "request_timeout_ms={}, connect_timeout_ms={}, cred_provider_type={})",
+                "(ak={}, token={}, endpoint={}, region={}, bucket={}, role_arn={}, external_id={}, "
+                "max_connections={}, request_timeout_ms={}, connect_timeout_ms={}, cred_provider_type={})",
                 hide_access_key(ak), hide_access_key(token), endpoint, region, bucket,
-                max_connections, request_timeout_ms, connect_timeout_ms,
-                static_cast<int>(cred_provider_type));
+                role_arn, hide_access_key(external_id), max_connections, request_timeout_ms,
+                connect_timeout_ms, static_cast<int>(cred_provider_type));
     }
 };
 
@@ -129,7 +135,11 @@ private:
     std::mutex _lock;
     std::unordered_map<uint64_t, std::shared_ptr<AlibabaCloud::OSS::OssClient>> _cache;
     std::unordered_map<uint64_t, std::shared_ptr<ECSMetadataCredentialsProvider>>
-            _credential_providers;
+            _ecs_credential_providers;
+    std::unordered_map<uint64_t, std::shared_ptr<OSSSTSCredentialProvider>>
+            _sts_credential_providers;
+    std::unordered_map<uint64_t, std::shared_ptr<OSSDefaultCredentialsProvider>>
+            _default_credential_providers;
     std::string _ca_cert_file_path;
 };
 

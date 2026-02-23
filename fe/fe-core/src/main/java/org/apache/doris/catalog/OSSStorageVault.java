@@ -49,6 +49,8 @@ public class OSSStorageVault extends StorageVault {
             PropertyKey.ACCESS_KEY,
             PropertyKey.SECRET_KEY,
             PropertyKey.SESSION_TOKEN,
+            PropertyKey.ROLE_ARN,
+            PropertyKey.EXTERNAL_ID,
             PropertyKey.MAX_CONNECTIONS,
             PropertyKey.REQUEST_TIMEOUT_MS,
             PropertyKey.CONNECTION_TIMEOUT_MS
@@ -69,6 +71,10 @@ public class OSSStorageVault extends StorageVault {
         public static final String ACCESS_KEY = "oss.access_key";
         public static final String SECRET_KEY = "oss.secret_key";
         public static final String SESSION_TOKEN = "oss.session_token";
+
+        // AssumeRole configuration
+        public static final String ROLE_ARN = "oss.role_arn";
+        public static final String EXTERNAL_ID = "oss.external_id";
 
         // Connection configuration
         public static final String MAX_CONNECTIONS = "oss.connection.maximum";

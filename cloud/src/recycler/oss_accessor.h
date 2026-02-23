@@ -38,8 +38,10 @@ class Credentials;
 } // namespace AlibabaCloud
 
 namespace doris {
-// Forward declare credential provider
+// Forward declare credential providers
 class ECSMetadataCredentialsProvider;
+class OSSSTSCredentialProvider;
+class OSSDefaultCredentialsProvider;
 } // namespace doris
 
 namespace doris::cloud {
@@ -65,6 +67,10 @@ struct OSSConf {
     std::string access_key_id;
     std::string access_key_secret;
     std::string security_token;
+
+    // AssumeRole configuration (for cross-account or elevated permissions)
+    std::string role_arn;      // RAM role ARN to assume
+    std::string external_id;   // External ID for cross-account AssumeRole security
 
     OSSCredProviderType provider_type = OSSCredProviderType::INSTANCE_PROFILE;
 
@@ -152,6 +158,8 @@ protected:
 
     OSSConf conf_;
     std::shared_ptr<ECSMetadataCredentialsProvider> credentials_provider_;
+    std::shared_ptr<OSSSTSCredentialProvider> sts_credential_provider_;
+    std::shared_ptr<doris::OSSDefaultCredentialsProvider> default_credential_provider_;
     std::shared_ptr<AlibabaCloud::OSS::OssClient> oss_client_;
     mutable std::mutex client_mutex_;
     std::string _ca_cert_file_path;

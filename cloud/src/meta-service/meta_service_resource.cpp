@@ -688,10 +688,11 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
     if (obj->has_role_arn()) {
         if (obj->role_arn().empty() || !obj->has_cred_provider_type() ||
             obj->cred_provider_type() != CredProviderTypePB::INSTANCE_PROFILE ||
-            !obj->has_provider() || obj->provider() != ObjectStoreInfoPB::S3 || bucket.empty() ||
-            endpoint.empty() || region.empty()) {
+            !obj->has_provider() ||
+            (obj->provider() != ObjectStoreInfoPB::S3 && obj->provider() != ObjectStoreInfoPB::OSS) ||
+            bucket.empty() || endpoint.empty() || region.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "s3 conf info err with role_arn, please check it";
+            msg = "object storage conf info err with role_arn, please check it";
             return;
         }
     } else {
@@ -700,9 +701,12 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
                                     obj->cred_provider_type() == CredProviderTypePB::INSTANCE_PROFILE;
 
         if (!is_instance_profile) {
-            // For non-INSTANCE_PROFILE modes, ak/sk are required
+            // external_endpoint is required for S3 but not for OSS.
+            bool needs_external_endpoint = obj->has_provider() &&
+                                           obj->provider() != ObjectStoreInfoPB::OSS;
             if (plain_ak.empty() || plain_sk.empty() || bucket.empty() || endpoint.empty() ||
-                region.empty() || !obj->has_provider() || external_endpoint.empty()) {
+                region.empty() || !obj->has_provider() ||
+                (needs_external_endpoint && external_endpoint.empty())) {
                 code = MetaServiceCode::INVALID_ARGUMENT;
                 msg = "s3 conf info err, please check it";
                 return;
@@ -1380,9 +1384,10 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         if (!role_arn.empty()) {
             if (!obj.has_cred_provider_type() ||
                 obj.cred_provider_type() != CredProviderTypePB::INSTANCE_PROFILE ||
-                !obj.has_provider() || obj.provider() != ObjectStoreInfoPB::S3) {
+                !obj.has_provider() ||
+                (obj.provider() != ObjectStoreInfoPB::S3 && obj.provider() != ObjectStoreInfoPB::OSS)) {
                 code = MetaServiceCode::INVALID_ARGUMENT;
-                msg = "s3 conf info err with role_arn, please check it";
+                msg = "object storage conf info err with role_arn, please check it";
                 return;
             }
         }
@@ -1668,9 +1673,10 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
                         return;
                     }
 
-                    if (it.provider() != ObjectStoreInfoPB::S3) {
+                    if (it.provider() != ObjectStoreInfoPB::S3 &&
+                        it.provider() != ObjectStoreInfoPB::OSS) {
                         code = MetaServiceCode::INVALID_ARGUMENT;
-                        msg = "role_arn is only supported for s3 provider";
+                        msg = "role_arn is only supported for S3 and OSS providers";
                         LOG(INFO) << msg << " provider=" << it.provider();
                         return;
                     }

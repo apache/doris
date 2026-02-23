@@ -25,6 +25,7 @@ namespace doris {
 enum class OSSCredProviderType {
     SIMPLE = 0,           // Static AK/SK credentials
     INSTANCE_PROFILE = 1, // ECS instance profile (metadata service)
+    DEFAULT = 2,          // Default credential provider chain (matches S3)
 };
 
 // Normalize OSS endpoint by ensuring it has a scheme (http:// or https://)
