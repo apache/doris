@@ -4,22 +4,17 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecHash]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN shuffle] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[store_sales(ss)]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[web_sales(ws)]
-------------PhysicalProject
---------------PhysicalOlapScan[date_dim(dt)]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+----------hashAgg[GLOBAL]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------hashAgg[LOCAL]
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+------------------PhysicalOlapScan[store_sales(ss)]
+------------------PhysicalOlapScan[web_sales(ws)]
+----------PhysicalOlapScan[date_dim(dt)]
 
 Hint log:
-Used: leading({ ss ws } dt )
+Used: leading({ ss broadcast ws } broadcast dt )
 UnUsed:
 SyntaxError:
 
@@ -32,22 +27,17 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecHash]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN shuffle] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[store_sales(ss)]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[web_sales(ws)]
-------------PhysicalProject
---------------PhysicalOlapScan[date_dim(dt)]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+----------hashAgg[GLOBAL]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------hashAgg[LOCAL]
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+------------------PhysicalOlapScan[store_sales(ss)]
+------------------PhysicalOlapScan[web_sales(ws)]
+----------PhysicalOlapScan[date_dim(dt)]
 
 Hint log:
-Used: leading({ ss ws } dt )
+Used: leading({ ss broadcast ws } broadcast dt )
 UnUsed:
 SyntaxError:
 
@@ -60,22 +50,17 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecHash]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN shuffle] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[store_sales(ss)]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[web_sales(ws)]
-------------PhysicalProject
---------------PhysicalOlapScan[date_dim(dt)]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+----------hashAgg[GLOBAL]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------hashAgg[LOCAL]
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+------------------PhysicalOlapScan[store_sales(ss)]
+------------------PhysicalOlapScan[web_sales(ws)]
+----------PhysicalOlapScan[date_dim(dt)]
 
 Hint log:
-Used: leading({ ss ws } dt )
+Used: leading({ ss broadcast ws } broadcast dt )
 UnUsed:
 SyntaxError:
 
@@ -88,47 +73,37 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecHash]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN shuffle] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN shuffle] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[store_sales(ss)]
-----------------PhysicalProject
-------------------PhysicalOlapScan[web_sales(ws)]
-------------PhysicalProject
---------------PhysicalOlapScan[date_dim(dt)]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+------------PhysicalOlapScan[store_sales(ss)]
+------------PhysicalOlapScan[web_sales(ws)]
+----------PhysicalOlapScan[date_dim(dt)]
 
 Hint log:
-Used: leading({ ss ws } dt )
+Used: leading({ ss broadcast ws } broadcast dt )
 UnUsed:
 SyntaxError:
 
 -- !avg_exe --
-2025	25.0000
 2024	16.5000
+2025	25.0000
 
 -- !count_column --
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecHash]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN shuffle] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[store_sales(ss)]
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[web_sales(ws)]
-------------PhysicalProject
---------------PhysicalOlapScan[date_dim(dt)]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+------------PhysicalOlapScan[store_sales(ss)]
+------------hashAgg[GLOBAL]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------hashAgg[LOCAL]
+------------------PhysicalOlapScan[web_sales(ws)]
+----------PhysicalOlapScan[date_dim(dt)]
 
 Hint log:
-Used: leading({ ss ws } dt )
+Used: leading({ ss broadcast ws } broadcast dt )
 UnUsed:
 SyntaxError:
 
@@ -141,103 +116,63 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecHash]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN shuffle] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[store_sales(ss)]
-----------------PhysicalProject
-------------------PhysicalOlapScan[web_sales(ws)]
-------------PhysicalProject
---------------PhysicalOlapScan[date_dim(dt)]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+------------hashAgg[GLOBAL]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------hashAgg[LOCAL]
+------------------PhysicalOlapScan[store_sales(ss)]
+------------PhysicalOlapScan[web_sales(ws)]
+----------PhysicalOlapScan[date_dim(dt)]
 
 Hint log:
-Used: leading({ ss ws } dt )
+Used: leading({ ss broadcast ws } broadcast dt )
 UnUsed:
 SyntaxError:
 
 -- !count_star_exe --
-2025	2
 2024	4
-
--- !count_distinct --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecHash]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN shuffle] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN shuffle] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[store_sales(ss)]
-----------------PhysicalProject
-------------------PhysicalOlapScan[web_sales(ws)]
-------------PhysicalProject
---------------PhysicalOlapScan[date_dim(dt)]
-
-Hint log:
-Used: leading({ ss ws } dt )
-UnUsed:
-SyntaxError:
-
--- !count_distinct_exe --
-2024	2
-2025	1
+2025	2
 
 -- !count_sum_mixed --
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecHash]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN shuffle] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[store_sales(ss)]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[web_sales(ws)]
-------------PhysicalProject
---------------PhysicalOlapScan[date_dim(dt)]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+----------hashAgg[GLOBAL]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------hashAgg[LOCAL]
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+------------------PhysicalOlapScan[store_sales(ss)]
+------------------PhysicalOlapScan[web_sales(ws)]
+----------PhysicalOlapScan[date_dim(dt)]
 
 Hint log:
-Used: leading({ ss ws } dt )
+Used: leading({ ss broadcast ws } broadcast dt )
 UnUsed:
 SyntaxError:
 
 -- !count_sum_mixed_exe --
-2025	2	42.00
 2024	4	54.00
+2025	2	42.00
 
 -- !count_star_sum_mixed --
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecHash]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN shuffle] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[store_sales(ss)]
-----------------PhysicalProject
-------------------PhysicalOlapScan[web_sales(ws)]
-------------PhysicalProject
---------------PhysicalOlapScan[date_dim(dt)]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+------------hashAgg[GLOBAL]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------hashAgg[LOCAL]
+------------------PhysicalOlapScan[store_sales(ss)]
+------------PhysicalOlapScan[web_sales(ws)]
+----------PhysicalOlapScan[date_dim(dt)]
 
 Hint log:
-Used: leading({ ss ws } dt )
+Used: leading({ ss broadcast ws } broadcast dt )
 UnUsed:
 SyntaxError:
 
@@ -247,26 +182,20 @@ SyntaxError:
 
 -- !groupkey_push_SS_JOIN_D --
 PhysicalResultSink
---PhysicalProject
-----hashAgg[GLOBAL]
-------PhysicalDistribute[DistributionSpecHash]
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
---------------hashAgg[GLOBAL]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------hashAgg[LOCAL]
---------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN shuffle] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[store_sales(ss)]
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[date_dim(dt)]
---------------PhysicalProject
-----------------PhysicalOlapScan[web_sales(ws)]
+--hashAgg[GLOBAL]
+----PhysicalDistribute[DistributionSpecHash]
+------hashAgg[LOCAL]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+----------hashAgg[GLOBAL]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------hashAgg[LOCAL]
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+------------------PhysicalOlapScan[store_sales(ss)]
+------------------PhysicalOlapScan[date_dim(dt)]
+----------PhysicalOlapScan[web_sales(ws)]
 
 Hint log:
-Used: leading({ ss dt } ws )
+Used: leading({ ss broadcast dt } broadcast ws )
 UnUsed:
 SyntaxError:
 
@@ -279,26 +208,20 @@ SyntaxError:
 
 -- !groupkey_push --
 PhysicalResultSink
---PhysicalProject
-----hashAgg[GLOBAL]
-------PhysicalDistribute[DistributionSpecHash]
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------hashJoin[INNER_JOIN shuffle] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
-------------------hashAgg[GLOBAL]
---------------------PhysicalDistribute[DistributionSpecHash]
-----------------------hashAgg[LOCAL]
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[store_sales(ss)]
-------------------PhysicalProject
---------------------PhysicalOlapScan[date_dim(dt)]
---------------PhysicalProject
-----------------PhysicalOlapScan[web_sales(ws)]
+--hashAgg[GLOBAL]
+----PhysicalDistribute[DistributionSpecHash]
+------hashAgg[LOCAL]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+------------hashAgg[GLOBAL]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------hashAgg[LOCAL]
+------------------PhysicalOlapScan[store_sales(ss)]
+------------PhysicalOlapScan[date_dim(dt)]
+----------PhysicalOlapScan[web_sales(ws)]
 
 Hint log:
-Used: leading({ ss dt } ws )
+Used: leading({ ss broadcast dt } broadcast ws )
 UnUsed:
 SyntaxError:
 
@@ -310,26 +233,20 @@ SyntaxError:
 
 -- !sum_if_push --
 PhysicalResultSink
---PhysicalProject
-----hashAgg[GLOBAL]
-------PhysicalDistribute[DistributionSpecHash]
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------hashJoin[INNER_JOIN shuffle] hashCondition=((date_dim.d_date_sk = web_sales.ws_sold_date_sk)) otherCondition=()
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=()
-------------------hashAgg[GLOBAL]
---------------------PhysicalDistribute[DistributionSpecHash]
-----------------------hashAgg[LOCAL]
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[web_sales]
-------------------PhysicalProject
---------------------PhysicalOlapScan[item]
---------------PhysicalProject
-----------------PhysicalOlapScan[date_dim]
+--hashAgg[GLOBAL]
+----PhysicalDistribute[DistributionSpecHash]
+------hashAgg[LOCAL]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = web_sales.ws_sold_date_sk)) otherCondition=()
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=()
+------------hashAgg[GLOBAL]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------hashAgg[LOCAL]
+------------------PhysicalOlapScan[web_sales]
+------------PhysicalOlapScan[item]
+----------PhysicalOlapScan[date_dim]
 
 Hint log:
-Used: leading({ web_sales item } date_dim )
+Used: leading({ web_sales broadcast item } broadcast date_dim )
 UnUsed:
 SyntaxError:
 
@@ -339,45 +256,33 @@ SyntaxError:
 
 -- !check_case_when_outer_join_not_push --
 PhysicalResultSink
---PhysicalProject
-----hashAgg[GLOBAL]
-------PhysicalDistribute[DistributionSpecHash]
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------hashJoin[RIGHT_OUTER_JOIN shuffle] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=()
---------------PhysicalProject
-----------------PhysicalOlapScan[store_sales]
---------------PhysicalProject
-----------------PhysicalOlapScan[date_dim]
+--hashAgg[GLOBAL]
+----PhysicalDistribute[DistributionSpecHash]
+------hashAgg[LOCAL]
+--------hashJoin[RIGHT_OUTER_JOIN shuffle] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=()
+----------PhysicalOlapScan[store_sales]
+----------PhysicalOlapScan[date_dim]
 
 -- !check_no_case_when_outer_join_push --
 PhysicalResultSink
---PhysicalProject
-----hashAgg[GLOBAL]
-------PhysicalDistribute[DistributionSpecHash]
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------hashJoin[RIGHT_OUTER_JOIN bucketShuffle] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=()
---------------hashAgg[GLOBAL]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------hashAgg[LOCAL]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[store_sales]
---------------PhysicalProject
-----------------PhysicalOlapScan[date_dim]
+--hashAgg[GLOBAL]
+----PhysicalDistribute[DistributionSpecHash]
+------hashAgg[LOCAL]
+--------hashJoin[RIGHT_OUTER_JOIN shuffle] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=()
+----------hashAgg[GLOBAL]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------hashAgg[LOCAL]
+----------------PhysicalOlapScan[store_sales]
+----------PhysicalOlapScan[date_dim]
 
 -- !check_no_push_value_slots_contains_if_slots --
 PhysicalResultSink
---PhysicalProject
-----hashAgg[GLOBAL]
-------PhysicalDistribute[DistributionSpecHash]
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------hashJoin[INNER_JOIN shuffle] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=()
---------------PhysicalProject
-----------------PhysicalOlapScan[store_sales]
---------------PhysicalProject
-----------------PhysicalOlapScan[date_dim]
+--hashAgg[GLOBAL]
+----PhysicalDistribute[DistributionSpecHash]
+------hashAgg[LOCAL]
+--------hashJoin[INNER_JOIN shuffle] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=()
+----------PhysicalOlapScan[store_sales]
+----------PhysicalOlapScan[date_dim]
 
 -- !min_sum_same_slot --
 PhysicalResultSink
@@ -385,22 +290,17 @@ PhysicalResultSink
 ----hashAgg[GLOBAL]
 ------PhysicalDistribute[DistributionSpecHash]
 --------hashAgg[LOCAL]
-----------PhysicalProject
-------------hashJoin[INNER_JOIN shuffle] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[store_sales(ss)]
-------------------hashAgg[GLOBAL]
---------------------PhysicalDistribute[DistributionSpecHash]
-----------------------hashAgg[LOCAL]
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[date_dim(dt)]
---------------PhysicalProject
-----------------PhysicalOlapScan[web_sales(ws)]
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+------------hashJoin[INNER_JOIN broadcast] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+--------------PhysicalOlapScan[store_sales(ss)]
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------hashAgg[LOCAL]
+--------------------PhysicalOlapScan[date_dim(dt)]
+------------PhysicalOlapScan[web_sales(ws)]
 
 Hint log:
-Used: leading({ ss dt } ws )
+Used: leading({ ss broadcast dt } broadcast ws )
 UnUsed:
 SyntaxError:
 
@@ -413,19 +313,14 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecHash]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN shuffle] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN shuffle] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[store_sales(ss)]
-----------------PhysicalProject
-------------------PhysicalOlapScan[date_dim(dt)]
-------------PhysicalProject
---------------PhysicalOlapScan[web_sales(ws)]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+------------PhysicalOlapScan[store_sales(ss)]
+------------PhysicalOlapScan[date_dim(dt)]
+----------PhysicalOlapScan[web_sales(ws)]
 
 Hint log:
-Used: leading({ ss dt } ws )
+Used: leading({ ss broadcast dt } broadcast ws )
 UnUsed:
 SyntaxError:
 
@@ -435,18 +330,14 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecHash]
 ------hashAgg[LOCAL]
 --------PhysicalUnion
-----------PhysicalProject
-------------hashJoin[INNER_JOIN shuffle] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
---------------PhysicalProject
-----------------PhysicalOlapScan[store_sales(ss)]
---------------PhysicalProject
-----------------PhysicalOlapScan[date_dim(dt)]
+----------hashJoin[INNER_JOIN shuffle] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+------------PhysicalOlapScan[store_sales(ss)]
+------------PhysicalOlapScan[date_dim(dt)]
 ----------PhysicalDistribute[DistributionSpecExecutionAny]
-------------PhysicalProject
---------------PhysicalOlapScan[date_dim]
+------------PhysicalOlapScan[date_dim]
 
 Hint log:
-Used: leading({ ss dt } )
+Used:
 UnUsed:
-SyntaxError:
+SyntaxError: leading({ ss broadcast dt } broadcast ws) Msg:can not find table: ws
 

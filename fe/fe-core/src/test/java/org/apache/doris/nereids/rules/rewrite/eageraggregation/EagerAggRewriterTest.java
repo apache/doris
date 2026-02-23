@@ -112,6 +112,26 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
     }
 
     @Test
+    void testNotPushDownDistinctAgg() {
+        // Distinct aggregation should not be pushed down.
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            String sql = "select count(distinct t1.name), t2.id2 from t1 join t2"
+                    + " on t1.id1 = t2.id2 group by t2.id2";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(logicalAggregate(), any()))
+                    .nonMatch(logicalJoin(any(), logicalAggregate()))
+                    .printlnTree();
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    @Test
     void testPushDownCountThroughLeftJoinWrapsWithIfnull() {
         // When count(right.col) is pushed down to the right side of a LEFT JOIN,
         // the top aggregate rolls up count to sum. But when the LEFT JOIN has no

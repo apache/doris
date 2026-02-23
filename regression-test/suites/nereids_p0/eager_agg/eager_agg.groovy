@@ -22,12 +22,15 @@ suite("eager_agg") {
         set runtime_filter_mode=OFF;
         set broadcast_row_count_limit=-1;
         set disable_nereids_rules="SALT_JOIN";
+        set ignore_shape_nodes="PhysicalProject";
+        set multi_distinct_strategy=1;
+        set enable_bucket_shuffle_join=false;
     """
 
     // push to ss-join-ws
     qt_a """
     explain shape plan
-    select /*+leading({ss ws} dt)*/ dt.d_year 
+    select /*+leading({ss broadcast ws} broadcast dt)*/ dt.d_year 
        ,sum(ws_list_price) brand
        ,sum(ss_sales_price) sum_agg
     from  date_dim dt 
@@ -38,8 +41,8 @@ suite("eager_agg") {
     group by dt.d_year
     """
 
-   qt_a_exe"""
-    select /*+leading({ss ws} dt)*/ dt.d_year 
+   order_qt_a_exe"""
+    select /*+leading({ss broadcast ws} broadcast dt)*/ dt.d_year 
        ,sum(ws_list_price) brand
        ,sum(ss_sales_price) sum_agg
     from  date_dim dt 
@@ -53,7 +56,7 @@ suite("eager_agg") {
     // push to ss-join-ws
     qt_a2 """
     explain shape plan
-    select /*+leading({ss ws} dt)*/ dt.d_year 
+    select /*+leading({ss broadcast ws} broadcast dt)*/ dt.d_year 
        ,sum(ws_list_price + ss_sales_price) brand
 
     from  date_dim dt 
@@ -64,8 +67,8 @@ suite("eager_agg") {
     group by dt.d_year
     """
 
-    qt_a2_exe """
-    select /*+leading({ss ws} dt)*/ dt.d_year 
+    order_qt_a2_exe """
+    select /*+leading({ss broadcast ws} broadcast dt)*/ dt.d_year 
        ,sum(ws_list_price + ss_sales_price) brand
 
     from  date_dim dt 
@@ -79,7 +82,7 @@ suite("eager_agg") {
     // push sum/min/max aggFunc
     qt_sum_min_max """
     explain shape plan
-    select /*+leading({ss ws} dt)*/ dt.d_year 
+    select /*+leading({ss broadcast ws} broadcast dt)*/ dt.d_year 
        ,sum(ws_list_price) brand
        ,min(ss_sales_price) min_agg
        ,max(ss_sales_price) max_agg
@@ -91,8 +94,8 @@ suite("eager_agg") {
     group by dt.d_year
     """
 
-    qt_sum_min_max_exe """
-    select /*+leading({ss ws} dt)*/ dt.d_year 
+    order_qt_sum_min_max_exe """
+    select /*+leading({ss broadcast ws} broadcast dt)*/ dt.d_year 
        ,sum(ws_list_price) brand
        ,min(ss_sales_price) min_agg
        ,max(ss_sales_price) max_agg
@@ -107,7 +110,7 @@ suite("eager_agg") {
     // do not push avg aggFunc
     qt_avg """
     explain shape plan
-    select /*+leading({ss ws} dt)*/ dt.d_year
+    select /*+leading({ss broadcast ws} broadcast dt)*/ dt.d_year
        ,avg(ws_list_price)
     from  date_dim dt
         ,store_sales ss
@@ -117,8 +120,8 @@ suite("eager_agg") {
     group by dt.d_year
     """
 
-    qt_avg_exe """
-    select /*+leading({ss ws} dt)*/ dt.d_year
+    order_qt_avg_exe """
+    select /*+leading({ss broadcast ws} broadcast dt)*/ dt.d_year
        ,avg(ws_list_price)
     from  date_dim dt
         ,store_sales ss
@@ -131,7 +134,7 @@ suite("eager_agg") {
     // push count(column) - count should be pushed down and converted to sum at top level
     qt_count_column """
     explain shape plan
-    select /*+leading({ss ws} dt)*/ dt.d_year
+    select /*+leading({ss broadcast ws} broadcast dt)*/ dt.d_year
        ,count(ws_list_price) cnt
     from  date_dim dt
         ,store_sales ss
@@ -142,7 +145,7 @@ suite("eager_agg") {
     """
 
     order_qt_count_column_exe """
-    select /*+leading({ss ws} dt)*/ dt.d_year
+    select /*+leading({ss broadcast ws} broadcast dt)*/ dt.d_year
        ,count(ws_list_price) cnt
     from  date_dim dt
         ,store_sales ss
@@ -155,7 +158,7 @@ suite("eager_agg") {
     // push count(*) - count(*) should be pushed down and converted to sum at top level
     qt_count_star """
     explain shape plan
-    select /*+leading({ss ws} dt)*/ dt.d_year
+    select /*+leading({ss broadcast ws} broadcast dt)*/ dt.d_year
        ,count(*) cnt
     from  date_dim dt
         ,store_sales ss
@@ -165,33 +168,9 @@ suite("eager_agg") {
     group by dt.d_year
     """
 
-    qt_count_star_exe """
-    select /*+leading({ss ws} dt)*/ dt.d_year
+    order_qt_count_star_exe """
+    select /*+leading({ss broadcast ws} broadcast dt)*/ dt.d_year
        ,count(*) cnt
-    from  date_dim dt
-        ,store_sales ss
-        ,web_sales ws
-    where dt.d_date_sk = ss_sold_date_sk
-    and ss_item_sk = ws_item_sk
-    group by dt.d_year
-    """
-
-    // do not push count(distinct column) - distinct aggregation should not be pushed
-    qt_count_distinct """
-    explain shape plan
-    select /*+leading({ss ws} dt)*/ dt.d_year
-       ,count(distinct ws_list_price) cnt
-    from  date_dim dt
-        ,store_sales ss
-        ,web_sales ws
-    where dt.d_date_sk = ss_sold_date_sk
-    and ss_item_sk = ws_item_sk
-    group by dt.d_year
-    """
-
-    order_qt_count_distinct_exe """
-    select /*+leading({ss ws} dt)*/ dt.d_year
-       ,count(distinct ws_list_price) cnt
     from  date_dim dt
         ,store_sales ss
         ,web_sales ws
@@ -203,7 +182,7 @@ suite("eager_agg") {
     // push count with sum - mixed aggregation
     qt_count_sum_mixed """
     explain shape plan
-    select /*+leading({ss ws} dt)*/ dt.d_year
+    select /*+leading({ss broadcast ws} broadcast dt)*/ dt.d_year
        ,count(ws_list_price) cnt
        ,sum(ss_sales_price) sum_agg
     from  date_dim dt
@@ -214,8 +193,8 @@ suite("eager_agg") {
     group by dt.d_year
     """
 
-    qt_count_sum_mixed_exe """
-    select /*+leading({ss ws} dt)*/ dt.d_year
+    order_qt_count_sum_mixed_exe """
+    select /*+leading({ss broadcast ws} broadcast dt)*/ dt.d_year
        ,count(ws_list_price) cnt
        ,sum(ss_sales_price) sum_agg
     from  date_dim dt
@@ -229,7 +208,7 @@ suite("eager_agg") {
     // push count(*) with sum - both should be pushed down
     qt_count_star_sum_mixed """
     explain shape plan
-    select /*+leading({ss ws} dt)*/ dt.d_year
+    select /*+leading({ss broadcast ws} broadcast dt)*/ dt.d_year
        ,count(*) cnt
        ,sum(ss_sales_price) sum_agg
     from  date_dim dt
@@ -241,7 +220,7 @@ suite("eager_agg") {
     """
 
     order_qt_count_star_sum_mixed_exe """
-    select /*+leading({ss ws} dt)*/ dt.d_year
+    select /*+leading({ss broadcast ws} broadcast dt)*/ dt.d_year
        ,count(*) cnt
        ,sum(ss_sales_price) sum_agg
     from  date_dim dt
@@ -255,7 +234,7 @@ suite("eager_agg") {
     // agg push to ss-d
     qt_groupkey_push_SS_JOIN_D """
     explain shape plan
-    select /*+leading({ss dt} ws)*/  dt.d_year 
+    select /*+leading({ss broadcast dt} broadcast ws)*/  dt.d_year 
         ,sum(ss_wholesale_cost) brand
         ,sum(ss_sales_price + d_moy) sum_agg
     from  store_sales ss
@@ -267,7 +246,7 @@ suite("eager_agg") {
     """
 
     order_qt_groupkey_push_SS_JOIN_D_exe """
-    select /*+leading({ss dt} ws)*/  dt.d_year 
+    select /*+leading({ss broadcast dt} broadcast ws)*/  dt.d_year 
         ,sum(ss_wholesale_cost) brand
         ,sum(ss_sales_price + d_moy) sum_agg
     from  store_sales ss
@@ -281,7 +260,7 @@ suite("eager_agg") {
     // group key: ss_hdemo_sk + d_moy => push to ss-d
     qt_groupkey_push """
     explain shape plan
-    select /*+leading({ss dt} ws)*/  dt.d_year 
+    select /*+leading({ss broadcast dt} broadcast ws)*/  dt.d_year 
         ,sum(ss_wholesale_cost) brand
         ,sum(ss_sales_price) sum_agg
     from  store_sales ss
@@ -293,7 +272,7 @@ suite("eager_agg") {
     """
 
     order_qt_groupkey_push_exe """
-    select /*+leading({ss dt} ws)*/  dt.d_year 
+    select /*+leading({ss broadcast dt} broadcast ws)*/  dt.d_year 
         ,sum(ss_wholesale_cost) brand
         ,sum(ss_sales_price) sum_agg
     from  store_sales ss
@@ -306,7 +285,7 @@ suite("eager_agg") {
 
     qt_sum_if_push """
         explain shape plan
-        select /*+leading({web_sales item} date_dim)*/ d_week_seq,
+        select /*+leading({web_sales broadcast item} broadcast date_dim)*/ d_week_seq,
                 sum(case when (d_day_name='Monday') then ws_sales_price else null end) mon_sales,
                 sum(case when (d_day_name='Tuesday') then ws_sales_price else  null end) tue_sales,
                 sum(case when (d_day_name='Wednesday') then ws_sales_price else null end) wed_sales,
@@ -319,7 +298,7 @@ suite("eager_agg") {
         """
 
     order_qt_sum_if_push_exe """
-        select /*+leading({web_sales item} date_dim)*/ d_week_seq,
+        select /*+leading({web_sales broadcast item} broadcast date_dim)*/ d_week_seq,
                 sum(case when (d_day_name='Monday') then ws_sales_price else null end) mon_sales,
                 sum(case when (d_day_name='Tuesday') then ws_sales_price else  null end) tue_sales,
                 sum(case when (d_day_name='Wednesday') then ws_sales_price else null end) wed_sales,
@@ -365,7 +344,7 @@ suite("eager_agg") {
 
     qt_min_sum_same_slot """
     explain shape plan
-    select /*+leading({ss dt} ws)*/  dt.d_moy 
+    select /*+leading({ss broadcast dt} broadcast ws)*/  dt.d_moy 
         ,min(d_year) brand
         ,sum(d_year) sum_agg 
     from  store_sales ss
@@ -378,7 +357,7 @@ suite("eager_agg") {
     """
 
     order_qt_min_sum_same_slot_exe """
-    select /*+leading({ss dt} ws)*/  dt.d_moy 
+    select /*+leading({ss broadcast dt} broadcast ws)*/  dt.d_moy 
         ,min(d_year) brand
         ,sum(d_year) sum_agg 
     from  store_sales ss
@@ -391,7 +370,7 @@ suite("eager_agg") {
     """
 
     order_qt_sum_min_same_slot_exe """
-    select /*+leading({ss dt} ws)*/  dt.d_moy 
+    select /*+leading({ss broadcast dt} broadcast ws)*/  dt.d_moy 
         ,sum(d_year) sum_agg 
         ,min(d_year) brand  
     from  store_sales ss
@@ -405,7 +384,7 @@ suite("eager_agg") {
 
     qt_no_push_aggkey_groupKey_overlap """
     explain shape plan
-    select /*+leading({ss dt} ws)*/  dt.d_year 
+    select /*+leading({ss broadcast dt} broadcast ws)*/  dt.d_year 
         ,min(d_year) brand
         ,sum(d_year) sum_agg 
     from  store_sales ss
@@ -423,7 +402,7 @@ suite("eager_agg") {
         ,min(d_moy) 
         ,sum(d_moy)  
     from (
-        select /*+leading({ss dt})*/  d_year, d_moy
+        select /*+leading({ss broadcast dt} broadcast ws)*/  d_year, d_moy
         from store_sales ss
             join date_dim dt on dt.d_date_sk = ss_sold_date_sk
         union all

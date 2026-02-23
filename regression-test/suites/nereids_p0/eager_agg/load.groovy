@@ -48,7 +48,7 @@ suite("load") {
   `ss_net_profit` decimal(7,2) NULL
 ) ENGINE=OLAP
 DUPLICATE KEY(`ss_sold_date_sk`, `ss_sold_time_sk`, `ss_item_sk`, `ss_customer_sk`)
-DISTRIBUTED BY HASH(`ss_customer_sk`) BUCKETS 3
+DISTRIBUTED BY RANDOM BUCKETS 7
 PROPERTIES (
 "replication_allocation" = "tag.location.default: 1",
 "min_load_replica_num" = "-1",
@@ -94,7 +94,7 @@ CREATE TABLE `date_dim` (
   `d_current_year` char(1) NULL
 ) ENGINE=OLAP
 DUPLICATE KEY(`d_date_sk`, `d_date_id`)
-DISTRIBUTED BY RANDOM BUCKETS 3
+DISTRIBUTED BY RANDOM BUCKETS 5
 PROPERTIES (
 "replication_allocation" = "tag.location.default: 1"
 );
@@ -167,7 +167,7 @@ CREATE TABLE `item` (
   `i_product_name` char(50) NULL
 ) ENGINE=OLAP
 DUPLICATE KEY(`i_item_sk`, `i_item_id`)
-DISTRIBUTED BY RANDOM BUCKETS 5
+DISTRIBUTED BY RANDOM BUCKETS 3
 PROPERTIES (
 "replication_allocation" = "tag.location.default: 1"
 );
