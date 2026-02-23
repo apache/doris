@@ -52,6 +52,15 @@ public:
 
     void shutdown();
 
+#ifdef BE_TEST
+    // For unit testing only.
+    void check_and_recreate_processes_for_test() { _check_and_recreate_processes(); }
+
+    std::unordered_map<PythonVersion, std::vector<ProcessPtr>>& process_pools_for_test() {
+        return _process_pools;
+    }
+#endif
+
 private:
     /**
      * Start health check background thread (called once by ensure_pool_initialized)
