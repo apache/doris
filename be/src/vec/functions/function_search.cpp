@@ -152,18 +152,23 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
                 "iterator for field '{}' is not InvertedIndexIterator", field_name);
     }
 
-    // FE resolves each field to a specific index and sends its index_properties via
-    // TSearchFieldBinding. When FE picks an analyzer-based index, upgrade certain query types
-    // to MATCH_ANY_QUERY so select_best_reader picks the FULLTEXT reader instead of
-    // STRING_TYPE. Without this upgrade:
+    // For variant subcolumns, FE resolves the field pattern to a specific index and sends
+    // its index_properties via TSearchFieldBinding. When FE picks an analyzer-based index,
+    // upgrade EQUAL_QUERY/WILDCARD_QUERY to MATCH_ANY_QUERY so select_best_reader picks the
+    // FULLTEXT reader instead of STRING_TYPE. Without this upgrade:
     // - TERM (EQUAL_QUERY) clauses would open the wrong (untokenized) index directory
     // - WILDCARD clauses would enumerate terms from the wrong index, returning empty results
-    // This applies to both variant subcolumns and regular columns with multiple indexes.
+    //
+    // For regular (non-variant) columns with multiple indexes, the caller (build_leaf_query)
+    // is responsible for passing the appropriate query_type: MATCH_ANY_QUERY for tokenized
+    // queries (TERM) and EQUAL_QUERY for exact-match queries (EXACT). This ensures
+    // select_best_reader picks FULLTEXT vs STRING_TYPE correctly without needing an explicit
+    // analyzer key, since the query_type alone drives the reader type preference.
     InvertedIndexQueryType effective_query_type = query_type;
     auto fb_it = _field_binding_map.find(field_name);
     std::string analyzer_key;
-    if (fb_it != _field_binding_map.end() && fb_it->second->__isset.index_properties &&
-        !fb_it->second->index_properties.empty()) {
+    if (is_variant_sub && fb_it != _field_binding_map.end() &&
+        fb_it->second->__isset.index_properties && !fb_it->second->index_properties.empty()) {
         analyzer_key = normalize_analyzer_key(
                 build_analyzer_key_from_properties(fb_it->second->index_properties));
         if (inverted_index::InvertedIndexAnalyzer::should_analyzer(
@@ -700,6 +705,16 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
     const std::string& clause_type = clause.clause_type;
 
     auto query_type = clause_type_to_query_type(clause_type);
+    // TERM in search DSL represents a tokenized term lookup (like Lucene TermQuery).
+    // Override to MATCH_ANY_QUERY so select_best_reader() prefers the FULLTEXT reader
+    // when multiple indexes exist on the same column (one tokenized, one untokenized).
+    // EXACT must remain EQUAL_QUERY to prefer the untokenized STRING_TYPE reader.
+    //
+    // Safe for single-index columns: select_best_reader() has a single-reader fast path
+    // that returns the only reader directly, bypassing the query_type preference logic.
+    if (clause_type == "TERM") {
+        query_type = InvertedIndexQueryType::MATCH_ANY_QUERY;
+    }
 
     FieldReaderBinding binding;
     RETURN_IF_ERROR(resolver.resolve(field_name, query_type, &binding));
