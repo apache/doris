@@ -152,16 +152,20 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
                 "iterator for field '{}' is not InvertedIndexIterator", field_name);
     }
 
-    // For variant subcolumns, FE resolves the field pattern to a specific index and sends
-    // its index_properties via TSearchFieldBinding. When FE picks an analyzer-based index,
-    // upgrade certain query types to MATCH_ANY_QUERY so select_best_reader picks the FULLTEXT
-    // reader instead of STRING_TYPE. Without this upgrade:
+    // FE resolves each field to a specific index and sends its index_properties via
+    // TSearchFieldBinding. When FE picks an analyzer-based index, upgrade certain query types
+    // to MATCH_ANY_QUERY so select_best_reader picks the FULLTEXT reader instead of
+    // STRING_TYPE. Without this upgrade:
     // - TERM (EQUAL_QUERY) clauses would open the wrong (untokenized) index directory
     // - WILDCARD clauses would enumerate terms from the wrong index, returning empty results
+    // This applies to both variant subcolumns and regular columns with multiple indexes.
     InvertedIndexQueryType effective_query_type = query_type;
     auto fb_it = _field_binding_map.find(field_name);
-    if (is_variant_sub && fb_it != _field_binding_map.end() &&
-        fb_it->second->__isset.index_properties && !fb_it->second->index_properties.empty()) {
+    std::string analyzer_key;
+    if (fb_it != _field_binding_map.end() && fb_it->second->__isset.index_properties &&
+        !fb_it->second->index_properties.empty()) {
+        analyzer_key = normalize_analyzer_key(
+                build_analyzer_key_from_properties(fb_it->second->index_properties));
         if (inverted_index::InvertedIndexAnalyzer::should_analyzer(
                     fb_it->second->index_properties) &&
             (effective_query_type == InvertedIndexQueryType::EQUAL_QUERY ||
@@ -173,10 +177,10 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     Result<InvertedIndexReaderPtr> reader_result;
     const auto& column_type = data_it->second.second;
     if (column_type) {
-        reader_result =
-                inverted_iterator->select_best_reader(column_type, effective_query_type, "");
+        reader_result = inverted_iterator->select_best_reader(column_type, effective_query_type,
+                                                              analyzer_key);
     } else {
-        reader_result = inverted_iterator->select_best_reader("");
+        reader_result = inverted_iterator->select_best_reader(analyzer_key);
     }
 
     if (!reader_result.has_value()) {
