@@ -31,6 +31,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h" // for Status
+#include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/io_common.h"
 #include "olap/column_predicate.h"
@@ -41,6 +42,7 @@
 #include "olap/rowset/segment_v2/page_handle.h"        // for PageHandle
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/rowset/segment_v2/parsed_page.h" // for ParsedPage
+#include "olap/rowset/segment_v2/segment_prefetcher.h"
 #include "olap/rowset/segment_v2/stream_reader.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
@@ -166,6 +168,8 @@ public:
 
     Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter,
                              const ColumnIteratorOptions& iter_opts);
+    Status get_ordinal_index_reader(OrdinalIndexReader*& reader,
+                                    OlapReaderStatistics* index_load_stats);
 
     // read a page from file into a page handle
     Status read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
@@ -232,6 +236,8 @@ public:
 
 private:
     friend class VariantColumnReader;
+    friend class FileColumnIterator;
+    friend class SegmentPrefetcher;
 
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
                  io::FileReaderSPtr file_reader);
@@ -398,6 +404,12 @@ public:
 
     virtual void remove_pruned_sub_iterators() {};
 
+    virtual Status init_prefetcher(const SegmentPrefetchParams& params) { return Status::OK(); }
+
+    virtual void collect_prefetchers(
+            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+            PrefetcherInitMethod init_method) {}
+
 protected:
     Result<TColumnAccessPaths> _get_sub_access_paths(const TColumnAccessPaths& access_paths);
     ColumnIteratorOptions _opts;
@@ -448,11 +460,17 @@ public:
 
     bool is_all_dict_encoding() const override { return _is_all_dict_encoding; }
 
+    Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    void collect_prefetchers(
+            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+            PrefetcherInitMethod init_method) override;
+
 private:
     Status _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
     Status _load_next_page(bool* eos);
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
     Status _read_dict_data();
+    void _trigger_prefetch_if_eligible(ordinal_t ord);
 
     std::shared_ptr<ColumnReader> _reader = nullptr;
 
@@ -480,6 +498,10 @@ private:
     bool _is_all_dict_encoding = false;
 
     std::unique_ptr<StringRef[]> _dict_word_info;
+
+    bool _enable_prefetch {false};
+    std::unique_ptr<SegmentPrefetcher> _prefetcher;
+    std::shared_ptr<io::CachedRemoteFileReader> _cached_remote_file_reader {nullptr};
 };
 
 class EmptyFileColumnIterator final : public ColumnIterator {
@@ -518,6 +540,11 @@ public:
         return _offset_iterator->read_by_rowids(rowids, count, dst);
     }
 
+    Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    void collect_prefetchers(
+            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+            PrefetcherInitMethod init_method) override;
+
 private:
     std::unique_ptr<FileColumnIterator> _offset_iterator;
     // reuse a tiny column for peek to avoid frequent allocations
@@ -547,6 +574,10 @@ public:
     ordinal_t get_current_ordinal() const override {
         return _offsets_iterator->get_current_ordinal();
     }
+    Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    void collect_prefetchers(
+            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+            PrefetcherInitMethod init_method) override;
 
     Status set_access_paths(const TColumnAccessPaths& all_access_paths,
                             const TColumnAccessPaths& predicate_access_paths) override;
@@ -591,6 +622,11 @@ public:
 
     void remove_pruned_sub_iterators() override;
 
+    Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    void collect_prefetchers(
+            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+            PrefetcherInitMethod init_method) override;
+
 private:
     std::shared_ptr<ColumnReader> _struct_reader = nullptr;
     ColumnIteratorUPtr _null_iterator;
@@ -624,6 +660,11 @@ public:
     void set_need_to_read() override;
 
     void remove_pruned_sub_iterators() override;
+
+    Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    void collect_prefetchers(
+            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+            PrefetcherInitMethod init_method) override;
 
 private:
     std::shared_ptr<ColumnReader> _array_reader = nullptr;

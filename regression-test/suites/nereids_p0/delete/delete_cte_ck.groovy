@@ -40,7 +40,7 @@ suite('nereids_delete_cte_ck') {
                     c3 double,
                     c4 date
                 ) unique key (id, id1)
-                CLUSTER BY (`id1`, `id`, `c4`)
+                ORDER BY (`id1`, `id`, `c4`)
                 distributed by hash(id, id1)
                 properties(
                     "replication_num"="1",
@@ -56,7 +56,7 @@ suite('nereids_delete_cte_ck') {
                     c3 double,
                     c4 date
                 ) unique key (id)
-                CLUSTER BY (`c4`, `c1`)
+                ORDER BY (`c4`, `c1`)
                 distributed by hash(id)
                 properties(
                     "replication_num"="1"

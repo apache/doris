@@ -610,6 +610,19 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " KRB5 " ]]; then
     echo "Finished patching ${KRB5_SOURCE}"
 fi
 
+# patch libhdfs3
+if [[ " ${TP_ARCHIVES[*]} " =~ " HDFS3 " ]]; then
+    if [[ "${HDFS3_SOURCE}" == "doris-thirdparty-libhdfs3-v2.3.9" ]]; then
+        cd "${TP_SOURCE_DIR}/${HDFS3_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/libhdfs3-v2.3.9-hostname.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${HDFS3_SOURCE}"
+fi
+
 # patch bitshuffle
 MACHINE_OS=$(uname -s)
 

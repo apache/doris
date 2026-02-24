@@ -32,7 +32,7 @@ import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
-import org.apache.doris.datasource.systable.SupportedSysTables;
+import org.apache.doris.datasource.systable.PaimonSysTable;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVRefreshContext;
@@ -369,9 +369,9 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     @Override
-    public List<SysTable> getSupportedSysTables() {
+    public Map<String, SysTable> getSupportedSysTables() {
         makeSureInitialized();
-        return SupportedSysTables.PAIMON_SUPPORTED_SYS_TABLES;
+        return PaimonSysTable.SUPPORTED_SYS_TABLES;
     }
 
     @Override

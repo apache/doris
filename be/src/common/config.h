@@ -1601,6 +1601,21 @@ DECLARE_mInt64(string_overflow_size);
 DECLARE_Int64(num_buffered_reader_prefetch_thread_pool_min_thread);
 // The max thread num for BufferedReaderPrefetchThreadPool
 DECLARE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread);
+
+DECLARE_mBool(enable_segment_prefetch_verbose_log);
+// The thread num for SegmentPrefetchThreadPool
+DECLARE_Int64(segment_prefetch_thread_pool_thread_num_min);
+DECLARE_Int64(segment_prefetch_thread_pool_thread_num_max);
+
+DECLARE_mInt32(segment_file_cache_consume_rowids_batch_size);
+// Enable segment file cache block prefetch for query
+DECLARE_mBool(enable_query_segment_file_cache_prefetch);
+// Number of blocks to prefetch ahead in segment iterator for query
+DECLARE_mInt32(query_segment_file_cache_prefetch_block_size);
+// Enable segment file cache block prefetch for compaction
+DECLARE_mBool(enable_compaction_segment_file_cache_prefetch);
+// Number of blocks to prefetch ahead in segment iterator for compaction
+DECLARE_mInt32(compaction_segment_file_cache_prefetch_block_size);
 // The min thread num for S3FileUploadThreadPool
 DECLARE_Int64(num_s3_file_upload_thread_pool_min_thread);
 // The max thread num for S3FileUploadThreadPool
@@ -1744,6 +1759,10 @@ DECLARE_mBool(print_stack_when_cache_miss);
 DECLARE_mBool(read_cluster_cache_opt_verbose_log);
 
 DECLARE_mString(aws_credentials_provider_version);
+
+// Concurrency stats dump configuration
+DECLARE_mBool(enable_concurrency_stats_dump);
+DECLARE_mInt32(concurrency_stats_dump_interval_ms);
 
 #ifdef BE_TEST
 // test s3

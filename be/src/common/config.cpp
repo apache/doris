@@ -1532,6 +1532,21 @@ DEFINE_mInt64(string_overflow_size, "4294967295"); // std::numic_limits<uint32_t
 DEFINE_Int64(num_buffered_reader_prefetch_thread_pool_min_thread, "16");
 // The max thread num for BufferedReaderPrefetchThreadPool
 DEFINE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread, "64");
+
+DEFINE_mBool(enable_segment_prefetch_verbose_log, "false");
+// The thread num for SegmentPrefetchThreadPool
+DEFINE_Int64(segment_prefetch_thread_pool_thread_num_min, "32");
+DEFINE_Int64(segment_prefetch_thread_pool_thread_num_max, "2000");
+
+DEFINE_mInt32(segment_file_cache_consume_rowids_batch_size, "8000");
+// Enable segment file cache block prefetch for query
+DEFINE_mBool(enable_query_segment_file_cache_prefetch, "false");
+// Number of blocks to prefetch ahead in segment iterator for query
+DEFINE_mInt32(query_segment_file_cache_prefetch_block_size, "2");
+// Enable segment file cache block prefetch for compaction
+DEFINE_mBool(enable_compaction_segment_file_cache_prefetch, "false");
+// Number of blocks to prefetch ahead in segment iterator for compaction
+DEFINE_mInt32(compaction_segment_file_cache_prefetch_block_size, "2");
 // The min thread num for S3FileUploadThreadPool
 DEFINE_Int64(num_s3_file_upload_thread_pool_min_thread, "16");
 // The max thread num for S3FileUploadThreadPool
@@ -1682,6 +1697,12 @@ DEFINE_String(aws_credentials_provider_version, "v2");
 DEFINE_Validator(aws_credentials_provider_version, [](const std::string& config) -> bool {
     return config == "v1" || config == "v2";
 });
+
+// Concurrency stats dump configuration
+DEFINE_mBool(enable_concurrency_stats_dump, "false");
+DEFINE_mInt32(concurrency_stats_dump_interval_ms, "100");
+DEFINE_Validator(concurrency_stats_dump_interval_ms,
+                 [](const int32_t config) -> bool { return config >= 10; });
 
 // clang-format off
 #ifdef BE_TEST
@@ -2158,6 +2179,11 @@ Status set_fuzzy_configs() {
     std::uniform_int_distribution<int64_t> distribution2(-2, 10);
     fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =
             std::to_string(distribution2(*generator));
+
+    fuzzy_field_and_value["enable_query_segment_file_cache_prefetch"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["enable_compaction_segment_file_cache_prefetch"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
 
     // external
     if (config::fuzzy_test_type == "external") {

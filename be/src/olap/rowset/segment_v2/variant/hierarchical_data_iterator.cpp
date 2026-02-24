@@ -163,6 +163,39 @@ ordinal_t HierarchicalDataIterator::get_current_ordinal() const {
     return (*_substream_reader.begin())->data.iterator->get_current_ordinal();
 }
 
+Status HierarchicalDataIterator::init_prefetcher(const SegmentPrefetchParams& params) {
+    RETURN_IF_ERROR(tranverse([&](SubstreamReaderTree::Node& node) {
+        RETURN_IF_ERROR(node.data.iterator->init_prefetcher(params));
+        return Status::OK();
+    }));
+    if (_root_reader) {
+        DCHECK(_root_reader->inited);
+        RETURN_IF_ERROR(_root_reader->iterator->init_prefetcher(params));
+    }
+    if (_binary_column_reader) {
+        DCHECK(_binary_column_reader->inited);
+        RETURN_IF_ERROR(_binary_column_reader->iterator->init_prefetcher(params));
+    }
+    return Status::OK();
+}
+
+void HierarchicalDataIterator::collect_prefetchers(
+        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+        PrefetcherInitMethod init_method) {
+    static_cast<void>(tranverse([&](SubstreamReaderTree::Node& node) {
+        node.data.iterator->collect_prefetchers(prefetchers, init_method);
+        return Status::OK();
+    }));
+    if (_root_reader) {
+        DCHECK(_root_reader->inited);
+        _root_reader->iterator->collect_prefetchers(prefetchers, init_method);
+    }
+    if (_binary_column_reader) {
+        DCHECK(_binary_column_reader->inited);
+        _binary_column_reader->iterator->collect_prefetchers(prefetchers, init_method);
+    }
+}
+
 Status HierarchicalDataIterator::_process_sub_columns(
         vectorized::ColumnVariant& container_variant,
         const PathsWithColumnAndType& non_nested_subcolumns) {

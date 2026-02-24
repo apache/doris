@@ -130,13 +130,17 @@ public:
                 bool* eos) const override;
 
     bool need_more_input_data(RuntimeState* state) const override;
-    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
+    DataDistribution required_data_distribution(RuntimeState* state) const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             return {ExchangeType::NOOP};
         } else if (_is_broadcast_join) {
-            return _child && _child->is_serial_operator()
-                           ? DataDistribution(ExchangeType::PASSTHROUGH)
-                           : DataDistribution(ExchangeType::NOOP);
+            if (state->enable_broadcast_join_force_passthrough()) {
+                return DataDistribution(ExchangeType::PASSTHROUGH);
+            } else {
+                return _child && _child->is_serial_operator()
+                               ? DataDistribution(ExchangeType::PASSTHROUGH)
+                               : DataDistribution(ExchangeType::NOOP);
+            }
         }
 
         return (_join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
@@ -145,6 +149,8 @@ public:
                         : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs));
     }
     bool is_broadcast_join() const { return _is_broadcast_join; }
+
+    bool is_hash_join_probe() const override { return true; }
 
     bool is_shuffled_operator() const override {
         return _join_distribution == TJoinDistributionType::PARTITIONED ||

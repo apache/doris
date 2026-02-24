@@ -62,7 +62,6 @@ import org.apache.doris.datasource.lakesoul.source.LakeSoulScanNode;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.datasource.maxcompute.source.MaxComputeScanNode;
 import org.apache.doris.datasource.odbc.source.OdbcScanNode;
-import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.source.PaimonScanNode;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
 import org.apache.doris.datasource.trinoconnector.source.TrinoConnectorScanNode;
@@ -653,7 +652,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         } else if (table instanceof IcebergExternalTable) {
             scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv);
-        } else if (table instanceof PaimonExternalTable) {
+        } else if (table.getType() == TableIf.TableType.PAIMON_EXTERNAL_TABLE) {
             scanNode = new PaimonScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv);
         } else if (table instanceof TrinoConnectorExternalTable) {
             scanNode = new TrinoConnectorScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv);
