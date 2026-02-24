@@ -17,8 +17,11 @@
 
 add_subdirectory(cmake-protect)
 
-# Use all .cpp files in this directory as sources
-file(GLOB VECTOR_LIB_SRC CONFIGURE_DEPENDS *.cpp)
+# Use all .cpp files in this directory and subdirectories as sources
+file(GLOB VECTOR_LIB_SRC CONFIGURE_DEPENDS 
+    *.cpp
+    ann_index_result_cache/*.cpp
+)
 
 find_package(OpenMP REQUIRED)
 

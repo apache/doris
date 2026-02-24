@@ -23,6 +23,7 @@
 #include "olap/tablet_schema.h"
 #include "runtime/runtime_state.h"
 #include "util/once.h"
+#include "vec/core/types.h"
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 
@@ -61,6 +62,9 @@ public:
 
     size_t get_dimension() const;
 
+    void set_rowset_id(std::string rowset_id) { _rowset_id = rowset_id; }
+    void set_segment_id(vectorized::UInt32 segment_id) { _segment_id = segment_id; }
+
 private:
     TabletIndex _index_meta;
     std::shared_ptr<IndexFileReader> _index_file_reader;
@@ -68,6 +72,8 @@ private:
     AnnIndexType _index_type;
     AnnIndexMetric _metric_type;
     size_t _dim;
+    std::string _rowset_id;
+    vectorized::UInt32 _segment_id;
     DorisCallOnce<Status> _load_index_once;
 };
 

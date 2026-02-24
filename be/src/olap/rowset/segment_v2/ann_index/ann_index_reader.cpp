@@ -17,6 +17,7 @@
 
 #include "ann_index_reader.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <memory>
 
@@ -24,6 +25,8 @@
 #include "common/config.h"
 #include "io/io_common.h"
 #include "olap/rowset/segment_v2/ann_index/ann_index.h"
+#include "olap/rowset/segment_v2/ann_index/ann_index_result_cache/ann_index_result_cache.h"
+#include "olap/rowset/segment_v2/ann_index/ann_index_result_cache/ann_index_topn_cache_handle.h"
 #include "olap/rowset/segment_v2/ann_index/ann_index_writer.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
 #include "olap/rowset/segment_v2/ann_index/faiss_ann_index.h"
@@ -36,17 +39,74 @@
 
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
+
+static void normalize_topn_result(IndexSearchResult& result) {
+    // Rebuild bitmap from row_ids when bitmap is missing.
+    if (result.roaring == nullptr && result.row_ids != nullptr) {
+        auto rebuilt = std::make_shared<roaring::Roaring>();
+        for (auto row_id : *result.row_ids) {
+            rebuilt->add(static_cast<uint32_t>(row_id));
+        }
+        result.roaring = std::move(rebuilt);
+    }
+
+    if (result.roaring == nullptr) {
+        result.roaring = std::make_shared<roaring::Roaring>();
+    }
+
+    if (result.row_ids == nullptr) {
+        result.row_ids = std::make_unique<std::vector<uint64_t>>();
+    }
+
+    size_t rows = std::min<size_t>(result.row_ids->size(), result.roaring->cardinality());
+    if (result.row_ids->size() != rows) {
+        result.row_ids->resize(rows);
+    }
+
+    if (result.distances == nullptr) {
+        result.distances = std::make_unique<float[]>(rows);
+        for (size_t i = 0; i < rows; ++i) {
+            result.distances[i] = 0.0f;
+        }
+    }
+
+    // Keep roaring consistent with row_ids when their cardinality differs.
+    if (result.roaring->cardinality() != rows) {
+        auto rebuilt = std::make_shared<roaring::Roaring>();
+        for (size_t i = 0; i < rows; ++i) {
+            rebuilt->add(static_cast<uint32_t>((*result.row_ids)[i]));
+        }
+        result.roaring = std::move(rebuilt);
+    }
+}
+
 void AnnIndexReader::update_result(const IndexSearchResult& search_result,
                                    std::vector<float>& distance, roaring::Roaring& roaring) {
-    DCHECK(search_result.distances != nullptr);
-    DCHECK(search_result.roaring != nullptr);
+    if (search_result.distances == nullptr || search_result.roaring == nullptr) {
+        distance.clear();
+        roaring = roaring::Roaring();
+        return;
+    }
+
     size_t limit = search_result.roaring->cardinality();
+    if (search_result.row_ids != nullptr) {
+        limit = std::min(limit, search_result.row_ids->size());
+    }
+
     // Use search result to update distance and row_id
     distance.resize(limit);
     for (size_t i = 0; i < limit; ++i) {
         distance[i] = search_result.distances[i];
     }
-    roaring = *search_result.roaring;
+
+    if (search_result.row_ids != nullptr && search_result.roaring->cardinality() != limit) {
+        roaring = roaring::Roaring();
+        for (size_t i = 0; i < limit; ++i) {
+            roaring.add(static_cast<uint32_t>((*search_result.row_ids)[i]));
+        }
+    } else {
+        roaring = *search_result.roaring;
+    }
 }
 
 AnnIndexReader::AnnIndexReader(const TabletIndex* index_meta,
@@ -111,39 +171,81 @@ Status AnnIndexReader::query(io::IOContext* io_ctx, AnnTopNParam* param, AnnInde
         const float* query_vec = param->query_value;
         const int limit = static_cast<int>(param->limit);
         IndexSearchResult index_search_result;
-        if (_index_type == AnnIndexType::HNSW) {
-            HNSWSearchParameters hnsw_search_params;
-            hnsw_search_params.roaring = param->roaring;
-            hnsw_search_params.rows_of_segment = param->rows_of_segment;
-            hnsw_search_params.ef_search = param->_user_params.hnsw_ef_search;
-            hnsw_search_params.check_relative_distance =
-                    param->_user_params.hnsw_check_relative_distance;
-            hnsw_search_params.bounded_queue = param->_user_params.hnsw_bounded_queue;
-            RETURN_IF_ERROR(_vector_index->ann_topn_search(query_vec, limit, hnsw_search_params,
-                                                           index_search_result));
-            // Accumulate detailed engine timings
-            stats->engine_search_ns.update(index_search_result.engine_search_ns);
-            stats->engine_convert_ns.update(index_search_result.engine_convert_ns);
-            stats->engine_prepare_ns.update(index_search_result.engine_prepare_ns);
-        } else if (_index_type == AnnIndexType::IVF) {
-            IVFSearchParameters ivf_search_params;
-            ivf_search_params.roaring = param->roaring;
-            ivf_search_params.rows_of_segment = param->rows_of_segment;
-            ivf_search_params.nprobe = param->_user_params.ivf_nprobe;
-            RETURN_IF_ERROR(_vector_index->ann_topn_search(query_vec, limit, ivf_search_params,
-                                                           index_search_result));
-            // Accumulate detailed engine timings
-            stats->engine_search_ns.update(index_search_result.engine_search_ns);
-            stats->engine_convert_ns.update(index_search_result.engine_convert_ns);
-            stats->engine_prepare_ns.update(index_search_result.engine_prepare_ns);
-        } else {
-            throw Exception(Status::NotSupported("Unsupported index type: {}",
-                                                 ann_index_type_to_string(_index_type)));
+
+        {
+            const bool has_prefilter = (param->roaring != nullptr && param->rows_of_segment > 0 &&
+                                        param->roaring->cardinality() < param->rows_of_segment);
+            if (has_prefilter) {
+                VLOG_DEBUG << fmt::format(
+                        "Skip AnnIndexTopnResultCache due to pre-filter narrowing: {}/{}",
+                        param->roaring->cardinality(), param->rows_of_segment);
+            }
+            AnnIndexTopnResultCache* topn_result_cache =
+                    has_prefilter ? nullptr : ExecEnv::GetInstance()->ann_index_topn_result_cache();
+            AnnIndexTopnCacheHandle cache_handle;
+            bool cache_hit = false;
+
+            if (topn_result_cache &&
+                topn_result_cache->lookup(_rowset_id, _segment_id, *param, &cache_handle)) {
+                index_search_result = cache_handle.to_index_search_result();
+                if (index_search_result.roaring != nullptr &&
+                    index_search_result.distances != nullptr &&
+                    index_search_result.row_ids != nullptr) {
+                    cache_hit = true;
+                    stats->topn_cache_hits.update(1);
+                } else {
+                    LOG(WARNING) << fmt::format(
+                            "Ignore malformed AnnIndexTopnResultCache entry, rowset_id={}, "
+                            "segment_id={} "
+                            "(roaring={}, distances={}, row_ids={})",
+                            _rowset_id, _segment_id, index_search_result.roaring != nullptr,
+                            index_search_result.distances != nullptr,
+                            index_search_result.row_ids != nullptr);
+                }
+            }
+
+            if (!cache_hit) {
+                if (_index_type == AnnIndexType::HNSW) {
+                    HNSWSearchParameters hnsw_search_params;
+                    hnsw_search_params.roaring = param->roaring;
+                    hnsw_search_params.rows_of_segment = param->rows_of_segment;
+                    hnsw_search_params.ef_search = param->_user_params.hnsw_ef_search;
+                    hnsw_search_params.check_relative_distance =
+                            param->_user_params.hnsw_check_relative_distance;
+                    hnsw_search_params.bounded_queue = param->_user_params.hnsw_bounded_queue;
+                    RETURN_IF_ERROR(_vector_index->ann_topn_search(
+                            query_vec, limit, hnsw_search_params, index_search_result));
+                    // Accumulate detailed engine timings
+                    stats->engine_search_ns.update(index_search_result.engine_search_ns);
+                    stats->engine_convert_ns.update(index_search_result.engine_convert_ns);
+                    stats->engine_prepare_ns.update(index_search_result.engine_prepare_ns);
+                } else if (_index_type == AnnIndexType::IVF) {
+                    IVFSearchParameters ivf_search_params;
+                    ivf_search_params.roaring = param->roaring;
+                    ivf_search_params.rows_of_segment = param->rows_of_segment;
+                    ivf_search_params.nprobe = param->_user_params.ivf_nprobe;
+                    RETURN_IF_ERROR(_vector_index->ann_topn_search(
+                            query_vec, limit, ivf_search_params, index_search_result));
+                    // Accumulate detailed engine timings
+                    stats->engine_search_ns.update(index_search_result.engine_search_ns);
+                    stats->engine_convert_ns.update(index_search_result.engine_convert_ns);
+                    stats->engine_prepare_ns.update(index_search_result.engine_prepare_ns);
+                } else {
+                    throw Exception(Status::NotSupported("Unsupported index type: {}",
+                                                         ann_index_type_to_string(_index_type)));
+                }
+
+                if (topn_result_cache) {
+                    normalize_topn_result(index_search_result);
+                    cache_handle = index_search_result.to_ann_index_topn_cache_handle();
+                    topn_result_cache->insert(_rowset_id, _segment_id, *param,
+                                              std::move(cache_handle));
+                }
+            }
         }
 
-        DCHECK(index_search_result.roaring != nullptr);
-        DCHECK(index_search_result.distances != nullptr);
-        DCHECK(index_search_result.row_ids != nullptr);
+        normalize_topn_result(index_search_result);
+
         param->distance = std::make_unique<std::vector<float>>();
         {
             SCOPED_TIMER(&(stats->result_process_costs_ns));

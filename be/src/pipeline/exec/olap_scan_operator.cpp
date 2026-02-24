@@ -311,6 +311,7 @@ Status OlapScanLocalState::_init_profile() {
 
     _ann_topn_search_costs = ADD_TIMER(_segment_profile, "AnnIndexTopNSearchCosts");
     _ann_topn_search_cnt = ADD_COUNTER(_segment_profile, "AnnIndexTopNSearchCnt", TUnit::UNIT);
+    _ann_topn_cache_hit_cnt = ADD_COUNTER(_segment_profile, "AnnIndexTopNCacheHitCnt", TUnit::UNIT);
     _ann_range_search_costs = ADD_TIMER(_segment_profile, "AnnIndexRangeSearchCosts");
     _ann_range_search_cnt = ADD_COUNTER(_segment_profile, "AnnIndexRangeSearchCnt", TUnit::UNIT);
 

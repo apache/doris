@@ -42,6 +42,8 @@
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 
+struct AnnIndexTopnCacheHandle;
+
 struct AnnIndexStats {
     AnnIndexStats()
             : search_costs_ns(TUnit::TIME_NS, 0),
@@ -49,7 +51,8 @@ struct AnnIndexStats {
               engine_search_ns(TUnit::TIME_NS, 0),
               result_process_costs_ns(TUnit::TIME_NS, 0),
               engine_convert_ns(TUnit::TIME_NS, 0),
-              engine_prepare_ns(TUnit::TIME_NS, 0) {}
+              engine_prepare_ns(TUnit::TIME_NS, 0),
+              topn_cache_hits(TUnit::UNIT, 0) {}
 
     AnnIndexStats(const AnnIndexStats& other)
             : search_costs_ns(TUnit::TIME_NS, other.search_costs_ns.value()),
@@ -57,7 +60,8 @@ struct AnnIndexStats {
               engine_search_ns(TUnit::TIME_NS, other.engine_search_ns.value()),
               result_process_costs_ns(TUnit::TIME_NS, other.result_process_costs_ns.value()),
               engine_convert_ns(TUnit::TIME_NS, other.engine_convert_ns.value()),
-              engine_prepare_ns(TUnit::TIME_NS, other.engine_prepare_ns.value()) {}
+              engine_prepare_ns(TUnit::TIME_NS, other.engine_prepare_ns.value()),
+              topn_cache_hits(TUnit::UNIT, other.topn_cache_hits.value()) {}
 
     AnnIndexStats& operator=(const AnnIndexStats& other) {
         if (this != &other) {
@@ -67,6 +71,7 @@ struct AnnIndexStats {
             result_process_costs_ns.set(other.result_process_costs_ns.value());
             engine_convert_ns.set(other.engine_convert_ns.value());
             engine_prepare_ns.set(other.engine_prepare_ns.value());
+            topn_cache_hits.set(other.topn_cache_hits.value());
         }
         return *this;
     }
@@ -77,19 +82,45 @@ struct AnnIndexStats {
     RuntimeProfile::Counter result_process_costs_ns; // time cost of processing search results
     RuntimeProfile::Counter engine_convert_ns;       // time cost of engine-side conversions
     RuntimeProfile::Counter
-            engine_prepare_ns; // time cost before engine search (allocations, setup)
+            engine_prepare_ns;               // time cost before engine search (allocations, setup)
+    RuntimeProfile::Counter topn_cache_hits; // number of cache hits in ANN TopN result cache
 };
 
 struct AnnTopNParam {
+    // =========================
+    // TopN execution inputs
+    // =========================
+    // Query vector data pointer.
     const float* query_value;
+    // Query vector dimension.
     const size_t query_value_size;
+    // Requested TopK/TopN count.
     size_t limit;
+    // Runtime ANN search options (HNSW/IVF specific params).
     doris::VectorSearchUserParams _user_params;
+    // Candidate row bitmap after pre-filters.
+    // ANN TopN search only evaluates rows inside this bitmap.
     roaring::Roaring* roaring;
+    // Total row count of current segment, used by ANN engine for bounds/checks.
     size_t rows_of_segment = 0;
+
+    // =========================
+    // TopN execution outputs
+    // =========================
+    // Output distances of returned TopN rows. Size matches output row count.
     std::unique_ptr<std::vector<float>> distance = nullptr;
+    // Output row ids corresponding to `distance`.
     std::unique_ptr<std::vector<uint64_t>> row_ids = nullptr;
+    // Optional per-call statistics holder.
     std::unique_ptr<AnnIndexStats> stats = nullptr;
+
+    std::string to_string() const {
+        return fmt::format(
+                "query_value_size: {}, limit: {}, rows_of_segment: {}, hnsw_ef_search: {}, "
+                "hnsw_check_relative_distance: {}, hnsw_bounded_queue: {}",
+                query_value_size, limit, rows_of_segment, _user_params.hnsw_ef_search,
+                _user_params.hnsw_check_relative_distance, _user_params.hnsw_bounded_queue);
+    }
 };
 
 struct AnnRangeSearchParams {
@@ -121,6 +152,9 @@ For range search, is condition is not le_or_lt, the row_ids and distances will b
 struct IndexSearchResult {
     IndexSearchResult() = default;
 
+    AnnIndexTopnCacheHandle to_ann_index_topn_cache_handle() const;
+
+    // TODO: Use shared_ptr for distances and row_ids to avoid copy
     std::unique_ptr<float[]> distances = nullptr;
     std::unique_ptr<std::vector<uint64_t>> row_ids = nullptr;
     std::shared_ptr<roaring::Roaring> roaring = nullptr;
