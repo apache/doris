@@ -1779,12 +1779,22 @@ public class SearchDslParser {
         /**
          * Validate the options after deserialization.
          * Checks for:
+         * - mode is "standard" or "lucene"
          * - Mutual exclusion between fields and default_field
          * - minimum_should_match is non-negative if specified
          *
          * @throws IllegalArgumentException if validation fails
          */
         public void validate() {
+            // Validation: mode must be "standard" or "lucene"
+            if (mode != null) {
+                String normalizedMode = mode.trim().toLowerCase();
+                if (!"standard".equals(normalizedMode) && !"lucene".equals(normalizedMode)) {
+                    throw new IllegalArgumentException(
+                            "'mode' must be 'standard' or 'lucene', got: " + mode);
+                }
+                this.mode = normalizedMode;
+            }
             // Validation: fields and default_field are mutually exclusive
             if (fields != null && !fields.isEmpty()
                     && defaultField != null && !defaultField.isEmpty()) {
