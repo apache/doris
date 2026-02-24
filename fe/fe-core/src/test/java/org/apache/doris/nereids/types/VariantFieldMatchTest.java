@@ -416,7 +416,7 @@ public class VariantFieldMatchTest {
     }
 
     @Test
-    public void testGetVariantTypedPathPatternsFiltersSkipPatterns() {
+    public void testGetVariantTypedPredefinedFieldsFiltersSkipPatterns() {
         VariantField skip = new VariantField("debug_*", StringType.INSTANCE, "",
                 TPatternType.SKIP_NAME_GLOB.name());
         VariantField typed1 = new VariantField("num_*", BigIntType.INSTANCE, "",
@@ -425,7 +425,7 @@ public class VariantFieldMatchTest {
                 TPatternType.MATCH_NAME.name());
         VariantType variantType = new VariantType(ImmutableList.of(skip, typed1, typed2));
 
-        Assertions.assertEquals(3, variantType.getVariantPathPatterns().size());
-        Assertions.assertEquals(2, variantType.getVariantTypedPathPatterns().size());
+        Assertions.assertEquals(3, variantType.getVariantPredefinedFields().size());
+        Assertions.assertEquals(2, variantType.getVariantTypedPredefinedFields().size());
     }
 }

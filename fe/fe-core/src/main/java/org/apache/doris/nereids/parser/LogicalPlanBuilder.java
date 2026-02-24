@@ -5133,7 +5133,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                         "Unsupported variant definition: " + variantDef.getText());
         VariantContext variantCtx = (VariantContext) variantDef;
 
-        List<VariantField> variantPathPatterns = Lists.newArrayList();
+        List<VariantField> variantPredefinedFields = Lists.newArrayList();
         if (variantCtx.variantSubColTypeList() != null) {
             for (VariantSubColTypeContext subCtx : variantCtx.variantSubColTypeList().variantSubColType()) {
                 if (subCtx.SKIP_() != null) {
@@ -5144,9 +5144,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             : subCtx.variantSubColMatchType().getText();
                     String skipPatternType = "MATCH_NAME".equalsIgnoreCase(skipMatchType)
                             ? "SKIP_NAME" : "SKIP_NAME_GLOB";
-                    variantPathPatterns.add(new VariantField(skipPattern, StringType.INSTANCE, "", skipPatternType));
+                    variantPredefinedFields.add(new VariantField(skipPattern, StringType.INSTANCE, "", skipPatternType));
                 } else {
-                    variantPathPatterns.add(visitVariantSubColType(subCtx));
+                    variantPredefinedFields.add(visitVariantSubColType(subCtx));
                 }
             }
         }
@@ -5201,7 +5201,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             variantSparseHashShardCount = 0;
             // Validate that all typed fields use data types supported in doc mode
             // document mode only supports string, integral, float, and boolean types
-            for (VariantField field : variantPathPatterns) {
+            for (VariantField field : variantPredefinedFields) {
                 if (field.isSkipPatternType()) {
                     continue;
                 }
@@ -5235,7 +5235,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT);
         }
 
-        return new VariantType(variantPathPatterns, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
+        return new VariantType(variantPredefinedFields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                     variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
                     enableVariantDocMode, variantDocMaterializationMinRows, variantDocHashShardCount);
     }

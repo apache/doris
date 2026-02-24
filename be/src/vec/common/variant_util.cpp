@@ -283,18 +283,18 @@ bool glob_match_re2(const std::string& glob_pattern, const std::string& candidat
 }
 
 Status build_compiled_skip_matcher(
-        const std::vector<std::pair<std::string, PatternTypePB>>& skip_path_patterns,
+        const std::vector<std::pair<std::string, PatternTypePB>>& skip_patterns,
         bool enable_re2_set, std::shared_ptr<const CompiledSkipMatcher>* out) {
     if (out == nullptr) {
         return Status::InvalidArgument("Output pointer for compiled skip matcher is null");
     }
 
     auto matcher = std::make_shared<CompiledSkipMatcher>();
-    matcher->exact_patterns.reserve(skip_path_patterns.size());
+    matcher->exact_patterns.reserve(skip_patterns.size());
 
     std::vector<std::string> glob_regex_patterns;
-    glob_regex_patterns.reserve(skip_path_patterns.size());
-    for (const auto& [pattern, pt] : skip_path_patterns) {
+    glob_regex_patterns.reserve(skip_patterns.size());
+    for (const auto& [pattern, pt] : skip_patterns) {
         if (is_skip_exact_path_pattern_type(pt)) {
             matcher->exact_patterns.insert(pattern);
             continue;
@@ -373,15 +373,15 @@ inline bool is_variant_skip_path_pattern_type(PatternTypePB pattern_type) {
            pattern_type == PatternTypePB::SKIP_NAME_GLOB;
 }
 
-void collect_variant_skip_path_patterns_from_children(
+void collect_variant_skip_patterns_from_children(
         const TabletColumn& column,
-        std::vector<std::pair<std::string, PatternTypePB>>* skip_path_patterns) {
-    skip_path_patterns->clear();
+        std::vector<std::pair<std::string, PatternTypePB>>* skip_patterns) {
+    skip_patterns->clear();
     for (const auto& sub_column : column.get_sub_columns()) {
         if (!is_variant_skip_path_pattern_type(sub_column->pattern_type())) {
             continue;
         }
-        skip_path_patterns->emplace_back(sub_column->name(), sub_column->pattern_type());
+        skip_patterns->emplace_back(sub_column->name(), sub_column->pattern_type());
     }
 }
 
@@ -1186,7 +1186,7 @@ Status VariantCompactionUtil::get_compaction_typed_columns(
             inherit_column_attributes(*parent_column, sub_column_info.column);
             output_schema->append_column(sub_column_info.column);
             paths_set_info.typed_path_set.insert({path, std::move(sub_column_info)});
-            VLOG_DEBUG << "append typed column " << path;
+            VLOG_DEBUG << "append typed path " << path;
         } else {
             return Status::InternalError("Failed to generate sub column info for path {}", path);
         }
@@ -1254,7 +1254,7 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
             inherit_column_attributes(*parent_column, sub_column_info.column);
             output_schema->append_column(sub_column_info.column);
             paths_set_info.subcolumn_indexes.emplace(subpath, std::move(sub_column_info.indexes));
-            VLOG_DEBUG << "append typed column " << subpath;
+            VLOG_DEBUG << "append typed path " << subpath;
         } else if (find_data_types == path_to_data_types.end() || find_data_types->second.empty() ||
                    sparse_paths.find(std::string(subpath)) != sparse_paths.end() ||
                    sparse_paths.size() >=
@@ -1321,7 +1321,7 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
 
 // Build the temporary schema for compaction
 // 1. aggregate path stats and data types from all rowsets
-// 2. append typed columns and nested columns to the output schema
+// 2. append typed paths and nested columns to the output schema
 // 3. sort the subpaths and sparse paths for each unique id
 // 4. append the subpaths and sparse paths to the output schema
 // 5. set the path set info for each unique id
@@ -1368,7 +1368,7 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
             continue;
         }
 
-        // 1. append typed columns
+        // 1. append typed paths
         RETURN_IF_ERROR(get_compaction_typed_columns(
                 target, uid_to_variant_extended_info[column->unique_id()].typed_paths, column,
                 output_schema, uid_to_paths_set_info[column->unique_id()]));
@@ -2296,7 +2296,7 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
     }
 
     std::vector<ParseConfig> configs(variant_column_pos.size());
-    std::vector<std::vector<std::pair<std::string, PatternTypePB>>> variant_skip_path_patterns(
+    std::vector<std::vector<std::pair<std::string, PatternTypePB>>> variant_skip_patterns(
             variant_column_pos.size());
     for (size_t i = 0; i < variant_column_pos.size(); ++i) {
         configs[i].enable_flatten_nested = tablet_schema.variant_flatten_nested();
@@ -2305,11 +2305,11 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
             return Status::InternalError("column is not variant type, column name: {}",
                                          column.name());
         }
-        // Set skip path patterns if configured on variant children.
-        collect_variant_skip_path_patterns_from_children(column, &variant_skip_path_patterns[i]);
-        if (!variant_skip_path_patterns[i].empty()) {
-            configs[i].skip_path_patterns = &variant_skip_path_patterns[i];
-            RETURN_IF_ERROR(build_compiled_skip_matcher(variant_skip_path_patterns[i], true,
+        // Set skip patterns if configured on variant children.
+        collect_variant_skip_patterns_from_children(column, &variant_skip_patterns[i]);
+        if (!variant_skip_patterns[i].empty()) {
+            configs[i].skip_patterns = &variant_skip_patterns[i];
+            RETURN_IF_ERROR(build_compiled_skip_matcher(variant_skip_patterns[i], true,
                                                         &configs[i].compiled_skip_matcher));
         }
         // if doc mode is not enabled, no need to parse to doc value column

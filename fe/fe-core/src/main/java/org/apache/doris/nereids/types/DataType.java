@@ -481,12 +481,12 @@ public abstract class DataType {
             // In the past, variant metadata used the ScalarType type.
             // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
             if (type instanceof org.apache.doris.catalog.VariantType) {
-                List<VariantField> variantPathPatterns = ((org.apache.doris.catalog.VariantType) type)
-                        .getVariantPathPatterns().stream()
+                List<VariantField> variantPredefinedFields = ((org.apache.doris.catalog.VariantType) type)
+                        .getVariantPredefinedFields().stream()
                         .map(cf -> new VariantField(cf.getPattern(), fromCatalogType(cf.getType()),
                                 cf.getComment() == null ? "" : cf.getComment(), cf.getPatternType().toString()))
                         .collect(ImmutableList.toImmutableList());
-                return new VariantType(variantPathPatterns,
+                return new VariantType(variantPredefinedFields,
                         ((org.apache.doris.catalog.VariantType) type).getVariantMaxSubcolumnsCount(),
                         ((org.apache.doris.catalog.VariantType) type).getEnableTypedPathsToSparse(),
                         ((org.apache.doris.catalog.VariantType) type).getVariantMaxSparseColumnStatisticsSize(),
@@ -1114,10 +1114,10 @@ public abstract class DataType {
                 break;
             }
             case VARIANT: {
-                ArrayList<org.apache.doris.catalog.VariantField> typedPathPatterns =
-                        ((org.apache.doris.catalog.VariantType) scalarType).getVariantTypedPathPatterns();
+                ArrayList<org.apache.doris.catalog.VariantField> typedPredefinedFields =
+                        ((org.apache.doris.catalog.VariantType) scalarType).getVariantTypedPredefinedFields();
                 Set<String> fieldPatterns = new HashSet<>();
-                for (org.apache.doris.catalog.VariantField field : typedPathPatterns) {
+                for (org.apache.doris.catalog.VariantField field : typedPredefinedFields) {
                     Type fieldType = field.getType();
                     validateNestedType(scalarType, fieldType);
                     if (!fieldPatterns.add(field.getPattern())) {

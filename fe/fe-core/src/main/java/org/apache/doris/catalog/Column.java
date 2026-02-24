@@ -109,7 +109,7 @@ public class Column implements GsonPostProcessable {
     private String comment;
     @SerializedName(value = "children")
     // Generic sub-columns for complex types.
-    // For VARIANT, this list stores both typed-path templates and skip rules.
+    // For VARIANT, this list stores both typed-path templates and skip patterns.
     // Caller should filter by fieldPatternType:
     // MATCH_* -> typed path, SKIP_* -> skip pattern.
     private List<Column> children;
@@ -361,8 +361,8 @@ public class Column implements GsonPostProcessable {
         } else if (type.isVariantType() && type instanceof VariantType) {
             // Variant stores typed-path templates and skip patterns as sibling children,
             // distinguished by fieldPatternType.
-            ArrayList<VariantField> variantPathPatterns = ((VariantType) type).getVariantPathPatterns();
-            for (VariantField field : variantPathPatterns) {
+            ArrayList<VariantField> variantPredefinedFields = ((VariantType) type).getVariantPredefinedFields();
+            for (VariantField field : variantPredefinedFields) {
                 // set column name as pattern
                 Column c = new Column(field.pattern, field.getType());
                 c.setIsAllowNull(true);
@@ -819,7 +819,7 @@ public class Column implements GsonPostProcessable {
             }
         } else if (column.type.isVariantType()) {
             // Variant children are persisted as two peer groups:
-            // 1) typed path schema templates, 2) skip pattern rules.
+            // predefined fields: 1) typed paths, 2) skip patterns.
             appendVariantTypedPathChildren(column, tColumn);
             appendVariantSkipPatternChildren(column, tColumn);
         }
@@ -968,7 +968,7 @@ public class Column implements GsonPostProcessable {
             builder.setVariantEnableDocMode(this.getVariantEnableDocMode());
             builder.setVariantDocMaterializationMinRows(this.getvariantDocMaterializationMinRows());
             builder.setVariantDocHashShardCount(this.getVariantDocShardCount());
-            // Keep typed paths and skip rules as sibling children entries.
+            // Keep typed paths and skip patterns as sibling children entries.
             appendVariantTypedPathChildren(builder);
             appendVariantSkipPatternChildren(builder);
         }

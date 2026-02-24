@@ -189,13 +189,13 @@ public class ColumnTest {
 
     @Test
     public void testVariantSkipPatternChildrenSerialization() throws Exception {
-        ArrayList<VariantField> variantPathPatterns = new ArrayList<>();
+        ArrayList<VariantField> variantPredefinedFields = new ArrayList<>();
         // Deliberately interleave skip and typed paths to verify grouped output order.
-        variantPathPatterns.add(new VariantField("debug_*", Type.STRING, "", TPatternType.SKIP_NAME_GLOB));
-        variantPathPatterns.add(new VariantField("num_*", Type.BIGINT, "", TPatternType.MATCH_NAME_GLOB));
-        variantPathPatterns.add(new VariantField("secret", Type.STRING, "", TPatternType.SKIP_NAME));
-        variantPathPatterns.add(new VariantField("id", Type.INT, "", TPatternType.MATCH_NAME));
-        VariantType variantType = new VariantType(variantPathPatterns);
+        variantPredefinedFields.add(new VariantField("debug_*", Type.STRING, "", TPatternType.SKIP_NAME_GLOB));
+        variantPredefinedFields.add(new VariantField("num_*", Type.BIGINT, "", TPatternType.MATCH_NAME_GLOB));
+        variantPredefinedFields.add(new VariantField("secret", Type.STRING, "", TPatternType.SKIP_NAME));
+        variantPredefinedFields.add(new VariantField("id", Type.INT, "", TPatternType.MATCH_NAME));
+        VariantType variantType = new VariantType(variantPredefinedFields);
 
         Column variantColumn = new Column("v", variantType, true);
         Assert.assertEquals(4, variantColumn.getChildren().size());

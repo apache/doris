@@ -684,7 +684,7 @@ public:
 
     // all path in path_set_info are relative to the parent column
     struct PathsSetInfo {
-        std::unordered_map<std::string, SubColumnInfo> typed_path_set;    // typed columns
+        std::unordered_map<std::string, SubColumnInfo> typed_path_set;    // typed paths
         std::unordered_map<std::string, TabletIndexes> subcolumn_indexes; // subcolumns indexes
         PathSet sub_path_set;                                             // extracted columns
         PathSet sparse_path_set;                                          // sparse columns

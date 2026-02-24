@@ -1542,26 +1542,26 @@ public class NereidsParserTest extends ParserTestBase {
 
         Assertions.assertTrue(variantColumn.getType() instanceof VariantType);
         VariantType variantType = (VariantType) variantColumn.getType();
-        List<VariantField> variantPathPatterns = variantType.getVariantPathPatterns();
-        Assertions.assertEquals(3, variantPathPatterns.size());
+        List<VariantField> variantPredefinedFields = variantType.getVariantPredefinedFields();
+        Assertions.assertEquals(3, variantPredefinedFields.size());
 
-        VariantField skipGlob = variantPathPatterns.get(0);
+        VariantField skipGlob = variantPredefinedFields.get(0);
         Assertions.assertTrue(skipGlob.isSkipPatternType());
         Assertions.assertEquals(StringType.INSTANCE, skipGlob.getDataType());
         Assertions.assertEquals(TPatternType.SKIP_NAME_GLOB, skipGlob.toCatalogDataType().getPatternType());
         Assertions.assertEquals("SKIP 'debug_*'", skipGlob.toSql());
 
-        VariantField skipExact = variantPathPatterns.get(1);
+        VariantField skipExact = variantPredefinedFields.get(1);
         Assertions.assertTrue(skipExact.isSkipPatternType());
         Assertions.assertEquals(StringType.INSTANCE, skipExact.getDataType());
         Assertions.assertEquals(TPatternType.SKIP_NAME, skipExact.toCatalogDataType().getPatternType());
         Assertions.assertEquals("SKIP MATCH_NAME 'secret'", skipExact.toSql());
 
-        VariantField typedPattern = variantPathPatterns.get(2);
+        VariantField typedPattern = variantPredefinedFields.get(2);
         Assertions.assertTrue(typedPattern.isTypedPathPatternType());
         Assertions.assertEquals(TPatternType.MATCH_NAME_GLOB, typedPattern.toCatalogDataType().getPatternType());
         Assertions.assertTrue(typedPattern.matches("num_a"));
-        Assertions.assertEquals(1, variantType.getVariantTypedPathPatterns().size());
+        Assertions.assertEquals(1, variantType.getVariantTypedPredefinedFields().size());
     }
 
     @Test
@@ -1585,9 +1585,9 @@ public class NereidsParserTest extends ParserTestBase {
 
         VariantType variantType = (VariantType) variantColumn.getType();
         Assertions.assertTrue(variantType.getEnableVariantDocMode());
-        Assertions.assertEquals(1, variantType.getVariantPathPatterns().size());
-        Assertions.assertEquals(0, variantType.getVariantTypedPathPatterns().size());
-        Assertions.assertTrue(variantType.getVariantPathPatterns().get(0).isSkipPatternType());
+        Assertions.assertEquals(1, variantType.getVariantPredefinedFields().size());
+        Assertions.assertEquals(0, variantType.getVariantTypedPredefinedFields().size());
+        Assertions.assertTrue(variantType.getVariantPredefinedFields().get(0).isSkipPatternType());
     }
 
     @Test

@@ -106,7 +106,7 @@ public class ElementAt extends ScalarFunction
         DataType expressionType = arguments.get(0).getDataType();
         DataType sigType = signature.argumentsTypes.get(0);
         if (expressionType instanceof VariantType && sigType instanceof VariantType) {
-            // Preserve variant typed path patterns for schema template matching.
+            // Preserve variant predefined fields so typed paths remain available for schema template matching.
             VariantType originalType = (VariantType) expressionType;
             signature = signature.withArgumentType(0, originalType);
             signature = signature.withReturnType(originalType);

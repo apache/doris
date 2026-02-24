@@ -1936,7 +1936,7 @@ Status ColumnVariant::pick_subcolumns_to_sparse_column(
         if ((!variant_enable_typed_paths_to_sparse &&
              typed_paths.find(entry->path.get_path()) != typed_paths.end()) ||
             entry->path.has_nested_part()) {
-            VLOG_DEBUG << "pick " << entry->path.get_path() << " as typed column";
+            VLOG_DEBUG << "pick " << entry->path.get_path() << " as typed path";
             new_subcolumns.add(entry->path, entry->data);
             continue;
         }

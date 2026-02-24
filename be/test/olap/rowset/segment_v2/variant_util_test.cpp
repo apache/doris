@@ -753,7 +753,7 @@ TEST(VariantUtilTest, SkipPatternPerfCompareOptimizationMatrix) {
     vectorized::ParseConfig legacy_config;
     legacy_config.enable_flatten_nested = false;
     legacy_config.parse_to = vectorized::ParseConfig::ParseTo::OnlySubcolumns;
-    legacy_config.skip_path_patterns = &skip_patterns;
+    legacy_config.skip_patterns = &skip_patterns;
     legacy_config.compiled_skip_matcher = nullptr;
 
     std::shared_ptr<const CompiledSkipMatcher> compiled_matcher_with_re2_set;

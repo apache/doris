@@ -505,7 +505,7 @@ TEST(JsonParserTest, ParseWithSkipPatternsLegacyAndCompiledMatcher) {
 
     std::string json = R"({"secret":1,"debug_x":2,"keep":3})";
     ParseConfig legacy_config;
-    legacy_config.skip_path_patterns = &skip_patterns;
+    legacy_config.skip_patterns = &skip_patterns;
     auto legacy_result = parser.parse(json.c_str(), json.size(), legacy_config);
     ASSERT_TRUE(legacy_result.has_value());
     std::set<std::string> legacy_paths = collect_paths(legacy_result.value());
@@ -519,7 +519,7 @@ TEST(JsonParserTest, ParseWithSkipPatternsLegacyAndCompiledMatcher) {
     ASSERT_TRUE(st.ok()) << st.to_string();
 
     ParseConfig compiled_config;
-    compiled_config.skip_path_patterns = &skip_patterns;
+    compiled_config.skip_patterns = &skip_patterns;
     compiled_config.compiled_skip_matcher = matcher;
     auto compiled_result = parser.parse(json.c_str(), json.size(), compiled_config);
     ASSERT_TRUE(compiled_result.has_value());
@@ -535,7 +535,7 @@ TEST(JsonParserTest, ParseWithInvalidSkipGlobDoesNotDropPaths) {
     std::string json = R"({"invalid":1,"keep":2})";
 
     ParseConfig config;
-    config.skip_path_patterns = &skip_patterns;
+    config.skip_patterns = &skip_patterns;
     auto result = parser.parse(json.c_str(), json.size(), config);
     ASSERT_TRUE(result.has_value());
     std::set<std::string> paths = collect_paths(result.value());
@@ -548,7 +548,7 @@ TEST(JsonParserTest, ParseWithInvalidSkipGlobDoesNotDropPaths) {
     ASSERT_TRUE(st.ok()) << st.to_string();
 
     ParseConfig compiled_config;
-    compiled_config.skip_path_patterns = &skip_patterns;
+    compiled_config.skip_patterns = &skip_patterns;
     compiled_config.compiled_skip_matcher = matcher;
     auto compiled_result = parser.parse(json.c_str(), json.size(), compiled_config);
     ASSERT_TRUE(compiled_result.has_value());
@@ -557,7 +557,7 @@ TEST(JsonParserTest, ParseWithInvalidSkipGlobDoesNotDropPaths) {
     EXPECT_NE(compiled_paths.find("keep"), compiled_paths.end());
 }
 
-TEST(JsonParserTest, SkipRulesDoNotApplyInsideArrayElements) {
+TEST(JsonParserTest, SkipPatternsDoNotApplyInsideArrayElements) {
     JSONDataParser<SimdJSONParser> parser;
     std::vector<std::pair<std::string, PatternTypePB>> skip_patterns = {
             {"secret", PatternTypePB::SKIP_NAME},
@@ -566,7 +566,7 @@ TEST(JsonParserTest, SkipRulesDoNotApplyInsideArrayElements) {
 
     ParseConfig config;
     config.enable_flatten_nested = true;
-    config.skip_path_patterns = &skip_patterns;
+    config.skip_patterns = &skip_patterns;
     auto result = parser.parse(json.c_str(), json.size(), config);
     ASSERT_TRUE(result.has_value());
 

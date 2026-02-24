@@ -87,25 +87,25 @@ Status glob_to_regex(const std::string& glob_pattern, std::string* regex_pattern
 // Match a glob pattern against a path using RE2.
 bool glob_match_re2(const std::string& glob_pattern, const std::string& candidate_path);
 
-// Build an immutable matcher for skip path patterns used in hot parsing paths.
+// Build an immutable matcher for skip patterns used in hot parsing paths.
 Status build_compiled_skip_matcher(
-        const std::vector<std::pair<std::string, PatternTypePB>>& skip_path_patterns,
+        const std::vector<std::pair<std::string, PatternTypePB>>& skip_patterns,
         bool enable_re2_set, std::shared_ptr<const CompiledSkipMatcher>* out);
 
-// Match a dot-separated path against precompiled skip path patterns.
+// Match a dot-separated path against precompiled skip patterns.
 bool should_skip_path(const CompiledSkipMatcher& matcher, std::string_view path);
 
-// Check if a dot-separated path should be skipped based on skip path patterns.
+// Check if a dot-separated path should be skipped based on skip patterns.
 // For SKIP_NAME_GLOB, uses glob matching; for SKIP_NAME, uses exact string comparison.
 inline bool should_skip_path(
-        const std::vector<std::pair<std::string, PatternTypePB>>& skip_path_patterns,
+        const std::vector<std::pair<std::string, PatternTypePB>>& skip_patterns,
         const std::string& path) {
-    for (const auto& [pattern, pt] : skip_path_patterns) {
+    for (const auto& [pattern, pt] : skip_patterns) {
         if (is_skip_exact_path_pattern_type(pt) && path == pattern) {
             return true;
         }
     }
-    for (const auto& [pattern, pt] : skip_path_patterns) {
+    for (const auto& [pattern, pt] : skip_patterns) {
         if (is_skip_glob_path_pattern_type(pt) && glob_match_re2(pattern, path)) {
             return true;
         }
