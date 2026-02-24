@@ -38,67 +38,6 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-constexpr size_t kAdaptiveSkipCacheMaxCapacity = 1UL << 14; // 16384
-
-template <typename ParserImpl>
-void JSONDataParser<ParserImpl>::reset_skip_cache() {
-    skip_cache.clear();
-    skip_cache_lru.clear();
-}
-
-template <typename ParserImpl>
-void JSONDataParser<ParserImpl>::prepare_skip_cache(const ParseConfig& config,
-                                                    ParseContext& context) {
-    const bool has_skip_path_patterns =
-            context.skip_matcher != nullptr ||
-            (context.skip_path_patterns != nullptr && !context.skip_path_patterns->empty());
-    if (!has_skip_path_patterns || context.skip_result_cache_capacity == 0) {
-        reset_skip_cache();
-        skip_cache_matcher_holder.reset();
-        skip_cache_patterns = nullptr;
-        skip_cache_config_capacity = 0;
-        skip_cache_adaptive = false;
-        skip_cache_learned_capacity = 0;
-        context.skip_cache = nullptr;
-        context.skip_cache_lru = nullptr;
-        context.skip_cache_unbounded = false;
-        return;
-    }
-
-    const bool adaptive = config.adaptive_skip_result_cache_capacity;
-    const bool matcher_changed = context.skip_matcher != nullptr
-                                         ? skip_cache_matcher_holder.get() != context.skip_matcher
-                                         : skip_cache_matcher_holder != nullptr;
-    const bool patterns_changed =
-            context.skip_matcher == nullptr && skip_cache_patterns != context.skip_path_patterns;
-    const bool cache_config_changed =
-            matcher_changed || patterns_changed ||
-            skip_cache_config_capacity != context.skip_result_cache_capacity ||
-            skip_cache_adaptive != adaptive;
-    if (cache_config_changed) {
-        reset_skip_cache();
-        skip_cache_matcher_holder = config.compiled_skip_matcher;
-        skip_cache_patterns = context.skip_path_patterns;
-        skip_cache_config_capacity = context.skip_result_cache_capacity;
-        skip_cache_adaptive = adaptive;
-        skip_cache_learned_capacity = 0;
-        if (!skip_cache_adaptive) {
-            skip_cache.reserve(skip_cache_config_capacity);
-        }
-    }
-    context.skip_cache = &skip_cache;
-    context.skip_cache_lru = &skip_cache_lru;
-    context.skip_cache_unbounded = false;
-    if (skip_cache_adaptive) {
-        if (skip_cache_learned_capacity == 0) {
-            context.skip_cache_unbounded = true;
-        } else {
-            context.skip_result_cache_capacity = static_cast<uint16_t>(
-                    std::min(skip_cache_learned_capacity, kAdaptiveSkipCacheMaxCapacity));
-        }
-    }
-}
-
 template <typename ParserImpl>
 std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, size_t length,
                                                              const ParseConfig& config) {
@@ -113,20 +52,7 @@ std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, 
     context.is_top_array = document.isArray();
     context.skip_path_patterns = config.skip_path_patterns;
     context.skip_matcher = config.compiled_skip_matcher.get();
-    context.skip_result_cache_capacity = config.skip_result_cache_capacity;
-#ifdef BE_TEST
-    context.skip_cache_stats = config.skip_cache_stats;
-#endif
-    prepare_skip_cache(config, context);
     traverse(document, context);
-    if (skip_cache_adaptive && context.skip_cache != nullptr && context.skip_cache_unbounded &&
-        !skip_cache.empty()) {
-        const size_t learned_capacity = std::min(skip_cache.size(), kAdaptiveSkipCacheMaxCapacity);
-        if (learned_capacity > 0) {
-            const size_t rounded_capacity = std::bit_ceil(learned_capacity);
-            skip_cache_learned_capacity = std::min(rounded_capacity, kAdaptiveSkipCacheMaxCapacity);
-        }
-    }
     ParseResult result;
     result.values = std::move(context.values);
     result.paths.reserve(context.paths.size());
@@ -192,69 +118,11 @@ void JSONDataParser<ParserImpl>::traverseObject(const JSONObject& object, ParseC
             }
             ctx.current_path.append(key.data(), key.size());
 
-            bool is_skipped = false;
-            if (ctx.skip_cache != nullptr) {
-#ifdef BE_TEST
-                if (ctx.skip_cache_stats != nullptr) {
-                    ++ctx.skip_cache_stats->lookup_count;
-                }
-#endif
-                auto cache_it = ctx.skip_cache->find(ctx.current_path);
-                if (cache_it != ctx.skip_cache->end()) {
-                    is_skipped = cache_it->second.is_skipped;
-                    ctx.skip_cache_lru->splice(ctx.skip_cache_lru->begin(), *ctx.skip_cache_lru,
-                                               cache_it->second.lru_it);
-#ifdef BE_TEST
-                    if (ctx.skip_cache_stats != nullptr) {
-                        ++ctx.skip_cache_stats->hit_count;
-                    }
-#endif
-                } else {
-#ifdef BE_TEST
-                    if (ctx.skip_cache_stats != nullptr) {
-                        ++ctx.skip_cache_stats->miss_count;
-                    }
-#endif
-                    if (ctx.skip_matcher != nullptr) {
-                        is_skipped =
-                                variant_util::should_skip_path(*ctx.skip_matcher, ctx.current_path);
-                    } else {
-                        is_skipped = variant_util::should_skip_path(*ctx.skip_path_patterns,
-                                                                    ctx.current_path);
-                    }
-
-                    const size_t cache_capacity = ctx.skip_cache_unbounded
-                                                          ? kAdaptiveSkipCacheMaxCapacity
-                                                          : ctx.skip_result_cache_capacity;
-                    if (ctx.skip_cache->size() >= cache_capacity && !ctx.skip_cache_lru->empty()) {
-                        const auto& evicted_key = ctx.skip_cache_lru->back();
-                        ctx.skip_cache->erase(evicted_key);
-                        ctx.skip_cache_lru->pop_back();
-#ifdef BE_TEST
-                        if (ctx.skip_cache_stats != nullptr) {
-                            ++ctx.skip_cache_stats->evict_count;
-                        }
-#endif
-                    }
-
-                    ctx.skip_cache_lru->push_front(ctx.current_path);
-                    SkipCacheEntry cache_entry;
-                    cache_entry.is_skipped = is_skipped;
-                    cache_entry.lru_it = ctx.skip_cache_lru->begin();
-                    ctx.skip_cache->emplace(std::string_view(*cache_entry.lru_it),
-                                            std::move(cache_entry));
-#ifdef BE_TEST
-                    if (ctx.skip_cache_stats != nullptr) {
-                        ++ctx.skip_cache_stats->insert_count;
-                    }
-#endif
-                }
-            } else if (ctx.skip_matcher != nullptr) {
-                is_skipped = variant_util::should_skip_path(*ctx.skip_matcher, ctx.current_path);
-            } else {
-                is_skipped =
-                        variant_util::should_skip_path(*ctx.skip_path_patterns, ctx.current_path);
-            }
+            bool is_skipped =
+                    ctx.skip_matcher != nullptr
+                            ? variant_util::should_skip_path(*ctx.skip_matcher, ctx.current_path)
+                            : variant_util::should_skip_path(*ctx.skip_path_patterns,
+                                                             ctx.current_path);
 
             if (is_skipped) {
                 ctx.current_path.resize(old_length);
@@ -374,13 +242,6 @@ void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
     element_ctx.is_top_array = ctx.is_top_array;
     element_ctx.skip_path_patterns = nullptr;
     element_ctx.skip_matcher = nullptr;
-    element_ctx.skip_result_cache_capacity = 0;
-    element_ctx.skip_cache_unbounded = false;
-    element_ctx.skip_cache = nullptr;
-    element_ctx.skip_cache_lru = nullptr;
-#ifdef BE_TEST
-    element_ctx.skip_cache_stats = nullptr;
-#endif
     traverse(element, element_ctx);
     auto& paths = element_ctx.paths;
     auto& values = element_ctx.values;

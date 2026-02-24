@@ -2311,7 +2311,6 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
             configs[i].skip_path_patterns = &variant_skip_path_patterns[i];
             RETURN_IF_ERROR(build_compiled_skip_matcher(variant_skip_path_patterns[i], true,
                                                         &configs[i].compiled_skip_matcher));
-            configs[i].adaptive_skip_result_cache_capacity = true;
         }
         // if doc mode is not enabled, no need to parse to doc value column
         if (!column.variant_enable_doc_mode()) {

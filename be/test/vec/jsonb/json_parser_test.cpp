@@ -521,7 +521,6 @@ TEST(JsonParserTest, ParseWithSkipPatternsLegacyAndCompiledMatcher) {
     ParseConfig compiled_config;
     compiled_config.skip_path_patterns = &skip_patterns;
     compiled_config.compiled_skip_matcher = matcher;
-    compiled_config.skip_result_cache_capacity = 8;
     auto compiled_result = parser.parse(json.c_str(), json.size(), compiled_config);
     ASSERT_TRUE(compiled_result.has_value());
     std::set<std::string> compiled_paths = collect_paths(compiled_result.value());

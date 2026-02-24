@@ -735,105 +735,6 @@ TEST(VariantUtilTest, ParseVariantColumnsApplySkipPatternsFromSchemaChildren) {
     ASSERT_TRUE(sub_num_b != nullptr);
 }
 
-TEST(VariantUtilTest, SkipPatternCacheHitsAcrossRows) {
-    constexpr size_t kRows = 64;
-    std::vector<std::string> json_rows;
-    json_rows.reserve(kRows);
-    for (size_t i = 0; i < kRows; ++i) {
-        json_rows.emplace_back("{\"secret\":" + std::to_string(i) +
-                               ",\"keep\":" + std::to_string(i + 1) + "}");
-    }
-
-    auto json_column = _make_json_column(json_rows);
-
-    std::vector<std::pair<std::string, PatternTypePB>> skip_patterns = {
-            {"secret", PatternTypePB::SKIP_NAME},
-    };
-    std::shared_ptr<const CompiledSkipMatcher> matcher;
-    Status st = build_compiled_skip_matcher(skip_patterns, true, &matcher);
-    ASSERT_TRUE(st.ok()) << st.to_string();
-
-    vectorized::ParseConfig cfg;
-    cfg.enable_flatten_nested = false;
-    cfg.parse_to = vectorized::ParseConfig::ParseTo::OnlySubcolumns;
-    cfg.skip_path_patterns = &skip_patterns;
-    cfg.compiled_skip_matcher = matcher;
-    cfg.skip_result_cache_capacity = 8;
-    cfg.adaptive_skip_result_cache_capacity = true;
-    vectorized::SkipCacheStats cache_stats;
-    cfg.skip_cache_stats = &cache_stats;
-
-    auto out = vectorized::ColumnVariant::create(0);
-    parse_json_to_variant(*out, *json_column, cfg);
-
-    const double hit_rate = cache_stats.lookup_count > 0
-                                    ? static_cast<double>(cache_stats.hit_count) /
-                                              static_cast<double>(cache_stats.lookup_count)
-                                    : 0.0;
-    const double miss_rate = cache_stats.lookup_count > 0
-                                     ? static_cast<double>(cache_stats.miss_count) /
-                                               static_cast<double>(cache_stats.lookup_count)
-                                     : 0.0;
-    LOG(INFO) << "skip cache cross-row stats: "
-              << "lookups=" << cache_stats.lookup_count << ", "
-              << "hits=" << cache_stats.hit_count << ", "
-              << "misses=" << cache_stats.miss_count << ", "
-              << "hit_rate=" << hit_rate << ", "
-              << "miss_rate=" << miss_rate << ", "
-              << "inserts=" << cache_stats.insert_count << ", "
-              << "evicts=" << cache_stats.evict_count;
-
-    EXPECT_EQ(nullptr, out->get_subcolumn(vectorized::PathInData("secret")));
-    EXPECT_TRUE(out->get_subcolumn(vectorized::PathInData("keep")) != nullptr);
-    // Each row has unique object keys within the row, so cache hits here must be cross-row hits.
-    EXPECT_EQ(cache_stats.lookup_count, kRows * 2);
-    EXPECT_EQ(cache_stats.hit_count, (kRows - 1) * 2);
-    EXPECT_EQ(cache_stats.miss_count, 2);
-    EXPECT_EQ(cache_stats.insert_count, 2);
-    EXPECT_EQ(cache_stats.evict_count, 0);
-}
-
-TEST(VariantUtilTest, AdaptiveSkipPatternCacheRoundsUpCapacity) {
-    std::vector<std::string> json_rows = {
-            R"({"a":1,"b":1,"c":1})",
-            R"({"a":2,"b":2,"c":2,"d":2})",
-    };
-    auto json_column = _make_json_column(json_rows);
-
-    std::vector<std::pair<std::string, PatternTypePB>> skip_patterns = {
-            {"a", PatternTypePB::SKIP_NAME},
-            {"b", PatternTypePB::SKIP_NAME},
-            {"c", PatternTypePB::SKIP_NAME},
-            {"d", PatternTypePB::SKIP_NAME},
-    };
-    std::shared_ptr<const CompiledSkipMatcher> matcher;
-    Status st = build_compiled_skip_matcher(skip_patterns, true, &matcher);
-    ASSERT_TRUE(st.ok()) << st.to_string();
-
-    vectorized::ParseConfig cfg;
-    cfg.enable_flatten_nested = false;
-    cfg.parse_to = vectorized::ParseConfig::ParseTo::OnlySubcolumns;
-    cfg.skip_path_patterns = &skip_patterns;
-    cfg.compiled_skip_matcher = matcher;
-    cfg.skip_result_cache_capacity = 1;
-    cfg.adaptive_skip_result_cache_capacity = true;
-    vectorized::SkipCacheStats cache_stats;
-    cfg.skip_cache_stats = &cache_stats;
-
-    auto out = vectorized::ColumnVariant::create(0);
-    parse_json_to_variant(*out, *json_column, cfg);
-
-    EXPECT_EQ(nullptr, out->get_subcolumn(vectorized::PathInData("a")));
-    EXPECT_EQ(nullptr, out->get_subcolumn(vectorized::PathInData("b")));
-    EXPECT_EQ(nullptr, out->get_subcolumn(vectorized::PathInData("c")));
-    EXPECT_EQ(nullptr, out->get_subcolumn(vectorized::PathInData("d")));
-
-    // First row learns 3 skipped keys and rounds capacity up to 4, so inserting 'd' on second row
-    // should not evict any cached key.
-    EXPECT_EQ(cache_stats.insert_count, 4);
-    EXPECT_EQ(cache_stats.evict_count, 0);
-}
-
 TEST(VariantUtilTest, SkipPatternPerfCompareOptimizationMatrix) {
     if (std::getenv("DORIS_RUN_VARIANT_SKIP_PERF_UT") == nullptr) {
         GTEST_SKIP() << "Set DORIS_RUN_VARIANT_SKIP_PERF_UT=1 to run this heavy perf test.";
@@ -854,8 +755,6 @@ TEST(VariantUtilTest, SkipPatternPerfCompareOptimizationMatrix) {
     legacy_config.parse_to = vectorized::ParseConfig::ParseTo::OnlySubcolumns;
     legacy_config.skip_path_patterns = &skip_patterns;
     legacy_config.compiled_skip_matcher = nullptr;
-    legacy_config.skip_result_cache_capacity = 0;
-    legacy_config.adaptive_skip_result_cache_capacity = false;
 
     std::shared_ptr<const CompiledSkipMatcher> compiled_matcher_with_re2_set;
     Status st = build_compiled_skip_matcher(skip_patterns, true, &compiled_matcher_with_re2_set);
@@ -865,42 +764,21 @@ TEST(VariantUtilTest, SkipPatternPerfCompareOptimizationMatrix) {
     st = build_compiled_skip_matcher(skip_patterns, false, &compiled_matcher_without_re2_set);
     ASSERT_TRUE(st.ok()) << st.to_string();
 
-    // 3) current optimization - is_skipped cache and RE2::Set both disabled.
-    vectorized::ParseConfig optimized_no_cache_no_re2set_config = legacy_config;
-    optimized_no_cache_no_re2set_config.compiled_skip_matcher = compiled_matcher_without_re2_set;
-    optimized_no_cache_no_re2set_config.skip_result_cache_capacity = 0;
-    optimized_no_cache_no_re2set_config.adaptive_skip_result_cache_capacity = false;
-
-    // 4) current optimization - is_skipped cache disabled.
-    vectorized::ParseConfig optimized_no_cache_config = legacy_config;
-    optimized_no_cache_config.compiled_skip_matcher = compiled_matcher_with_re2_set;
-    optimized_no_cache_config.skip_result_cache_capacity = 0;
-    optimized_no_cache_config.adaptive_skip_result_cache_capacity = false;
-
-    // 5) current optimization - RE2::Set disabled.
+    // 3) current optimization - RE2::Set disabled.
     vectorized::ParseConfig optimized_no_re2set_config = legacy_config;
     optimized_no_re2set_config.compiled_skip_matcher = compiled_matcher_without_re2_set;
-    optimized_no_re2set_config.skip_result_cache_capacity = 256;
-    optimized_no_re2set_config.adaptive_skip_result_cache_capacity = true;
 
-    // 6) current optimization.
+    // 4) current optimization.
     vectorized::ParseConfig optimized_config = legacy_config;
     optimized_config.compiled_skip_matcher = compiled_matcher_with_re2_set;
-    optimized_config.skip_result_cache_capacity = 256;
-    optimized_config.adaptive_skip_result_cache_capacity = true;
 
     auto no_skip_result = _run_parse_perf(*json_column, no_skip_config);
     auto legacy_result = _run_parse_perf(*json_column, legacy_config);
-    auto optimized_no_cache_no_re2set_result =
-            _run_parse_perf(*json_column, optimized_no_cache_no_re2set_config);
-    auto optimized_no_cache_result = _run_parse_perf(*json_column, optimized_no_cache_config);
     auto optimized_no_re2set_result = _run_parse_perf(*json_column, optimized_no_re2set_config);
     auto optimized_result = _run_parse_perf(*json_column, optimized_config);
 
     ASSERT_EQ(no_skip_result.column->size(), kRows);
     ASSERT_EQ(legacy_result.column->size(), kRows);
-    ASSERT_EQ(optimized_no_cache_no_re2set_result.column->size(), kRows);
-    ASSERT_EQ(optimized_no_cache_result.column->size(), kRows);
     ASSERT_EQ(optimized_no_re2set_result.column->size(), kRows);
     ASSERT_EQ(optimized_result.column->size(), kRows);
 
@@ -909,24 +787,16 @@ TEST(VariantUtilTest, SkipPatternPerfCompareOptimizationMatrix) {
     for (size_t row = 0; row < kRows; row += 97) {
         std::string no_skip_row;
         std::string legacy_row;
-        std::string optimized_no_cache_no_re2set_row;
-        std::string optimized_no_cache_row;
         std::string optimized_no_re2set_row;
         std::string optimized_row;
         no_skip_result.column->serialize_one_row_to_string(row, &no_skip_row, options);
         legacy_result.column->serialize_one_row_to_string(row, &legacy_row, options);
-        optimized_no_cache_no_re2set_result.column->serialize_one_row_to_string(
-                row, &optimized_no_cache_no_re2set_row, options);
-        optimized_no_cache_result.column->serialize_one_row_to_string(row, &optimized_no_cache_row,
-                                                                      options);
         optimized_no_re2set_result.column->serialize_one_row_to_string(
                 row, &optimized_no_re2set_row, options);
         optimized_result.column->serialize_one_row_to_string(row, &optimized_row, options);
         if (!found_no_skip_difference && no_skip_row != legacy_row) {
             found_no_skip_difference = true;
         }
-        ASSERT_EQ(legacy_row, optimized_no_cache_no_re2set_row) << "row=" << row;
-        ASSERT_EQ(legacy_row, optimized_no_cache_row) << "row=" << row;
         ASSERT_EQ(legacy_row, optimized_no_re2set_row) << "row=" << row;
         ASSERT_EQ(legacy_row, optimized_row) << "row=" << row;
     }
@@ -941,20 +811,12 @@ TEST(VariantUtilTest, SkipPatternPerfCompareOptimizationMatrix) {
               << " nested columns, same random data): "
               << "no_skip_ms=" << no_skip_result.elapsed_ms << ", "
               << "legacy_ms=" << legacy_result.elapsed_ms << ", "
-              << "opt_no_cache_no_re2set_ms=" << optimized_no_cache_no_re2set_result.elapsed_ms
-              << ", opt_no_cache_ms=" << optimized_no_cache_result.elapsed_ms
-              << ", opt_no_re2set_ms=" << optimized_no_re2set_result.elapsed_ms
+              << "opt_no_re2set_ms=" << optimized_no_re2set_result.elapsed_ms
               << ", optimized_ms=" << optimized_result.elapsed_ms
-              << ", speedup_opt_no_cache_no_re2set_vs_legacy="
-              << safe_speedup(legacy_result.elapsed_ms,
-                              optimized_no_cache_no_re2set_result.elapsed_ms)
-              << ", speedup_opt_no_cache_vs_opt_no_cache_no_re2set="
-              << safe_speedup(optimized_no_cache_no_re2set_result.elapsed_ms,
-                              optimized_no_cache_result.elapsed_ms)
+              << ", speedup_opt_no_re2set_vs_legacy="
+              << safe_speedup(legacy_result.elapsed_ms, optimized_no_re2set_result.elapsed_ms)
               << ", speedup_optimized_vs_opt_no_re2set="
               << safe_speedup(optimized_no_re2set_result.elapsed_ms, optimized_result.elapsed_ms)
-              << ", speedup_optimized_vs_opt_no_cache="
-              << safe_speedup(optimized_no_cache_result.elapsed_ms, optimized_result.elapsed_ms)
               << ", speedup_optimized_vs_legacy="
               << safe_speedup(legacy_result.elapsed_ms, optimized_result.elapsed_ms)
               << ", skip_patterns=" << skip_patterns.size();
