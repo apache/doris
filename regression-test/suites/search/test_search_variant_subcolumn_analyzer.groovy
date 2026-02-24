@@ -28,7 +28,7 @@
  * Fix: FE now looks up the Index for each field in SearchExpression and passes
  * the index_properties via TSearchFieldBinding to BE.
  */
-suite("test_search_variant_subcolumn_analyzer") {
+suite("test_search_variant_subcolumn_analyzer", "p0") {
     def tableName = "test_variant_subcolumn_analyzer"
 
     sql """ set enable_match_without_inverted_index = false """

@@ -30,7 +30,7 @@
  *
  * Multi-field search can also be combined with Lucene mode for MUST/SHOULD/MUST_NOT semantics.
  */
-suite("test_search_multi_field") {
+suite("test_search_multi_field", "p0") {
     def tableName = "search_multi_field_test"
 
     // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.

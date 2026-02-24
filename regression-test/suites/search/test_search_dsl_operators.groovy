@@ -35,7 +35,7 @@
  * - NOT marks current term as MUST_NOT (-)
  * - With minimum_should_match=0 and MUST clauses present, SHOULD clauses are discarded
  */
-suite("test_search_dsl_operators") {
+suite("test_search_dsl_operators", "p0") {
     def tableName = "search_dsl_operators_test"
 
     // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.

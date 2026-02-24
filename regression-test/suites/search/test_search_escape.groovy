@@ -29,7 +29,7 @@
  * - Groovy string: \\\\ -> SQL string: \\ -> DSL: \ (escape char)
  * - Groovy string: \\\\\\\\ -> SQL string: \\\\ -> DSL: \\ -> literal: \
  */
-suite("test_search_escape") {
+suite("test_search_escape", "p0") {
     def tableName = "search_escape_test"
 
     // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.

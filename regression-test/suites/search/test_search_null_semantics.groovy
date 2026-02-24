@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_search_null_semantics") {
+suite("test_search_null_semantics", "p0") {
     def tableName = "search_null_test"
 
     // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.

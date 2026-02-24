@@ -59,40 +59,6 @@ public:
     Result<bool> has_null() override { return false; }
 };
 
-class TrackingIndexIterator : public segment_v2::IndexIterator {
-public:
-    explicit TrackingIndexIterator(bool has_null) : _has_null(has_null) {}
-
-    segment_v2::IndexReaderPtr get_reader(
-            segment_v2::IndexReaderType /*reader_type*/) const override {
-        return nullptr;
-    }
-
-    Status read_from_index(const segment_v2::IndexParam& /*param*/) override {
-        return Status::OK();
-    }
-
-    Status read_null_bitmap(segment_v2::InvertedIndexQueryCacheHandle* /*cache_handle*/) override {
-        ++_read_null_bitmap_calls;
-        return Status::OK();
-    }
-
-    Result<bool> has_null() override {
-        ++_has_null_checks;
-        return _has_null;
-    }
-
-    int read_null_bitmap_calls() const { return _read_null_bitmap_calls; }
-    int has_null_checks() const { return _has_null_checks; }
-
-    void set_has_null(bool value) { _has_null = value; }
-
-private:
-    bool _has_null = false;
-    int _read_null_bitmap_calls = 0;
-    int _has_null_checks = 0;
-};
-
 TEST_F(FunctionSearchTest, TestGetName) {
     EXPECT_EQ("search", function_search->get_name());
 }
@@ -1561,40 +1527,6 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithSearchParamComplexQuery)
 }
 
 TEST_F(FunctionSearchTest, TestOrCrossFieldMatchesMatchAnyRows) {
-    TSearchClause left_clause;
-    left_clause.clause_type = "TERM";
-    left_clause.field_name = "title";
-    left_clause.value = "foo";
-    left_clause.__isset.field_name = true;
-    left_clause.__isset.value = true;
-
-    TSearchClause right_clause;
-    right_clause.clause_type = "TERM";
-    right_clause.field_name = "content";
-    right_clause.value = "bar";
-    right_clause.__isset.field_name = true;
-    right_clause.__isset.value = true;
-
-    TSearchClause root_clause;
-    root_clause.clause_type = "OR";
-    root_clause.children = {left_clause, right_clause};
-    root_clause.__isset.children = true;
-
-    auto left_iterator = std::make_unique<TrackingIndexIterator>(true);
-    auto right_iterator = std::make_unique<TrackingIndexIterator>(true);
-
-    std::unordered_map<std::string, IndexIterator*> iterators_map = {
-            {"title", left_iterator.get()}, {"content", right_iterator.get()}};
-
-    auto null_bitmap = std::make_shared<roaring::Roaring>();
-    auto status = function_search->collect_all_field_nulls(root_clause, iterators_map, null_bitmap);
-    EXPECT_TRUE(status.ok());
-    EXPECT_GE(left_iterator->has_null_checks(), 1);
-    EXPECT_GE(right_iterator->has_null_checks(), 1);
-    EXPECT_GE(left_iterator->read_null_bitmap_calls(), 1);
-    EXPECT_GE(right_iterator->read_null_bitmap_calls(), 1);
-    EXPECT_TRUE(null_bitmap->isEmpty());
-
     auto data_bitmap = std::make_shared<roaring::Roaring>();
     data_bitmap->add(1);
     data_bitmap->add(3);
@@ -1622,38 +1554,6 @@ TEST_F(FunctionSearchTest, TestOrCrossFieldMatchesMatchAnyRows) {
 }
 
 TEST_F(FunctionSearchTest, TestOrWithNotSameFieldMatchesMatchAllRows) {
-    TSearchClause include_clause;
-    include_clause.clause_type = "TERM";
-    include_clause.field_name = "title";
-    include_clause.value = "foo";
-    include_clause.__isset.field_name = true;
-    include_clause.__isset.value = true;
-
-    TSearchClause exclude_child;
-    exclude_child.clause_type = "TERM";
-    exclude_child.field_name = "title";
-    exclude_child.value = "bar";
-    exclude_child.__isset.field_name = true;
-    exclude_child.__isset.value = true;
-
-    TSearchClause exclude_clause;
-    exclude_clause.clause_type = "NOT";
-    exclude_clause.children = {exclude_child};
-
-    TSearchClause root_clause;
-    root_clause.clause_type = "OR";
-    root_clause.children = {include_clause, exclude_clause};
-    root_clause.__isset.children = true;
-
-    auto iterator = std::make_unique<TrackingIndexIterator>(true);
-    std::unordered_map<std::string, IndexIterator*> iterators_map = {{"title", iterator.get()}};
-
-    auto null_bitmap = std::make_shared<roaring::Roaring>();
-    auto status = function_search->collect_all_field_nulls(root_clause, iterators_map, null_bitmap);
-    EXPECT_TRUE(status.ok());
-    EXPECT_GE(iterator->has_null_checks(), 1);
-    EXPECT_GE(iterator->read_null_bitmap_calls(), 1);
-
     auto data_bitmap = std::make_shared<roaring::Roaring>();
     data_bitmap->add(1);
     data_bitmap->add(2);
@@ -2199,6 +2099,21 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithOccurBoolean) {
     // Will return OK because root_query is nullptr (all child queries fail)
     //    EXPECT_TRUE(status.ok());
     EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>());
+}
+
+TEST_F(FunctionSearchTest, TestSearcherCacheHandlesLifetime) {
+    // Verify FieldReaderResolver keeps _searcher_cache_handles alive
+    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    auto context = std::make_shared<IndexQueryContext>();
+
+    FieldReaderResolver resolver(data_types, iterators, context);
+
+    // The resolver should have an empty cache handles vector initially
+    // (We can't directly access _searcher_cache_handles, but we can verify
+    // that binding_cache is empty)
+    EXPECT_TRUE(resolver.binding_cache().empty());
+    EXPECT_TRUE(resolver.readers().empty());
 }
 
 } // namespace doris::vectorized

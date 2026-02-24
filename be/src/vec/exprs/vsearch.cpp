@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "glog/logging.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "runtime/runtime_state.h"
 #include "vec/columns/column_const.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
@@ -120,6 +121,16 @@ VSearchExpr::VSearchExpr(const TExprNode& node) : VExpr(node) {
     }
 }
 
+Status VSearchExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc,
+                            VExprContext* context) {
+    RETURN_IF_ERROR(VExpr::prepare(state, row_desc, context));
+    const auto& query_options = state->query_options();
+    if (query_options.__isset.enable_inverted_index_query_cache) {
+        _enable_cache = query_options.enable_inverted_index_query_cache;
+    }
+    return Status::OK();
+}
+
 const std::string& VSearchExpr::expr_name() const {
     static const std::string name = "VSearchExpr";
     return name;
@@ -164,7 +175,8 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
     auto function = std::make_shared<FunctionSearch>();
     auto result_bitmap = InvertedIndexResultBitmap();
     auto status = function->evaluate_inverted_index_with_search_param(
-            _search_param, bundle.field_types, bundle.iterators, segment_num_rows, result_bitmap);
+            _search_param, bundle.field_types, bundle.iterators, segment_num_rows, result_bitmap,
+            _enable_cache);
 
     if (!status.ok()) {
         LOG(WARNING) << "VSearchExpr: Function evaluation failed: " << status.to_string();

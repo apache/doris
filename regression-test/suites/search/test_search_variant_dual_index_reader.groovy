@@ -33,7 +33,7 @@
  * Before fix: search() returns empty (wrong reader selected)
  * After fix:  search() returns matching rows (correct FULLTEXT reader selected)
  */
-suite("test_search_variant_dual_index_reader") {
+suite("test_search_variant_dual_index_reader", "p0") {
     def tableName = "test_variant_dual_index_reader"
 
     sql """ set enable_match_without_inverted_index = false """
