@@ -394,14 +394,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         } else if (tPrimitiveType == TPrimitiveType.VARIANT) {
             // Preserve VARIANT-specific properties from PTypeNode, especially variant_max_subcolumns_count.
             int maxSubcolumns = typeNode.getVariantMaxSubcolumnsCount();
-            // Currently no variant predefined fields are carried in PTypeNode for VARIANT, so use empty list and default
+            // Currently no predefined fields are carried in PTypeNode for VARIANT, so use empty list and default
             // values for other properties.
             type = new VariantType(new ArrayList<>(), maxSubcolumns,
                     /*enableTypedPathsToSparse*/ false,
                     /*variantMaxSparseColumnStatisticsSize*/ 10000,
                     /*variantSparseHashShardCount*/ 0,
                     /*variantEnableDocMode*/ false,
-                    /*variantDocMaterializationMinRows*/ 0L,
+                    /*variantDocMaterializationMinRows*/ 0,
                     /*variantDocShardCount*/ 0);
             parsedNodes = 1;
         } else {

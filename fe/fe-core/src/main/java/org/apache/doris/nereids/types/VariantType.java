@@ -76,7 +76,8 @@ public class VariantType extends PrimitiveType {
      * Variant predefined fields, including typed paths and skip patterns.
      */
     public VariantType(List<VariantField> fields) {
-        this.variantPredefinedFields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
+        this.variantPredefinedFields = ImmutableList.copyOf(
+                Objects.requireNonNull(fields, "fields should not be null"));
         this.variantMaxSubcolumnsCount = 0;
         this.enableTypedPathsToSparse = false;
         this.variantMaxSparseColumnStatisticsSize = 10000;

@@ -5144,7 +5144,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             : subCtx.variantSubColMatchType().getText();
                     String skipPatternType = "MATCH_NAME".equalsIgnoreCase(skipMatchType)
                             ? "SKIP_NAME" : "SKIP_NAME_GLOB";
-                    variantPredefinedFields.add(new VariantField(skipPattern, StringType.INSTANCE, "", skipPatternType));
+                    variantPredefinedFields.add(
+                            new VariantField(skipPattern, StringType.INSTANCE, "", skipPatternType));
                 } else {
                     variantPredefinedFields.add(visitVariantSubColType(subCtx));
                 }

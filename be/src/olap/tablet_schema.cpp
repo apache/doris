@@ -679,7 +679,7 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         _variant.doc_hash_shard_count = column.variant_doc_hash_shard_count();
     }
     if (column.has_pattern_type()) {
-        _field_pattern_type = column.pattern_type();
+        _pattern_type = column.pattern_type();
     }
 }
 
@@ -756,7 +756,7 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
         column->set_index_length(0);
     }
     column->set_variant_max_subcolumns_count(_variant.max_subcolumns_count);
-    column->set_pattern_type(_field_pattern_type);
+    column->set_pattern_type(_pattern_type);
     column->set_variant_enable_typed_paths_to_sparse(_variant.enable_typed_paths_to_sparse);
     column->set_variant_max_sparse_column_statistics_size(
             _variant.max_sparse_column_statistics_size);
