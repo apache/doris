@@ -199,6 +199,8 @@ Status RuntimeFilterProducer::send_size(RuntimeState* state, uint64_t local_filt
     }
 
     auto request = std::make_shared<PSendFilterSizeRequest>();
+    request->set_stage(state->get_query_ctx()->get_stage(_wrapper->filter_id()));
+
     auto callback = DummyBrpcCallback<PSendFilterSizeResponse>::create_shared();
     // RuntimeFilter maybe deconstructed before the rpc finished, so that could not use
     // a raw pointer in closure. Has to use the context's shared ptr.

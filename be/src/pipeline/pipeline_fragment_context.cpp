@@ -179,9 +179,16 @@ void PipelineFragmentContext::cancel(const Status reason) {
     {
         std::lock_guard<std::mutex> l(_task_mutex);
         if (_closed_tasks >= _total_tasks) {
+            if (_need_notify_close) {
+                // if fragment cancelled and waiting for notify to close, need to remove from fragment mgr
+                _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
+                _need_notify_close = false;
+            }
             // All tasks in this PipelineXFragmentContext already closed.
             return;
         }
+        // make fragment release by self after cancel
+        _need_notify_close = false;
     }
     // Timeout is a special error code, we need print current stack to debug timeout issue.
     if (reason.is<ErrorCode::TIMEOUT>()) {
@@ -417,10 +424,6 @@ Status PipelineFragmentContext::_build_pipeline_tasks_for_instance(
 
                 task_runtime_state->set_task_execution_context(shared_from_this());
                 task_runtime_state->set_be_number(local_params.backend_num);
-                if (_need_notify_close) {
-                    // rec cte require child rf to wait infinitely to make sure all rpc done
-                    task_runtime_state->set_force_make_rf_wait_infinite();
-                }
 
                 if (_params.__isset.backend_id) {
                     task_runtime_state->set_backend_id(_params.backend_id);
@@ -1802,14 +1805,11 @@ void PipelineFragmentContext::_close_fragment_instance() {
     if (_is_fragment_instance_closed) {
         return;
     }
-    Defer defer_op {[&]() {
-        _is_fragment_instance_closed = true;
-        _notify_cv.notify_all();
-    }};
+    Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
     _fragment_level_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     if (!_need_notify_close) {
         auto st = send_report(true);
-        if (!st) {
+        if (!st && !st.is<ErrorCode::NEED_SEND_AGAIN>()) {
             LOG(WARNING) << fmt::format("Failed to send report for query {}, fragment {}: {}",
                                         print_id(_query_id), _fragment_id, st.to_string());
         }
@@ -1990,9 +1990,8 @@ std::string PipelineFragmentContext::debug_string() {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer,
                    "PipelineFragmentContext Info: _closed_tasks={}, _total_tasks={}, "
-                   "need_notify_close={}, has_task_execution_ctx_ref_count={}\n",
-                   _closed_tasks, _total_tasks, _need_notify_close,
-                   _has_task_execution_ctx_ref_count);
+                   "need_notify_close={}, fragment_id={}\n",
+                   _closed_tasks, _total_tasks, _need_notify_close, _fragment_id);
     for (size_t j = 0; j < _tasks.size(); j++) {
         fmt::format_to(debug_string_buffer, "Tasks in instance {}:\n", j);
         for (size_t i = 0; i < _tasks[j].size(); i++) {
@@ -2067,54 +2066,19 @@ PipelineFragmentContext::collect_realtime_load_channel_profile() const {
     return load_channel_profile;
 }
 
-Status PipelineFragmentContext::wait_close(bool close) {
-    if (_exec_env->new_load_stream_mgr()->get(_query_id) != nullptr) {
-        return Status::InternalError("stream load do not support reset");
-    }
-    if (!_need_notify_close) {
-        return Status::InternalError("_need_notify_close is false, do not support reset");
-    }
-
-    {
-        std::unique_lock<std::mutex> lock(_task_mutex);
-        while (!(_is_fragment_instance_closed.load() && !_has_task_execution_ctx_ref_count)) {
-            if (_query_ctx->is_cancelled()) {
-                return Status::Cancelled("Query has been cancelled");
-            }
-            _notify_cv.wait_for(lock, std::chrono::seconds(1));
+std::set<int> PipelineFragmentContext::get_deregister_runtime_filter() const {
+    std::set<int> result;
+    for (const auto& _task : _tasks) {
+        for (const auto& task : _task) {
+            auto set = task.first->runtime_state()->get_deregister_runtime_filter();
+            result.merge(set);
         }
     }
-
-    if (close) {
-        auto st = send_report(true);
-        if (!st) {
-            LOG(WARNING) << fmt::format("Failed to send report for query {}, fragment {}: {}",
-                                        print_id(_query_id), _fragment_id, st.to_string());
-        }
-        _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
+    if (_runtime_state) {
+        auto set = _runtime_state->get_deregister_runtime_filter();
+        result.merge(set);
     }
-    return Status::OK();
-}
-
-Status PipelineFragmentContext::set_to_rerun() {
-    {
-        std::lock_guard<std::mutex> l(_task_mutex);
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_ctx->query_mem_tracker());
-        for (auto& tasks : _tasks) {
-            for (const auto& task : tasks) {
-                task.first->runtime_state()->reset_to_rerun();
-            }
-        }
-    }
-    _release_resource();
-    _runtime_state->reset_to_rerun();
-    return Status::OK();
-}
-
-Status PipelineFragmentContext::rebuild(ThreadPool* thread_pool) {
-    _submitted = false;
-    _is_fragment_instance_closed = false;
-    return _build_and_prepare_full_pipeline(thread_pool);
+    return result;
 }
 
 void PipelineFragmentContext::_release_resource() {

@@ -35,6 +35,7 @@ Status RuntimeFilter::_push_to_remote(RuntimeState* state, const TNetworkAddress
     }
 
     auto merge_filter_request = std::make_shared<PMergeFilterRequest>();
+    merge_filter_request->set_stage(state->get_query_ctx()->get_stage(_wrapper->filter_id()));
     auto merge_filter_callback = DummyBrpcCallback<PMergeFilterResponse>::create_shared();
     auto merge_filter_closure =
             AutoReleaseClosure<PMergeFilterRequest, DummyBrpcCallback<PMergeFilterResponse>>::

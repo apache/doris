@@ -128,11 +128,22 @@ public:
     std::string get_load_error_url();
     std::string get_first_error_msg();
 
-    Status wait_close(bool close);
-    Status rebuild(ThreadPool* thread_pool);
-    Status set_to_rerun();
-
     bool need_notify_close() const { return _need_notify_close; }
+
+    std::set<int> get_deregister_runtime_filter() const;
+
+    Status listen_wait_close(const std::shared_ptr<brpc::ClosureGuard>& guard,
+                             bool need_send_report_on_destruction) {
+        if (_wait_close_guard) {
+            return Status::InternalError("Already listening wait close");
+        }
+        _wait_close_guard = guard;
+        if (need_send_report_on_destruction) {
+            _need_notify_close = true;
+            return send_report(true);
+        }
+        return Status::OK();
+    }
 
 private:
     void _release_resource();
@@ -342,6 +353,7 @@ private:
     int32_t _parallel_instances = 0;
 
     bool _need_notify_close = false;
+    std::shared_ptr<brpc::ClosureGuard> _wait_close_guard = nullptr;
 };
 } // namespace pipeline
 } // namespace doris

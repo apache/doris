@@ -72,6 +72,10 @@ struct GlobalMergeContext {
     std::vector<PNetworkAddress> source_addrs;
     std::atomic<bool> done = false;
 
+    // for represent the round number of recursive cte
+    // if lower stage rf input to higher stage, we just discard the rf
+    uint32_t stage = 0;
+
     Status reset(QueryContext* query_ctx);
 };
 
@@ -104,13 +108,11 @@ public:
 
     std::string debug_string();
 
-    void remove_filters(const std::set<int32_t>& filter_ids) {
+    void remove_filter(int32_t filter_id) {
         std::lock_guard<std::mutex> l(_lock);
-        for (const auto& id : filter_ids) {
-            _consumer_map.erase(id);
-            _local_merge_map.erase(id);
-            _producer_id_set.erase(id);
-        }
+        _consumer_map.erase(filter_id);
+        _local_merge_map.erase(filter_id);
+        _producer_id_set.erase(filter_id);
     }
 
 private:

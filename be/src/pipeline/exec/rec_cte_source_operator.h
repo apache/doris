@@ -138,17 +138,15 @@ private:
                                               "RecursiveRound", TUnit::UNIT);
             round_counter->set(int64_t(get_local_state(state)._shared_state->current_round));
 
-            RETURN_IF_ERROR(_send_rerun_fragments(state, PRerunFragmentParams::close));
+            RETURN_IF_ERROR(_send_rerun_fragments(state, PRerunFragmentParams::final_close));
         }
         return Status::OK();
     }
 
     Status _recursive_process(RuntimeState* state, size_t last_round_offset) const {
-        RETURN_IF_ERROR(_send_rerun_fragments(state, PRerunFragmentParams::wait));
+        RETURN_IF_ERROR(_send_rerun_fragments(state, PRerunFragmentParams::wait_for_destroy));
         RETURN_IF_ERROR(_send_reset_global_rf(state));
-        RETURN_IF_ERROR(_send_rerun_fragments(state, PRerunFragmentParams::release));
-        RETURN_IF_ERROR(_send_rerun_fragments(state, PRerunFragmentParams::rebuild));
-        RETURN_IF_ERROR(_send_rerun_fragments(state, PRerunFragmentParams::submit));
+        RETURN_IF_ERROR(_send_rerun_fragments(state, PRerunFragmentParams::recreate_and_submit));
         RETURN_IF_ERROR(get_local_state(state)._shared_state->send_data_to_targets(
                 state, last_round_offset));
         return Status::OK();

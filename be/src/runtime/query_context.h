@@ -394,6 +394,10 @@ private:
     std::map<std::pair<TUniqueId, int>, pipeline::RecCTEScanLocalState*> _cte_scan;
     std::mutex _cte_scan_lock;
 
+    // for represent the rf's fragment execution round number of recursive cte
+    std::unordered_map<int, uint32_t> _filter_id_to_stage; // filter id -> stage number
+    std::mutex __filter_id_to_stage_mtx;
+
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
     void add_fragment_profile(
@@ -410,7 +414,32 @@ public:
     timespec get_query_arrival_timestamp() const { return this->_query_arrival_timestamp; }
     QuerySource get_query_source() const { return this->_query_source; }
 
-    const TQueryOptions get_query_options() const { return _query_options; }
+    TQueryOptions get_query_options() const { return _query_options; }
+
+    uint32_t get_stage(int filter_id) {
+        std::lock_guard<std::mutex> lock(__filter_id_to_stage_mtx);
+        auto it = _filter_id_to_stage.find(filter_id);
+        if (it != _filter_id_to_stage.end()) {
+            return it->second;
+        }
+        return 0;
+    }
+
+    Status update_filters_stage(uint32_t stage, const std::set<int32_t>& filter_ids) {
+        std::lock_guard<std::mutex> lock(__filter_id_to_stage_mtx);
+        for (int32_t filter_id : filter_ids) {
+            if (_filter_id_to_stage[filter_id] > stage) {
+                return Status::InternalError(
+                        "The stage of runtime filter {} is {}, cannot be updated to {}", filter_id,
+                        _filter_id_to_stage[filter_id], stage);
+            } else if (_filter_id_to_stage[filter_id] == stage) {
+                continue;
+            }
+            runtime_filter_mgr()->remove_filter(filter_id);
+            _filter_id_to_stage[filter_id] = stage;
+        }
+        return Status::OK();
+    }
 };
 
 } // namespace doris

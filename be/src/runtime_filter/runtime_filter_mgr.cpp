@@ -25,6 +25,7 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
 
+#include <mutex>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -236,6 +237,10 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
     }
     auto& cnt_val = iter->second;
     std::unique_lock<std::mutex> l(iter->second.mtx);
+    // discard low stage rf
+    if (request->stage() != iter->second.stage) {
+        return Status::OK();
+    }
     cnt_val.source_addrs.push_back(request->source_addr());
 
     Status st = Status::OK();
@@ -253,9 +258,12 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
                 continue;
             }
 
+            auto sync_request = std::make_shared<PSyncFilterSizeRequest>();
+            sync_request->set_stage(query_ctx->get_stage(request->filter_id()));
+
             auto closure = AutoReleaseClosure<PSyncFilterSizeRequest,
                                               DummyBrpcCallback<PSyncFilterSizeResponse>>::
-                    create_unique(std::make_shared<PSyncFilterSizeRequest>(),
+                    create_unique(sync_request,
                                   DummyBrpcCallback<PSyncFilterSizeResponse>::create_shared(), ctx);
 
             auto* pquery_id = closure->request_->mutable_query_id();
@@ -326,6 +334,14 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> q
     bool is_ready = false;
     {
         std::lock_guard<std::mutex> l(iter->second.mtx);
+        // discard low stage rf
+        if (request->stage() != iter->second.stage) {
+            return Status::OK();
+        }
+        if (cnt_val.merger == nullptr) {
+            return Status::InternalError("Merger is null for filter id {}",
+                                         std::to_string(request->filter_id()));
+        }
         // Skip the other broadcast join runtime filter
         if (cnt_val.arrive_id.size() == 1 && cnt_val.runtime_filter_desc.is_broadcast_join) {
             return Status::OK();
@@ -372,6 +388,12 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(GlobalMergeContext
     butil::IOBuf request_attachment;
 
     PPublishFilterRequestV2 apply_request;
+    if (auto q_ctx = ctx.lock(); q_ctx) {
+        apply_request.set_stage(q_ctx->get_stage(cnt_val.runtime_filter_desc.filter_id));
+    } else {
+        return Status::EndOfFile("Merge filter failed: Query context already finished");
+    }
+
     // serialize filter
     void* data = nullptr;
     int len = 0;
@@ -441,12 +463,14 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(GlobalMergeContext
 }
 
 Status GlobalMergeContext::reset(QueryContext* query_ctx) {
+    std::unique_lock<std::mutex> lock(mtx);
     int producer_size = merger->get_expected_producer_num();
     RETURN_IF_ERROR(RuntimeFilterMerger::create(query_ctx, &runtime_filter_desc, &merger));
     merger->set_expected_producer_num(producer_size);
     arrive_id.clear();
     source_addrs.clear();
     done = false;
+    stage++;
     return Status::OK();
 }
 

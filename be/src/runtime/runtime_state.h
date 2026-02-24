@@ -762,16 +762,12 @@ public:
                                       _query_options.hnsw_bounded_queue, _query_options.ivf_nprobe);
     }
 
-    void reset_to_rerun();
-
-    void set_force_make_rf_wait_infinite() {
-        _query_options.__set_runtime_filter_wait_infinitely(true);
-    }
-
     bool runtime_filter_wait_infinitely() const {
         return _query_options.__isset.runtime_filter_wait_infinitely &&
                _query_options.runtime_filter_wait_infinitely;
     }
+
+    const std::set<int>& get_deregister_runtime_filter() const;
 
 private:
     Status create_error_log_file();

@@ -184,8 +184,11 @@ RuntimeState::~RuntimeState() {
     if (_error_log_file != nullptr && _error_log_file->is_open()) {
         _error_log_file->close();
     }
-
     _obj_pool->clear();
+}
+
+const std::set<int>& RuntimeState::get_deregister_runtime_filter() const {
+    return _registered_runtime_filter_ids;
 }
 
 Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
@@ -494,16 +497,6 @@ bool RuntimeState::is_nereids() const {
 std::vector<std::shared_ptr<RuntimeProfile>> RuntimeState::pipeline_id_to_profile() {
     std::shared_lock lc(_pipeline_profile_lock);
     return _pipeline_id_to_profile;
-}
-
-void RuntimeState::reset_to_rerun() {
-    if (local_runtime_filter_mgr()) {
-        local_runtime_filter_mgr()->remove_filters(_registered_runtime_filter_ids);
-        global_runtime_filter_mgr()->remove_filters(_registered_runtime_filter_ids);
-        _registered_runtime_filter_ids.clear();
-    }
-    std::unique_lock lc(_pipeline_profile_lock);
-    _pipeline_id_to_profile.clear();
 }
 
 std::vector<std::shared_ptr<RuntimeProfile>> RuntimeState::build_pipeline_profile(
