@@ -154,16 +154,18 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
 
     // For variant subcolumns, FE resolves the field pattern to a specific index and sends
     // its index_properties via TSearchFieldBinding. When FE picks an analyzer-based index,
-    // upgrade EQUAL_QUERY to MATCH_ANY_QUERY so select_best_reader picks the FULLTEXT reader
-    // instead of STRING_TYPE. Without this, TERM clauses from lucene-mode DSL would open the
-    // wrong (untokenized) index directory and tokenized search terms would never match.
+    // upgrade certain query types to MATCH_ANY_QUERY so select_best_reader picks the FULLTEXT
+    // reader instead of STRING_TYPE. Without this upgrade:
+    // - TERM (EQUAL_QUERY) clauses would open the wrong (untokenized) index directory
+    // - WILDCARD clauses would enumerate terms from the wrong index, returning empty results
     InvertedIndexQueryType effective_query_type = query_type;
     auto fb_it = _field_binding_map.find(field_name);
     if (is_variant_sub && fb_it != _field_binding_map.end() &&
         fb_it->second->__isset.index_properties && !fb_it->second->index_properties.empty()) {
         if (inverted_index::InvertedIndexAnalyzer::should_analyzer(
                     fb_it->second->index_properties) &&
-            effective_query_type == InvertedIndexQueryType::EQUAL_QUERY) {
+            (effective_query_type == InvertedIndexQueryType::EQUAL_QUERY ||
+             effective_query_type == InvertedIndexQueryType::WILDCARD_QUERY)) {
             effective_query_type = InvertedIndexQueryType::MATCH_ANY_QUERY;
         }
     }
