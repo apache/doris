@@ -389,4 +389,179 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_move_semantics) {
     ASSERT_NE(weight2, nullptr);
 }
 
+TEST_F(RegexpQueryV2Test, test_make_exact_match_anchoring) {
+    auto context = std::make_shared<IndexQueryContext>();
+    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    ASSERT_TRUE(reader_holder != nullptr);
+
+    std::wstring field = StringHelper::to_wstring("content");
+    std::string pattern = "apple123";
+
+    auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
+    auto weight = query->weight(false);
+
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader_holder->maxDoc();
+    exec_ctx.readers = {reader_holder};
+    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+
+    auto scorer = weight->scorer(exec_ctx);
+    ASSERT_NE(scorer, nullptr);
+
+    roaring::Roaring result;
+    uint32_t doc = scorer->doc();
+    while (doc != query_v2::TERMINATED) {
+        result.add(doc);
+        doc = scorer->advance();
+    }
+
+    EXPECT_EQ(result.cardinality(), 1);
+
+    _CLDECDELETE(dir);
+}
+
+TEST_F(RegexpQueryV2Test, test_make_exact_match_already_anchored) {
+    auto context = std::make_shared<IndexQueryContext>();
+    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    ASSERT_TRUE(reader_holder != nullptr);
+
+    std::wstring field = StringHelper::to_wstring("content");
+    std::string pattern = "^apple123$";
+
+    auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
+    auto weight = query->weight(false);
+
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader_holder->maxDoc();
+    exec_ctx.readers = {reader_holder};
+    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+
+    auto scorer = weight->scorer(exec_ctx);
+    ASSERT_NE(scorer, nullptr);
+
+    roaring::Roaring result;
+    uint32_t doc = scorer->doc();
+    while (doc != query_v2::TERMINATED) {
+        result.add(doc);
+        doc = scorer->advance();
+    }
+
+    EXPECT_EQ(result.cardinality(), 1);
+
+    _CLDECDELETE(dir);
+}
+
+TEST_F(RegexpQueryV2Test, test_make_exact_match_partial_anchor_start) {
+    auto context = std::make_shared<IndexQueryContext>();
+    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    ASSERT_TRUE(reader_holder != nullptr);
+
+    std::wstring field = StringHelper::to_wstring("content");
+    std::string pattern = "^apple.*";
+
+    auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
+    auto weight = query->weight(false);
+
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader_holder->maxDoc();
+    exec_ctx.readers = {reader_holder};
+    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+
+    auto scorer = weight->scorer(exec_ctx);
+    ASSERT_NE(scorer, nullptr);
+
+    roaring::Roaring result;
+    uint32_t doc = scorer->doc();
+    while (doc != query_v2::TERMINATED) {
+        result.add(doc);
+        doc = scorer->advance();
+    }
+
+    EXPECT_GT(result.cardinality(), 0);
+
+    _CLDECDELETE(dir);
+}
+
+TEST_F(RegexpQueryV2Test, test_make_exact_match_partial_anchor_end) {
+    auto context = std::make_shared<IndexQueryContext>();
+    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    ASSERT_TRUE(reader_holder != nullptr);
+
+    std::wstring field = StringHelper::to_wstring("content");
+    std::string pattern = ".*123$";
+
+    auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
+    auto weight = query->weight(false);
+
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader_holder->maxDoc();
+    exec_ctx.readers = {reader_holder};
+    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+
+    auto scorer = weight->scorer(exec_ctx);
+    ASSERT_NE(scorer, nullptr);
+
+    roaring::Roaring result;
+    uint32_t doc = scorer->doc();
+    while (doc != query_v2::TERMINATED) {
+        result.add(doc);
+        doc = scorer->advance();
+    }
+
+    EXPECT_GT(result.cardinality(), 0);
+
+    _CLDECDELETE(dir);
+}
+
+TEST_F(RegexpQueryV2Test, test_make_exact_match_wildcard_pattern) {
+    auto context = std::make_shared<IndexQueryContext>();
+    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    ASSERT_TRUE(reader_holder != nullptr);
+
+    std::wstring field = StringHelper::to_wstring("content");
+    std::string pattern = ".*";
+
+    auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
+    auto weight = query->weight(false);
+
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader_holder->maxDoc();
+    exec_ctx.readers = {reader_holder};
+    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+
+    auto scorer = weight->scorer(exec_ctx);
+    ASSERT_NE(scorer, nullptr);
+
+    roaring::Roaring result;
+    uint32_t doc = scorer->doc();
+    while (doc != query_v2::TERMINATED) {
+        result.add(doc);
+        doc = scorer->advance();
+    }
+
+    EXPECT_EQ(result.cardinality(), 20);
+
+    _CLDECDELETE(dir);
+}
+
 } // namespace doris::segment_v2

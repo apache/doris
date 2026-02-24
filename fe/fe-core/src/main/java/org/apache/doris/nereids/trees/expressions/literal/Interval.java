@@ -88,18 +88,25 @@ public class Interval extends Expression implements UnaryExpression, AlwaysNotNu
      * Supported time unit.
      */
     public enum TimeUnit {
-        SECOND_MICROSECOND("SECOND_MICROSECOND", false, 1200),
-        MINUTE_SECOND("MINUTE_SECOND", false, 1100),
-        DAY_HOUR("DAY_HOUR", false, 1000),
-        DAY_SECOND("DAY_SECOND", false, 900),
         YEAR("YEAR", false, 800),
+        YEAR_MONTH("YEAR_MONTH", false, 800),
         MONTH("MONTH", false, 700),
         QUARTER("QUARTER", false, 600), //TODO: need really support quarter
         WEEK("WEEK", false, 500),
         DAY("DAY", false, 400),
+        DAY_HOUR("DAY_HOUR", false, 400),
+        DAY_MINUTE("DAY_MINUTE", false, 400),
+        DAY_MICROSECOND("DAY_MICROSECOND", false, 400),
+        DAY_SECOND("DAY_SECOND", false, 400),
         HOUR("HOUR", true, 300),
+        HOUR_MINUTE("HOUR_MINUTE", false, 300),
+        HOUR_SECOND("HOUR_SECOND", false, 300),
+        HOUR_MICROSECOND("HOUR_MICROSECOND", false, 300),
         MINUTE("MINUTE", true, 200),
-        SECOND("SECOND", true, 100);
+        MINUTE_SECOND("MINUTE_SECOND", false, 200),
+        MINUTE_MICROSECOND("MINUTE_MICROSECOND", false, 200),
+        SECOND("SECOND", true, 100),
+        SECOND_MICROSECOND("SECOND_MICROSECOND", true, 100);
 
         private final String description;
         private final boolean isDateTimeUnit;

@@ -53,6 +53,47 @@ suite("rec_cte_with_update_test", "rec_cte") {
         ) AS target_list
         WHERE ${tb_name}.id = target_list.id;"""
 
-    
+    qt_test """
+       select * from rec_cte_with_update_tb
+       inner join [shuffle] (
+            WITH RECURSIVE sub_deps AS (
+                SELECT id FROM rec_cte_with_update_tb WHERE id = 2
+                UNION ALL
+                SELECT d.id FROM rec_cte_with_update_tb d
+                INNER JOIN [broadcast] sub_deps sd  ON d.parent_id = sd.id
+            )
+            SELECT id FROM sub_deps
+        ) AS target_list
+        on rec_cte_with_update_tb.id = target_list.id order by 1,2,3;
+    """
+
+    qt_test """
+    select *
+        FROM
+            rec_cte_with_update_tb join [broadcast]
+            (
+            WITH RECURSIVE sub_deps AS (
+                SELECT
+                    id
+                FROM
+                    rec_cte_with_update_tb
+                WHERE
+                    id = 2
+                UNION
+                ALL
+                SELECT
+                    d.id
+                FROM
+                    rec_cte_with_update_tb d
+                    INNER JOIN [broadcast] sub_deps sd ON d.parent_id = sd.id
+            )
+            SELECT
+                id
+            FROM
+                sub_deps
+        ) AS target_list
+        WHERE
+        rec_cte_with_update_tb.id = target_list.id order by 1,2,3;
+    """
 }
 

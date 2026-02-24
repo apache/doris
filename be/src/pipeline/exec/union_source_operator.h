@@ -102,8 +102,15 @@ public:
         return Status::OK();
     }
     [[nodiscard]] int get_child_count() const { return _child_size; }
-    bool require_shuffled_data_distribution(RuntimeState* /*state*/) const override {
-        return _followed_by_shuffled_operator;
+
+    DataDistribution required_data_distribution(RuntimeState* state) const override {
+        if (_require_bucket_distribution) {
+            return DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE);
+        }
+        if (_followed_by_shuffled_operator) {
+            return DataDistribution(ExchangeType::HASH_SHUFFLE);
+        }
+        return Base::required_data_distribution(state);
     }
 
     void set_low_memory_mode(RuntimeState* state) override {
@@ -113,7 +120,6 @@ public:
         }
     }
 
-    bool is_shuffled_operator() const override { return _followed_by_shuffled_operator; }
     Status set_child(OperatorPtr child) override {
         Base::_child = child;
         return Status::OK();

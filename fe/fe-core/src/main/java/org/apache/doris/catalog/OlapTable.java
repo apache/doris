@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.DataSortInfo;
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -40,6 +41,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.GlobRegexUtil;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
@@ -3720,6 +3722,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public Index getInvertedIndex(Column column, List<String> subPath) {
+        return getInvertedIndex(column, subPath, null);
+    }
+
+    public Index getInvertedIndex(Column column, List<String> subPath, String analyzer) {
         List<Index> invertedIndexes = new ArrayList<>();
         for (Index index : indexes.getIndexes()) {
             if (index.getIndexType() == IndexDefinition.IndexType.INVERTED) {
@@ -3730,9 +3736,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             }
         }
 
+        List<Index> filteredInvertedIndexes = filterIndexesByAnalyzer(invertedIndexes, analyzer);
+
         if (subPath == null || subPath.isEmpty()) {
-            return invertedIndexes.size() == 1 ? invertedIndexes.get(0)
-                    : invertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
+            return filteredInvertedIndexes.size() == 1 ? filteredInvertedIndexes.get(0)
+                : filteredInvertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
         }
 
         // subPath is not empty, means it is a variant column, find the field pattern from children
@@ -3743,12 +3751,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 String childName = child.getName();
                 if (child.getFieldPatternType() == TPatternType.MATCH_NAME_GLOB) {
                     try {
-                        java.nio.file.PathMatcher matcher = java.nio.file.FileSystems.getDefault()
-                                .getPathMatcher("glob:" + childName);
-                        if (matcher.matches(java.nio.file.Paths.get(subPathString))) {
+                        com.google.re2j.Pattern compiled = GlobRegexUtil.getOrCompilePattern(childName);
+                        if (compiled.matcher(subPathString).matches()) {
                             fieldPattern = childName;
                         }
-                    } catch (Exception e) {
+                    } catch (com.google.re2j.PatternSyntaxException | IllegalArgumentException e) {
                         continue;
                     }
                 } else if (child.getFieldPatternType() == TPatternType.MATCH_NAME) {
@@ -3769,12 +3776,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 }
             }
         }
-        if (invertedIndexesWithFieldPattern.isEmpty()) {
-            return invertedIndexes.size() == 1 ? invertedIndexes.get(0)
-                    : invertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
+        List<Index> filteredFieldPatternIndexes = filterIndexesByAnalyzer(invertedIndexesWithFieldPattern, analyzer);
+        if (filteredFieldPatternIndexes.isEmpty()) {
+            return filteredInvertedIndexes.size() == 1 ? filteredInvertedIndexes.get(0)
+                : filteredInvertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
         } else {
-            return invertedIndexesWithFieldPattern.size() == 1 ? invertedIndexesWithFieldPattern.get(0)
-                                        : invertedIndexesWithFieldPattern.stream()
+            return filteredFieldPatternIndexes.size() == 1 ? filteredFieldPatternIndexes.get(0)
+                                        : filteredFieldPatternIndexes.stream()
                                         .filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
         }
     }
@@ -3845,5 +3853,19 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public String getSeqMappingKey(String column) {
         return getOrCreatTableProperty().getSeqMappingKey(column);
+
+    }
+
+    private List<Index> filterIndexesByAnalyzer(List<Index> original, String analyzer) {
+        if (analyzer == null || analyzer.trim().isEmpty()) {
+            return original;
+        }
+        List<Index> matched = new ArrayList<>();
+        for (Index index : original) {
+            if (InvertedIndexUtil.isAnalyzerMatched(index.getProperties(), analyzer)) {
+                matched.add(index);
+            }
+        }
+        return matched;
     }
 }

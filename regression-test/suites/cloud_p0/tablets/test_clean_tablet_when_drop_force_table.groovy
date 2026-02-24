@@ -41,6 +41,8 @@ suite('test_clean_tablet_when_drop_force_table', 'docker') {
         'write_buffer_size_for_agg=10240',
         'sys_log_verbose_modules=task_worker_pool',
         "enable_packed_file=${enablePackedFile}",
+        'enable_packed_file=false',
+        'disable_auto_compaction=true',
     ]
     options.setFeNum(3)
     options.setBeNum(3)
@@ -59,10 +61,10 @@ suite('test_clean_tablet_when_drop_force_table', 'docker') {
         log.info("found queue_size=0 log line: {}", queueZeroLine)
     }
 
-    def waitForTabletCacheState = { Collection<Long> tabletIds, boolean expectPresent, long timeoutMs = 60000L, long intervalMs = 2000L ->
+    def waitForTabletCacheState = { Collection tabletIds, boolean expectPresent, long timeoutMs = 60000L, long intervalMs = 2000L ->
         long start = System.currentTimeMillis()
         while (System.currentTimeMillis() - start < timeoutMs) {
-            boolean conditionMet = tabletIds.every { Long tabletId ->
+            boolean conditionMet = tabletIds.every { def tabletId ->
                 def rows = sql "select tablet_id from information_schema.file_cache_info where tablet_id = ${tabletId}"
                 expectPresent ? !rows.isEmpty() : rows.isEmpty()
             }
@@ -71,7 +73,7 @@ suite('test_clean_tablet_when_drop_force_table', 'docker') {
             }
             sleep(intervalMs)
         }
-        def stillPresent = tabletIds.findAll { Long tabletId -> !(sql "select tablet_id from information_schema.file_cache_info where tablet_id = ${tabletId}").isEmpty() }
+        def stillPresent = tabletIds.findAll { def tabletId -> !(sql "select tablet_id from information_schema.file_cache_info where tablet_id = ${tabletId}").isEmpty() }
         if (expectPresent) {
             assertTrue(false, "Tablet cache info never appeared for tablet ids ${stillPresent}")
         } else {
@@ -175,6 +177,7 @@ suite('test_clean_tablet_when_drop_force_table', 'docker') {
             GetDebugPoint().enableDebugPointForAllBEs("WorkPoolCloudDropTablet.drop_tablet_callback.failed")
         }
         // after drop table force
+        sql """select * from $tableName limit 10"""
 
         sql """
             DROP TABLE $tableName FORCE

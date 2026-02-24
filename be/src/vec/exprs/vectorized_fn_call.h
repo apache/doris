@@ -52,8 +52,9 @@ public:
     VectorizedFnCall() = default;
 #endif
     VectorizedFnCall(const TExprNode& node);
-    Status execute_column(VExprContext* context, const Block* block, size_t count,
-                          ColumnPtr& result_column) const override;
+
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override;
     Status execute_runtime_filter(VExprContext* context, const Block* block,
                                   const uint8_t* __restrict filter, size_t count,
                                   ColumnPtr& result_column, ColumnPtr* arg_column) const override;
@@ -65,6 +66,7 @@ public:
     const std::string& expr_name() const override;
     std::string function_name() const;
     std::string debug_string() const override;
+    double execute_cost() const override;
     bool is_blockable() const override {
         return _function->is_blockable() ||
                std::any_of(_children.begin(), _children.end(),
@@ -102,7 +104,7 @@ protected:
     std::string _function_name;
 
 private:
-    Status _do_execute(VExprContext* context, const Block* block, size_t count,
+    Status _do_execute(VExprContext* context, const Block* block, Selector* selector, size_t count,
                        ColumnPtr& result_column, ColumnPtr* arg_column) const;
 };
 

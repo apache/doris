@@ -348,6 +348,54 @@ TEST_F(ColumnVectorTest, update_crcs_with_value) {
               "column_datetime_v1");
     test_func(column_date->get_ptr(), dt_date, PrimitiveType::TYPE_DATE, "column_date_v1");
 }
+TEST_F(ColumnVectorTest, update_crc32c_batch) {
+    std::string function_name = "update_crc32c_batch";
+    auto test_func = [&](const MutableColumnPtr& column, const DataTypePtr& dt, PrimitiveType pt,
+                         const std::string& res_file_name) {
+        assert_column_vector_update_crc32c_batch_callback(
+                column, test_result_dir + "/" + res_file_name + "_" + function_name + ".out");
+    };
+    test_func(column_int8->get_ptr(), dt_int8, PrimitiveType::TYPE_TINYINT, "column_int8");
+    test_func(column_int16->get_ptr(), dt_int16, PrimitiveType::TYPE_SMALLINT, "column_int16");
+    test_func(column_int32->get_ptr(), dt_int32, PrimitiveType::TYPE_INT, "column_int32");
+    test_func(column_int64->get_ptr(), dt_int64, PrimitiveType::TYPE_BIGINT, "column_int64");
+    test_func(column_int128->get_ptr(), dt_int128, PrimitiveType::TYPE_LARGEINT, "column_int128");
+    test_func(column_uint8->get_ptr(), dt_uint8, PrimitiveType::TYPE_TINYINT, "column_uint8");
+    test_func(column_date_v2->get_ptr(), dt_date_v2, PrimitiveType::TYPE_DATEV2, "column_date_v2");
+    test_func(column_datetime_v2_0->get_ptr(), dt_datetime_v2_0, PrimitiveType::TYPE_DATETIMEV2,
+              "column_datetime_v2_0");
+    test_func(column_datetime_v2_5->get_ptr(), dt_datetime_v2_5, PrimitiveType::TYPE_DATETIMEV2,
+              "column_datetime_v2_5");
+    test_func(column_datetime_v2_6->get_ptr(), dt_datetime_v2_6, PrimitiveType::TYPE_DATETIMEV2,
+              "column_datetime_v2_6");
+    test_func(column_datetime->get_ptr(), dt_datetime, PrimitiveType::TYPE_DATETIME,
+              "column_datetime_v1");
+    test_func(column_date->get_ptr(), dt_date, PrimitiveType::TYPE_DATE, "column_date_v1");
+}
+TEST_F(ColumnVectorTest, update_crc32c_single) {
+    std::string function_name = "update_crc32c_single";
+    auto test_func = [&](const MutableColumnPtr& column, const DataTypePtr& dt, PrimitiveType pt,
+                         const std::string& res_file_name) {
+        assert_column_vector_update_crc32c_single_callback(
+                column, test_result_dir + "/" + res_file_name + "_" + function_name + ".out");
+    };
+    test_func(column_int8->get_ptr(), dt_int8, PrimitiveType::TYPE_TINYINT, "column_int8");
+    test_func(column_int16->get_ptr(), dt_int16, PrimitiveType::TYPE_SMALLINT, "column_int16");
+    test_func(column_int32->get_ptr(), dt_int32, PrimitiveType::TYPE_INT, "column_int32");
+    test_func(column_int64->get_ptr(), dt_int64, PrimitiveType::TYPE_BIGINT, "column_int64");
+    test_func(column_int128->get_ptr(), dt_int128, PrimitiveType::TYPE_LARGEINT, "column_int128");
+    test_func(column_uint8->get_ptr(), dt_uint8, PrimitiveType::TYPE_TINYINT, "column_uint8");
+    test_func(column_date_v2->get_ptr(), dt_date_v2, PrimitiveType::TYPE_DATEV2, "column_date_v2");
+    test_func(column_datetime_v2_0->get_ptr(), dt_datetime_v2_0, PrimitiveType::TYPE_DATETIMEV2,
+              "column_datetime_v2_0");
+    test_func(column_datetime_v2_5->get_ptr(), dt_datetime_v2_5, PrimitiveType::TYPE_DATETIMEV2,
+              "column_datetime_v2_5");
+    test_func(column_datetime_v2_6->get_ptr(), dt_datetime_v2_6, PrimitiveType::TYPE_DATETIMEV2,
+              "column_datetime_v2_6");
+    test_func(column_datetime->get_ptr(), dt_datetime, PrimitiveType::TYPE_DATETIME,
+              "column_datetime_v1");
+    test_func(column_date->get_ptr(), dt_date, PrimitiveType::TYPE_DATE, "column_date_v1");
+}
 template <PrimitiveType T>
 void insert_value_test(ColumnVector<T>* src_col) {
     auto clone_col = src_col->clone_empty();

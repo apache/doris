@@ -27,7 +27,7 @@ suite("test_primary_key_partial_update_publish", "p0") {
                 `name` varchar(65533) NOT NULL COMMENT "用户姓名",
                 `score` int(11) NOT NULL COMMENT "用户得分")
                 UNIQUE KEY(`id`)
-                CLUSTER BY(`name`) 
+                ORDER BY(`name`) 
                 DISTRIBUTED BY HASH(`id`) BUCKETS 1
                 PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true")
     """

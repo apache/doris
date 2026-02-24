@@ -86,7 +86,8 @@ void VRuntimeFilterWrapper::close(VExprContext* context,
 }
 
 Status VRuntimeFilterWrapper::execute_column(VExprContext* context, const Block* block,
-                                             size_t count, ColumnPtr& result_column) const {
+                                             Selector* selector, size_t count,
+                                             ColumnPtr& result_column) const {
     return Status::InternalError("Not implement VRuntimeFilterWrapper::execute_column");
 }
 
@@ -114,6 +115,7 @@ Status VRuntimeFilterWrapper::execute_filter(VExprContext* context, const Block*
 
     ColumnPtr filter_column;
     ColumnPtr arg_column = nullptr;
+
     RETURN_IF_ERROR(_impl->execute_runtime_filter(context, block, result_filter_data, rows,
                                                   filter_column, &arg_column));
 

@@ -79,7 +79,10 @@ public:
         size_t raw_est = raw_bytes + raw_overhead + kReserveSlackBytes;
         size_t reserve_bytes = std::min(raw_est, run_bytes_est);
         if (_bitmap_buf.capacity() < reserve_bytes) {
-            _bitmap_buf.reserve(reserve_bytes);
+            const size_t cap = _bitmap_buf.capacity();
+            const size_t grow = cap + cap / 2;
+            const size_t new_cap = std::max(reserve_bytes, grow);
+            _bitmap_buf.reserve(new_cap);
         }
     }
 

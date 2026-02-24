@@ -70,6 +70,7 @@ import org.apache.doris.thrift.TRuntimeFilterInfo;
 import org.apache.doris.thrift.TRuntimeFilterParams;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TTopnFilterDesc;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ArrayListMultimap;
@@ -660,7 +661,7 @@ public class ThriftPlansBuilder {
         // fragments whose child recursive fragments need to be notified to close
         Set<Integer> fragmentToNotifyClose = new HashSet<>();
         // mapping from fragment id -> TRecCTETarget (the scan node target info)
-        Map<PlanFragmentId, TRecCTETarget> fragmentIdToRecCteTargetMap = new TreeMap<>();
+        Map<PlanFragmentId, List<TRecCTETarget>> fragmentIdToRecCteTargetMap = new TreeMap<>();
         // mapping from fragment id -> set of network addresses for all instances
         Map<PlanFragmentId, Set<TNetworkAddress>> fragmentIdToNetworkAddressMap = new TreeMap<>();
         // distributedPlans is ordered in bottom up way, so does the fragments
@@ -668,11 +669,15 @@ public class ThriftPlansBuilder {
             // collect all assigned instance network addresses for this fragment
             List<AssignedJob> fragmentAssignedJobs = plan.getInstanceJobs();
             Set<TNetworkAddress> networkAddresses = new TreeSet<>();
+            Map<TNetworkAddress, TUniqueId> addressTUniqueIdMap = new TreeMap<>();
             for (AssignedJob assignedJob : fragmentAssignedJobs) {
                 DistributedPlanWorker distributedPlanWorker = assignedJob.getAssignedWorker();
                 // use brpc port + host as the address used by BE for control/reset
-                networkAddresses.add(new TNetworkAddress(distributedPlanWorker.host(),
-                        distributedPlanWorker.brpcPort()));
+                TNetworkAddress networkAddress = new TNetworkAddress(distributedPlanWorker.host(),
+                        distributedPlanWorker.brpcPort());
+                if (networkAddresses.add(networkAddress)) {
+                    addressTUniqueIdMap.put(networkAddress, assignedJob.instanceId());
+                }
             }
             PlanFragment planFragment = plan.getFragmentJob().getFragment();
             // remember addresses for later when building reset infos
@@ -693,15 +698,17 @@ public class ThriftPlansBuilder {
                     throw new IllegalStateException(
                             "fragmentAssignedJobs is empty for recursive cte scan node");
                 }
-                // Build a TRecCTETarget using the first assigned instance as representative
-                TRecCTETarget tRecCTETarget = new TRecCTETarget();
-                DistributedPlanWorker distributedPlanWorker = fragmentAssignedJobs.get(0).getAssignedWorker();
-                tRecCTETarget.setAddr(new TNetworkAddress(distributedPlanWorker.host(),
-                        distributedPlanWorker.brpcPort()));
-                tRecCTETarget.setFragmentInstanceId(fragmentAssignedJobs.get(0).instanceId());
-                tRecCTETarget.setNodeId(recursiveCteScanNodes.get(0).getId().asInt());
+                // Build a TRecCTETargets
+                List<TRecCTETarget> recCTETargets = new ArrayList<>(addressTUniqueIdMap.size());
+                for (Entry<TNetworkAddress, TUniqueId> entry : addressTUniqueIdMap.entrySet()) {
+                    TRecCTETarget tRecCTETarget = new TRecCTETarget();
+                    tRecCTETarget.setAddr(entry.getKey());
+                    tRecCTETarget.setFragmentInstanceId(entry.getValue());
+                    tRecCTETarget.setNodeId(recursiveCteScanNodes.get(0).getId().asInt());
+                    recCTETargets.add(tRecCTETarget);
+                }
                 // store the target for producers to reference later
-                fragmentIdToRecCteTargetMap.put(planFragment.getFragmentId(), tRecCTETarget);
+                fragmentIdToRecCteTargetMap.put(planFragment.getFragmentId(), recCTETargets);
             }
 
             List<RecursiveCteNode> recursiveCteNodes = planFragment.getPlanRoot()
@@ -720,10 +727,10 @@ public class ThriftPlansBuilder {
                     // mark this child fragment id so it will be notified to close
                     fragmentToNotifyClose.add(childFragmentId.asInt());
                     // add target if a matching RecursiveCteScanNode was recorded
-                    TRecCTETarget tRecCTETarget = fragmentIdToRecCteTargetMap.getOrDefault(childFragmentId, null);
-                    if (tRecCTETarget != null) {
+                    List<TRecCTETarget> recCTETargets = fragmentIdToRecCteTargetMap.getOrDefault(childFragmentId, null);
+                    if (recCTETargets != null) {
                         // each producer can only map to one scan node target per child
-                        targets.add(tRecCTETarget);
+                        targets.addAll(recCTETargets);
                         // remove the entry so ancestor producers won't reuse a grandchild scan node
                         fragmentIdToRecCteTargetMap.remove(childFragmentId);
                     }

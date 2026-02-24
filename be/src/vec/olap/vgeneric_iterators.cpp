@@ -80,6 +80,15 @@ Status VStatisticsIterator::next_batch(Block* block) {
         } else {
             for (int i = 0; i < columns.size(); ++i) {
                 RETURN_IF_ERROR(_column_iterators[i]->next_batch_of_zone_map(&size, columns[i]));
+                if (auto cid = _schema.column_id(i);
+                    _schema.column(cid)->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
+                    auto col = columns[i]->clone_empty();
+                    for (size_t j = 0; j < columns[i]->size(); ++j) {
+                        const auto& ref = columns[i]->get_data_at(j).trim_tail_padding_zero();
+                        col->insert(Field::create_field<TYPE_CHAR>(ref.to_string()));
+                    }
+                    columns[i].swap(col);
+                }
             }
         }
         block->set_columns(std::move(columns));

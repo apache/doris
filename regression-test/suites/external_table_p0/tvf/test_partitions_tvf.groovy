@@ -38,33 +38,49 @@ suite("test_partitions_tvf","p0,external,tvf,external_docker") {
         );
         """
     order_qt_desc "desc function partitions('catalog'='internal','database'='${dbName}','table'='${tableName}');"
+    sql "desc function partitions('database'='${dbName}','table'='${tableName}');"
     List<List<Object>> res =  sql """ select * from partitions('catalog'='internal',"database"="${dbName}","table"="${tableName}"); """
+    List<List<Object>> res2 =  sql """ select * from partitions("database"="${dbName}","table"="${tableName}"); """
     logger.info("res: " + res.toString())
+    logger.info("res2: " + res2.toString())
 
     assertEquals(1, res.size());
+    assertEquals(1, res2.size());
     // PartitionName
     assertEquals("p1", res[0][1]);
+    assertEquals("p1", res2[0][1]);
     // State
     assertEquals("NORMAL", res[0][4]);
+    assertEquals("NORMAL", res2[0][4]);
     // PartitionKey
     assertEquals("k3", res[0][5]);
+    assertEquals("k3", res2[0][5]);
     // Buckets
     assertEquals(2, res[0][8]);
+    assertEquals(2, res2[0][8]);
     // ReplicationNum: if force_olap_table_replication_num is set to 3,here will be 3
     // assertEquals(1, res[0][9]);
     // StorageMedium
     assertEquals("HDD", res[0][10]);
+    assertEquals("HDD", res2[0][10]);
     // ReplicaAllocation: if force_olap_table_replication_num is set to 3,here will be 3
     // assertEquals("tag.location.default: 1", res[0][16]);
     // IsMutable
     assertEquals(true, res[0][17]);
+    assertEquals(true, res2[0][17]);
     // SyncWithBaseTables
     assertEquals(true, res[0][18]);
+    assertEquals(true, res2[0][18]);
 
 
     // test exception
     test {
         sql """ select * from partitions("catalog"="internal","database"="${dbName}","table"="xxx"); """
+        // check exception
+        exception "xxx"
+    }
+    test {
+        sql """ select * from partitions("database"="${dbName}","table"="xxx"); """
         // check exception
         exception "xxx"
     }

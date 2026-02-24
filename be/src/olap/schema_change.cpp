@@ -68,7 +68,6 @@
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "olap/utils.h"
-#include "olap/wrapper_field.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
@@ -301,9 +300,6 @@ BlockChanger::BlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tb
 }
 
 BlockChanger::~BlockChanger() {
-    for (auto it = _schema_mapping.begin(); it != _schema_mapping.end(); ++it) {
-        SAFE_DELETE(it->default_value);
-    }
     _schema_mapping.clear();
 }
 
@@ -386,15 +382,14 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
             swap_idx_list.emplace_back(result_tmp_column_idx, idx);
         } else if (_schema_mapping[idx].ref_column_idx < 0) {
             // new column, write default value
-            auto* value = _schema_mapping[idx].default_value;
+            const auto& value = _schema_mapping[idx].default_value;
             auto column = new_block->get_by_position(idx).column->assume_mutable();
-            if (value->is_null()) {
+            if (value.is_null()) {
                 DCHECK(column->is_nullable());
                 column->insert_many_defaults(row_num);
             } else {
-                auto type_info = get_type_info(_schema_mapping[idx].new_column);
-                DefaultValueColumnIterator::insert_default_data(type_info.get(), value->size(),
-                                                                value->ptr(), column, row_num);
+                column = column->convert_to_predicate_column_if_dictionary();
+                column->insert_duplicate_fields(value, row_num);
             }
         } else {
             // same type, just swap column
@@ -1521,17 +1516,16 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
 Status SchemaChangeJob::_init_column_mapping(ColumnMapping* column_mapping,
                                              const TabletColumn& column_schema,
                                              const std::string& value) {
-    if (auto field = WrapperField::create(column_schema); field.has_value()) {
-        column_mapping->default_value = field.value();
-    } else {
-        return field.error();
+    auto t = FieldFactory::create(column_schema);
+    Defer defer([t]() { delete t; });
+    if (t == nullptr) {
+        return Status::Uninitialized("Unsupport field creation of {}", column_schema.name());
     }
 
-    if (column_schema.is_nullable() && value.length() == 0) {
-        column_mapping->default_value->set_null();
-    } else {
-        RETURN_IF_ERROR(column_mapping->default_value->from_string(value, column_schema.precision(),
-                                                                   column_schema.frac()));
+    if (!column_schema.is_nullable() || value.length() != 0) {
+        vectorized::DataTypeSerDe::FormatOptions options;
+        RETURN_IF_ERROR(column_schema.get_vec_type()->get_serde()->from_olap_string(
+                value, column_mapping->default_value, options));
     }
 
     return Status::OK();

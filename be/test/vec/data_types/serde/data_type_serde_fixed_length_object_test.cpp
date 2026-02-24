@@ -26,7 +26,8 @@
 namespace doris::vectorized {
 
 TEST(FixedLengthObjectSerdeTest, writeOneCellToJsonb) {
-    auto fixed_length_serde = std::make_shared<vectorized::DataTypeFixedLengthObjectSerDe>(1);
+    auto fixed_length_serde = std::make_shared<vectorized::DataTypeFixedLengthObjectSerDe>(
+            TYPE_FIXED_LENGTH_OBJECT, 1);
     auto column_fixed_length = ColumnFixedLengthObject::create(sizeof(int64_t));
     column_fixed_length->resize(1);
     *((int64_t*)column_fixed_length->get_data().data()) = 123;
@@ -58,7 +59,8 @@ TEST(FixedLengthObjectSerdeTest, writeOneCellToJsonb) {
 }
 
 TEST(FixedLengthObjectSerdeTest, writeColumnToPb) {
-    auto fixed_length_serde = std::make_shared<vectorized::DataTypeFixedLengthObjectSerDe>(1);
+    auto fixed_length_serde = std::make_shared<vectorized::DataTypeFixedLengthObjectSerDe>(
+            TYPE_FIXED_LENGTH_OBJECT, 1);
     auto column_fixed_length = ColumnFixedLengthObject::create(sizeof(int64_t));
     column_fixed_length->resize(2);
     *((int64_t*)column_fixed_length->get_data().data()) = 11;
@@ -85,7 +87,8 @@ TEST(FixedLengthObjectSerdeTest, writeColumnToPb) {
 }
 
 TEST(FixedLengthObjectSerdeTest, serializeOneCellToJson) {
-    auto fixed_length_serde = std::make_shared<vectorized::DataTypeFixedLengthObjectSerDe>(1);
+    auto fixed_length_serde = std::make_shared<vectorized::DataTypeFixedLengthObjectSerDe>(
+            TYPE_FIXED_LENGTH_OBJECT, 1);
     auto column_fixed_length = ColumnFixedLengthObject::create(sizeof(int64_t));
     column_fixed_length->resize(2);
     *((int64_t*)column_fixed_length->get_data().data()) = 11;
@@ -124,7 +127,8 @@ TEST(FixedLengthObjectSerdeTest, serializeOneCellToJson) {
 }
 
 TEST(FixedLengthObjectSerdeTest, serializeColumnToJson) {
-    auto fixed_length_serde = std::make_shared<vectorized::DataTypeFixedLengthObjectSerDe>(1);
+    auto fixed_length_serde = std::make_shared<vectorized::DataTypeFixedLengthObjectSerDe>(
+            TYPE_FIXED_LENGTH_OBJECT, 1);
     auto column_fixed_length = ColumnFixedLengthObject::create(sizeof(int64_t));
     column_fixed_length->resize(2);
     *((int64_t*)column_fixed_length->get_data().data()) = 11;
@@ -160,7 +164,8 @@ TEST(FixedLengthObjectSerdeTest, serializeColumnToJson) {
 }
 
 TEST(FixedLengthObjectSerdeTest, serializeOneCellToHiveText) {
-    auto fixed_length_serde = std::make_shared<vectorized::DataTypeFixedLengthObjectSerDe>(1);
+    auto fixed_length_serde = std::make_shared<vectorized::DataTypeFixedLengthObjectSerDe>(
+            TYPE_FIXED_LENGTH_OBJECT, 1);
     auto column_fixed_length = ColumnFixedLengthObject::create(sizeof(int64_t));
     column_fixed_length->resize(2);
     *((int64_t*)column_fixed_length->get_data().data()) = 11;

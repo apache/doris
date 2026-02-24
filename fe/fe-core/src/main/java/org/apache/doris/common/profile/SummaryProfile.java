@@ -948,7 +948,7 @@ public class SummaryProfile {
 
     private String getPrettyGetMetaVersionTime() {
         long getMetaVersionTime = getPartitionVersionTime + getTableVersionTime;
-        return getPrettyTime(getMetaVersionTime, 0, TUnit.TIME_MS);
+        return RuntimeProfile.printCounter(getMetaVersionTime, TUnit.TIME_NS);
     }
 
     private String getPrettyGetPartitionVersionTime() {

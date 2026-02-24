@@ -21,13 +21,27 @@
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+#include <sys/stat.h>
 #include <sys/statvfs.h>
+#include <unistd.h>
 
+#include <algorithm>
+#include <atomic>
+#include <cctype>
+#include <chrono>
+#include <cmath>
+#include <condition_variable>
+#include <ctime>
 #include <filesystem>
+#include <limits>
 #include <mutex>
+#include <random>
 #include <system_error>
+#include <thread>
+#include <unordered_set>
 #include <vector>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
@@ -45,6 +59,21 @@
 #include "vec/common/hex.h"
 
 namespace doris::io {
+
+#ifdef BE_TEST
+namespace {
+FSFileCacheStorage::InodeEstimationTestHooks* g_inode_estimation_hooks = nullptr;
+
+FSFileCacheStorage::InodeEstimationTestHooks* inode_test_hooks() {
+    return g_inode_estimation_hooks;
+}
+} // namespace
+
+void FSFileCacheStorage::set_inode_estimation_test_hooks(
+        FSFileCacheStorage::InodeEstimationTestHooks* hooks) {
+    g_inode_estimation_hooks = hooks;
+}
+#endif
 
 struct BatchLoadArgs {
     UInt128Wrapper hash;
@@ -111,12 +140,16 @@ size_t FDCache::file_reader_cache_size() {
     return _file_reader_list.size();
 }
 
-Status FSFileCacheStorage::init(BlockFileCache* _mgr) {
+Status FSFileCacheStorage::init(BlockFileCache* mgr) {
+    const char* metrics_prefix = mgr->_cache_base_path.c_str();
     _iterator_dir_retry_cnt = std::make_shared<bvar::LatencyRecorder>(
-            _cache_base_path.c_str(), "file_cache_fs_storage_iterator_dir_retry_cnt");
-    _cache_base_path = _mgr->_cache_base_path;
+            metrics_prefix, "file_cache_fs_storage_iterator_dir_retry_cnt");
+    _leak_scan_removed_files = std::make_shared<bvar::Adder<size_t>>(
+            metrics_prefix, "file_cache_leak_removed_files_cnt");
+    _cache_base_path = mgr->_cache_base_path;
+    _mgr = mgr;
     _meta_store = std::make_unique<CacheBlockMetaStore>(_cache_base_path + "/meta", 10000);
-    _cache_background_load_thread = std::thread([this, mgr = _mgr]() {
+    _cache_background_load_thread = std::thread([this, mgr]() {
         try {
             auto mem_tracker = MemTrackerLimiter::create_shared(
                     MemTrackerLimiter::Type::OTHER, fmt::format("FileCacheVersionReader"));
@@ -142,6 +175,7 @@ Status FSFileCacheStorage::init(BlockFileCache* _mgr) {
             load_cache_info_into_memory(mgr);
             mgr->_async_open_done = true;
             LOG_INFO("file cache {} lazy load done.", _cache_base_path);
+            start_leak_cleaner(mgr);
         } catch (const std::exception& e) {
             LOG(ERROR) << "Background cache loading thread failed with exception: " << e.what();
         } catch (...) {
@@ -608,12 +642,12 @@ bool FSFileCacheStorage::handle_already_loaded_block(
     return true;
 }
 
-void FSFileCacheStorage::load_cache_info_into_memory_from_fs(BlockFileCache* _mgr) const {
+void FSFileCacheStorage::load_cache_info_into_memory_from_fs(BlockFileCache* mgr) const {
     int scan_length = 10000;
     std::vector<BatchLoadArgs> batch_load_buffer;
     batch_load_buffer.reserve(scan_length);
     auto add_cell_batch_func = [&]() {
-        SCOPED_CACHE_LOCK(_mgr->_mutex, _mgr);
+        SCOPED_CACHE_LOCK(mgr->_mutex, mgr);
 
         auto f = [&](const BatchLoadArgs& args) {
             // in async load mode, a cell may be added twice.
@@ -623,8 +657,8 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_fs(BlockFileCache* _mg
             }
             // if the file is tmp, it means it is the old file and it should be removed
             if (!args.is_tmp) {
-                _mgr->add_cell(args.hash, args.ctx, args.offset, args.size,
-                               FileBlock::State::DOWNLOADED, cache_lock);
+                mgr->add_cell(args.hash, args.ctx, args.offset, args.size,
+                              FileBlock::State::DOWNLOADED, cache_lock);
                 return;
             }
             std::error_code ec;
@@ -642,7 +676,9 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_fs(BlockFileCache* _mg
         for (; key_it != std::filesystem::directory_iterator(); ++key_it) {
             auto key_with_suffix = key_it->path().filename().native();
             auto delim_pos = key_with_suffix.find('_');
-            DCHECK(delim_pos != std::string::npos);
+            if (delim_pos == std::string::npos || delim_pos != sizeof(uint128_t) * 2) {
+                continue;
+            }
             std::string key_str = key_with_suffix.substr(0, delim_pos);
             std::string expiration_time_str = key_with_suffix.substr(delim_pos + 1);
             auto hash = UInt128Wrapper(vectorized::unhex_uint<uint128_t>(key_str.c_str()));
@@ -699,7 +735,7 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_fs(BlockFileCache* _mg
             // skip version file
             continue;
         }
-        if (key_prefix_it->path().filename().native() == "meta") {
+        if (key_prefix_it->path().filename().native() == META_DIR_NAME) {
             // skip rocksdb dir
             continue;
         }
@@ -756,7 +792,9 @@ Status FSFileCacheStorage::get_file_cache_infos(std::vector<FileCacheInfo>& info
         for (; key_it != std::filesystem::directory_iterator(); ++key_it) {
             auto key_with_suffix = key_it->path().filename().native();
             auto delim_pos = key_with_suffix.find('_');
-            DCHECK(delim_pos != std::string::npos);
+            if (delim_pos == std::string::npos || delim_pos != sizeof(uint128_t) * 2) {
+                continue;
+            }
             std::string key_str = key_with_suffix.substr(0, delim_pos);
             std::string expiration_time_str = key_with_suffix.substr(delim_pos + 1);
             long expiration_time = std::stoul(expiration_time_str);
@@ -789,12 +827,13 @@ Status FSFileCacheStorage::get_file_cache_infos(std::vector<FileCacheInfo>& info
     return Status::OK();
 }
 
-void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* _mgr) const {
+void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* mgr) const {
+    TEST_SYNC_POINT_CALLBACK("BlockFileCache::TmpFile1");
     int scan_length = 10000;
     std::vector<BatchLoadArgs> batch_load_buffer;
     batch_load_buffer.reserve(scan_length);
     auto add_cell_batch_func = [&]() {
-        SCOPED_CACHE_LOCK(_mgr->_mutex, _mgr);
+        SCOPED_CACHE_LOCK(mgr->_mutex, mgr);
 
         auto f = [&](const BatchLoadArgs& args) {
             // in async load mode, a cell may be added twice.
@@ -802,8 +841,8 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* _mg
                                             args.ctx.tablet_id, cache_lock)) {
                 return;
             }
-            _mgr->add_cell(args.hash, args.ctx, args.offset, args.size,
-                           FileBlock::State::DOWNLOADED, cache_lock);
+            mgr->add_cell(args.hash, args.ctx, args.offset, args.size, FileBlock::State::DOWNLOADED,
+                          cache_lock);
             return;
         };
         std::for_each(batch_load_buffer.begin(), batch_load_buffer.end(), f);
@@ -868,9 +907,9 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* _mg
     TEST_SYNC_POINT_CALLBACK("BlockFileCache::TmpFile2");
 }
 
-void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const {
+void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* mgr) const {
     // First load from database
-    load_cache_info_into_memory_from_db(_mgr);
+    load_cache_info_into_memory_from_db(mgr);
 
     std::string version;
     auto st = read_file_cache_version(&version);
@@ -882,17 +921,45 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
         return;
     }
 
+    // If cache directory is effectively empty (no cache data entries), write version hint and
+    // return directly.
+    auto is_cache_base_path_empty = [&]() -> bool {
+        std::error_code ec;
+        std::filesystem::directory_iterator it {_cache_base_path, ec};
+        if (ec) {
+            LOG(WARNING) << "Failed to list cache directory: " << _cache_base_path
+                         << ", error: " << ec.message();
+            return false;
+        }
+
+        for (; it != std::filesystem::directory_iterator(); ++it) {
+            auto name = it->path().filename().native();
+            if (name == META_DIR_NAME || name == "version") {
+                continue;
+            }
+            return false;
+        }
+        return true;
+    };
+
+    if (is_cache_base_path_empty()) {
+        if (st = write_file_cache_version(); !st.ok()) {
+            LOG(WARNING) << "Failed to write version hints for file cache, err=" << st.to_string();
+        }
+        return;
+    }
+
     // Count blocks loaded from database
     size_t db_block_count = 0;
     {
-        std::lock_guard<std::mutex> lock(_mgr->_mutex);
-        for (const auto& hash_entry : _mgr->_files) {
+        std::lock_guard<std::mutex> lock(mgr->_mutex);
+        for (const auto& hash_entry : mgr->_files) {
             db_block_count += hash_entry.second.size();
         }
     }
 
     // Estimate file count from filesystem using statfs
-    size_t estimated_file_count = estimate_file_count_from_statfs();
+    size_t estimated_file_count = estimate_file_count_from_inode();
 
     LOG(INFO) << "Cache loading statistics - DB blocks: " << db_block_count
               << ", Estimated FS files: " << estimated_file_count;
@@ -965,7 +1032,7 @@ Status FSFileCacheStorage::clear(std::string& msg) {
     auto t0 = std::chrono::steady_clock::now();
     for (; key_it != std::filesystem::directory_iterator(); ++key_it) {
         if (!key_it->is_directory()) continue; // all file cache data is in sub-directories
-        if (key_it->path().filename().native() == "meta") continue;
+        if (key_it->path().filename().native() == META_DIR_NAME) continue;
         ++total;
         std::string cache_key = key_it->path().string();
         auto st = global_local_filesystem()->delete_directory(cache_key);
@@ -996,82 +1063,632 @@ FSFileCacheStorage::~FSFileCacheStorage() {
     if (_cache_background_load_thread.joinable()) {
         _cache_background_load_thread.join();
     }
+    stop_leak_cleaner();
 }
 
-size_t FSFileCacheStorage::estimate_file_count_from_statfs() const {
-    struct statvfs vfs;
-    if (statvfs(_cache_base_path.c_str(), &vfs) != 0) {
-        LOG(WARNING) << "Failed to get filesystem statistics for path: " << _cache_base_path
-                     << ", error: " << strerror(errno);
+size_t FSFileCacheStorage::estimate_file_count_from_inode() const {
+    int64_t duration_ns = 0;
+    size_t cache_files = 0;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
+        do {
+            struct statvfs vfs {};
+            int statvfs_res = 0;
+#ifdef BE_TEST
+            if (auto* hooks = inode_test_hooks(); hooks && hooks->statvfs_override) {
+                statvfs_res = hooks->statvfs_override(_cache_base_path, &vfs);
+            } else
+#endif
+            {
+                statvfs_res = statvfs(_cache_base_path.c_str(), &vfs);
+            }
+            if (statvfs_res != 0) {
+                LOG(WARNING) << "Failed to get filesystem statistics for path: " << _cache_base_path
+                             << ", error: " << strerror(errno);
+                break;
+            }
+
+            if (vfs.f_files == 0) {
+                LOG(WARNING) << "Filesystem returned zero total inodes for path "
+                             << _cache_base_path;
+                break;
+            }
+
+            struct stat cache_stat {};
+            int lstat_res = 0;
+#ifdef BE_TEST
+            if (auto* hooks = inode_test_hooks(); hooks && hooks->lstat_override) {
+                lstat_res = hooks->lstat_override(_cache_base_path, &cache_stat);
+            } else
+#endif
+            {
+                lstat_res = lstat(_cache_base_path.c_str(), &cache_stat);
+            }
+            if (lstat_res != 0) {
+                LOG(WARNING) << "Failed to stat cache base path " << _cache_base_path << ": "
+                             << strerror(errno);
+                break;
+            }
+
+            size_t total_inodes_used = vfs.f_files - vfs.f_ffree;
+            size_t non_cache_inodes = estimate_non_cache_inode_usage();
+            size_t directory_inodes = estimate_cache_directory_inode_usage();
+
+            if (total_inodes_used > non_cache_inodes + directory_inodes) {
+                cache_files = total_inodes_used - non_cache_inodes - directory_inodes;
+            } else {
+                LOG(WARNING) << fmt::format(
+                        "Inode subtraction underflow: total={} non_cache={} directory={}",
+                        total_inodes_used, non_cache_inodes, directory_inodes);
+            }
+
+            LOG(INFO) << fmt::format(
+                    "Cache inode estimation: total_used={}, non_cache={}, directories≈{}, files≈{}",
+                    total_inodes_used, non_cache_inodes, directory_inodes, cache_files);
+        } while (false);
+    }
+    const double duration_ms = static_cast<double>(duration_ns) / 1'000'000.0;
+    LOG(INFO) << fmt::format("estimate_file_count_from_inode duration_ms={:.3f}, files={}",
+                             duration_ms, cache_files);
+    return cache_files;
+}
+
+size_t FSFileCacheStorage::count_inodes_for_path(
+        const std::filesystem::path& path, dev_t target_dev,
+        const std::filesystem::path& excluded_root,
+        std::unordered_set<InodeKey, InodeKeyHash>& visited) const {
+#ifdef BE_TEST
+    if (auto* hooks = inode_test_hooks(); hooks && hooks->count_inodes_override) {
+        return hooks->count_inodes_override(*this, path, target_dev, excluded_root, visited);
+    }
+#endif
+    if (!excluded_root.empty()) {
+        std::error_code eq_ec;
+        bool is_excluded = std::filesystem::equivalent(path, excluded_root, eq_ec);
+        if (eq_ec) {
+            LOG(WARNING) << "Failed to compare " << path << " with " << excluded_root << ": "
+                         << eq_ec.message();
+        } else if (is_excluded) {
+            return 0;
+        }
+    }
+
+    struct stat st {};
+    if (lstat(path.c_str(), &st) != 0) {
+        LOG(WARNING) << "Failed to stat path " << path << ": " << strerror(errno);
+        return 0;
+    }
+    if (st.st_dev != target_dev) {
+        return 0;
+    }
+    InodeKey key {st.st_dev, st.st_ino};
+    if (!visited.insert(key).second) {
         return 0;
     }
 
-    // Get total size of cache directory to estimate file count
-    std::error_code ec;
-    uintmax_t total_size = 0;
-    std::vector<std::filesystem::path> pending_dirs {std::filesystem::path(_cache_base_path)};
-    while (!pending_dirs.empty()) {
-        auto current_dir = pending_dirs.back();
-        pending_dirs.pop_back();
-
-        std::filesystem::directory_iterator it(current_dir, ec);
+    size_t count = 1;
+    if (S_ISDIR(st.st_mode)) {
+        std::error_code ec;
+        for (std::filesystem::directory_iterator it {path, ec};
+             !ec && it != std::filesystem::directory_iterator(); ++it) {
+            count += count_inodes_for_path(it->path(), target_dev, excluded_root, visited);
+        }
         if (ec) {
-            LOG(WARNING) << "Failed to list directory while estimating file count, dir="
-                         << current_dir << ", err=" << ec.message();
-            ec.clear();
+            LOG(WARNING) << "Failed to iterate directory " << path << ": " << ec.message();
+        }
+    }
+    return count;
+}
+
+bool FSFileCacheStorage::is_cache_prefix_directory(
+        const std::filesystem::directory_entry& entry) const {
+    if (!entry.is_directory()) {
+        return false;
+    }
+    auto name = entry.path().filename().native();
+    if (name == META_DIR_NAME || name.empty()) {
+        return false;
+    }
+    if (name.size() != KEY_PREFIX_LENGTH) {
+        return false;
+    }
+    return std::all_of(name.begin(), name.end(), [](unsigned char c) { return std::isxdigit(c); });
+}
+
+std::filesystem::path FSFileCacheStorage::find_mount_root(dev_t cache_dev) const {
+#ifdef BE_TEST
+    if (auto* hooks = inode_test_hooks(); hooks && hooks->find_mount_root_override) {
+        return hooks->find_mount_root_override(*this, cache_dev);
+    }
+#endif
+    std::error_code ec;
+    std::filesystem::path current = std::filesystem::absolute(_cache_base_path, ec);
+    if (ec) {
+        LOG(WARNING) << "Failed to resolve absolute cache base path " << _cache_base_path << ": "
+                     << ec.message();
+        current = _cache_base_path;
+    }
+
+    std::filesystem::path result = current;
+    while (result.has_parent_path()) {
+        auto parent = result.parent_path();
+        if (parent.empty() || parent == result) {
+            break;
+        }
+        struct stat st {};
+        if (lstat(parent.c_str(), &st) != 0) {
+            LOG(WARNING) << "Failed to stat parent path " << parent << ": " << strerror(errno);
+            break;
+        }
+        if (st.st_dev != cache_dev) {
+            break;
+        }
+        result = parent;
+    }
+    return result;
+}
+
+size_t FSFileCacheStorage::estimate_non_cache_inode_usage() const {
+#ifdef BE_TEST
+    if (auto* hooks = inode_test_hooks(); hooks && hooks->non_cache_override) {
+        return hooks->non_cache_override(*this);
+    }
+#endif
+    struct stat cache_stat {};
+    if (lstat(_cache_base_path.c_str(), &cache_stat) != 0) {
+        LOG(WARNING) << "Failed to stat cache base path " << _cache_base_path << ": "
+                     << strerror(errno);
+        return 0;
+    }
+
+    auto mount_root = find_mount_root(cache_stat.st_dev);
+    if (mount_root.empty()) {
+        LOG(WARNING) << "Failed to determine mount root for cache path " << _cache_base_path;
+        return 0;
+    }
+
+    std::unordered_set<InodeKey, InodeKeyHash> visited;
+    std::error_code abs_ec;
+    std::filesystem::path excluded = std::filesystem::absolute(_cache_base_path, abs_ec);
+    if (abs_ec) {
+        LOG(WARNING) << "Failed to get absolute cache base path " << _cache_base_path << ": "
+                     << abs_ec.message();
+        excluded = _cache_base_path;
+    }
+
+    return count_inodes_for_path(mount_root, cache_stat.st_dev, excluded, visited);
+}
+
+size_t FSFileCacheStorage::estimate_cache_directory_inode_usage() const {
+#ifdef BE_TEST
+    if (auto* hooks = inode_test_hooks(); hooks && hooks->cache_dir_override) {
+        return hooks->cache_dir_override(*this);
+    }
+#endif
+    constexpr size_t kSampleLimit = 3;
+    size_t prefix_dirs = 0;
+    std::vector<std::filesystem::path> samples;
+
+    std::error_code ec;
+    std::filesystem::directory_iterator it {_cache_base_path, ec};
+    if (ec) {
+        LOG(WARNING) << "Failed to list cache base path for directory estimation: " << ec.message();
+        return 0;
+    }
+
+    for (; it != std::filesystem::directory_iterator(); ++it) {
+        if (!is_cache_prefix_directory(*it)) {
             continue;
         }
-
-        for (; it != std::filesystem::directory_iterator(); ++it) {
-            std::error_code status_ec;
-            auto entry_status = it->symlink_status(status_ec);
-            TEST_SYNC_POINT_CALLBACK(
-                    "FSFileCacheStorage::estimate_file_count_from_statfs::AfterEntryStatus",
-                    &status_ec);
-            if (status_ec) {
-                LOG(WARNING) << "Failed to stat entry while estimating file count, path="
-                             << it->path() << ", err=" << status_ec.message();
-                continue;
-            }
-
-            if (std::filesystem::is_directory(entry_status)) {
-                auto next_dir = it->path();
-                TEST_SYNC_POINT_CALLBACK(
-                        "FSFileCacheStorage::estimate_file_count_from_statfs::OnDirectory",
-                        &next_dir);
-                pending_dirs.emplace_back(next_dir);
-                continue;
-            }
-
-            if (std::filesystem::is_regular_file(entry_status)) {
-                std::error_code size_ec;
-                auto file_size = it->file_size(size_ec);
-                TEST_SYNC_POINT_CALLBACK(
-                        "FSFileCacheStorage::estimate_file_count_from_statfs::AfterFileSize",
-                        &size_ec);
-                if (size_ec) {
-                    LOG(WARNING) << "Failed to get file size while estimating file count, path="
-                                 << it->path() << ", err=" << size_ec.message();
-                    continue;
-                }
-                total_size += file_size;
-            }
+        ++prefix_dirs;
+        if (samples.size() < kSampleLimit) {
+            samples.emplace_back(it->path());
         }
     }
 
-    if (total_size == 0) {
+    if (prefix_dirs == 0 || samples.empty()) {
         return 0;
     }
 
-    // Estimate file count based on average file size
-    // Assuming average file size of 1MB for cache blocks
-    const uintmax_t average_file_size = 1024 * 1024; // 1MB
-    size_t estimated_file_count = total_size / average_file_size;
+    size_t sampled_second_level = 0;
+    for (const auto& prefix_path : samples) {
+        size_t local_count = 0;
+        std::error_code sample_ec;
+        for (std::filesystem::directory_iterator prefix_it {prefix_path, sample_ec};
+             !sample_ec && prefix_it != std::filesystem::directory_iterator(); ++prefix_it) {
+            if (prefix_it->is_directory()) {
+                ++local_count;
+            }
+        }
+        if (sample_ec) {
+            LOG(WARNING) << "Failed to enumerate prefix directory " << prefix_path << ": "
+                         << sample_ec.message();
+            sample_ec.clear();
+        }
+        sampled_second_level += local_count;
+    }
 
-    LOG(INFO) << "Estimated file count for cache path " << _cache_base_path
-              << ": total_size=" << total_size << ", estimated_files=" << estimated_file_count;
+    double average_second_level = static_cast<double>(sampled_second_level) / samples.size();
+    size_t estimated_second_level =
+            static_cast<size_t>(std::llround(average_second_level * prefix_dirs));
+    return prefix_dirs + estimated_second_level;
+}
 
-    return estimated_file_count;
+size_t FSFileCacheStorage::snapshot_metadata_block_count(BlockFileCache* /*mgr*/) const {
+    // TODO(zhengyu): if the cache_lock problem is solved, we can then use _mgr
+    int64_t duration_ns = 0;
+    size_t block_count = 0;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
+        if (_meta_store) {
+            block_count = _meta_store->approximate_entry_count();
+        } else {
+            LOG(INFO) << "snapshot_metadata_block_count skipped because meta store is null";
+            block_count = 0;
+        }
+    }
+    const double duration_ms = static_cast<double>(duration_ns) / 1'000'000.0;
+    LOG(INFO) << fmt::format("snapshot_metadata_block_count duration_ms={:.3f}, blocks={}",
+                             duration_ms, block_count);
+    return block_count;
+}
+
+std::vector<size_t> FSFileCacheStorage::snapshot_metadata_for_hash_offsets(
+        BlockFileCache* mgr, const UInt128Wrapper& hash) const {
+    std::vector<size_t> offsets;
+    std::lock_guard<std::mutex> lock(mgr->_mutex);
+    auto it = mgr->_files.find(hash);
+    if (it == mgr->_files.end()) {
+        return offsets;
+    }
+    offsets.reserve(it->second.size());
+    for (const auto& [offset, _] : it->second) {
+        offsets.push_back(offset);
+    }
+    return offsets;
+}
+
+void FSFileCacheStorage::start_leak_cleaner(BlockFileCache* mgr) {
+    if (config::file_cache_leak_scan_interval_seconds <= 0) {
+        LOG(WARNING) << "File cache leak cleaner disabled because interval <= 0";
+        return;
+    }
+
+    // if version file not 3.0 then just return, clean nothing
+    std::string version;
+    if (auto st = read_file_cache_version(&version); !st.ok()) {
+        LOG(WARNING) << "Failed to read file cache version: " << st.to_string();
+        return;
+    }
+    if (version != "3.0") {
+        LOG(WARNING) << "File cache leak cleaner skipped because version is not 3.0";
+        return;
+    }
+
+    _stop_leak_cleaner.store(false, std::memory_order_relaxed);
+    _cache_leak_cleaner_thread = std::thread([this]() { leak_cleaner_loop(); });
+}
+
+void FSFileCacheStorage::stop_leak_cleaner() {
+    _stop_leak_cleaner.store(true, std::memory_order_relaxed);
+    _leak_cleaner_cv.notify_all();
+    if (_cache_leak_cleaner_thread.joinable()) {
+        _cache_leak_cleaner_thread.join();
+    }
+}
+
+void FSFileCacheStorage::leak_cleaner_loop() {
+    Thread::set_self_name("leak_cleaner_loop");
+
+    // randomly waiting before start the loop helps avoid thundering herd problem
+    // for all strorages.
+    const int64_t interval_seconds =
+            std::max<int64_t>(1, config::file_cache_leak_scan_interval_seconds);
+    std::mt19937_64 rng(std::random_device {}());
+    std::uniform_int_distribution<int64_t> dist(0, interval_seconds);
+    int64_t initial_delay = dist(rng);
+    TEST_SYNC_POINT_CALLBACK("FSFileCacheStorage::leak_cleaner_loop::initial_delay",
+                             &initial_delay);
+    if (initial_delay > 0) {
+        std::unique_lock<std::mutex> lock(_leak_cleaner_mutex);
+        _leak_cleaner_cv.wait_for(lock, std::chrono::seconds(initial_delay), [this]() {
+            return _stop_leak_cleaner.load(std::memory_order_relaxed);
+        });
+        lock.unlock();
+        if (_stop_leak_cleaner.load(std::memory_order_relaxed)) {
+            return;
+        }
+    }
+
+    while (!_stop_leak_cleaner.load(std::memory_order_relaxed)) {
+        int64_t interval_s = interval_seconds;
+        TEST_SYNC_POINT_CALLBACK("FSFileCacheStorage::leak_cleaner_loop::interval", &interval_s);
+        auto interval = std::chrono::seconds(interval_s);
+        std::unique_lock<std::mutex> lock(_leak_cleaner_mutex);
+        _leak_cleaner_cv.wait_for(lock, interval, [this]() {
+            return _stop_leak_cleaner.load(std::memory_order_relaxed);
+        });
+        lock.unlock();
+        if (_stop_leak_cleaner.load(std::memory_order_relaxed)) {
+            break;
+        }
+        try {
+            TEST_SYNC_POINT_CALLBACK("FSFileCacheStorage::leak_cleaner_loop::before_run");
+            run_leak_cleanup(_mgr);
+        } catch (const std::exception& e) {
+            LOG(WARNING) << "File cache leak cleaner encountered exception: " << e.what();
+        } catch (...) {
+            LOG(WARNING) << "File cache leak cleaner encountered unknown exception";
+        }
+    }
+}
+
+void FSFileCacheStorage::run_leak_cleanup(BlockFileCache* mgr) {
+    size_t metadata_blocks = snapshot_metadata_block_count(mgr);
+    if (metadata_blocks == 0) {
+        LOG(INFO) << "file cache leak scan found zero metadata blocks, skip cleanup";
+        return;
+    }
+
+    size_t fs_files = estimate_file_count_from_inode();
+    double ratio = static_cast<double>(fs_files) / static_cast<double>(metadata_blocks);
+
+    LOG(INFO) << fmt::format(
+            "file cache leak scan stats: fs_files={}, metadata_blocks={}, ratio={:.4f}", fs_files,
+            metadata_blocks, ratio);
+
+    double threshold = config::file_cache_leak_fs_to_meta_ratio_threshold;
+    if (ratio <= threshold) {
+        LOG_INFO("file cache leak ratio {0:.4f} within threshold {1:.4f}, no cleanup needed", ratio,
+                 threshold);
+        return;
+    }
+
+    LOG(WARNING) << fmt::format(
+            "file cache leak ratio {0:.4f} exceeds threshold {1:.4f}, start cleanup", ratio,
+            threshold);
+
+    cleanup_leaked_files(mgr, metadata_blocks);
+}
+
+void FSFileCacheStorage::cleanup_leaked_files(BlockFileCache* mgr, size_t metadata_block_count) {
+    const size_t batch_size = std::max<int32_t>(1, config::file_cache_leak_scan_batch_files);
+    const size_t pause_ms = std::max<int32_t>(0, config::file_cache_leak_scan_pause_ms);
+
+    int64_t cleanup_wall_time_ns = 0;
+    int64_t metadata_hash_time_ns = 0;
+    int64_t metadata_index_time_ns = 0;
+    int64_t remove_candidates_time_ns = 0;
+    int64_t directory_loop_time_ns = 0;
+    size_t removed_files = 0;
+    size_t examined_files = 0;
+
+    std::vector<UInt128Wrapper> hash_keys;
+
+    {
+        SCOPED_RAW_TIMER(&cleanup_wall_time_ns);
+        {
+            SCOPED_RAW_TIMER(&metadata_hash_time_ns);
+            std::lock_guard<std::mutex> lock(mgr->_mutex);
+            hash_keys.reserve(mgr->_files.size());
+            for (const auto& [hash, _] : mgr->_files) {
+                hash_keys.push_back(hash);
+            }
+        }
+
+        std::unordered_set<AccessKeyAndOffset, KeyAndOffsetHash> metadata_index;
+        if (metadata_block_count > 0) {
+            metadata_index.reserve(metadata_block_count * 2);
+        }
+
+        {
+            SCOPED_RAW_TIMER(&metadata_index_time_ns);
+            for (const auto& hash : hash_keys) {
+                auto offsets = snapshot_metadata_for_hash_offsets(mgr, hash);
+                for (const auto& offset : offsets) {
+                    metadata_index.emplace(hash, offset);
+                }
+            }
+        }
+
+        struct OrphanCandidate {
+            std::string path;
+            UInt128Wrapper hash;
+            size_t offset;
+            std::string key_dir;
+        };
+
+        auto try_remove_empty_directory = [&](const std::string& dir) {
+            std::error_code ec;
+            std::filesystem::directory_iterator it(dir, ec);
+            if (ec || it != std::filesystem::directory_iterator()) {
+                return;
+            }
+            auto st = fs->delete_directory(dir);
+            if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+                LOG_WARNING("delete_directory {} failed", dir).error(st);
+            }
+        };
+
+        std::vector<OrphanCandidate> candidates;
+        candidates.reserve(batch_size);
+
+        auto remove_candidates = [&]() {
+            if (candidates.empty()) {
+                return;
+            }
+            int64_t remove_once_ns = 0;
+            {
+                SCOPED_RAW_TIMER(&remove_once_ns);
+                for (auto& candidate : candidates) {
+                    auto st = fs->delete_file(candidate.path);
+                    if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+                        LOG_WARNING("delete orphan cache file {} failed", candidate.path).error(st);
+                        continue;
+                    }
+                    removed_files++;
+                    try_remove_empty_directory(candidate.key_dir);
+                    auto prefix_dir =
+                            std::filesystem::path(candidate.key_dir).parent_path().string();
+                    try_remove_empty_directory(prefix_dir);
+                }
+                candidates.clear();
+            }
+            remove_candidates_time_ns += remove_once_ns;
+            if (pause_ms > 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(pause_ms));
+            }
+        };
+
+        std::error_code ec;
+        std::filesystem::directory_iterator prefix_it {_cache_base_path, ec};
+        if (ec) {
+            LOG(WARNING) << "Leak scan failed to list cache directory: " << _cache_base_path
+                         << ", error: " << ec.message();
+            return;
+        }
+
+        for (; prefix_it != std::filesystem::directory_iterator(); ++prefix_it) {
+            int64_t loop_once_ns = 0;
+            {
+                SCOPED_RAW_TIMER(&loop_once_ns);
+                std::string prefix_name = prefix_it->path().filename().native();
+                if (!prefix_it->is_directory() || prefix_name == META_DIR_NAME ||
+                    prefix_name.size() != KEY_PREFIX_LENGTH) {
+                    continue;
+                }
+
+                std::filesystem::directory_iterator key_it {prefix_it->path(), ec};
+                if (ec) {
+                    LOG(WARNING) << "Leak scan failed to list prefix " << prefix_it->path().native()
+                                 << ", error: " << ec.message();
+                    continue;
+                }
+
+                for (; key_it != std::filesystem::directory_iterator(); ++key_it) {
+                    if (!key_it->is_directory()) {
+                        continue;
+                    }
+                    auto key_with_suffix = key_it->path().filename().native();
+                    auto delim_pos = key_with_suffix.find('_');
+                    if (delim_pos == std::string::npos || delim_pos != sizeof(uint128_t) * 2) {
+                        continue;
+                    }
+
+                    UInt128Wrapper hash;
+                    try {
+                        hash = UInt128Wrapper(vectorized::unhex_uint<uint128_t>(
+                                key_with_suffix.substr(0, delim_pos).c_str()));
+                    } catch (...) {
+                        LOG(WARNING) << "Leak scan failed to parse hash from " << key_with_suffix;
+                        continue;
+                    }
+
+                    long expiration = 0;
+                    try {
+                        expiration = std::stol(key_with_suffix.substr(delim_pos + 1));
+                    } catch (...) {
+                        LOG(WARNING)
+                                << "Leak scan failed to parse expiration from " << key_with_suffix;
+                        continue;
+                    }
+
+                    std::filesystem::directory_iterator offset_it {key_it->path(), ec};
+                    if (ec) {
+                        LOG(WARNING) << "Leak scan failed to list key directory "
+                                     << key_it->path().native() << ", error: " << ec.message();
+                        continue;
+                    }
+
+                    for (; offset_it != std::filesystem::directory_iterator(); ++offset_it) {
+                        if (!offset_it->is_regular_file()) {
+                            continue;
+                        }
+                        const auto file_path = offset_it->path();
+                        const std::string file_path_str = file_path.string();
+                        size_t file_size = offset_it->file_size(ec);
+                        if (ec) {
+                            LOG(WARNING) << "Leak scan failed to fetch file size of "
+                                         << file_path.native() << ": " << ec.message();
+                            continue;
+                        }
+
+                        size_t offset = 0;
+                        bool is_tmp = false;
+                        FileCacheType cache_type = FileCacheType::NORMAL;
+                        Status st = parse_filename_suffix_to_cache_type(
+                                fs, offset_it->path().filename().native(), expiration, file_size,
+                                &offset, &is_tmp, &cache_type);
+                        if (!st.ok()) {
+                            continue;
+                        }
+
+                        AccessKeyAndOffset meta_key {hash, offset};
+
+                        // If the file is present in metadata and not a tmp file, skip it.
+                        if (!is_tmp && metadata_index.find(meta_key) != metadata_index.end()) {
+                            continue;
+                        }
+
+                        // For any file that is not referenced by metadata (or tmp files),
+                        // protect recently-created files from immediate deletion. This avoids
+                        // racing with writers. The grace window is configured by
+                        // file_cache_leak_grace_seconds and applies to all orphan files.
+                        const int64_t grace_seconds =
+                                std::max<int64_t>(0, config::file_cache_leak_grace_seconds);
+                        if (grace_seconds > 0) {
+                            struct stat st_buf {};
+                            if (::stat(file_path.c_str(), &st_buf) != 0) {
+                                LOG(WARNING) << "Leak scan failed to stat file " << file_path_str
+                                             << ": " << strerror(errno);
+                            } else {
+                                const std::time_t now = std::time(nullptr);
+                                if (now == static_cast<std::time_t>(-1)) {
+                                    LOG(WARNING)
+                                            << "Leak scan failed to get current time when checking "
+                                            << file_path_str;
+                                } else {
+                                    const int64_t age_seconds =
+                                            static_cast<int64_t>(now) -
+                                            static_cast<int64_t>(st_buf.st_mtime);
+                                    if (age_seconds < grace_seconds) {
+                                        VLOG_DEBUG << fmt::format(
+                                                "Leak scan skipping young orphan file {} because "
+                                                "age={}s < grace={}s",
+                                                file_path_str, age_seconds, grace_seconds);
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+
+                        candidates.emplace_back(file_path_str, hash, offset,
+                                                key_it->path().string());
+                        examined_files++;
+                        if (candidates.size() >= batch_size) {
+                            remove_candidates();
+                        }
+                    }
+                }
+            }
+            directory_loop_time_ns += loop_once_ns;
+        }
+
+        remove_candidates();
+    }
+
+    auto ns_to_ms = [](int64_t ns) { return static_cast<double>(ns) / 1'000'000.0; };
+
+    LOG(INFO) << fmt::format(
+            "file cache leak cleanup finished: examined_files={}, removed_orphans={}, "
+            "wall_time_ms={:.3f}, metadata_hash_time_ms={:.3f}, metadata_index_ms={:.3f}, "
+            "remove_candidates_ms={:.3f}, prefix_loop_ms={:.3f}",
+            examined_files, removed_files, ns_to_ms(cleanup_wall_time_ns),
+            ns_to_ms(metadata_hash_time_ns), ns_to_ms(metadata_index_time_ns),
+            ns_to_ms(remove_candidates_time_ns), ns_to_ms(directory_loop_time_ns));
+    if (_leak_scan_removed_files) {
+        *_leak_scan_removed_files << removed_files;
+    }
 }
 
 } // namespace doris::io

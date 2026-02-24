@@ -33,7 +33,7 @@ CONF_String(fdb_cluster_file_path, "./conf/fdb.cluster");
 CONF_Bool(enable_fdb_external_client_directory, "true");
 // The directory path of external foundationdb client library.
 // eg: /path/to/dir1:/path/to/dir2:...
-CONF_String(fdb_external_client_directory, "");
+CONF_String(fdb_external_client_directory, "./lib/fdb/7.3.69/");
 CONF_String(http_token, "greedisgood9999");
 // use volatile mem kv for test. MUST NOT be `true` in production environment.
 CONF_Bool(use_mem_kv, "false");
@@ -387,7 +387,7 @@ CONF_mString(ca_cert_file_paths,
              "/etc/pki/tls/certs/ca-bundle.crt;/etc/ssl/certs/ca-certificates.crt;"
              "/etc/ssl/ca-bundle.pem");
 
-CONF_Bool(enable_split_rowset_meta_pb, "false");
+CONF_Bool(enable_split_rowset_meta_pb, "true");
 CONF_Int32(split_rowset_meta_pb_size, "10000"); // split rowset meta pb size, default is 10K
 CONF_Bool(enable_split_tablet_schema_pb, "false");
 CONF_Int32(split_tablet_schema_pb_size, "10000"); // split tablet schema pb size, default is 10K

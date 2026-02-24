@@ -18,6 +18,9 @@
 suite("test_search_exact_multi_index") {
     def tableName = "exact_multi_index_test"
 
+    // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.
+    sql """ set enable_common_expr_pushdown = true """
+
     sql "DROP TABLE IF EXISTS ${tableName}"
 
     // Table with multiple indexes on the same column

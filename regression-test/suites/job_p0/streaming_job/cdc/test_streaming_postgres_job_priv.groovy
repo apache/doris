@@ -134,8 +134,10 @@ suite("test_streaming_postgres_job_priv", "p0,external,pg,external_docker,extern
         )
 
         // mock incremental into
-        connect("${newPgUser}", "${newPgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             sql """INSERT INTO ${pgDB}.${pgSchema}.${tableName} (name,age) VALUES ('Doris',18);"""
+            def xminResult = sql """SELECT xmin, xmax , * FROM ${pgDB}.${pgSchema}.${tableName} WHERE name = 'Doris';"""
+            log.info("xminResult: " + xminResult)
         }
 
         Awaitility.await().atMost(300, SECONDS)

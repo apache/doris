@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS `part` (
   `p_container` varchar(11) NOT NULL COMMENT ""
 )
 UNIQUE KEY (`p_partkey`)
-CLUSTER BY (`p_color`, `p_name`, `p_category`)
+ORDER BY (`p_color`, `p_name`, `p_category`)
 DISTRIBUTED BY HASH(`p_partkey`) BUCKETS 10
 PROPERTIES (
 "enable_mow_light_delete" = "true",

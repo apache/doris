@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS customer_demographics (
     cd_dep_college_count integer
 )
 UNIQUE KEY(cd_demo_sk)
-CLUSTER BY(cd_dep_count)
+ORDER BY(cd_dep_count)
 DISTRIBUTED BY HASH(cd_demo_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"

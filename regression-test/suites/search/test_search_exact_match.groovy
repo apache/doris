@@ -18,6 +18,9 @@
 suite("test_search_exact_match") {
     def tableName = "search_exact_test_table"
 
+    // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.
+    sql """ set enable_common_expr_pushdown = true """
+
     sql "DROP TABLE IF EXISTS ${tableName}"
 
     // Create test table with different index configurations

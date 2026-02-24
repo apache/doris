@@ -214,27 +214,6 @@ Status RowCursor::init_scan_key(TabletSchemaSPtr schema, const std::vector<std::
     return _init_scan_key(schema, scan_keys);
 }
 
-Status RowCursor::build_max_key() {
-    for (auto cid : _schema->column_ids()) {
-        const Field* field = column_schema(cid);
-        char* dest = cell_ptr(cid);
-        field->set_to_max(dest);
-        set_not_null(cid);
-    }
-    return Status::OK();
-}
-
-Status RowCursor::build_min_key() {
-    for (auto cid : _schema->column_ids()) {
-        const Field* field = column_schema(cid);
-        char* dest = cell_ptr(cid);
-        field->set_to_min(dest);
-        set_null(cid);
-    }
-
-    return Status::OK();
-}
-
 Status RowCursor::from_tuple(const OlapTuple& tuple) {
     if (tuple.size() != _schema->num_column_ids()) {
         return Status::Error<INVALID_ARGUMENT>(

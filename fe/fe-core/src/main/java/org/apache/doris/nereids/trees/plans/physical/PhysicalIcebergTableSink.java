@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import java.util.ArrayList;
@@ -110,6 +111,15 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
      */
     @Override
     public PhysicalProperties getRequirePhysicalProperties() {
+        // For Iceberg rewrite operations with small data volume,
+        // use GATHER distribution to collect data to a single node
+        // This helps minimize the number of output files
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getStatementContext() != null
+                && connectContext.getStatementContext().isUseGatherForIcebergRewrite()) {
+            return PhysicalProperties.GATHER;
+        }
+
         Set<String> partitionNames = targetTable.getPartitionNames();
         if (!partitionNames.isEmpty()) {
             List<Integer> columnIdx = new ArrayList<>();

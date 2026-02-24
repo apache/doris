@@ -76,13 +76,15 @@ doris::Status vectorized::VBitmapPredicate::open(doris::RuntimeState* state,
 }
 
 Status VBitmapPredicate::_do_execute(VExprContext* context, const Block* block,
-                                     const uint8_t* __restrict filter, size_t count,
-                                     ColumnPtr& result_column) const {
+                                     const uint8_t* __restrict filter, Selector* selector,
+                                     size_t count, ColumnPtr& result_column) const {
     DCHECK(_open_finished || block == nullptr);
+    DCHECK(!(filter != nullptr && selector != nullptr))
+            << "filter and selector can not be both set";
     DCHECK_EQ(_children.size(), 1);
 
     ColumnPtr argument_column;
-    RETURN_IF_ERROR(_children[0]->execute_column(context, block, count, argument_column));
+    RETURN_IF_ERROR(_children[0]->execute_column(context, block, selector, count, argument_column));
     argument_column = argument_column->convert_to_full_column_if_const();
 
     size_t sz = argument_column->size();
@@ -106,16 +108,17 @@ Status VBitmapPredicate::_do_execute(VExprContext* context, const Block* block,
     return Status::OK();
 }
 
-Status VBitmapPredicate::execute_column(VExprContext* context, const Block* block, size_t count,
+Status VBitmapPredicate::execute_column(VExprContext* context, const Block* block,
+                                        Selector* selector, size_t count,
                                         ColumnPtr& result_column) const {
-    return _do_execute(context, block, nullptr, count, result_column);
+    return _do_execute(context, block, nullptr, selector, count, result_column);
 }
 
 Status VBitmapPredicate::execute_runtime_filter(VExprContext* context, const Block* block,
                                                 const uint8_t* __restrict filter, size_t count,
                                                 ColumnPtr& result_column,
                                                 ColumnPtr* arg_column) const {
-    return _do_execute(context, block, filter, count, result_column);
+    return _do_execute(context, block, filter, nullptr, count, result_column);
 }
 
 void vectorized::VBitmapPredicate::close(vectorized::VExprContext* context,

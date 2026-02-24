@@ -541,6 +541,19 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         rewritten = executor.rewrite(sd, context);
         Assertions.assertEquals(new DateV2Literal("2021-11-11"), rewritten);
 
+        // test %T.%f format (combination of 24-hour time and microseconds)
+        StrToDate sdTf = new StrToDate(StringLiteral.of("2026-01-28 11:32:47.000000"),
+                StringLiteral.of("%Y-%m-%d %T.%f"));
+        rewritten = executor.rewrite(sdTf, context);
+        Assertions.assertEquals(new DateTimeV2Literal(DateTimeV2Type.of(6),
+                2026, 1, 28, 11, 32, 47, 0), rewritten);
+
+        StrToDate sdTf2 = new StrToDate(StringLiteral.of("2026-01-28 11:32:47.123456"),
+                StringLiteral.of("%Y-%m-%d %T.%f"));
+        rewritten = executor.rewrite(sdTf2, context);
+        Assertions.assertEquals(new DateTimeV2Literal(DateTimeV2Type.of(6),
+                2026, 1, 28, 11, 32, 47, 123456), rewritten);
+
         AppendTrailingCharIfAbsent a = new AppendTrailingCharIfAbsent(StringLiteral.of("1"), StringLiteral.of("3"));
         rewritten = executor.rewrite(a, context);
         Assertions.assertEquals(new StringLiteral("13"), rewritten);

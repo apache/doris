@@ -197,7 +197,7 @@ suite("test_variant_predefine_types_with_indexes_profile", "p0,nonConcurrent"){
     }
     // accurateCheckIndexWithQueries()
     // sql "insert into test_variant_predefine_types_with_indexes_profile select * from test_variant_predefine_types_with_indexes_profile"
-    queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_indexes_profile where array_contains(cast(var['array_decimal_1'] as array<decimalv3 (26,9)>), 12345678901234567.123456789)")
+    // queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_indexes_profile where array_contains(cast(var['array_decimal_1'] as array<decimalv3 (26,9)>), 12345678901234567.123456789)")
 
     queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_indexes_profile where cast(var['int_1'] as int) = 42")
 

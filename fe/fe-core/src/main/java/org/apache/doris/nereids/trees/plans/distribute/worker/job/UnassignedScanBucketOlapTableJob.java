@@ -505,4 +505,40 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         }
         return workers;
     }
+
+    @Override
+    protected int degreeOfParallelism(int maxParallel, boolean useLocalShuffleToAddParallel) {
+        Preconditions.checkArgument(maxParallel > 0, "maxParallel must be positive");
+        if (!fragment.getDataPartition().isPartitioned()) {
+            return 1;
+        }
+        if (fragment.queryCacheParam != null) {
+            return maxParallel;
+        }
+        if (scanNodes.size() == 1 && scanNodes.get(0) instanceof OlapScanNode) {
+            OlapScanNode olapScanNode = (OlapScanNode) scanNodes.get(0);
+            ConnectContext connectContext = statementContext.getConnectContext();
+            if (connectContext != null && olapScanNode.shouldUseOneInstance(connectContext)) {
+                return 1;
+            }
+        }
+
+        long tabletNum = 0;
+        for (ScanNode scanNode : scanNodes) {
+            if (scanNode instanceof OlapScanNode) {
+                OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+                tabletNum = olapScanNode.getTotalTabletsNum();
+                break;
+            }
+        }
+
+        ConnectContext connectContext = statementContext.getConnectContext();
+        int colocateMaxParallelNum = 128;
+        if (connectContext != null) {
+            colocateMaxParallelNum = connectContext.getSessionVariable().colocateMaxParallelNum;
+        }
+
+        int maxParallelism = (int) Math.max(tabletNum, fragment.getParallelExecNum());
+        return Math.min(maxParallelism, colocateMaxParallelNum);
+    }
 }

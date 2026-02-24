@@ -584,6 +584,7 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     # modules+=("be-java-extensions/lakesoul-scanner")
     modules+=("be-java-extensions/preload-extensions")
     modules+=("be-java-extensions/${HADOOP_DEPS_NAME}")
+    modules+=("be-java-extensions/java-writer")
 
     # If the BE_EXTENSION_IGNORE variable is not empty, remove the modules that need to be ignored from FE_MODULES
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
@@ -920,6 +921,7 @@ EOF
     extensions_modules+=("preload-extensions")
     extensions_modules+=("iceberg-metadata-scanner")
     extensions_modules+=("${HADOOP_DEPS_NAME}")
+    extensions_modules+=("java-writer")
 
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
         IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"

@@ -745,10 +745,6 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
         }
         txn->put(rs_key, rs_val);
         if (is_versioned_write) {
-            std::string meta_rowset_key = versioned::meta_rowset_key(
-                    {instance_id, tablet_id, first_rowset->rowset_id_v2()});
-            blob_put(txn.get(), meta_rowset_key, rs_val, 0);
-
             std::string rowset_ref_count_key = versioned::data_rowset_ref_count_key(
                     {instance_id, tablet_id, first_rowset->rowset_id_v2()});
             txn->atomic_add(rowset_ref_count_key, 1);
@@ -764,8 +760,7 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
                       << " rowset_id=" << first_rowset->rowset_id_v2()
                       << " end_version=" << first_rowset->end_version()
                       << " key=" << hex(versioned_rs_key)
-                      << " rowset_ref_count_key=" << hex(rowset_ref_count_key)
-                      << " meta_rowset_key=" << hex(meta_rowset_key);
+                      << " rowset_ref_count_key=" << hex(rowset_ref_count_key);
         }
 
         tablet_meta.clear_rs_metas(); // Strip off rowset meta
@@ -830,7 +825,7 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
     }
     if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
         code = cast_as<ErrCategory::READ>(err);
-        msg = "failed to get tablet key, key=" + hex(key);
+        msg = fmt::format("failed to get tablet key, err={}, key={}", err, hex(key));
         LOG(WARNING) << msg;
         return;
     }
@@ -1214,15 +1209,40 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
                 }
 
                 schema_pb.set_disable_auto_compaction(tablet_meta_info.disable_auto_compaction());
+                // Directly overwrite schema KV instead of using put_schema_kv,
+                // because put_schema_kv skips writing when the key already exists.
                 auto key = meta_schema_key(
                         {instance_id, tablet_meta.index_id(), tablet_meta.schema_version()});
-                put_schema_kv(code, msg, txn.get(), key, schema_pb);
-                if (code != MetaServiceCode::OK) return;
+                LOG_INFO("overwrite schema kv for disable_auto_compaction update")
+                        .tag("key", hex(key))
+                        .tag("disable_auto_compaction", tablet_meta_info.disable_auto_compaction());
+                // Remove old blob chunks first to avoid orphaned KVs when
+                // the value format or size changes across versions.
+                ValueBuf old_val;
+                auto get_err = cloud::blob_get(txn.get(), key, &old_val);
+                if (get_err == TxnErrorCode::TXN_OK) {
+                    bool skip_remove = false;
+                    TEST_SYNC_POINT_CALLBACK("update_tablet::skip_schema_remove", &skip_remove);
+                    if (!skip_remove) {
+                        old_val.remove(txn.get());
+                    }
+                }
+                uint8_t ver = config::meta_schema_value_version;
+                if (ver > 0) {
+                    cloud::blob_put(txn.get(), key, schema_pb, ver);
+                } else {
+                    auto schema_value = schema_pb.SerializeAsString();
+                    txn->put(key, schema_value);
+                }
                 if (is_versioned_write) {
                     auto key = versioned::meta_schema_key(
                             {instance_id, tablet_meta.index_id(), tablet_meta.schema_version()});
-                    put_versioned_schema_kv(code, msg, txn.get(), key, schema_pb);
-                    if (code != MetaServiceCode::OK) return;
+                    doris::TabletSchemaCloudPB tablet_schema(schema_pb);
+                    if (!document_put(txn.get(), key, std::move(tablet_schema))) {
+                        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                        msg = "failed to serialize versioned tablet schema";
+                        return;
+                    }
                 }
             }
         }
@@ -2832,23 +2852,6 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         LOG(INFO) << "add rowset ref count key, instance_id=" << instance_id
                   << "key=" << hex(rowset_ref_count_key);
         txn->atomic_add(rowset_ref_count_key, 1);
-
-        // Recycler uses end_version to check if the meta_rowset_compact_key or
-        // meta_rowset_load_key exists.
-        // The end_version is not set if rowset is committed by load, later commit_txn will write
-        // this key again to save end_version.
-        std::string meta_rowset_key =
-                versioned::meta_rowset_key({instance_id, tablet_id, rowset_id});
-        if (config::enable_recycle_rowset_strip_key_bounds) {
-            doris::RowsetMetaCloudPB rowset_meta_copy = rowset_meta;
-            // Strip key bounds to shrink operation log for ts compaction recycle entries
-            rowset_meta_copy.clear_segments_key_bounds();
-            rowset_meta_copy.clear_segments_key_bounds_truncated();
-            blob_put(txn.get(), meta_rowset_key, rowset_meta_copy.SerializeAsString(), 0);
-        } else {
-            blob_put(txn.get(), meta_rowset_key, tmp_rs_val, 0);
-        }
-        LOG(INFO) << "put versioned meta_rowset_key=" << hex(meta_rowset_key);
     }
 
     std::size_t segment_key_bounds_bytes = get_segments_key_bounds_bytes(rowset_meta);

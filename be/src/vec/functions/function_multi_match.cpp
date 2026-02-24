@@ -95,6 +95,7 @@ Status FunctionMultiMatch::evaluate_inverted_index(
         }
 
         param.column_name = column_name;
+        param.column_type = data_type_with_names[i].second;
         param.roaring = std::make_shared<roaring::Roaring>();
         param.analyzer_ctx = analyzer_ctx;
         RETURN_IF_ERROR(iter->read_from_index(segment_v2::IndexParam {&param}));

@@ -18,6 +18,9 @@
 suite("test_search_default_field_operator") {
     def tableName = "search_enhanced_test"
 
+    // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.
+    sql """ set enable_common_expr_pushdown = true """
+
     sql "DROP TABLE IF EXISTS ${tableName}"
 
     // Create table with inverted indexes
