@@ -296,7 +296,9 @@ public class InsertUtils {
         }
         // Re-read partial update settings from session variable to handle multi-statement
         // batches where SET and INSERT are parsed together before execution.
-        if (unboundLogicalSink instanceof UnboundTableSink) {
+        // Only apply to original INSERT statements, not DELETE/UPDATE converted to INSERT.
+        if (unboundLogicalSink instanceof UnboundTableSink
+                && unboundLogicalSink.getDMLCommandType() == DMLCommandType.INSERT) {
             ConnectContext ctx = ConnectContext.get();
             if (ctx != null) {
                 ((UnboundTableSink<? extends Plan>) unboundLogicalSink)
