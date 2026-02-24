@@ -253,7 +253,7 @@ public class VariantType extends PrimitiveType {
 
     public List<VariantField> getVariantTypedPredefinedFields() {
         return variantPredefinedFields.stream()
-                .filter(VariantField::isTypedPathPattern)
+                .filter(VariantField::isTypedPathPatternType)
                 .collect(ImmutableList.toImmutableList());
     }
 
