@@ -71,10 +71,16 @@ public class TabletsProcDir implements ProcDirInterface {
 
     private Table table;
     private MaterializedIndex index;
+    private final long partitionVisibleVersion;
 
     public TabletsProcDir(Table table, MaterializedIndex index) {
+        this(table, index, -1L);
+    }
+
+    public TabletsProcDir(Table table, MaterializedIndex index, long partitionVisibleVersion) {
         this.table = table;
         this.index = index;
+        this.partitionVisibleVersion = partitionVisibleVersion;
     }
 
     public List<List<Comparable>> fetchComparableResult(long version, long backendId, Replica.ReplicaState state)
@@ -159,14 +165,16 @@ public class TabletsProcDir implements ProcDirInterface {
                                 || (state != null && replica.getState() != state)) {
                             continue;
                         }
+                        long displayVersion = getDisplayReplicaVersion(replica);
+                        long displayLastSuccessVersion = getDisplayReplicaLastSuccessVersion(replica);
                         List<Comparable> tabletInfo = new ArrayList<Comparable>();
                         // tabletId -- replicaId -- backendId -- version -- dataSize -- rowCount -- state
                         tabletInfo.add(tabletId);
                         tabletInfo.add(replica.getId());
                         tabletInfo.add(beId);
                         tabletInfo.add(replica.getSchemaHash());
-                        tabletInfo.add(replica.getVersion());
-                        tabletInfo.add(replica.getLastSuccessVersion());
+                        tabletInfo.add(displayVersion);
+                        tabletInfo.add(displayLastSuccessVersion);
                         tabletInfo.add(replica.getLastFailedVersion());
                         tabletInfo.add(TimeUtils.longToTimeString(replica.getLastFailedTimestamp()));
                         tabletInfo.add(replica.getDataSize());
@@ -209,6 +217,20 @@ public class TabletsProcDir implements ProcDirInterface {
             table.readUnlock();
         }
         return tabletInfos;
+    }
+
+    private long getDisplayReplicaVersion(Replica replica) {
+        if (!Config.isCloudMode()) {
+            return replica.getVersion();
+        }
+        return partitionVisibleVersion >= 0 ? partitionVisibleVersion : -1L;
+    }
+
+    private long getDisplayReplicaLastSuccessVersion(Replica replica) {
+        if (!Config.isCloudMode()) {
+            return replica.getLastSuccessVersion();
+        }
+        return partitionVisibleVersion >= 0 ? partitionVisibleVersion : -1L;
     }
 
     private List<List<Comparable>> fetchComparableResult() throws AnalysisException {
