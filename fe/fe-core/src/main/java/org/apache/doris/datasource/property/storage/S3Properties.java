@@ -61,17 +61,18 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
     private static final String[] ENDPOINT_NAMES_FOR_GUESSING = {
             "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
-            "aws.glue.endpoint"
+            "aws.glue.endpoint", "fs.s3a.endpoint"
     };
 
     private static final String[] REGION_NAMES_FOR_GUESSING = {
-            "s3.region", "glue.region", "aws.glue.region", "iceberg.rest.signing-region", "client.region"
+            "s3.region", "glue.region", "aws.glue.region", "iceberg.rest.signing-region", "client.region",
+            "fs.s3a.endpoint.region"
     };
 
     @Setter
     @Getter
     @ConnectorProperty(names = {"s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
-            "aws.glue.endpoint"},
+            "aws.glue.endpoint", "fs.s3a.endpoint"},
             required = false,
             description = "The endpoint of S3.")
     protected String endpoint = "";
@@ -79,7 +80,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @Setter
     @Getter
     @ConnectorProperty(names = {"s3.region", "AWS_REGION", "region", "REGION", "aws.region", "glue.region",
-            "aws.glue.region", "iceberg.rest.signing-region", "client.region"},
+            "aws.glue.region", "iceberg.rest.signing-region", "client.region", "fs.s3a.endpoint.region"},
             required = false,
             description = "The region of S3.")
     protected String region = "";
@@ -87,7 +88,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @Getter
     @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY", "glue.access_key",
             "aws.glue.access-key", "client.credentials-provider.glue.access_key", "iceberg.rest.access-key-id",
-            "s3.access-key-id"},
+            "s3.access-key-id", "fs.s3a.access.key"},
             required = false,
             sensitive = true,
             description = "The access key of S3. Optional for anonymous access to public datasets.")
@@ -96,14 +97,14 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @Getter
     @ConnectorProperty(names = {"s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY", "glue.secret_key",
             "aws.glue.secret-key", "client.credentials-provider.glue.secret_key", "iceberg.rest.secret-access-key",
-            "s3.secret-access-key"},
+            "s3.secret-access-key", "fs.s3a.secret.key"},
             required = false,
             sensitive = true,
             description = "The secret key of S3. Optional for anonymous access to public datasets.")
     protected String secretKey = "";
 
     @Getter
-    @ConnectorProperty(names = {"s3.session_token", "session_token", "s3.session-token"},
+    @ConnectorProperty(names = {"s3.session_token", "session_token", "s3.session-token", "fs.s3a.session.token"},
             required = false,
             description = "The session token of S3.")
     protected String sessionToken = "";
@@ -115,29 +116,28 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     protected String sessionTokenExpiresAtMs = "";
 
     @Getter
-    @ConnectorProperty(names = {"s3.connection.maximum",
-            "AWS_MAX_CONNECTIONS"},
+    @ConnectorProperty(names = {"s3.connection.maximum", "AWS_MAX_CONNECTIONS", "fs.s3a.connection.maximum"},
             required = false,
             description = "The maximum number of connections to S3.")
     protected String maxConnections = "50";
 
     @Getter
-    @ConnectorProperty(names = {"s3.connection.request.timeout",
-            "AWS_REQUEST_TIMEOUT_MS"},
+    @ConnectorProperty(names = {"s3.connection.request.timeout", "AWS_REQUEST_TIMEOUT_MS",
+            "fs.s3a.connection.request.timeout"},
             required = false,
             description = "The request timeout of S3 in milliseconds,")
     protected String requestTimeoutS = "3000";
 
     @Getter
-    @ConnectorProperty(names = {"s3.connection.timeout",
-            "AWS_CONNECTION_TIMEOUT_MS"},
+    @ConnectorProperty(names = {"s3.connection.timeout", "AWS_CONNECTION_TIMEOUT_MS",
+            "fs.s3a.connection.timeout"},
             required = false,
             description = "The connection timeout of S3 in milliseconds,")
     protected String connectionTimeoutS = "1000";
 
     @Setter
     @Getter
-    @ConnectorProperty(names = {USE_PATH_STYLE, "s3.path-style-access"}, required = false,
+    @ConnectorProperty(names = {USE_PATH_STYLE, "s3.path-style-access", "fs.s3a.path.style.access"}, required = false,
             description = "Whether to use path style URL for the storage.")
     protected String usePathStyle = "false";
 
