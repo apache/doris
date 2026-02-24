@@ -705,14 +705,19 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
     const std::string& clause_type = clause.clause_type;
 
     auto query_type = clause_type_to_query_type(clause_type);
-    // TERM in search DSL represents a tokenized term lookup (like Lucene TermQuery).
+    // TERM, WILDCARD, PREFIX, and REGEXP in search DSL operate on individual index terms
+    // (like Lucene TermQuery, WildcardQuery, PrefixQuery, RegexpQuery).
     // Override to MATCH_ANY_QUERY so select_best_reader() prefers the FULLTEXT reader
     // when multiple indexes exist on the same column (one tokenized, one untokenized).
+    // Without this, these queries would select the untokenized index and try to match
+    // patterns like "h*llo" against full strings ("hello world") instead of individual
+    // tokens ("hello"), returning empty results.
     // EXACT must remain EQUAL_QUERY to prefer the untokenized STRING_TYPE reader.
     //
     // Safe for single-index columns: select_best_reader() has a single-reader fast path
     // that returns the only reader directly, bypassing the query_type preference logic.
-    if (clause_type == "TERM") {
+    if (clause_type == "TERM" || clause_type == "WILDCARD" || clause_type == "PREFIX" ||
+        clause_type == "REGEXP") {
         query_type = InvertedIndexQueryType::MATCH_ANY_QUERY;
     }
 

@@ -132,4 +132,87 @@ suite("test_search_multi_analyzer_lucene") {
 
     // Cleanup
     sql "DROP TABLE IF EXISTS ${tableName}"
+
+    // =========================================================================
+    // Untokenized-only index: verify WILDCARD/PREFIX/REGEXP still work correctly
+    // when only a STRING_TYPE (no parser) index exists on the column.
+    // select_best_reader() single-reader fast path must return the only reader
+    // regardless of the MATCH_ANY_QUERY override.
+    // =========================================================================
+    def untokTable = "search_untokenized_only_test"
+    sql "DROP TABLE IF EXISTS ${untokTable}"
+
+    sql """
+        CREATE TABLE ${untokTable} (
+            id INT,
+            title VARCHAR(255) NOT NULL,
+            INDEX idx_title (title) USING INVERTED
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "inverted_index_storage_format" = "V2"
+        )
+    """
+
+    sql """INSERT INTO ${untokTable} VALUES
+        (1, 'hello world'),
+        (2, 'hello doris'),
+        (3, 'world peace'),
+        (4, 'foo bar baz')
+    """
+
+    Thread.sleep(3000)
+
+    // Test 10: Untokenized wildcard h*llo - no match because full string "hello world" != h*llo
+    qt_untok_wildcard_no_match """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        FROM ${untokTable}
+        WHERE search('h*llo', '{"default_field":"title", "mode":"lucene"}')
+        ORDER BY id
+    """
+
+    // Test 11: Untokenized wildcard hello* - matches full strings starting with "hello"
+    qt_untok_wildcard_prefix """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        FROM ${untokTable}
+        WHERE search('hello*', '{"default_field":"title", "mode":"lucene"}')
+        ORDER BY id
+    """
+
+    // Test 12: Untokenized wildcard *world - matches full strings ending with "world"
+    qt_untok_wildcard_suffix """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        FROM ${untokTable}
+        WHERE search('*world', '{"default_field":"title", "mode":"lucene"}')
+        ORDER BY id
+    """
+
+    // Test 13: Untokenized PREFIX hel* - matches full strings starting with "hel"
+    qt_untok_prefix """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        FROM ${untokTable}
+        WHERE search('title:hel*', '{"mode":"lucene"}')
+        ORDER BY id
+    """
+
+    // Test 14: Untokenized REGEXP hel.* - matches full strings matching regex
+    qt_untok_regexp """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        FROM ${untokTable}
+        WHERE search('title:/hel.*/', '{"mode":"lucene"}')
+        ORDER BY id
+    """
+
+    // Test 15: Untokenized exact phrase match
+    qt_untok_exact """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        FROM ${untokTable}
+        WHERE search('title:"hello world"', '{"mode":"lucene"}')
+        ORDER BY id
+    """
+
+    // Cleanup
+    sql "DROP TABLE IF EXISTS ${untokTable}"
 }
