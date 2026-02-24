@@ -290,6 +290,275 @@ struct FindInSetOp {
     }
 };
 
+struct NameLevenshtein {
+    static constexpr auto name = "levenshtein";
+};
+
+struct LevenshteinOp {
+    using ResultDataType = DataTypeInt32;
+    using ResultPaddedPODArray = PaddedPODArray<Int32>;
+
+    static void execute(const std::string_view& s, const std::string_view& t, int32_t& res) {
+        const size_t m = s.size();
+        const size_t n = t.size();
+        if (m == 0) {
+            res = static_cast<int32_t>(n);
+            return;
+        }
+        if (n == 0) {
+            res = static_cast<int32_t>(m);
+            return;
+        }
+        if (s == t) {
+            res = 0;
+            return;
+        }
+        // Guard against excessive O(m*n) computation on very large inputs.
+        // Limit each string to 65535 bytes (max VARCHAR length).
+        constexpr size_t MAX_INPUT_LEN = 65535;
+        if (m > MAX_INPUT_LEN || n > MAX_INPUT_LEN) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Input string too long for levenshtein, max {} bytes",
+                                   MAX_INPUT_LEN);
+        }
+        constexpr size_t STACK_MAX = 512;
+        int32_t prev_stk[STACK_MAX + 1], curr_stk[STACK_MAX + 1];
+        std::vector<int32_t> prev_heap, curr_heap;
+        int32_t* prev_row;
+        int32_t* curr_row;
+        if (n <= STACK_MAX) {
+            prev_row = prev_stk;
+            curr_row = curr_stk;
+        } else {
+            prev_heap.resize(n + 1);
+            curr_heap.resize(n + 1);
+            prev_row = prev_heap.data();
+            curr_row = curr_heap.data();
+        }
+        for (size_t j = 0; j <= n; ++j) prev_row[j] = static_cast<int32_t>(j);
+        for (size_t i = 1; i <= m; ++i) {
+            curr_row[0] = static_cast<int32_t>(i);
+            for (size_t j = 1; j <= n; ++j) {
+                if (s[i - 1] == t[j - 1]) {
+                    curr_row[j] = prev_row[j - 1];
+                } else {
+                    curr_row[j] = 1 + std::min({prev_row[j - 1], prev_row[j], curr_row[j - 1]});
+                }
+            }
+            std::swap(prev_row, curr_row);
+        }
+        res = prev_row[n];
+    }
+};
+
+struct NameDamerauLevenshtein {
+    static constexpr auto name = "damerau_levenshtein";
+};
+
+struct DamerauLevenshteinOp {
+    using ResultDataType = DataTypeInt32;
+    using ResultPaddedPODArray = PaddedPODArray<Int32>;
+
+    static void execute(const std::string_view& s, const std::string_view& t, int32_t& res) {
+        const size_t m = s.size(), n = t.size();
+        if (m == 0) {
+            res = static_cast<int32_t>(n);
+            return;
+        }
+        if (n == 0) {
+            res = static_cast<int32_t>(m);
+            return;
+        }
+        // Guard against OOM: the DP matrix allocates (m+2)*(n+2)*sizeof(int32_t) bytes.
+        // At 10000 chars each that is ~400 MB; cap well below VARCHAR max (65535).
+        constexpr size_t MAX_INPUT_LEN = 10000;
+        if (m > MAX_INPUT_LEN || n > MAX_INPUT_LEN) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Input string too long for damerau_levenshtein, max {} bytes",
+                                   MAX_INPUT_LEN);
+        }
+        const size_t stride = n + 2;
+        const int32_t max_dist = static_cast<int32_t>(m + n);
+        std::vector<int32_t> d((m + 2) * stride, 0);
+        d[0] = max_dist;
+        for (size_t i = 0; i <= m; ++i) {
+            d[(i + 1) * stride + 0] = max_dist;
+            d[(i + 1) * stride + 1] = static_cast<int32_t>(i);
+        }
+        for (size_t j = 0; j <= n; ++j) {
+            d[0 * stride + (j + 1)] = max_dist;
+            d[1 * stride + (j + 1)] = static_cast<int32_t>(j);
+        }
+        int32_t da[256] = {};
+        for (size_t i = 1; i <= m; ++i) {
+            int32_t db = 0;
+            for (size_t j = 1; j <= n; ++j) {
+                const int32_t k = da[(uint8_t)t[j - 1]];
+                const int32_t l = db;
+                int32_t cost;
+                if (s[i - 1] == t[j - 1]) {
+                    cost = 0;
+                    db = static_cast<int32_t>(j);
+                } else {
+                    cost = 1;
+                }
+                const int32_t trans = d[static_cast<size_t>(k) * stride + static_cast<size_t>(l)] +
+                                      (static_cast<int32_t>(i) - k - 1) + 1 +
+                                      (static_cast<int32_t>(j) - l - 1);
+                d[(i + 1) * stride + (j + 1)] =
+                        std::min({d[i * stride + j] + cost, d[(i + 1) * stride + j] + 1,
+                                  d[i * stride + (j + 1)] + 1, trans});
+            }
+            da[(uint8_t)s[i - 1]] = static_cast<int32_t>(i);
+        }
+        res = d[(m + 1) * stride + (n + 1)];
+    }
+};
+
+struct NameJaroWinkler {
+    static constexpr auto name = "jaro_winkler";
+};
+
+struct JaroWinklerOp {
+    using ResultDataType = DataTypeFloat64;
+    using ResultPaddedPODArray = PaddedPODArray<Float64>;
+
+    static void execute(const std::string_view& s, const std::string_view& t, double& res) {
+        if (s == t) {
+            res = 1.0;
+            return;
+        }
+        const size_t m = s.size(), n = t.size();
+        if (m == 0 || n == 0) {
+            res = 0.0;
+            return;
+        }
+        // Guard against O(m*n/2) matching loop and heap allocation of m+n bytes.
+        constexpr size_t MAX_INPUT_LEN = 65535;
+        if (m > MAX_INPUT_LEN || n > MAX_INPUT_LEN) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Input string too long for jaro_winkler, max {} bytes",
+                                   MAX_INPUT_LEN);
+        }
+        const size_t match_dist = std::max(m, n) / 2 - (std::max(m, n) >= 2 ? 1 : 0);
+        constexpr size_t STACK_MAX = 512;
+        uint8_t s_stk[STACK_MAX] = {};
+        uint8_t t_stk[STACK_MAX] = {};
+        std::vector<uint8_t> s_heap, t_heap;
+        uint8_t* sm;
+        uint8_t* tm;
+        if (m <= STACK_MAX && n <= STACK_MAX) {
+            sm = s_stk;
+            tm = t_stk;
+        } else {
+            s_heap.assign(m, 0);
+            t_heap.assign(n, 0);
+            sm = s_heap.data();
+            tm = t_heap.data();
+        }
+        double matches = 0;
+        for (size_t i = 0; i < m; ++i) {
+            const size_t start = (i >= match_dist) ? i - match_dist : 0;
+            const size_t end = std::min(i + match_dist + 1, n);
+            for (size_t j = start; j < end; ++j) {
+                if (!tm[j] && s[i] == t[j]) {
+                    sm[i] = tm[j] = 1;
+                    ++matches;
+                    break;
+                }
+            }
+        }
+        if (matches == 0.0) {
+            res = 0.0;
+            return;
+        }
+        double transpositions = 0;
+        size_t k = 0;
+        for (size_t i = 0; i < m; ++i) {
+            if (sm[i]) {
+                while (!tm[k]) ++k;
+                if (s[i] != t[k]) ++transpositions;
+                ++k;
+            }
+        }
+        const double jaro = (matches / static_cast<double>(m) + matches / static_cast<double>(n) +
+                             (matches - transpositions / 2.0) / matches) /
+                            3.0;
+        size_t prefix = 0;
+        const size_t max_prefix = std::min(static_cast<size_t>(4), std::min(m, n));
+        while (prefix < max_prefix && s[prefix] == t[prefix]) ++prefix;
+        res = jaro + static_cast<double>(prefix) * 0.1 * (1.0 - jaro);
+    }
+};
+
+struct NameJaccardSimilarity {
+    static constexpr auto name = "jaccard_similarity";
+};
+
+struct JaccardSimilarityOp {
+    using ResultDataType = DataTypeFloat64;
+    using ResultPaddedPODArray = PaddedPODArray<Float64>;
+
+    static void execute(const std::string_view& s, const std::string_view& t, double& res) {
+        if (s == t) {
+            res = 1.0;
+            return;
+        }
+        if (s.size() < 2 || t.size() < 2) {
+            res = 0.0;
+            return;
+        }
+        const size_t m = s.size(), n = t.size();
+        // Guard against heap allocation of 2*(m+n) bytes for very large STRING inputs.
+        constexpr size_t MAX_INPUT_LEN = 65535;
+        if (m > MAX_INPUT_LEN || n > MAX_INPUT_LEN) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Input string too long for jaccard_similarity, max {} bytes",
+                                   MAX_INPUT_LEN);
+        }
+
+        auto collect = [](const std::string_view& str, uint16_t* out) -> size_t {
+            size_t cnt = 0;
+            for (size_t i = 0; i + 1 < str.size(); ++i)
+                out[cnt++] = static_cast<uint16_t>((static_cast<uint16_t>((uint8_t)str[i]) << 8) |
+                                                   (uint8_t)str[i + 1]);
+            std::sort(out, out + cnt);
+            return static_cast<size_t>(std::unique(out, out + cnt) - out);
+        };
+        auto merge_count = [](const uint16_t* a, size_t ac, const uint16_t* b, size_t bc,
+                              int32_t& intersect, int32_t& union_sz) {
+            intersect = 0;
+            size_t i = 0, j = 0;
+            while (i < ac && j < bc) {
+                if (a[i] == b[j]) {
+                    ++intersect;
+                    ++i;
+                    ++j;
+                } else if (a[i] < b[j])
+                    ++i;
+                else
+                    ++j;
+            }
+            union_sz = static_cast<int32_t>(ac) + static_cast<int32_t>(bc) - intersect;
+        };
+        constexpr size_t STACK_MAX_LEN = 1001;
+        constexpr size_t STACK_MAX_BG = 1000;
+        int32_t intersect = 0, union_sz = 0;
+        if (m <= STACK_MAX_LEN && n <= STACK_MAX_LEN) {
+            uint16_t s_bg[STACK_MAX_BG], t_bg[STACK_MAX_BG];
+            const size_t sc = collect(s, s_bg);
+            const size_t tc = collect(t, t_bg);
+            merge_count(s_bg, sc, t_bg, tc, intersect, union_sz);
+        } else {
+            std::vector<uint16_t> s_bg(m - 1), t_bg(n - 1);
+            const size_t sc = collect(s, s_bg.data());
+            const size_t tc = collect(t, t_bg.data());
+            merge_count(s_bg.data(), sc, t_bg.data(), tc, intersect, union_sz);
+        }
+        res = (union_sz > 0) ? static_cast<double>(intersect) / union_sz : 1.0;
+    }
+};
+
 struct NameInstr {
     static constexpr auto name = "instr";
 };
@@ -1309,6 +1578,20 @@ using StringEndsWithImpl = StringFunctionImpl<LeftDataType, RightDataType, EndsW
 template <typename LeftDataType, typename RightDataType>
 using StringFindInSetImpl = StringFunctionImpl<LeftDataType, RightDataType, FindInSetOp>;
 
+template <typename LeftDataType, typename RightDataType>
+using StringLevenshteinImpl = StringFunctionImpl<LeftDataType, RightDataType, LevenshteinOp>;
+
+template <typename LeftDataType, typename RightDataType>
+using StringDamerauLevenshteinImpl =
+        StringFunctionImpl<LeftDataType, RightDataType, DamerauLevenshteinOp>;
+
+template <typename LeftDataType, typename RightDataType>
+using StringJaroWinklerImpl = StringFunctionImpl<LeftDataType, RightDataType, JaroWinklerOp>;
+
+template <typename LeftDataType, typename RightDataType>
+using StringJaccardSimilarityImpl =
+        StringFunctionImpl<LeftDataType, RightDataType, JaccardSimilarityOp>;
+
 // ready for regist function
 using FunctionStringParseDataSize = FunctionUnaryToType<ParseDataSize, NameParseDataSize>;
 using FunctionStringASCII = FunctionUnaryToType<StringASCII, NameStringASCII>;
@@ -1326,6 +1609,16 @@ using FunctionStringLocate =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringLocateImpl, NameLocate>;
 using FunctionStringFindInSet =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringFindInSetImpl, NameFindInSet>;
+using FunctionStringLevenshtein = FunctionBinaryToType<DataTypeString, DataTypeString,
+                                                       StringLevenshteinImpl, NameLevenshtein>;
+using FunctionStringDamerauLevenshtein =
+        FunctionBinaryToType<DataTypeString, DataTypeString, StringDamerauLevenshteinImpl,
+                             NameDamerauLevenshtein>;
+using FunctionStringJaroWinkler = FunctionBinaryToType<DataTypeString, DataTypeString,
+                                                       StringJaroWinklerImpl, NameJaroWinkler>;
+using FunctionStringJaccardSimilarity =
+        FunctionBinaryToType<DataTypeString, DataTypeString, StringJaccardSimilarityImpl,
+                             NameJaccardSimilarity>;
 
 using FunctionQuote = FunctionStringToString<NameQuoteImpl, NameQuote>;
 
@@ -1441,6 +1734,10 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionOverlay>();
     factory.register_function<FunctionStrcmp>();
     factory.register_function<FunctionNgramSearch>();
+    factory.register_function<FunctionStringLevenshtein>();
+    factory.register_function<FunctionStringDamerauLevenshtein>();
+    factory.register_function<FunctionStringJaroWinkler>();
+    factory.register_function<FunctionStringJaccardSimilarity>();
     factory.register_function<FunctionXPathString>();
     factory.register_function<FunctionCrc32Internal>();
     factory.register_function<FunctionMakeSet>();
