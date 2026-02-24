@@ -285,7 +285,9 @@ public:
             //3. child[0]->execute(new_block)
 
             ColumnPtr res_col;
-            RETURN_IF_ERROR(children[0]->execute_column(context, &lambda_block, expr_selector,
+            // lambda body executes on the internal lambda_block, not the original block.
+            // The outer expr_selector is irrelevant here, so pass nullptr.
+            RETURN_IF_ERROR(children[0]->execute_column(context, &lambda_block, nullptr,
                                                         lambda_block.rows(), res_col));
             res_col = res_col->convert_to_full_column_if_const();
             res_type = children[0]->execute_type(&lambda_block);
