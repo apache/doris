@@ -842,6 +842,37 @@ public class StringArithmetic {
         }
     }
 
+        /**
+     * Executable arithmetic functions hamming_distance
+     */
+    @ExecFunction(name = "hamming_distance")
+    public static Expression hammingDistance(StringLikeLiteral first, StringLikeLiteral second) {
+        String left = first.getValue();
+        String right = second.getValue();
+
+        int leftLen = left.codePointCount(0, left.length());
+        int rightLen = right.codePointCount(0, right.length());
+        if (leftLen != rightLen) {
+            throw new AnalysisException("hamming_distance requires strings of equal length");
+        }
+
+        int i = 0;
+        int j = 0;
+        long distance = 0;
+        while (i < left.length() && j < right.length()) {
+            int lcp = left.codePointAt(i);
+            int rcp = right.codePointAt(j);
+            if (lcp != rcp) {
+                distance++;
+            }
+            i += Character.charCount(lcp);
+            j += Character.charCount(rcp);
+        }
+
+        return new BigIntLiteral(distance);
+    }
+
+
     /**
      * Executable arithmetic functions overlay
      */
