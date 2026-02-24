@@ -202,7 +202,6 @@ Status LikeSearchState::clone(LikeSearchState& cloned) {
 
         RE2::Options opts;
         opts.set_never_nl(false);
-        opts.set_dot_nl(true);
         cloned.regex = std::make_unique<RE2>(re_pattern, opts);
         if (!cloned.regex->ok()) {
             return Status::InternalError("Invalid regex expression: {}", re_pattern);
@@ -405,7 +404,6 @@ Status FunctionLikeBase::regexp_fn_scalar(const LikeSearchState* state, const St
                                           const StringRef& pattern, unsigned char* result) {
     RE2::Options opts;
     opts.set_never_nl(false);
-    opts.set_dot_nl(true);
     re2::RE2 re(re2::StringPiece(pattern.data, pattern.size), opts);
     if (re.ok()) {
         *result = RE2::PartialMatch(re2::StringPiece(val.data, val.size), re);
@@ -471,7 +469,6 @@ Status FunctionLikeBase::regexp_fn(const LikeSearchState* state, const ColumnStr
     } else { // fallback to re2
         RE2::Options opts;
         opts.set_never_nl(false);
-        opts.set_dot_nl(true);
         re2::RE2 re(re_pattern, opts);
         if (re.ok()) {
             auto sz = val.size();
@@ -492,8 +489,8 @@ Status FunctionLikeBase::regexp_fn(const LikeSearchState* state, const ColumnStr
 Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expression,
                                     hs_database_t** database, hs_scratch_t** scratch) {
     hs_compile_error_t* compile_err;
-    auto res = hs_compile(expression, HS_FLAG_DOTALL | HS_FLAG_ALLOWEMPTY | HS_FLAG_UTF8,
-                          HS_MODE_BLOCK, nullptr, database, &compile_err);
+    auto res = hs_compile(expression, HS_FLAG_ALLOWEMPTY | HS_FLAG_UTF8, HS_MODE_BLOCK, nullptr,
+                          database, &compile_err);
 
     if (res != HS_SUCCESS) {
         *database = nullptr;
@@ -956,7 +953,6 @@ Status FunctionLike::construct_like_const_state(FunctionContext* context, const 
 
             RE2::Options opts;
             opts.set_never_nl(false);
-            opts.set_dot_nl(true);
             state->search_state.regex = std::make_unique<RE2>(re_pattern, opts);
             if (!state->search_state.regex->ok()) {
                 return Status::InternalError("Invalid regex expression: {}(origin: {})", re_pattern,
@@ -1048,7 +1044,6 @@ Status FunctionRegexpLike::open(FunctionContext* context,
                 state->search_state.hs_scratch.reset();
                 RE2::Options opts;
                 opts.set_never_nl(false);
-                opts.set_dot_nl(true);
                 state->search_state.regex = std::make_unique<RE2>(pattern_str, opts);
                 if (!state->search_state.regex->ok()) {
                     if (!context->state()->enable_extended_regex()) {

@@ -256,6 +256,9 @@ false
 -- !regexp_fn_9 --
 true
 
+-- !regexp_fn_10 --
+false
+
 -- !sql_utf1 --
 true
 

@@ -131,6 +131,7 @@ suite("test_string_function_regexp") {
     qt_regexp_fn_7 'SELECT regexp(\'foobar\', \'(?<=foo)bar\');'
     qt_regexp_fn_8 'SELECT regexp(\'foobar\', \'(?<!foo)bar\');'
     qt_regexp_fn_9 'SELECT regexp(\'Hello\', \'(?i)hello\');'
+    qt_regexp_fn_10 'SELECT regexp(\'multi\nline\', \'multi.line\');'
     sql "set enable_extended_regex = false;"
 
     qt_sql_utf1 """ select '皖12345' REGEXP '^[皖][0-9]{5}\$'; """
