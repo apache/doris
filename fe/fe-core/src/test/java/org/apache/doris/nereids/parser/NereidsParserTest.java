@@ -1393,8 +1393,8 @@ public class NereidsParserTest extends ParserTestBase {
     @Test
     public void testWarmUpSelect() {
         ConnectContext ctx = ConnectContext.get();
-        ctx.getSessionVariable().setEnableFileCacheOlapTable(true);
-        ctx.getSessionVariable().setEnableFileCacheExternalCatalog(true);
+        ctx.getSessionVariable().setEnableFileCacheForOlapTable(true);
+        ctx.getSessionVariable().setEnableFileCacheForExternalTable(true);
         NereidsParser nereidsParser = new NereidsParser();
 
         // Test basic warm up select statement

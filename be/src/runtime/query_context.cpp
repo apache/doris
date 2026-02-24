@@ -114,7 +114,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     bool initialize_context_holder = config::enable_file_cache &&
                                      config::enable_file_cache_query_limit &&
                                      !(query_options.query_type == TQueryType::EXTERNAL &&
-                                       !query_options.enable_file_cache_external_catalog) &&
+                                       !query_options.enable_file_cache_for_external_table) &&
                                      query_options.__isset.file_cache_query_limit_percent &&
                                      query_options.file_cache_query_limit_percent < 100;
 

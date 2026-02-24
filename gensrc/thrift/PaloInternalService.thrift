@@ -438,8 +438,8 @@ struct TQueryOptions {
   1000: optional bool disable_file_cache = false
   1001: optional i32 file_cache_query_limit_percent = -1
 
-  1002: optional bool enable_file_cache_olap_table = true;
-  1003: optional bool enable_file_cache_external_catalog = false;
+  1002: optional bool enable_file_cache_for_olap_table = true;
+  1003: optional bool enable_file_cache_for_external_table = false;
 }
 
 
