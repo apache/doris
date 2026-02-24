@@ -132,8 +132,9 @@ public class ReplicasProcNode implements ProcNodeInterface {
             if (Config.enable_query_hit_stats) {
                 queryHits = QueryStatsUtil.getMergedReplicaStats(replica.getId());
             }
-            long displayVersion = getDisplayReplicaVersion(replica, partitionVisibleVersion);
-            long displayLastSuccessVersion = getDisplayReplicaLastSuccessVersion(replica, partitionVisibleVersion);
+            long displayVersion = ProcReplicaVersionDisplay.getDisplayReplicaVersion(replica, partitionVisibleVersion);
+            long displayLastSuccessVersion = ProcReplicaVersionDisplay.getDisplayReplicaLastSuccessVersion(
+                    replica, partitionVisibleVersion);
             List<String> replicaInfo = Lists.newArrayList(String.valueOf(replica.getId()),
                     String.valueOf(beId),
                     String.valueOf(displayVersion),
@@ -165,19 +166,5 @@ public class ReplicasProcNode implements ProcNodeInterface {
             result.addRow(replicaInfo);
         }
         return result;
-    }
-
-    private long getDisplayReplicaVersion(Replica replica, long partitionVisibleVersion) {
-        if (!Config.isCloudMode()) {
-            return replica.getVersion();
-        }
-        return partitionVisibleVersion >= 0 ? partitionVisibleVersion : -1L;
-    }
-
-    private long getDisplayReplicaLastSuccessVersion(Replica replica, long partitionVisibleVersion) {
-        if (!Config.isCloudMode()) {
-            return replica.getLastSuccessVersion();
-        }
-        return partitionVisibleVersion >= 0 ? partitionVisibleVersion : -1L;
     }
 }

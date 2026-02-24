@@ -79,7 +79,7 @@ public class CloudProcVersionDisplayTest {
     private boolean originEnableQueryHitStats;
 
     @Before
-    public void setUp() {
+    public void setUp() throws AnalysisException {
         originDeployMode = Config.deploy_mode;
         originCloudUniqueId = Config.cloud_unique_id;
         originEnableQueryHitStats = Config.enable_query_hit_stats;
@@ -89,6 +89,14 @@ public class CloudProcVersionDisplayTest {
 
         new Expectations(env) {
             {
+                Env.getServingEnv();
+                minTimes = 0;
+                result = env;
+
+                env.isReady();
+                minTimes = 0;
+                result = true;
+
                 Env.getCurrentSystemInfo();
                 minTimes = 0;
                 result = systemInfoService;

@@ -165,8 +165,10 @@ public class TabletsProcDir implements ProcDirInterface {
                                 || (state != null && replica.getState() != state)) {
                             continue;
                         }
-                        long displayVersion = getDisplayReplicaVersion(replica);
-                        long displayLastSuccessVersion = getDisplayReplicaLastSuccessVersion(replica);
+                        long displayVersion = ProcReplicaVersionDisplay.getDisplayReplicaVersion(
+                                replica, partitionVisibleVersion);
+                        long displayLastSuccessVersion = ProcReplicaVersionDisplay.getDisplayReplicaLastSuccessVersion(
+                                replica, partitionVisibleVersion);
                         List<Comparable> tabletInfo = new ArrayList<Comparable>();
                         // tabletId -- replicaId -- backendId -- version -- dataSize -- rowCount -- state
                         tabletInfo.add(tabletId);
@@ -217,20 +219,6 @@ public class TabletsProcDir implements ProcDirInterface {
             table.readUnlock();
         }
         return tabletInfos;
-    }
-
-    private long getDisplayReplicaVersion(Replica replica) {
-        if (!Config.isCloudMode()) {
-            return replica.getVersion();
-        }
-        return partitionVisibleVersion >= 0 ? partitionVisibleVersion : -1L;
-    }
-
-    private long getDisplayReplicaLastSuccessVersion(Replica replica) {
-        if (!Config.isCloudMode()) {
-            return replica.getLastSuccessVersion();
-        }
-        return partitionVisibleVersion >= 0 ? partitionVisibleVersion : -1L;
     }
 
     private List<List<Comparable>> fetchComparableResult() throws AnalysisException {
