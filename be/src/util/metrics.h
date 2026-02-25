@@ -34,6 +34,10 @@
 
 namespace doris {
 
+namespace vectorized {
+class Block;
+} // namespace vectorized
+
 namespace rj = RAPIDJSON_NAMESPACE;
 
 enum class MetricType { COUNTER, GAUGE, HISTOGRAM, SUMMARY, UNTYPED };
@@ -322,6 +326,7 @@ public:
     std::string to_prometheus(bool with_tablet_metrics = false) const;
     std::string to_json(bool with_tablet_metrics = false) const;
     std::string to_core_string() const;
+    void get_be_metrics_block(vectorized::Block* block) const;
 
 private:
     const std::string _name;
