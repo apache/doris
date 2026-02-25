@@ -612,7 +612,9 @@ struct MethodKeysFixed : public MethodBase<TData> {
                 }
             };
             auto foo = [&]<typename Fixed>(Fixed zero) {
-                if (reinterpret_cast<uintptr_t>(result_data + offset) % alignof(Fixed) == 0) {
+                // Check alignment of both destination and source pointers.
+                if (reinterpret_cast<uintptr_t>(result_data + offset) % alignof(Fixed) == 0 &&
+                    reinterpret_cast<uintptr_t>(data) % alignof(Fixed) == 0) {
                     goo.template operator()<Fixed, true>(zero);
                 } else {
                     goo.template operator()<Fixed, false>(zero);
@@ -735,7 +737,12 @@ struct MethodKeysFixed : public MethodBase<TData> {
                 }
             };
             auto foo = [&]<typename Fixed>(Fixed zero) {
-                if (reinterpret_cast<uintptr_t>(input_keys.data() + pos) % sizeof(Fixed) == 0) {
+                // Check alignment of both source and destination pointers.
+                // Source: byte offset `pos` within each Key element.
+                // Destination: `data` pointer from the column's raw data.
+                if (reinterpret_cast<uintptr_t>((char*)(input_keys.data()) + pos) % sizeof(Fixed) ==
+                            0 &&
+                    reinterpret_cast<uintptr_t>(data) % sizeof(Fixed) == 0) {
                     goo.template operator()<Fixed, true>(zero);
                 } else {
                     goo.template operator()<Fixed, false>(zero);
