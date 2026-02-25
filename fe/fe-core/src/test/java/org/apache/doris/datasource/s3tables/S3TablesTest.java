@@ -17,8 +17,6 @@
 
 package org.apache.doris.datasource.s3tables;
 
-import org.apache.doris.datasource.iceberg.s3tables.CustomAwsCredentialsProvider;
-
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
@@ -26,6 +24,7 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.io.CloseableIterable;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.s3tables.iceberg.S3TablesCatalog;
 
 import java.util.HashMap;
@@ -44,7 +43,8 @@ public class S3TablesTest {
         String secretKey = "";
 
         s3Properties.put("client.region", "us-east-1");
-        s3Properties.put("client.credentials-provider", CustomAwsCredentialsProvider.class.getName());
+        // Use StaticCredentialsProvider for explicit credentials
+        s3Properties.put("client.credentials-provider", StaticCredentialsProvider.class.getName());
         s3Properties.put("client.credentials-provider.s3.access-key-id", accessKeyId);
         s3Properties.put("client.credentials-provider.s3.secret-access-key", secretKey);
 

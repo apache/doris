@@ -21,6 +21,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.ParamRules;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.collect.Maps;
@@ -29,7 +30,9 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
+import org.apache.iceberg.aws.AssumeRoleAwsClientFactory;
 import org.apache.iceberg.aws.AwsClientProperties;
+import org.apache.iceberg.aws.AwsProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
@@ -143,17 +146,6 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             description = "The signing region for the iceberg rest catalog service.")
     private String icebergRestSigningRegion = "";
 
-    @ConnectorProperty(names = {"iceberg.rest.access-key-id"},
-            required = false,
-            description = "The access key ID for the iceberg rest catalog service.")
-    private String icebergRestAccessKeyId = "";
-
-    @ConnectorProperty(names = {"iceberg.rest.secret-access-key"},
-            required = false,
-            sensitive = true,
-            description = "The secret access key for the iceberg rest catalog service.")
-    private String icebergRestSecretAccessKey = "";
-
     @ConnectorProperty(names = {"iceberg.rest.connection-timeout-ms"},
             required = false,
             description = "Connection timeout in milliseconds for the REST catalog HTTP client. Default: 10000 (10s).")
@@ -163,6 +155,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             required = false,
             description = "Socket timeout in milliseconds for the REST catalog HTTP client. Default: 60000 (60s).")
     private String icebergRestSocketTimeoutMs = "60000";
+
+    private S3Properties s3Properties;
 
     protected IcebergRestProperties(Map<String, String> props) {
         super(props);
@@ -191,6 +185,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
+        s3Properties = S3Properties.of(origProps);
         validateSecurityType();
         buildRules().validate();
         initIcebergRestCatalogProperties();
@@ -205,7 +200,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             Security.valueOf(icebergRestSecurityType.toUpperCase());
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("Invalid security type: " + icebergRestSecurityType
-                    + ". Supported values are: none, oauth2");
+                + ". Supported values are: none, oauth2");
         }
     }
 
@@ -229,13 +224,12 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         }
 
         // Check for glue rest catalog specific properties
+        // Note: access-key-id and secret-access-key are optional - if not provided,
+        // Iceberg will use AWS default credentials chain (env vars, instance profile, IRSA, etc.)
         rules.requireIf(icebergRestSigningName, "glue",
                 new String[] {icebergRestSigningRegion,
-                        icebergRestAccessKeyId,
-                        icebergRestSecretAccessKey,
                         icebergRestSigV4Enabled},
-                "Rest Catalog requires signing-region, access-key-id, secret-access-key "
-                        + "and sigv4-enabled set to true when signing-name is glue");
+                "Rest Catalog requires signing-region and sigv4-enabled set to true when signing-name is glue");
         return rules;
     }
 
@@ -308,9 +302,23 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         if (Strings.isNotBlank(icebergRestSigningName)) {
             icebergRestCatalogProperties.put("rest.signing-name", icebergRestSigningName.toLowerCase());
             icebergRestCatalogProperties.put("rest.sigv4-enabled", icebergRestSigV4Enabled);
-            icebergRestCatalogProperties.put("rest.access-key-id", icebergRestAccessKeyId);
-            icebergRestCatalogProperties.put("rest.secret-access-key", icebergRestSecretAccessKey);
             icebergRestCatalogProperties.put("rest.signing-region", icebergRestSigningRegion);
+
+            // Priority order:
+            // 1. Explicit credentials (access_key + secret_key) from S3Properties
+            // 2. AssumeRole with role ARN
+            // 3. Configured credentials provider type
+
+            boolean hasExplicitCredentials = StringUtils.isNotBlank(s3Properties.getAccessKey())
+                    && StringUtils.isNotBlank(s3Properties.getSecretKey());
+
+            if (hasExplicitCredentials) {
+                icebergRestCatalogProperties.put(AwsProperties.REST_ACCESS_KEY_ID, s3Properties.getAccessKey());
+                icebergRestCatalogProperties.put(AwsProperties.REST_SECRET_ACCESS_KEY, s3Properties.getSecretKey());
+                if (StringUtils.isNotBlank(s3Properties.getSessionToken())) {
+                    icebergRestCatalogProperties.put(AwsProperties.REST_SESSION_TOKEN, s3Properties.getSessionToken());
+                }
+            }
         }
     }
 
@@ -377,6 +385,21 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         }
         if (StringUtils.isNotBlank(s3Properties.getSessionToken())) {
             options.put(S3FileIOProperties.SESSION_TOKEN, s3Properties.getSessionToken());
+        }
+        //IAM Assume Role
+        if (s3Properties instanceof S3Properties) {
+            S3Properties awsProperties = (S3Properties) s3Properties;
+            if (StringUtils.isBlank(awsProperties.getS3IAMRole())) {
+                return;
+            }
+            options.put(AwsProperties.CLIENT_FACTORY, AssumeRoleAwsClientFactory.class.getName());
+            options.put("aws.region", awsProperties.getRegion());
+            options.put(AwsProperties.CLIENT_ASSUME_ROLE_REGION, awsProperties.getRegion());
+            options.put(AwsProperties.CLIENT_ASSUME_ROLE_ARN, awsProperties.getS3IAMRole());
+            options.put(AwsProperties.CLIENT_ASSUME_ROLE_REGION, awsProperties.getRegion());
+            if (StringUtils.isNotBlank(awsProperties.getS3ExternalId())) {
+                options.put(AwsProperties.CLIENT_ASSUME_ROLE_EXTERNAL_ID, awsProperties.getS3ExternalId());
+            }
         }
     }
 
