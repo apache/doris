@@ -181,8 +181,8 @@ TEST_F(PhraseFreqTest, SloppyPhraseMatcher_ExactMatch) {
     auto disi2 = create_mock_disi({{1, {1}}});
 
     std::vector<PostingsAndFreq> postings;
-    postings.emplace_back(disi1, 0, std::vector<std::string>{"big"});
-    postings.emplace_back(disi2, 1, std::vector<std::string>{"red"});
+    postings.emplace_back(disi1, 0, std::vector<std::string> {"big"});
+    postings.emplace_back(disi2, 1, std::vector<std::string> {"red"});
 
     SloppyPhraseMatcher matcher(postings, 2);
     float freq = matcher.phrase_freq(1);
@@ -196,8 +196,8 @@ TEST_F(PhraseFreqTest, SloppyPhraseMatcher_SloppyWeight_AfterMatch) {
     auto disi2 = create_mock_disi({{1, {1}}});
 
     std::vector<PostingsAndFreq> postings;
-    postings.emplace_back(disi1, 0, std::vector<std::string>{"big"});
-    postings.emplace_back(disi2, 1, std::vector<std::string>{"red"});
+    postings.emplace_back(disi1, 0, std::vector<std::string> {"big"});
+    postings.emplace_back(disi2, 1, std::vector<std::string> {"red"});
 
     SloppyPhraseMatcher matcher(postings, 5);
     matcher.reset(1);
@@ -213,8 +213,8 @@ TEST_F(PhraseFreqTest, SloppyPhraseMatcher_ReorderedTerms) {
     auto disi2 = create_mock_disi({{1, {0}}});
 
     std::vector<PostingsAndFreq> postings;
-    postings.emplace_back(disi1, 0, std::vector<std::string>{"big"});
-    postings.emplace_back(disi2, 1, std::vector<std::string>{"red"});
+    postings.emplace_back(disi1, 0, std::vector<std::string> {"big"});
+    postings.emplace_back(disi2, 1, std::vector<std::string> {"red"});
 
     SloppyPhraseMatcher matcher(postings, 3);
     float freq = matcher.phrase_freq(1);
@@ -233,7 +233,7 @@ TEST_F(PhraseFreqTest, NormVisitor_MockIterator) {
 TEST_F(PhraseFreqTest, NormVisitor_WithDISI) {
     auto disi = create_mock_disi({{1, {0}}});
 
-    int32_t norm = visit_node(disi, Norm{});
+    int32_t norm = visit_node(disi, Norm {});
     EXPECT_EQ(norm, 1);
 }
 
@@ -397,8 +397,8 @@ TEST_F(PhraseFreqTest, SloppyPhraseMatcher_NoMatch) {
     auto disi2 = create_mock_disi({{1, {100}}});
 
     std::vector<PostingsAndFreq> postings;
-    postings.emplace_back(disi1, 0, std::vector<std::string>{"hello"});
-    postings.emplace_back(disi2, 1, std::vector<std::string>{"world"});
+    postings.emplace_back(disi1, 0, std::vector<std::string> {"hello"});
+    postings.emplace_back(disi2, 1, std::vector<std::string> {"world"});
 
     SloppyPhraseMatcher matcher(postings, 2);
     float freq = matcher.phrase_freq(1);
@@ -412,9 +412,9 @@ TEST_F(PhraseFreqTest, SloppyPhraseMatcher_ThreeTerms) {
     auto disi3 = create_mock_disi({{1, {2}}});
 
     std::vector<PostingsAndFreq> postings;
-    postings.emplace_back(disi1, 0, std::vector<std::string>{"the"});
-    postings.emplace_back(disi2, 1, std::vector<std::string>{"quick"});
-    postings.emplace_back(disi3, 2, std::vector<std::string>{"fox"});
+    postings.emplace_back(disi1, 0, std::vector<std::string> {"the"});
+    postings.emplace_back(disi2, 1, std::vector<std::string> {"quick"});
+    postings.emplace_back(disi3, 2, std::vector<std::string> {"fox"});
 
     SloppyPhraseMatcher matcher(postings, 3);
     float freq = matcher.phrase_freq(1);
@@ -428,8 +428,8 @@ TEST_F(PhraseFreqTest, SloppyPhraseMatcher_MultipleMatches) {
     auto disi2 = create_mock_disi({{1, {1, 6}}});
 
     std::vector<PostingsAndFreq> postings;
-    postings.emplace_back(disi1, 0, std::vector<std::string>{"hello"});
-    postings.emplace_back(disi2, 1, std::vector<std::string>{"world"});
+    postings.emplace_back(disi1, 0, std::vector<std::string> {"hello"});
+    postings.emplace_back(disi2, 1, std::vector<std::string> {"world"});
 
     SloppyPhraseMatcher matcher(postings, 2);
     float freq = matcher.phrase_freq(1);
@@ -493,8 +493,8 @@ TEST_F(PhraseFreqTest, SloppyPhraseMatcher_Matches_Consistency) {
 
     {
         std::vector<PostingsAndFreq> postings;
-        postings.emplace_back(disi1, 0, std::vector<std::string>{"a"});
-        postings.emplace_back(disi2, 1, std::vector<std::string>{"b"});
+        postings.emplace_back(disi1, 0, std::vector<std::string> {"a"});
+        postings.emplace_back(disi2, 1, std::vector<std::string> {"b"});
         SloppyPhraseMatcher matcher(postings, 2);
         EXPECT_TRUE(matcher.matches(1));
     }
@@ -504,8 +504,8 @@ TEST_F(PhraseFreqTest, SloppyPhraseMatcher_Matches_Consistency) {
 
     {
         std::vector<PostingsAndFreq> postings;
-        postings.emplace_back(disi1, 0, std::vector<std::string>{"a"});
-        postings.emplace_back(disi2, 1, std::vector<std::string>{"b"});
+        postings.emplace_back(disi1, 0, std::vector<std::string> {"a"});
+        postings.emplace_back(disi2, 1, std::vector<std::string> {"b"});
         SloppyPhraseMatcher matcher(postings, 2);
         EXPECT_GT(matcher.phrase_freq(1), 0.0F);
     }

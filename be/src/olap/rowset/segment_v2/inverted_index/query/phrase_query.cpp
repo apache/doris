@@ -170,7 +170,7 @@ void PhraseQuery::search_by_skiplist(roaring::Roaring& roaring) {
             roaring.add(doc);
             int32_t norm = visit_node(*_lead1, Norm {});
             float score = _phrase_similarity->score(phrase_freq, static_cast<int64_t>(norm));
-            std::cout << "phrase_freq: " << phrase_freq << ", norm: " << norm << ", score: " << score << std::endl;
+
             _context->collection_similarity->collect(doc, score);
         } else {
             if (!matches(doc)) {
