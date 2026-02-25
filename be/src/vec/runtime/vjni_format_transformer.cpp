@@ -133,4 +133,30 @@ int64_t VJniFormatTransformer::written_len() {
     return 0;
 }
 
+std::map<std::string, std::string> VJniFormatTransformer::get_statistics() {
+    std::map<std::string, std::string> result;
+    if (!_opened) {
+        return result;
+    }
+
+    JNIEnv* env = nullptr;
+    if (!Jni::Env::Get(&env).ok()) {
+        return result;
+    }
+
+    Jni::LocalObject stats_map;
+    if (!_jni_writer_obj.call_object_method(env, _jni_writer_get_statistics)
+                 .call(&stats_map)
+                 .ok()) {
+        return result;
+    }
+    if (stats_map.uninitialized()) {
+        return result;
+    }
+
+    // Convert Java Map<String,String> to C++ map
+    static_cast<void>(Jni::Util::convert_to_cpp_map(env, stats_map, &result));
+    return result;
+}
+
 } // namespace doris::vectorized
