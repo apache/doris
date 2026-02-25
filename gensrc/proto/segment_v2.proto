@@ -166,6 +166,20 @@ message ColumnPathInfo {
     optional uint32 parrent_column_unique_id = 4;
     // is_typed flags if the subcolumn is assigned specific types
     optional bool is_typed = 5;
+
+    // NestedGroup support fields
+    // True if this column is the offsets column for a NestedGroup
+    optional bool is_nested_group_offsets = 10;
+    // The parent array path for NestedGroup columns
+    optional string nested_group_parent_path = 11;
+    // Depth level for nested groups (for multi-level nested arrays)
+    optional uint32 nested_group_depth = 12;
+}
+
+// Statistics for a single NestedGroup
+message NestedGroupInfoPB {
+    reserved 1, 2, 3;
+    reserved "element_count", "child_count", "has_conflict";
 }
 
 message VariantStatisticsPB {
@@ -173,6 +187,9 @@ message VariantStatisticsPB {
     map<string, uint32> sparse_column_non_null_size = 2;
 
     map<string, uint32> doc_value_column_non_null_size = 3;
+    // NestedGroup statistics
+    // Key: array path string (e.g., "items", "data.records")
+    map<string, NestedGroupInfoPB> nested_group_info = 4;
 } 
 
 message ColumnMetaPB {
@@ -311,6 +328,14 @@ enum ColumnIndexTypePB {
     ZONE_MAP_INDEX = 2;
     BITMAP_INDEX = 3; // deprecated
     BLOOM_FILTER_INDEX = 4;
+    NESTED_OFFSETS_INDEX = 6;
+}
+
+message NestedOffsetsIndexPB {
+    optional uint32 version = 1 [default = 1];
+    optional uint32 block_size = 2;
+    optional IndexedColumnMetaPB block_end_offsets = 3;
+    optional IndexedColumnMetaPB block_cumulative_offsets = 4;
 }
 
 message ColumnIndexMetaPB {
@@ -319,6 +344,7 @@ message ColumnIndexMetaPB {
     optional ZoneMapIndexPB zone_map_index = 8;
     optional BitmapIndexPB bitmap_index = 9; // deprecated
     optional BloomFilterIndexPB bloom_filter_index = 10;
+    optional NestedOffsetsIndexPB nested_offsets_index = 12;
 }
 
 message OrdinalIndexPB {
