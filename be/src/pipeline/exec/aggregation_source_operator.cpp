@@ -587,10 +587,8 @@ void AggLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* place
                         };
 
                         SCOPED_TIMER(_hash_table_emplace_timer);
-                        for (size_t i = 0; i < num_rows; ++i) {
-                            places[i] = *agg_method.lazy_emplace(state, i, creator,
-                                                                 creator_for_null_key);
-                        }
+                        agg_method.lazy_emplace_batch(state, num_rows, places, creator,
+                                                      creator_for_null_key);
 
                         COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                         COUNTER_SET(_hash_table_memory_usage,

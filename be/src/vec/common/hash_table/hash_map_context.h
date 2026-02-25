@@ -121,20 +121,54 @@ struct MethodBaseInner {
 
     template <typename State>
     ALWAYS_INLINE auto find(State& state, size_t i) {
-        if constexpr (!is_string_hash_map()) {
-            prefetch<true>(i);
-        }
+        prefetch<true>(i);
         return state.find_key_with_hash(*hash_table, i, keys[i], hash_values[i]);
     }
 
     template <typename State, typename F, typename FF>
     ALWAYS_INLINE auto lazy_emplace(State& state, size_t i, F&& creator,
                                     FF&& creator_for_null_key) {
-        if constexpr (!is_string_hash_map()) {
-            prefetch<false>(i);
-        }
+        prefetch<false>(i);
         return state.lazy_emplace_key(*hash_table, i, keys[i], hash_values[i], creator,
                                       creator_for_null_key);
+    }
+
+    /// Batch emplace with two-phase prefetch for better cache utilization.
+    /// Phase 1: prefetch all hash table slots for a mini-batch
+    /// Phase 2: perform actual emplace operations (cache should be warm)
+    /// @param current_row_ref: optional pointer to external row index variable,
+    ///        updated before each emplace so that creator lambdas capturing it
+    ///        by reference can read the correct row index.
+    template <typename State, typename PlacesPtr, typename F, typename FF>
+    void lazy_emplace_batch(State& state, size_t num_rows, PlacesPtr places, F&& creator,
+                            FF&& creator_for_null_key, size_t* current_row_ref = nullptr) {
+        constexpr size_t BATCH_SIZE = HASH_MAP_PREFETCH_DIST;
+
+        size_t i = 0;
+        // Process in mini-batches with two-phase prefetch
+        for (; i + BATCH_SIZE <= num_rows; i += BATCH_SIZE) {
+            // Phase 1: Prefetch all slots in this mini-batch
+            for (size_t j = i; j < i + BATCH_SIZE; ++j) {
+                hash_table->template prefetch<false>(keys[j], hash_values[j]);
+            }
+            // Phase 2: Perform emplace (prefetched data should be in cache now)
+            for (size_t j = i; j < i + BATCH_SIZE; ++j) {
+                if (current_row_ref) {
+                    *current_row_ref = j;
+                }
+                places[j] = *state.lazy_emplace_key(*hash_table, j, keys[j], hash_values[j],
+                                                    creator, creator_for_null_key);
+            }
+        }
+        // Handle remaining rows (tail) with simple prefetch-ahead-1
+        for (; i < num_rows; ++i) {
+            if (i + 1 < num_rows) {
+                hash_table->template prefetch<false>(keys[i + 1], hash_values[i + 1]);
+            }
+            if (current_row_ref) *current_row_ref = i;
+            places[i] = *state.lazy_emplace_key(*hash_table, i, keys[i], hash_values[i], creator,
+                                                creator_for_null_key);
+        }
     }
 
     static constexpr bool is_string_hash_map() {
