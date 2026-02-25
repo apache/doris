@@ -22,26 +22,30 @@ import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Disables Hadoop metrics2 via reflection to prevent memory leak in multi-ClassLoader environments.
+ * Cleans up Hadoop metrics2 registrations via reflection to prevent memory leak
+ * in multi-ClassLoader environments.
  *
  * Each Hadoop FileSystem registers metrics with its ClassLoader's DefaultMetricsSystem singleton.
  * These metrics (MetricCounterLong, MBeanAttributeInfo, etc.) are never unregistered on close(),
  * causing unbounded growth. Since each ClassLoader has its own DefaultMetricsSystem enum instance,
  * setting NopMetricsSystem on the main ClassLoader doesn't help other ClassLoaders.
  *
- * This class calls MetricsSystemImpl.shutdown() via reflection after each FileSystem creation,
- * which unregisters all MBeans from the JMX MBeanServer and clears the sources map.
+ * This class clears the MetricsSystemImpl.sources map and unregisters associated MBeans
+ * after each FileSystem creation, without calling shutdown() which would break the
+ * MetricsSystem's ability to inject metric fields into FileSystem instances.
  */
 public class HadoopMetricsDisabler {
 
     private static final Logger LOG = LogManager.getLogger(HadoopMetricsDisabler.class);
 
     /**
-     * Shut down Hadoop metrics2 for the given ClassLoader's DefaultMetricsSystem.
-     * This unregisters all MBeans and clears accumulated metrics sources.
+     * Clean up accumulated Hadoop metrics2 sources and MBeans for the given ClassLoader.
+     * This unregisters MBeans and clears the sources map, but keeps the MetricsSystem
+     * in a functional state so FileSystem metric fields (MutableRate, etc.) remain valid.
      *
      * Must be called after each FileSystem.get() because each creation registers new metrics.
      *
@@ -64,19 +68,33 @@ public class HadoopMetricsDisabler {
                 return;
             }
 
-            // shutdown() unregisters all MBeans from JMX and clears the sources map,
-            // preventing unbounded accumulation of MetricCounterLong and MBeanAttributeInfo.
-            Method shutdownMethod = metricsSystemImpl.getClass().getDeclaredMethod("shutdown");
-            shutdownMethod.setAccessible(true);
-            shutdownMethod.invoke(metricsSystemImpl);
+            // Get the sources map: Map<String, MetricsSourceAdapter>
+            Field sourcesField = metricsSystemImpl.getClass().getDeclaredField("sources");
+            sourcesField.setAccessible(true);
+            Map<?, ?> sources = (Map<?, ?>) sourcesField.get(metricsSystemImpl);
+
+            // Synchronize on MetricsSystemImpl because Hadoop's sources map is a LinkedHashMap
+            // and all access in MetricsSystemImpl.register()/unregisterSource() is synchronized(this).
+            synchronized (metricsSystemImpl) {
+                for (Object adapter : sources.values()) {
+                    try {
+                        Method closeMethod = adapter.getClass().getDeclaredMethod("close");
+                        closeMethod.setAccessible(true);
+                        closeMethod.invoke(adapter);
+                    } catch (Exception e) {
+                        // best-effort per adapter
+                    }
+                }
+                sources.clear();
+            }
 
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Shut down Hadoop metrics2 for ClassLoader: {}", cl);
+                LOG.debug("Cleaned up Hadoop metrics2 for ClassLoader: {}", cl);
             }
         } catch (ClassNotFoundException e) {
             // Hadoop metrics2 not present in this ClassLoader, nothing to do
         } catch (Exception e) {
-            LOG.warn("Failed to shut down Hadoop metrics2 for ClassLoader: {}", cl, e);
+            LOG.warn("Failed to clean up Hadoop metrics2 for ClassLoader: {}", cl, e);
         }
     }
 }
