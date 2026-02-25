@@ -63,6 +63,12 @@ public class MinioPropertiesTest {
     }
 
     @Test
+    public void testGuessIsMeWithFsS3aEndpoint() {
+        origProps.put("fs.s3a.endpoint", "http://ozone-s3g:9878");
+        Assertions.assertTrue(MinioProperties.guessIsMe(origProps));
+    }
+
+    @Test
     public void testMissingAccessKey() {
         origProps.put("s3.endpoint", "http://localhost:9000");
         origProps.put("s3.secret_key", "minioSecretKey");
@@ -108,5 +114,36 @@ public class MinioPropertiesTest {
         Assertions.assertEquals("minioSecretKey", backendProps.get("AWS_SECRET_KEY"));
         Assertions.assertEquals("us-east-1", backendProps.get("AWS_REGION"));
     }
-}
 
+    @Test
+    public void testFsS3aAliasProperties() {
+        origProps.put("fs.s3a.endpoint", "http://ozone-s3g:9878");
+        origProps.put("fs.s3a.endpoint.region", "us-east-1");
+        origProps.put("fs.s3a.access.key", "hadoop");
+        origProps.put("fs.s3a.secret.key", "hadoop");
+        origProps.put("fs.s3a.path.style.access", "true");
+        origProps.put("fs.s3a.connection.maximum", "77");
+        origProps.put("fs.s3a.connection.request.timeout", "4321");
+        origProps.put("fs.s3a.connection.timeout", "1234");
+
+        MinioProperties minioProperties = (MinioProperties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("http://ozone-s3g:9878", minioProperties.getEndpoint());
+        Assertions.assertEquals("us-east-1", minioProperties.getRegion());
+        Assertions.assertEquals("hadoop", minioProperties.getAccessKey());
+        Assertions.assertEquals("hadoop", minioProperties.getSecretKey());
+        Assertions.assertEquals("true", minioProperties.getUsePathStyle());
+        Assertions.assertEquals("77", minioProperties.getMaxConnections());
+        Assertions.assertEquals("4321", minioProperties.getRequestTimeoutS());
+        Assertions.assertEquals("1234", minioProperties.getConnectionTimeoutS());
+
+        Map<String, String> backendProps = minioProperties.getBackendConfigProperties();
+        Assertions.assertEquals("http://ozone-s3g:9878", backendProps.get("AWS_ENDPOINT"));
+        Assertions.assertEquals("us-east-1", backendProps.get("AWS_REGION"));
+        Assertions.assertEquals("hadoop", backendProps.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("hadoop", backendProps.get("AWS_SECRET_KEY"));
+        Assertions.assertEquals("true", backendProps.get("use_path_style"));
+        Assertions.assertEquals("77", backendProps.get("AWS_MAX_CONNECTIONS"));
+        Assertions.assertEquals("4321", backendProps.get("AWS_REQUEST_TIMEOUT_MS"));
+        Assertions.assertEquals("1234", backendProps.get("AWS_CONNECTION_TIMEOUT_MS"));
+    }
+}
