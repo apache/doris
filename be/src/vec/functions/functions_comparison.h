@@ -94,8 +94,6 @@ struct NumComparisonImpl {
     static void constant_vector(A a, const PaddedPODArray<B>& b, PaddedPODArray<UInt8>& c) {
         NumComparisonImpl<B, A, typename Op::SymmetricOp>::vector_constant(b, a, c);
     }
-
-    static void constant_constant(A a, B b, UInt8& c) { c = Op::apply(a, b); }
 };
 
 /// Generic version, implemented for columns of same type.
@@ -116,10 +114,6 @@ struct GenericComparisonImpl {
 
     static void constant_vector(const IColumn& a, const IColumn& b, PaddedPODArray<UInt8>& c) {
         GenericComparisonImpl<typename Op::SymmetricOp>::vector_constant(b, a, c);
-    }
-
-    static void constant_constant(const IColumn& a, const IColumn& b, UInt8& c) {
-        c = Op::apply(a.compare_at(0, 0, b, 1), 0);
     }
 };
 
