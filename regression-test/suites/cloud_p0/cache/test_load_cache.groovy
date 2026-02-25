@@ -19,16 +19,22 @@ import org.apache.doris.regression.suite.ClusterOptions
 import groovy.json.JsonSlurper
 
 /*
+Test Background & Principle (PR #56637):
+
+This PR implements a hard-coded mechanism for data load operations (e.g., Broker Load, INSERT INTO...SELECT). 
+It forces the data read during the query phase into the Disposable queue, overriding any session variables. 
+Conversely, the caching behavior for data during the import phase remains governed by the relevant session variables.
+
 Test Description:
 
 1. When enable_file_cache_for_olap_table = false, it is expected that the S3 TVF load (import phase) will NOT enter the cache, while the query
-   phase will enter the Disposable queue.
+   phase will enter the Disposable queue. 
    Specifically: Normal queue size should be 0, Disposable queue size should be 91163 bytes.
 2. When enable_file_cache_for_olap_table = true, it is expected that the S3 TVF load (import phase) will enter the Normal queue, and the query
-   phase will enter the Normal queue.
+   phase will still enter the Disposable queue. 
    Specifically: Normal queue size should be 236988 bytes, Disposable queue size should still be 91163 bytes.
 
-Explanation: The query phase caches the compressed file, so the Disposable queue size is checked for an exact value; for the import phase cache, since future
+Explanation: The query phase caches the compressed file, so the Disposable queue size is checked for an exact value; for the import phase cache, since future 
 changes to statistics are possible, only a reasonable range is required.
 */
 

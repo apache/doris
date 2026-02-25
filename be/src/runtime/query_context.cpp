@@ -111,6 +111,18 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
 
     _timeout_second = query_options.execution_timeout;
 
+    // For olap tables, data is cached regardless of the 'enable_file_cache_for_olap_table' setting:
+    // - When true: data enters the normal queue.
+    // - When false: data enters the disposable queue.
+    // In both cases, a context_holder must be generated for the query limit functionality.
+
+    // For external tables, file cache is only used when 'enable_file_cache_for_external_table' is enabled:
+    // - When true: data enters the normal queue.
+    // - When false: data is not cached at all.
+    // Therefore, a context_holder is required only when external table caching is enabled.
+
+    // Summary: The only scenario where no context_holder is needed is for external tables
+    // when 'enable_file_cache_for_external_table' is disabled.
     bool initialize_context_holder = config::enable_file_cache &&
                                      config::enable_file_cache_query_limit &&
                                      !(query_options.query_type == TQueryType::EXTERNAL &&
