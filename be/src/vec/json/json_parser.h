@@ -104,7 +104,6 @@ struct ParseConfig {
     enum class ParseTo {
         OnlySubcolumns = 0,
         OnlyDocValueColumn = 1,
-        BothSubcolumnsAndDocValueColumn = 2,
     };
     ParseTo parse_to = ParseTo::OnlySubcolumns;
 };

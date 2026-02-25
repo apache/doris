@@ -106,6 +106,8 @@ struct RowsetWriterContext {
     bool is_hot_data = false;
     uint64_t file_cache_ttl_sec = 0;
     uint64_t approximate_bytes_to_write = 0;
+    // If true, compaction output only writes index files to file cache, not data files
+    bool compaction_output_write_index_only = false;
     /// end file cache opts
 
     // segcompaction for this RowsetWriter, only enabled when importing data
@@ -234,13 +236,17 @@ struct RowsetWriterContext {
 
     io::FileSystem& fs_ref() const { return *fs(); }
 
-    io::FileWriterOptions get_file_writer_options() {
-        io::FileWriterOptions opts {.write_file_cache = write_file_cache,
-                                    .is_cold_data = is_hot_data,
-                                    .file_cache_expiration_time = file_cache_ttl_sec,
-                                    .approximate_bytes_to_write = approximate_bytes_to_write};
+    io::FileWriterOptions get_file_writer_options(bool is_index_file = false) {
+        bool should_write_cache = write_file_cache;
+        // If configured to only write index files to cache, skip cache for data files
+        if (compaction_output_write_index_only && !is_index_file) {
+            should_write_cache = false;
+        }
 
-        return opts;
+        return io::FileWriterOptions {.write_file_cache = should_write_cache,
+                                      .is_cold_data = is_hot_data,
+                                      .file_cache_expiration_time = file_cache_ttl_sec,
+                                      .approximate_bytes_to_write = approximate_bytes_to_write};
     }
 };
 

@@ -163,8 +163,17 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
         return Status::OK();
     }
 
-    DCHECK(other->_state == State::READY);
-    DCHECK(_filter_type == other->_filter_type);
+    if (other->_state != State::READY) {
+        return Status::InternalError(
+                "Cannot merge runtime filter: other filter state is {}, expected READY. this: {}, "
+                "other: {}",
+                to_string(other->_state), debug_string(), other->debug_string());
+    }
+    if (_filter_type != other->_filter_type) {
+        return Status::InternalError(
+                "Cannot merge runtime filter: filter type mismatch, this: {}, other: {}",
+                int(_filter_type), int(other->_filter_type));
+    }
 
     switch (_filter_type) {
     case RuntimeFilterType::IN_FILTER: {
@@ -288,7 +297,12 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
             StringParser::ParseResult result;
             auto int128_val = StringParser::string_to_int<int128_t>(string_val.c_str(),
                                                                     string_val.length(), &result);
-            DCHECK(result == StringParser::PARSE_SUCCESS);
+            if (result != StringParser::PARSE_SUCCESS) {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "Failed to parse LARGEINT value '{}' in runtime filter in_filter "
+                                "assign",
+                                string_val);
+            }
             set->insert(&int128_val);
         });
         break;
@@ -361,7 +375,12 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
             StringParser::ParseResult result;
             auto int128_val = StringParser::string_to_int<int128_t>(string_val.c_str(),
                                                                     string_val.length(), &result);
-            DCHECK(result == StringParser::PARSE_SUCCESS);
+            if (result != StringParser::PARSE_SUCCESS) {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "Failed to parse DECIMAL128I value '{}' in runtime filter "
+                                "in_filter assign",
+                                string_val);
+            }
             set->insert(&int128_val);
         });
         break;
@@ -372,7 +391,12 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
             StringParser::ParseResult result;
             auto int_val = StringParser::string_to_int<wide::Int256>(string_val.c_str(),
                                                                      string_val.length(), &result);
-            DCHECK(result == StringParser::PARSE_SUCCESS);
+            if (result != StringParser::PARSE_SUCCESS) {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "Failed to parse DECIMAL256 value '{}' in runtime filter "
+                                "in_filter assign",
+                                string_val);
+            }
             set->insert(&int_val);
         });
         break;
@@ -401,7 +425,12 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
             StringParser::ParseResult result;
             auto int128_val = StringParser::string_to_int<uint128_t>(string_val.c_str(),
                                                                      string_val.length(), &result);
-            DCHECK(result == StringParser::PARSE_SUCCESS);
+            if (result != StringParser::PARSE_SUCCESS) {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "Failed to parse IPV6 value '{}' in runtime filter in_filter "
+                                "assign",
+                                string_val);
+            }
             set->insert(&int128_val);
         });
         break;
@@ -416,7 +445,11 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
 
 Status RuntimeFilterWrapper::_assign(const PBloomFilter& bloom_filter,
                                      butil::IOBufAsZeroCopyInputStream* data, bool contain_null) {
-    DCHECK(_bloom_filter_func);
+    if (!_bloom_filter_func) {
+        return Status::InternalError(
+                "_bloom_filter_func is nullptr in _assign(PBloomFilter), filter_id: {}",
+                _filter_id);
+    }
     RETURN_IF_ERROR(_bloom_filter_func->assign(data, bloom_filter.filter_length(), contain_null));
     return Status::OK();
 }
@@ -456,10 +489,18 @@ Status RuntimeFilterWrapper::_assign(const PMinMaxFilter& minmax_filter, bool co
         StringParser::ParseResult result;
         auto min_val = StringParser::string_to_int<int128_t>(min_string_val.c_str(),
                                                              min_string_val.length(), &result);
-        DCHECK(result == StringParser::PARSE_SUCCESS);
+        if (result != StringParser::PARSE_SUCCESS) {
+            return Status::InternalError(
+                    "Failed to parse LARGEINT min value '{}' in minmax filter assign",
+                    min_string_val);
+        }
         auto max_val = StringParser::string_to_int<int128_t>(max_string_val.c_str(),
                                                              max_string_val.length(), &result);
-        DCHECK(result == StringParser::PARSE_SUCCESS);
+        if (result != StringParser::PARSE_SUCCESS) {
+            return Status::InternalError(
+                    "Failed to parse LARGEINT max value '{}' in minmax filter assign",
+                    max_string_val);
+        }
         return _minmax_func->assign(&min_val, &max_val);
     }
     case TYPE_FLOAT: {
@@ -517,10 +558,18 @@ Status RuntimeFilterWrapper::_assign(const PMinMaxFilter& minmax_filter, bool co
         StringParser::ParseResult result;
         auto min_val = StringParser::string_to_int<int128_t>(min_string_val.c_str(),
                                                              min_string_val.length(), &result);
-        DCHECK(result == StringParser::PARSE_SUCCESS);
+        if (result != StringParser::PARSE_SUCCESS) {
+            return Status::InternalError(
+                    "Failed to parse DECIMAL128I min value '{}' in minmax filter assign",
+                    min_string_val);
+        }
         auto max_val = StringParser::string_to_int<int128_t>(max_string_val.c_str(),
                                                              max_string_val.length(), &result);
-        DCHECK(result == StringParser::PARSE_SUCCESS);
+        if (result != StringParser::PARSE_SUCCESS) {
+            return Status::InternalError(
+                    "Failed to parse DECIMAL128I max value '{}' in minmax filter assign",
+                    max_string_val);
+        }
         return _minmax_func->assign(&min_val, &max_val);
     }
     case TYPE_DECIMAL256: {
@@ -529,10 +578,18 @@ Status RuntimeFilterWrapper::_assign(const PMinMaxFilter& minmax_filter, bool co
         StringParser::ParseResult result;
         auto min_val = StringParser::string_to_int<wide::Int256>(min_string_val.c_str(),
                                                                  min_string_val.length(), &result);
-        DCHECK(result == StringParser::PARSE_SUCCESS);
+        if (result != StringParser::PARSE_SUCCESS) {
+            return Status::InternalError(
+                    "Failed to parse DECIMAL256 min value '{}' in minmax filter assign",
+                    min_string_val);
+        }
         auto max_val = StringParser::string_to_int<wide::Int256>(max_string_val.c_str(),
                                                                  max_string_val.length(), &result);
-        DCHECK(result == StringParser::PARSE_SUCCESS);
+        if (result != StringParser::PARSE_SUCCESS) {
+            return Status::InternalError(
+                    "Failed to parse DECIMAL256 max value '{}' in minmax filter assign",
+                    max_string_val);
+        }
         return _minmax_func->assign(&min_val, &max_val);
     }
     case TYPE_VARCHAR:
@@ -553,10 +610,16 @@ Status RuntimeFilterWrapper::_assign(const PMinMaxFilter& minmax_filter, bool co
         StringParser::ParseResult result;
         auto min_val = StringParser::string_to_int<uint128_t>(min_string_val.c_str(),
                                                               min_string_val.length(), &result);
-        DCHECK(result == StringParser::PARSE_SUCCESS);
+        if (result != StringParser::PARSE_SUCCESS) {
+            return Status::InternalError(
+                    "Failed to parse IPV6 min value '{}' in minmax filter assign", min_string_val);
+        }
         auto max_val = StringParser::string_to_int<uint128_t>(max_string_val.c_str(),
                                                               max_string_val.length(), &result);
-        DCHECK(result == StringParser::PARSE_SUCCESS);
+        if (result != StringParser::PARSE_SUCCESS) {
+            return Status::InternalError(
+                    "Failed to parse IPV6 max value '{}' in minmax filter assign", max_string_val);
+        }
         return _minmax_func->assign(&min_val, &max_val);
     }
     default:
@@ -659,18 +722,28 @@ Status RuntimeFilterWrapper::assign(const T& request, butil::IOBufAsZeroCopyInpu
 
     switch (filter_type) {
     case PFilterType::IN_FILTER: {
-        DCHECK(request.has_in_filter());
+        if (!request.has_in_filter()) {
+            return Status::InternalError(
+                    "IN_FILTER type but request has no in_filter, filter_id: {}", _filter_id);
+        }
         return _assign(request.in_filter(), request.contain_null());
     }
     case PFilterType::BLOOM_FILTER: {
-        DCHECK(request.has_bloom_filter());
+        if (!request.has_bloom_filter()) {
+            return Status::InternalError(
+                    "BLOOM_FILTER type but request has no bloom_filter, filter_id: {}", _filter_id);
+        }
         _hybrid_set.reset(); // change in_or_bloom filter to bloom filter
         return _assign(request.bloom_filter(), data, request.contain_null());
     }
     case PFilterType::MIN_FILTER:
     case PFilterType::MAX_FILTER:
     case PFilterType::MINMAX_FILTER: {
-        DCHECK(request.has_minmax_filter());
+        if (!request.has_minmax_filter()) {
+            return Status::InternalError(
+                    "MINMAX_FILTER type but request has no minmax_filter, filter_id: {}",
+                    _filter_id);
+        }
         return _assign(request.minmax_filter(), request.contain_null());
     }
     default:

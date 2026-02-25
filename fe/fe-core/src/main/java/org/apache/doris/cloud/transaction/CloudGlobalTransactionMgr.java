@@ -302,6 +302,22 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             txnInfoBuilder.setTimeoutMs(timeoutSecond * 1000);
             txnInfoBuilder.setPrecommitTimeoutMs(Config.stream_load_default_precommit_timeout_second * 1000);
 
+            // Set load_cluster_id for compaction read-write separation.
+            // commit_txn uses this to update last_active_cluster_id on tablet stats.
+            if (Config.isCloudMode()) {
+                try {
+                    ConnectContext ctx = ConnectContext.get();
+                    if (ctx != null) {
+                        String clusterId = ctx.getComputeGroup().getId();
+                        if (clusterId != null && !clusterId.isEmpty()) {
+                            txnInfoBuilder.setLoadClusterId(clusterId);
+                        }
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Failed to get compute group id for load_cluster_id, label: {}", label, e);
+                }
+            }
+
             final BeginTxnRequest beginTxnRequest = BeginTxnRequest.newBuilder()
                     .setTxnInfo(txnInfoBuilder.build())
                     .setCloudUniqueId(Config.cloud_unique_id)

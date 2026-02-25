@@ -163,18 +163,6 @@ private:
                 std::vector<AggregateDataPtr> places {place};
                 agg_fn->function()->serialize_to_column(places, 0, serialize_column, 1);
             }
-
-            {
-                Arena arena;
-                auto* place = reinterpret_cast<vectorized::AggregateDataPtr>(
-                        arena.alloc(agg_fn->function()->size_of_data()));
-
-                agg_fn->create(place);
-                Defer defer([&]() { agg_fn->destroy(place); });
-                agg_fn->function()->deserialize_from_column(place, *serialize_column, arena, 1);
-
-                check_result(place);
-            }
         }
 
         { // streaming_agg_serialize_to_column deserialize_and_merge_from_column_range

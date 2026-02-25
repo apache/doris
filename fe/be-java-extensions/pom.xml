@@ -34,6 +34,7 @@ under the License.
         <module>preload-extensions</module>
         <module>trino-connector-scanner</module>
         <module>hadoop-deps</module>
+        <module>java-writer</module>
     </modules>
 
     <parent>

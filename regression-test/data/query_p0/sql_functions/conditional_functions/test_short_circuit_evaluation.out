@@ -383,3 +383,10 @@
 9	9	-2	i	i	unknown
 10	10	100	j	t	no
 
+-- !with_array_map --
+\N
+\N
+\N
+[9, 9, 9]
+[16, 16, 16]
+

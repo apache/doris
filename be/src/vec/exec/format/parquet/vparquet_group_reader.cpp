@@ -188,6 +188,12 @@ Status RowGroupReader::init(
                                  _lazy_read_ctx.missing_columns_conjuncts.end());
         RETURN_IF_ERROR(_rewrite_dict_predicates());
     }
+    // _state is nullptr in some ut.
+    if (_state && _state->enable_adjust_conjunct_order_by_cost()) {
+        std::ranges::sort(_filter_conjuncts, [](const auto& a, const auto& b) {
+            return a->execute_cost() < b->execute_cost();
+        });
+    }
     return Status::OK();
 }
 

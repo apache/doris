@@ -340,6 +340,10 @@ void FragmentMgr::stop() {
     _thread_pool->shutdown();
     // Only me can delete
     _query_ctx_map.clear();
+    // in one BE's graceful shutdown, cancel_worker will get related running queries via _get_all_running_queries_from_fe and cancel them.
+    // so clearing here will not make RF consumer hang. if we dont do this, in ~FragmentMgr() there may be QueryContext in _query_ctx_map_delay_delete
+    // destructred and remove it from _query_ctx_map_delay_delete which is destructring. it's UB.
+    _query_ctx_map_delay_delete.clear();
     _pipeline_map.clear();
 }
 

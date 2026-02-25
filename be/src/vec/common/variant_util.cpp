@@ -1870,34 +1870,6 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
             insert_into_subcolumn(i, true);
         }
         break;
-    case ParseConfig::ParseTo::BothSubcolumnsAndDocValueColumn: {
-        std::vector<std::pair<std::string_view, ColumnVariant::Subcolumn*>> doc_items;
-        doc_items.reserve(paths.size());
-        phmap::flat_hash_set<StringRef, StringRefHash> seen_paths;
-        seen_paths.reserve(paths.size());
-
-        for (size_t i = 0; i < paths.size(); ++i) {
-            auto* subcolumn = insert_into_subcolumn(i, true);
-            if (!subcolumn || paths[i].empty()) {
-                continue;
-            }
-            const auto& path_str = paths[i].get_path();
-            StringRef path_ref {path_str.data(), path_str.size()};
-            if (UNLIKELY(!seen_paths.emplace(path_ref).second)) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "may contains duplicated entry : {}",
-                                       std::string_view(path_str));
-            }
-            doc_items.emplace_back(std::string_view(path_str), subcolumn);
-        }
-
-        std::sort(doc_items.begin(), doc_items.end(),
-                  [](const auto& l, const auto& r) { return l.first < r.first; });
-        for (const auto& [path, subcolumn] : doc_items) {
-            subcolumn->serialize_to_binary_column(doc_value_data_paths, path, doc_value_data_values,
-                                                  old_num_rows);
-        }
-    } break;
     case ParseConfig::ParseTo::OnlyDocValueColumn: {
         std::vector<size_t> doc_item_indexes;
         doc_item_indexes.reserve(paths.size());
@@ -2064,12 +2036,6 @@ Status _parse_and_materialize_variant_columns(Block& block,
         var_column->finalize();
 
         MutableColumnPtr variant_column;
-        // doc snapshot mode, parse the doc snapshot column to subcolumns
-        if (var.is_doc_mode() &&
-            configs[i].parse_to == ParseConfig::ParseTo::BothSubcolumnsAndDocValueColumn) {
-            materialize_docs_to_subcolumns(var);
-            continue;
-        }
         if (!var.is_scalar_variant()) {
             // already parsed
             continue;
@@ -2157,17 +2123,7 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
             continue;
         }
 
-        auto column_size = block.get_by_position(variant_column_pos[i]).column->size();
-
-        // if column size is greater than min rows, parse to both subcolumns and doc value column
-        if (column_size > column.variant_doc_materialization_min_rows()) {
-            configs[i].parse_to = ParseConfig::ParseTo::BothSubcolumnsAndDocValueColumn;
-        }
-
-        // if column size is less than min rows, parse to only doc value column
-        else {
-            configs[i].parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
-        }
+        configs[i].parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
     }
 
     RETURN_IF_ERROR(parse_and_materialize_variant_columns(block, variant_column_pos, configs));

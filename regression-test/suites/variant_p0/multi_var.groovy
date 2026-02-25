@@ -25,7 +25,7 @@ suite("regression_test_variant_multi_var", "variant_type"){
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4
-        properties("replication_num" = "1");
+        properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """
     sql """INSERT INTO ${table_name} SELECT *, '{"k1":1, "k2": "hello world", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]]}' FROM numbers("number" = "101")"""
     sql """INSERT INTO ${table_name} SELECT *, '{"k7":123, "k8": "elden ring", "k9" : 1.1112, "k10" : [1.12], "k11" : ["moon"]}' FROM numbers("number" = "203") where number > 100"""
@@ -45,4 +45,26 @@ suite("regression_test_variant_multi_var", "variant_type"){
     for (int i = 0; i < 20; i++) {
         sql """insert into ${table_name}  values (1, '{"a" : 1}', '{"a" : 1}', '{"a" : 1}', '{"a" : 1}', '{"a" : 1}')"""
     }
+
+    trigger_and_wait_compaction(table_name, "full")
+
+    sql "set enable_condition_cache = true"
+    sql "set enable_sql_cache = false"
+    qt_sql_condition_cache1 """select count() from ${table_name} where cast(v3['k1'] as bigint) = 1 and cast(v2['k2'] as string) = 'hello world' """
+    qt_sql_condition_cache2 """select count() from ${table_name} where cast(v3['k1'] as bigint) = 1 and cast(v2['k2'] as string) = 'hello world' """
+
+    qt_sql_condition_cache3 """select count() from ${table_name} where cast(v3['k1'] as bigint) = 1 or cast(v2['k2'] as string) = 'hello world' """
+    qt_sql_condition_cache4 """select count() from ${table_name} where cast(v3['k1'] as bigint) = 1 or cast(v2['k2'] as string) = 'hello world' """
+
+    qt_sql_condition_cache5 """select count() from ${table_name} where cast(v3['k1'] as bigint) = 1 and cast(v3['k2'] as string) = 'hello world' """
+    qt_sql_condition_cache6 """select count() from ${table_name} where cast(v3['k1'] as bigint) = 1 and cast(v3['k2'] as string) = 'hello world' """
+
+    qt_sql_condition_cache7 """select count() from ${table_name} where cast(v2['k1'] as bigint) = 1 or cast(v2['k2'] as string) = 'hello world' """
+    qt_sql_condition_cache8 """select count() from ${table_name} where cast(v2['k1'] as bigint) = 1 or cast(v2['k2'] as string) = 'hello world' """
+
+    qt_sql_condition_cache9 """select count() from ${table_name} where cast(v2['k2'] as string) = 'hello world' and array_contains(cast(v3['k11'] as array<string>), 'moon') """
+    qt_sql_condition_cache10 """select count() from ${table_name} where cast(v2['k2'] as string) = 'hello world' and array_contains(cast(v3['k11'] as array<string>), 'moon') """
+
+    qt_sql_condition_cache11 """select count() from ${table_name} where cast(v2['k1'] as bigint) = 1 or cast(v2['k1'] as double) < 2.0 """
+    qt_sql_condition_cache12 """select count() from ${table_name} where cast(v2['k1'] as bigint) = 1 or cast(v2['k1'] as double) < 2.0 """
 }

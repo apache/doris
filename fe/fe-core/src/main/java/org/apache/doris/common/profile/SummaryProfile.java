@@ -145,10 +145,19 @@ public class SummaryProfile {
     public static final String SPLITS_ASSIGNMENT_WEIGHT = "Splits Assignment Weight";
     public static final String ICEBERG_SCAN_METRICS = "Iceberg Scan Metrics";
     public static final String PAIMON_SCAN_METRICS = "Paimon Scan Metrics";
+    private boolean isWarmUp = false;
 
+    public void setWarmup(boolean isWarmUp) {
+        this.isWarmUp = isWarmUp;
+    }
+
+    public boolean isWarmup() {
+        return isWarmUp;
+    }
     // These info will display on FE's web ui table, every one will be displayed as
     // a column, so that should not
     // add many columns here. Add to ExecutionSummary list.
+
     public static final ImmutableList<String> SUMMARY_CAPTIONS = ImmutableList.of(PROFILE_ID, TASK_TYPE,
             START_TIME, END_TIME, TOTAL_TIME, TASK_STATE, USER, DEFAULT_CATALOG, DEFAULT_DB, SQL_STATEMENT);
     public static final ImmutableList<String> SUMMARY_KEYS = new ImmutableList.Builder<String>()
