@@ -256,8 +256,6 @@ private:
     bool _zone_map_match_condition(const segment_v2::ZoneMap& zone_map,
                                    const AndBlockColumnPredicate* col_predicates) const;
 
-    Status _parse_zone_map(const ZoneMapPB& zone_map, segment_v2::ZoneMap& zone_map_info) const;
-
     Status _get_filtered_pages(
             const AndBlockColumnPredicate* col_predicates,
             const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,

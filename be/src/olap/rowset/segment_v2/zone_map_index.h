@@ -81,6 +81,9 @@ struct ZoneMap {
         dst->set_has_negative_inf(has_negative_inf);
         dst->set_has_nan(has_nan);
     }
+
+    static Status from_proto(const ZoneMapPB& zone_map, const vectorized::DataTypePtr& data_type,
+                             ZoneMap& zone_map_info);
 };
 
 class ZoneMapIndexWriter {
