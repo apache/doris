@@ -23,6 +23,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.collect.Lists;
@@ -73,7 +74,7 @@ public class CloudUpgradeMgrTest {
 
         new MockUp<Env>() {
             @Mock
-            public CloudGlobalTransactionMgr getCurrentGlobalTransactionMgr() {
+            public GlobalTransactionMgrIface getCurrentGlobalTransactionMgr() {
                 return txnMgr;
             }
         };
@@ -128,7 +129,7 @@ public class CloudUpgradeMgrTest {
 
         new MockUp<Env>() {
             @Mock
-            public CloudGlobalTransactionMgr getCurrentGlobalTransactionMgr() {
+            public GlobalTransactionMgrIface getCurrentGlobalTransactionMgr() {
                 return txnMgr;
             }
         };
@@ -178,7 +179,7 @@ public class CloudUpgradeMgrTest {
 
         new MockUp<Env>() {
             @Mock
-            public CloudGlobalTransactionMgr getCurrentGlobalTransactionMgr() {
+            public GlobalTransactionMgrIface getCurrentGlobalTransactionMgr() {
                 return txnMgr;
             }
         };
