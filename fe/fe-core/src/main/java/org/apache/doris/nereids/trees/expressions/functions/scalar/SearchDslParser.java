@@ -196,6 +196,7 @@ public class SearchDslParser {
             // Build AST using visitor pattern with defaultField and defaultOperator for bare queries
             QsAstBuilder visitor = new QsAstBuilder(defaultField, defaultOperator);
             QsNode root = visitor.visit(tree);
+            validateNestedTopLevelOnly(root);
 
             // Extract field bindings
             Set<String> fieldNames = visitor.getFieldNames();
@@ -619,7 +620,8 @@ public class SearchDslParser {
         OR,             // clause1 OR clause2 (standard boolean algebra)
         NOT,            // NOT clause (standard boolean algebra)
         OCCUR_BOOLEAN,  // Lucene-style boolean query with MUST/SHOULD/MUST_NOT
-        MATCH_ALL_DOCS  // Matches all documents (used for pure NOT query rewriting)
+MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
+        NESTED          // NESTED(path, inner_query) - nested field query
     }
 
     /**
@@ -791,6 +793,13 @@ public class SearchDslParser {
                 }
                 return result;
             }
+if (ctx.nestedQuery() != null) {
+                QsNode result = visit(ctx.nestedQuery());
+                if (result == null) {
+                    throw new RuntimeException("Invalid nested query");
+                }
+                return result;
+            }
             if (ctx.fieldGroupQuery() != null) {
                 QsNode result = visit(ctx.fieldGroupQuery());
                 if (result == null) {
@@ -845,6 +854,42 @@ public class SearchDslParser {
             } finally {
                 // Restore previous context
                 currentFieldName = previousFieldName;
+            }
+        }
+
+        @Override
+        public QsNode visitNestedQuery(SearchParser.NestedQueryContext ctx) {
+            if (ctx.NESTED_PATH() == null) {
+                throw new RuntimeException("Invalid NESTED clause: missing path");
+            }
+            String nestedPath = ctx.NESTED_PATH().getText();
+            QsNode innerQuery = visit(ctx.clause());
+            if (innerQuery == null) {
+                throw new RuntimeException("Invalid NESTED clause: missing inner query");
+            }
+
+            validateNestedFieldPaths(innerQuery, nestedPath);
+
+            QsNode node = new QsNode(QsClauseType.NESTED, Collections.singletonList(innerQuery));
+            node.nestedPath = nestedPath;
+            return node;
+        }
+
+        private void validateNestedFieldPaths(QsNode node, String nestedPath) {
+            if (node == null) {
+                return;
+            }
+            if (node.type == QsClauseType.NESTED) {
+                throw new RuntimeException("Nested NESTED() is not supported: " + nestedPath);
+            }
+            if (node.field != null && !node.field.startsWith(nestedPath + ".")) {
+                throw new RuntimeException("Fields in NESTED query must start with nested path: "
+                        + nestedPath + ", but got: " + node.field);
+            }
+            if (node.children != null) {
+                for (QsNode child : node.children) {
+                    validateNestedFieldPaths(child, nestedPath);
+                }
             }
         }
 
@@ -1227,6 +1272,9 @@ public class SearchDslParser {
         @JsonProperty("minimumShouldMatch")
         private final Integer minimumShouldMatch;
 
+        @JsonProperty("nestedPath")
+        private String nestedPath;
+
         /**
          * Whether the field was explicitly specified in the DSL syntax (e.g., title:music)
          * vs assigned from default field for bare queries (e.g., music).
@@ -1245,6 +1293,7 @@ public class SearchDslParser {
          * @param children the child nodes
          * @param occur the occurrence type
          * @param minimumShouldMatch the minimum should match value
+         * @param nestedPath the nested path for NESTED clause
          */
         @JsonCreator
         public QsNode(@JsonProperty("type") QsClauseType type,
@@ -1252,13 +1301,15 @@ public class SearchDslParser {
                 @JsonProperty("value") String value,
                 @JsonProperty("children") List<QsNode> children,
                 @JsonProperty("occur") QsOccur occur,
-                @JsonProperty("minimumShouldMatch") Integer minimumShouldMatch) {
+                @JsonProperty("minimumShouldMatch") Integer minimumShouldMatch,
+                @JsonProperty("nestedPath") String nestedPath) {
             this.type = type;
             this.field = field;
             this.value = value;
             this.children = children != null ? new ArrayList<>(children) : new ArrayList<>();
             this.occur = occur;
             this.minimumShouldMatch = minimumShouldMatch;
+            this.nestedPath = nestedPath;
         }
 
         /**
@@ -1275,6 +1326,7 @@ public class SearchDslParser {
             this.children = new ArrayList<>();
             this.occur = null;
             this.minimumShouldMatch = null;
+            this.nestedPath = null;
         }
 
         /**
@@ -1290,6 +1342,7 @@ public class SearchDslParser {
             this.children = children != null ? new ArrayList<>(children) : new ArrayList<>();
             this.occur = null;
             this.minimumShouldMatch = null;
+            this.nestedPath = null;
         }
 
         /**
@@ -1306,6 +1359,7 @@ public class SearchDslParser {
             this.children = children != null ? new ArrayList<>(children) : new ArrayList<>();
             this.occur = null;
             this.minimumShouldMatch = minimumShouldMatch;
+            this.nestedPath = null;
         }
 
         public QsClauseType getType() {
@@ -1340,6 +1394,10 @@ public class SearchDslParser {
             return minimumShouldMatch;
         }
 
+        public String getNestedPath() {
+            return nestedPath;
+        }
+
         /**
          * Returns whether the field was explicitly specified in the DSL syntax.
          */
@@ -1369,7 +1427,7 @@ public class SearchDslParser {
 
         @Override
         public int hashCode() {
-            return Objects.hash(type, field, value, children, occur, minimumShouldMatch);
+            return Objects.hash(type, field, value, children, occur, minimumShouldMatch, nestedPath);
         }
 
         @Override
@@ -1386,7 +1444,8 @@ public class SearchDslParser {
                     && Objects.equals(value, qsNode.getValue())
                     && Objects.equals(children, qsNode.getChildren())
                     && occur == qsNode.getOccur()
-                    && Objects.equals(minimumShouldMatch, qsNode.getMinimumShouldMatch());
+                    && Objects.equals(minimumShouldMatch, qsNode.getMinimumShouldMatch())
+                    && Objects.equals(nestedPath, qsNode.nestedPath);
         }
     }
 
@@ -1949,6 +2008,7 @@ public class SearchDslParser {
             // Build AST using Lucene-mode visitor
             QsLuceneModeAstBuilder visitor = new QsLuceneModeAstBuilder(options);
             QsNode root = visitor.visit(tree);
+            validateNestedTopLevelOnly(root);
 
             // Extract field bindings
             Set<String> fieldNames = visitor.getFieldNames();
@@ -2352,6 +2412,9 @@ public class SearchDslParser {
             if (ctx.clause() != null) {
                 return visit(ctx.clause());
             }
+if (ctx.nestedQuery() != null) {
+                return visit(ctx.nestedQuery());
+            }
             if (ctx.fieldGroupQuery() != null) {
                 return visit(ctx.fieldGroupQuery());
             }
@@ -2395,6 +2458,42 @@ public class SearchDslParser {
             } finally {
                 // Restore previous context
                 currentFieldName = previousFieldName;
+            }
+        }
+
+        @Override
+        public QsNode visitNestedQuery(SearchParser.NestedQueryContext ctx) {
+            if (ctx.NESTED_PATH() == null) {
+                throw new RuntimeException("Invalid NESTED clause: missing path");
+            }
+            String nestedPath = ctx.NESTED_PATH().getText();
+            QsNode innerQuery = visit(ctx.clause());
+            if (innerQuery == null) {
+                throw new RuntimeException("Invalid NESTED clause: missing inner query");
+            }
+
+            validateNestedFieldPaths(innerQuery, nestedPath);
+
+            QsNode node = new QsNode(QsClauseType.NESTED, Collections.singletonList(innerQuery));
+            node.nestedPath = nestedPath;
+            return node;
+        }
+
+        private void validateNestedFieldPaths(QsNode node, String nestedPath) {
+            if (node == null) {
+                return;
+            }
+            if (node.type == QsClauseType.NESTED) {
+                throw new RuntimeException("Nested NESTED() is not supported: " + nestedPath);
+            }
+            if (node.field != null && !node.field.startsWith(nestedPath + ".")) {
+                throw new RuntimeException("Fields in NESTED query must start with nested path: "
+                        + nestedPath + ", but got: " + node.field);
+            }
+            if (node.children != null) {
+                for (QsNode child : node.children) {
+                    validateNestedFieldPaths(child, nestedPath);
+                }
             }
         }
 
@@ -2578,6 +2677,25 @@ public class SearchDslParser {
                 return text.substring(1, text.length() - 1);
             }
             return text;
+        }
+    }
+
+    private static void validateNestedTopLevelOnly(QsNode root) {
+        validateNestedTopLevelOnly(root, true);
+    }
+
+    private static void validateNestedTopLevelOnly(QsNode node, boolean isRoot) {
+        if (node == null) {
+            return;
+        }
+        if (node.type == QsClauseType.NESTED && !isRoot) {
+            throw new RuntimeException("NESTED clause must be evaluated at top level");
+        }
+        if (node.children == null || node.children.isEmpty()) {
+            return;
+        }
+        for (QsNode child : node.children) {
+            validateNestedTopLevelOnly(child, false);
         }
     }
 
