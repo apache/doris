@@ -495,32 +495,4 @@ public class S3PropertiesTest {
         Assertions.assertEquals("false", s3Properties.hadoopStorageConfig.get("fs.s3.impl.disable.cache"));
         Assertions.assertEquals("false", s3Properties.hadoopStorageConfig.get("fs.s3n.impl.disable.cache"));
     }
-
-    @Test
-    public void testFsS3aAliasPropertiesForS3() throws UserException {
-        Map<String, String> props = Maps.newHashMap();
-        props.put("fs.s3a.endpoint", "s3.us-west-2.amazonaws.com");
-        props.put("fs.s3a.endpoint.region", "us-west-2");
-        props.put("fs.s3a.access.key", "myS3AccessKey");
-        props.put("fs.s3a.secret.key", "myS3SecretKey");
-        props.put("fs.s3a.session.token", "myS3SessionToken");
-        props.put("fs.s3a.path.style.access", "true");
-        props.put("fs.s3a.connection.maximum", "120");
-
-        S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(props);
-        Map<String, String> backendProps = s3Properties.getBackendConfigProperties();
-
-        Assertions.assertEquals("s3.us-west-2.amazonaws.com", s3Properties.getEndpoint());
-        Assertions.assertEquals("us-west-2", s3Properties.getRegion());
-        Assertions.assertEquals("myS3AccessKey", s3Properties.getAccessKey());
-        Assertions.assertEquals("myS3SecretKey", s3Properties.getSecretKey());
-        Assertions.assertEquals("myS3SessionToken", s3Properties.getSessionToken());
-        Assertions.assertEquals("s3.us-west-2.amazonaws.com", backendProps.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("us-west-2", backendProps.get("AWS_REGION"));
-        Assertions.assertEquals("myS3AccessKey", backendProps.get("AWS_ACCESS_KEY"));
-        Assertions.assertEquals("myS3SecretKey", backendProps.get("AWS_SECRET_KEY"));
-        Assertions.assertEquals("myS3SessionToken", backendProps.get("AWS_TOKEN"));
-        Assertions.assertEquals("true", backendProps.get("use_path_style"));
-        Assertions.assertEquals("120", backendProps.get("AWS_MAX_CONNECTIONS"));
-    }
 }

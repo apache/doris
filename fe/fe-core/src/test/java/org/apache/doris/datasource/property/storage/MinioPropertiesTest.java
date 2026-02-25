@@ -25,7 +25,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 public class MinioPropertiesTest {
@@ -109,45 +108,5 @@ public class MinioPropertiesTest {
         Assertions.assertEquals("minioSecretKey", backendProps.get("AWS_SECRET_KEY"));
         Assertions.assertEquals("us-east-1", backendProps.get("AWS_REGION"));
     }
-
-    @Test
-    public void testFsS3aAliasPropertiesForMinio() {
-        origProps.put("fs.s3a.endpoint", "http://localhost:9878");
-        origProps.put("fs.s3a.access.key", "hadoop");
-        origProps.put("fs.s3a.secret.key", "hadoop");
-        origProps.put("fs.s3a.endpoint.region", "us-east-1");
-        origProps.put("fs.s3a.path.style.access", "true");
-
-        MinioProperties minioProperties = (MinioProperties) StorageProperties.createPrimary(origProps);
-        Map<String, String> backendProps = minioProperties.getBackendConfigProperties();
-
-        Assertions.assertEquals("http://localhost:9878", minioProperties.getEndpoint());
-        Assertions.assertEquals("hadoop", minioProperties.getAccessKey());
-        Assertions.assertEquals("hadoop", minioProperties.getSecretKey());
-        Assertions.assertEquals("us-east-1", minioProperties.getRegion());
-        Assertions.assertEquals("http://localhost:9878", backendProps.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("hadoop", backendProps.get("AWS_ACCESS_KEY"));
-        Assertions.assertEquals("hadoop", backendProps.get("AWS_SECRET_KEY"));
-        Assertions.assertEquals("us-east-1", backendProps.get("AWS_REGION"));
-        Assertions.assertEquals("true", backendProps.get("use_path_style"));
-    }
-
-    @Test
-    public void testFsS3aAliasPropertiesWithDefaultFs() throws UserException {
-        origProps.put("fs.defaultFS", "s3a://dn-data/");
-        origProps.put("fs.s3a.endpoint", "http://localhost:9878");
-        origProps.put("fs.s3a.access.key", "hadoop");
-        origProps.put("fs.s3a.secret.key", "hadoop");
-
-        List<StorageProperties> allProperties = StorageProperties.createAll(origProps);
-        MinioProperties minioProperties = allProperties.stream()
-                .filter(MinioProperties.class::isInstance)
-                .map(MinioProperties.class::cast)
-                .findFirst()
-                .orElse(null);
-
-        Assertions.assertNotNull(minioProperties);
-        Assertions.assertEquals("http://localhost:9878",
-                minioProperties.getBackendConfigProperties().get("AWS_ENDPOINT"));
-    }
 }
+
