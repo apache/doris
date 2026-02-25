@@ -343,7 +343,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
                 "input_block: {}",
                 input_block.rows(), rows, input_block.dump_structure());
     }
-    auto insert_column_datas = [&](auto& to, vectorized::ColumnPtr& from, size_t rows) {
+    auto insert_column_datas = [&](auto& to, vectorized::ColumnPtr& from, size_t rows) -> Status {
         if (to->is_nullable() && !from->is_nullable()) {
             if (_keep_origin || !from->is_exclusive()) {
                 auto& null_column = reinterpret_cast<vectorized::ColumnNullable&>(*to);
@@ -353,6 +353,21 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
             } else {
                 to = make_nullable(from, false)->assume_mutable();
             }
+        } else if (!to->is_nullable() && from->is_nullable()) {
+            const auto* nullable_from =
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(from.get());
+            DCHECK(nullable_from != nullptr);
+            if (nullable_from->has_null(0, rows)) {
+                return Status::RuntimeError(
+                        "The dst column is not nullable, but src column contains null values.");
+            }
+
+            if (_keep_origin || !from->is_exclusive()) {
+                to->insert_range_from(nullable_from->get_nested_column(), 0, rows);
+                bytes_usage += nullable_from->get_nested_column().allocated_bytes();
+            } else {
+                to = vectorized::remove_nullable(from)->assume_mutable();
+            }
         } else {
             if (_keep_origin || !from->is_exclusive()) {
                 to->insert_range_from(*from, 0, rows);
@@ -361,6 +376,8 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
                 to = from->assume_mutable();
             }
         }
+
+        return Status::OK();
     };
 
     using namespace vectorized;
@@ -385,7 +402,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
             if (result_column_id >= origin_columns_count) {
                 bytes_usage += column_ptr->allocated_bytes();
             }
-            insert_column_datas(mutable_columns[i], column_ptr, rows);
+            RETURN_IF_ERROR(insert_column_datas(mutable_columns[i], column_ptr, rows));
         }
         DCHECK(mutable_block.rows() == rows);
         output_block->set_columns(std::move(mutable_columns));
