@@ -380,7 +380,7 @@ Status DistinctStreamingAggOperatorX::push(RuntimeState* state, vectorized::Bloc
             in_block, local_state._aggregated_block.get()));
     // set limit and reach limit
     if (_limit != -1 &&
-        (local_state._num_rows_returned + local_state._aggregated_block->rows()) > _limit) {
+        (local_state._num_rows_returned + local_state._aggregated_block->rows()) >= _limit) {
         auto limit_rows = _limit - local_state._num_rows_returned;
         local_state._aggregated_block->set_num_rows(limit_rows);
         local_state._reach_limit = true;
