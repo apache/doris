@@ -19,6 +19,7 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.datasource.hive.HiveMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.fs.FileSystemProvider;
 
 import java.util.concurrent.Executor;
@@ -32,5 +33,9 @@ public class TransactionManagerFactory {
 
     public static TransactionManager createIcebergTransactionManager(IcebergMetadataOps ops) {
         return new IcebergTransactionManager(ops);
+    }
+
+    public static TransactionManager createMCTransactionManager(MaxComputeExternalCatalog catalog) {
+        return new MCTransactionManager(catalog);
     }
 }

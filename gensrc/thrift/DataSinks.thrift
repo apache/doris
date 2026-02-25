@@ -43,6 +43,7 @@ enum TDataSinkType {
     DICTIONARY_SINK = 15,
     BLACKHOLE_SINK = 16,
     TVF_TABLE_SINK = 17,
+    MAXCOMPUTE_TABLE_SINK = 18,
 }
 
 enum TResultSinkType {
@@ -397,6 +398,15 @@ enum TFileContent {
     EQUALITY_DELETES = 2
 }
 
+struct TIcebergColumnStats {
+    1: optional map<i32, i64> column_sizes
+    2: optional map<i32, i64> value_counts
+    3: optional map<i32, i64> null_value_counts
+    4: optional map<i32, i64> nan_value_counts
+    5: optional map<i32, binary> lower_bounds;
+    6: optional map<i32, binary> upper_bounds;
+}
+
 struct TIcebergCommitData {
     1: optional string file_path
     2: optional i64 row_count
@@ -404,6 +414,7 @@ struct TIcebergCommitData {
     4: optional TFileContent file_content
     5: optional list<string> partition_values 
     6: optional list<string> referenced_data_files
+    7: optional TIcebergColumnStats column_stats
 }
 
 struct TSortField {
@@ -431,6 +442,7 @@ struct TIcebergTableSink {
     // Key: partition column name, Value: partition value as string
     // When set, BE should use these values directly instead of computing from data
     15: optional map<string, string> static_partition_values;
+    16: optional PlanNodes.TSortInfo sort_info;
 }
 
 enum TDictLayoutType {
@@ -476,6 +488,33 @@ struct TTVFTableSink {
     15: optional string writer_class          // Java class name (required when writer_type=JNI)
 }
 
+struct TMCCommitData {
+    1: optional string session_id
+    2: optional string partition_spec    // "key1=val1/key2=val2" format, empty for non-partitioned
+    3: optional list<i64> block_ids      // successfully written block IDs (legacy, unused with Storage API)
+    4: optional i64 row_count
+    5: optional i64 written_bytes
+    6: optional string commit_message    // Base64 serialized WriterCommitMessage from Storage API
+}
+
+struct TMaxComputeTableSink {
+    1: optional string session_id       // FE pre-created UploadSession ID (empty for dynamic partition)
+    2: optional string access_key
+    3: optional string secret_key
+    4: optional string endpoint
+    5: optional string project
+    6: optional string table_name
+    7: optional string quota
+    8: optional i64 block_id_start      // starting block_id for this fragment
+    9: optional i64 block_id_count      // number of block_ids available for this fragment
+    10: optional map<string, string> static_partition_spec  // static partition key-value pairs
+    11: optional i32 connect_timeout
+    12: optional i32 read_timeout
+    13: optional i32 retry_count
+    14: optional list<string> partition_columns  // partition column names for dynamic partition
+    15: optional string write_session_id          // Storage API write session ID
+}
+
 struct TDataSink {
   1: required TDataSinkType type
   2: optional TDataStreamSink stream_sink
@@ -493,4 +532,5 @@ struct TDataSink {
   15: optional TDictionarySink dictionary_sink
   16: optional TBlackholeSink blackhole_sink
   17: optional TTVFTableSink tvf_table_sink
+  18: optional TMaxComputeTableSink max_compute_table_sink
 }

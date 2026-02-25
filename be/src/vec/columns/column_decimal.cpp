@@ -170,7 +170,7 @@ void ColumnDecimal<T>::update_crc_with_value(size_t start, size_t end, uint32_t&
     if (null_data == nullptr) {
         for (size_t i = start; i < end; i++) {
             if constexpr (T != TYPE_DECIMALV2) {
-                hash = HashUtil::zlib_crc_hash(&data[i], sizeof(value_type), hash);
+                hash = HashUtil::zlib_crc32_fixed(data[i], hash);
             } else {
                 decimalv2_do_crc(i, hash);
             }
@@ -179,7 +179,7 @@ void ColumnDecimal<T>::update_crc_with_value(size_t start, size_t end, uint32_t&
         for (size_t i = start; i < end; i++) {
             if (null_data[i] == 0) {
                 if constexpr (T != TYPE_DECIMALV2) {
-                    hash = HashUtil::zlib_crc_hash(&data[i], sizeof(value_type), hash);
+                    hash = HashUtil::zlib_crc32_fixed(data[i], hash);
                 } else {
                     decimalv2_do_crc(i, hash);
                 }
@@ -198,12 +198,13 @@ void ColumnDecimal<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primi
     if constexpr (T != TYPE_DECIMALV2) {
         if (null_data == nullptr) {
             for (size_t i = 0; i < s; i++) {
-                hashes[i] = HashUtil::zlib_crc_hash(&data[i], sizeof(value_type), hashes[i]);
+                hashes[i] = HashUtil::zlib_crc32_fixed(data[i], hashes[i]);
             }
         } else {
             for (size_t i = 0; i < s; i++) {
-                if (null_data[i] == 0)
-                    hashes[i] = HashUtil::zlib_crc_hash(&data[i], sizeof(value_type), hashes[i]);
+                if (null_data[i] == 0) {
+                    hashes[i] = HashUtil::zlib_crc32_fixed(data[i], hashes[i]);
+                }
             }
         }
     } else {

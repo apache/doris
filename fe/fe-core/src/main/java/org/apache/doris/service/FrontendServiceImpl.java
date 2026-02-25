@@ -17,7 +17,6 @@
 
 package org.apache.doris.service;
 
-import org.apache.doris.analysis.AbstractBackupTableRefClause;
 import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.UserIdentity;
@@ -3179,9 +3178,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             properties.put(RestoreCommand.PROP_FORCE_REPLACE, "true");
         }
 
-        AbstractBackupTableRefClause restoreTableRefClause = null;
+        List<TableRefInfo> tableRefs = new ArrayList<>();
         if (request.isSetTableRefs()) {
-            List<TableRefInfo> tableRefs = new ArrayList<>();
             for (TTableRef tTableRef : request.getTableRefs()) {
                 tableRefs.add(new TableRefInfo(new TableNameInfo(tTableRef.getTable()),
                         null,
@@ -3191,11 +3189,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         tTableRef.getAliasName(),
                         null,
                         new ArrayList<>()));
-            }
-
-            if (tableRefs.size() > 0) {
-                boolean isExclude = false;
-                restoreTableRefClause = new AbstractBackupTableRefClause(isExclude, tableRefs);
             }
         }
 
@@ -3232,9 +3225,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         //instantiate RestoreCommand
         LabelNameInfo labelNameInfo = new LabelNameInfo(label.getDb(), label.getLabel());
-        List<TableRefInfo> tableRefInfos = restoreTableRefClause == null
-                ? new ArrayList<>() : restoreTableRefClause.getTableRefList();
-        RestoreCommand restoreCommand = new RestoreCommand(labelNameInfo, repoName, tableRefInfos, properties, false);
+        RestoreCommand restoreCommand = new RestoreCommand(labelNameInfo, repoName, tableRefs, properties, false);
         restoreCommand.setMeta(backupMeta);
         restoreCommand.setJobInfo(backupJobInfo);
         restoreCommand.setIsBeingSynced();

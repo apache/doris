@@ -578,7 +578,7 @@ public:
     vectorized::Block create_block(
             const std::vector<uint32_t>& return_columns,
             const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
-    vectorized::Block create_block(bool ignore_dropped_col = true) const;
+    vectorized::Block create_block() const;
     void set_schema_version(int32_t version) { _schema_version = version; }
     void set_auto_increment_column(const std::string& auto_increment_column) {
         _auto_increment_column = auto_increment_column;

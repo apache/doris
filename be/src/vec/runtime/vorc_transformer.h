@@ -83,7 +83,8 @@ public:
                     const VExprContextSPtrs& output_vexpr_ctxs, std::string schema,
                     std::vector<std::string> column_names, bool output_object_data,
                     TFileCompressType::type compression,
-                    const iceberg::Schema* iceberg_schema = nullptr);
+                    const iceberg::Schema* iceberg_schema = nullptr,
+                    std::shared_ptr<io::FileSystem> fs = nullptr);
 
     ~VOrcTransformer() = default;
 
@@ -94,6 +95,8 @@ public:
     Status close() override;
 
     int64_t written_len() override;
+
+    Status collect_file_statistics_after_close(TIcebergColumnStats* stats);
 
 private:
     void set_compression_type(const TFileCompressType::type& compress_type);
@@ -106,7 +109,12 @@ private:
     // so we need to resize the subtype of a complex type
     Status _resize_row_batch(const DataTypePtr& type, const IColumn& column,
                              orc::ColumnVectorBatch* orc_col_batch);
-
+    bool _collect_column_bounds(const orc::ColumnStatistics* col_stats, int32_t field_id,
+                                const DataTypePtr& data_type,
+                                std::map<int32_t, std::string>* lower_bounds,
+                                std::map<int32_t, std::string>* upper_bounds);
+    std::string _decimal_to_bytes(const orc::Decimal& decimal);
+    std::shared_ptr<io::FileSystem> _fs = nullptr;
     doris::io::FileWriter* _file_writer = nullptr;
     std::vector<std::string> _column_names;
     std::unique_ptr<orc::OutputStream> _output_stream;

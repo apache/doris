@@ -1870,10 +1870,10 @@ vectorized::Block TabletSchema::create_block(
     return block;
 }
 
-vectorized::Block TabletSchema::create_block(bool ignore_dropped_col) const {
+vectorized::Block TabletSchema::create_block() const {
     vectorized::Block block;
     for (const auto& col : _cols) {
-        if (ignore_dropped_col && is_dropped_column(*col)) {
+        if (is_dropped_column(*col)) {
             continue;
         }
 

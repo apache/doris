@@ -33,12 +33,14 @@
  * Before fix: search() returns empty (wrong reader selected)
  * After fix:  search() returns matching rows (correct FULLTEXT reader selected)
  */
-suite("test_search_variant_dual_index_reader") {
+suite("test_search_variant_dual_index_reader", "p0") {
     def tableName = "test_variant_dual_index_reader"
 
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
+    // Pin doc_mode to false to prevent CI flakiness from fuzzy testing.
+    sql """ set default_variant_enable_doc_mode = false """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 

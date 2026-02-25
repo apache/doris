@@ -30,8 +30,11 @@
  * Enable Lucene mode with options parameter (JSON format):
  *   search(dsl, '{"default_field":"title","default_operator":"and","mode":"lucene"}')
  */
-suite("test_search_lucene_mode") {
+suite("test_search_lucene_mode", "p0") {
     def tableName = "search_lucene_mode_test"
+
+    // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.
+    sql """ set enable_common_expr_pushdown = true """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 

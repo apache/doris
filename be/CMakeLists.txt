@@ -150,6 +150,17 @@ message(STATUS "build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}"
 option(BUILD_FILE_CACHE_LRU_TOOL "ON for building file cache lru tool or OFF for not" OFF)
 message(STATUS "build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}")
 
+option(ENABLE_PAIMON_CPP "Enable Paimon C++ integration" ON)
+set(PAIMON_HOME "" CACHE PATH "Paimon install prefix")
+
+# Allow env to override when reconfiguring (avoid picking /usr/local).
+if (DEFINED ENV{ENABLE_PAIMON_CPP})
+    set(ENABLE_PAIMON_CPP "$ENV{ENABLE_PAIMON_CPP}" CACHE BOOL "" FORCE)
+endif()
+if (DEFINED ENV{PAIMON_HOME} AND NOT PAIMON_HOME)
+    set(PAIMON_HOME "$ENV{PAIMON_HOME}" CACHE PATH "" FORCE)
+endif()
+
 set(CMAKE_SKIP_RPATH TRUE)
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_STATIC_RUNTIME ON)
@@ -550,6 +561,10 @@ set(COMMON_THIRDPARTY
     ${COMMON_THIRDPARTY}
 )
 
+if (ENABLE_PAIMON_CPP)
+    message(STATUS "Paimon C++ enabled: legacy thirdparty static linkage mode")
+endif()
+
 if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
     add_library(hadoop_hdfs STATIC IMPORTED)
     set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs_3_4/native/libhdfs.a)
@@ -577,6 +592,13 @@ endif()
 if (absl_FOUND)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
+        absl::cord
+        absl::cord_internal
+        absl::cordz_functions
+        absl::cordz_info
+        absl::cordz_update_scope
+        absl::cordz_update_tracker
+        absl::crc_cord_state
         absl::flags
         absl::random_random
         absl::spinlock_wait
@@ -602,6 +624,80 @@ if (BUILD_BENCHMARK)
     )
 endif()
 
+set(PAIMON_FACTORY_REGISTRY_LIBS)
+set(PAIMON_ARROW_CORE_LIB)
+set(PAIMON_ARROW_FILESYSTEM_LIB)
+set(PAIMON_ARROW_DATASET_LIB)
+set(PAIMON_ARROW_ACERO_LIB)
+if (ENABLE_PAIMON_CPP)
+    set(_paimon_arrow_core_candidates
+        ${THIRDPARTY_DIR}/paimon-cpp/lib64/paimon_deps/libarrow.a
+        ${THIRDPARTY_DIR}/lib64/libarrow.a
+        ${THIRDPARTY_DIR}/lib/libarrow.a
+    )
+    foreach(_paimon_arrow_core_candidate IN LISTS _paimon_arrow_core_candidates)
+        if (EXISTS "${_paimon_arrow_core_candidate}")
+            add_library(paimon_arrow_core STATIC IMPORTED)
+            set_target_properties(paimon_arrow_core PROPERTIES
+                IMPORTED_LOCATION ${_paimon_arrow_core_candidate})
+            set(PAIMON_ARROW_CORE_LIB paimon_arrow_core)
+            break()
+        endif()
+    endforeach()
+    set(_paimon_arrow_filesystem_candidates
+        ${THIRDPARTY_DIR}/paimon-cpp/lib64/paimon_deps/libarrow_filesystem.a
+        ${THIRDPARTY_DIR}/lib64/libarrow_filesystem.a
+        ${THIRDPARTY_DIR}/lib/libarrow_filesystem.a
+    )
+    foreach(_paimon_arrow_filesystem_candidate IN LISTS _paimon_arrow_filesystem_candidates)
+        if (EXISTS "${_paimon_arrow_filesystem_candidate}")
+            add_library(paimon_arrow_filesystem STATIC IMPORTED)
+            set_target_properties(paimon_arrow_filesystem PROPERTIES
+                IMPORTED_LOCATION ${_paimon_arrow_filesystem_candidate})
+            set(PAIMON_ARROW_FILESYSTEM_LIB paimon_arrow_filesystem)
+            break()
+        endif()
+    endforeach()
+    set(_paimon_arrow_dataset_candidates
+        ${THIRDPARTY_DIR}/paimon-cpp/lib64/paimon_deps/libarrow_dataset.a
+        ${THIRDPARTY_DIR}/lib64/libarrow_dataset.a
+        ${THIRDPARTY_DIR}/lib/libarrow_dataset.a
+    )
+    foreach(_paimon_arrow_dataset_candidate IN LISTS _paimon_arrow_dataset_candidates)
+        if (EXISTS "${_paimon_arrow_dataset_candidate}")
+            add_library(paimon_arrow_dataset STATIC IMPORTED)
+            set_target_properties(paimon_arrow_dataset PROPERTIES
+                IMPORTED_LOCATION ${_paimon_arrow_dataset_candidate})
+            set(PAIMON_ARROW_DATASET_LIB paimon_arrow_dataset)
+            break()
+        endif()
+    endforeach()
+    set(_paimon_arrow_acero_candidates
+        ${THIRDPARTY_DIR}/paimon-cpp/lib64/paimon_deps/libarrow_acero.a
+        ${THIRDPARTY_DIR}/lib64/libarrow_acero.a
+        ${THIRDPARTY_DIR}/lib/libarrow_acero.a
+    )
+    foreach(_paimon_arrow_acero_candidate IN LISTS _paimon_arrow_acero_candidates)
+        if (EXISTS "${_paimon_arrow_acero_candidate}")
+            add_library(paimon_arrow_acero STATIC IMPORTED)
+            set_target_properties(paimon_arrow_acero PROPERTIES
+                IMPORTED_LOCATION ${_paimon_arrow_acero_candidate})
+            set(PAIMON_ARROW_ACERO_LIB paimon_arrow_acero)
+            break()
+        endif()
+    endforeach()
+    if (PAIMON_ARROW_DATASET_LIB)
+        # paimon_parquet_file_format depends on Arrow Dataset symbols.
+        # Force-link it only when arrow_dataset is available.
+        set(PAIMON_FACTORY_REGISTRY_LIBS
+            paimon_parquet_file_format
+        )
+        list(REMOVE_ITEM COMMON_THIRDPARTY ${PAIMON_FACTORY_REGISTRY_LIBS})
+    else()
+        message(STATUS "Paimon C++: libarrow_dataset.a not found, keep paimon_parquet_file_format as regular static lib")
+    endif()
+endif()
+
 set(DORIS_DEPENDENCIES
     ${DORIS_DEPENDENCIES}
     ${WL_START_GROUP}
@@ -618,6 +714,34 @@ set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ic)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-core-static)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-shared-static)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-contribs-lib)
+
+if (ENABLE_PAIMON_CPP)
+    if (PAIMON_FACTORY_REGISTRY_LIBS)
+        set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
+            -Wl,--whole-archive
+            ${PAIMON_FACTORY_REGISTRY_LIBS}
+            -Wl,--no-whole-archive)
+    endif()
+    if (PAIMON_ARROW_CORE_LIB)
+        set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${PAIMON_ARROW_CORE_LIB})
+    endif()
+    if (PAIMON_ARROW_FILESYSTEM_LIB)
+        set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${PAIMON_ARROW_FILESYSTEM_LIB})
+    endif()
+    if (PAIMON_ARROW_DATASET_LIB)
+        set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${PAIMON_ARROW_DATASET_LIB})
+    endif()
+    if (PAIMON_ARROW_ACERO_LIB)
+        set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${PAIMON_ARROW_ACERO_LIB})
+    endif()
+
+    # paimon-cpp internal dependencies (renamed with _paimon suffix)
+    # These must come after paimon libraries to resolve symbols.
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} roaring_bitmap_paimon)
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} xxhash_paimon)
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} fmt_paimon)
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} tbb_paimon)
+endif()
 
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
 

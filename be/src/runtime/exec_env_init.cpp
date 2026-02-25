@@ -640,7 +640,7 @@ Status ExecEnv::init_mem_env() {
     _inverted_index_query_cache = InvertedIndexQueryCache::create_global_cache(
             inverted_index_query_cache_limit, config::inverted_index_query_cache_shards);
     LOG(INFO) << "Inverted index query match cache memory limit: "
-              << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
+              << PrettyPrinter::print(inverted_index_query_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
 
     // use memory limit
