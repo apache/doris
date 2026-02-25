@@ -18,7 +18,6 @@
 package org.apache.doris.fs;
 
 import org.apache.hadoop.metrics2.lib.DefaultMetricsSystem;
-
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -35,7 +34,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public class HadoopMetricsDisablerTest {
 
     @Test
-    public void testDefaultMetricsSystemHasINSTANCEField() throws Exception {
+    public void testDefaultMetricsSystemHasInstanceField() throws Exception {
         Object instance = DefaultMetricsSystem.class.getField("INSTANCE").get(null);
         Assertions.assertNotNull(instance, "DefaultMetricsSystem.INSTANCE should exist");
     }
