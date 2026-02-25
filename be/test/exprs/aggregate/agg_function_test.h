@@ -179,8 +179,11 @@ private:
 
                 agg_fn->create(place);
                 Defer defer([&]() { agg_fn->destroy(place); });
-                agg_fn->function()->deserialize_and_merge_from_column_range(
-                        place, *serialize_column, 0, block.rows() - 1, arena);
+
+                if (block.rows() != 0) {
+                    agg_fn->function()->deserialize_and_merge_from_column_range(
+                            place, *serialize_column, 0, block.rows() - 1, arena);
+                }
 
                 check_result(place);
             }
