@@ -102,9 +102,7 @@ Status VMCTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
 }
 
 std::map<std::string, std::string> VMCTableWriter::_build_base_writer_params() {
-    std::map<std::string, std::string> params;
-    if (_mc_sink.__isset.access_key) params["access_key"] = _mc_sink.access_key;
-    if (_mc_sink.__isset.secret_key) params["secret_key"] = _mc_sink.secret_key;
+    auto params = _mc_sink.properties;
     if (_mc_sink.__isset.endpoint) params["endpoint"] = _mc_sink.endpoint;
     if (_mc_sink.__isset.project) params["project"] = _mc_sink.project;
     if (_mc_sink.__isset.table_name) params["table"] = _mc_sink.table_name;

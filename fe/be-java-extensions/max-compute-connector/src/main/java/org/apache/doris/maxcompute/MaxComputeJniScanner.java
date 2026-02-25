@@ -86,7 +86,7 @@ public class MaxComputeJniScanner extends JniScanner {
     private TableBatchReadSession scan;
     public  String sessionId;
 
-    private String project; //final ???
+    private String project;
     private String table;
 
     private SplitReader<VectorSchemaRoot> currentSplitReader;
