@@ -565,6 +565,26 @@ public class Coordinator implements CoordInterface {
 
         this.idToBackend = Env.getCurrentSystemInfo().getBackendsByCurrentCluster();
 
+        // Log cluster info and groupCommitBackend for debugging NPE in PipelineExecContext
+        if (groupCommitBackend != null) {
+            String currentCluster = "unknown";
+            try {
+                if (ConnectContext.get() != null) {
+                    currentCluster = ConnectContext.get().getCloudCluster();
+                }
+            } catch (Exception e) {
+                LOG.debug("failed to get current cloud cluster for debug log", e);
+            }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("query {} prepare: currentCluster={}, idToBackend.size={}, idToBackend.keys={},"
+                                + " groupCommitBackend=[id={}, host={}, cluster={}], groupCommitBackendInMap={}",
+                        DebugUtil.printId(queryId), currentCluster, idToBackend.size(), idToBackend.keySet(),
+                        groupCommitBackend.getId(), groupCommitBackend.getHost(),
+                        groupCommitBackend.getCloudClusterName(),
+                        idToBackend.containsKey(groupCommitBackend.getId()));
+            }
+        }
+
         if (LOG.isDebugEnabled()) {
             int backendNum = idToBackend.size();
             StringBuilder backendInfos = new StringBuilder("backends info:");
@@ -835,6 +855,12 @@ public class Coordinator implements CoordInterface {
                 // So that we can use one RPC to send all fragment instances of a BE.
                 for (Map.Entry<TNetworkAddress, TPipelineFragmentParams> entry : tParams.entrySet()) {
                     Long backendId = this.addressToBackendID.get(entry.getKey());
+                    if (backendId == null) {
+                        LOG.warn("query {} sendPipelineCtx: addressToBackendID lookup returned null!"
+                                + " address={}, fragmentId={}, addressToBackendID={}",
+                                DebugUtil.printId(queryId), entry.getKey(),
+                                fragment.getFragmentId(), addressToBackendID);
+                    }
                     backendFragments.add(Pair.of(fragment.getFragmentId(), backendId));
                     PipelineExecContext pipelineExecContext = new PipelineExecContext(fragment.getFragmentId(),
                             entry.getValue(), idToBackend.get(backendId), executionProfile, jobId);

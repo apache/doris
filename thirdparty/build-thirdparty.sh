@@ -2028,6 +2028,21 @@ build_paimon_cpp() {
     # These libraries are built but not installed by default
     echo "Installing paimon-cpp internal dependencies..."
 
+    # Install paimon-cpp Arrow deps used by paimon parquet static libs.
+    # Keep them in an isolated directory to avoid clashing with Doris Arrow.
+    local paimon_deps_dir="${TP_INSTALL_DIR}/paimon-cpp/lib64/paimon_deps"
+    mkdir -p "${paimon_deps_dir}"
+    for paimon_arrow_dep in \
+        libarrow.a \
+        libarrow_filesystem.a \
+        libarrow_dataset.a \
+        libarrow_acero.a \
+        libparquet.a; do
+        if [ -f "arrow_ep-install/lib/${paimon_arrow_dep}" ]; then
+            cp -v "arrow_ep-install/lib/${paimon_arrow_dep}" "${paimon_deps_dir}/${paimon_arrow_dep}"
+        fi
+    done
+
     # Install roaring_bitmap, renamed to avoid conflict with Doris's croaringbitmap
     if [ -f "release/libroaring_bitmap.a" ]; then
         cp -v "release/libroaring_bitmap.a" "${TP_INSTALL_DIR}/lib64/libroaring_bitmap_paimon.a"
@@ -2259,6 +2274,9 @@ for package in "${packages[@]}"; do
         ${command}
         cd "${TP_DIR}"
         cleanup_package_source "${package}"
+        echo "debug after clean: ${package}"
+        df -h
+        du -sh "${TP_DIR}"
     fi
 done
 

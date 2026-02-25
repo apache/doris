@@ -20,10 +20,10 @@
 #include <gen_cpp/DataSinks_types.h>
 
 #include "io/fs/file_writer.h"
-#include "vec/columns/column.h"
 #include "vec/exec/format/table/iceberg/schema.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/runtime/vfile_format_transformer.h"
+#include "vec/sink/writer/iceberg/vpartition_writer_base.h"
 
 namespace doris {
 namespace io {
@@ -43,16 +43,8 @@ namespace vectorized {
 class Block;
 class VFileFormatTransformer;
 
-class VIcebergPartitionWriter {
+class VIcebergPartitionWriter : public IPartitionWriterBase {
 public:
-    struct WriteInfo {
-        std::string write_path;
-        std::string original_write_path;
-        std::string target_path;
-        TFileType::type file_type;
-        std::vector<TNetworkAddress> broker_addresses;
-    };
-
     VIcebergPartitionWriter(const TDataSink& t_sink, std::vector<std::string> partition_values,
                             const VExprContextSPtrs& write_output_expr_ctxs,
                             const doris::iceberg::Schema& schema,
@@ -63,24 +55,23 @@ public:
                             TFileCompressType::type compress_type,
                             const std::map<std::string, std::string>& hadoop_conf);
 
-    Status init_properties(ObjectPool* pool) { return Status::OK(); }
+    Status open(RuntimeState* state, RuntimeProfile* profile,
+                const RowDescriptor* row_desc) override;
 
-    Status open(RuntimeState* state, RuntimeProfile* profile);
+    Status write(vectorized::Block& block) override;
 
-    Status write(vectorized::Block& block);
+    Status close(const Status& status) override;
 
-    Status close(const Status& status);
+    inline const std::string& file_name() const override { return _file_name; }
 
-    inline const std::string& file_name() const { return _file_name; }
+    inline int file_name_index() const override { return _file_name_index; }
 
-    inline int file_name_index() const { return _file_name_index; }
-
-    inline size_t written_len() { return _file_format_transformer->written_len(); }
+    inline size_t written_len() const override { return _file_format_transformer->written_len(); }
 
 private:
     std::string _get_target_file_name();
 
-    TIcebergCommitData _build_iceberg_commit_data();
+    Status _build_iceberg_commit_data(TIcebergCommitData* commit_data);
 
     std::string _get_file_extension(TFileFormatType::type file_format_type,
                                     TFileCompressType::type write_compress_type);

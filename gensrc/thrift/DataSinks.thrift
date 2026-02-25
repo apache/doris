@@ -42,6 +42,7 @@ enum TDataSinkType {
     ICEBERG_TABLE_SINK = 14,
     DICTIONARY_SINK = 15,
     BLACKHOLE_SINK = 16,
+    TVF_TABLE_SINK = 17,
 }
 
 enum TResultSinkType {
@@ -396,6 +397,15 @@ enum TFileContent {
     EQUALITY_DELETES = 2
 }
 
+struct TIcebergColumnStats {
+    1: optional map<i32, i64> column_sizes
+    2: optional map<i32, i64> value_counts
+    3: optional map<i32, i64> null_value_counts
+    4: optional map<i32, i64> nan_value_counts
+    5: optional map<i32, binary> lower_bounds;
+    6: optional map<i32, binary> upper_bounds;
+}
+
 struct TIcebergCommitData {
     1: optional string file_path
     2: optional i64 row_count
@@ -403,6 +413,7 @@ struct TIcebergCommitData {
     4: optional TFileContent file_content
     5: optional list<string> partition_values 
     6: optional list<string> referenced_data_files
+    7: optional TIcebergColumnStats column_stats
 }
 
 struct TSortField {
@@ -430,6 +441,7 @@ struct TIcebergTableSink {
     // Key: partition column name, Value: partition value as string
     // When set, BE should use these values directly instead of computing from data
     15: optional map<string, string> static_partition_values;
+    16: optional PlanNodes.TSortInfo sort_info;
 }
 
 enum TDictLayoutType {
@@ -452,6 +464,29 @@ struct TDictionarySink {
 struct TBlackholeSink {
 }
 
+enum TTVFWriterType {
+    NATIVE = 0,
+    JNI = 1
+}
+
+struct TTVFTableSink {
+    1: optional string tvf_name              // "local", "s3", "hdfs"
+    2: optional string file_path
+    3: optional PlanNodes.TFileFormatType file_format
+    4: optional Types.TFileType file_type // FILE_LOCAL, FILE_S3, FILE_HDFS
+    5: optional map<string, string> properties
+    6: optional list<Descriptors.TColumn> columns
+    7: optional string column_separator
+    8: optional string line_delimiter
+    9: optional i64 max_file_size_bytes
+    10: optional bool delete_existing_files
+    11: optional map<string, string> hadoop_config
+    12: optional PlanNodes.TFileCompressType compression_type
+    13: optional i64 backend_id              // local TVF: specify BE
+    14: optional TTVFWriterType writer_type   // NATIVE or JNI
+    15: optional string writer_class          // Java class name (required when writer_type=JNI)
+}
+
 struct TDataSink {
   1: required TDataSinkType type
   2: optional TDataStreamSink stream_sink
@@ -468,4 +503,5 @@ struct TDataSink {
   14: optional TIcebergTableSink iceberg_table_sink
   15: optional TDictionarySink dictionary_sink
   16: optional TBlackholeSink blackhole_sink
+  17: optional TTVFTableSink tvf_table_sink
 }
