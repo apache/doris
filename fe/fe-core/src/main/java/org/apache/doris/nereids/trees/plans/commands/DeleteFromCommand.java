@@ -175,7 +175,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
                         logicalQuery, Optional.empty()).run(ctx, executor);
                 return;
             } catch (Exception e2) {
-                LOG.warn("delete from command failed, e1", e);
+                LOG.warn("delete from command failed, previous exception", e);
                 throw e2; // we should throw the using command exception
             }
         }
