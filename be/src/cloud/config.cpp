@@ -161,6 +161,10 @@ DEFINE_mDouble(compaction_rw_separation_version_threshold_ratio, "0.8");
 
 DEFINE_mBool(enable_cache_read_from_peer, "true");
 
+// Rate limit for warmup download in bytes per second, default 100MB/s
+// <= 0 means no limit
+DEFINE_mInt64(file_cache_warmup_download_rate_limit_bytes_per_second, "104857600");
+
 // Cache the expiration time of the peer address.
 // This can be configured to be less than the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration.
 // If the value is -1, use the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration as the expiration time.

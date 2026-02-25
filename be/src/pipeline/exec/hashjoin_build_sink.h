@@ -148,6 +148,10 @@ public:
         return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
                _join_distribution == TJoinDistributionType::COLOCATE;
     }
+    bool followed_by_shuffled_operator() const override {
+        return (is_shuffled_operator() && !is_colocated_operator()) ||
+               _followed_by_shuffled_operator;
+    }
     std::vector<bool>& is_null_safe_eq_join() { return _is_null_safe_eq_join; }
 
     bool allow_left_semi_direct_return(RuntimeState* state) const {

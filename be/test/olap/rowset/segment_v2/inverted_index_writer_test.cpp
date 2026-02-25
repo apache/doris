@@ -306,6 +306,125 @@ public:
         return fmt::format("{}/{}_{}.dat", base, rowset_id, seg_id);
     }
 
+    // Check if .nrm file exists in the inverted index
+    // Norms files store normalization factors for scoring, typically created when field is tokenized
+    bool check_norms_file_exists(const std::string& index_prefix, const TabletIndex* index_meta) {
+        try {
+            std::unique_ptr<IndexFileReader> reader = std::make_unique<IndexFileReader>(
+                    io::global_local_filesystem(), index_prefix, InvertedIndexStorageFormatPB::V2);
+            auto st = reader->init();
+            EXPECT_TRUE(st.ok());
+            auto result = reader->open(index_meta);
+            EXPECT_TRUE(result.has_value());
+            auto compound_reader = std::move(result.value());
+
+            CLuceneError err;
+            CL_NS(store)::IndexInput* index_input = nullptr;
+            std::string file_str = InvertedIndexDescriptor::get_index_file_path_v2(index_prefix);
+            auto ok = DorisFSDirectory::FSIndexInput::open(
+                    io::global_local_filesystem(), file_str.c_str(), index_input, err, 4096);
+            EXPECT_TRUE(ok);
+
+            // Try to open the index reader to list all files
+            lucene::store::Directory* dir = compound_reader.get();
+            lucene::index::IndexReader* r = lucene::index::IndexReader::open(dir);
+
+            // Get the list of files in the directory
+            std::vector<std::string> files;
+            dir->list(&files);
+            bool norms_found = false;
+
+            for (const auto& file_name : files) {
+                // .nrm files are the norms data files in Lucene
+                // They have pattern: _N.nrm where N is a number (field number)
+                if (file_name.find(".nrm") != std::string::npos) {
+                    norms_found = true;
+                }
+            }
+
+            r->close();
+            _CLLDELETE(r);
+            index_input->close();
+            _CLLDELETE(index_input);
+
+            return norms_found;
+        } catch (const CLuceneError& e) {
+            std::cout << "Error checking norms file: " << e.what() << std::endl;
+            return false;
+        } catch (const std::exception& e) {
+            std::cout << "Exception checking norms file: " << e.what() << std::endl;
+            return false;
+        }
+    }
+
+    // Helper method to create an inverted index with tokenization enabled
+    void create_tokenized_index(std::string_view rowset_id, int seg_id, bool enable_analyzer) {
+        auto tablet_schema = create_schema();
+
+        // Create index meta with tokenization setting
+        auto index_meta_pb = std::make_unique<TabletIndexPB>();
+        index_meta_pb->set_index_type(IndexType::INVERTED);
+        index_meta_pb->set_index_id(1);
+        index_meta_pb->set_index_name("test");
+        index_meta_pb->clear_col_unique_id();
+        index_meta_pb->add_col_unique_id(1); // c2 column id
+
+        // Add parser type property to control tokenization
+        // should_analyzer returns true if:
+        // 1. analyzer or normalizer property is not empty, OR
+        // 2. parser type is not UNKNOWN and not NONE
+        auto* properties = index_meta_pb->mutable_properties();
+        if (enable_analyzer) {
+            // Enable tokenization by setting parser to standard
+            // This will make should_analyzer() return true
+            (*properties)["parser"] = "standard";
+        }
+
+        TabletIndex idx_meta;
+        idx_meta.init_from_pb(*index_meta_pb.get());
+
+        std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+                local_segment_path(kTestDir, rowset_id, seg_id))};
+        std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+
+        io::FileWriterPtr file_writer;
+        io::FileWriterOptions opts;
+        auto fs = io::global_local_filesystem();
+        Status sts = fs->create_file(index_path, &file_writer, &opts);
+        ASSERT_TRUE(sts.ok()) << sts;
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
+                fs, index_path_prefix, std::string {rowset_id}, seg_id,
+                InvertedIndexStorageFormatPB::V2, std::move(file_writer));
+
+        // Get field for column c2
+        const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
+        ASSERT_NE(&column, nullptr);
+        std::unique_ptr<Field> field(FieldFactory::create(column));
+        ASSERT_NE(field.get(), nullptr);
+
+        // Create column writer
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), &idx_meta);
+        EXPECT_TRUE(status.ok()) << status;
+
+        // Add some string values
+        std::vector<Slice> values = {Slice("hello world"), Slice("testing value"),
+                                     Slice("sample data")};
+
+        status = column_writer->add_values("c2", values.data(), values.size());
+        EXPECT_TRUE(status.ok()) << status;
+
+        // Finish and close
+        status = column_writer->finish();
+        EXPECT_TRUE(status.ok()) << status;
+
+        status = index_file_writer->begin_close();
+        EXPECT_TRUE(status.ok()) << status;
+        status = index_file_writer->finish_close();
+        EXPECT_TRUE(status.ok()) << status;
+    }
+
     void test_string_write(std::string_view rowset_id, int seg_id) {
         auto tablet_schema = create_schema();
 
@@ -1425,6 +1544,72 @@ TEST_F(InvertedIndexWriterTest, FileCreationAndOutputErrorHandling) {
     status = column_writer->finish();
     // The finish might succeed or fail depending on implementation,
     // but it should not crash
+}
+
+// Test case to verify .nrm file creation behavior with different tokenization settings
+// This test verifies the change in inverted_index_writer.cpp lines 165-171
+// where .nrm file is only created when field requires tokenization (_should_analyzer == true)
+TEST_F(InvertedIndexWriterTest, NormsFileCreationWithTokenization) {
+    // Test case 1: Create index with tokenization enabled (parser = "standard")
+    // This should make _should_analyzer = true, and setOmitNorms(false) will be called
+    // which should create .nrm file
+    create_tokenized_index("test_with_analyzer", 0, true);
+
+    auto tablet_schema = create_schema();
+    auto index_meta_pb = std::make_unique<TabletIndexPB>();
+    index_meta_pb->set_index_type(IndexType::INVERTED);
+    index_meta_pb->set_index_id(1);
+    index_meta_pb->set_index_name("test");
+    index_meta_pb->clear_col_unique_id();
+    index_meta_pb->add_col_unique_id(1); // c2 column id
+
+    // Match the parser setting from create_tokenized_index(true)
+    auto* properties = index_meta_pb->mutable_properties();
+    (*properties)["parser"] = "standard";
+
+    TabletIndex idx_meta_with_analyzer;
+    idx_meta_with_analyzer.init_from_pb(*index_meta_pb.get());
+
+    std::string index_path_prefix_with_analyzer {
+            InvertedIndexDescriptor::get_index_file_path_prefix(
+                    local_segment_path(kTestDir, "test_with_analyzer", 0))};
+
+    // Check if .nrm file exists for tokenized index
+    bool norms_exists_tokenized =
+            check_norms_file_exists(index_path_prefix_with_analyzer, &idx_meta_with_analyzer);
+    // When _should_analyzer == true, setOmitNorms(false) is called, so .nrm should be created
+    EXPECT_TRUE(norms_exists_tokenized)
+            << "Expected .nrm file to exist when tokenization is enabled (parser=standard) "
+            << "because setOmitNorms(false) should be called";
+
+    // Test case 2: Create index with tokenization disabled (parser = "none")
+    // This should make _should_analyzer = false, and setOmitNorms(false) will NOT be called
+    // which means .nrm file should NOT be created (or setOmitNorms defaults to true)
+    create_tokenized_index("test_without_analyzer", 1, false);
+
+    auto index_meta_pb2 = std::make_unique<TabletIndexPB>();
+    index_meta_pb2->set_index_type(IndexType::INVERTED);
+    index_meta_pb2->set_index_id(1);
+    index_meta_pb2->set_index_name("test");
+    index_meta_pb2->clear_col_unique_id();
+    index_meta_pb2->add_col_unique_id(1); // c2 column id
+
+    TabletIndex idx_meta_without_analyzer;
+    idx_meta_without_analyzer.init_from_pb(*index_meta_pb2.get());
+
+    std::string index_path_prefix_without_analyzer {
+            InvertedIndexDescriptor::get_index_file_path_prefix(
+                    local_segment_path(kTestDir, "test_without_analyzer", 1))};
+
+    // Check if .nrm file exists for untokenized index
+    bool norms_exists_untokenized =
+            check_norms_file_exists(index_path_prefix_without_analyzer, &idx_meta_without_analyzer);
+    // When _should_analyzer == false, setOmitNorms(false) is NOT called
+    // This validates the fix: .nrm file should not be created for untokenized fields
+    EXPECT_FALSE(norms_exists_untokenized)
+            << "Expected .nrm file to NOT exist when tokenization is disabled (parser=none) "
+            << "because setOmitNorms(false) is not called. This validates the fix in "
+            << "inverted_index_writer.cpp where .nrm file creation depends on _should_analyzer.";
 }
 
 } // namespace doris::segment_v2

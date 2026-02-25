@@ -1148,7 +1148,7 @@ DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mInt32(variant_max_json_key_length, "255");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
 DEFINE_mBool(enable_vertical_compact_variant_subcolumns, "true");
-DEFINE_mBool(enable_variant_doc_compaction_sparse_write, "true");
+DEFINE_mBool(enable_variant_doc_sparse_write_subcolumns, "true");
 
 DEFINE_Validator(variant_max_json_key_length,
                  [](const int config) -> bool { return config > 0 && config <= 65535; });
@@ -1719,6 +1719,8 @@ DEFINE_String(test_s3_prefix, "prefix");
 
 std::map<std::string, Register::Field>* Register::_s_field_map = nullptr;
 std::map<std::string, std::function<bool()>>* RegisterConfValidator::_s_field_validator = nullptr;
+std::map<std::string, RegisterConfUpdateCallback::CallbackFunc>*
+        RegisterConfUpdateCallback::_s_field_update_callback = nullptr;
 std::map<std::string, std::string>* full_conf_map = nullptr;
 
 std::mutex custom_conf_lock;
@@ -2076,6 +2078,13 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         }                                                                                          \
         if (PERSIST) {                                                                             \
             RETURN_IF_ERROR(persist_config(std::string((FIELD).name), VALUE));                     \
+        }                                                                                          \
+        if (RegisterConfUpdateCallback::_s_field_update_callback != nullptr) {                     \
+            auto callback_it =                                                                     \
+                    RegisterConfUpdateCallback::_s_field_update_callback->find((FIELD).name);      \
+            if (callback_it != RegisterConfUpdateCallback::_s_field_update_callback->end()) {      \
+                callback_it->second(&old_value, &new_value);                                       \
+            }                                                                                      \
         }                                                                                          \
         update_config(std::string((FIELD).name), VALUE);                                           \
         return Status::OK();                                                                       \

@@ -760,6 +760,7 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
         }
     } break;
     case PStreamHeader::CLOSE_LOAD: {
+        DBUG_EXECUTE_IF("LoadStream.close_load.block", DBUG_BLOCK);
         std::vector<int64_t> success_tablet_ids;
         FailedTablets failed_tablets;
         std::vector<PTabletID> tablets_to_commit(hdr.tablets().begin(), hdr.tablets().end());

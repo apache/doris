@@ -37,6 +37,8 @@ import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -46,7 +48,9 @@ import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
+import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.analyzer.UnboundTVFTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -77,11 +81,13 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
@@ -106,6 +112,8 @@ import com.google.common.collect.Sets;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Table;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -119,6 +127,8 @@ import java.util.stream.Collectors;
  * bind an unbound logicalTableSink represent the target table of an insert command
  */
 public class BindSink implements AnalysisRuleFactory {
+    private static final Logger LOG = LogManager.getLogger(BindSink.class);
+
     public boolean needTruncateStringWhenInsert;
 
     public BindSink() {
@@ -151,10 +161,13 @@ public class BindSink implements AnalysisRuleFactory {
                 RuleType.BINDING_INSERT_HIVE_TABLE.build(unboundHiveTableSink().thenApply(this::bindHiveTableSink)),
                 RuleType.BINDING_INSERT_ICEBERG_TABLE.build(
                     unboundIcebergTableSink().thenApply(this::bindIcebergTableSink)),
+                RuleType.BINDING_INSERT_MAX_COMPUTE_TABLE.build(
+                    unboundMaxComputeTableSink().thenApply(this::bindMaxComputeTableSink)),
                 RuleType.BINDING_INSERT_JDBC_TABLE.build(unboundJdbcTableSink().thenApply(this::bindJdbcTableSink)),
                 RuleType.BINDING_INSERT_DICTIONARY_TABLE
                         .build(unboundDictionarySink().thenApply(this::bindDictionarySink)),
-                RuleType.BINDING_INSERT_BLACKHOLE_SINK.build(unboundBlackholeSink().thenApply(this::bindBlackHoleSink))
+                RuleType.BINDING_INSERT_BLACKHOLE_SINK.build(unboundBlackholeSink().thenApply(this::bindBlackHoleSink)),
+                RuleType.BINDING_INSERT_TVF_TABLE.build(unboundTVFTableSink().thenApply(this::bindTVFTableSink))
                 );
     }
 
@@ -556,6 +569,78 @@ public class BindSink implements AnalysisRuleFactory {
         return boundSink;
     }
 
+    private Plan bindTVFTableSink(MatchingContext<UnboundTVFTableSink<Plan>> ctx) {
+        UnboundTVFTableSink<?> sink = ctx.root;
+        String tvfName = sink.getTvfName().toLowerCase();
+        Map<String, String> properties = sink.getProperties();
+
+        // Validate tvfName
+        if (!tvfName.equals("local") && !tvfName.equals("s3") && !tvfName.equals("hdfs")) {
+            throw new AnalysisException(
+                    "INSERT INTO TVF only supports local/s3/hdfs, but got: " + tvfName);
+        }
+
+        // Validate required properties
+        if (!properties.containsKey("file_path")) {
+            throw new AnalysisException("TVF sink requires 'file_path' property");
+        }
+        if (!properties.containsKey("format")) {
+            throw new AnalysisException("TVF sink requires 'format' property");
+        }
+        if (tvfName.equals("local") && !properties.containsKey("backend_id")) {
+            throw new AnalysisException("local TVF sink requires 'backend_id' property");
+        }
+
+        // Validate file_path must not contain wildcards
+        String filePath = properties.get("file_path");
+        if (filePath.contains("*") || filePath.contains("?") || filePath.contains("[")) {
+            throw new AnalysisException(
+                    "TVF sink file_path must not contain wildcards: " + filePath);
+        }
+
+        // local TVF does not support delete_existing_files=true
+        boolean deleteExisting = Boolean.parseBoolean(
+                properties.getOrDefault("delete_existing_files", "false"));
+        if (tvfName.equals("local") && deleteExisting) {
+            throw new AnalysisException(
+                    "delete_existing_files=true is not supported for local TVF");
+        }
+
+        LogicalPlan child = ((LogicalPlan) sink.child());
+
+        // Always derive schema from child query output
+        List<Column> cols = child.getOutput().stream()
+                .map(slot -> new Column(slot.getName(), slot.getDataType().toCatalogDataType()))
+                .collect(ImmutableList.toImmutableList());
+
+        // Validate column count
+        if (cols.size() != child.getOutput().size()) {
+            throw new AnalysisException(
+                    "insert into cols should be corresponding to the query output"
+                            + ", target columns: " + cols.size()
+                            + ", query output: " + child.getOutput().size());
+        }
+
+        // Build columnToOutput mapping and reuse getOutputProjectByCoercion for type cast,
+        // same as OlapTable INSERT INTO.
+        Map<String, NamedExpression> columnToOutput = Maps.newLinkedHashMap();
+        for (int i = 0; i < cols.size(); i++) {
+            Column col = cols.get(i);
+            NamedExpression childExpr = (NamedExpression) child.getOutput().get(i);
+            Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
+                    childExpr, DataType.fromCatalogType(col.getType())), col.getName());
+            columnToOutput.put(col.getName(), output);
+        }
+        LogicalProject<?> projectWithCast = getOutputProjectByCoercion(cols, child, columnToOutput);
+
+        List<NamedExpression> outputExprs = projectWithCast.getOutput().stream()
+                .map(NamedExpression.class::cast)
+                .collect(ImmutableList.toImmutableList());
+
+        return new LogicalTVFTableSink<>(tvfName, properties, cols, outputExprs,
+                Optional.empty(), Optional.empty(), projectWithCast);
+    }
+
     private Plan bindHiveTableSink(MatchingContext<UnboundHiveTableSink<Plan>> ctx) {
         UnboundHiveTableSink<?> sink = ctx.root;
         Pair<HMSExternalDatabase, HMSExternalTable> pair = bind(ctx.cascadesContext, sink);
@@ -737,6 +822,53 @@ public class BindSink implements AnalysisRuleFactory {
         }
     }
 
+    private Plan bindMaxComputeTableSink(MatchingContext<UnboundMaxComputeTableSink<Plan>> ctx) {
+        UnboundMaxComputeTableSink<?> sink = ctx.root;
+        Pair<MaxComputeExternalDatabase, MaxComputeExternalTable> pair = bind(ctx.cascadesContext, sink);
+        MaxComputeExternalDatabase database = pair.first;
+        MaxComputeExternalTable table = pair.second;
+        LogicalPlan child = ((LogicalPlan) sink.child());
+
+        Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
+        Set<String> staticPartitionColNames = staticPartitions != null
+                ? staticPartitions.keySet()
+                : Sets.newHashSet();
+
+        List<Column> bindColumns;
+        if (sink.getColNames().isEmpty()) {
+            bindColumns = table.getBaseSchema(true).stream()
+                    .filter(col -> !staticPartitionColNames.contains(col.getName()))
+                    .collect(ImmutableList.toImmutableList());
+        } else {
+            bindColumns = sink.getColNames().stream().map(cn -> {
+                Column column = table.getColumn(cn);
+                if (column == null) {
+                    throw new AnalysisException(String.format("column %s is not found in table %s",
+                            cn, table.getName()));
+                }
+                return column;
+            }).collect(ImmutableList.toImmutableList());
+        }
+        LogicalMaxComputeTableSink<?> boundSink = new LogicalMaxComputeTableSink<>(
+                database,
+                table,
+                bindColumns,
+                child.getOutput().stream()
+                        .map(NamedExpression.class::cast)
+                        .collect(ImmutableList.toImmutableList()),
+                sink.getDMLCommandType(),
+                Optional.empty(),
+                Optional.empty(),
+                child);
+        if (boundSink.getCols().size() != child.getOutput().size()) {
+            throw new AnalysisException("insert into cols should be corresponding to the query output");
+        }
+        Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false,
+                boundSink, child);
+        LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
+        return boundSink.withChildAndUpdateOutput(fullOutputProject);
+    }
+
     private Plan bindJdbcTableSink(MatchingContext<UnboundJdbcTableSink<Plan>> ctx) {
         UnboundJdbcTableSink<?> sink = ctx.root;
         Pair<JdbcExternalDatabase, JdbcExternalTable> pair = bind(ctx.cascadesContext, sink);
@@ -897,6 +1029,18 @@ public class BindSink implements AnalysisRuleFactory {
             return Pair.of(((IcebergExternalDatabase) pair.first), (IcebergExternalTable) pair.second);
         }
         throw new AnalysisException("the target table of insert into is not an iceberg table");
+    }
+
+    private Pair<MaxComputeExternalDatabase, MaxComputeExternalTable> bind(CascadesContext cascadesContext,
+            UnboundMaxComputeTableSink<? extends Plan> sink) {
+        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
+                sink.getNameParts());
+        Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
+                cascadesContext.getConnectContext().getEnv(), Optional.empty());
+        if (pair.second instanceof MaxComputeExternalTable) {
+            return Pair.of(((MaxComputeExternalDatabase) pair.first), (MaxComputeExternalTable) pair.second);
+        }
+        throw new AnalysisException("the target table of insert into is not a MaxCompute table");
     }
 
     private Pair<JdbcExternalDatabase, JdbcExternalTable> bind(CascadesContext cascadesContext,

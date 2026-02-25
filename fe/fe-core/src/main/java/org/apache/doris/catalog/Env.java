@@ -6245,6 +6245,8 @@ public class Env {
                 }
 
                 defaultDistributionInfo.setBucketNum(bucketNum);
+                defaultDistributionInfo.setAutoBucket(distributionInfo.getAutoBucket());
+                olapTable.setIsAutoBucket(distributionInfo.getAutoBucket());
 
                 ModifyTableDefaultDistributionBucketNumOperationLog info
                         = new ModifyTableDefaultDistributionBucketNumOperationLog(db.getId(), olapTable.getId(),
@@ -6270,6 +6272,8 @@ public class Env {
         try {
             DistributionInfo defaultDistributionInfo = olapTable.getDefaultDistributionInfo();
             defaultDistributionInfo.setBucketNum(bucketNum);
+            defaultDistributionInfo.setAutoBucket(info.getAutoBucket());
+            olapTable.setIsAutoBucket(info.getAutoBucket());
         } finally {
             olapTable.writeUnlock();
         }

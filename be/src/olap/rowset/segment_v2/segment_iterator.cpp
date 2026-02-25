@@ -2083,8 +2083,19 @@ Status SegmentIterator::_output_non_pred_columns(vectorized::Block* block) {
     RETURN_IF_ERROR(_convert_to_expected_type(_non_predicate_columns));
     for (auto cid : _non_predicate_columns) {
         auto loc = _schema_block_id_map[cid];
-        // if loc > block->columns() means the column is delete column and should
-        // not output by block, so just skip the column.
+        // Whether a delete predicate column gets output depends on how the caller builds
+        // the block passed to next_batch(). Both calling paths now build the block with
+        // only the output schema (return_columns), so delete predicate columns are skipped:
+        //
+        // 1) VMergeIterator path: block_reset() builds _block using the output schema
+        //    (return_columns only), e.g. block has 2 columns {c1, c2}.
+        //    Here loc=2 for delete predicate c3, block->columns()=2, so loc < block->columns()
+        //    is false, and c3 is skipped.
+        //
+        // 2) VUnionIterator path: the caller's block is built with only return_columns
+        //    (output schema), e.g. block has 2 columns {c1, c2}.
+        //    Here loc=2 for c3, block->columns()=2, so loc < block->columns() is false,
+        //    and c3 is skipped — same behavior as the VMergeIterator path.
         if (loc < block->columns()) {
             bool column_in_block_is_nothing =
                     vectorized::check_and_get_column<const vectorized::ColumnNothing>(
@@ -2676,16 +2687,19 @@ Status SegmentIterator::_check_output_block(vectorized::Block* block) {
                     idx, block->columns(), _schema->num_column_ids(), _virtual_column_exprs.size());
         } else if (vectorized::check_and_get_column<vectorized::ColumnNothing>(
                            entry.column.get())) {
-            std::vector<std::string> vcid_to_idx;
-            for (const auto& pair : _vir_cid_to_idx_in_block) {
-                vcid_to_idx.push_back(fmt::format("{}-{}", pair.first, pair.second));
+            if (rows > 0) {
+                std::vector<std::string> vcid_to_idx;
+                for (const auto& pair : _vir_cid_to_idx_in_block) {
+                    vcid_to_idx.push_back(fmt::format("{}-{}", pair.first, pair.second));
+                }
+                std::string vir_cid_to_idx_in_block_msg =
+                        fmt::format("_vir_cid_to_idx_in_block:[{}]", fmt::join(vcid_to_idx, ","));
+                return Status::InternalError(
+                        "Column in idx {} is nothing, block columns {}, normal_columns {}, "
+                        "vir_cid_to_idx_in_block_msg {}",
+                        idx, block->columns(), _schema->num_column_ids(),
+                        vir_cid_to_idx_in_block_msg);
             }
-            std::string vir_cid_to_idx_in_block_msg =
-                    fmt::format("_vir_cid_to_idx_in_block:[{}]", fmt::join(vcid_to_idx, ","));
-            return Status::InternalError(
-                    "Column in idx {} is nothing, block columns {}, normal_columns {}, "
-                    "vir_cid_to_idx_in_block_msg {}",
-                    idx, block->columns(), _schema->num_column_ids(), vir_cid_to_idx_in_block_msg);
         } else if (entry.column->size() != rows) {
             return Status::InternalError(
                     "Unmatched size {}, expected {}, column: {}, type: {}, idx_in_block: {}, "
@@ -3144,6 +3158,12 @@ void SegmentIterator::_prepare_score_column_materialization() {
         return;
     }
 
+    ScoreRangeFilterPtr filter;
+    if (_score_runtime->has_score_range_filter()) {
+        const auto& range_info = _score_runtime->get_score_range_info();
+        filter = std::make_shared<ScoreRangeFilter>(range_info->op, range_info->threshold);
+    }
+
     vectorized::IColumn::MutablePtr result_column;
     auto result_row_ids = std::make_unique<std::vector<uint64_t>>();
     if (_score_runtime->get_limit() > 0 && _col_predicates.empty() &&
@@ -3151,10 +3171,10 @@ void SegmentIterator::_prepare_score_column_materialization() {
         OrderType order_type = _score_runtime->is_asc() ? OrderType::ASC : OrderType::DESC;
         _index_query_context->collection_similarity->get_topn_bm25_scores(
                 &_row_bitmap, result_column, result_row_ids, order_type,
-                _score_runtime->get_limit());
+                _score_runtime->get_limit(), filter);
     } else {
         _index_query_context->collection_similarity->get_bm25_scores(&_row_bitmap, result_column,
-                                                                     result_row_ids);
+                                                                     result_row_ids, filter);
     }
     const size_t dst_col_idx = _score_runtime->get_dest_column_idx();
     auto* column_iter = _column_iterators[_schema->column_id(dst_col_idx)].get();
