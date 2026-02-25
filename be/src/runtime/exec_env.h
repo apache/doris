@@ -330,7 +330,8 @@ public:
     void set_storage_engine(std::unique_ptr<BaseStorageEngine>&& engine);
     void set_inverted_index_searcher_cache(
             segment_v2::InvertedIndexSearcherCache* inverted_index_searcher_cache);
-    void set_inverted_index_query_cache(segment_v2::InvertedIndexQueryCache* inverted_index_query_cache) {
+    void set_inverted_index_query_cache(
+            segment_v2::InvertedIndexQueryCache* inverted_index_query_cache) {
         _inverted_index_query_cache = inverted_index_query_cache;
     }
     void set_cache_manager(CacheManager* cm) { this->_cache_manager = cm; }

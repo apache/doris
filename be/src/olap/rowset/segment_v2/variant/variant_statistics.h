@@ -69,7 +69,9 @@ struct VariantStatistics {
     }
 
     bool has_sparse_column_non_null_size() const { return !sparse_column_non_null_size.empty(); }
-    bool has_doc_value_column_non_null_size() const { return !doc_value_column_non_null_size.empty(); }
+    bool has_doc_value_column_non_null_size() const {
+        return !doc_value_column_non_null_size.empty();
+    }
 
     bool existed_in_sparse_column(const std::string& relative_path) const {
         return sparse_column_non_null_size.contains(relative_path);

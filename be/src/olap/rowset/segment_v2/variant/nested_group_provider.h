@@ -120,8 +120,8 @@ struct NestedGroupPathMatch {
 };
 
 // Shared resolver for nested-group path matching used by both reader and provider.
-NestedGroupPathMatch find_in_nested_groups(const NestedGroupReaders& readers, const std::string& path,
-                                           bool collect_chain);
+NestedGroupPathMatch find_in_nested_groups(const NestedGroupReaders& readers,
+                                           const std::string& path, bool collect_chain);
 
 // --------------------------------------------------------------------------
 // Write provider

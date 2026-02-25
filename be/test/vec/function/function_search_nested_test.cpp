@@ -76,8 +76,11 @@ TEST_F(FunctionSearchNestedTest, NestedClauseMustBeTopLevel) {
 
     inverted_index::query_v2::QueryPtr out;
     std::string binding_key;
+    const std::string default_operator = "or";
+    constexpr int32_t minimum_should_match = -1;
     auto status = function_search->build_query_recursive(root_clause, context, resolver, &out,
-                                                         &binding_key);
+                                                         &binding_key, default_operator,
+                                                         minimum_should_match);
 
     EXPECT_FALSE(status.ok());
     EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>());

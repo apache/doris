@@ -775,7 +775,7 @@ Status UnifiedSparseColumnWriter::append_bucket_sparse(
     }
     for (int b = 0; b < bucket_num; ++b) {
         segment_v2::VariantStatistics bucket_stats;
-for (const auto& [k, cnt] : bucket_path_counts[b]) {
+        for (const auto& [k, cnt] : bucket_path_counts[b]) {
             const std::string k_str = k.to_string();
             const uint32_t cnt_u32 = static_cast<uint32_t>(cnt);
             bucket_stats.sparse_column_non_null_size.emplace(k_str, cnt_u32);
@@ -1243,7 +1243,7 @@ Status VariantColumnWriterImpl::finalize() {
     // convert root column data from engine format to storage layer format
     RETURN_IF_ERROR(_process_root_column(ptr, olap_data_convertor.get(), num_rows, column_id));
 
-auto has_extracted_columns = [this]() {
+    auto has_extracted_columns = [this]() {
         return std::ranges::any_of(
                 _opts.rowset_ctx->tablet_schema->columns(),
                 [](const auto& column) { return column->is_extracted_column(); });
@@ -1355,7 +1355,7 @@ Status VariantColumnWriterImpl::write_zone_map() {
             RETURN_IF_ERROR(_subcolumn_writers[i]->write_zone_map());
         }
     }
-if (_binary_writer) {
+    if (_binary_writer) {
         RETURN_IF_ERROR(_binary_writer->write_zone_map());
     }
     RETURN_IF_ERROR(_nested_group_provider->write_zone_map());
@@ -1369,7 +1369,7 @@ Status VariantColumnWriterImpl::write_inverted_index() {
             RETURN_IF_ERROR(_subcolumn_writers[i]->write_inverted_index());
         }
     }
-if (_binary_writer) {
+    if (_binary_writer) {
         RETURN_IF_ERROR(_binary_writer->write_inverted_index());
     }
     RETURN_IF_ERROR(_nested_group_provider->write_inverted_index());
@@ -1382,7 +1382,7 @@ Status VariantColumnWriterImpl::write_bloom_filter_index() {
             RETURN_IF_ERROR(_subcolumn_writers[i]->write_bloom_filter_index());
         }
     }
-if (_binary_writer) {
+    if (_binary_writer) {
         RETURN_IF_ERROR(_binary_writer->write_bloom_filter_index());
     }
     RETURN_IF_ERROR(_nested_group_provider->write_bloom_filter_index());
@@ -1478,9 +1478,9 @@ Status VariantSubcolumnWriter::finalize() {
     _opts.meta->set_num_rows(ptr->rows());
     ++column_id;
 
-    RETURN_IF_ERROR(_nested_group_provider->prepare(
-            *ptr, /*include_jsonb_subcolumns=*/false, &flush_column, _opts,
-            olap_data_convertor.get(), ptr->rows(), &column_id, &_statistics));
+    RETURN_IF_ERROR(_nested_group_provider->prepare(*ptr, /*include_jsonb_subcolumns=*/false,
+                                                    &flush_column, _opts, olap_data_convertor.get(),
+                                                    ptr->rows(), &column_id, &_statistics));
     _statistics.to_pb(_opts.meta->mutable_variant_statistics());
 
     _is_finalized = true;

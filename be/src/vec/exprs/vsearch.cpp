@@ -120,9 +120,9 @@ Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
             bool field_added = false;
             // For variant subcolumns, slot_ref might not map to a real indexed column in the scan schema.
             // Fall back to the parent variant column's iterator and synthesize lucene field name.
-            if (iterator == nullptr && binding != nullptr && binding->__isset.is_variant_subcolumn &&
-                binding->is_variant_subcolumn && binding->__isset.parent_field_name &&
-                !binding->parent_field_name.empty()) {
+            if (iterator == nullptr && binding != nullptr &&
+                binding->__isset.is_variant_subcolumn && binding->is_variant_subcolumn &&
+                binding->__isset.parent_field_name && !binding->parent_field_name.empty()) {
                 ColumnId base_column_id = 0;
                 if (resolve_parent_column_id(binding->parent_field_name, &base_column_id)) {
                     iterator = index_context->get_inverted_index_iterator_by_id(base_column_id);
@@ -130,7 +130,8 @@ Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
                             index_context->get_storage_name_and_type_by_id(base_column_id);
                     if (iterator != nullptr && base_storage_name_type != nullptr) {
                         std::string prefix = base_storage_name_type->first;
-                        if (auto pit = parent_to_storage_field_prefix.find(binding->parent_field_name);
+                        if (auto pit =
+                                    parent_to_storage_field_prefix.find(binding->parent_field_name);
                             pit != parent_to_storage_field_prefix.end() && !pit->second.empty()) {
                             prefix = pit->second;
                         } else {
@@ -152,7 +153,8 @@ Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
                             bundle->iterators[field_name] = iterator;
                             bundle->field_types[field_name] =
                                     std::make_pair(prefix + "." + sub_path, nullptr);
-                            int base_column_index = index_context->column_index_by_id(base_column_id);
+                            int base_column_index =
+                                    index_context->column_index_by_id(base_column_id);
                             if (base_column_index >= 0) {
                                 bundle->column_ids.emplace_back(base_column_index);
                             }

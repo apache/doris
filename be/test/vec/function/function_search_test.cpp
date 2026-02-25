@@ -2125,4 +2125,3 @@ TEST_F(FunctionSearchTest, TestSearcherCacheHandlesLifetime) {
 // NESTED clause tests moved to function_search_nested_test.cpp
 
 } // namespace doris::vectorized
-

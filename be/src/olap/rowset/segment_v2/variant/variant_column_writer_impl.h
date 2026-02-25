@@ -97,7 +97,7 @@ private:
     int _first_column_id = -1;
     std::vector<std::unique_ptr<ColumnWriter>> _doc_value_column_writers;
     std::vector<ColumnWriterOptions> _doc_value_column_opts;
-std::vector<std::unique_ptr<ColumnWriter>> _subcolumn_writers;
+    std::vector<std::unique_ptr<ColumnWriter>> _subcolumn_writers;
     std::vector<TabletIndexes> _subcolumns_indexes;
     std::vector<ColumnWriterOptions> _subcolumn_opts;
     VariantStatistics _stats;
@@ -131,7 +131,7 @@ public:
     Status finish() override;
     Status write_data() override;
     Status write_ordinal_index() override;
-Status write_zone_map() override;
+    Status write_zone_map() override;
     Status write_inverted_index() override;
     Status write_bloom_filter_index() override;
     void merge_stats_to(VariantStatistics* stats) const override;

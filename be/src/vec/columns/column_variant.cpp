@@ -20,7 +20,6 @@
 
 #include "vec/columns/column_variant.h"
 
-#include <cassert>
 #include <fmt/core.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
@@ -29,6 +28,7 @@
 #include <rapidjson/writer.h>
 
 #include <algorithm>
+#include <cassert>
 #include <cstdlib>
 #include <functional>
 #include <limits>

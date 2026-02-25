@@ -263,7 +263,7 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
                 "index file reader is null for field '{}'", field_name);
     }
 
-// Use InvertedIndexSearcherCache to avoid re-opening index files repeatedly
+    // Use InvertedIndexSearcherCache to avoid re-opening index files repeatedly
     auto index_file_key =
             index_file_reader->get_index_file_cache_key(&inverted_reader->get_index_meta());
     InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_key);
@@ -367,9 +367,9 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
         InvertedIndexResultBitmap& bitmap_result, bool enable_cache) const {
     static const std::unordered_map<std::string, int> empty_field_to_column_id;
-    return evaluate_inverted_index_with_search_param(search_param, data_type_with_names,
-                                                     std::move(iterators), num_rows, bitmap_result,
-                                                     enable_cache, nullptr, empty_field_to_column_id);
+    return evaluate_inverted_index_with_search_param(
+            search_param, data_type_with_names, std::move(iterators), num_rows, bitmap_result,
+            enable_cache, nullptr, empty_field_to_column_id);
 }
 
 Status FunctionSearch::evaluate_inverted_index_with_search_param(
@@ -515,7 +515,7 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     FieldReaderResolver resolver(*effective_data_type_with_names, iterators, context,
                                  search_param.field_bindings);
 
-if (is_nested_query) {
+    if (is_nested_query) {
         std::shared_ptr<roaring::Roaring> row_bitmap;
         RETURN_IF_ERROR(evaluate_nested_query(search_param, search_param.root, context, resolver,
                                               num_rows, index_exec_ctx, field_name_to_column_id,
@@ -628,7 +628,6 @@ Status FunctionSearch::evaluate_nested_query(
         uint32_t num_rows, const IndexExecContext* index_exec_ctx,
         const std::unordered_map<std::string, int>& field_name_to_column_id,
         std::shared_ptr<roaring::Roaring>& result_bitmap) const {
-    (void)search_param;
     (void)field_name_to_column_id;
     if (!(nested_clause.__isset.nested_path)) {
         return Status::InvalidArgument("NESTED clause missing nested_path");
@@ -696,10 +695,20 @@ Status FunctionSearch::evaluate_nested_query(
     }
 
     // 3. Evaluate inner query
+    std::string default_operator = "or";
+    if (search_param.__isset.default_operator && !search_param.default_operator.empty()) {
+        default_operator = search_param.default_operator;
+    }
+    int32_t minimum_should_match = -1;
+    if (search_param.__isset.minimum_should_match) {
+        minimum_should_match = search_param.minimum_should_match;
+    }
+
     query_v2::QueryPtr inner_query;
     std::string inner_binding_key;
     RETURN_IF_ERROR(build_query_recursive(nested_clause.children[0], context, resolver,
-                                          &inner_query, &inner_binding_key));
+                                          &inner_query, &inner_binding_key, default_operator,
+                                          minimum_should_match));
     if (inner_query == nullptr) {
         return Status::OK();
     }

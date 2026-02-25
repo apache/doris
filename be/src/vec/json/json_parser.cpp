@@ -20,11 +20,11 @@
 
 #include "vec/json/json_parser.h"
 
-#include <cassert>
 #include <fmt/format.h>
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <cassert>
 #include <string_view>
 
 #include "common/cast_set.h"

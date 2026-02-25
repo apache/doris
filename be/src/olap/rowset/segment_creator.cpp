@@ -19,7 +19,6 @@
 
 // IWYU pragma: no_include <bthread/errno.h>
 #include <cerrno> // IWYU pragma: keep
-
 #include <filesystem>
 #include <memory>
 #include <sstream>
@@ -88,16 +87,14 @@ Status SegmentFlusher::close() {
 }
 
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
-                                 const vectorized::Block* block, size_t row_pos,
-                                 size_t num_rows) {
+                                 const vectorized::Block* block, size_t row_pos, size_t num_rows) {
     RETURN_IF_ERROR(segment_writer->append_block(block, row_pos, num_rows));
     _num_rows_written += num_rows;
     return Status::OK();
 }
 
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer,
-                                 const vectorized::Block* block, size_t row_pos,
-                                 size_t num_rows) {
+                                 const vectorized::Block* block, size_t row_pos, size_t num_rows) {
     RETURN_IF_ERROR(segment_writer->batch_block(block, row_pos, num_rows));
     RETURN_IF_ERROR(segment_writer->write_batch());
     _num_rows_written += num_rows;
