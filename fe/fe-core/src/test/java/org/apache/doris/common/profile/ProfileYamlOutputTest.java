@@ -18,7 +18,6 @@
 package org.apache.doris.common.profile;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUnit;
 
@@ -774,7 +773,7 @@ public class ProfileYamlOutputTest {
         testProfile.addInfoString("TestInfo", "TestValue");
 
         // Add AggCounter to the profile
-        Counter rootCounter = testProfile.addCounter("ExecTime", TUnit.TIME_NS, RuntimeProfile.ROOT_COUNTER);
+        testProfile.addCounter("ExecTime", TUnit.TIME_NS, RuntimeProfile.ROOT_COUNTER);
         // We can't directly replace with AggCounter, so let's create a structure that uses it
 
         // Create a simple YAML structure with FlowStyleMap
@@ -795,25 +794,23 @@ public class ProfileYamlOutputTest {
         // Create custom representer
         org.yaml.snakeyaml.representer.Representer representer =
                 new org.yaml.snakeyaml.representer.Representer(options) {
-            {
-                this.representers.put(AggCounter.FlowStyleMap.class,
-                        new org.yaml.snakeyaml.representer.Represent() {
-                    @Override
-                    public org.yaml.snakeyaml.nodes.Node representData(Object data) {
-                        @SuppressWarnings("unchecked")
-                        Map<Object, Object> map = (Map<Object, Object>) data;
-                        return representFlowStyleMapping(map);
+                    {
+                        this.representers.put(AggCounter.FlowStyleMap.class,
+                                data -> {
+                                    @SuppressWarnings("unchecked")
+                                    Map<Object, Object> map = (Map<Object, Object>) data;
+                                    return representFlowStyleMapping(map);
+                                });
                     }
-                });
-            }
 
-            protected org.yaml.snakeyaml.nodes.Node representFlowStyleMapping(Map<Object, Object> map) {
-                return representMapping(
-                        org.yaml.snakeyaml.nodes.Tag.MAP,
-                        map,
-                        org.yaml.snakeyaml.DumperOptions.FlowStyle.FLOW);
-            }
-        };
+                    protected org.yaml.snakeyaml.nodes.Node representFlowStyleMapping(
+                            Map<Object, Object> map) {
+                        return representMapping(
+                                org.yaml.snakeyaml.nodes.Tag.MAP,
+                                map,
+                                org.yaml.snakeyaml.DumperOptions.FlowStyle.FLOW);
+                    }
+                };
 
         Yaml testYaml = new Yaml(representer, options);
         String yamlOutput = testYaml.dump(testData);
@@ -826,18 +823,16 @@ public class ProfileYamlOutputTest {
         // Single-line format should contain all fields in one line with braces: {unit: TIME_NS, avg: ..., max: ..., min: ..., count: ..., display: ...}
         String[] lines = yamlOutput.split("\n");
 
-        boolean foundAggCounterLine = false;
         for (String line : lines) {
             if (line.contains("agg_counter:")) {
                 // The agg_counter line should contain opening brace on the same line
                 // indicating flow style (single-line format)
                 String nextContent = line.substring(line.indexOf("agg_counter:") + "agg_counter:".length()).trim();
                 if (nextContent.startsWith("{")) {
-                    foundAggCounterLine = true;
                     // Verify it contains all required fields in the same line or following lines
                     // In flow style, everything should be compact
-                    Assertions.assertTrue(line.contains("{") ||
-                            (lines.length > 0 && yamlOutput.contains("agg_counter: {")),
+                    Assertions.assertTrue(line.contains("{")
+                            || (lines.length > 0 && yamlOutput.contains("agg_counter: {")),
                             "AggCounter should be output in flow style (single-line with braces)");
                 }
             }
@@ -900,12 +895,13 @@ public class ProfileYamlOutputTest {
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i];
             // Look for counter-like keys that might be AggCounters
-            if (line.matches(".*\\w+Time:.*") || line.matches(".*Rows:.*")) {
+            if (line.matches(".*\\w+Time:.*")
+                    || line.matches(".*Rows:.*")) {
                 // Check if this line contains opening brace (flow style indicator)
                 if (line.contains(": {")) {
                     // Good! This is flow style
-                    Assertions.assertTrue(line.contains("unit:") ||
-                            (i + 1 < lines.length && lines[i + 1].contains("unit:")),
+                    Assertions.assertTrue(line.contains("unit:")
+                            || (i + 1 < lines.length && lines[i + 1].contains("unit:")),
                             "Counter in flow style should contain fields inline or on next line");
                 }
             }

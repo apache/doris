@@ -267,11 +267,6 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
-std::string ExchangeSinkLocalState::name_suffix() {
-    auto& p = _parent->cast<ExchangeSinkOperatorX>();
-    return fmt::format(exchange_sink_name_suffix, std::to_string(p._dest_node_id));
-}
-
 segment_v2::CompressionTypePB ExchangeSinkLocalState::compression_type() const {
     return _parent->cast<ExchangeSinkOperatorX>()._compression_type;
 }
@@ -280,7 +275,7 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
         RuntimeState* state, const RowDescriptor& row_desc, int operator_id,
         const TDataStreamSink& sink, const std::vector<TPlanFragmentDestination>& destinations,
         const std::vector<TUniqueId>& fragment_instance_ids)
-        : DataSinkOperatorX(operator_id, sink.dest_node_id, std::numeric_limits<int>::max()),
+        : DataSinkOperatorX(operator_id, sink.dest_node_id, sink.dest_node_id),
           _texprs(sink.output_partition.partition_exprs),
           _row_desc(row_desc),
           _part_type(sink.output_partition.type),

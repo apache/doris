@@ -187,6 +187,28 @@ public class ExecutionProfile {
         return fragmentsProfile;
     }
 
+    /**
+     * Returns one representative PipelineTask profile per pipeline per fragment.
+     * Used for extracting operator topology (identical across all instances).
+     * Key: fragment sequence number (0, 1, 2, ...)
+     * Value: list of first PipelineTask profile for each pipeline in that fragment
+     */
+    public Map<Integer, List<RuntimeProfile>> getRepresentativePipelineTaskProfiles() {
+        Map<Integer, List<RuntimeProfile>> result = Maps.newLinkedHashMap();
+        for (int i = 0; i < fragmentProfiles.size(); i++) {
+            int fragmentId = seqNoToFragmentId.get(i);
+            List<List<RuntimeProfile>> allPipelines = getMultiBeProfile(fragmentId);
+            List<RuntimeProfile> representatives = new ArrayList<>();
+            for (List<RuntimeProfile> pipelineTasks : allPipelines) {
+                if (!pipelineTasks.isEmpty()) {
+                    representatives.add(pipelineTasks.get(0));
+                }
+            }
+            result.put(i, representatives);
+        }
+        return result;
+    }
+
     public RuntimeProfile getAggregatedFragmentsProfile(Map<Integer, String> planNodeMap) {
         for (RuntimeProfile fragmentProfile : fragmentProfiles.values()) {
             fragmentProfile.sortChildren();

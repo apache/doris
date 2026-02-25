@@ -36,7 +36,6 @@ class MultiCastDataStreamSinkLocalState final
     friend class DataSinkOperatorX<MultiCastDataStreamSinkLocalState>;
     using Base = PipelineXSpillSinkLocalState<MultiCastSharedState>;
     using Parent = MultiCastDataStreamSinkOperatorX;
-    std::string name_suffix() override;
 
     Status open(RuntimeState* state) override;
 
@@ -48,13 +47,13 @@ class MultiCastDataStreamSinkOperatorX final
     using Base = DataSinkOperatorX<MultiCastDataStreamSinkLocalState>;
 
 public:
-    MultiCastDataStreamSinkOperatorX(int sink_id, int node_id, std::vector<int>& sources,
+    MultiCastDataStreamSinkOperatorX(int sink_id, int node_id, std::vector<int>& dests,
                                      ObjectPool* pool, const TMultiCastDataStreamSink& sink)
-            : Base(sink_id, node_id, sources),
+            : Base(sink_id, node_id, dests),
               _pool(pool),
-              _cast_sender_count(sources.size()),
+              _cast_sender_count(dests.size()),
               _sink(sink),
-              _num_dests(sources.size()) {}
+              _num_dests(dests.size()) {}
     ~MultiCastDataStreamSinkOperatorX() override = default;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;

@@ -31,6 +31,8 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ExecutionProfile;
+import org.apache.doris.common.profile.ProfileSpan;
+import org.apache.doris.common.profile.ProfileTracer;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListUtil;
@@ -125,6 +127,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TTopnFilterDesc;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TUnit;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -732,6 +735,11 @@ public class Coordinator implements CoordInterface {
     }
 
     protected void execInternal() throws Exception {
+        updateProfileIfPresent(profile -> {
+            ProfileTracer tracer = profile.getTracer();
+            tracer.startSpan(SummaryProfile.ASSIGN_FRAGMENT_TIME, TUnit.TIME_MS, SummaryProfile.SCHEDULE_TIME);
+        });
+
         if (LOG.isDebugEnabled() && !scanNodes.isEmpty()) {
             LOG.debug("debug: in Coordinator::exec. query id: {}, planNode: {}",
                     DebugUtil.printId(queryId), scanNodes.get(0).treeToThrift());
@@ -808,7 +816,7 @@ public class Coordinator implements CoordInterface {
             LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
         }
 
-        updateProfileIfPresent(profile -> profile.setAssignFragmentTime());
+        updateProfileIfPresent(profile -> profile.getTracer().finish(SummaryProfile.ASSIGN_FRAGMENT_TIME));
         sendPipelineCtx();
     }
 
@@ -929,6 +937,10 @@ public class Coordinator implements CoordInterface {
             for (PipelineExecContexts ctxs : beToPipelineExecCtxs.values()) {
                 ctxs.unsetFields();
             }
+            updateProfileIfPresent(profile -> {
+                profile.getTracer().startSpan(SummaryProfile.FRAGMENT_SERIALIZE_TIME, TUnit.TIME_MS,
+                        SummaryProfile.SCHEDULE_TIME);
+            });
             // serializeFragments() can be called in parallel.
             final AtomicLong compressedSize = new AtomicLong(0);
             beToPipelineExecCtxs.values().parallelStream().forEach(ctxs -> {
@@ -939,10 +951,19 @@ public class Coordinator implements CoordInterface {
                 }
             });
 
-            updateProfileIfPresent(profile -> profile.updateFragmentCompressedSize(compressedSize.get()));
-            updateProfileIfPresent(profile -> profile.setFragmentSerializeTime());
+            updateProfileIfPresent(profile -> {
+                ProfileTracer tracer = profile.getTracer();
+                ProfileSpan sizeSpan = tracer.createAccSpan(
+                        SummaryProfile.FRAGMENT_COMPRESSED_SIZE, TUnit.BYTES, SummaryProfile.SCHEDULE_TIME);
+                sizeSpan.addValue(compressedSize.get());
+            });
+            updateProfileIfPresent(profile -> profile.getTracer().finish(SummaryProfile.FRAGMENT_SERIALIZE_TIME));
 
             // 4.2 send fragments rpc
+            updateProfileIfPresent(profile -> {
+                profile.getTracer().startSpan(SummaryProfile.SEND_FRAGMENT_PHASE1_TIME, TUnit.TIME_MS,
+                        SummaryProfile.SCHEDULE_TIME);
+            });
             List<Pair<Long, Triple<PipelineExecContexts, BackendServiceProxy,
                     Future<InternalService.PExecPlanFragmentResult>>>> futures = Lists.newArrayList();
             BackendServiceProxy proxy = BackendServiceProxy.getInstance();
@@ -956,12 +977,21 @@ public class Coordinator implements CoordInterface {
             Map<TNetworkAddress, List<Long>> rpcPhase1Latency =
                     waitPipelineRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send fragments");
 
-            updateProfileIfPresent(profile -> profile.updateFragmentRpcCount(futures.size()));
-            updateProfileIfPresent(profile -> profile.setFragmentSendPhase1Time());
+            updateProfileIfPresent(profile -> {
+                ProfileTracer tracer = profile.getTracer();
+                ProfileSpan rpcCountSpan = tracer.createAccSpan(
+                        SummaryProfile.FRAGMENT_RPC_COUNT, TUnit.UNIT, SummaryProfile.SCHEDULE_TIME);
+                rpcCountSpan.addValue(futures.size());
+            });
+            updateProfileIfPresent(profile -> profile.getTracer().finish(SummaryProfile.SEND_FRAGMENT_PHASE1_TIME));
             updateProfileIfPresent(profile -> profile.setRpcPhase1Latency(rpcPhase1Latency));
 
             if (twoPhaseExecution) {
                 // 5. send and wait execution start rpc
+                updateProfileIfPresent(profile -> {
+                    profile.getTracer().startSpan(SummaryProfile.SEND_FRAGMENT_PHASE2_TIME, TUnit.TIME_MS,
+                            SummaryProfile.SCHEDULE_TIME);
+                });
                 futures.clear();
                 for (PipelineExecContexts ctxs : beToPipelineExecCtxs.values()) {
                     futures.add(Pair.of(DateTime.now().getMillis(),
@@ -970,8 +1000,14 @@ public class Coordinator implements CoordInterface {
                 Map<TNetworkAddress, List<Long>> rpcPhase2Latency =
                         waitPipelineRpc(futures, this.timeoutDeadline - System.currentTimeMillis(),
                                 "send execution start");
-                updateProfileIfPresent(profile -> profile.updateFragmentRpcCount(futures.size()));
-                updateProfileIfPresent(profile -> profile.setFragmentSendPhase2Time());
+                updateProfileIfPresent(profile -> {
+                    ProfileTracer tracer = profile.getTracer();
+                    ProfileSpan rpcCountSpan = tracer.getSpan(SummaryProfile.FRAGMENT_RPC_COUNT);
+                    if (rpcCountSpan != null) {
+                        rpcCountSpan.addValue(futures.size());
+                    }
+                });
+                updateProfileIfPresent(profile -> profile.getTracer().finish(SummaryProfile.SEND_FRAGMENT_PHASE2_TIME));
                 updateProfileIfPresent(profile -> profile.setRpcPhase2Latency(rpcPhase2Latency));
             }
         } finally {
@@ -3502,6 +3538,11 @@ public class Coordinator implements CoordInterface {
     protected void updateProfileIfPresent(Consumer<SummaryProfile> profileAction) {
         Optional.ofNullable(context).map(ConnectContext::getExecutor).map(StmtExecutor::getSummaryProfile)
                 .ifPresent(profileAction);
+    }
+
+    protected ProfileTracer getTracerIfPresent() {
+        return Optional.ofNullable(context).map(ConnectContext::getExecutor)
+                .map(StmtExecutor::getSummaryProfile).map(SummaryProfile::getTracer).orElse(null);
     }
 
     // Runtime filter target fragment instance param

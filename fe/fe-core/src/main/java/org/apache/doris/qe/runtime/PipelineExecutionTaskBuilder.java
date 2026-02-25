@@ -18,6 +18,8 @@
 package org.apache.doris.qe.runtime;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.profile.ProfileSpan;
+import org.apache.doris.common.profile.ProfileTracer;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
@@ -29,6 +31,7 @@ import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineFragmentParamsList;
 import org.apache.doris.thrift.TPipelineInstanceParams;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TUnit;
 
 import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
@@ -110,6 +113,10 @@ public class PipelineExecutionTaskBuilder {
     private Map<DistributedPlanWorker, ByteString> serializeFragments(
             Map<DistributedPlanWorker, TPipelineFragmentParamsList> workerToFragmentsParam) {
 
+        coordinatorContext.updateProfileIfPresent(profile -> {
+            profile.getTracer().startSpan(SummaryProfile.FRAGMENT_SERIALIZE_TIME, TUnit.TIME_MS,
+                    SummaryProfile.SCHEDULE_TIME);
+        });
         AtomicLong compressedSize = new AtomicLong(0);
         Map<DistributedPlanWorker, ByteString> serializedFragments = workerToFragmentsParam.entrySet()
                 .parallelStream()
@@ -125,10 +132,14 @@ public class PipelineExecutionTaskBuilder {
                 .peek(kv -> compressedSize.addAndGet(kv.second.size()))
                 .collect(Collectors.toMap(Pair::key, Pair::value));
 
-        coordinatorContext.updateProfileIfPresent(
-                profile -> profile.updateFragmentCompressedSize(compressedSize.get())
-        );
-        coordinatorContext.updateProfileIfPresent(SummaryProfile::setFragmentSerializeTime);
+        coordinatorContext.updateProfileIfPresent(profile -> {
+            ProfileTracer tracer = profile.getTracer();
+            ProfileSpan sizeSpan = tracer.createAccSpan(
+                    SummaryProfile.FRAGMENT_COMPRESSED_SIZE, TUnit.BYTES, SummaryProfile.SCHEDULE_TIME);
+            sizeSpan.addValue(compressedSize.get());
+        });
+        coordinatorContext.updateProfileIfPresent(profile ->
+                profile.getTracer().finish(SummaryProfile.FRAGMENT_SERIALIZE_TIME));
 
         return serializedFragments;
     }

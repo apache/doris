@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.ProfileSpan;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
@@ -35,6 +36,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.TransactionManager;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TransactionType;
@@ -93,10 +95,15 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
         if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
             LOG.warn("errors when abort txn. {}", ctx.getQueryIdentifier());
         } else {
-            summaryProfile.ifPresent(profile -> profile.setTransactionBeginTime(transactionType()));
-            long t0 = System.currentTimeMillis();
+            ProfileSpan beforeTxnSpan = summaryProfile.map(profile -> profile.getTracer().startSpan(
+                    SummaryProfile.BEFORE_TRANSACTION_COMMIT_TIME, TUnit.TIME_MS)).orElse(null);
             doBeforeCommit();
-            long t1 = System.currentTimeMillis();
+            if (beforeTxnSpan != null) {
+                beforeTxnSpan.finish();
+            }
+            summaryProfile.ifPresent(profile -> profile.setTransactionType(transactionType()));
+            ProfileSpan txnSpan = summaryProfile.map(profile -> profile.getTracer().startSpan(
+                    SummaryProfile.TRANSACTION_COMMIT_TIME, TUnit.TIME_MS)).orElse(null);
             if (table instanceof ExternalTable) {
                 try {
                     ExternalTable externalTable = (ExternalTable) table;
@@ -113,15 +120,13 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
             } else {
                 transactionManager.commit(txnId);
             }
+            if (txnSpan != null) {
+                txnSpan.finish();
+            }
             txnStatus = TransactionStatus.COMMITTED;
-            long t2 = System.currentTimeMillis();
 
             // Handle post-commit operations (e.g., cache refresh)
             doAfterCommit();
-            long t3 = System.currentTimeMillis();
-            LOG.info("Transaction commit breakdown: doBeforeCommit={}ms, commit={}ms, doAfterCommit={}ms, total={}ms",
-                    t1 - t0, t2 - t1, t3 - t2, t3 - t0);
-            summaryProfile.ifPresent(SummaryProfile::setTransactionEndTime);
         }
     }
 

@@ -60,7 +60,7 @@ public class QueryProfileController extends BaseController {
         return ResponseEntityBuilder.ok(profile);
     }
 
-    @RequestMapping(path = "/query_profile/{"+FORMAT+"}/{" + ID + "}", method = RequestMethod.GET)
+    @RequestMapping(path = "/query_profile/{" + FORMAT + "}/{" + ID + "}", method = RequestMethod.GET)
     public Object text_profile(@PathVariable(value = FORMAT) String format, @PathVariable(value = ID) String id) {
         String profile = ProfileManager.getInstance().getProfile(id, format);
         if (profile == null) {

@@ -47,6 +47,7 @@
 #include "util/defer_op.h"
 #include "util/mem_info.h"
 #include "util/runtime_profile.h"
+#include "util/runtime_profile_counter_names.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
 #include "vec/spill/spill_stream.h"
@@ -233,25 +234,25 @@ bool PipelineTask::inject_shared_state(std::shared_ptr<BasicSharedState> shared_
 void PipelineTask::_init_profile() {
     _task_profile = std::make_unique<RuntimeProfile>(fmt::format("PipelineTask(index={})", _index));
     _parent_profile->add_child(_task_profile.get(), true, nullptr);
-    _task_cpu_timer = ADD_TIMER(_task_profile, "TaskCpuTime");
+    _task_cpu_timer = ADD_TIMER(_task_profile, profile::TASK_CPU_TIME);
 
-    static const char* exec_time = "ExecuteTime";
-    _exec_timer = ADD_TIMER(_task_profile, exec_time);
-    _prepare_timer = ADD_CHILD_TIMER(_task_profile, "PrepareTime", exec_time);
-    _open_timer = ADD_CHILD_TIMER(_task_profile, "OpenTime", exec_time);
-    _get_block_timer = ADD_CHILD_TIMER(_task_profile, "GetBlockTime", exec_time);
-    _get_block_counter = ADD_COUNTER(_task_profile, "GetBlockCounter", TUnit::UNIT);
-    _sink_timer = ADD_CHILD_TIMER(_task_profile, "SinkTime", exec_time);
-    _close_timer = ADD_CHILD_TIMER(_task_profile, "CloseTime", exec_time);
+    _exec_timer = ADD_TIMER(_task_profile, profile::EXECUTE_TIME);
+    _prepare_timer = ADD_CHILD_TIMER(_task_profile, profile::PREPARE_TIME, profile::EXECUTE_TIME);
+    _open_timer = ADD_CHILD_TIMER(_task_profile, profile::OPEN_TIME, profile::EXECUTE_TIME);
+    _get_block_timer =
+            ADD_CHILD_TIMER(_task_profile, profile::GET_BLOCK_TIME, profile::EXECUTE_TIME);
+    _get_block_counter = ADD_COUNTER(_task_profile, profile::GET_BLOCK_COUNTER, TUnit::UNIT);
+    _sink_timer = ADD_CHILD_TIMER(_task_profile, profile::SINK_TIME, profile::EXECUTE_TIME);
+    _close_timer = ADD_CHILD_TIMER(_task_profile, profile::CLOSE_TIME, profile::EXECUTE_TIME);
 
-    _wait_worker_timer = ADD_TIMER_WITH_LEVEL(_task_profile, "WaitWorkerTime", 1);
+    _wait_worker_timer = ADD_TIMER_WITH_LEVEL(_task_profile, profile::WAIT_WORKER_TIME, 1);
 
-    _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
-    _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
-    _core_change_times = ADD_COUNTER(_task_profile, "CoreChangeTimes", TUnit::UNIT);
-    _memory_reserve_times = ADD_COUNTER(_task_profile, "MemoryReserveTimes", TUnit::UNIT);
+    _schedule_counts = ADD_COUNTER(_task_profile, profile::NUM_SCHEDULE_TIMES, TUnit::UNIT);
+    _yield_counts = ADD_COUNTER(_task_profile, profile::NUM_YIELD_TIMES, TUnit::UNIT);
+    _core_change_times = ADD_COUNTER(_task_profile, profile::CORE_CHANGE_TIMES, TUnit::UNIT);
+    _memory_reserve_times = ADD_COUNTER(_task_profile, profile::MEMORY_RESERVE_TIMES, TUnit::UNIT);
     _memory_reserve_failed_times =
-            ADD_COUNTER(_task_profile, "MemoryReserveFailedTimes", TUnit::UNIT);
+            ADD_COUNTER(_task_profile, profile::MEMORY_RESERVE_FAILED_TIMES, TUnit::UNIT);
 }
 
 void PipelineTask::_fresh_profile_counter() {

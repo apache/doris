@@ -78,6 +78,7 @@ import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TUnit;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -166,10 +167,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         } catch (UserException e) {
             throw new AnalysisException("parse file failed, err: " + e.getMessage(), e);
         } finally {
-            SummaryProfile profile = SummaryProfile.getSummaryProfile(ConnectContext.get());
-            if (profile != null) {
-                profile.addExternalTvfInitTime(System.currentTimeMillis() - startAt);
-            }
+            Optional.ofNullable(SummaryProfile.getSummaryProfile(ConnectContext.get()))
+                    .ifPresent(p -> p.getTracer().createAccSpan(
+                            "External TVF Init Time", TUnit.TIME_MS, SummaryProfile.PLAN_TIME)
+                            .addElapsed(System.currentTimeMillis() - startAt));
         }
     }
 

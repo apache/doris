@@ -26,6 +26,7 @@ import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.rpc.VersionHelper;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.qe.ConnectContext;
@@ -33,6 +34,7 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.thrift.TUnit;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.annotations.SerializedName;
@@ -42,6 +44,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
@@ -196,10 +199,11 @@ public class CloudPartition extends Partition {
                 .filter(p -> !p.hasDataCached())
                 .collect(Collectors.toList());
 
-        SummaryProfile profile = getSummaryProfile();
-        if (profile != null) {
-            profile.incGetPartitionVersionByHasDataCount();
-        }
+        Optional.ofNullable(getSummaryProfile())
+                .ifPresent(p -> p.getTracer().createAccSpan(
+                        SummaryProfile.GET_PARTITION_VERSION_BY_HAS_DATA_COUNT, TUnit.UNIT,
+                        RuntimeProfile.ROOT_COUNTER)
+                        .addValue(1));
 
         try {
             List<Long> versions = CloudPartition.getSnapshotVisibleVersion(unknowns);
@@ -426,10 +430,11 @@ public class CloudPartition extends Partition {
             return true;
         }
 
-        SummaryProfile profile = getSummaryProfile();
-        if (profile != null) {
-            profile.incGetPartitionVersionByHasDataCount();
-        }
+        Optional.ofNullable(getSummaryProfile())
+                .ifPresent(p -> p.getTracer().createAccSpan(
+                        SummaryProfile.GET_PARTITION_VERSION_BY_HAS_DATA_COUNT, TUnit.UNIT,
+                        RuntimeProfile.ROOT_COUNTER)
+                        .addValue(1));
 
         return getVisibleVersion() > Partition.PARTITION_INIT_VERSION;
     }

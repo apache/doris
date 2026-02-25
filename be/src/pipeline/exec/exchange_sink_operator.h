@@ -93,7 +93,6 @@ public:
     [[nodiscard]] int sender_id() const { return _sender_id; }
     [[nodiscard]] int be_number() const { return _state->be_number(); }
 
-    std::string name_suffix() override;
     segment_v2::CompressionTypePB compression_type() const;
     std::string debug_string(int indentation_level) const override;
     RuntimeProfile::Counter* send_new_partition_timer() { return _send_new_partition_timer; }

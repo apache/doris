@@ -52,6 +52,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
+import org.apache.doris.common.profile.ProfileSpan;
+import org.apache.doris.common.profile.ProfileTracer;
+import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
 import org.apache.doris.common.util.DebugPointUtil;
@@ -136,6 +139,7 @@ import org.apache.doris.thrift.TResultFileSinkOptions;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TSyncLoadForTabletsRequest;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TUnit;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -818,7 +822,7 @@ public class StmtExecutor {
                 LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
                 throw new NereidsException(new AnalysisException(e.getMessage(), e));
             }
-            profile.getSummaryProfile().setQueryPlanFinishTime(TimeUtils.getStartTimeMs());
+            profile.getSummaryProfile().getTracer().finish(SummaryProfile.PLAN_TIME);
             if (MetricRepo.isInit) {
                 SummaryProfile summaryProfile = profile.getSummaryProfile();
                 int nereidsAnalysisTimeMs = summaryProfile.getNereidsAnalysisTimeMs();
@@ -915,9 +919,10 @@ public class StmtExecutor {
         }
         List<StatementBase> statements;
         try {
-            getProfile().getSummaryProfile().setParseSqlStartTime(System.currentTimeMillis());
+            ProfileTracer tracer = getProfile().getSummaryProfile().getTracer();
+            ProfileSpan parseSpan = tracer.startSpan(SummaryProfile.PARSE_SQL_TIME, TUnit.TIME_MS);
             statements = new NereidsParser().parseSQL(originStmt.originStmt, context.getSessionVariable());
-            getProfile().getSummaryProfile().setParseSqlFinishTime(System.currentTimeMillis());
+            parseSpan.finish();
             getProfile().getSummaryProfile().parsedByConnectionProcess = false;
             if (MetricRepo.isInit) {
                 MetricRepo.HISTO_PLAN_PARSE_DURATION.update(getProfile().getSummaryProfile().getParseSqlTimeMs());
@@ -1366,22 +1371,31 @@ public class StmtExecutor {
         coordBase.setIsProfileSafeStmt(this.isProfileSafeStmt());
 
         try {
+            profile.getSummaryProfile().getTracer().startSpan(SummaryProfile.SCHEDULE_TIME, TUnit.TIME_MS);
             coordBase.exec();
-            profile.getSummaryProfile().setQueryScheduleFinishTime(TimeUtils.getStartTimeMs());
+            profile.getSummaryProfile().getTracer().finish(SummaryProfile.SCHEDULE_TIME);
             updateProfile(false);
 
             if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
                 Preconditions.checkState(!context.isReturnResultFromLocal());
-                profile.getSummaryProfile().setTempStartTime();
                 return;
             }
+
+            profile.getSummaryProfile().getTracer().startSpan(
+                    SummaryProfile.WAIT_FETCH_RESULT_TIME, TUnit.TIME_MS);
+
+            ProfileTracer fetchTracer = profile.getSummaryProfile().getTracer();
+            ProfileSpan fetchSpan = fetchTracer.createAccSpan(
+                    SummaryProfile.FETCH_RESULT_TIME, TUnit.TIME_MS, RuntimeProfile.ROOT_COUNTER);
+            ProfileSpan writeSpan = fetchTracer.createAccSpan(
+                    SummaryProfile.WRITE_RESULT_TIME, TUnit.TIME_MS, RuntimeProfile.ROOT_COUNTER);
 
             boolean isDryRun = ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery;
             while (true) {
                 // register the fetch result time.
-                profile.getSummaryProfile().setTempStartTime();
+                fetchSpan.start();
                 batch = coordBase.getNext();
-                profile.getSummaryProfile().freshFetchResultConsumeTime();
+                fetchSpan.finish();
 
                 // for outfile query, there will be only one empty batch send back with eos flag
                 // call `copyRowBatch()` first, because batch.getBatch() may be null, if result set is empty
@@ -1390,7 +1404,7 @@ public class StmtExecutor {
                 }
                 if (batch.getBatch() != null) {
                     // register send field result time.
-                    profile.getSummaryProfile().setTempStartTime();
+                    writeSpan.start();
                     // For some language driver, getting error packet after fields packet
                     // will be recognized as a success result
                     // so We need to send fields after first batch arrived
@@ -1409,7 +1423,7 @@ public class StmtExecutor {
                     for (ByteBuffer row : batch.getBatch().getRows()) {
                         channel.sendOnePacket(row);
                     }
-                    profile.getSummaryProfile().freshWriteResultConsumeTime();
+                    writeSpan.finish();
                     context.updateReturnRows(batch.getBatch().getRows().size());
                     context.addResultAttachedInfo(batch.getBatch().getAttachedInfos());
                 }
@@ -1458,7 +1472,7 @@ public class StmtExecutor {
 
             statisticsForAuditLog = batch.getQueryStatistics() == null ? null : batch.getQueryStatistics().toBuilder();
             context.getState().setEof();
-            profile.getSummaryProfile().setQueryFetchResultFinishTime(TimeUtils.getStartTimeMs());
+            profile.getSummaryProfile().getTracer().finish(SummaryProfile.WAIT_FETCH_RESULT_TIME);
         } catch (QueryTimeoutException e) {
             // notify all be cancel running fragment
             // in some case may block all fragment handle threads

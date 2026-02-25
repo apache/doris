@@ -20,6 +20,8 @@ package org.apache.doris.qe.runtime;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.ProfileSpan;
+import org.apache.doris.common.profile.ProfileTracer;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
@@ -34,6 +36,7 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TUnit;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -112,6 +115,10 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, Mu
     }
 
     private void sendAndWaitPhaseOneRpc() throws UserException, RpcException {
+        coordinatorContext.updateProfileIfPresent(profile -> {
+            profile.getTracer().startSpan(SummaryProfile.SEND_FRAGMENT_PHASE1_TIME, TUnit.TIME_MS,
+                    SummaryProfile.SCHEDULE_TIME);
+        });
         List<RpcInfo> rpcs = Lists.newArrayList();
         for (MultiFragmentsPipelineTask fragmentsTask : childrenTasks.allTasks()) {
             rpcs.add(new RpcInfo(
@@ -123,12 +130,22 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, Mu
         Map<TNetworkAddress, List<Long>> rpcPhase1Latency = waitPipelineRpc(rpcs,
                 timeoutDeadline - System.currentTimeMillis(), "send fragments");
 
-        coordinatorContext.updateProfileIfPresent(profile -> profile.updateFragmentRpcCount(rpcs.size()));
-        coordinatorContext.updateProfileIfPresent(SummaryProfile::setFragmentSendPhase1Time);
+        coordinatorContext.updateProfileIfPresent(profile -> {
+            ProfileTracer tracer = profile.getTracer();
+            ProfileSpan rpcCountSpan = tracer.createAccSpan(
+                    SummaryProfile.FRAGMENT_RPC_COUNT, TUnit.UNIT, SummaryProfile.SCHEDULE_TIME);
+            rpcCountSpan.addValue(rpcs.size());
+        });
+        coordinatorContext.updateProfileIfPresent(profile ->
+                profile.getTracer().finish(SummaryProfile.SEND_FRAGMENT_PHASE1_TIME));
         coordinatorContext.updateProfileIfPresent(profile -> profile.setRpcPhase1Latency(rpcPhase1Latency));
     }
 
     private void sendAndWaitPhaseTwoRpc() throws RpcException, UserException {
+        coordinatorContext.updateProfileIfPresent(profile -> {
+            profile.getTracer().startSpan(SummaryProfile.SEND_FRAGMENT_PHASE2_TIME, TUnit.TIME_MS,
+                    SummaryProfile.SCHEDULE_TIME);
+        });
         List<RpcInfo> rpcs = Lists.newArrayList();
         for (MultiFragmentsPipelineTask fragmentTask : childrenTasks.allTasks()) {
             rpcs.add(new RpcInfo(
@@ -140,8 +157,15 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, Mu
 
         Map<TNetworkAddress, List<Long>> rpcPhase2Latency = waitPipelineRpc(rpcs,
                 timeoutDeadline - System.currentTimeMillis(), "send execution start");
-        coordinatorContext.updateProfileIfPresent(profile -> profile.updateFragmentRpcCount(rpcs.size()));
-        coordinatorContext.updateProfileIfPresent(SummaryProfile::setFragmentSendPhase2Time);
+        coordinatorContext.updateProfileIfPresent(profile -> {
+            ProfileTracer tracer = profile.getTracer();
+            ProfileSpan rpcCountSpan = tracer.getSpan(SummaryProfile.FRAGMENT_RPC_COUNT);
+            if (rpcCountSpan != null) {
+                rpcCountSpan.addValue(rpcs.size());
+            }
+        });
+        coordinatorContext.updateProfileIfPresent(profile ->
+                profile.getTracer().finish(SummaryProfile.SEND_FRAGMENT_PHASE2_TIME));
         coordinatorContext.updateProfileIfPresent(profile -> profile.setRpcPhase2Latency(rpcPhase2Latency));
     }
 

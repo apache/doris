@@ -24,6 +24,8 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.ProfileSpan;
+import org.apache.doris.common.profile.ProfileTracer;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.PathUtils;
 import org.apache.doris.datasource.NameMapping;
@@ -41,6 +43,7 @@ import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THiveLocationParams;
 import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.thrift.TS3MPUPendingUpload;
+import org.apache.doris.thrift.TUnit;
 import org.apache.doris.thrift.TUpdateMode;
 import org.apache.doris.transaction.Transaction;
 
@@ -1490,34 +1493,55 @@ public class HMSTransaction implements Transaction {
 
 
         private void waitForAsyncFileSystemTasks() {
-            summaryProfile.ifPresent(SummaryProfile::setTempStartTime);
+            ProfileSpan fsSpan = null;
+            if (summaryProfile.isPresent()) {
+                ProfileTracer tracer = summaryProfile.get().getTracer();
+                fsSpan = tracer.createAccSpan(SummaryProfile.FILESYSTEM_OPT_TIME, TUnit.TIME_MS,
+                        SummaryProfile.TRANSACTION_COMMIT_TIME);
+                fsSpan.start();
+            }
 
             for (CompletableFuture<?> future : asyncFileSystemTaskFutures) {
                 MoreFutures.getFutureValue(future, RuntimeException.class);
             }
 
-            summaryProfile.ifPresent(SummaryProfile::freshFilesystemOptTime);
+            if (fsSpan != null) {
+                fsSpan.finish();
+            }
         }
 
         private void doAddPartitionsTask() {
-
-            summaryProfile.ifPresent(profile -> {
-                profile.setTempStartTime();
-                profile.addHmsAddPartitionCnt(addPartitionsTask.getPartitions().size());
-            });
+            ProfileSpan addSpan = null;
+            if (summaryProfile.isPresent()) {
+                ProfileTracer tracer = summaryProfile.get().getTracer();
+                addSpan = tracer.createAccSpan(SummaryProfile.HMS_ADD_PARTITION_TIME, TUnit.TIME_MS,
+                        SummaryProfile.TRANSACTION_COMMIT_TIME);
+                addSpan.start();
+                ProfileSpan cntSpan = tracer.createAccSpan(SummaryProfile.HMS_ADD_PARTITION_CNT, TUnit.UNIT,
+                        SummaryProfile.HMS_ADD_PARTITION_TIME);
+                cntSpan.addValue(addPartitionsTask.getPartitions().size());
+            }
 
             if (!addPartitionsTask.isEmpty()) {
                 addPartitionsTask.run(hiveOps);
             }
 
-            summaryProfile.ifPresent(SummaryProfile::setHmsAddPartitionTime);
+            if (addSpan != null) {
+                addSpan.finish();
+            }
         }
 
         private void doUpdateStatisticsTasks() {
-            summaryProfile.ifPresent(profile -> {
-                profile.setTempStartTime();
-                profile.addHmsUpdatePartitionCnt(updateStatisticsTasks.size());
-            });
+            ProfileSpan updateSpan = null;
+            if (summaryProfile.isPresent()) {
+                ProfileTracer tracer = summaryProfile.get().getTracer();
+                updateSpan = tracer.createAccSpan(SummaryProfile.HMS_UPDATE_PARTITION_TIME, TUnit.TIME_MS,
+                        SummaryProfile.TRANSACTION_COMMIT_TIME);
+                updateSpan.start();
+                ProfileSpan cntSpan = tracer.createAccSpan(SummaryProfile.HMS_UPDATE_PARTITION_CNT, TUnit.UNIT,
+                        SummaryProfile.HMS_UPDATE_PARTITION_TIME);
+                cntSpan.addValue(updateStatisticsTasks.size());
+            }
 
             ImmutableList.Builder<CompletableFuture<?>> updateStatsFutures = ImmutableList.builder();
             List<String> failedTaskDescriptions = new ArrayList<>();
@@ -1547,7 +1571,9 @@ public class HMSTransaction implements Transaction {
                 throw exception;
             }
 
-            summaryProfile.ifPresent(SummaryProfile::setHmsUpdatePartitionTime);
+            if (updateSpan != null) {
+                updateSpan.finish();
+            }
         }
 
         private void pruneAndDeleteStagingDirectories() {
@@ -1765,38 +1791,62 @@ public class HMSTransaction implements Transaction {
     public Status wrapperRenameDirWithProfileSummary(String origFilePath,
             String destFilePath,
             Runnable runWhenPathNotExist) {
-        summaryProfile.ifPresent(profile -> {
-            profile.setTempStartTime();
-            profile.incRenameDirCnt();
-        });
+        ProfileSpan fsSpan = null;
+        if (summaryProfile.isPresent()) {
+            ProfileTracer tracer = summaryProfile.get().getTracer();
+            fsSpan = tracer.createAccSpan(SummaryProfile.FILESYSTEM_OPT_TIME, TUnit.TIME_MS,
+                    SummaryProfile.TRANSACTION_COMMIT_TIME);
+            fsSpan.start();
+            ProfileSpan cntSpan = tracer.createAccSpan(SummaryProfile.FILESYSTEM_OPT_RENAME_DIR_CNT, TUnit.UNIT,
+                    SummaryProfile.FILESYSTEM_OPT_TIME);
+            cntSpan.addValue(1);
+        }
 
         Status status = fs.renameDir(origFilePath, destFilePath, runWhenPathNotExist);
 
-        summaryProfile.ifPresent(SummaryProfile::freshFilesystemOptTime);
+        if (fsSpan != null) {
+            fsSpan.finish();
+        }
         return status;
     }
 
     public Status wrapperDeleteWithProfileSummary(String remotePath) {
-        summaryProfile.ifPresent(profile -> {
-            profile.setTempStartTime();
-            profile.incDeleteFileCnt();
-        });
+        ProfileSpan fsSpan = null;
+        if (summaryProfile.isPresent()) {
+            ProfileTracer tracer = summaryProfile.get().getTracer();
+            fsSpan = tracer.createAccSpan(SummaryProfile.FILESYSTEM_OPT_TIME, TUnit.TIME_MS,
+                    SummaryProfile.TRANSACTION_COMMIT_TIME);
+            fsSpan.start();
+            ProfileSpan cntSpan = tracer.createAccSpan(SummaryProfile.FILESYSTEM_OPT_DELETE_FILE_CNT, TUnit.UNIT,
+                    SummaryProfile.FILESYSTEM_OPT_TIME);
+            cntSpan.addValue(1);
+        }
 
         Status status = fs.delete(remotePath);
 
-        summaryProfile.ifPresent(SummaryProfile::freshFilesystemOptTime);
+        if (fsSpan != null) {
+            fsSpan.finish();
+        }
         return status;
     }
 
     public Status wrapperDeleteDirWithProfileSummary(String remotePath) {
-        summaryProfile.ifPresent(profile -> {
-            profile.setTempStartTime();
-            profile.incDeleteDirRecursiveCnt();
-        });
+        ProfileSpan fsSpan = null;
+        if (summaryProfile.isPresent()) {
+            ProfileTracer tracer = summaryProfile.get().getTracer();
+            fsSpan = tracer.createAccSpan(SummaryProfile.FILESYSTEM_OPT_TIME, TUnit.TIME_MS,
+                    SummaryProfile.TRANSACTION_COMMIT_TIME);
+            fsSpan.start();
+            ProfileSpan cntSpan = tracer.createAccSpan(SummaryProfile.FILESYSTEM_OPT_DELETE_DIR_CNT, TUnit.UNIT,
+                    SummaryProfile.FILESYSTEM_OPT_TIME);
+            cntSpan.addValue(1);
+        }
 
         Status status = fs.deleteDirectory(remotePath);
 
-        summaryProfile.ifPresent(SummaryProfile::freshFilesystemOptTime);
+        if (fsSpan != null) {
+            fsSpan.finish();
+        }
         return status;
     }
 
@@ -1808,7 +1858,12 @@ public class HMSTransaction implements Transaction {
             List<String> fileNames) {
         FileSystemUtil.asyncRenameFiles(
                 fs, executor, renameFileFutures, cancelled, origFilePath, destFilePath, fileNames);
-        summaryProfile.ifPresent(profile -> profile.addRenameFileCnt(fileNames.size()));
+        if (summaryProfile.isPresent()) {
+            ProfileTracer tracer = summaryProfile.get().getTracer();
+            ProfileSpan cntSpan = tracer.createAccSpan(SummaryProfile.FILESYSTEM_OPT_RENAME_FILE_CNT, TUnit.UNIT,
+                    SummaryProfile.FILESYSTEM_OPT_TIME);
+            cntSpan.addValue(fileNames.size());
+        }
     }
 
     public void wrapperAsyncRenameDirWithProfileSummary(Executor executor,
@@ -1819,7 +1874,12 @@ public class HMSTransaction implements Transaction {
             Runnable runWhenPathNotExist) {
         FileSystemUtil.asyncRenameDir(
                 fs, executor, renameFileFutures, cancelled, origFilePath, destFilePath, runWhenPathNotExist);
-        summaryProfile.ifPresent(SummaryProfile::incRenameDirCnt);
+        summaryProfile.ifPresent(profile -> {
+            ProfileTracer tracer = profile.getTracer();
+            ProfileSpan cntSpan = tracer.createAccSpan(SummaryProfile.FILESYSTEM_OPT_RENAME_DIR_CNT, TUnit.UNIT,
+                    SummaryProfile.FILESYSTEM_OPT_TIME);
+            cntSpan.addValue(1);
+        });
     }
 
     /**

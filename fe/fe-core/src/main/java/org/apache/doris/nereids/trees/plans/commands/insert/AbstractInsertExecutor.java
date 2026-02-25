@@ -25,8 +25,8 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.loadv2.InsertLoadJob;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
@@ -41,6 +41,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TUnit;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -180,16 +181,20 @@ public abstract class AbstractInsertExecutor {
         QueryInfo queryInfo = new QueryInfo(ConnectContext.get(), executor.getOriginStmtInString(), coordinator);
         QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), queryInfo);
         executor.updateProfile(false);
+        Optional.ofNullable(SummaryProfile.getSummaryProfile(ctx))
+                .ifPresent(p -> p.getTracer().startSpan(SummaryProfile.SCHEDULE_TIME, TUnit.TIME_MS));
         coordinator.exec();
-        executor.getSummaryProfile().setQueryScheduleFinishTime(TimeUtils.getStartTimeMs());
-        executor.getSummaryProfile().setTempStartTime();
+        Optional.ofNullable(SummaryProfile.getSummaryProfile(ctx))
+                .ifPresent(p -> p.getTracer().finish(SummaryProfile.SCHEDULE_TIME));
         int execTimeout = ctx.getExecTimeoutS();
         if (LOG.isDebugEnabled()) {
             LOG.debug("insert [{}] with query id {} execution timeout is {}", labelName, queryId, execTimeout);
         }
+        Optional.ofNullable(SummaryProfile.getSummaryProfile(ctx))
+                .ifPresent(p -> p.getTracer().startSpan(SummaryProfile.FETCH_RESULT_CONSUME_TIME, TUnit.TIME_MS));
         boolean notTimeout = coordinator.join(execTimeout);
-        executor.getSummaryProfile().freshFetchResultConsumeTime();
-        executor.getSummaryProfile().setQueryFetchResultFinishTime(TimeUtils.getStartTimeMs());
+        Optional.ofNullable(SummaryProfile.getSummaryProfile(ctx))
+                .ifPresent(p -> p.getTracer().finish(SummaryProfile.FETCH_RESULT_CONSUME_TIME));
         if (!coordinator.isDone()) {
             coordinator.cancel(new Status(TStatusCode.CANCELLED, "insert timeout"));
             if (notTimeout) {

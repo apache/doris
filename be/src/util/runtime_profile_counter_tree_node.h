@@ -59,6 +59,9 @@ public:
 
     PProfileCounter to_proto() const;
 
+    // Pretty print the counter tree to an output stream with the given prefix.
+    void pretty_print(std::ostream* s, const std::string& prefix) const;
+
 private:
     std::string name;
     // counter is not owned by this class

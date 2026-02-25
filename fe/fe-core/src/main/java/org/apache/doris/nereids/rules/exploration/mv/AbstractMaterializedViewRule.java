@@ -67,6 +67,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeUtils;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.thrift.TUnit;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
@@ -144,10 +145,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             }
             long elapsed = statementContext.getMaterializedViewStopwatch().elapsed(TimeUnit.MILLISECONDS);
             statementContext.addMaterializedViewRewriteDuration(elapsed);
-            SummaryProfile profile = SummaryProfile.getSummaryProfile(cascadesContext.getConnectContext());
-            if (profile != null) {
-                profile.addNereidsMvRewriteTime(elapsed);
-            }
+            long firstElapsed = elapsed;
+            Optional.ofNullable(SummaryProfile.getSummaryProfile(cascadesContext.getConnectContext()))
+                    .ifPresent(p -> p.getTracer().createAccSpan(
+                            "Nereids MV Rewrite Time", TUnit.TIME_MS, SummaryProfile.PLAN_TIME)
+                            .addElapsed(firstElapsed));
             for (StructInfo queryStructInfo : queryStructInfos) {
                 statementContext.getMaterializedViewStopwatch().reset().start();
                 if (statementContext.getMaterializedViewRewriteDuration()
@@ -171,9 +173,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 } finally {
                     elapsed = statementContext.getMaterializedViewStopwatch().elapsed(TimeUnit.MILLISECONDS);
                     statementContext.addMaterializedViewRewriteDuration(elapsed);
-                    if (profile != null) {
-                        profile.addNereidsMvRewriteTime(elapsed);
-                    }
+                    long finalElapsed = elapsed;
+                    Optional.ofNullable(SummaryProfile.getSummaryProfile(cascadesContext.getConnectContext()))
+                            .ifPresent(p -> p.getTracer().createAccSpan(
+                                    "Nereids MV Rewrite Time", TUnit.TIME_MS, SummaryProfile.PLAN_TIME)
+                                    .addElapsed(finalElapsed));
                 }
             }
         }
@@ -450,10 +454,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             try {
                 MaterializedViewUtils.collectTableUsedPartitions(rewrittenPlan, cascadesContext);
             } finally {
-                SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(cascadesContext.getConnectContext());
-                if (summaryProfile != null) {
-                    summaryProfile.addCollectTablePartitionTime(TimeUtils.getElapsedTimeMs(startTimeMs));
-                }
+                Optional.ofNullable(SummaryProfile.getSummaryProfile(cascadesContext.getConnectContext()))
+                        .ifPresent(p -> p.getTracer().createAccSpan(
+                                SummaryProfile.NEREIDS_COLLECT_TABLE_PARTITION_TIME, TUnit.TIME_MS,
+                                SummaryProfile.PLAN_TIME)
+                                .addElapsed(TimeUtils.getElapsedTimeMs(startTimeMs)));
             }
             trySetStatistics(materializationContext, cascadesContext);
             // Derive the operative column for materialized view scan

@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.thrift.TUnit;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -150,10 +151,10 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
                     partitionTableType,
                     sortedPartitionRanges);
         } finally {
-            SummaryProfile profile = SummaryProfile.getSummaryProfile(cascadesContext.getConnectContext());
-            if (profile != null) {
-                profile.addNereidsPartitiionPruneTime(System.currentTimeMillis() - startAt);
-            }
+            Optional.ofNullable(SummaryProfile.getSummaryProfile(cascadesContext.getConnectContext()))
+                    .ifPresent(p -> p.getTracer().createAccSpan(
+                            "Nereids Partition Prune Time", TUnit.TIME_MS, SummaryProfile.PLAN_TIME)
+                            .addElapsed(System.currentTimeMillis() - startAt));
         }
     }
 

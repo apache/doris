@@ -23,6 +23,7 @@ package org.apache.doris.planner;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -46,6 +47,7 @@ import org.apache.doris.thrift.THiveLocationParams;
 import org.apache.doris.thrift.THivePartition;
 import org.apache.doris.thrift.THiveSerDeProperties;
 import org.apache.doris.thrift.THiveTableSink;
+import org.apache.doris.thrift.TUnit;
 
 import com.google.common.base.Strings;
 import org.apache.hadoop.fs.Path;
@@ -200,7 +202,9 @@ public class HiveTableSink extends BaseExternalTableDataSink {
 
     private void setPartitionValues(THiveTableSink tSink) throws AnalysisException {
         if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setSinkGetPartitionsStartTime();
+            SummaryProfile sp = ConnectContext.get().getExecutor().getSummaryProfile();
+            sp.getTracer().startSpan(
+                    SummaryProfile.SINK_SET_PARTITION_VALUES_TIME, TUnit.TIME_MS, SummaryProfile.PLAN_TIME);
         }
 
         List<THivePartition> partitions = new ArrayList<>();
@@ -236,7 +240,8 @@ public class HiveTableSink extends BaseExternalTableDataSink {
         tSink.setPartitions(partitions);
 
         if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setSinkGetPartitionsFinishTime();
+            SummaryProfile sp = ConnectContext.get().getExecutor().getSummaryProfile();
+            sp.getTracer().finish(SummaryProfile.SINK_SET_PARTITION_VALUES_TIME);
         }
     }
 

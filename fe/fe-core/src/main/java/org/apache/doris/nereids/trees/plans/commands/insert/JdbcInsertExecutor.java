@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.ProfileSpan;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
@@ -29,6 +30,7 @@ import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TransactionType;
 
@@ -65,8 +67,12 @@ public class JdbcInsertExecutor extends BaseExternalTableInsertExecutor {
         if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
             LOG.warn("errors when abort txn. {}", ctx.getQueryIdentifier());
         } else {
-            summaryProfile.ifPresent(profile -> profile.setTransactionBeginTime(transactionType()));
-            summaryProfile.ifPresent(SummaryProfile::setTransactionEndTime);
+            summaryProfile.ifPresent(profile -> {
+                profile.setTransactionType(transactionType());
+                ProfileSpan span = profile.getTracer().startSpan(
+                        SummaryProfile.TRANSACTION_COMMIT_TIME, TUnit.TIME_MS);
+                span.finish();
+            });
             txnStatus = TransactionStatus.COMMITTED;
         }
     }

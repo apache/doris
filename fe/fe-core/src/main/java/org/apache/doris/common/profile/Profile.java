@@ -19,6 +19,7 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
@@ -80,6 +81,8 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -111,6 +114,9 @@ public class Profile {
     // profile file name format: time_id
     private static final String SEPERATOR = "_";
     private static final String PROFILE_ENTRY_SUFFIX = ".profile";
+
+    private static final Pattern NODE_ID_PATTERN = Pattern.compile("[, (]id=(\\d+)");
+    private static final Pattern DEST_IDS_PATTERN = Pattern.compile("dest_ids=\\[([\\d,\\s-]+)\\]");
 
     // summaryProfile will be serialized to storage as JSON, and we can recover it from storage
     // recover of SummaryProfile is important, because it contains the meta information of the profile
@@ -344,6 +350,16 @@ public class Profile {
     }
 
     public String getProfileByLevel() {
+        // If profile is stored in YAML format, return YAML directly to avoid
+        // duplication (prettyPrint would output Summary/Execution Summary, then
+        // getOnStorageProfile would append the stored YAML which contains them again).
+        if (profileHasBeenStored() && "yaml".equalsIgnoreCase(Config.profile_format)) {
+            String yamlFromStorage = getOnStorageProfileAsYaml();
+            if (yamlFromStorage != null) {
+                return yamlFromStorage;
+            }
+        }
+
         SafeStringBuilder builder = new SafeStringBuilder();
         if (DebugPointUtil.isEnable("Profile.profileSizeLimit")) {
             DebugPointUtil.DebugPoint debugPoint = DebugPointUtil.getDebugPoint("Profile.profileSizeLimit");
@@ -351,6 +367,8 @@ public class Profile {
             builder = new SafeStringBuilder(maxProfileSize);
             LOG.info("DebugPoint:Profile.profileSizeLimit, MAX_PROFILE_SIZE = {}", maxProfileSize);
         }
+        // Populate execution gplot before rendering summary
+        fillExecutionGplot();
         // add summary to builder
         summaryProfile.prettyPrint(builder);
         if (!builder.isTruncated()) {
@@ -391,6 +409,9 @@ public class Profile {
         if (!summaryMap.isEmpty()) {
             yamlRoot.put("summary", summaryMap);
         }
+
+        // Populate execution gplot before rendering execution summary
+        fillExecutionGplot();
 
         // Build execution summary section
         Map<String, Object> executionSummaryMap = buildExecutionSummarySection();
@@ -480,6 +501,9 @@ public class Profile {
         if (!summaryMap.isEmpty()) {
             yamlRoot.put("summary", summaryMap);
         }
+
+        // Populate execution gplot before rendering execution summary
+        fillExecutionGplot();
 
         // Build execution summary section
         Map<String, Object> executionSummaryMap = buildExecutionSummarySection();
@@ -608,6 +632,160 @@ public class Profile {
         }
     }
 
+    private void fillExecutionGplot() {
+        if (executionProfiles.size() != 1 || profileHasBeenStored()) {
+            return;
+        }
+        try {
+            // Use raw PipelineTask profiles to extract operator topology.
+            // The merged profile loses operators due to PipelineTask filtering in addChildWithCheck.
+            Map<Integer, List<RuntimeProfile>> rawProfiles = executionProfiles.get(0)
+                    .getRepresentativePipelineTaskProfiles();
+            if (rawProfiles != null && !rawProfiles.isEmpty()) {
+                String json = buildExecutionGplot(rawProfiles);
+                summaryProfile.getExecutionSummary()
+                        .addInfoString(SummaryProfile.EXECUTION_GPLOT, json);
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to build execution gplot, query id: {}", getId(), e);
+        }
+    }
+
+    // --- Execution Gplot helpers ---
+    private static int parseNodeId(String profileName) {
+        Matcher m = NODE_ID_PATTERN.matcher(profileName);
+        return m.find() ? Integer.parseInt(m.group(1)) : -1;
+    }
+
+    private static List<Integer> parseDestIds(String profileName) {
+        Matcher m = DEST_IDS_PATTERN.matcher(profileName);
+        if (!m.find()) {
+            return new ArrayList<>();
+        }
+        List<Integer> ids = new ArrayList<>();
+        for (String s : m.group(1).split(",")) {
+            ids.add(Integer.parseInt(s.trim()));
+        }
+        return ids;
+    }
+
+    private static boolean isOperatorProfile(String name) {
+        return name != null && name.contains("_OPERATOR");
+    }
+
+    private Map<String, Object> buildOperatorNode(RuntimeProfile opProfile) {
+        String name = opProfile.getName();
+        Map<String, Object> node = new LinkedHashMap<>();
+        node.put("id", parseNodeId(name));
+        // node.put("name", parseOperatorName(name));
+
+        List<Map<String, Object>> children = new ArrayList<>();
+        for (Pair<RuntimeProfile, Boolean> child : opProfile.getChildList()) {
+            String childName = child.first.getName();
+            if (isOperatorProfile(childName)) {
+                children.add(buildOperatorNode(child.first));
+            }
+        }
+        if (!children.isEmpty()) {
+            node.put("children", children);
+        }
+        return node;
+    }
+
+    /**
+     * Build execution gplot JSON from raw PipelineTask profiles.
+     * @param rawProfiles map of fragmentSeqNo -> list of representative PipelineTask profiles
+     */
+    private String buildExecutionGplot(Map<Integer, List<RuntimeProfile>> rawProfiles) {
+        List<Map<String, Object>> fragments = new ArrayList<>();
+        List<Map<String, Object>> fragmentEdges = new ArrayList<>();
+        // Map exchange node id -> fragment seq no (for resolving dest_fragment)
+        Map<Integer, Integer> exchangeIdToFragment = new HashMap<>();
+
+        for (Map.Entry<Integer, List<RuntimeProfile>> entry : rawProfiles.entrySet()) {
+            int fragSeqNo = entry.getKey();
+            List<RuntimeProfile> pipelineTasks = entry.getValue();
+
+            Map<String, Object> fragMap = new LinkedHashMap<>();
+            fragMap.put("id", fragSeqNo);
+            //fragMap.put("name", "Fragment " + fragSeqNo);
+
+            List<Map<String, Object>> pipelines = new ArrayList<>();
+            for (int pipIdx = 0; pipIdx < pipelineTasks.size(); pipIdx++) {
+                RuntimeProfile taskProfile = pipelineTasks.get(pipIdx);
+                Map<String, Object> pipMap = new LinkedHashMap<>();
+                pipMap.put("id", pipIdx);
+                // pipMap.put("name", "Pipeline " + pipIdx);
+
+                List<Map<String, Object>> operators = new ArrayList<>();
+                // PipelineTask's direct children include operators
+                for (Pair<RuntimeProfile, Boolean> child : taskProfile.getChildList()) {
+                    String childName = child.first.getName();
+                    if (isOperatorProfile(childName)) {
+                        operators.add(buildOperatorNode(child.first));
+                        collectEdgesFromOperator(childName, fragSeqNo, fragmentEdges);
+                    }
+                }
+                // Also collect exchange sources for dest_fragment resolution
+                collectExchangeSourcesFromTask(taskProfile, fragSeqNo, exchangeIdToFragment);
+
+                if (!operators.isEmpty()) {
+                    pipMap.put("operators", operators);
+                }
+                pipelines.add(pipMap);
+            }
+            fragMap.put("pipelines", pipelines);
+            fragments.add(fragMap);
+        }
+
+        // Resolve dest_fragment for each edge
+        for (Map<String, Object> edge : fragmentEdges) {
+            int exchangeId = (int) edge.get("exchange_id");
+            Integer destFrag = exchangeIdToFragment.get(exchangeId);
+            if (destFrag != null) {
+                edge.put("dest_fragment", destFrag);
+            }
+        }
+
+        Map<String, Object> root = new LinkedHashMap<>();
+        root.put("fragments", fragments);
+        root.put("fragment_edges", fragmentEdges);
+        return new Gson().toJson(root);
+    }
+
+    private void collectEdgesFromOperator(String opName, int fragSeqNo,
+            List<Map<String, Object>> fragmentEdges) {
+        if (opName.contains("DATA_STREAM_SINK") && !opName.contains("MULTI_CAST")) {
+            for (int destId : parseDestIds(opName)) {
+                Map<String, Object> edge = new LinkedHashMap<>();
+                edge.put("src_fragment", fragSeqNo);
+                edge.put("exchange_id", destId);
+                fragmentEdges.add(edge);
+            }
+        }
+    }
+
+    private void collectExchangeSourcesFromTask(RuntimeProfile taskProfile, int fragSeqNo,
+            Map<Integer, Integer> exchangeIdToFragment) {
+        for (Pair<RuntimeProfile, Boolean> child : taskProfile.getChildList()) {
+            collectExchangeSourcesRecursive(child.first, fragSeqNo, exchangeIdToFragment);
+        }
+    }
+
+    private void collectExchangeSourcesRecursive(RuntimeProfile profile, int fragSeqNo,
+            Map<Integer, Integer> exchangeIdToFragment) {
+        String name = profile.getName();
+        if (name != null && name.contains("EXCHANGE_SOURCE")) {
+            int nodeId = parseNodeId(name);
+            if (nodeId >= 0) {
+                exchangeIdToFragment.put(nodeId, fragSeqNo);
+            }
+        }
+        for (Pair<RuntimeProfile, Boolean> child : profile.getChildList()) {
+            collectExchangeSourcesRecursive(child.first, fragSeqNo, exchangeIdToFragment);
+        }
+    }
+
     /**
      * Create a configured Yaml dumper with custom representer for compact output.
      * FlowStyleMap (from AggCounter) will be output in single-line flow style.
@@ -626,46 +804,42 @@ public class Profile {
         // Create custom representer to handle FlowStyleMap (single-line) and BlockStyleMap (multi-line)
         org.yaml.snakeyaml.representer.Representer representer =
                 new org.yaml.snakeyaml.representer.Representer(options) {
-            {
-                // Register custom representer for FlowStyleMap (single-line output)
-                this.representers.put(AggCounter.FlowStyleMap.class,
-                        new org.yaml.snakeyaml.representer.Represent() {
-                    @Override
-                    public org.yaml.snakeyaml.nodes.Node representData(Object data) {
-                        @SuppressWarnings("unchecked")
-                        Map<Object, Object> map = (Map<Object, Object>) data;
-                        return representFlowStyleMapping(map);
+                    {
+                        // Register custom representer for FlowStyleMap (single-line output)
+                        this.representers.put(AggCounter.FlowStyleMap.class,
+                                data -> {
+                                    @SuppressWarnings("unchecked")
+                                    Map<Object, Object> map = (Map<Object, Object>) data;
+                                    return representFlowStyleMapping(map);
+                                });
+
+                        // Register custom representer for BlockStyleMap (multi-line output)
+                        this.representers.put(BlockStyleMap.class,
+                                data -> {
+                                    @SuppressWarnings("unchecked")
+                                    Map<Object, Object> map = (Map<Object, Object>) data;
+                                    return representBlockStyleMapping(map);
+                                });
                     }
-                });
 
-                // Register custom representer for BlockStyleMap (multi-line output)
-                this.representers.put(BlockStyleMap.class,
-                        new org.yaml.snakeyaml.representer.Represent() {
-                    @Override
-                    public org.yaml.snakeyaml.nodes.Node representData(Object data) {
-                        @SuppressWarnings("unchecked")
-                        Map<Object, Object> map = (Map<Object, Object>) data;
-                        return representBlockStyleMapping(map);
+                    // Helper method to call protected representMapping with FLOW style (single-line)
+                    protected org.yaml.snakeyaml.nodes.Node representFlowStyleMapping(
+                            Map<Object, Object> map) {
+                        return representMapping(
+                                org.yaml.snakeyaml.nodes.Tag.MAP,
+                                map,
+                                org.yaml.snakeyaml.DumperOptions.FlowStyle.FLOW);
                     }
-                });
-            }
 
-            // Helper method to call protected representMapping with FLOW style (single-line)
-            protected org.yaml.snakeyaml.nodes.Node representFlowStyleMapping(Map<Object, Object> map) {
-                return representMapping(
-                        org.yaml.snakeyaml.nodes.Tag.MAP,
-                        map,
-                        org.yaml.snakeyaml.DumperOptions.FlowStyle.FLOW);
-            }
-
-            // Helper method to call protected representMapping with BLOCK style (multi-line)
-            protected org.yaml.snakeyaml.nodes.Node representBlockStyleMapping(Map<Object, Object> map) {
-                return representMapping(
-                        org.yaml.snakeyaml.nodes.Tag.MAP,
-                        map,
-                        org.yaml.snakeyaml.DumperOptions.FlowStyle.BLOCK);
-            }
-        };
+                    // Helper method to call protected representMapping with BLOCK style (multi-line)
+                    protected org.yaml.snakeyaml.nodes.Node representBlockStyleMapping(
+                            Map<Object, Object> map) {
+                        return representMapping(
+                                org.yaml.snakeyaml.nodes.Tag.MAP,
+                                map,
+                                org.yaml.snakeyaml.DumperOptions.FlowStyle.BLOCK);
+                    }
+                };
 
         return new Yaml(representer, options);
     }
