@@ -77,7 +77,7 @@ public class CloudUpgradeMgrTest {
                 return txnMgr;
             }
         };
-        new MockUp<CloudGlobalTransactionMgr>(txnMgr) {
+        new MockUp<CloudGlobalTransactionMgr>() {
             @Mock
             public List<TransactionState> getUnFinishedPreviousLoad(long endTransactionId, long actualDbId,
                     List<Long> actualTableIdList) {
@@ -132,7 +132,7 @@ public class CloudUpgradeMgrTest {
                 return txnMgr;
             }
         };
-        new MockUp<CloudGlobalTransactionMgr>(txnMgr) {
+        new MockUp<CloudGlobalTransactionMgr>() {
             @Mock
             public List<TransactionState> getUnFinishedPreviousLoad(long endTransactionId, long actualDbId,
                     List<Long> actualTableIdList) {
@@ -182,7 +182,7 @@ public class CloudUpgradeMgrTest {
                 return txnMgr;
             }
         };
-        new MockUp<CloudGlobalTransactionMgr>(txnMgr) {
+        new MockUp<CloudGlobalTransactionMgr>() {
             @Mock
             public List<TransactionState> getUnFinishedPreviousLoad(long endTransactionId, long actualDbId,
                     List<Long> actualTableIdList) {
