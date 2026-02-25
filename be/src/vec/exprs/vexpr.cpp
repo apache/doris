@@ -340,6 +340,9 @@ TExprNode create_texpr_node_from(const vectorized::Field& field, const Primitive
 namespace doris::vectorized {
 
 bool VExpr::is_acting_on_a_slot(const VExpr& expr) {
+    if (expr.node_type() == TExprNodeType::SEARCH_EXPR) {
+        return true;
+    }
     const auto& children = expr.children();
 
     auto is_a_slot = std::any_of(children.begin(), children.end(),
@@ -690,6 +693,12 @@ Status VExpr::open(const VExprContextSPtrs& ctxs, RuntimeState* state) {
         RETURN_IF_ERROR(ctx->open(state));
     }
     return Status::OK();
+}
+
+bool VExpr::contains_blockable_function(const VExprContextSPtrs& ctxs) {
+    return std::any_of(ctxs.begin(), ctxs.end(), [](const VExprContextSPtr& ctx) {
+        return ctx != nullptr && ctx->root() != nullptr && ctx->root()->is_blockable();
+    });
 }
 
 Status VExpr::clone_if_not_exists(const VExprContextSPtrs& ctxs, RuntimeState* state,
