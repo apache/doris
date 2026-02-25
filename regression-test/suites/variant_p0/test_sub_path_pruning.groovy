@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("variant_sub_path_pruning", "variant_type"){
+suite("variant_sub_path_pruning", "variant_type") {
 
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_max_sparse_column_statistics_size = 10000 """
@@ -227,4 +227,115 @@ suite("variant_sub_path_pruning", "variant_type"){
       FIRST_VALUE(dt['a']) over (PARTITION by id) A12708
       FROM pruning_test
     """
+
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
+    sql "set enable_variant_flatten_nested = false"
+
+    sql "DROP TABLE IF EXISTS explode_pruning_test"
+    sql """
+        CREATE TABLE explode_pruning_test (
+          id INT NULL,
+          v variant<properties("variant_max_subcolumns_count" = "0")> NULL
+        )
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id)
+        PROPERTIES("replication_num"="1", "storage_format"="V2")
+    """
+    sql """insert into explode_pruning_test values
+        (1, '{"arr":[{"x":1,"y":2,"z":{"w":5},"deep":{"a":{"b":1000},"c":{"d":2000}}},{"x":10,"y":20,"deep":{"a":{"b":1001},"c":{"d":2001}}}],"outer":{"k":1},"unused":{"u":99}}'),
+        (2, '{"arr":[{"x":3,"y":4,"z":{"w":6}}],"outer":{"k":2},"unused2":1}'),
+        (3, '{"arr":[{"x":10,"y":null,"deep":{"a":{"b":1002},"c":{"d":2002}}}],"outer":{"k":1}}'),
+        (4, '{"level1":{"level2":[{"a":{"b":100},"c":200},{"a":{"b":101},"c":201}]},"outer":{"k":3},"other":"x"}'),
+        (5, '{"arr":[{"x":7,"y":8,"deep":{"a":{"b":9999},"c":{"d":8888}},"unused3":{"p":1}},{"x":9,"y":10,"deep":{"a":{"b":7777},"c":{"d":6666}},"unused4":"x"}],"outer":{"k":4},"unused":{"u":1}}')
+    """
+    sql "sync"
+
+    test {
+        sql """
+            select id, cast(e['x'] as int) as x
+            from explode_pruning_test
+            lateral view explode(v['arr']) tmp as e
+            where cast(e['x'] as int) = 10
+            order by id, x
+        """
+        result([[1, 10], [3, 10]])
+    }
+
+    explain {
+        verbose true
+        sql """
+            select id, cast(e['x'] as int) as x
+            from explode_pruning_test
+            lateral view explode(v['arr']) tmp as e
+            where cast(e['x'] as int) = 10
+        """
+        contains "nested columns:"
+        contains "v.arr.x"
+        notContains "v.arr.y"
+        notContains "v.unused"
+    }
+
+    test {
+        sql """
+            select id, cast(e['a']['b'] as int) as b
+            from explode_pruning_test
+            lateral view explode(v['level1']['level2']) tmp as e
+            where cast(e['a']['b'] as int) >= 100
+            order by id, b
+        """
+        result([[4, 100], [4, 101]])
+    }
+
+    explain {
+        verbose true
+        sql """
+            select id, cast(e['a']['b'] as int) as b
+            from explode_pruning_test
+            lateral view explode(v['level1']['level2']) tmp as e
+            where cast(e['a']['b'] as int) >= 100
+        """
+        contains "nested columns:"
+        contains "v.level1.level2.a.b"
+        notContains "v.level1.level2.c"
+    }
+
+    explain {
+        verbose true
+        sql """
+            select id, cast(e['x'] as int) as x
+            from explode_pruning_test
+            lateral view explode(v['arr']) tmp as e
+            where cast(v['outer']['k'] as int) = 1 and cast(e['x'] as int) = 10
+        """
+        contains "v.outer.k"
+        contains "v.arr.x"
+    }
+
+    test {
+        sql """
+            select id, cast(e['deep']['a']['b'] as int) as b
+            from explode_pruning_test
+            lateral view explode(v['arr']) tmp as e
+            where cast(e['deep']['a']['b'] as int) >= 7000
+            order by id, b
+        """
+        result([[5, 7777], [5, 9999]])
+    }
+
+    explain {
+        verbose true
+        sql """
+            select id, cast(e['deep']['a']['b'] as int) as b
+            from explode_pruning_test
+            lateral view explode(v['arr']) tmp as e
+            where cast(e['deep']['a']['b'] as int) >= 7000
+        """
+        contains "nested columns:"
+        contains "v.arr.deep.a.b"
+        notContains "v.arr.deep.c.d"
+        notContains "v.arr.unused3"
+        notContains "v.unused"
+    }
+
 }

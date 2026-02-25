@@ -59,7 +59,9 @@ Status IndexColumnWriter::create(const Field* field, std::unique_ptr<IndexColumn
         if (field->is_extracted_column()) {
             // variant sub col
             // field_name format: parent_unique_id.sub_col_name
-            field_name = std::to_string(field->parent_unique_id()) + "." + field->name();
+            field_name =
+                    std::to_string(field->parent_unique_id()) + "." +
+                    (field->path() != nullptr ? field->path()->get_path() : field->name());
         } else {
             field_name = std::to_string(field->unique_id());
         }

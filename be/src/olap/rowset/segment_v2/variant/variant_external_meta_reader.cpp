@@ -183,7 +183,6 @@ Status VariantExternalMetaReader::load_all(SubcolumnColumnMetaInfo* out_meta_tre
 }
 
 Status VariantExternalMetaReader::has_prefix(const std::string& prefix, bool* out) const {
-    // english only in comments
     DCHECK(out != nullptr);
     DCHECK(available());
     *out = false;

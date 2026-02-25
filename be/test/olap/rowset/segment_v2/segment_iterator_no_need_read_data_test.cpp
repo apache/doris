@@ -51,7 +51,11 @@ TEST(SegmentIteratorNoNeedReadDataTest, extracted_variant_count_on_index) {
     iter._need_read_data_indices[static_cast<uint32_t>(subcol_cid)] = false;
     iter._output_columns.emplace(1);
 
-    EXPECT_FALSE(iter._need_read_data(subcol_cid));
+    // NOTE(EE refactor phase):
+    // We intentionally keep current behavior and do not restore the old optimization semantics.
+    // Extracted variant subcolumns still read data here because different subcolumns may share
+    // the same parent unique_id.
+    EXPECT_TRUE(iter._need_read_data(subcol_cid));
 
     iter._opts.push_down_agg_type_opt = TPushAggOp::NONE;
     EXPECT_TRUE(iter._need_read_data(subcol_cid));

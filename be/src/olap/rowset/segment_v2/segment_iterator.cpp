@@ -408,7 +408,13 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
                 if (col->is_extracted_column()) {
                     // variant sub col
                     // field_name format: parent_unique_id.sub_col_name
-                    field_name = std::to_string(col->parent_unique_id()) + "." + col->name();
+                    std::string suffix_path;
+                    if (col->path() != nullptr) {
+                        suffix_path = col->path()->get_path();
+                    } else {
+                        suffix_path = col->name();
+                    }
+                    field_name = std::to_string(col->parent_unique_id()) + "." + suffix_path;
                 } else {
                     field_name = std::to_string(col->unique_id());
                 }
@@ -1307,7 +1313,8 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
          !_output_columns.contains(unique_id)) ||
         (_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid] &&
          _output_columns.count(unique_id) == 1 &&
-         _opts.push_down_agg_type_opt == TPushAggOp::COUNT_ON_INDEX)) {
+         _opts.push_down_agg_type_opt == TPushAggOp::COUNT_ON_INDEX && !column.is_nullable() &&
+         !column.is_extracted_column())) {
         VLOG_DEBUG << "SegmentIterator no need read data for column: "
                    << _opts.tablet_schema->column_by_uid(unique_id).name();
         return false;
@@ -1490,10 +1497,18 @@ Status SegmentIterator::_init_index_iterators() {
                     column_reader == nullptr) {
                     continue;
                 }
-                inverted_indexs_holder =
-                        assert_cast<VariantColumnReader*>(column_reader.get())
-                                ->find_subcolumn_tablet_indexes(column,
-                                                                _storage_name_and_type[cid].second);
+                auto* variant_reader = assert_cast<VariantColumnReader*>(column_reader.get());
+                vectorized::DataTypePtr data_type = _storage_name_and_type[cid].second;
+                if (data_type != nullptr &&
+                    data_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
+                    vectorized::DataTypePtr inferred_type;
+                    Status st = variant_reader->infer_data_type_for_path(
+                            &inferred_type, column, _opts, _segment->_column_reader_cache.get());
+                    if (st.ok() && inferred_type != nullptr) {
+                        data_type = inferred_type;
+                    }
+                }
+                inverted_indexs_holder = variant_reader->find_subcolumn_tablet_indexes(column, data_type);
                 // Extract raw pointers from shared_ptr for iteration
                 for (const auto& index_ptr : inverted_indexs_holder) {
                     inverted_indexs.push_back(index_ptr.get());
@@ -2929,9 +2944,15 @@ Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* bl
 }
 
 Status SegmentIterator::_construct_compound_expr_context() {
+    ColumnIteratorOptions iter_opts {
+            .use_page_cache = _opts.use_page_cache,
+            .file_reader = _file_reader.get(),
+            .stats = _opts.stats,
+            .io_ctx = _opts.io_ctx,
+    };
     auto inverted_index_context = std::make_shared<vectorized::IndexExecContext>(
             _schema->column_ids(), _index_iterators, _storage_name_and_type,
-            _common_expr_index_exec_status, _score_runtime);
+            _common_expr_index_exec_status, _score_runtime, _segment.get(), iter_opts);
     for (const auto& expr_ctx : _opts.common_expr_ctxs_push_down) {
         vectorized::VExprContextSPtr context;
         // _ann_range_search_runtime will do deep copy.

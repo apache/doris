@@ -293,6 +293,44 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& 
 
 ColumnReader::~ColumnReader() = default;
 
+const ZoneMapIndexReader* ColumnReader::get_zone_map_index() {
+    if (_zone_map_index == nullptr) {
+        return nullptr;
+    }
+    if (_zone_map_index->num_pages() == 0 && !is_empty()) {
+        ColumnIteratorOptions iter_opts;
+        OlapReaderStatistics stats;
+        iter_opts.stats = &stats;
+        iter_opts.file_reader = _file_reader.get();
+        Status st = _load_zone_map_index(false, false, iter_opts);
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to load zone map index. file=" << _file_reader->path().native()
+                         << ", status=" << st;
+            return nullptr;
+        }
+    }
+    return _zone_map_index.get();
+}
+
+const OrdinalIndexReader* ColumnReader::get_ordinal_index() {
+    if (_ordinal_index == nullptr) {
+        return nullptr;
+    }
+    if (_ordinal_index->num_data_pages() == 0 && !is_empty()) {
+        ColumnIteratorOptions iter_opts;
+        OlapReaderStatistics stats;
+        iter_opts.stats = &stats;
+        iter_opts.file_reader = _file_reader.get();
+        Status st = _load_ordinal_index(false, false, iter_opts);
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to load ordinal index. file=" << _file_reader->path().native()
+                         << ", status=" << st;
+            return nullptr;
+        }
+    }
+    return _ordinal_index.get();
+}
+
 int64_t ColumnReader::get_metadata_size() const {
     return sizeof(ColumnReader) + (_segment_zone_map ? _segment_zone_map->ByteSizeLong() : 0);
 }
@@ -378,6 +416,8 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
         case BLOOM_FILTER_INDEX:
             _bloom_filter_index.reset(
                     new BloomFilterIndexReader(_file_reader, index_meta.bloom_filter_index()));
+            break;
+        case NESTED_OFFSETS_INDEX:
             break;
         default:
             return Status::Corruption("Bad file {}: invalid column index type {}",
