@@ -25,6 +25,7 @@ import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fs.HadoopMetricsDisabler;
 import org.apache.doris.fs.io.DorisInputFile;
 import org.apache.doris.fs.io.DorisOutputFile;
 import org.apache.doris.fs.io.ParsedPath;
@@ -154,7 +155,9 @@ public class DFSFileSystem extends RemoteFileSystem {
                                 // If we close the shared instance here, it could break those other users.
                                 // Therefore, we disable the cache to ensure isolated, non-shared instances.
                                 confCopy.setBoolean("fs.hdfs.impl.disable.cache", true);
-                                return FileSystem.get(remotePath.toUri(), confCopy);
+                                FileSystem fs = FileSystem.get(remotePath.toUri(), confCopy);
+                                HadoopMetricsDisabler.disable(fs.getClass().getClassLoader());
+                                return fs;
                             } catch (IOException e) {
                                 throw new RuntimeException(e);
                             }
