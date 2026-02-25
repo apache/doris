@@ -1576,6 +1576,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             Map<String, Expression> staticValues = Maps.newLinkedHashMap();
             for (DorisParser.PartitionKeyValueContext kvCtx : ctx.partitionKeyValue()) {
                 String colName = kvCtx.identifier().getText();
+                if (staticValues.containsKey(colName)) {
+                    throw new AnalysisException("Duplicate partition column: " + colName);
+                }
                 Expression valueExpr = typedVisit(kvCtx.expression());
                 staticValues.put(colName, valueExpr);
             }

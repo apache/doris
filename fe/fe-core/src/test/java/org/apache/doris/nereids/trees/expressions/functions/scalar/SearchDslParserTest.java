@@ -839,6 +839,114 @@ public class SearchDslParserTest {
         Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
     }
 
+    // ============ Tests for Implicit Conjunction (CONJ_NONE) ============
+
+    @Test
+    public void testLuceneModeImplicitConjunctionAndOperator() {
+        // Test: "a OR b c" with default_operator=AND
+        // In Lucene, implicit conjunction (CONJ_NONE) does NOT modify the preceding term.
+        // Only explicit AND/OR conjunctions modify the preceding term.
+        //   a(CONJ_NONE)→MUST, b(CONJ_OR)→prev(a) SHOULD, b SHOULD,
+        //   c(CONJ_NONE)→MUST (no modification to prev b)
+        //   Result: [SHOULD(a), SHOULD(b), MUST(c)]
+        // This matches ES query_string: "a OR b c" with default_operator=AND
+        String dsl = "field:a OR field:b field:c";
+        String options = "{\"mode\":\"lucene\",\"default_operator\":\"AND\",\"minimum_should_match\":0}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
+        Assertions.assertEquals(3, plan.getRoot().getChildren().size());
+
+        QsNode nodeA = plan.getRoot().getChildren().get(0);
+        Assertions.assertEquals("a", nodeA.getValue());
+        Assertions.assertEquals(SearchDslParser.QsOccur.SHOULD, nodeA.getOccur());
+
+        QsNode nodeB = plan.getRoot().getChildren().get(1);
+        Assertions.assertEquals("b", nodeB.getValue());
+        Assertions.assertEquals(SearchDslParser.QsOccur.SHOULD, nodeB.getOccur());
+
+        QsNode nodeC = plan.getRoot().getChildren().get(2);
+        Assertions.assertEquals("c", nodeC.getValue());
+        Assertions.assertEquals(SearchDslParser.QsOccur.MUST, nodeC.getOccur());
+    }
+
+    @Test
+    public void testLuceneModeImplicitConjunctionNotAndOperator() {
+        // Test: "a OR b NOT c" with default_operator=AND
+        // In Lucene, implicit NOT conjunction (CONJ_NONE + MOD_NOT) does NOT modify preceding term.
+        //   a(CONJ_NONE)→MUST, b(CONJ_OR)→prev(a) SHOULD, b SHOULD,
+        //   NOT c(CONJ_NONE, MOD_NOT)→MUST_NOT (no modification to prev b)
+        //   Result: [SHOULD(a), SHOULD(b), MUST_NOT(c)]
+        // This matches ES query_string: "a OR b NOT c" with default_operator=AND
+        String dsl = "field:a OR field:b NOT field:c";
+        String options = "{\"mode\":\"lucene\",\"default_operator\":\"AND\",\"minimum_should_match\":0}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
+        Assertions.assertEquals(3, plan.getRoot().getChildren().size());
+
+        QsNode nodeA = plan.getRoot().getChildren().get(0);
+        Assertions.assertEquals("a", nodeA.getValue());
+        Assertions.assertEquals(SearchDslParser.QsOccur.SHOULD, nodeA.getOccur());
+
+        QsNode nodeB = plan.getRoot().getChildren().get(1);
+        Assertions.assertEquals("b", nodeB.getValue());
+        Assertions.assertEquals(SearchDslParser.QsOccur.SHOULD, nodeB.getOccur());
+
+        QsNode nodeC = plan.getRoot().getChildren().get(2);
+        Assertions.assertEquals("c", nodeC.getValue());
+        Assertions.assertEquals(SearchDslParser.QsOccur.MUST_NOT, nodeC.getOccur());
+    }
+
+    @Test
+    public void testLuceneModeImplicitConjunctionOrOperator() {
+        // Test: "a OR b c" with default_operator=OR
+        // With OR_OPERATOR, implicit conjunction gives SHOULD to current term.
+        //   a(CONJ_NONE)→SHOULD, b(CONJ_OR)→SHOULD, c(CONJ_NONE)→SHOULD
+        //   Result: [SHOULD(a), SHOULD(b), SHOULD(c)]
+        String dsl = "field:a OR field:b field:c";
+        String options = "{\"mode\":\"lucene\",\"minimum_should_match\":0}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
+        Assertions.assertEquals(3, plan.getRoot().getChildren().size());
+
+        for (QsNode child : plan.getRoot().getChildren()) {
+            Assertions.assertEquals(SearchDslParser.QsOccur.SHOULD, child.getOccur());
+        }
+    }
+
+    @Test
+    public void testLuceneModeExplicitAndStillModifiesPrev() {
+        // Test: "a OR b AND c" with default_operator=AND
+        // Explicit AND SHOULD modify the preceding term, unlike implicit conjunction.
+        //   a(CONJ_NONE)→MUST, b(CONJ_OR)→prev(a) SHOULD, b SHOULD,
+        //   c(CONJ_AND)→prev(b) MUST, c MUST
+        //   Result: [SHOULD(a), MUST(b), MUST(c)]
+        String dsl = "field:a OR field:b AND field:c";
+        String options = "{\"mode\":\"lucene\",\"default_operator\":\"AND\",\"minimum_should_match\":0}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
+        Assertions.assertEquals(3, plan.getRoot().getChildren().size());
+
+        QsNode nodeA = plan.getRoot().getChildren().get(0);
+        Assertions.assertEquals("a", nodeA.getValue());
+        Assertions.assertEquals(SearchDslParser.QsOccur.SHOULD, nodeA.getOccur());
+
+        QsNode nodeB = plan.getRoot().getChildren().get(1);
+        Assertions.assertEquals("b", nodeB.getValue());
+        Assertions.assertEquals(SearchDslParser.QsOccur.MUST, nodeB.getOccur());
+
+        QsNode nodeC = plan.getRoot().getChildren().get(2);
+        Assertions.assertEquals("c", nodeC.getValue());
+        Assertions.assertEquals(SearchDslParser.QsOccur.MUST, nodeC.getOccur());
+    }
+
     // ============ Tests for Escape Handling ============
 
     @Test

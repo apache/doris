@@ -926,6 +926,9 @@ public class SummaryProfile {
     }
 
     public String getPrettyNereidsCollectTablePartitionTime() {
+        if (nereidsCollectTablePartitionFinishTime == -1 || nereidsRewriteFinishTime == -1) {
+            return "N/A";
+        }
         long totalTime = nereidsCollectTablePartitionFinishTime
                 - nereidsRewriteFinishTime + nereidsCollectTablePartitionTime;
         return RuntimeProfile.printCounter(totalTime, TUnit.TIME_MS);

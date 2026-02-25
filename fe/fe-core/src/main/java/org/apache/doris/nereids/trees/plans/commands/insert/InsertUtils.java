@@ -40,6 +40,7 @@ import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundInlineTable;
 import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
+import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -363,16 +364,18 @@ public class InsertUtils {
         ImmutableList.Builder<List<NamedExpression>> optimizedRowConstructors
                 = ImmutableList.builderWithExpectedSize(unboundInlineTable.getConstantExprsList().size());
         List<Column> columns = table.getBaseSchema(false);
-        if (unboundLogicalSink instanceof UnboundIcebergTableSink
+        Map<String, Expression> staticPartitions = null;
+        if (unboundLogicalSink instanceof UnboundIcebergTableSink) {
+            staticPartitions = ((UnboundIcebergTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
+        } else if (unboundLogicalSink instanceof UnboundMaxComputeTableSink) {
+            staticPartitions = ((UnboundMaxComputeTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
+        }
+        if (staticPartitions != null && !staticPartitions.isEmpty()
                 && CollectionUtils.isEmpty(unboundLogicalSink.getColNames())) {
-            UnboundIcebergTableSink<?> icebergSink = (UnboundIcebergTableSink<?>) unboundLogicalSink;
-            Map<String, Expression> staticPartitions = icebergSink.getStaticPartitionKeyValues();
-            if (staticPartitions != null && !staticPartitions.isEmpty()) {
-                Set<String> staticPartitionColNames = staticPartitions.keySet();
-                columns = columns.stream()
-                        .filter(column -> !staticPartitionColNames.contains(column.getName()))
-                        .collect(ImmutableList.toImmutableList());
-            }
+            Set<String> staticPartitionColNames = staticPartitions.keySet();
+            columns = columns.stream()
+                    .filter(column -> !staticPartitionColNames.contains(column.getName()))
+                    .collect(ImmutableList.toImmutableList());
         }
 
         ConnectContext context = ConnectContext.get();
@@ -593,6 +596,8 @@ public class InsertUtils {
             unboundTableSink = (UnboundDictionarySink<? extends Plan>) plan;
         } else if (plan instanceof UnboundBlackholeSink) {
             unboundTableSink = (UnboundBlackholeSink<? extends Plan>) plan;
+        } else if (plan instanceof UnboundMaxComputeTableSink) {
+            unboundTableSink = (UnboundMaxComputeTableSink<? extends Plan>) plan;
         } else {
             throw new AnalysisException(
                     "the root of plan only accept Olap, Dictionary, Hive, Iceberg or Jdbc table sink, but it is "

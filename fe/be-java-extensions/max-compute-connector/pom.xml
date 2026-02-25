@@ -27,7 +27,7 @@ under the License.
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>max-compute-scanner</artifactId>
+    <artifactId>max-compute-connector</artifactId>
 
     <properties>
         <maven.compiler.source>8</maven.compiler.source>
@@ -61,10 +61,15 @@ under the License.
             <artifactId>odps-sdk-table-api</artifactId>
             <version>${maxcompute.version}</version>
         </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-vector</artifactId>
+            <version>${arrow.version}</version>
+        </dependency>
     </dependencies>
 
     <build>
-        <finalName>max-compute-scanner</finalName>
+        <finalName>max-compute-connector</finalName>
         <directory>${project.basedir}/target/</directory>
         <plugins>
             <plugin>

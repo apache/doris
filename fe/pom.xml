@@ -332,7 +332,8 @@ under the License.
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
         <iceberg.version>1.9.1</iceberg.version>
-        <maxcompute.version>0.49.0-public</maxcompute.version>
+        <!-- 0.56.1 has bug that "SplitMode" in query response may not be set-->
+        <maxcompute.version>0.53.2-public</maxcompute.version>
         <!-- Arrow 19.0.1 will MacOS compile error and decimal type error when convert to Parquet
          https://github.com/apache/doris/pull/51217-->
         <arrow.version>17.0.0</arrow.version>
@@ -1336,6 +1337,12 @@ under the License.
                         <artifactId>ini4j</artifactId>
                     </exclusion>
                 </exclusions>
+            </dependency>
+            <dependency>
+                <!-- This is a dependency chain: odps-sdk-core:0.53.2-public → credentials-java:0.3.12 → com.aliyun:tea:[1.1.14,2.0.0)-->
+                <groupId>com.aliyun</groupId>
+                <artifactId>tea</artifactId>
+                <version>1.4.1</version>
             </dependency>
             <!-- For Iceberg, must be consistent with Iceberg version -->
             <dependency>

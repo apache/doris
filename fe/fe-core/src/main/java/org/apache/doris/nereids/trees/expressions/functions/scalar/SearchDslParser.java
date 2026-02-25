@@ -2143,16 +2143,13 @@ public class SearchDslParser {
                 QsOccur defaultOccur, boolean introducedByOr) {
             List<SearchParser.NotClauseContext> notClauses = ctx.notClause();
 
-            // Determine how to handle implicit operators
-            String defaultOperator = options.getDefaultOperator();
-            boolean useAndForImplicit = "AND".equalsIgnoreCase(defaultOperator);
-
             for (int i = 0; i < notClauses.size(); i++) {
                 boolean introducedByAnd;
                 if (i > 0) {
-                    // Check if there's an explicit AND before this notClause
-                    // by walking ctx.children and finding the token immediately before this notClause
-                    introducedByAnd = hasExplicitAndBefore(ctx, notClauses.get(i), useAndForImplicit);
+                    // Check if there's an explicit AND token before this notClause.
+                    // Implicit conjunction (no AND token) returns false - only explicit AND
+                    // should trigger the "introduced by AND" logic that modifies preceding terms.
+                    introducedByAnd = hasExplicitAndBefore(ctx, notClauses.get(i));
                 } else {
                     introducedByAnd = false;
                 }
@@ -2166,13 +2163,18 @@ public class SearchDslParser {
         /**
          * Check if there's an explicit AND token before the target notClause.
          * Walks ctx.children to find the position of target and checks the preceding token.
+         *
+         * IMPORTANT: Returns false for implicit conjunction (no explicit AND token).
+         * In Lucene's QueryParserBase.addClause(), only explicit CONJ_AND modifies the
+         * preceding term. CONJ_NONE (implicit conjunction) only affects the current term's
+         * occur via the default_operator, without modifying the preceding term.
+         *
          * @param ctx The AndClauseContext containing the children
          * @param target The target NotClauseContext to check
-         * @param implicitDefault Value to return if no explicit AND (use default_operator)
-         * @return true if explicit AND before target, implicitDefault if no explicit AND
+         * @return true only if there's an explicit AND token before target
          */
         private boolean hasExplicitAndBefore(SearchParser.AndClauseContext ctx,
-                SearchParser.NotClauseContext target, boolean implicitDefault) {
+                SearchParser.NotClauseContext target) {
             for (int j = 0; j < ctx.getChildCount(); j++) {
                 if (ctx.getChild(j) == target) {
                     // Found the target - check if the preceding sibling is an AND token
@@ -2181,12 +2183,12 @@ public class SearchDslParser {
                                 (org.antlr.v4.runtime.tree.TerminalNode) ctx.getChild(j - 1);
                         return terminal.getSymbol().getType() == SearchParser.AND;
                     }
-                    // No explicit AND before this term - use default
-                    return implicitDefault;
+                    // No explicit AND before this term
+                    return false;
                 }
             }
-            // Target not found (should not happen) - use default
-            return implicitDefault;
+            // Target not found (should not happen)
+            return false;
         }
 
         private void collectTermsFromNotClause(SearchParser.NotClauseContext ctx, List<TermWithOccur> terms,

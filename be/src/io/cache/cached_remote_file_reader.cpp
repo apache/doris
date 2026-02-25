@@ -35,8 +35,10 @@
 #include <vector>
 
 #include "cloud/cloud_warm_up_manager.h"
+#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "cpp/s3_rate_limiter.h"
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
@@ -434,6 +436,15 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         empty_end = empty_blocks.back()->range().right;
         size_t size = empty_end - empty_start + 1;
         std::unique_ptr<char[]> buffer(new char[size]);
+
+        // Apply rate limiting for warmup download tasks (node level)
+        // Rate limiting is applied before remote read to limit both S3 read and local cache write
+        if (io_ctx->is_warmup) {
+            auto* rate_limiter = ExecEnv::GetInstance()->warmup_download_rate_limiter();
+            if (rate_limiter != nullptr) {
+                rate_limiter->add(size);
+            }
+        }
 
         // Determine read type and execute remote read
         RETURN_IF_ERROR(

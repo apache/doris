@@ -2687,16 +2687,19 @@ Status SegmentIterator::_check_output_block(vectorized::Block* block) {
                     idx, block->columns(), _schema->num_column_ids(), _virtual_column_exprs.size());
         } else if (vectorized::check_and_get_column<vectorized::ColumnNothing>(
                            entry.column.get())) {
-            std::vector<std::string> vcid_to_idx;
-            for (const auto& pair : _vir_cid_to_idx_in_block) {
-                vcid_to_idx.push_back(fmt::format("{}-{}", pair.first, pair.second));
+            if (rows > 0) {
+                std::vector<std::string> vcid_to_idx;
+                for (const auto& pair : _vir_cid_to_idx_in_block) {
+                    vcid_to_idx.push_back(fmt::format("{}-{}", pair.first, pair.second));
+                }
+                std::string vir_cid_to_idx_in_block_msg =
+                        fmt::format("_vir_cid_to_idx_in_block:[{}]", fmt::join(vcid_to_idx, ","));
+                return Status::InternalError(
+                        "Column in idx {} is nothing, block columns {}, normal_columns {}, "
+                        "vir_cid_to_idx_in_block_msg {}",
+                        idx, block->columns(), _schema->num_column_ids(),
+                        vir_cid_to_idx_in_block_msg);
             }
-            std::string vir_cid_to_idx_in_block_msg =
-                    fmt::format("_vir_cid_to_idx_in_block:[{}]", fmt::join(vcid_to_idx, ","));
-            return Status::InternalError(
-                    "Column in idx {} is nothing, block columns {}, normal_columns {}, "
-                    "vir_cid_to_idx_in_block_msg {}",
-                    idx, block->columns(), _schema->num_column_ids(), vir_cid_to_idx_in_block_msg);
         } else if (entry.column->size() != rows) {
             return Status::InternalError(
                     "Unmatched size {}, expected {}, column: {}, type: {}, idx_in_block: {}, "
@@ -3155,6 +3158,12 @@ void SegmentIterator::_prepare_score_column_materialization() {
         return;
     }
 
+    ScoreRangeFilterPtr filter;
+    if (_score_runtime->has_score_range_filter()) {
+        const auto& range_info = _score_runtime->get_score_range_info();
+        filter = std::make_shared<ScoreRangeFilter>(range_info->op, range_info->threshold);
+    }
+
     vectorized::IColumn::MutablePtr result_column;
     auto result_row_ids = std::make_unique<std::vector<uint64_t>>();
     if (_score_runtime->get_limit() > 0 && _col_predicates.empty() &&
@@ -3162,10 +3171,10 @@ void SegmentIterator::_prepare_score_column_materialization() {
         OrderType order_type = _score_runtime->is_asc() ? OrderType::ASC : OrderType::DESC;
         _index_query_context->collection_similarity->get_topn_bm25_scores(
                 &_row_bitmap, result_column, result_row_ids, order_type,
-                _score_runtime->get_limit());
+                _score_runtime->get_limit(), filter);
     } else {
         _index_query_context->collection_similarity->get_bm25_scores(&_row_bitmap, result_column,
-                                                                     result_row_ids);
+                                                                     result_row_ids, filter);
     }
     const size_t dst_col_idx = _score_runtime->get_dest_column_idx();
     auto* column_iter = _column_iterators[_schema->column_id(dst_col_idx)].get();
