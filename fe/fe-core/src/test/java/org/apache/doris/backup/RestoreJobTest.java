@@ -43,6 +43,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
@@ -1577,6 +1578,135 @@ public class RestoreJobTest {
         Assert.assertEquals(TStorageMedium.SSD, resultDp.getStorageMedium());
     }
 
+    @Test
+    public void testResetPartitionForRestoreWithDowngrade() throws Exception {
+        RestoreJob ssdJob = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
+                jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false,
+                false, false, false, false, "ssd", "adaptive", env, repo.getId());
+
+        String partName = "p_test_downgrade";
+        long partId = 80020L;
+        OlapTable remoteTbl = buildSimpleRemoteTbl(partName, partId, TStorageMedium.SSD);
+
+        OlapTable localTbl = new OlapTable(CatalogMocker.TEST_TBL2_ID, CatalogMocker.TEST_TBL2_NAME,
+                CatalogMocker.TEST_TBL_BASE_SCHEMA, KeysType.AGG_KEYS,
+                new RangePartitionInfo(Lists.newArrayList(CatalogMocker.TEST_TBL_BASE_SCHEMA.get(0))),
+                new HashDistributionInfo(32, Lists.newArrayList(CatalogMocker.TEST_TBL_BASE_SCHEMA.get(1))));
+        Deencapsulation.setField(localTbl, "baseIndexId", CatalogMocker.TEST_TBL2_ID);
+        localTbl.setIndexMeta(CatalogMocker.TEST_TBL2_ID, CatalogMocker.TEST_TBL2_NAME,
+                CatalogMocker.TEST_TBL_BASE_SCHEMA, 0, CatalogMocker.SCHEMA_HASH, (short) 1,
+                TStorageType.COLUMN, KeysType.AGG_KEYS);
+
+        DataProperty originalDp = remoteTbl.getPartitionInfo().getDataProperty(partId);
+
+        new Expectations() {
+            {
+                systemInfoService.selectBackendIdsForReplicaCreation((ReplicaAllocation) any,
+                        (Map<Tag, Integer>) any, (TStorageMedium) any, (MediumAllocationMode) any, anyBoolean);
+                minTimes = 0;
+                result = new Delegate() {
+                    public synchronized Pair<Map<Tag, List<Long>>, TStorageMedium>
+                            selectBackendIdsForReplicaCreation(
+                            ReplicaAllocation replicaAlloc, Map<Tag, Integer> nextIndexs,
+                            TStorageMedium medium, MediumAllocationMode mediumAllocationMode,
+                            boolean isOnlyForCheck) {
+                        Map<Tag, List<Long>> beIds = Maps.newHashMap();
+                        beIds.put(Tag.DEFAULT_BACKEND_TAG, Lists.newArrayList(
+                                CatalogMocker.BACKEND1_ID,
+                                CatalogMocker.BACKEND2_ID,
+                                CatalogMocker.BACKEND3_ID));
+                        return Pair.of(beIds, TStorageMedium.HDD);
+                    }
+                };
+            }
+        };
+
+        Partition result = ssdJob.resetPartitionForRestore(localTbl, remoteTbl, partName,
+                new ReplicaAllocation((short) 3));
+
+        Assert.assertNotNull(result);
+        Assert.assertEquals(TStorageMedium.HDD, originalDp.getStorageMedium());
+        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, originalDp.getMediumAllocationMode());
+    }
+
+    @Test
+    public void testResetPartitionForRestoreDdlException() throws Exception {
+        RestoreJob ssdJob = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
+                jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false,
+                false, false, false, false, "ssd", "strict", env, repo.getId());
+
+        String partName = "p_test_ddl_err";
+        long partId = 80021L;
+        OlapTable remoteTbl = buildSimpleRemoteTbl(partName, partId, TStorageMedium.SSD);
+
+        OlapTable localTbl = new OlapTable(CatalogMocker.TEST_TBL2_ID, CatalogMocker.TEST_TBL2_NAME,
+                CatalogMocker.TEST_TBL_BASE_SCHEMA, KeysType.AGG_KEYS,
+                new RangePartitionInfo(Lists.newArrayList(CatalogMocker.TEST_TBL_BASE_SCHEMA.get(0))),
+                new HashDistributionInfo(32, Lists.newArrayList(CatalogMocker.TEST_TBL_BASE_SCHEMA.get(1))));
+        Deencapsulation.setField(localTbl, "baseIndexId", CatalogMocker.TEST_TBL2_ID);
+        localTbl.setIndexMeta(CatalogMocker.TEST_TBL2_ID, CatalogMocker.TEST_TBL2_NAME,
+                CatalogMocker.TEST_TBL_BASE_SCHEMA, 0, CatalogMocker.SCHEMA_HASH, (short) 1,
+                TStorageType.COLUMN, KeysType.AGG_KEYS);
+
+        new Expectations() {
+            {
+                systemInfoService.selectBackendIdsForReplicaCreation((ReplicaAllocation) any,
+                        (Map<Tag, Integer>) any, (TStorageMedium) any, (MediumAllocationMode) any, anyBoolean);
+                minTimes = 0;
+                result = new DdlException("no SSD backend available");
+            }
+        };
+
+        Partition result = ssdJob.resetPartitionForRestore(localTbl, remoteTbl, partName,
+                new ReplicaAllocation((short) 3));
+
+        Assert.assertNull(result);
+        Assert.assertNotEquals(Status.OK, ssdJob.getStatus());
+    }
+
+    @Test
+    public void testResetTabletForRestoreWithAdaptiveDowngrade() throws Exception {
+        RestoreJob ssdJob = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
+                jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false,
+                false, false, false, false, "ssd", "adaptive", env, repo.getId());
+
+        String partName = "p_tablet_downgrade";
+        long partId = 80022L;
+        OlapTable remoteTbl = buildSimpleRemoteTbl(partName, partId, TStorageMedium.SSD);
+        remoteTbl.getPartitionInfo().getDataProperty(partId)
+                .setMediumAllocationMode(MediumAllocationMode.ADAPTIVE);
+
+        Partition partition = remoteTbl.getPartition(partName);
+
+        new Expectations() {
+            {
+                systemInfoService.selectBackendIdsForReplicaCreation((ReplicaAllocation) any,
+                        (Map<Tag, Integer>) any, (TStorageMedium) any, (MediumAllocationMode) any, anyBoolean);
+                minTimes = 0;
+                result = new Delegate() {
+                    public synchronized Pair<Map<Tag, List<Long>>, TStorageMedium>
+                            selectBackendIdsForReplicaCreation(
+                            ReplicaAllocation replicaAlloc, Map<Tag, Integer> nextIndexs,
+                            TStorageMedium medium, MediumAllocationMode mediumAllocationMode,
+                            boolean isOnlyForCheck) {
+                        Map<Tag, List<Long>> beIds = Maps.newHashMap();
+                        beIds.put(Tag.DEFAULT_BACKEND_TAG, Lists.newArrayList(
+                                CatalogMocker.BACKEND1_ID,
+                                CatalogMocker.BACKEND2_ID,
+                                CatalogMocker.BACKEND3_ID));
+                        return Pair.of(beIds, TStorageMedium.HDD);
+                    }
+                };
+            }
+        };
+
+        Partition result = ssdJob.resetTabletForRestore(remoteTbl, remoteTbl, partition,
+                new ReplicaAllocation((short) 3));
+
+        Assert.assertNotNull(result);
+        DataProperty resultDp = remoteTbl.getPartitionInfo().getDataProperty(partition.getId());
+        Assert.assertEquals(TStorageMedium.HDD, resultDp.getStorageMedium());
+    }
 
     @Test
     public void testAllStateCheckMethods() throws Exception {

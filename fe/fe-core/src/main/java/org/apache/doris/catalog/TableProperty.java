@@ -549,17 +549,9 @@ public class TableProperty implements GsonPostProcessable {
             if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE,
                         DataProperty.MediumAllocationMode.STRICT.getValue());
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Auto-assigned medium_allocation_mode 'strict' for table with storage_medium "
-                            + "(backward compatibility)");
-                }
             } else {
                 properties.put(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE,
                         DataProperty.MediumAllocationMode.ADAPTIVE.getValue());
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Auto-assigned medium_allocation_mode 'adaptive' for table without storage_medium "
-                            + "(backward compatibility)");
-                }
             }
         }
 

@@ -961,12 +961,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                                         upstreamDataProperty.getMediumAllocationMode(),
                                         decision);
                             }
-
-                            if (decision.wasDowngraded() && LOG.isDebugEnabled()) {
-                                LOG.debug("Pre-decided medium for partition {}: {} (downgraded from {}, reason: {})",
-                                        partition.getName(), decision.getFinalMedium(),
-                                        decision.getOriginalMedium(), decision.getReason());
-                            }
                         } catch (DdlException e) {
                             // If we reach here, it means even adaptive mode cannot find available backends
                             // This is a real failure - set status and return
@@ -1566,10 +1560,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         ? partitionDataProperty.getStorageMedium()
                         : TStorageMedium.HDD;  // fallback default
 
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("tablet {} in partition {} using medium {} (from DataProperty)",
-                            restoreTablet.getId(), restorePart.getName(), storageMedium);
-                }
                 TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
                         restoredIdx.getId(), indexMeta.getSchemaHash(), storageMedium);
                 Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
