@@ -16,10 +16,12 @@
 // under the License.
 
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
+#include <aws/core/auth/STSCredentialsProvider.h>
 #include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
 #include <gtest/gtest.h>
 
 #include "cpp/custom_aws_credentials_provider_chain.h"
+#include "util/s3_uri.h"
 #include "util/s3_util.h"
 
 namespace doris {
@@ -42,6 +44,9 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
     role_conf2.cred_provider_type = CredProviderType::InstanceProfile;
     role_conf2.role_arn = "role_arn";
     role_conf2.external_id = "external_id";
+
+    S3ClientConf web_identity_conf;
+    web_identity_conf.cred_provider_type = CredProviderType::WebIdentity;
 
     config::aws_credentials_provider_version = "v2";
     {
@@ -70,6 +75,13 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
         auto custom_chain_v2 =
                 std::dynamic_pointer_cast<Aws::Auth::STSAssumeRoleCredentialsProvider>(provider_v2);
         ASSERT_NE(custom_chain_v2, nullptr);
+    }
+
+    {
+        auto provider_v2 = factory.get_aws_credentials_provider(web_identity_conf);
+        auto web_identity_v2 = std::dynamic_pointer_cast<
+                Aws::Auth::STSAssumeRoleWebIdentityCredentialsProvider>(provider_v2);
+        ASSERT_NE(web_identity_v2, nullptr);
     }
 
     config::aws_credentials_provider_version = "v1";
@@ -103,6 +115,25 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
     }
 
     config::aws_credentials_provider_version = "v2";
+}
+
+TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfRoleArnProviderType) {
+    std::map<std::string, std::string> properties {
+            {"AWS_ENDPOINT", "s3.us-west-2.amazonaws.com"},
+            {"AWS_REGION", "us-west-2"},
+            {"AWS_ROLE_ARN", "arn:aws:iam::123456789012:role/test-role"},
+    };
+
+    S3URI s3_uri("s3://test-bucket/test-prefix");
+    ASSERT_TRUE(s3_uri.parse().ok());
+
+    S3Conf s3_conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
+    ASSERT_EQ(s3_conf.client_conf.cred_provider_type, CredProviderType::Default);
+
+    properties["AWS_CREDENTIALS_PROVIDER_TYPE"] = "WEB_IDENTITY";
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
+    ASSERT_EQ(s3_conf.client_conf.cred_provider_type, CredProviderType::WebIdentity);
 }
 
 } // namespace doris
