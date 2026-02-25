@@ -79,8 +79,9 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
 
     {
         auto provider_v2 = factory.get_aws_credentials_provider(web_identity_conf);
-        auto web_identity_v2 = std::dynamic_pointer_cast<
-                Aws::Auth::STSAssumeRoleWebIdentityCredentialsProvider>(provider_v2);
+        auto web_identity_v2 =
+                std::dynamic_pointer_cast<Aws::Auth::STSAssumeRoleWebIdentityCredentialsProvider>(
+                        provider_v2);
         ASSERT_NE(web_identity_v2, nullptr);
     }
 
