@@ -31,20 +31,16 @@ import java.util.regex.Pattern;
 public class MinioProperties extends AbstractS3CompatibleProperties {
     @Setter
     @Getter
-    @ConnectorProperty(names = {"minio.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT",
-            "fs.s3a.endpoint"},
+    @ConnectorProperty(names = {"minio.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT"},
             required = false, description = "The endpoint of Minio.")
     protected String endpoint = "";
-
     @Getter
     @Setter
-    @ConnectorProperty(names = {"minio.region", "s3.region", "AWS_REGION", "region", "REGION",
-            "fs.s3a.endpoint.region"}, required = false, description = "The region of Minio.")
     protected String region = "us-east-1";
 
     @Getter
-    @ConnectorProperty(names = {"minio.access_key", "s3.access-key-id", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key",
-            "s3.access_key", "fs.s3a.access.key"},
+    @ConnectorProperty(names = {"minio.access_key", "s3.access-key-id", "AWS_ACCESS_KEY", "ACCESS_KEY",
+            "access_key", "s3.access_key"},
             required = false,
             sensitive = true,
             description = "The access key of Minio.")
@@ -52,15 +48,14 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
 
     @Getter
     @ConnectorProperty(names = {"minio.secret_key", "s3.secret-access-key", "s3.secret_key", "AWS_SECRET_KEY",
-            "secret_key", "SECRET_KEY", "fs.s3a.secret.key"},
+            "secret_key", "SECRET_KEY"},
             required = false,
             sensitive = true,
             description = "The secret key of Minio.")
     protected String secretKey = "";
 
     @Getter
-    @ConnectorProperty(names = {"minio.session_token", "s3.session-token", "s3.session_token", "session_token",
-            "fs.s3a.session.token"},
+    @ConnectorProperty(names = {"minio.session_token", "s3.session-token", "s3.session_token", "session_token"},
             required = false,
             sensitive = true,
             description = "The session token of Minio.")
@@ -71,8 +66,7 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
      * This value is optional and can be configured by the user.
      */
     @Getter
-    @ConnectorProperty(names = {"minio.connection.maximum", "s3.connection.maximum", "fs.s3a.connection.maximum"},
-            required = false,
+    @ConnectorProperty(names = {"minio.connection.maximum", "s3.connection.maximum"}, required = false,
             description = "Maximum number of connections.")
     protected String maxConnections = "100";
 
@@ -81,8 +75,7 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
      * This value is optional and can be configured by the user.
      */
     @Getter
-    @ConnectorProperty(names = {"minio.connection.request.timeout", "s3.connection.request.timeout",
-            "fs.s3a.connection.request.timeout"}, required = false,
+    @ConnectorProperty(names = {"minio.connection.request.timeout", "s3.connection.request.timeout"}, required = false,
             description = "Request timeout in seconds.")
     protected String requestTimeoutS = "10000";
 
@@ -91,8 +84,7 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
      * This value is optional and can be configured by the user.
      */
     @Getter
-    @ConnectorProperty(names = {"minio.connection.timeout", "s3.connection.timeout", "fs.s3a.connection.timeout"},
-            required = false,
+    @ConnectorProperty(names = {"minio.connection.timeout", "s3.connection.timeout"}, required = false,
             description = "Connection timeout in seconds.")
     protected String connectionTimeoutS = "10000";
 
@@ -102,8 +94,7 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
      */
     @Setter
     @Getter
-    @ConnectorProperty(names = {"minio.use_path_style", "use_path_style", "s3.path-style-access",
-            "fs.s3a.path.style.access"}, required = false,
+    @ConnectorProperty(names = {"minio.use_path_style", "use_path_style", "s3.path-style-access"}, required = false,
             description = "Whether to use path style URL for the storage.")
     protected String usePathStyle = "false";
 
@@ -114,10 +105,8 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
     @Getter
     protected String forceParsingByStandardUrl = "false";
 
-    private static final Set<String> IDENTIFIERS = ImmutableSet.of(
-            "minio.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key", "s3.access_key",
-            "fs.s3a.access.key",
-            "minio.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "fs.s3a.endpoint");
+    private static final Set<String> IDENTIFIERS = ImmutableSet.of("minio.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY",
+            "access_key", "s3.access_key", "minio.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT");
 
     /**
      * Constructor to initialize the object storage properties with the provided type and original properties map.
