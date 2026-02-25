@@ -613,7 +613,11 @@ struct MethodKeysFixed : public MethodBase<TData> {
             };
             auto foo = [&]<typename Fixed>(Fixed zero) {
                 // Check alignment of both destination and source pointers.
-                if (reinterpret_cast<uintptr_t>(result_data + offset) % alignof(Fixed) == 0 &&
+                // Also verify that the stride sizeof(T) is a multiple of alignof(Fixed),
+                // otherwise alignment will be lost on subsequent loop iterations
+                // (e.g. UInt96 has sizeof=12, stride 12 is not a multiple of alignof(uint64_t)=8).
+                if (sizeof(T) % alignof(Fixed) == 0 &&
+                    reinterpret_cast<uintptr_t>(result_data + offset) % alignof(Fixed) == 0 &&
                     reinterpret_cast<uintptr_t>(data) % alignof(Fixed) == 0) {
                     goo.template operator()<Fixed, true>(zero);
                 } else {
@@ -738,11 +742,14 @@ struct MethodKeysFixed : public MethodBase<TData> {
             };
             auto foo = [&]<typename Fixed>(Fixed zero) {
                 // Check alignment of both source and destination pointers.
-                // Source: byte offset `pos` within each Key element.
-                // Destination: `data` pointer from the column's raw data.
-                if (reinterpret_cast<uintptr_t>((char*)(input_keys.data()) + pos) % sizeof(Fixed) ==
+                // The source steps by sizeof(Key) between iterations, so sizeof(Key)
+                // must be a multiple of alignof(Fixed) to maintain alignment across
+                // all iterations (e.g. UInt96 has sizeof=12, not a multiple of 8).
+                if (sizeof(typename Base::Key) % alignof(Fixed) == 0 &&
+                    reinterpret_cast<uintptr_t>((char*)(input_keys.data()) + pos) %
+                                    alignof(Fixed) ==
                             0 &&
-                    reinterpret_cast<uintptr_t>(data) % sizeof(Fixed) == 0) {
+                    reinterpret_cast<uintptr_t>(data) % alignof(Fixed) == 0) {
                     goo.template operator()<Fixed, true>(zero);
                 } else {
                     goo.template operator()<Fixed, false>(zero);
