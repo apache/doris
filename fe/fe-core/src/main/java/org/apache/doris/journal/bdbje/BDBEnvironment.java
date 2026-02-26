@@ -386,9 +386,11 @@ public class BDBEnvironment {
 
         long deletedCount = 0;
         TupleBinding<Long> idBinding = TupleBinding.getPrimitiveBinding(Long.class);
+        com.sleepycat.je.Transaction txn = null;
         Cursor cursor = null;
         try {
-            cursor = db.openCursor(null, null);
+            txn = replicatedEnvironment.beginTransaction(null, null);
+            cursor = db.openCursor(txn, null);
             DatabaseEntry key = new DatabaseEntry();
             DatabaseEntry value = new DatabaseEntry();
             while (cursor.getNext(key, value, LockMode.DEFAULT) == OperationStatus.SUCCESS) {
@@ -398,10 +400,28 @@ public class BDBEnvironment {
                     deletedCount++;
                 }
             }
-        } finally {
+            // Close cursor before committing transaction
+            cursor.close();
+            cursor = null;
+            txn.commit();
+            txn = null;
+        } catch (Exception e) {
             if (cursor != null) {
-                cursor.close();
+                try {
+                    cursor.close();
+                } catch (Exception cursorCloseEx) {
+                    LOG.warn("failed to close cursor", cursorCloseEx);
+                }
             }
+            if (txn != null) {
+                try {
+                    txn.abort();
+                } catch (Exception abortEx) {
+                    LOG.warn("failed to abort transaction", abortEx);
+                }
+            }
+            LOG.warn("failed to truncate database {} to journal id {}", dbName, truncateToJournalId, e);
+            throw new IllegalStateException("failed to truncate database " + dbName, e);
         }
 
         return deletedCount;
