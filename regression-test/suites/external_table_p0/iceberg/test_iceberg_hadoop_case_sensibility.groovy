@@ -133,7 +133,7 @@ suite("test_iceberg_hadoop_case_sensibility", "p0,external,doris,external_docker
             sql """create table CASE_TBL14 (k1 int);"""
 
             qt_sql8 """show tables like "%CASE_TBL14%""""
-            qt_sql9 """show tables like "%case_tbl14%"""" // empty
+            qt_sql9 """show tables like "%case_tbl14%""""
             qt_sql10 """show tables like "%case_tbl13%""""
 
             test {
