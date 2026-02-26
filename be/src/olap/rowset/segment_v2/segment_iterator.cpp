@@ -408,13 +408,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
                 if (col->is_extracted_column()) {
                     // variant sub col
                     // field_name format: parent_unique_id.sub_col_name
-                    std::string suffix_path;
-                    if (col->path() != nullptr) {
-                        suffix_path = col->path()->get_path();
-                    } else {
-                        suffix_path = col->name();
-                    }
-                    field_name = std::to_string(col->parent_unique_id()) + "." + suffix_path;
+                    field_name = std::to_string(col->parent_unique_id()) + "." + col->name();
                 } else {
                     field_name = std::to_string(col->unique_id());
                 }
@@ -1313,8 +1307,7 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
          !_output_columns.contains(unique_id)) ||
         (_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid] &&
          _output_columns.count(unique_id) == 1 &&
-         _opts.push_down_agg_type_opt == TPushAggOp::COUNT_ON_INDEX && !column.is_nullable() &&
-         !column.is_extracted_column())) {
+         _opts.push_down_agg_type_opt == TPushAggOp::COUNT_ON_INDEX)) {
         VLOG_DEBUG << "SegmentIterator no need read data for column: "
                    << _opts.tablet_schema->column_by_uid(unique_id).name();
         return false;

@@ -166,6 +166,14 @@ message ColumnPathInfo {
     optional uint32 parrent_column_unique_id = 4;
     // is_typed flags if the subcolumn is assigned specific types
     optional bool is_typed = 5;
+
+    // NestedGroup support fields
+    // True if this column is the offsets column for a NestedGroup
+    optional bool is_nested_group_offsets = 10;
+    // The parent array path for NestedGroup columns
+    optional string nested_group_parent_path = 11;
+    // Depth level for nested groups (for multi-level nested arrays)
+    optional uint32 nested_group_depth = 12;
 }
 
 message VariantStatisticsPB {
