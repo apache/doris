@@ -27,6 +27,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "olap/lru_cache.h"
 #include "runtime/memory/cache_policy.h"
 #include "util/debug_points.h"
@@ -198,6 +199,7 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
                     "treat it as an error",
                     tablet_id));
         }
+        TEST_SYNC_POINT("CloudTabletMgr::get_tablet.not_found_in_cache");
         if (sync_stats) {
             ++sync_stats->tablet_meta_cache_miss;
         }
