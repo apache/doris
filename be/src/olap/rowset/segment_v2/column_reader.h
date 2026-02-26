@@ -166,10 +166,6 @@ public:
                               const TabletIndex* index_meta,
                               std::unique_ptr<IndexIterator>* iterator);
 
-    const ZoneMapIndexReader* get_zone_map_index();
-
-    const OrdinalIndexReader* get_ordinal_index();
-
     Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter,
                              const ColumnIteratorOptions& iter_opts);
     Status get_ordinal_index_reader(OrdinalIndexReader*& reader,
