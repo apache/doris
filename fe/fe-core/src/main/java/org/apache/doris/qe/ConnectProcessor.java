@@ -35,6 +35,10 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.ProfileSpan;
+import org.apache.doris.common.profile.ProfileTracer;
+import org.apache.doris.common.profile.RuntimeProfile;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
@@ -67,6 +71,7 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.TransactionEntry;
 
 import com.google.common.base.Preconditions;
@@ -279,8 +284,10 @@ public abstract class ConnectProcessor {
                 parsedStmt.setOrigStmt(new OriginStatement(auditStmt, usingOrigSingleStmt ? 0 : i));
                 parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
                 executor = new StmtExecutor(ctx, parsedStmt);
-                executor.getProfile().getSummaryProfile().setParseSqlStartTime(parseSqlStartTime);
-                executor.getProfile().getSummaryProfile().setParseSqlFinishTime(parseSqlFinishTime);
+                ProfileTracer tracer = executor.getProfile().getSummaryProfile().getTracer();
+                ProfileSpan parseSpan = tracer.createAccSpan(
+                        SummaryProfile.PARSE_SQL_TIME, TUnit.TIME_MS, RuntimeProfile.ROOT_COUNTER);
+                parseSpan.addElapsed(parseSqlFinishTime - parseSqlStartTime);
                 executor.getProfile().getSummaryProfile().parsedByConnectionProcess = true;
                 // Here we set the MoreStmtExists flag without considering CLIENT_MULTI_STATEMENTS.
                 // So the master will always set SERVER_MORE_RESULTS_EXISTS when the statement is not the last one.

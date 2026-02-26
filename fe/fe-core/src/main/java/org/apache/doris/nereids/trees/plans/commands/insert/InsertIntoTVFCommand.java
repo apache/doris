@@ -23,6 +23,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.RemoteFileSystem;
@@ -47,6 +48,7 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TUnit;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -125,7 +127,11 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
                 new QueryInfo(ctx, "INSERT INTO TVF", coordinator));
 
         try {
+            Optional.ofNullable(SummaryProfile.getSummaryProfile(ctx))
+                    .ifPresent(p -> p.getTracer().startSpan(SummaryProfile.SCHEDULE_TIME, TUnit.TIME_MS));
             coordinator.exec();
+            Optional.ofNullable(SummaryProfile.getSummaryProfile(ctx))
+                    .ifPresent(p -> p.getTracer().finish(SummaryProfile.SCHEDULE_TIME));
 
             // Wait for completion
             int timeoutS = ctx.getExecTimeoutS();

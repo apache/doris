@@ -43,13 +43,13 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Formatter;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Objects;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Matcher;
@@ -95,8 +95,8 @@ public class RuntimeProfile {
     @SerializedName(value = "counterMap")
     private ConcurrentMap<String, Counter> counterMap = Maps.newConcurrentMap();
     @SerializedName(value = "childCounterMap")
-    private ConcurrentMap<String, TreeSet<String>> childCounterMap = Maps.newConcurrentMap();
-    // protect TreeSet in ChildCounterMap
+    private ConcurrentMap<String, Set<String>> childCounterMap = Maps.newConcurrentMap();
+    // protect Set in ChildCounterMap
     private transient ReentrantReadWriteLock counterLock = new ReentrantReadWriteLock();
     @SerializedName(value = "childMap")
     private ConcurrentMap<String, RuntimeProfile> childMap = Maps.newConcurrentMap();
@@ -122,6 +122,10 @@ public class RuntimeProfile {
     private Boolean isSinkOperator = false;
     @SerializedName(value = "nodeid")
     private int nodeid = -1;
+
+    // When true, counters are rendered before info strings in prettyPrint.
+    // Used by Execution Summary profile where time counters should appear first.
+    private boolean counterFirst = false;
 
     public Map<String, Long> rowsProducedMap = new HashMap<>();
 
@@ -158,6 +162,10 @@ public class RuntimeProfile {
 
     public void setIsCancel(Boolean isCancel) {
         this.isCancel = isCancel;
+    }
+
+    public void setCounterFirst(boolean counterFirst) {
+        this.counterFirst = counterFirst;
     }
 
     public Boolean getIsCancel() {
@@ -204,7 +212,7 @@ public class RuntimeProfile {
         return childMap;
     }
 
-    public Map<String, TreeSet<String>> getChildCounterMap() {
+    public Map<String, Set<String>> getChildCounterMap() {
         return childCounterMap;
     }
 
@@ -223,7 +231,7 @@ public class RuntimeProfile {
 
                 Set<String> childCounters = childCounterMap.get(parentCounterName);
                 if (childCounters == null) {
-                    childCounterMap.put(parentCounterName, new TreeSet<String>());
+                    childCounterMap.put(parentCounterName, new LinkedHashSet<String>());
                     childCounters = childCounterMap.get(parentCounterName);
                 }
                 childCounters.add(name);
@@ -247,7 +255,7 @@ public class RuntimeProfile {
 
                 Set<String> childCounters = childCounterMap.get(parentCounterName);
                 if (childCounters == null) {
-                    childCounterMap.put(parentCounterName, new TreeSet<String>());
+                    childCounterMap.put(parentCounterName, new LinkedHashSet<String>());
                     childCounters = childCounterMap.get(parentCounterName);
                 }
                 childCounters.add(name);
@@ -309,7 +317,7 @@ public class RuntimeProfile {
                     try {
                         Set<String> childCounters = childCounterMap.get(parentCounterName);
                         if (childCounters == null) {
-                            childCounterMap.put(parentCounterName, new TreeSet<String>());
+                            childCounterMap.put(parentCounterName, new LinkedHashSet<String>());
                             childCounters = childCounterMap.get(parentCounterName);
                         }
                         childCounters.addAll(entry.getValue());
@@ -401,10 +409,100 @@ public class RuntimeProfile {
         return brief;
     }
 
+    /**
+     * Convert this RuntimeProfile to a structured map for YAML serialization.
+     * The map uses the profile name as the key, providing compact output without "name:" prefix.
+     * Format: {ProfileName: {counters: {...}, children: [...]}}
+     * This provides cleaner YAML output where profile names appear as keys directly.
+     */
+    public Map<String, Object> toStructuredMap() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        Map<String, Object> content = new LinkedHashMap<>();
+
+        // Add info strings
+        infoStringsLock.readLock().lock();
+        try {
+            if (!infoStrings.isEmpty()) {
+                Map<String, String> infoStringsMap = new LinkedHashMap<>();
+                for (String key : this.infoStringsDisplayOrder) {
+                    String value = this.infoStrings.get(key);
+                    if (value != null) {
+                        infoStringsMap.put(key, value);
+                    }
+                }
+                if (!infoStringsMap.isEmpty()) {
+                    content.put("info_strings", infoStringsMap);
+                }
+            }
+        } finally {
+            infoStringsLock.readLock().unlock();
+        }
+
+        // Add counters with hierarchy
+        counterLock.readLock().lock();
+        try {
+            Map<String, Object> countersMap = getCountersMapRecursive(ROOT_COUNTER);
+            if (!countersMap.isEmpty()) {
+                content.put("counters", countersMap);
+            }
+        } finally {
+            counterLock.readLock().unlock();
+        }
+
+        // Add child profiles recursively
+        childLock.readLock().lock();
+        try {
+            if (!childList.isEmpty()) {
+                List<Map<String, Object>> childrenList = new ArrayList<>();
+                for (Pair<RuntimeProfile, Boolean> pair : childList) {
+                    childrenList.add(pair.first.toStructuredMap());
+                }
+                content.put("children", childrenList);
+            }
+        } finally {
+            childLock.readLock().unlock();
+        }
+
+        // Wrap with profile name as key
+        result.put(this.name, content);
+        return result;
+    }
+
+    /**
+     * Recursively get counters as a structured map, maintaining hierarchy.
+     * @param parentCounterName the parent counter name (use ROOT_COUNTER for top-level)
+     * @return map of counter names to their structured data
+     */
+    private Map<String, Object> getCountersMapRecursive(String parentCounterName) {
+        Map<String, Object> countersMap = new LinkedHashMap<>();
+        Set<String> childCounterSet = childCounterMap.get(parentCounterName);
+
+        if (childCounterSet == null) {
+            return countersMap;
+        }
+
+        for (String childCounterName : childCounterSet) {
+            Counter counter = this.counterMap.get(childCounterName);
+            if (counter != null) {
+                Map<String, Object> counterData = counter.toMap();
+
+                // Check if this counter has children
+                Map<String, Object> childCounters = getCountersMapRecursive(childCounterName);
+                if (!childCounters.isEmpty()) {
+                    counterData.put("children", childCounters);
+                }
+
+                countersMap.put(childCounterName, counterData);
+            }
+        }
+
+        return countersMap;
+    }
+
     // Print the profile:
     // 1. Profile Name
-    // 2. Info Strings
-    // 3. Counters
+    // 2. Info Strings (or Counters first if counterFirst is set)
+    // 3. Counters (or Info Strings if counterFirst is set)
     // 4. Children
     public void prettyPrint(SafeStringBuilder builder, String prefix) {
         // 1. profile name
@@ -416,36 +514,24 @@ public class RuntimeProfile {
             return;
         }
 
-        // 2. info String
-        infoStringsLock.readLock().lock();
-        try {
-            for (String key : this.infoStringsDisplayOrder) {
-                builder.append(prefix);
-                if (SummaryProfile.EXECUTION_SUMMARY_KEYS_INDENTATION.containsKey(key)) {
-                    for (int i = 0; i < SummaryProfile.EXECUTION_SUMMARY_KEYS_INDENTATION.get(key); i++) {
-                        builder.append("  ");
-                    }
-                }
-                builder.append("   - ").append(key).append(": ")
-                        .append(this.infoStrings.get(key)).append("\n");
+        if (counterFirst) {
+            // For Execution Summary: counters first (time hierarchy), then info strings (metadata)
+            printCountersSection(prefix, builder);
+            if (builder.isTruncated()) {
+                return;
             }
-        } finally {
-            infoStringsLock.readLock().unlock();
+            printInfoStringsSection(prefix, builder);
+        } else {
+            // Default: info strings first, then counters
+            printInfoStringsSection(prefix, builder);
+            if (builder.isTruncated()) {
+                return;
+            }
+            printCountersSection(prefix, builder);
         }
         if (builder.isTruncated()) {
             return;
         }
-
-        // 3. counters
-        try {
-            printChildCounters(prefix, ROOT_COUNTER, builder);
-        } catch (Exception e) {
-            builder.append("print child counters error: ").append(e.getMessage());
-        }
-        if (builder.isTruncated()) {
-            return;
-        }
-
 
         // 4. children
         childLock.readLock().lock();
@@ -461,6 +547,27 @@ public class RuntimeProfile {
             }
         } finally {
             childLock.readLock().unlock();
+        }
+    }
+
+    private void printInfoStringsSection(String prefix, SafeStringBuilder builder) {
+        infoStringsLock.readLock().lock();
+        try {
+            for (String key : this.infoStringsDisplayOrder) {
+                builder.append(prefix);
+                builder.append("   - ").append(key).append(": ")
+                        .append(this.infoStrings.get(key)).append("\n");
+            }
+        } finally {
+            infoStringsLock.readLock().unlock();
+        }
+    }
+
+    private void printCountersSection(String prefix, SafeStringBuilder builder) {
+        try {
+            printChildCounters(prefix, ROOT_COUNTER, builder);
+        } catch (Exception e) {
+            builder.append("print child counters error: ").append(e.getMessage());
         }
     }
 
@@ -497,12 +604,11 @@ public class RuntimeProfile {
     }
 
     boolean shouldBeIncluded() {
-        if (Objects.equals(this.name, "CommonCounters") || Objects.equals(this.name, "CustomCounters")
-                || Objects.equals(this.name, "Scanner")) {
+        if ("CommonCounters".equals(this.name) || "CustomCounters".equals(this.name)
+                || "Scanner".equals(this.name)) {
             return true;
-        } else {
-            return this.name.matches(".*Pipeline.*") || this.name.matches(".*_OPERATOR.*");
         }
+        return this.name.startsWith("Pipeline") || this.name.contains("_OPERATOR");
     }
 
     private static void collectActualRowCount(RuntimeProfile mergedProfile) {
@@ -900,7 +1006,7 @@ public class RuntimeProfile {
 - RF7 FilterRows: sum 46.09382M (46093820), avg 960.287K (960287), max 962.989K (962989), min 956.812K (956812)
 - RF7 InputRows: sum 57.786643M (57786643), avg 1.203888M (1203888), max 1.206715M (1206715), min 1.199902M (1199902)
          */
-        for (Entry<String, TreeSet<String>> entry : this.childCounterMap.entrySet()) {
+        for (Entry<String, Set<String>> entry : this.childCounterMap.entrySet()) {
             if (entry.getKey().equals("RuntimeFilterInfo")) {
                 AggCounter filteredAggCounter = new AggCounter(TUnit.UNIT);
                 AggCounter inputAggCounter = new AggCounter(TUnit.UNIT);

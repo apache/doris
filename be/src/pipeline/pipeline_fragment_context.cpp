@@ -1147,15 +1147,15 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         auto sink_id = next_sink_operator_id();
         const int multi_cast_node_id = sink_id;
         auto sender_size = thrift_sink.multi_cast_stream_sink.sinks.size();
-        // one sink has multiple sources.
-        std::vector<int> sources;
+        // one sink has multiple destinations.
+        std::vector<int> dests;
         for (int i = 0; i < sender_size; ++i) {
-            auto source_id = next_operator_id();
-            sources.push_back(source_id);
+            auto dest_id = next_operator_id();
+            dests.push_back(dest_id);
         }
 
         _sink = std::make_shared<MultiCastDataStreamSinkOperatorX>(
-                sink_id, multi_cast_node_id, sources, pool, thrift_sink.multi_cast_stream_sink);
+                sink_id, multi_cast_node_id, dests, pool, thrift_sink.multi_cast_stream_sink);
         for (int i = 0; i < sender_size; ++i) {
             auto new_pipeline = add_pipeline();
             // use to exchange sink
@@ -1169,13 +1169,13 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
                                 : row_desc;
                 exchange_row_desc = pool->add(new RowDescriptor(tmp_row_desc));
             }
-            auto source_id = sources[i];
+            auto dest_id = dests[i];
             OperatorPtr source_op;
             // 1. create and set the source operator of multi_cast_data_stream_source for new pipeline
             source_op = std::make_shared<MultiCastDataStreamerSourceOperatorX>(
-                    /*node_id*/ source_id, /*consumer_id*/ i, pool,
+                    /*node_id*/ dest_id, /*consumer_id*/ i, pool,
                     thrift_sink.multi_cast_stream_sink.sinks[i], row_desc,
-                    /*operator_id=*/source_id);
+                    /*operator_id=*/dest_id);
             RETURN_IF_ERROR(new_pipeline->add_operator(
                     source_op, params.__isset.parallel_instances ? params.parallel_instances : 0));
             // 2. create and set sink operator of data stream sender for new pipeline
@@ -1196,8 +1196,8 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             // 3. set dependency dag
             _dag[new_pipeline->id()].push_back(cur_pipeline_id);
         }
-        if (sources.empty()) {
-            return Status::InternalError("size of sources must be greater than 0");
+        if (dests.empty()) {
+            return Status::InternalError("size of dests must be greater than 0");
         }
         break;
     }

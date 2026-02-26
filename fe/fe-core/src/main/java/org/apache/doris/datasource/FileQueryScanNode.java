@@ -31,6 +31,9 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.ProfileSpan;
+import org.apache.doris.common.profile.ProfileTracer;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.source.HiveSplit;
@@ -56,6 +59,7 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSplitSource;
+import org.apache.doris.thrift.TUnit;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -115,13 +119,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
     @Override
     public void init() throws UserException {
         super.init();
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeStartTime();
-        }
+        Optional<ProfileSpan> span = Optional.ofNullable(ConnectContext.get().getExecutor())
+                .map(e -> e.getSummaryProfile().getTracer()
+                        .startSpan(SummaryProfile.INIT_SCAN_NODE_TIME, TUnit.TIME_MS, SummaryProfile.PLAN_TIME));
         doInitialize();
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeFinishTime();
-        }
+        span.ifPresent(ProfileSpan::finish);
     }
 
     // Init scan provider and schema related params.
@@ -190,15 +192,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     // Create scan range locations and the statistics.
     protected void doFinalize() throws UserException {
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setFinalizeScanNodeStartTime();
-        }
+        Optional<ProfileSpan> span = Optional.ofNullable(ConnectContext.get().getExecutor())
+                .map(e -> e.getSummaryProfile().getTracer()
+                        .startSpan(SummaryProfile.FINALIZE_SCAN_NODE_TIME, TUnit.TIME_MS, SummaryProfile.PLAN_TIME));
         convertPredicate();
         createScanRangeLocations();
         updateRequiredSlots();
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setFinalizeScanNodeFinishTime();
-        }
+        span.ifPresent(ProfileSpan::finish);
     }
 
     /**
@@ -262,10 +262,14 @@ public abstract class FileQueryScanNode extends FileScanNode {
     @Override
     public void createScanRangeLocations() throws UserException {
         long start = System.currentTimeMillis();
-        StmtExecutor executor = ConnectContext.get().getExecutor();
-        if (executor != null) {
-            executor.getSummaryProfile().setGetSplitsStartTime();
-        }
+        Optional<StmtExecutor> executor = Optional.ofNullable(ConnectContext.get().getExecutor());
+        Optional<ProfileTracer> tracer = executor.map(e -> e.getSummaryProfile().getTracer());
+        Optional<ProfileSpan> createScanRangeSpan = tracer
+                .map(t -> t.startSpan(SummaryProfile.CREATE_SCAN_RANGE_TIME, TUnit.TIME_MS,
+                        SummaryProfile.PLAN_TIME));
+        Optional<ProfileSpan> splitsSpan = tracer
+                .map(t -> t.startSpan(SummaryProfile.GET_SPLITS_TIME, TUnit.TIME_MS,
+                        SummaryProfile.INIT_SCAN_NODE_TIME));
         TFileFormatType fileFormatType = getFileFormatType();
         if (fileFormatType == TFileFormatType.FORMAT_ORC) {
             genSlotToSchemaIdMapForOrc();
@@ -316,9 +320,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             splitAssignment = new SplitAssignment(
                     backendPolicy, this, this::splitToScanRange, locationProperties, pathPartitionKeys);
             splitAssignment.init();
-            if (executor != null) {
-                executor.getSummaryProfile().setGetSplitsFinishTime();
-            }
+            splitsSpan.ifPresent(ProfileSpan::finish);
             if (splitAssignment.getSampleSplit() == null && !isFileStreamType()) {
                 return;
             }
@@ -357,9 +359,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             }
         } else {
             List<Split> inputSplits = getSplits(numBackends);
-            if (ConnectContext.get().getExecutor() != null) {
-                ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
-            }
+            splitsSpan.ifPresent(ProfileSpan::finish);
             selectedSplitNum = inputSplits.size();
             if (inputSplits.isEmpty() && !isFileStreamType()) {
                 return;
@@ -377,12 +377,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
         getSerializedTable().ifPresent(params::setSerializedTable);
 
-        if (executor != null) {
-            executor.getSummaryProfile().setCreateScanRangeFinishTime();
-            if (sessionVariable.showSplitProfileInfo()) {
-                executor.getSummaryProfile().setAssignedWeightPerBackend(backendPolicy.getAssignedWeightPerBackend());
-            }
-        }
+        createScanRangeSpan.ifPresent(ProfileSpan::finish);
+        executor.filter(e -> sessionVariable.showSplitProfileInfo())
+                .ifPresent(e -> e.getSummaryProfile()
+                        .setAssignedWeightPerBackend(backendPolicy.getAssignedWeightPerBackend()));
         if (LOG.isDebugEnabled()) {
             LOG.debug("create #{} ScanRangeLocations cost: {} ms",
                     scanRangeLocations.size(), (System.currentTimeMillis() - start));

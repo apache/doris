@@ -19,14 +19,17 @@ package org.apache.doris.cloud.rpc;
 
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.thrift.TUnit;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -43,15 +46,14 @@ public class VersionHelper {
         try {
             return getVisibleVersion(req);
         } finally {
-            SummaryProfile profile = getSummaryProfile();
-            if (profile != null) {
+            Optional.ofNullable(getSummaryProfile()).ifPresent(p -> {
                 long elapsed = System.nanoTime() - startAt;
-                if (isTableVersion) {
-                    profile.addGetTableVersionTime(elapsed);
-                } else {
-                    profile.addGetPartitionVersionTime(elapsed);
-                }
-            }
+                String name = isTableVersion
+                        ? SummaryProfile.GET_TABLE_VERSION_TIME
+                        : SummaryProfile.GET_PARTITION_VERSION_TIME;
+                p.getTracer().createAccSpan(name, TUnit.TIME_NS,
+                        RuntimeProfile.ROOT_COUNTER).addValue(elapsed);
+            });
         }
     }
 

@@ -25,6 +25,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
@@ -92,6 +93,7 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TUnit;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
@@ -113,6 +115,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -335,9 +338,13 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                 beFoldStartTime = TimeUtils.getStartTimeMs();
             }
             PConstantExprResult result = future.get(5, TimeUnit.SECONDS);
-            if (context.getExecutor() != null && context.getSessionVariable().enableProfile()) {
-                context.getExecutor().getSummaryProfile().sumBeFoldTime(TimeUtils.getStartTimeMs() - beFoldStartTime);
-            }
+            long finalBeFoldStartTime = beFoldStartTime;
+            Optional.ofNullable(context.getExecutor())
+                    .filter(e -> context.getSessionVariable().enableProfile())
+                    .ifPresent(e -> e.getSummaryProfile().getTracer()
+                            .createAccSpan(SummaryProfile.NEREIDS_BE_FOLD_CONST_TIME,
+                                    TUnit.TIME_MS, SummaryProfile.NEREIDS_REWRITE_TIME)
+                            .addElapsed(TimeUtils.getStartTimeMs() - finalBeFoldStartTime));
 
             if (result.getStatus().getStatusCode() == 0) {
                 for (Entry<String, InternalService.PExprResultMap> e : result.getExprResultMapMap().entrySet()) {

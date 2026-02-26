@@ -29,9 +29,10 @@ import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.ProfileSpan;
+import org.apache.doris.common.profile.ProfileTracer;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -87,6 +88,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryCacheParam;
+import org.apache.doris.thrift.TUnit;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -261,15 +263,15 @@ public class NereidsPlanner extends Planner {
             plan = preprocess(plan);
 
             initCascadesContext(plan, requireProperties);
+            getTracerIfPresent().ifPresent(t -> t.startSpan(SummaryProfile.PLAN_TIME, TUnit.TIME_MS));
             // collect table and lock them in the order of table id
             collectAndLockTable(showAnalyzeProcess(explainLevel, showPlanProcess));
             // after table collector, we should use a new context.
             Plan resultPlan = planWithoutLock(plan, requireProperties, explainLevel, showPlanProcess);
             lockCallback.accept(resultPlan);
-            if (statementContext.getConnectContext().getExecutor() != null) {
-                statementContext.getConnectContext().getExecutor().getSummaryProfile()
-                        .setNereidsGarbageCollectionTime(getGarbageCollectionTime() - beforePlanGcTime);
-            }
+            getTracerIfPresent().ifPresent(t -> t.createAccSpan(
+                    SummaryProfile.NEREIDS_GARBAGE_COLLECT_TIME, TUnit.TIME_MS, SummaryProfile.PLAN_TIME)
+                    .addElapsed(getGarbageCollectionTime() - beforePlanGcTime));
             return resultPlan;
         } finally {
             statementContext.releasePlannerResources();
@@ -411,7 +413,14 @@ public class NereidsPlanner extends Planner {
         cascadesContext = CascadesContext.initContext(statementContext, plan, requireProperties);
     }
 
+    private Optional<ProfileTracer> getTracerIfPresent() {
+        return Optional.ofNullable(statementContext.getConnectContext().getExecutor())
+                .map(executor -> executor.getSummaryProfile().getTracer());
+    }
+
     protected void collectAndLockTable(boolean showPlanProcess) {
+        Optional<ProfileSpan> span = getTracerIfPresent()
+                .map(t -> t.startSpan(SummaryProfile.NEREIDS_LOCK_TABLE_TIME, TUnit.TIME_MS, SummaryProfile.PLAN_TIME));
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start collect and lock table");
         }
@@ -422,13 +431,12 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("End collect and lock table");
         }
-        if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile()
-                    .setNereidsLockTableFinishTime(TimeUtils.getStartTimeMs());
-        }
+        span.ifPresent(ProfileSpan::finish);
     }
 
     protected void analyze(boolean showPlanProcess) {
+        Optional<ProfileSpan> span = getTracerIfPresent()
+                .map(t -> t.startSpan(SummaryProfile.NEREIDS_ANALYSIS_TIME, TUnit.TIME_MS, SummaryProfile.PLAN_TIME));
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start analyze plan");
         }
@@ -437,17 +445,15 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("End analyze plan");
         }
-
-        if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile()
-                    .setNereidsAnalysisTime(TimeUtils.getStartTimeMs());
-        }
+        span.ifPresent(ProfileSpan::finish);
     }
 
     /**
      * Logical plan rewrite based on a series of heuristic rules.
      */
     protected void rewrite(boolean showPlanProcess) {
+        Optional<ProfileSpan> span = getTracerIfPresent()
+                .map(t -> t.startSpan(SummaryProfile.NEREIDS_REWRITE_TIME, TUnit.TIME_MS, SummaryProfile.PLAN_TIME));
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start rewrite plan");
         }
@@ -458,10 +464,7 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("End rewrite plan");
         }
-        if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile()
-                    .setNereidsRewriteTime(TimeUtils.getStartTimeMs());
-        }
+        span.ifPresent(ProfileSpan::finish);
         statementContext.setNeedPreMvRewrite(PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
         // init materialization context for mv rewrite
         cascadesContext.getStatementContext().getPlannerHooks().forEach(hook -> hook.afterRewrite(cascadesContext));
@@ -471,6 +474,9 @@ public class NereidsPlanner extends Planner {
         if (!cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
             return;
         }
+        Optional<ProfileSpan> span = getTracerIfPresent()
+                .map(t -> t.startSpan(SummaryProfile.NEREIDS_PRE_REWRITE_BY_MV_TIME, TUnit.TIME_MS,
+                        SummaryProfile.PLAN_TIME));
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start pre rewrite plan by mv");
         }
@@ -526,14 +532,13 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("End pre rewrite plan by mv");
         }
-        if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile()
-                    .setNereidsPreRewriteByMvFinishTime(TimeUtils.getStartTimeMs());
-        }
+        span.ifPresent(ProfileSpan::finish);
     }
 
     // DependsRules: AddProjectForJoin
     protected void optimize(boolean showPlanProcess) {
+        Optional<ProfileSpan> span = getTracerIfPresent()
+                .map(t -> t.startSpan(SummaryProfile.NEREIDS_OPTIMIZE_TIME, TUnit.TIME_MS, SummaryProfile.PLAN_TIME));
         // if we cannot get table row count, skip join reorder
         // except:
         //   1. user set leading hint
@@ -557,10 +562,7 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("End optimize plan");
         }
-        if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile()
-                    .setNereidsOptimizeTime(TimeUtils.getStartTimeMs());
-        }
+        span.ifPresent(ProfileSpan::finish);
     }
 
     /**
@@ -599,6 +601,8 @@ public class NereidsPlanner extends Planner {
         if (resultPlan instanceof PhysicalSqlCache) {
             return;
         }
+        Optional<ProfileSpan> span = getTracerIfPresent()
+                .map(t -> t.startSpan(SummaryProfile.NEREIDS_TRANSLATE_TIME, TUnit.TIME_MS, SummaryProfile.PLAN_TIME));
 
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator(planTranslatorContext,
@@ -611,10 +615,7 @@ public class NereidsPlanner extends Planner {
             return;
         }
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan);
-        if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile()
-                    .setNereidsTranslateTime(TimeUtils.getStartTimeMs());
-        }
+        span.ifPresent(ProfileSpan::finish);
         String queryId = DebugUtil.printId(cascadesContext.getConnectContext().queryId());
         if (StatisticsUtil.isEnableHboInfoCollection()) {
             collectHboPlanInfo(queryId, physicalPlan, planTranslatorContext);
@@ -721,6 +722,8 @@ public class NereidsPlanner extends Planner {
                 return;
             }
         }
+        Optional<ProfileSpan> span = getTracerIfPresent()
+                .map(t -> t.startSpan(SummaryProfile.NEREIDS_DISTRIBUTE_TIME, TUnit.TIME_MS, SummaryProfile.PLAN_TIME));
 
         boolean notNeedBackend = false;
         // if the query can compute without backend, we can skip check cluster privileges
@@ -735,10 +738,7 @@ public class NereidsPlanner extends Planner {
         }
 
         distributedPlans = new DistributePlanner(statementContext, fragments, notNeedBackend, false).plan();
-        if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile()
-                    .setNereidsDistributeTime(TimeUtils.getStartTimeMs());
-        }
+        span.ifPresent(ProfileSpan::finish);
     }
 
     protected PhysicalPlan postProcess(PhysicalPlan physicalPlan) {
@@ -1042,21 +1042,28 @@ public class NereidsPlanner extends Planner {
                 break;
             case ALL_PLAN:
                 plan = "========== PARSED PLAN "
-                        + getTimeMetricString(SummaryProfile::getPrettyParseSqlTime) + " ==========\n"
+                        + getTimeMetricString(sp -> sp.getPrettySpanTime(SummaryProfile.PARSE_SQL_TIME))
+                        + " ==========\n"
                         + parsedPlan.treeString() + "\n\n"
                         + "========== LOCK TABLE "
-                        + getTimeMetricString(SummaryProfile::getPrettyNereidsLockTableTime) + " ==========\n"
+                        + getTimeMetricString(sp -> sp.getPrettySpanTime(SummaryProfile.NEREIDS_LOCK_TABLE_TIME))
+                        + " ==========\n"
                         + "\n\n"
                         + "========== ANALYZED PLAN "
-                        + getTimeMetricString(SummaryProfile::getPrettyNereidsAnalysisTime) + " ==========\n"
+                        + getTimeMetricString(sp -> sp.getPrettySpanTime(SummaryProfile.NEREIDS_ANALYSIS_TIME))
+                        + " ==========\n"
                         + analyzedPlan.treeString() + "\n\n"
                         + "========== REWRITTEN PLAN "
-                        + getTimeMetricString(SummaryProfile::getPrettyNereidsRewriteTime) + " ==========\n"
+                        + getTimeMetricString(sp -> sp.getPrettySpanTime(SummaryProfile.NEREIDS_REWRITE_TIME))
+                        + " ==========\n"
                         + rewrittenPlan.treeString() + "\n\n"
                         + "========== PRE REWRITTEN BY MV "
-                        + getTimeMetricString(SummaryProfile::getPrettyNereidsPreRewriteByMvTime) + " ==========\n"
+                        + getTimeMetricString(
+                                sp -> sp.getPrettySpanTime(SummaryProfile.NEREIDS_PRE_REWRITE_BY_MV_TIME))
+                        + " ==========\n"
                         + "========== OPTIMIZED PLAN "
-                        + getTimeMetricString(SummaryProfile::getPrettyNereidsOptimizeTime) + " ==========\n"
+                        + getTimeMetricString(sp -> sp.getPrettySpanTime(SummaryProfile.NEREIDS_OPTIMIZE_TIME))
+                        + " ==========\n"
                         + optimizedPlan.treeString() + "\n\n";
                 if (cascadesContext != null && cascadesContext.getMemo() != null) {
                     plan += "========== MEMO " + cascadesContext.getMemo().toString() + "\n\n";
@@ -1064,7 +1071,9 @@ public class NereidsPlanner extends Planner {
 
                 if (distributedPlans != null && !distributedPlans.isEmpty()) {
                     plan += "========== DISTRIBUTED PLAN "
-                            + getTimeMetricString(SummaryProfile::getPrettyNereidsDistributeTime) + " ==========\n";
+                            + getTimeMetricString(
+                                    sp -> sp.getPrettySpanTime(SummaryProfile.NEREIDS_DISTRIBUTE_TIME))
+                            + " ==========\n";
                     plan += DistributedPlan.toString(Lists.newArrayList(distributedPlans.values())) + "\n\n";
                 }
                 plan += mvSummary;

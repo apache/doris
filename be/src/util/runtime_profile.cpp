@@ -647,7 +647,12 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix,
         }
     }
 
-    RuntimeProfile::print_child_counters(prefix, ROOT_COUNTER, counter_map, child_counter_map, s);
+    {
+        auto counter_tree = RuntimeProfileCounterTreeNode::from_map(counter_map, child_counter_map,
+                                                                    ROOT_COUNTER);
+        counter_tree = RuntimeProfileCounterTreeNode::prune_the_tree(counter_tree, profile_level);
+        counter_tree.pretty_print(s, prefix);
+    }
 
     // create copy of _children so we don't need to hold lock while we call
     // pretty_print() on the children
@@ -660,7 +665,7 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix,
     for (int i = 0; i < children.size(); ++i) {
         RuntimeProfile* profile = children[i].first;
         bool indent = children[i].second;
-        profile->pretty_print(s, prefix + (indent ? "  " : ""));
+        profile->pretty_print(s, prefix + (indent ? "  " : ""), profile_level);
     }
 }
 

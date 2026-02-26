@@ -517,7 +517,7 @@ std::vector<std::shared_ptr<RuntimeProfile>> RuntimeState::build_pipeline_profil
         size_t pip_idx = 0;
         for (auto& pipeline_profile : _pipeline_id_to_profile) {
             pipeline_profile =
-                    std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_idx));
+                    std::make_shared<RuntimeProfile>(fmt::format("Pipeline(id={})", pip_idx));
             pip_idx++;
         }
     }

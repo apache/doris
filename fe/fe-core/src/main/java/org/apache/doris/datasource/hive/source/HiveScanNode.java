@@ -27,6 +27,9 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.ProfileSpan;
+import org.apache.doris.common.profile.ProfileTracer;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileQueryScanNode;
@@ -60,6 +63,7 @@ import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.TTransactionalHiveDeleteDeltaDesc;
 import org.apache.doris.thrift.TTransactionalHiveDesc;
+import org.apache.doris.thrift.TUnit;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -137,6 +141,12 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     protected List<HivePartition> getPartitions() throws AnalysisException {
+        ProfileSpan partitionsSpan = null;
+        if (ConnectContext.get().getExecutor() != null) {
+            ProfileTracer tracer = ConnectContext.get().getExecutor().getSummaryProfile().getTracer();
+            partitionsSpan = tracer.startSpan(SummaryProfile.GET_PARTITIONS_TIME, TUnit.TIME_MS,
+                    SummaryProfile.GET_SPLITS_TIME);
+        }
         List<HivePartition> resPartitions = Lists.newArrayList();
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
@@ -168,8 +178,8 @@ public class HiveScanNode extends FileQueryScanNode {
             this.selectedPartitionNum = 1;
             resPartitions.add(dummyPartition);
         }
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionsFinishTime();
+        if (partitionsSpan != null) {
+            partitionsSpan.finish();
         }
         return resPartitions;
     }
@@ -186,9 +196,15 @@ public class HiveScanNode extends FileQueryScanNode {
                     .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
             String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
             List<Split> allFiles = Lists.newArrayList();
-            getFileSplitByPartitions(cache, prunedPartitions, allFiles, bindBrokerName, numBackends, false);
+            ProfileSpan partFilesSpan = null;
             if (ConnectContext.get().getExecutor() != null) {
-                ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionFilesFinishTime();
+                ProfileTracer tracer = ConnectContext.get().getExecutor().getSummaryProfile().getTracer();
+                partFilesSpan = tracer.startSpan(SummaryProfile.GET_PARTITION_FILES_TIME, TUnit.TIME_MS,
+                        SummaryProfile.GET_SPLITS_TIME);
+            }
+            getFileSplitByPartitions(cache, prunedPartitions, allFiles, bindBrokerName, numBackends, false);
+            if (partFilesSpan != null) {
+                partFilesSpan.finish();
             }
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get #{} files for table: {}.{}, cost: {} ms",

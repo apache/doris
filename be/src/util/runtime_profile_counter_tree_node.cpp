@@ -157,4 +157,13 @@ PProfileCounter RuntimeProfileCounterTreeNode::to_proto() const {
     return pcounter;
 }
 
+void RuntimeProfileCounterTreeNode::pretty_print(std::ostream* s, const std::string& prefix) const {
+    if (name != RuntimeProfile::ROOT_COUNTER && counter != nullptr) {
+        counter->pretty_print(s, prefix, name);
+    }
+    for (const auto& child : children) {
+        child.pretty_print(s, prefix + "  ");
+    }
+}
+
 } // namespace doris

@@ -103,7 +103,7 @@ Status SpillSortLocalState::_execute_merge_sort_spill_streams(RuntimeState* stat
                 print_id(query_id), _parent->node_id(), state->task_id(),
                 _shared_state->sorted_streams.size(), max_stream_count);
         {
-            SCOPED_TIMER(Base::_spill_recover_time);
+            SCOPED_TIMER(Base::_spill_read_counters.spill_recover_time);
             status = _create_intermediate_merger(
                     max_stream_count,
                     parent._sort_source_operator->get_sort_description(_runtime_state.get()));
@@ -131,7 +131,7 @@ Status SpillSortLocalState::_execute_merge_sort_spill_streams(RuntimeState* stat
             while (!eos && !state->is_cancelled()) {
                 merge_sorted_block.clear_column_data();
                 {
-                    SCOPED_TIMER(Base::_spill_recover_time);
+                    SCOPED_TIMER(Base::_spill_read_counters.spill_recover_time);
                     DBUG_EXECUTE_IF("fault_inject::spill_sort_source::recover_spill_data", {
                         status = Status::Error<INTERNAL_ERROR>(
                                 "fault_inject spill_sort_source "

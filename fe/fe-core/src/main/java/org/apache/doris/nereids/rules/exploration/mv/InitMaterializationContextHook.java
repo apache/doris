@@ -27,7 +27,7 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVUtil;
@@ -41,6 +41,7 @@ import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
+import org.apache.doris.thrift.TUnit;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -66,20 +67,23 @@ public class InitMaterializationContextHook implements PlannerHook {
 
     @Override
     public void afterRewrite(CascadesContext cascadesContext) {
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        Optional<SummaryProfile> profileOpt = Optional.ofNullable(statementContext.getConnectContext().getExecutor())
+                .map(e -> e.getSummaryProfile());
+        long startAt = System.currentTimeMillis();
         // collect partitions table used, this is for query rewrite by materialized view
         // this is needed before init hook, because compare partition version in init hook would use this
-        if (cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
-            for (Plan plan : cascadesContext.getStatementContext().getTmpPlanForMvRewrite()) {
+        if (statementContext.isNeedPreMvRewrite()) {
+            for (Plan plan : statementContext.getTmpPlanForMvRewrite()) {
                 MaterializedViewUtils.collectTableUsedPartitions(plan, cascadesContext);
             }
         } else {
             MaterializedViewUtils.collectTableUsedPartitions(cascadesContext.getRewritePlan(), cascadesContext);
         }
-        StatementContext statementContext = cascadesContext.getStatementContext();
-        if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile()
-                    .setNereidsCollectTablePartitionFinishTime(TimeUtils.getStartTimeMs());
-        }
+        profileOpt.ifPresent(p -> p.getTracer()
+                .createAccSpan(SummaryProfile.NEREIDS_COLLECT_TABLE_PARTITION_TIME,
+                        TUnit.TIME_MS, SummaryProfile.PLAN_TIME)
+                .addElapsed(System.currentTimeMillis() - startAt));
         initMaterializationContext(cascadesContext);
     }
 

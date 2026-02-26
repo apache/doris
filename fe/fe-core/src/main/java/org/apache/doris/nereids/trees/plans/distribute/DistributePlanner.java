@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.distribute;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.profile.SummaryProfile;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.BackendDistributedPlanWorkerManager;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
@@ -84,7 +83,7 @@ public class DistributePlanner {
 
     /** plan */
     public FragmentIdMapping<DistributedPlan> plan() {
-        updateProfileIfPresent(profile -> profile.setQueryPlanFinishTime(TimeUtils.getStartTimeMs()));
+        updateProfileIfPresent(profile -> profile.getTracer().finish(SummaryProfile.PLAN_TIME));
         try {
             BackendDistributedPlanWorkerManager workerManager = new BackendDistributedPlanWorkerManager(
                             statementContext.getConnectContext(), notNeedBackend, isLoadJob);
@@ -114,7 +113,7 @@ public class DistributePlanner {
                 LOG.debug("===========================");
             }
 
-            updateProfileIfPresent(SummaryProfile::setAssignFragmentTime);
+            // Fragment assign time is tracked by Coordinator under Schedule Time
             return linkedPlans;
         } catch (Throwable t) {
             if (t instanceof NereidsException && ((NereidsException) t).isSuppressStackTrace()) {
