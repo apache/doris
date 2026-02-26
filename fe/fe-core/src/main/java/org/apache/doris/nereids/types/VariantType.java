@@ -136,6 +136,16 @@ public class VariantType extends PrimitiveType {
     }
 
     @Override
+    public boolean isAssignableFrom(DataType targetDataType) {
+        // Any VariantType is assignable to any other VariantType,
+        // regardless of property differences (maxSubcolumns, etc.)
+        if (targetDataType instanceof VariantType) {
+            return true;
+        }
+        return super.isAssignableFrom(targetDataType);
+    }
+
+    @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("variant");

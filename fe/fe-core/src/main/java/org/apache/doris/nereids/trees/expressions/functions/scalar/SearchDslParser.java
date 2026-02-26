@@ -793,7 +793,7 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
                 }
                 return result;
             }
-if (ctx.nestedQuery() != null) {
+            if (ctx.nestedQuery() != null) {
                 QsNode result = visit(ctx.nestedQuery());
                 if (result == null) {
                     throw new RuntimeException("Invalid nested query");
@@ -1589,7 +1589,8 @@ if (ctx.nestedQuery() != null) {
                             node.getValue(),
                             null,
                             node.getOccur(),
-                            node.getMinimumShouldMatch()
+                            node.getMinimumShouldMatch(),
+                            node.getNestedPath()
                     );
                 }
 
@@ -1603,7 +1604,8 @@ if (ctx.nestedQuery() != null) {
                             node.getValue(),
                             null,
                             luceneMode ? QsOccur.SHOULD : null,  // In Lucene mode, set SHOULD
-                            node.getMinimumShouldMatch()
+                            node.getMinimumShouldMatch(),
+                            node.getNestedPath()
                     );
                     expandedNodes.add(copy);
                 }
@@ -1636,7 +1638,8 @@ if (ctx.nestedQuery() != null) {
                     node.getValue(),
                     expandedChildren,
                     node.getOccur(),
-                    node.getMinimumShouldMatch()
+                    node.getMinimumShouldMatch(),
+                    node.getNestedPath()
             );
             return result;
         }
@@ -1670,7 +1673,8 @@ if (ctx.nestedQuery() != null) {
                         node.getValue(),
                         null,  // children
                         node.getOccur(),
-                        node.getMinimumShouldMatch()
+                        node.getMinimumShouldMatch(),
+                        node.getNestedPath()
                 );
                 copy.setExplicitField(node.isExplicitField());
                 return copy;
@@ -1691,7 +1695,8 @@ if (ctx.nestedQuery() != null) {
                     node.getValue(),
                     copiedChildren,
                     node.getOccur(),
-                    node.getMinimumShouldMatch()
+                    node.getMinimumShouldMatch(),
+                    node.getNestedPath()
             );
             return result;
         }
@@ -1717,7 +1722,8 @@ if (ctx.nestedQuery() != null) {
                         node.getValue(),
                         null,
                         node.getOccur(),
-                        node.getMinimumShouldMatch()
+                        node.getMinimumShouldMatch(),
+                        node.getNestedPath()
                 );
             }
 
@@ -1736,7 +1742,8 @@ if (ctx.nestedQuery() != null) {
                     node.getValue(),
                     updatedChildren,
                     node.getOccur(),
-                    node.getMinimumShouldMatch()
+                    node.getMinimumShouldMatch(),
+                    node.getNestedPath()
             );
         }
     }
@@ -2412,7 +2419,7 @@ if (ctx.nestedQuery() != null) {
             if (ctx.clause() != null) {
                 return visit(ctx.clause());
             }
-if (ctx.nestedQuery() != null) {
+            if (ctx.nestedQuery() != null) {
                 return visit(ctx.nestedQuery());
             }
             if (ctx.fieldGroupQuery() != null) {
