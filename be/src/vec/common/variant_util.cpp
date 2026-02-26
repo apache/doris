@@ -892,7 +892,7 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
             variant_column_reader->get_nested_paths(&nested_paths);
 
             // 5. check if has nested group from stats
-            if (!source_stats->nested_group_info.empty()) {
+            if (source_stats->has_nested_group) {
                 (*uid_to_variant_extended_info)[column->unique_id()].has_nested_group = true;
             }
         }

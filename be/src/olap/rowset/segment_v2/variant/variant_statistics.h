@@ -31,7 +31,7 @@ struct VariantStatistics {
     std::map<std::string, int64_t> subcolumns_non_null_size;
     std::map<std::string, uint32_t> sparse_column_non_null_size;
     std::map<std::string, uint32_t> doc_value_column_non_null_size;
-    std::map<std::string, NestedGroupInfoPB> nested_group_info;
+    bool has_nested_group = false;
 
     void to_pb(VariantStatisticsPB* stats) const {
         if (stats == nullptr) {
@@ -46,25 +46,19 @@ struct VariantStatistics {
         for (const auto& [path, value] : doc_value_column_non_null_size) {
             (*doc_value_map)[path] = value;
         }
-        auto* ng_map = stats->mutable_nested_group_info();
-        for (const auto& [path, info] : nested_group_info) {
-            (*ng_map)[path] = info;
-        }
+        stats->set_has_nested_group(has_nested_group);
     }
 
     void from_pb(const VariantStatisticsPB& stats) {
         subcolumns_non_null_size.clear();
         sparse_column_non_null_size.clear();
         doc_value_column_non_null_size.clear();
-        nested_group_info.clear();
+        has_nested_group = stats.has_nested_group();
         for (const auto& [path, value] : stats.sparse_column_non_null_size()) {
             sparse_column_non_null_size[path] = value;
         }
         for (const auto& [path, value] : stats.doc_value_column_non_null_size()) {
             doc_value_column_non_null_size[path] = value;
-        }
-        for (const auto& [path, info] : stats.nested_group_info()) {
-            nested_group_info[path] = info;
         }
     }
 
