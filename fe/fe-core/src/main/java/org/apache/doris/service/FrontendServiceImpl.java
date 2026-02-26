@@ -5103,12 +5103,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetCurrentUserIdent()) {
             userIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
         }
+        Set<String> currentRoles = request.isSetCurrentRoles() ? request.getCurrentRoles() : null;
         String timeZone = VariableMgr.getDefaultSessionVariable().getTimeZone();
         if (request.isSetTimeZone()) {
             timeZone = request.getTimeZone();
         }
         List<List<String>> processList = ExecuteEnv.getInstance().getScheduler()
-                .listConnectionForRpc(userIdentity, isShowFullSql, Optional.of(timeZone));
+                .listConnectionForRpc(userIdentity, currentRoles, isShowFullSql, Optional.of(timeZone));
         TShowProcessListResult result = new TShowProcessListResult();
         result.setProcessList(processList);
         return result;

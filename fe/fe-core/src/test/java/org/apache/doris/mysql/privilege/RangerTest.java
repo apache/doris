@@ -137,7 +137,7 @@ public class RangerTest {
         Set<String> cols = Sets.newHashSet();
         cols.add("col1");
         cols.add("col3");
-        ac.checkColsPriv(ui, "ctl1", "db1", "tbl1", cols, PrivPredicate.SELECT);
+        ac.checkColsPriv(PrivilegeContext.of(ui), "ctl1", "db1", "tbl1", cols, PrivPredicate.SELECT);
     }
 
     // Have priv on ctl1.db1.tbl1.col1 & col2
@@ -149,7 +149,7 @@ public class RangerTest {
         Set<String> cols = Sets.newHashSet();
         cols.add("col1");
         cols.add("col2");
-        ac.checkColsPriv(ui, "ctl1", "db1", "tbl1", cols, PrivPredicate.SELECT);
+        ac.checkColsPriv(PrivilegeContext.of(ui), "ctl1", "db1", "tbl1", cols, PrivPredicate.SELECT);
     }
 
     // Have priv on ctl2.db2.tbl2, so when checking auth on col1 & col2, can pass
@@ -161,7 +161,7 @@ public class RangerTest {
         Set<String> cols = Sets.newHashSet();
         cols.add("col1");
         cols.add("col2");
-        ac.checkColsPriv(ui, "ctl2", "db2", "tbl2", cols, PrivPredicate.SELECT);
+        ac.checkColsPriv(PrivilegeContext.of(ui), "ctl2", "db2", "tbl2", cols, PrivPredicate.SELECT);
     }
 
     // Does not have priv on ctl2.db2.tbl3, so when checking auth on col1 & col2, can not pass
@@ -173,7 +173,7 @@ public class RangerTest {
         Set<String> cols = Sets.newHashSet();
         cols.add("col1");
         cols.add("col2");
-        ac.checkColsPriv(ui, "ctl2", "db2", "tbl3", cols, PrivPredicate.SELECT);
+        ac.checkColsPriv(PrivilegeContext.of(ui), "ctl2", "db2", "tbl3", cols, PrivPredicate.SELECT);
     }
 
     // Have priv on ctl3.db3, so when checking auth on tbl1 and (tbl1.col1 & tbl1.col2), can pass
@@ -185,8 +185,8 @@ public class RangerTest {
         Set<String> cols = Sets.newHashSet();
         cols.add("col1");
         cols.add("col2");
-        ac.checkColsPriv(ui, "ctl3", "db3", "tbl1", cols, PrivPredicate.SELECT);
-        ac.checkTblPriv(ui, "ctl3", "db3", "tbl1", PrivPredicate.SELECT);
+        ac.checkColsPriv(PrivilegeContext.of(ui), "ctl3", "db3", "tbl1", cols, PrivPredicate.SELECT);
+        ac.checkTblPriv(PrivilegeContext.of(ui), "ctl3", "db3", "tbl1", PrivPredicate.SELECT);
     }
 
 
@@ -199,7 +199,7 @@ public class RangerTest {
         Set<String> cols = Sets.newHashSet();
         cols.add("col1");
         cols.add("col2");
-        ac.checkColsPriv(ui, "ctl2", "db3", "tbl3", cols, PrivPredicate.SELECT);
+        ac.checkColsPriv(PrivilegeContext.of(ui), "ctl2", "db3", "tbl3", cols, PrivPredicate.SELECT);
     }
 
     // Have priv on ctl4, so when checking auth on objs under ctl4, can pass
@@ -211,9 +211,9 @@ public class RangerTest {
         Set<String> cols = Sets.newHashSet();
         cols.add("col1");
         cols.add("col2");
-        ac.checkColsPriv(ui, "ctl4", "db1", "tbl1", cols, PrivPredicate.SELECT);
-        ac.checkTblPriv(ui, "ctl4", "db2", "tbl2", PrivPredicate.SELECT);
-        ac.checkDbPriv(ui, "ctl4", "db3", PrivPredicate.SELECT);
+        ac.checkColsPriv(PrivilegeContext.of(ui), "ctl4", "db1", "tbl1", cols, PrivPredicate.SELECT);
+        ac.checkTblPriv(PrivilegeContext.of(ui), "ctl4", "db2", "tbl2", PrivPredicate.SELECT);
+        ac.checkDbPriv(PrivilegeContext.of(ui), "ctl4", "db3", PrivPredicate.SELECT);
     }
 
     @Test
@@ -222,16 +222,16 @@ public class RangerTest {
         RangerDorisAccessController ac = new RangerDorisAccessController(plugin);
         UserIdentity ui = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
         // MASK_NULL
-        Optional<DataMaskPolicy> policy = ac.evalDataMaskPolicy(ui, "ctl1", "db1", "tbl1", "col1");
+        Optional<DataMaskPolicy> policy = ac.evalDataMaskPolicy(PrivilegeContext.of(ui), "ctl1", "db1", "tbl1", "col1");
         Assertions.assertEquals("NULL", policy.get().getMaskTypeDef());
         // MASK_NONE
-        policy = ac.evalDataMaskPolicy(ui, "ctl1", "db1", "tbl1", "col2");
+        policy = ac.evalDataMaskPolicy(PrivilegeContext.of(ui), "ctl1", "db1", "tbl1", "col2");
         Assertions.assertTrue(!policy.isPresent());
         // CUSTOM
-        policy = ac.evalDataMaskPolicy(ui, "ctl1", "db1", "tbl1", "col3");
+        policy = ac.evalDataMaskPolicy(PrivilegeContext.of(ui), "ctl1", "db1", "tbl1", "col3");
         Assertions.assertEquals("hex(col3)", policy.get().getMaskTypeDef());
         // Others
-        policy = ac.evalDataMaskPolicy(ui, "ctl1", "db1", "tbl1", "col4");
+        policy = ac.evalDataMaskPolicy(PrivilegeContext.of(ui), "ctl1", "db1", "tbl1", "col4");
         Assertions.assertTrue(!policy.isPresent());
     }
 
@@ -240,9 +240,9 @@ public class RangerTest {
         DorisTestPlugin plugin = new DorisTestPlugin("test");
         RangerDorisAccessController ac = new RangerDorisAccessController(plugin);
         UserIdentity ui = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
-        boolean cg1 = ac.checkCloudPriv(ui, "cg1", PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER);
+        boolean cg1 = ac.checkCloudPriv(PrivilegeContext.of(ui), "cg1", PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER);
         Assertions.assertTrue(cg1);
-        boolean cg2 = ac.checkCloudPriv(ui, "cg2", PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER);
+        boolean cg2 = ac.checkCloudPriv(PrivilegeContext.of(ui), "cg2", PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER);
         Assertions.assertFalse(cg2);
     }
 
@@ -251,9 +251,9 @@ public class RangerTest {
         DorisTestPlugin plugin = new DorisTestPlugin("test");
         RangerDorisAccessController ac = new RangerDorisAccessController(plugin);
         UserIdentity ui = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
-        boolean cg1 = ac.checkStorageVaultPriv(ui, "sv1", PrivPredicate.USAGE);
+        boolean cg1 = ac.checkStorageVaultPriv(PrivilegeContext.of(ui), "sv1", PrivPredicate.USAGE);
         Assertions.assertTrue(cg1);
-        boolean cg2 = ac.checkStorageVaultPriv(ui, "sv2", PrivPredicate.USAGE);
+        boolean cg2 = ac.checkStorageVaultPriv(PrivilegeContext.of(ui), "sv2", PrivPredicate.USAGE);
         Assertions.assertFalse(cg2);
     }
 }

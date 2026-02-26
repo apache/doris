@@ -159,10 +159,12 @@ public class FeNameFormat {
 
         boolean res = false;
         if (CaseSensibility.ROLE.getCaseSensibility()) {
-            res = role.equals(Role.OPERATOR_ROLE) || (!canBeAdmin && role.equals(Role.ADMIN_ROLE));
+            res = role.equals(Role.OPERATOR_ROLE)
+                    || (!canBeAdmin && (role.equals(Role.ADMIN_ROLE) || role.equals(Role.ADMIN_READONLY_ROLE)));
         } else {
             res = role.equalsIgnoreCase(Role.OPERATOR_ROLE)
-                    || (!canBeAdmin && role.equalsIgnoreCase(Role.ADMIN_ROLE));
+                    || (!canBeAdmin && (role.equalsIgnoreCase(Role.ADMIN_ROLE)
+                    || role.equalsIgnoreCase(Role.ADMIN_READONLY_ROLE)));
         }
 
         if (res || role.startsWith(RoleManager.DEFAULT_ROLE_PREFIX)) {

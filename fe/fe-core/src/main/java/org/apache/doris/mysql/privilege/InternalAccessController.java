@@ -18,7 +18,6 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AuthorizationException;
 
@@ -34,61 +33,63 @@ public class InternalAccessController implements CatalogAccessController {
     }
 
     @Override
-    public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
-        return auth.checkGlobalPriv(currentUser, wanted);
+    public boolean checkGlobalPriv(PrivilegeContext context, PrivPredicate wanted) {
+        return auth.checkGlobalPriv(context, wanted);
     }
 
     @Override
-    public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
-        return auth.checkCtlPriv(currentUser, ctl, wanted);
+    public boolean checkCtlPriv(PrivilegeContext context, String ctl, PrivPredicate wanted) {
+        return auth.checkCtlPriv(context, ctl, wanted);
     }
 
     @Override
-    public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
-        return auth.checkDbPriv(currentUser, ctl, db, wanted);
+    public boolean checkDbPriv(PrivilegeContext context, String ctl, String db, PrivPredicate wanted) {
+        return auth.checkDbPriv(context, ctl, db, wanted);
     }
 
     @Override
-    public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
-        return auth.checkTblPriv(currentUser, ctl, db, tbl, wanted);
+    public boolean checkTblPriv(PrivilegeContext context, String ctl, String db, String tbl,
+                                PrivPredicate wanted) {
+        return auth.checkTblPriv(context, ctl, db, tbl, wanted);
     }
 
     @Override
-    public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
-            PrivPredicate wanted) throws AuthorizationException {
-        auth.checkColsPriv(currentUser, ctl, db, tbl, cols, wanted);
+    public void checkColsPriv(PrivilegeContext context, String ctl, String db, String tbl, Set<String> cols,
+                              PrivPredicate wanted) throws AuthorizationException {
+        auth.checkColsPriv(context, ctl, db, tbl, cols, wanted);
     }
 
     @Override
-    public boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
-        return auth.checkResourcePriv(currentUser, resourceName, wanted);
+    public boolean checkResourcePriv(PrivilegeContext context, String resourceName, PrivPredicate wanted) {
+        return auth.checkResourcePriv(context, resourceName, wanted);
     }
 
     @Override
-    public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
-        return auth.checkWorkloadGroupPriv(currentUser, workloadGroupName, wanted);
+    public boolean checkWorkloadGroupPriv(PrivilegeContext context, String workloadGroupName,
+                                          PrivPredicate wanted) {
+        return auth.checkWorkloadGroupPriv(context, workloadGroupName, wanted);
     }
 
     @Override
-    public boolean checkCloudPriv(UserIdentity currentUser, String cloudName,
-            PrivPredicate wanted, ResourceTypeEnum type) {
-        return auth.checkCloudPriv(currentUser, cloudName, wanted, type);
+    public boolean checkCloudPriv(PrivilegeContext context, String cloudName,
+                                  PrivPredicate wanted, ResourceTypeEnum type) {
+        return auth.checkCloudPriv(context, cloudName, wanted, type);
     }
 
     @Override
-    public boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted) {
-        return auth.checkStorageVaultPriv(currentUser, storageVaultName, wanted);
+    public boolean checkStorageVaultPriv(PrivilegeContext context, String storageVaultName, PrivPredicate wanted) {
+        return auth.checkStorageVaultPriv(context, storageVaultName, wanted);
     }
 
     @Override
-    public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
-            String col) {
+    public Optional<DataMaskPolicy> evalDataMaskPolicy(PrivilegeContext context, String ctl, String db,
+                                                       String tbl, String col) {
         return Optional.empty();
     }
 
     @Override
-    public List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db,
-            String tbl) {
-        return Env.getCurrentEnv().getPolicyMgr().getUserPolicies(ctl, db, tbl, currentUser);
+    public List<? extends RowFilterPolicy> evalRowFilterPolicies(PrivilegeContext context, String ctl, String db,
+                                                                 String tbl) {
+        return Env.getCurrentEnv().getPolicyMgr().getUserPolicies(ctl, db, tbl, context.getCurrentUser());
     }
 }

@@ -396,6 +396,10 @@ struct TMasterOpRequest {
     31: optional binary prepareExecuteBuffer
     32: optional bool moreResultExists // Server has more result to send
 
+    // For statement forwarded from follower FE to master FE.
+    // Used to keep su/role context consistent on the master side.
+    33: optional set<string> current_roles
+
     // selectdb cloud
     1000: optional string cloud_cluster
     1001: optional bool noAuth;
@@ -1510,6 +1514,7 @@ struct TShowProcessListRequest {
     1: optional bool show_full_sql
     2: optional Types.TUserIdentity current_user_ident
     3: optional string time_zone
+    4: optional set<string> current_roles
 }
 
 struct TShowProcessListResult {

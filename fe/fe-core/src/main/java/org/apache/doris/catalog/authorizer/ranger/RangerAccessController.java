@@ -22,6 +22,7 @@ import org.apache.doris.catalog.authorizer.ranger.doris.DorisAccessType;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.mysql.privilege.CatalogAccessController;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
+import org.apache.doris.mysql.privilege.PrivilegeContext;
 import org.apache.doris.mysql.privilege.RangerDataMaskPolicy;
 import org.apache.doris.mysql.privilege.RangerRowFilterPolicy;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
@@ -89,8 +90,9 @@ public abstract class RangerAccessController implements CatalogAccessController 
     }
 
     @Override
-    public List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db,
-            String tbl) {
+    public List<? extends RowFilterPolicy> evalRowFilterPolicies(PrivilegeContext context, String ctl, String db,
+                                                                 String tbl) {
+        UserIdentity currentUser = context.getCurrentUser();
         RangerAccessResourceImpl resource = createResource(ctl, db, tbl);
         RangerAccessRequestImpl request = createRequest(currentUser);
         // If the access type is not set here, it defaults to ANY1 ACCESS.
@@ -121,8 +123,9 @@ public abstract class RangerAccessController implements CatalogAccessController 
     }
 
     @Override
-    public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
-            String col) {
+    public Optional<DataMaskPolicy> evalDataMaskPolicy(PrivilegeContext context, String ctl, String db,
+                                                       String tbl, String col) {
+        UserIdentity currentUser = context.getCurrentUser();
         RangerAccessResourceImpl resource = createResource(ctl, db, tbl, col);
         RangerAccessRequestImpl request = createRequest(currentUser);
         request.setAccessType(DorisAccessType.SELECT.name());

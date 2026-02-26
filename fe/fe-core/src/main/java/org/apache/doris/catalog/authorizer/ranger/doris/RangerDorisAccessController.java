@@ -25,6 +25,7 @@ import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Privilege;
+import org.apache.doris.mysql.privilege.PrivilegeContext;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -125,7 +126,8 @@ public class RangerDorisAccessController extends RangerAccessController {
     }
 
     @Override
-    public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
+    public boolean checkGlobalPriv(PrivilegeContext context, PrivPredicate wanted) {
+        UserIdentity currentUser = context.getCurrentUser();
         PrivBitSet checkedPrivs = PrivBitSet.of();
         return checkGlobalPrivInternal(currentUser, wanted, checkedPrivs);
     }
@@ -136,7 +138,8 @@ public class RangerDorisAccessController extends RangerAccessController {
     }
 
     @Override
-    public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
+    public boolean checkCtlPriv(PrivilegeContext context, String ctl, PrivPredicate wanted) {
+        UserIdentity currentUser = context.getCurrentUser();
         PrivBitSet checkedPrivs = PrivBitSet.of();
         if (checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
                 || checkCtlPrivInternal(currentUser, ctl, wanted, checkedPrivs)) {
@@ -160,7 +163,8 @@ public class RangerDorisAccessController extends RangerAccessController {
     }
 
     @Override
-    public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
+    public boolean checkDbPriv(PrivilegeContext context, String ctl, String db, PrivPredicate wanted) {
+        UserIdentity currentUser = context.getCurrentUser();
         PrivBitSet checkedPrivs = PrivBitSet.of();
         if (checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
                 || checkCtlPrivInternal(currentUser, ctl, wanted, checkedPrivs)
@@ -187,7 +191,8 @@ public class RangerDorisAccessController extends RangerAccessController {
     }
 
     @Override
-    public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
+    public boolean checkTblPriv(PrivilegeContext context, String ctl, String db, String tbl, PrivPredicate wanted) {
+        UserIdentity currentUser = context.getCurrentUser();
         PrivBitSet checkedPrivs = PrivBitSet.of();
         if (checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
                 || checkCtlPrivInternal(currentUser, ctl, wanted, checkedPrivs)
@@ -215,8 +220,9 @@ public class RangerDorisAccessController extends RangerAccessController {
     }
 
     @Override
-    public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
-            PrivPredicate wanted) throws AuthorizationException {
+    public void checkColsPriv(PrivilegeContext context, String ctl, String db, String tbl, Set<String> cols,
+                              PrivPredicate wanted) throws AuthorizationException {
+        UserIdentity currentUser = context.getCurrentUser();
         PrivBitSet checkedPrivs = PrivBitSet.of();
         boolean hasTablePriv = checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
                 || checkCtlPrivInternal(currentUser, ctl, wanted, checkedPrivs)
@@ -243,8 +249,9 @@ public class RangerDorisAccessController extends RangerAccessController {
     }
 
     @Override
-    public boolean checkCloudPriv(UserIdentity currentUser, String cloudName,
-            PrivPredicate wanted, ResourceTypeEnum type) {
+    public boolean checkCloudPriv(PrivilegeContext context, String cloudName,
+                                  PrivPredicate wanted, ResourceTypeEnum type) {
+        UserIdentity currentUser = context.getCurrentUser();
         // only support CLUSTER,
         // STORAGE_VAULT should call `checkStorageVaultPriv`
         // GENERAL should call `checkResourcePriv`
@@ -266,7 +273,8 @@ public class RangerDorisAccessController extends RangerAccessController {
     }
 
     @Override
-    public boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted) {
+    public boolean checkStorageVaultPriv(PrivilegeContext context, String storageVaultName, PrivPredicate wanted) {
+        UserIdentity currentUser = context.getCurrentUser();
         PrivBitSet checkedPrivs = PrivBitSet.of();
         return checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
                 || checkStorageVaultPrivInternal(currentUser, storageVaultName, wanted, checkedPrivs);
@@ -280,7 +288,8 @@ public class RangerDorisAccessController extends RangerAccessController {
     }
 
     @Override
-    public boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
+    public boolean checkResourcePriv(PrivilegeContext context, String resourceName, PrivPredicate wanted) {
+        UserIdentity currentUser = context.getCurrentUser();
         PrivBitSet checkedPrivs = PrivBitSet.of();
         return checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
                 || checkResourcePrivInternal(currentUser, resourceName, wanted, checkedPrivs);
@@ -293,7 +302,8 @@ public class RangerDorisAccessController extends RangerAccessController {
     }
 
     @Override
-    public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
+    public boolean checkWorkloadGroupPriv(PrivilegeContext context, String workloadGroupName, PrivPredicate wanted) {
+        UserIdentity currentUser = context.getCurrentUser();
         // For compatibility with older versions, it is not needed to check the privileges of the default group.
         if (WorkloadGroupMgr.DEFAULT_GROUP_NAME.equals(workloadGroupName)) {
             return true;
@@ -336,11 +346,12 @@ public class RangerDorisAccessController extends RangerAccessController {
         RangerDorisAccessController ac = new RangerDorisAccessController("doris");
         UserIdentity user = new UserIdentity("user1", "127.0.0.1");
         user.setIsAnalyzed();
-        boolean res = ac.checkDbPriv(user, "internal", "db1", PrivPredicate.SHOW);
+        PrivilegeContext context = PrivilegeContext.of(user);
+        boolean res = ac.checkDbPriv(context, "internal", "db1", PrivPredicate.SHOW);
         System.out.println("res: " + res);
         user = new UserIdentity("user2", "127.0.0.1");
         user.setIsAnalyzed();
-        res = ac.checkTblPriv(user, "internal", "db1", "tbl1", PrivPredicate.SELECT);
+        res = ac.checkTblPriv(PrivilegeContext.of(user), "internal", "db1", "tbl1", PrivPredicate.SELECT);
         System.out.println("res: " + res);
     }
 }

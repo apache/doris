@@ -57,9 +57,12 @@ public class Role implements GsonPostProcessable {
     public static String OPERATOR_ROLE = "operator";
     // admin is like DBA, who has all privileges except for NODE privilege held by operator
     public static String ADMIN_ROLE = "admin";
+    // admin_readonly is read-only admin, who has all read privileges
+    public static String ADMIN_READONLY_ROLE = "admin_readonly";
 
     public static Role OPERATOR;
     public static Role ADMIN;
+    public static Role ADMIN_READONLY;
 
     static {
         try {
@@ -69,6 +72,8 @@ public class Role implements GsonPostProcessable {
                     TablePattern.ALL, PrivBitSet.of(Privilege.NODE_PRIV, Privilege.ADMIN_PRIV));
             ADMIN = new Role(ADMIN_ROLE,
                     TablePattern.ALL, PrivBitSet.of(Privilege.ADMIN_PRIV));
+            ADMIN_READONLY = new Role(ADMIN_READONLY_ROLE,
+                    TablePattern.ALL, PrivBitSet.of(Privilege.SELECT_PRIV, Privilege.SHOW_VIEW_PRIV));
         } catch (DdlException e) {
             LOG.warn("Initialize operator and admin role error.", e);
         }
