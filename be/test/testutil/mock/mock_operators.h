@@ -26,6 +26,17 @@ namespace doris::pipeline {
 
 class MockChildOperator : public OperatorXBase {
 public:
+    MockChildOperator() = default;
+
+    MockChildOperator(ObjectPool* pool, int node_id, int operator_id,
+                      std::vector<vectorized::DataTypePtr> output_types = {})
+            : OperatorXBase(pool, node_id, operator_id) {
+        if (!output_types.empty()) {
+            _output_row_descriptor =
+                    std::make_unique<MockRowDescriptor>(std::move(output_types), pool);
+        }
+    }
+
     void set_block(vectorized::Block&& block) { _block = std::move(block); }
     void set_eos() { _eos = true; }
     Status get_block_after_projects(RuntimeState* state, vectorized::Block* block,
