@@ -20,8 +20,10 @@ package org.apache.doris.fs;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.lang.management.ManagementFactory;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -30,6 +32,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.management.MBeanServer;
+import javax.management.ObjectName;
 
 /**
  * Periodically cleans up Hadoop metrics2 registrations via reflection to prevent memory leak
@@ -63,6 +67,9 @@ public class HadoopMetricsDisabler {
             });
             cleanupExecutor.scheduleAtFixedRate(() -> {
                 try {
+                    // Diagnose MBeanServer to verify we can find Hadoop MBeans and their ClassLoaders
+                    diagnoseMBeans();
+
                     Set<ClassLoader> classLoaders = collectAllClassLoaders();
                     int cleaned = 0;
                     for (ClassLoader cl : classLoaders) {
@@ -95,6 +102,37 @@ public class HadoopMetricsDisabler {
             }
         }
         return classLoaders;
+    }
+
+    /**
+     * Diagnostic: scan MBeanServer for Hadoop MBeans, log their ClassLoaders.
+     * This verifies whether MBeanServer can be used to discover HdfsClassLoader instances.
+     */
+    private static void diagnoseMBeans() {
+        try {
+            MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
+            Set<ObjectName> names = mbs.queryNames(new ObjectName("Hadoop:*"), null);
+            // Group by ClassLoader
+            Map<String, Integer> clCount = new HashMap<>();
+            for (ObjectName name : names) {
+                try {
+                    ClassLoader cl = mbs.getClassLoaderFor(name);
+                    String clName = (cl == null) ? "bootstrap" : cl.getClass().getName();
+                    ClassLoader parent = (cl == null) ? null : cl.getParent();
+                    String parentName = (parent == null) ? "null" : parent.getClass().getName();
+                    String key = clName + " (parent: " + parentName + ")";
+                    clCount.merge(key, 1, Integer::sum);
+                } catch (Throwable e) {
+                    // skip
+                }
+            }
+            LOG.info("MBeanServer diagnosis: {} Hadoop MBeans found, ClassLoader distribution:", names.size());
+            for (Map.Entry<String, Integer> entry : clCount.entrySet()) {
+                LOG.info("  {}, MBean count: {}", entry.getKey(), entry.getValue());
+            }
+        } catch (Throwable e) {
+            LOG.warn("MBeanServer diagnosis failed", e);
+        }
     }
 
     /**
@@ -149,7 +187,9 @@ public class HadoopMetricsDisabler {
         } catch (ClassNotFoundException e) {
             // Hadoop metrics2 not present in this ClassLoader, nothing to do
             return false;
-        } catch (Exception e) {
+        } catch (Throwable e) {
+            // Catch Throwable: getDeclaredField() may throw NoClassDefFoundError
+            // when JVM resolves field types like MetricsFilter missing from ClassLoader
             LOG.warn("Failed to clean up Hadoop metrics2 for ClassLoader: {}", cl, e);
             return false;
         }
