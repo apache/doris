@@ -152,6 +152,10 @@ public:
 
     Status execute_column(VExprContext* context, const Block* block, const Selector* selector,
                           size_t count, ColumnPtr& result_column) const {
+        if (count == 0) {
+            result_column = execute_type(block)->create_column();
+            return Status::OK();
+        }
         RETURN_IF_ERROR(execute_column_impl(context, block, selector, count, result_column));
         if (result_column->size() != count) {
             return Status::InternalError(
@@ -159,8 +163,15 @@ public:
                     result_column->size(), count);
         }
         DCHECK(selector == nullptr || selector->size() == count);
-
 #ifndef NDEBUG
+        {
+            Selector mock_selector;
+            mock_selector.push_back(0);
+            ColumnPtr mock_result_column;
+            RETURN_IF_ERROR(
+                    execute_column_impl(context, block, &mock_selector, 1, mock_result_column));
+        }
+
         RETURN_IF_ERROR(result_column->column_self_check());
         auto result_type = execute_type(block);
         RETURN_IF_ERROR(result_type->check_column(*result_column));
