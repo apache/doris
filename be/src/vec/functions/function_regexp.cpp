@@ -66,6 +66,7 @@ struct RegexpExtractEngine {
                         RegexpExtractEngine& engine, bool enable_extended_regex) {
         re2::RE2::Options options;
         options.set_log_errors(false); // avoid RE2 printing to stderr; we handle errors ourselves
+        options.set_dot_nl(true); // make '.' match '\n' by default, consistent with REGEXP/LIKE
         engine.re2_regex =
                 std::make_unique<re2::RE2>(re2::StringPiece(pattern.data, pattern.size), options);
 
