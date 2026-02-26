@@ -104,8 +104,9 @@ void VCastExpr::close(VExprContext* context, FunctionContext::FunctionStateScope
     VExpr::close(context, scope);
 }
 
-Status VCastExpr::execute_column(VExprContext* context, const Block* block, Selector* selector,
-                                 size_t count, ColumnPtr& result_column) const {
+Status VCastExpr::execute_column_impl(VExprContext* context, const Block* block,
+                                      const Selector* selector, size_t count,
+                                      ColumnPtr& result_column) const {
     DCHECK(_open_finished || block == nullptr) << _open_finished << _expr_name;
     if (is_const_and_have_executed()) { // const have executed in open function
         result_column = get_result_from_const(count);
@@ -144,8 +145,9 @@ DataTypePtr TryCastExpr::original_cast_return_type() const {
     }
 }
 
-Status TryCastExpr::execute_column(VExprContext* context, const Block* block, Selector* selector,
-                                   size_t count, ColumnPtr& result_column) const {
+Status TryCastExpr::execute_column_impl(VExprContext* context, const Block* block,
+                                        const Selector* selector, size_t count,
+                                        ColumnPtr& result_column) const {
     DCHECK(_open_finished || block == nullptr) << _open_finished << _expr_name;
     if (is_const_and_have_executed()) { // const have executed in open function
         result_column = get_result_from_const(count);

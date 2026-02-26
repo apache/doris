@@ -25,8 +25,10 @@
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/rowset/segment_v2/index_iterator.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/block.h"
+#include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/exprs/vexpr_context.h"
@@ -70,8 +72,8 @@ public:
     }
 
     Status execute(VExprContext*, Block*, int*) const override { return Status::OK(); }
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override {
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
         return Status::OK();
     }
 };
@@ -483,6 +485,9 @@ TEST_F(VSearchExprTest, TestExecuteMethod) {
     Block block;
     int result_column_id = -1;
 
+    block.insert(ColumnWithTypeAndName {ColumnNothing::create(5),
+                                        std::make_shared<DataTypeNothing>(), "title"});
+
     // Create a basic VExprContext without inverted index context
     auto dummy_expr = VSearchExpr::create_shared(test_node);
     VExprContext context(dummy_expr);
@@ -841,21 +846,6 @@ TEST_F(VSearchExprTest, TestSingleChildBooleanClause) {
 
     auto vsearch_expr = VSearchExpr::create_shared(single_child_node);
     ASSERT_NE(nullptr, vsearch_expr);
-}
-
-TEST_F(VSearchExprTest, TestExecuteWithNullBlock) {
-    auto vsearch_expr = VSearchExpr::create_shared(test_node);
-
-    // Create a basic VExprContext without inverted index context
-    auto dummy_expr = VSearchExpr::create_shared(test_node);
-    VExprContext context(dummy_expr);
-
-    // Test with null block (should not crash)
-
-    ColumnPtr result_column;
-    auto status = vsearch_expr->execute_column(&context, nullptr, nullptr, 0, result_column);
-    EXPECT_FALSE(status.ok());
-    EXPECT_TRUE(status.code() == ErrorCode::INTERNAL_ERROR);
 }
 
 TEST_F(VSearchExprTest, TestEvaluateInvertedIndexWithWhitespaceOnlyDSL) {

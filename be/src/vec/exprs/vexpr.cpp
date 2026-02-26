@@ -987,7 +987,7 @@ size_t VExpr::estimate_memory(const size_t rows) {
     return estimate_size;
 }
 
-bool VExpr::fast_execute(VExprContext* context, Selector* selector, size_t count,
+bool VExpr::fast_execute(VExprContext* context, const Selector* selector, size_t count,
                          ColumnPtr& result_column) const {
     if (context->get_index_context() &&
         context->get_index_context()->get_index_result_column().contains(this)) {
