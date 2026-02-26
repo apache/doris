@@ -178,7 +178,8 @@ public class CatalogProperty {
                 if (storagePropertiesMap == null) {
                     try {
                         boolean checkStorageProperties = true;
-                        AbstractVendedCredentialsProvider provider = VendedCredentialsFactory.getProviderType(getMetastoreProperties());
+                        AbstractVendedCredentialsProvider provider =
+                                VendedCredentialsFactory.getProviderType(getMetastoreProperties());
                         if (provider != null) {
                             checkStorageProperties = !provider.isVendedCredentialsEnabled(getMetastoreProperties());
                         }

@@ -24,10 +24,8 @@ import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import com.google.common.collect.Maps;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.io.FileIO;
-import org.apache.iceberg.io.ResolvingFileIO;
 import org.apache.iceberg.io.StorageCredential;
 import org.apache.iceberg.io.SupportsStorageCredentials;
-import org.apache.iceberg.rest.DlfFileIO;
 
 import java.util.Map;
 
