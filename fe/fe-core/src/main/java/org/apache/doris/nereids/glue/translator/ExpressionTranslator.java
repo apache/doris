@@ -109,6 +109,7 @@ import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunctio
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TDictFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
@@ -219,10 +220,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                         .orElseThrow(() -> new AnalysisException(
                                     "No SlotReference found in Match, SQL is " + match.toSql()));
 
-        // Look up inverted index from slot metadata. The slot may lack column metadata
-        // when it comes from an alias output (e.g., CTE/subquery project) whose child
-        // is a non-SlotReference expression like Cast(ElementAt(...)). This happens when
-        // MATCH is inside an OR predicate, preventing pushdown through the project.
         String analyzer = match.getAnalyzer().orElse(null);
         Index invertedIndex = null;
         Column column = slot.getOriginalColumn().orElse(null);
@@ -233,9 +230,23 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 throw new AnalysisException("No inverted index found for analyzer '" + analyzer
                         + "' on column " + column.getName());
             }
-        } else if (analyzer != null) {
-            throw new AnalysisException("Cannot validate analyzer '" + analyzer
-                    + "' because column metadata is unavailable for slot " + slot.toSql());
+        } else {
+            // The slot lacks column metadata. This happens when MATCH is on an alias output
+            // slot whose child is not a direct SlotReference (e.g., variant subcolumn access
+            // Cast(ElementAt(...)) in a CTE/subquery), and an OR predicate prevents the
+            // optimizer from pushing MATCH down to the scan level.
+            // When enable_match_without_index_check is true, fall back to function-based
+            // matching; otherwise throw an error.
+            boolean allowNoIndex = ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable().enableMatchWithoutIndexCheck;
+            if (!allowNoIndex) {
+                throw new AnalysisException(
+                        "SlotReference in Match failed to get Column, SQL is " + match.toSql()
+                        + ". If the MATCH is on an alias column from a CTE/subquery with variant"
+                        + " subcolumns in an OR predicate, try setting"
+                        + " 'set enable_match_without_index_check = true' to allow function-based"
+                        + " matching fallback.");
+            }
         }
 
         MatchPredicate.Operator op = match.op();

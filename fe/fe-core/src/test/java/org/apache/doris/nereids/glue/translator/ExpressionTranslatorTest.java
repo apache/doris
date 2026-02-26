@@ -34,12 +34,30 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 public class ExpressionTranslatorTest {
+
+    private ConnectContext savedContext;
+
+    @BeforeEach
+    public void setUp() {
+        savedContext = ConnectContext.get();
+    }
+
+    @AfterEach
+    public void tearDown() {
+        ConnectContext.remove();
+        if (savedContext != null) {
+            savedContext.setThreadLocalInfo();
+        }
+    }
 
     @Test
     public void testUnaryArithmetic() throws Exception {
@@ -60,30 +78,35 @@ public class ExpressionTranslatorTest {
     }
 
     @Test
-    public void testMatchOnSlotWithoutColumnMetadata() {
-        // MATCH on an alias output slot (no originalColumn/originalTable) should NOT throw.
-        // This happens when MATCH is inside an OR predicate, preventing pushdown through
-        // the project, so MATCH references the alias output slot instead of the scan slot.
+    public void testMatchOnSlotWithoutColumnMetadataDefaultThrows() {
+        // By default (enable_match_without_index_check = false), MATCH on an alias slot
+        // without column metadata should throw.
         SlotReference aliasSlot = new SlotReference("firstname", VarcharType.SYSTEM_DEFAULT, true, ImmutableList.of());
         MatchAny matchAny = new MatchAny(aliasSlot, new VarcharLiteral("hello"));
         ExpressionTranslator translator = ExpressionTranslator.INSTANCE;
         PlanTranslatorContext context = new PlanTranslatorContext();
         context.addExprIdSlotRefPair(aliasSlot.getExprId(), new SlotRef(Type.VARCHAR, true));
 
-        Assertions.assertDoesNotThrow(() -> translator.visitMatch(matchAny, context));
+        // No ConnectContext → defaults to strict mode → should throw
+        ConnectContext.remove();
+        Assertions.assertThrows(AnalysisException.class, () -> translator.visitMatch(matchAny, context));
     }
 
     @Test
-    public void testMatchOnSlotWithoutColumnMetadataAndExplicitAnalyzer() {
-        // MATCH with explicit analyzer on a slot without column metadata should throw,
-        // because we cannot validate the analyzer against the inverted index.
+    public void testMatchOnSlotWithoutColumnMetadataWithVariableEnabled() {
+        // When enable_match_without_index_check = true, MATCH on an alias slot
+        // without column metadata should NOT throw (falls back to function match).
         SlotReference aliasSlot = new SlotReference("firstname", VarcharType.SYSTEM_DEFAULT, true, ImmutableList.of());
-        MatchAny matchAny = new MatchAny(aliasSlot, new VarcharLiteral("hello"), "standard");
+        MatchAny matchAny = new MatchAny(aliasSlot, new VarcharLiteral("hello"));
         ExpressionTranslator translator = ExpressionTranslator.INSTANCE;
         PlanTranslatorContext context = new PlanTranslatorContext();
         context.addExprIdSlotRefPair(aliasSlot.getExprId(), new SlotRef(Type.VARCHAR, true));
 
-        Assertions.assertThrows(AnalysisException.class, () -> translator.visitMatch(matchAny, context));
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+        ctx.getSessionVariable().enableMatchWithoutIndexCheck = true;
+
+        Assertions.assertDoesNotThrow(() -> translator.visitMatch(matchAny, context));
     }
 
     @Test void testFlattenAndOrNullable() {

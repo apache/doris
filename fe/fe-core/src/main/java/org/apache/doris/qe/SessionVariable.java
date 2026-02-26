@@ -808,6 +808,7 @@ public class SessionVariable implements Serializable, Writable {
             "cloud_table_version_cache_ttl_ms";
     // CLOUD_VARIABLES_BEGIN
 
+    public static final String ENABLE_MATCH_WITHOUT_INDEX_CHECK = "enable_match_without_index_check";
     public static final String ENABLE_MATCH_WITHOUT_INVERTED_INDEX = "enable_match_without_inverted_index";
     public static final String ENABLE_FALLBACK_ON_MISSING_INVERTED_INDEX = "enable_fallback_on_missing_inverted_index";
     public static final String ENABLE_INVERTED_INDEX_SEARCHER_CACHE = "enable_inverted_index_searcher_cache";
@@ -3166,6 +3167,16 @@ public class SessionVariable implements Serializable, Writable {
         "Whether to enable shard-level parallel scroll requests for ES catalog, enabled by default."
     })
     public boolean enableESParallelScroll = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_MATCH_WITHOUT_INDEX_CHECK, description = {
+        "开启后，MATCH 谓词在无法获取倒排索引元数据时（例如 CTE/子查询中 variant 子列的 alias slot），"
+                + "会回退到函数匹配而非报错。默认关闭。",
+        "When enabled, MATCH predicates on slots without inverted index metadata"
+                + " (e.g., alias output slots from CTE/subquery with variant subcolumns)"
+                + " will fall back to function-based matching instead of throwing an error."
+                + " Default is false."
+    })
+    public boolean enableMatchWithoutIndexCheck = false;
 
     @VariableMgr.VarAttr(name = ENABLE_MATCH_WITHOUT_INVERTED_INDEX, description = {
         "开启无索引 match 查询功能，建议正式环境保持开启",

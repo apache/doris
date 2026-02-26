@@ -17,14 +17,15 @@
 
 suite("test_match_with_or_on_alias", "p0") {
     // Test for: MATCH expressions on alias columns (from CTE/subquery) combined with OR
-    // Bug: When an alias wraps a non-SlotReference expression (e.g., Cast(ElementAt(...))),
-    //       Alias.toSlot() lost column metadata (originalColumn, originalTable, subPath),
-    //       causing ExpressionTranslator.visitMatch() to crash with:
+    // Bug: When MATCH is inside an OR predicate with a LEFT JOIN, the optimizer cannot fully
+    //       push MATCH down to the scan level. The remaining post-join filter references an
+    //       alias output slot that lacks column metadata (because the alias child is
+    //       Cast(ElementAt(...)) for variant subcolumns, not a direct SlotReference).
+    //       ExpressionTranslator.visitMatch() then crashes with:
     //       "SlotReference in Match failed to get Column"
     //
-    // This only manifested when MATCH was inside an OR predicate, because:
-    // - AND-only: MATCH is pushed through the project and slot is correctly replaced
-    // - OR: MATCH stays above the project as part of the OR, referencing the alias slot
+    // Fix: session variable enable_match_without_index_check allows MATCH to fall back
+    //       to function-based matching when inverted index metadata is unavailable.
 
     def tblVariant = "test_match_or_alias_variant"
     def tblNormal = "test_match_or_alias_normal"
@@ -84,6 +85,9 @@ suite("test_match_with_or_on_alias", "p0") {
     sql """INSERT INTO ${tblAssoc} VALUES (1, 1), (2, 3)"""
 
     sql "sync"
+
+    // Enable the session variable to allow function-based match fallback
+    sql "set enable_match_without_index_check = true"
 
     // =============================
     // Variant subcolumn + CTE + OR
