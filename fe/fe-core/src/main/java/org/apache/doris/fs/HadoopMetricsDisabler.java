@@ -32,7 +32,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * Each Hadoop FileSystem registers metrics with its ClassLoader's DefaultMetricsSystem singleton.
  * These metrics (MetricCounterLong, MBeanAttributeInfo, etc.) are never unregistered on close(),
  * causing unbounded growth. Since each ClassLoader has its own DefaultMetricsSystem enum instance,
- * setting NopMetricsSystem on the main ClassLoader doesn't help other ClassLoaders.
+ * a single cleanup point cannot cover all ClassLoaders.
  *
  * This class clears the MetricsSystemImpl.sources map and unregisters associated MBeans
  * after each FileSystem creation, without calling shutdown() which would break the
@@ -65,13 +65,18 @@ public class HadoopMetricsDisabler {
             AtomicReference<?> implRef = (AtomicReference<?>) implField.get(instance);
             Object metricsSystemImpl = implRef.get();
             if (metricsSystemImpl == null) {
+                LOG.info("MetricsSystem impl is null for ClassLoader: {}", cl);
                 return;
             }
+
+            LOG.info("MetricsSystem impl type: {}, ClassLoader: {}", metricsSystemImpl.getClass().getName(), cl);
 
             // Get the sources map: Map<String, MetricsSourceAdapter>
             Field sourcesField = metricsSystemImpl.getClass().getDeclaredField("sources");
             sourcesField.setAccessible(true);
             Map<?, ?> sources = (Map<?, ?>) sourcesField.get(metricsSystemImpl);
+
+            int sizeBefore = sources.size();
 
             // Synchronize on MetricsSystemImpl because Hadoop's sources map is a LinkedHashMap
             // and all access in MetricsSystemImpl.register()/unregisterSource() is synchronized(this).
@@ -88,9 +93,7 @@ public class HadoopMetricsDisabler {
                 sources.clear();
             }
 
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Cleaned up Hadoop metrics2 for ClassLoader: {}", cl);
-            }
+            LOG.info("Cleaned up Hadoop metrics2: sources {} -> 0, ClassLoader: {}", sizeBefore, cl);
         } catch (ClassNotFoundException e) {
             // Hadoop metrics2 not present in this ClassLoader, nothing to do
         } catch (Exception e) {
