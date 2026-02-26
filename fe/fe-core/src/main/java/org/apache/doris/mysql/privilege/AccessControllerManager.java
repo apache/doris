@@ -182,29 +182,10 @@ public class AccessControllerManager {
         return this.auth;
     }
 
-    private PrivilegeContext resolveAuthorizationContext(ConnectContext preferredCtx,
-                                                         UserIdentity currentUser) {
-        Objects.requireNonNull(currentUser, "require currentUser object");
-        ConnectContext ctx = preferredCtx == null ? ConnectContext.get() : preferredCtx;
-        if (ctx == null) {
-            return PrivilegeContext.of(currentUser);
-        }
-        Set<String> currentRoles = ctx.getCurrentRoles();
-        UserIdentity ctxUser = ctx.getCurrentUserIdentity();
-        if (currentRoles == null || ctxUser == null || !ctxUser.equals(currentUser)) {
-            return PrivilegeContext.of(currentUser);
-        }
-        return PrivilegeContext.of(currentUser, currentRoles);
-    }
-
     // ==== Global ====
     public boolean checkGlobalPriv(ConnectContext ctx, PrivPredicate wanted) {
         UserIdentity currentUser = ctx.getCurrentUserIdentity();
-        return checkGlobalPriv(resolveAuthorizationContext(ctx, currentUser), wanted);
-    }
-
-    public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
-        return checkGlobalPriv(resolveAuthorizationContext(null, currentUser), wanted);
+        return checkGlobalPriv(PrivilegeContext.of(currentUser, ctx.getCurrentRoles()), wanted);
     }
 
     public boolean checkGlobalPriv(PrivilegeContext context, PrivPredicate wanted) {
@@ -217,19 +198,19 @@ public class AccessControllerManager {
         return checkCtlPriv(resolveAuthorizationContext(ctx, currentUser), ctl, wanted);
     }
 
-    public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
-        boolean hasGlobal = checkGlobalPriv(currentUser, wanted);
+    public boolean checkCtlPriv(PrivilegeContext context, String ctl, PrivPredicate wanted) {
+        boolean hasGlobal = checkGlobalPriv(context, wanted);
         if (!Config.skip_catalog_priv_check) {
             // for checking catalog priv, always use InternalAccessController.
             // because catalog priv is only saved in InternalAccessController.
-            return defaultAccessController.checkCtlPriv(hasGlobal, currentUser, ctl, wanted);
+            return defaultAccessController.checkCtlPriv(hasGlobal, context, ctl, wanted);
         } else {
             CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctl);
             if (catalog == null) {
                 return false;
             }
             if (catalog.isInternalCatalog()) {
-                return defaultAccessController.checkCtlPriv(hasGlobal, currentUser, ctl, wanted);
+                return defaultAccessController.checkCtlPriv(hasGlobal, context, ctl, wanted);
             }
             // If catalog not set access controller, use internal access controller
             // otherwise, skip catalog priv check
@@ -237,7 +218,7 @@ public class AccessControllerManager {
                     "");
             if (Strings.isNullOrEmpty(className)) {
                 // not set access controller, use internal access controller
-                return defaultAccessController.checkCtlPriv(hasGlobal, currentUser, ctl, wanted);
+                return defaultAccessController.checkCtlPriv(hasGlobal, context, ctl, wanted);
             } else {
                 return true;
             }
@@ -247,11 +228,7 @@ public class AccessControllerManager {
     // ==== Database ====
     public boolean checkDbPriv(ConnectContext ctx, String ctl, String db, PrivPredicate wanted) {
         UserIdentity currentUser = ctx.getCurrentUserIdentity();
-        return checkDbPriv(resolveAuthorizationContext(ctx, currentUser), ctl, db, wanted);
-    }
-
-    public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
-        return checkDbPriv(resolveAuthorizationContext(null, currentUser), ctl, db, wanted);
+        return checkDbPriv(PrivilegeContext.of(currentUser, ctx.getCurrentRoles()), ctl, db, wanted);
     }
 
     public boolean checkDbPriv(PrivilegeContext context, String ctl, String db, PrivPredicate wanted) {
@@ -272,11 +249,12 @@ public class AccessControllerManager {
             return true;
         }
         UserIdentity currentUser = ctx.getCurrentUserIdentity();
-        return checkTblPriv(resolveAuthorizationContext(ctx, currentUser), qualifiedCtl, qualifiedDb, tbl, wanted);
-    }
-
-    public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
-        return checkTblPriv(resolveAuthorizationContext(null, currentUser), ctl, db, tbl, wanted);
+        return checkTblPriv(
+                PrivilegeContext.of(currentUser, ctx.getCurrentRoles()),
+                qualifiedCtl,
+                qualifiedDb,
+                tbl,
+                wanted);
     }
 
     public boolean checkTblPriv(PrivilegeContext context, String ctl, String db, String tbl,
@@ -294,12 +272,7 @@ public class AccessControllerManager {
             return;
         }
         UserIdentity currentUser = ctx.getCurrentUserIdentity();
-        checkColumnsPriv(resolveAuthorizationContext(ctx, currentUser), ctl, qualifiedDb, tbl, cols, wanted);
-    }
-
-    public void checkColumnsPriv(UserIdentity currentUser, String ctl, String qualifiedDb, String tbl,
-            Set<String> cols, PrivPredicate wanted) throws UserException {
-        checkColumnsPriv(resolveAuthorizationContext(null, currentUser), ctl, qualifiedDb, tbl, cols, wanted);
+        checkColumnsPriv(PrivilegeContext.of(currentUser, ctx.getCurrentRoles()), ctl, qualifiedDb, tbl, cols, wanted);
     }
 
     public void checkColumnsPriv(PrivilegeContext context, String ctl, String qualifiedDb, String tbl,
@@ -317,11 +290,7 @@ public class AccessControllerManager {
     // ==== Resource ====
     public boolean checkResourcePriv(ConnectContext ctx, String resourceName, PrivPredicate wanted) {
         UserIdentity currentUser = ctx.getCurrentUserIdentity();
-        return checkResourcePriv(resolveAuthorizationContext(ctx, currentUser), resourceName, wanted);
-    }
-
-    public boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
-        return checkResourcePriv(resolveAuthorizationContext(null, currentUser), resourceName, wanted);
+        return checkResourcePriv(PrivilegeContext.of(currentUser, ctx.getCurrentRoles()), resourceName, wanted);
     }
 
     public boolean checkResourcePriv(PrivilegeContext context, String resourceName, PrivPredicate wanted) {
@@ -331,12 +300,7 @@ public class AccessControllerManager {
     // ==== Cloud ====
     public boolean checkCloudPriv(ConnectContext ctx, String cloudName, PrivPredicate wanted, ResourceTypeEnum type) {
         UserIdentity currentUser = ctx.getCurrentUserIdentity();
-        return checkCloudPriv(resolveAuthorizationContext(ctx, currentUser), cloudName, wanted, type);
-    }
-
-    public boolean checkCloudPriv(UserIdentity currentUser, String cloudName,
-                                  PrivPredicate wanted, ResourceTypeEnum type) {
-        return checkCloudPriv(resolveAuthorizationContext(null, currentUser), cloudName, wanted, type);
+        return checkCloudPriv(PrivilegeContext.of(currentUser, ctx.getCurrentRoles()), cloudName, wanted, type);
     }
 
     public boolean checkCloudPriv(PrivilegeContext context, String cloudName,
@@ -346,11 +310,7 @@ public class AccessControllerManager {
 
     public boolean checkStorageVaultPriv(ConnectContext ctx, String storageVaultName, PrivPredicate wanted) {
         UserIdentity currentUser = ctx.getCurrentUserIdentity();
-        return checkStorageVaultPriv(resolveAuthorizationContext(ctx, currentUser), storageVaultName, wanted);
-    }
-
-    public boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted) {
-        return checkStorageVaultPriv(resolveAuthorizationContext(null, currentUser), storageVaultName, wanted);
+        return checkStorageVaultPriv(PrivilegeContext.of(currentUser, ctx.getCurrentRoles()), storageVaultName, wanted);
     }
 
     public boolean checkStorageVaultPriv(PrivilegeContext context, String storageVaultName,
@@ -360,11 +320,10 @@ public class AccessControllerManager {
 
     public boolean checkWorkloadGroupPriv(ConnectContext ctx, String workloadGroupName, PrivPredicate wanted) {
         UserIdentity currentUser = ctx.getCurrentUserIdentity();
-        return checkWorkloadGroupPriv(resolveAuthorizationContext(ctx, currentUser), workloadGroupName, wanted);
-    }
-
-    public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
-        return checkWorkloadGroupPriv(resolveAuthorizationContext(null, currentUser), workloadGroupName, wanted);
+        return checkWorkloadGroupPriv(
+                PrivilegeContext.of(currentUser, ctx.getCurrentRoles()),
+                workloadGroupName,
+                wanted);
     }
 
     public boolean checkWorkloadGroupPriv(PrivilegeContext context, String workloadGroupName,
@@ -392,11 +351,6 @@ public class AccessControllerManager {
         return true;
     }
 
-    public Map<String, Optional<DataMaskPolicy>> evalDataMaskPolicies(UserIdentity currentUser, String ctl,
-            String db, String tbl, Set<String> cols) {
-        return evalDataMaskPolicies(resolveAuthorizationContext(null, currentUser), ctl, db, tbl, cols);
-    }
-
     public Map<String, Optional<DataMaskPolicy>> evalDataMaskPolicies(PrivilegeContext context, String ctl,
                                                                       String db, String tbl, Set<String> cols) {
         Map<String, Optional<DataMaskPolicy>> res = Maps.newHashMap();
@@ -404,11 +358,6 @@ public class AccessControllerManager {
             res.put(col, evalDataMaskPolicy(context, ctl, db, tbl, col));
         }
         return res;
-    }
-
-    public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db,
-            String tbl, String col) {
-        return evalDataMaskPolicy(resolveAuthorizationContext(null, currentUser), ctl, db, tbl, col);
     }
 
     public Optional<DataMaskPolicy> evalDataMaskPolicy(PrivilegeContext context, String ctl,
@@ -420,11 +369,6 @@ public class AccessControllerManager {
         Objects.requireNonNull(tbl, "require tbl object");
         Objects.requireNonNull(col, "require col object");
         return getAccessControllerOrDefault(ctl).evalDataMaskPolicy(context, ctl, db, tbl, col.toLowerCase());
-    }
-
-    public List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String ctl,
-            String db, String tbl) {
-        return evalRowFilterPolicies(resolveAuthorizationContext(null, currentUser), ctl, db, tbl);
     }
 
     public List<? extends RowFilterPolicy> evalRowFilterPolicies(PrivilegeContext context, String ctl,

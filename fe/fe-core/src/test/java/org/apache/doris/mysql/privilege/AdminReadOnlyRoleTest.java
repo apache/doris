@@ -50,11 +50,13 @@ public class AdminReadOnlyRoleTest extends TestWithFeService {
         UserIdentity user = UserIdentity.createAnalyzedUserIdentWithIp("u_ro", "%");
         AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
 
-        Assertions.assertTrue(accessManager.checkDbPriv(user, InternalCatalog.INTERNAL_CATALOG_NAME,
+        PrivilegeContext privilegeContext = PrivilegeContext.of(user);
+        Assertions.assertTrue(accessManager.checkDbPriv(privilegeContext, InternalCatalog.INTERNAL_CATALOG_NAME,
                 "test", PrivPredicate.SHOW));
-        Assertions.assertTrue(accessManager.checkResourcePriv(user, "res1", PrivPredicate.SHOW_RESOURCES));
-        Assertions.assertTrue(accessManager.checkWorkloadGroupPriv(user, "wg1", PrivPredicate.SHOW_WORKLOAD_GROUP));
-        Assertions.assertFalse(accessManager.checkGlobalPriv(user, PrivPredicate.ADMIN));
+        Assertions.assertTrue(accessManager.checkResourcePriv(privilegeContext, "res1", PrivPredicate.SHOW_RESOURCES));
+        Assertions.assertTrue(accessManager.checkWorkloadGroupPriv(
+                privilegeContext, "wg1", PrivPredicate.SHOW_WORKLOAD_GROUP));
+        Assertions.assertFalse(accessManager.checkGlobalPriv(privilegeContext, PrivPredicate.ADMIN));
     }
 
     @Test
@@ -79,6 +81,39 @@ public class AdminReadOnlyRoleTest extends TestWithFeService {
 
         connectPoolMgr.unregisterConnection(targetCtx);
         targetCtx.cleanup();
+        connectContext.setThreadLocalInfo();
+    }
+
+    @Test
+    public void testAdminReadOnlyProcessListLocal() throws Exception {
+        addUser("u_ro_process_local", true);
+        grantRole("GRANT 'admin_readonly' TO 'u_ro_process_local'@'%'");
+        addUser("u_process_target_local", true);
+
+        UserIdentity caller = UserIdentity.createAnalyzedUserIdentWithIp("u_ro_process_local", "%");
+        UserIdentity target = UserIdentity.createAnalyzedUserIdentWithIp("u_process_target_local", "%");
+
+        ConnectPoolMgr connectPoolMgr = new ConnectPoolMgr(10);
+        ConnectContext targetCtx = TestWithFeService.createCtx(target, "127.0.0.1");
+        targetCtx.setConnectionId(2002);
+        targetCtx.setCommand(MysqlCommand.COM_QUERY);
+        targetCtx.setStartTime();
+        connectPoolMgr.registerConnection(targetCtx);
+
+        ConnectContext callerCtx = TestWithFeService.createCtx(caller, "127.0.0.1");
+        callerCtx.setConnectionId(2003);
+        callerCtx.setCommand(MysqlCommand.COM_QUERY);
+        callerCtx.setStartTime();
+        connectPoolMgr.registerConnection(callerCtx);
+
+        callerCtx.setThreadLocalInfo();
+        List<ConnectContext.ThreadInfo> rows = connectPoolMgr.listConnection(caller.getQualifiedUser(), false);
+        Assertions.assertEquals(2, rows.size());
+
+        connectPoolMgr.unregisterConnection(targetCtx);
+        connectPoolMgr.unregisterConnection(callerCtx);
+        targetCtx.cleanup();
+        callerCtx.cleanup();
         connectContext.setThreadLocalInfo();
     }
 

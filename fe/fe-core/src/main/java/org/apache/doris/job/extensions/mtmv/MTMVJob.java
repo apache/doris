@@ -36,6 +36,7 @@ import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.PrivilegeContext;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.thrift.TCell;
@@ -263,7 +264,7 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
             return false;
         }
         return Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(userIdentity, InternalCatalog.INTERNAL_CATALOG_NAME,
+                .checkTblPriv(PrivilegeContext.of(userIdentity), InternalCatalog.INTERNAL_CATALOG_NAME,
                         mtmv.getQualifiedDbName(), mtmv.getName(),
                         wanted);
     }

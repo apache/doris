@@ -76,6 +76,7 @@ import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.PrivilegeContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.FrontendConjunctsUtils;
 import org.apache.doris.nereids.util.PlanUtils;
@@ -655,7 +656,8 @@ public class MetadataGenerator {
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
         // check auth
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUserIdentity, PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(
+                PrivilegeContext.of(currentUserIdentity), PrivPredicate.ADMIN)) {
             return result;
         }
         List<Expression> conjuncts = Collections.EMPTY_LIST;
@@ -1028,7 +1030,7 @@ public class MetadataGenerator {
         for (Table table : tables) {
             if (table instanceof MTMV) {
                 if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(userIdentity, InternalCatalog.INTERNAL_CATALOG_NAME,
+                        .checkTblPriv(PrivilegeContext.of(userIdentity), InternalCatalog.INTERNAL_CATALOG_NAME,
                                 table.getQualifiedDbName(), table.getName(),
                                 PrivPredicate.SHOW)) {
                     continue;
@@ -1180,7 +1182,8 @@ public class MetadataGenerator {
 
         List<org.apache.doris.job.base.AbstractJob> jobList = Env.getCurrentEnv().getJobManager().queryJobs(jobType);
 
-        boolean hasAdmin = Env.getCurrentEnv().getAccessManager().checkGlobalPriv(userIdentity, PrivPredicate.ADMIN);
+        boolean hasAdmin = Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(PrivilegeContext.of(userIdentity), PrivPredicate.ADMIN);
         for (org.apache.doris.job.base.AbstractJob job : jobList) {
             if (job instanceof MTMVJob) {
                 MTMVJob mtmvJob = (MTMVJob) job;
@@ -1218,7 +1221,8 @@ public class MetadataGenerator {
         List<TRow> dataBatch = Lists.newArrayList();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
 
-        boolean hasAdmin = Env.getCurrentEnv().getAccessManager().checkGlobalPriv(userIdentity, PrivPredicate.ADMIN);
+        boolean hasAdmin = Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(PrivilegeContext.of(userIdentity), PrivPredicate.ADMIN);
         List<org.apache.doris.job.base.AbstractJob> jobList = Env.getCurrentEnv().getJobManager().queryJobs(jobType);
 
         for (org.apache.doris.job.base.AbstractJob job : jobList) {
@@ -1269,8 +1273,12 @@ public class MetadataGenerator {
             if (!(table instanceof OlapTable)) {
                 continue;
             }
-            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUserIdentity, catalog.getName(),
-                    database.getFullName(), table.getName(), PrivPredicate.SHOW)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
+                    PrivilegeContext.of(currentUserIdentity),
+                    catalog.getName(),
+                    database.getFullName(),
+                    table.getName(),
+                    PrivPredicate.SHOW)) {
                 continue;
             }
             OlapTable olapTable = (OlapTable) table;
@@ -1342,8 +1350,12 @@ public class MetadataGenerator {
     private static void tableOptionsForExternalCatalog(UserIdentity currentUserIdentity,
             CatalogIf catalog, DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch) {
         for (TableIf table : tables) {
-            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUserIdentity, catalog.getName(),
-                    database.getFullName(), table.getName(), PrivPredicate.SHOW)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
+                    PrivilegeContext.of(currentUserIdentity),
+                    catalog.getName(),
+                    database.getFullName(),
+                    table.getName(),
+                    PrivPredicate.SHOW)) {
                 continue;
             }
             TRow trow = new TRow();
@@ -1419,8 +1431,12 @@ public class MetadataGenerator {
             if (!(table instanceof OlapTable)) {
                 continue;
             }
-            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUserIdentity, catalog.getName(),
-                    database.getFullName(), table.getName(), PrivPredicate.SHOW)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
+                    PrivilegeContext.of(currentUserIdentity),
+                    catalog.getName(),
+                    database.getFullName(),
+                    table.getName(),
+                    PrivPredicate.SHOW)) {
                 continue;
             }
             OlapTable olapTable = (OlapTable) table;
@@ -1458,8 +1474,12 @@ public class MetadataGenerator {
     private static void tablePropertiesForExternalCatalog(UserIdentity currentUserIdentity,
             CatalogIf catalog, DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch) {
         for (TableIf table : tables) {
-            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUserIdentity, catalog.getName(),
-                    database.getFullName(), table.getName(), PrivPredicate.SHOW)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
+                    PrivilegeContext.of(currentUserIdentity),
+                    catalog.getName(),
+                    database.getFullName(),
+                    table.getName(),
+                    PrivPredicate.SHOW)) {
                 continue;
             }
             // Currently for external catalog, we put properties as empty, can extend in
@@ -1551,8 +1571,11 @@ public class MetadataGenerator {
             return result;
         }
 
-        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(currentUserIdentity, catalog.getName(),
-                databaseIf.getFullName(), PrivPredicate.SHOW)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(
+                PrivilegeContext.of(currentUserIdentity),
+                catalog.getName(),
+                databaseIf.getFullName(),
+                PrivPredicate.SHOW)) {
             result.setDataBatch(dataBatch);
             result.setStatus(new TStatus(TStatusCode.OK));
             return result;
@@ -1613,8 +1636,12 @@ public class MetadataGenerator {
             if (!(table instanceof OlapTable)) {
                 continue;
             }
-            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUserIdentity, catalog.getName(),
-                    database.getFullName(), table.getName(), PrivPredicate.SHOW)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
+                    PrivilegeContext.of(currentUserIdentity),
+                    catalog.getName(),
+                    database.getFullName(),
+                    table.getName(),
+                    PrivPredicate.SHOW)) {
                 continue;
             }
 
@@ -1746,8 +1773,12 @@ public class MetadataGenerator {
     private static void partitionsForExternalCatalog(UserIdentity currentUserIdentity,
             CatalogIf catalog, DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch, String timeZone) {
         for (TableIf table : tables) {
-            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUserIdentity, catalog.getName(),
-                    database.getFullName(), table.getName(), PrivPredicate.SHOW)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
+                    PrivilegeContext.of(currentUserIdentity),
+                    catalog.getName(),
+                    database.getFullName(),
+                    table.getName(),
+                    PrivPredicate.SHOW)) {
                 continue;
             }
             // TODO

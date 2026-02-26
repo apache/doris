@@ -18,7 +18,6 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
@@ -61,10 +60,10 @@ public abstract class QueryTableValueFunction extends TableValuedFunctionIf {
         String catalogName = params.get(CATALOG);
 
         // check priv
-        UserIdentity userIdentity = ConnectContext.get().getCurrentUserIdentity();
-        if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(userIdentity, catalogName, PrivPredicate.SELECT)) {
+        ConnectContext ctx = ConnectContext.get();
+        if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(ctx, catalogName, PrivPredicate.SELECT)) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                    "user " + userIdentity + " has no privilege to query in catalog " + catalogName);
+                    "user " + ctx.getCurrentUserIdentity() + " has no privilege to query in catalog " + catalogName);
         }
 
         CatalogIf catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);

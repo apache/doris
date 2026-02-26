@@ -42,6 +42,7 @@ import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.PrivilegeContext;
 import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
@@ -269,7 +270,8 @@ public class CloudIndexTest {
                     }
 
                     @Override
-                    public boolean checkCloudPriv(UserIdentity user, String cluster, PrivPredicate wanted, ResourceTypeEnum resourceType) {
+                    public boolean checkCloudPriv(PrivilegeContext context,
+                            String cluster, PrivPredicate wanted, ResourceTypeEnum resourceType) {
                         return true; // Allow all cloud privileges for test
                     }
                 };

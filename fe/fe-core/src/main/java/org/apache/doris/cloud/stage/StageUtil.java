@@ -78,11 +78,11 @@ public class StageUtil {
             return stagePBs.get(0);
         } else {
             // check stage permission
+            ConnectContext ctx = ConnectContext.get();
             if (checkAuth && !Env.getCurrentEnv().getAccessManager()
-                    .checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(), stage, PrivPredicate.USAGE,
-                            ResourceTypeEnum.STAGE)) {
-                throw new AnalysisException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
-                        + "'@'" + ConnectContext.get().getRemoteIP() + "' for cloud stage '" + stage + "'");
+                    .checkCloudPriv(ctx, stage, PrivPredicate.USAGE, ResourceTypeEnum.STAGE)) {
+                throw new AnalysisException("USAGE denied to user '" + ctx.getQualifiedUser()
+                        + "'@'" + ctx.getRemoteIP() + "' for cloud stage '" + stage + "'");
             }
             List<StagePB> stagePBs = ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
                                             .getStage(StageType.EXTERNAL, null, stage, null);

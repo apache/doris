@@ -46,7 +46,8 @@ public class AccessControllerManagerCurrentRolesFallbackTest extends TestWithFeS
         connectContext.setCurrentRoles(Sets.newHashSet("role1"));
         connectContext.setThreadLocalInfo();
 
-        Assertions.assertTrue(accessManager.checkDbPriv(user, InternalCatalog.INTERNAL_CATALOG_NAME,
+        Assertions.assertTrue(accessManager.checkDbPriv(
+                PrivilegeContext.of(user, connectContext.getCurrentRoles()), InternalCatalog.INTERNAL_CATALOG_NAME,
                 "test", PrivPredicate.SELECT));
     }
 
@@ -60,7 +61,8 @@ public class AccessControllerManagerCurrentRolesFallbackTest extends TestWithFeS
         connectContext.setCurrentRoles(Sets.newHashSet("role1"));
         connectContext.setThreadLocalInfo();
 
-        Assertions.assertFalse(accessManager.checkDbPriv(anotherUser, InternalCatalog.INTERNAL_CATALOG_NAME,
+        Assertions.assertFalse(accessManager.checkDbPriv(
+                PrivilegeContext.of(anotherUser), InternalCatalog.INTERNAL_CATALOG_NAME,
                 "test", PrivPredicate.SELECT));
     }
 

@@ -73,6 +73,9 @@ public class StmtExecutionAction extends RestBaseController {
 
     private static final long DEFAULT_ROW_LIMIT = 1000;
     private static final long MAX_ROW_LIMIT = 10000;
+    private static final String STREAM_HEADER = "X-Doris-Stream";
+    private static final String STREAM_DISABLE_VALUE = "false";
+    private static final String EMPTY_CLUSTER_NAME = "";
 
     /**
      * Execute a SQL.
@@ -113,8 +116,8 @@ public class StmtExecutionAction extends RestBaseController {
         ConnectContext.get().changeDefaultCatalog(ns);
         ConnectContext.get().setDatabase(fullDbName);
 
-        String streamHeader = request.getHeader("X-Doris-Stream");
-        boolean isStream = !("false".equalsIgnoreCase(streamHeader));
+        String streamHeader = request.getHeader(STREAM_HEADER);
+        boolean isStream = !(STREAM_DISABLE_VALUE.equalsIgnoreCase(streamHeader));
         return executeQuery(authInfo, stmtRequestBody.is_sync, stmtRequestBody.limit, stmtRequestBody,
                             response, isStream);
     }
@@ -162,7 +165,8 @@ public class StmtExecutionAction extends RestBaseController {
     private ResponseEntity executeQuery(ActionAuthorizationInfo authInfo, boolean isSync, long limit,
             StmtRequestBody stmtRequestBody, HttpServletResponse response, boolean isStream) {
         StatementSubmitter.StmtContext stmtCtx = new StatementSubmitter.StmtContext(stmtRequestBody.stmt,
-                authInfo.fullUserName, authInfo.password, limit, isStream, response, "");
+                authInfo.fullUserName, authInfo.password, limit, isStream, response, EMPTY_CLUSTER_NAME,
+                authInfo.executeAsUser, authInfo.executeAsRoles);
         Future<ExecutionResultSet> future = stmtSubmitter.submit(stmtCtx);
 
         if (isSync) {

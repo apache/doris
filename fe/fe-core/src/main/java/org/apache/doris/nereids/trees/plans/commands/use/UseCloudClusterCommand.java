@@ -90,7 +90,7 @@ public class UseCloudClusterCommand extends Command implements NoForward {
         if (Strings.isNullOrEmpty(cluster)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_CLUSTER_ERROR);
         }
-        if (!Env.getCurrentEnv().getAccessManager().checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
+        if (!Env.getCurrentEnv().getAccessManager().checkCloudPriv(ConnectContext.get(),
                 cluster, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
             throw new AnalysisException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
                 + "'@'" + ConnectContext.get().getRemoteIP()

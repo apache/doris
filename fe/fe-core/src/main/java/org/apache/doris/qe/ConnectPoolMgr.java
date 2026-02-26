@@ -34,6 +34,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -121,24 +122,29 @@ public class ConnectPoolMgr {
         return numberConnection.get();
     }
 
-    private boolean canViewOtherConnections(UserIdentity userIdentity, Set<String> currentRoles) {
+    private boolean canViewOtherConnectionsForRpc(UserIdentity userIdentity, Set<String> currentRoles) {
         if (userIdentity == null) {
             return false;
         }
         return Env.getCurrentEnv().getAccessManager()
-                .checkGlobalPriv(PrivilegeContext.of(userIdentity, currentRoles), PrivPredicate.ADMIN)
-                || Env.getCurrentEnv().getAuth().hasAdminReadOnlyRole(userIdentity, currentRoles)
-                || Env.getCurrentEnv().getAccessManager()
-                .checkGlobalPriv(PrivilegeContext.of(userIdentity, currentRoles), PrivPredicate.GRANT);
+                .checkGlobalPriv(PrivilegeContext.of(userIdentity, currentRoles), PrivPredicate.GRANT)
+                || Env.getCurrentEnv().getAuth().hasAdminReadOnlyRole(userIdentity, currentRoles);
+    }
+
+    private boolean canViewOtherConnectionsForLocal(String user) {
+        ConnectContext currentCtx = ConnectContext.get();
+        if (currentCtx == null || currentCtx.getCurrentUserIdentity() == null
+                || !Objects.equals(currentCtx.getQualifiedUser(), user)) {
+            return false;
+        }
+        return Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentCtx, PrivPredicate.ADMIN)
+                || Env.getCurrentEnv().getAuth().hasAdminReadOnlyRole(currentCtx.getCurrentUserIdentity(),
+                currentCtx.getCurrentRoles());
     }
 
     public List<ThreadInfo> listConnection(String user, boolean isFull) {
-        ConnectContext currentCtx = ConnectContext.get();
-        UserIdentity currentUserIdentity = currentCtx == null ? null : currentCtx.getCurrentUserIdentity();
-        Set<String> currentRoles = currentCtx == null ? null : currentCtx.getCurrentRoles();
-        boolean canViewOthers = canViewOtherConnections(currentUserIdentity, currentRoles);
-
         List<ConnectContext.ThreadInfo> infos = Lists.newArrayList();
+        boolean canViewOthers = canViewOtherConnectionsForLocal(user);
         for (ConnectContext ctx : connectionMap.values()) {
             // Check auth
             if (!ctx.getQualifiedUser().equals(user) && !canViewOthers) {
@@ -155,7 +161,7 @@ public class ConnectPoolMgr {
             boolean isShowFullSql, Optional<String> timeZone) {
         List<List<String>> list = new ArrayList<>();
         long nowMs = System.currentTimeMillis();
-        boolean canViewOthers = canViewOtherConnections(userIdentity, currentRoles);
+        boolean canViewOthers = canViewOtherConnectionsForRpc(userIdentity, currentRoles);
         for (ConnectContext ctx : connectionMap.values()) {
             // Check auth
             if (!ctx.getCurrentUserIdentity().equals(userIdentity) && !canViewOthers) {

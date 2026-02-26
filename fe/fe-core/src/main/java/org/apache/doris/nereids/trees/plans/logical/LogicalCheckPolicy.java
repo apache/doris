@@ -23,6 +23,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
+import org.apache.doris.mysql.privilege.PrivilegeContext;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
@@ -177,7 +178,8 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         boolean hasDataMask = false;
         for (Slot slot : logicalPlan.getOutput()) {
             Optional<DataMaskPolicy> dataMaskPolicy = accessManager.evalDataMaskPolicy(
-                    currentUserIdentity, ctlName, dbName, tableName, slot.getName());
+                    PrivilegeContext.of(currentUserIdentity, connectContext.getCurrentRoles()),
+                    ctlName, dbName, tableName, slot.getName());
             if (dataMaskPolicy.isPresent()) {
                 Expression unboundExpr = nereidsParser.parseExpression(dataMaskPolicy.get().getMaskTypeDef());
                 Expression childOfAlias
@@ -198,7 +200,8 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         }
 
         List<? extends RowFilterPolicy> rowPolicies = accessManager.evalRowFilterPolicies(
-                currentUserIdentity, ctlName, dbName, tableName);
+                PrivilegeContext.of(currentUserIdentity, connectContext.getCurrentRoles()),
+                ctlName, dbName, tableName);
         if (sqlCacheContext.isPresent()) {
             sqlCacheContext.get().setRowFilterPolicy(ctlName, dbName, tableName, rowPolicies);
         }

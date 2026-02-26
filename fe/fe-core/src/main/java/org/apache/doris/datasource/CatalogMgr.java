@@ -42,6 +42,7 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.PrivilegeContext;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -542,7 +543,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public List<CatalogIf> listCatalogsWithCheckPriv(UserIdentity userIdentity) {
         return nameToCatalog.values().stream().filter(
                 catalog -> Env.getCurrentEnv().getAccessManager()
-                        .checkCtlPriv(userIdentity, catalog.getName(), PrivPredicate.SHOW)
+                        .checkCtlPriv(PrivilegeContext.of(userIdentity), catalog.getName(), PrivPredicate.SHOW)
         ).collect(Collectors.toList());
     }
 

@@ -25,6 +25,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.qe.ConnectContext;
 
 import java.util.List;
 import java.util.Objects;
@@ -92,7 +93,8 @@ public class CallExecuteStmtFunc extends CallFunc {
         }
 
         // check priv
-        if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(user, catalogName, PrivPredicate.LOAD)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(ConnectContext.get(), catalogName,
+                PrivPredicate.LOAD)) {
             throw new AnalysisException("user " + user + " has no privilege to execute stmt in catalog " + catalogName);
         }
 

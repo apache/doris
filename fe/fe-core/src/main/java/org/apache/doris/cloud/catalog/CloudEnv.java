@@ -303,7 +303,7 @@ public class CloudEnv extends Env {
 
     public void checkCloudClusterPriv(String clusterName) throws DdlException {
         // check resource usage privilege
-        if (!Env.getCurrentEnv().getAccessManager().checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
+        if (!Env.getCurrentEnv().getAccessManager().checkCloudPriv(ConnectContext.get(),
                 clusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
             throw new DdlException("USAGE denied to user "
                     + ConnectContext.get().getCurrentUserIdentity().getQualifiedUser() + "'@'" + ConnectContext.get()

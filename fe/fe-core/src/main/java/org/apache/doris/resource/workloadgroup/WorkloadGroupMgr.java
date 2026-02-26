@@ -32,6 +32,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.PrivilegeContext;
 import org.apache.doris.persist.DropWorkloadGroupOperationLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -486,7 +487,8 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             readLock();
             try {
                 for (WorkloadGroup workloadGroup : idToWorkloadGroup.values()) {
-                    if (!Env.getCurrentEnv().getAccessManager().checkWorkloadGroupPriv(currentUserIdentity,
+                    if (!Env.getCurrentEnv().getAccessManager().checkWorkloadGroupPriv(
+                            PrivilegeContext.of(currentUserIdentity),
                             workloadGroup.getName(), PrivPredicate.SHOW_WORKLOAD_GROUP)) {
                         continue;
                     }

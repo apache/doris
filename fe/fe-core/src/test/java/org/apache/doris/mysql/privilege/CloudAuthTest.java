@@ -114,6 +114,10 @@ public class CloudAuthTest extends TestWithFeService {
                 minTimes = 0;
                 result = UserIdentity.createAnalyzedUserIdentWithIp("root", "%");
 
+                ctx.getCurrentRoles();
+                minTimes = 0;
+                result = null;
+
                 Env.getCurrentSystemInfo();
                 minTimes = 0;
                 result = systemInfoService;
@@ -152,9 +156,9 @@ public class CloudAuthTest extends TestWithFeService {
             e.printStackTrace();
             Assert.fail();
         }
-        Assert.assertTrue(accessManager.checkCloudPriv(userIdentity, computeGroup1,
+        Assert.assertTrue(accessManager.checkCloudPriv(PrivilegeContext.of(userIdentity), computeGroup1,
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
-        Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+        Assert.assertFalse(accessManager.checkGlobalPriv(PrivilegeContext.of(userIdentity), PrivPredicate.USAGE));
 
         // 3. revoke usage_priv on cluster 'cg1' from 'testUser'@'%'
         RevokeResourcePrivilegeCommand revokeResourcePrivilegeCommand = new RevokeResourcePrivilegeCommand(usagePrivileges,
@@ -166,9 +170,9 @@ public class CloudAuthTest extends TestWithFeService {
             e.printStackTrace();
             Assert.fail();
         }
-        Assert.assertFalse(accessManager.checkCloudPriv(userIdentity, computeGroup1,
+        Assert.assertFalse(accessManager.checkCloudPriv(PrivilegeContext.of(userIdentity), computeGroup1,
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
-        Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+        Assert.assertFalse(accessManager.checkGlobalPriv(PrivilegeContext.of(userIdentity), PrivPredicate.USAGE));
         // 3.1 grant 'notBelongToResourcePrivileges' on cluster 'cg1' to 'testUser'@'%'
         for (int i = 0; i < Privilege.notBelongToResourcePrivileges.length; i++) {
             List<AccessPrivilegeWithCols> notAllowedPrivileges = Lists
@@ -212,9 +216,9 @@ public class CloudAuthTest extends TestWithFeService {
         Assertions.assertDoesNotThrow(() -> info2.validate());
         Assertions.assertEquals(new String(info2.getRole()), "role1");
         Env.getCurrentEnv().getAuth().createUser(createUserCommand1.getInfo());
-        Assert.assertTrue(accessManager.checkCloudPriv(userWithRole, "cg1",
+        Assert.assertTrue(accessManager.checkCloudPriv(PrivilegeContext.of(userWithRole), "cg1",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
-        Assert.assertFalse(accessManager.checkGlobalPriv(userWithRole, PrivPredicate.USAGE));
+        Assert.assertFalse(accessManager.checkGlobalPriv(PrivilegeContext.of(userWithRole), PrivPredicate.USAGE));
 
         // 3. revoke usage_priv on cluster 'cg1' from role 'role1'
         String revokeSql = "REVOKE USAGE_PRIV ON CLUSTER 'cg1' FROM ROLE 'role1';";
@@ -222,8 +226,8 @@ public class CloudAuthTest extends TestWithFeService {
         Assertions.assertTrue(revokeplan1 instanceof RevokeResourcePrivilegeCommand);
         Assertions.assertDoesNotThrow(() -> ((RevokeResourcePrivilegeCommand) revokeplan1).run(connectContext, null));
         // also revoke from user with this role
-        Assert.assertFalse(accessManager.checkResourcePriv(userWithRole, "cg1", PrivPredicate.USAGE));
-        Assert.assertFalse(accessManager.checkGlobalPriv(userWithRole, PrivPredicate.USAGE));
+        Assert.assertFalse(accessManager.checkResourcePriv(PrivilegeContext.of(userWithRole), "cg1", PrivPredicate.USAGE));
+        Assert.assertFalse(accessManager.checkGlobalPriv(PrivilegeContext.of(userWithRole), PrivPredicate.USAGE));
 
         // 4. drop user and role
         String dropUserSql = "DROP USER test_user1";
@@ -249,23 +253,23 @@ public class CloudAuthTest extends TestWithFeService {
         LogicalPlan grantAnyPlan1 = nereidsParser.parseSingle(grantAnyCgUser);
         Assertions.assertTrue(grantAnyPlan1 instanceof GrantResourcePrivilegeCommand);
         Assertions.assertDoesNotThrow(() -> ((GrantResourcePrivilegeCommand) grantAnyPlan1).run(connectContext, null));
-        Assert.assertTrue(accessManager.checkCloudPriv(userIdentity, "cg1",
+        Assert.assertTrue(accessManager.checkCloudPriv(PrivilegeContext.of(userIdentity), "cg1",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
         // anyResource not belong to global auth
-        Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
-        Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.SHOW_RESOURCES));
-        Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.SHOW));
+        Assert.assertFalse(accessManager.checkGlobalPriv(PrivilegeContext.of(userIdentity), PrivPredicate.USAGE));
+        Assert.assertFalse(accessManager.checkGlobalPriv(PrivilegeContext.of(userIdentity), PrivPredicate.SHOW_RESOURCES));
+        Assert.assertFalse(accessManager.checkGlobalPriv(PrivilegeContext.of(userIdentity), PrivPredicate.SHOW));
 
         // 3. revoke usage_priv on cluster '*' from 'testUser'@'%'
         String revokeAnyCgUser = "revoke usage_priv on cluster '*' from 'testUser'@'%'";
         LogicalPlan revokeAnyPlan1 = nereidsParser.parseSingle(revokeAnyCgUser);
         Assertions.assertTrue(revokeAnyPlan1 instanceof RevokeResourcePrivilegeCommand);
         Assertions.assertDoesNotThrow(() -> (RevokeResourcePrivilegeCommand) revokeAnyPlan1).run(connectContext, null);
-        Assert.assertFalse(accessManager.checkCloudPriv(userIdentity, "cg1",
+        Assert.assertFalse(accessManager.checkCloudPriv(PrivilegeContext.of(userIdentity), "cg1",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
-        Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
-        Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.SHOW_RESOURCES));
-        Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.SHOW));
+        Assert.assertFalse(accessManager.checkGlobalPriv(PrivilegeContext.of(userIdentity), PrivPredicate.USAGE));
+        Assert.assertFalse(accessManager.checkGlobalPriv(PrivilegeContext.of(userIdentity), PrivPredicate.SHOW_RESOURCES));
+        Assert.assertFalse(accessManager.checkGlobalPriv(PrivilegeContext.of(userIdentity), PrivPredicate.SHOW));
 
         // 4. drop user
         String dropUserSql1 = "DROP USER testUser";
@@ -291,9 +295,9 @@ public class CloudAuthTest extends TestWithFeService {
         Assertions.assertTrue(createUserPlan3 instanceof CreateUserCommand);
         Assertions.assertDoesNotThrow(() -> ((CreateUserCommand) createUserPlan3).run(connectContext, null));
 
-        Assert.assertTrue(accessManager.checkCloudPriv(new UserIdentity("testUser3", "%"), computeGroup1,
+        Assert.assertTrue(accessManager.checkCloudPriv(PrivilegeContext.of(new UserIdentity("testUser3", "%")), computeGroup1,
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
-        Assert.assertFalse(accessManager.checkGlobalPriv(new UserIdentity("testUser3", "%"), PrivPredicate.USAGE));
+        Assert.assertFalse(accessManager.checkGlobalPriv(PrivilegeContext.of(new UserIdentity("testUser3", "%")), PrivPredicate.USAGE));
 
         // 3. revoke usage_priv on cluster '*' from role 'role1'
         String revokeCgRoleSql = "revoke usage_priv on cluster '*' from role 'role1'";
@@ -302,8 +306,8 @@ public class CloudAuthTest extends TestWithFeService {
         Assertions.assertDoesNotThrow(() -> ((RevokeResourcePrivilegeCommand) revokeCgRolePlan).run(connectContext, null));
 
         // also revoke from user with this role
-        Assert.assertFalse(accessManager.checkResourcePriv(userIdentity, computeGroup1, PrivPredicate.USAGE));
-        Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+        Assert.assertFalse(accessManager.checkResourcePriv(PrivilegeContext.of(userIdentity), computeGroup1, PrivPredicate.USAGE));
+        Assert.assertFalse(accessManager.checkGlobalPriv(PrivilegeContext.of(userIdentity), PrivPredicate.USAGE));
 
         // 4. drop user and role
         String dropUserSql2 = "DROP USER testUser3";
@@ -361,7 +365,7 @@ public class CloudAuthTest extends TestWithFeService {
         LogicalPlan grantAnyPlan1 = nereidsParser.parseSingle(grantVcgUser);
         Assertions.assertTrue(grantAnyPlan1 instanceof GrantResourcePrivilegeCommand);
         Assertions.assertDoesNotThrow(() -> ((GrantResourcePrivilegeCommand) grantAnyPlan1).run(connectContext, null));
-        Assert.assertTrue(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "vcg",
+        Assert.assertTrue(accessManager.checkCloudPriv(PrivilegeContext.of(new UserIdentity("testUser", "%")), "vcg",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
         // create vcg, sub cg(cg1, cg2), add to systemInfoService
         ComputeGroup vcg  = new ComputeGroup("vcg_id", "vcg", ComputeGroup.ComputeTypeEnum.VIRTUAL);
@@ -374,15 +378,15 @@ public class CloudAuthTest extends TestWithFeService {
         policy.setStandbyComputeGroup("cg2");
         vcg.setPolicy(policy);
 
-        Assert.assertTrue(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "vcg",
+        Assert.assertTrue(accessManager.checkCloudPriv(PrivilegeContext.of(new UserIdentity("testUser", "%")), "vcg",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
 
         // testUser has vcg, but not have cg1,cg2, he can use cg1,cg2
-        Assert.assertTrue(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg1",
+        Assert.assertTrue(accessManager.checkCloudPriv(PrivilegeContext.of(new UserIdentity("testUser", "%")), "cg1",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
-        Assert.assertTrue(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg2",
+        Assert.assertTrue(accessManager.checkCloudPriv(PrivilegeContext.of(new UserIdentity("testUser", "%")), "cg2",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
-        Assert.assertFalse(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg",
+        Assert.assertFalse(accessManager.checkCloudPriv(PrivilegeContext.of(new UserIdentity("testUser", "%")), "cg",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
         ShowGrantsCommand sg = new ShowGrantsCommand(new UserIdentity("testUser", "%"), false);
         ShowResultSet showResultSet = sg.doRun(connectContext, null);
@@ -397,11 +401,11 @@ public class CloudAuthTest extends TestWithFeService {
         LogicalPlan grantAnyPlan2 = nereidsParser.parseSingle(grantVcgUser2);
         Assertions.assertTrue(grantAnyPlan2 instanceof GrantResourcePrivilegeCommand);
         Assertions.assertDoesNotThrow(() -> ((GrantResourcePrivilegeCommand) grantAnyPlan2).run(connectContext, null));
-        Assert.assertTrue(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg1",
+        Assert.assertTrue(accessManager.checkCloudPriv(PrivilegeContext.of(new UserIdentity("testUser", "%")), "cg1",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
 
         // testUser can use cg1, because he has vcg,cg1 auth
-        Assert.assertTrue(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg1",
+        Assert.assertTrue(accessManager.checkCloudPriv(PrivilegeContext.of(new UserIdentity("testUser", "%")), "cg1",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
         showResultSet = sg.doRun(connectContext, null);
         // cluster field
@@ -418,7 +422,7 @@ public class CloudAuthTest extends TestWithFeService {
         Assertions.assertDoesNotThrow(() -> ((RevokeResourcePrivilegeCommand) revokeplan1).run(connectContext, null));
 
         // testUser can use cg1, because he has vcg auth
-        Assert.assertTrue(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg1",
+        Assert.assertTrue(accessManager.checkCloudPriv(PrivilegeContext.of(new UserIdentity("testUser", "%")), "cg1",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
         showResultSet = sg.doRun(connectContext, null);
         // cluster field
@@ -433,7 +437,7 @@ public class CloudAuthTest extends TestWithFeService {
         LogicalPlan grantAnyPlan3 = nereidsParser.parseSingle(grantVcgUser3);
         Assertions.assertTrue(grantAnyPlan3 instanceof GrantResourcePrivilegeCommand);
         Assertions.assertDoesNotThrow(() -> ((GrantResourcePrivilegeCommand) grantAnyPlan3).run(connectContext, null));
-        Assert.assertTrue(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg1",
+        Assert.assertTrue(accessManager.checkCloudPriv(PrivilegeContext.of(new UserIdentity("testUser", "%")), "cg1",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
 
         // revoke vcg from test user
@@ -443,13 +447,13 @@ public class CloudAuthTest extends TestWithFeService {
         Assertions.assertDoesNotThrow(() -> ((RevokeResourcePrivilegeCommand) revokeplan2).run(connectContext, null));
 
         // currently, user has cg2 auth, not have vcg auth
-        Assert.assertFalse(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "vcg",
+        Assert.assertFalse(accessManager.checkCloudPriv(PrivilegeContext.of(new UserIdentity("testUser", "%")), "vcg",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
 
         // testUser has cg2, but not have vcg, he can use cg2, can't use cg1, vcg
-        Assert.assertFalse(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg1",
+        Assert.assertFalse(accessManager.checkCloudPriv(PrivilegeContext.of(new UserIdentity("testUser", "%")), "cg1",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
-        Assert.assertTrue(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg2",
+        Assert.assertTrue(accessManager.checkCloudPriv(PrivilegeContext.of(new UserIdentity("testUser", "%")), "cg2",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
         showResultSet = sg.doRun(connectContext, null);
         // cluster field
@@ -471,13 +475,13 @@ public class CloudAuthTest extends TestWithFeService {
         Assertions.assertTrue(revokeplan4 instanceof RevokeResourcePrivilegeCommand);
         Assertions.assertDoesNotThrow(() -> ((RevokeResourcePrivilegeCommand) revokeplan4).run(connectContext, null));
 
-        Assert.assertFalse(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "vcg",
+        Assert.assertFalse(accessManager.checkCloudPriv(PrivilegeContext.of(new UserIdentity("testUser", "%")), "vcg",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
 
         // testUser after revoke vcg, not have cg1,cg2, it should can use, vcg,cg1,cg2
-        Assert.assertFalse(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg1",
+        Assert.assertFalse(accessManager.checkCloudPriv(PrivilegeContext.of(new UserIdentity("testUser", "%")), "cg1",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
-        Assert.assertFalse(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg2",
+        Assert.assertFalse(accessManager.checkCloudPriv(PrivilegeContext.of(new UserIdentity("testUser", "%")), "cg2",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
         showResultSet = sg.doRun(connectContext, null);
         // cluster field

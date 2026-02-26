@@ -45,7 +45,7 @@ public class ConnectPoolMgrCurrentRolesTest extends TestWithFeService {
     }
 
     @Test
-    public void testListConnectionForRpcGrantRoleCannotViewOthers() throws IOException {
+    public void testListConnectionForRpcGrantRoleCanViewOthers() throws IOException {
         UserIdentity targetUser = UserIdentity.createAnalyzedUserIdentWithIp("u1", "%");
         UserIdentity callerUser = UserIdentity.createAnalyzedUserIdentWithIp("u2", "%");
 
@@ -60,9 +60,9 @@ public class ConnectPoolMgrCurrentRolesTest extends TestWithFeService {
                 false, Optional.empty());
         Assertions.assertTrue(denied.isEmpty());
 
-        List<List<String>> deniedWithGrantRole = connectPoolMgr.listConnectionForRpc(callerUser,
+        List<List<String>> allowedWithGrantRole = connectPoolMgr.listConnectionForRpc(callerUser,
                 Sets.newHashSet("grant_role"), false, Optional.empty());
-        Assertions.assertTrue(deniedWithGrantRole.isEmpty());
+        Assertions.assertEquals(1, allowedWithGrantRole.size());
 
         connectPoolMgr.unregisterConnection(targetCtx);
         targetCtx.cleanup();
@@ -91,6 +91,65 @@ public class ConnectPoolMgrCurrentRolesTest extends TestWithFeService {
 
         connectPoolMgr.unregisterConnection(targetCtx);
         targetCtx.cleanup();
+        connectContext.setThreadLocalInfo();
+    }
+
+    @Test
+    public void testListConnectionLocalOnlyContainsCurrentUser() throws IOException {
+        UserIdentity targetUser = UserIdentity.createAnalyzedUserIdentWithIp("u1", "%");
+        UserIdentity callerUser = UserIdentity.createAnalyzedUserIdentWithIp("u2", "%");
+
+        ConnectPoolMgr connectPoolMgr = new ConnectPoolMgr(10);
+        ConnectContext targetCtx = TestWithFeService.createCtx(targetUser, "127.0.0.1");
+        targetCtx.setConnectionId(1003);
+        targetCtx.setCommand(MysqlCommand.COM_QUERY);
+        targetCtx.setStartTime();
+        connectPoolMgr.registerConnection(targetCtx);
+
+        ConnectContext callerCtx = TestWithFeService.createCtx(callerUser, "127.0.0.1");
+        callerCtx.setConnectionId(1004);
+        callerCtx.setCommand(MysqlCommand.COM_QUERY);
+        callerCtx.setStartTime();
+        connectPoolMgr.registerConnection(callerCtx);
+
+        callerCtx.setThreadLocalInfo();
+        List<ConnectContext.ThreadInfo> rows = connectPoolMgr.listConnection(callerUser.getQualifiedUser(), false);
+        Assertions.assertEquals(1, rows.size());
+
+        connectPoolMgr.unregisterConnection(targetCtx);
+        connectPoolMgr.unregisterConnection(callerCtx);
+        targetCtx.cleanup();
+        callerCtx.cleanup();
+        connectContext.setThreadLocalInfo();
+    }
+
+    @Test
+    public void testListConnectionLocalAllowAdminReadOnlyRole() throws IOException {
+        UserIdentity targetUser = UserIdentity.createAnalyzedUserIdentWithIp("u1", "%");
+        UserIdentity callerUser = UserIdentity.createAnalyzedUserIdentWithIp("u2", "%");
+
+        ConnectPoolMgr connectPoolMgr = new ConnectPoolMgr(10);
+        ConnectContext targetCtx = TestWithFeService.createCtx(targetUser, "127.0.0.1");
+        targetCtx.setConnectionId(1005);
+        targetCtx.setCommand(MysqlCommand.COM_QUERY);
+        targetCtx.setStartTime();
+        connectPoolMgr.registerConnection(targetCtx);
+
+        ConnectContext callerCtx = TestWithFeService.createCtx(callerUser, "127.0.0.1");
+        callerCtx.setConnectionId(1006);
+        callerCtx.setCommand(MysqlCommand.COM_QUERY);
+        callerCtx.setStartTime();
+        callerCtx.setCurrentRoles(Sets.newHashSet("admin_readonly"));
+        connectPoolMgr.registerConnection(callerCtx);
+
+        callerCtx.setThreadLocalInfo();
+        List<ConnectContext.ThreadInfo> rows = connectPoolMgr.listConnection(callerUser.getQualifiedUser(), false);
+        Assertions.assertEquals(2, rows.size());
+
+        connectPoolMgr.unregisterConnection(targetCtx);
+        connectPoolMgr.unregisterConnection(callerCtx);
+        targetCtx.cleanup();
+        callerCtx.cleanup();
         connectContext.setThreadLocalInfo();
     }
 

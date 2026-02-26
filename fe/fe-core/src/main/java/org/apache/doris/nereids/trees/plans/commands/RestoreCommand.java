@@ -285,7 +285,7 @@ public class RestoreCommand extends Command implements ForwardWithSync {
             // Check if user has storage vault usage privilege
             ConnectContext context = ConnectContext.get();
             if (context != null && !Env.getCurrentEnv().getAccessManager()
-                    .checkStorageVaultPriv(context.getCurrentUserIdentity(), info.first, PrivPredicate.USAGE)) {
+                    .checkStorageVaultPriv(context, info.first, PrivPredicate.USAGE)) {
                 throw new AnalysisException(String.format("USAGE denied to user '%s'@'%s' for storage vault '%s'",
                         context.getQualifiedUser(), context.getRemoteIP(), info.first));
             }

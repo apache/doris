@@ -174,8 +174,8 @@ public class ConnectContext {
     // The login identity for this connection, used to validate su privilege.
     protected volatile UserIdentity loginUserIdentity;
     // Explicit role override for this connection (set by su).
-    private Set<String> currentRoles;
-    private boolean isSuUser = false;
+    private volatile Set<String> currentRoles;
+    private volatile boolean isSuUser = false;
     // Variables belong to this session.
     protected volatile SessionVariable sessionVariable;
     // Store user variable in this connection
@@ -1371,7 +1371,7 @@ public class ConnectContext {
         List<String> hasAuthCluster = new ArrayList<>();
         // get all available cluster of the user
         for (String cloudClusterName : cloudClusterNames) {
-            if (Env.getCurrentEnv().getAccessManager().checkCloudPriv(getCurrentUserIdentity(),
+            if (Env.getCurrentEnv().getAccessManager().checkCloudPriv(this,
                     cloudClusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
                 if (((CloudSystemInfoService) Env.getCurrentSystemInfo()).isStandByComputeGroup(cloudClusterName)) {
                     continue;

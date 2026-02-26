@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.qe.ConnectContext;
 
 import java.util.List;
 
@@ -48,7 +49,7 @@ public class CallFlushAuditLogFunc extends CallFunc {
     @Override
     public void run() {
         // check priv
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(user, PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             throw new AnalysisException("Only admin can flush audit log");
         }
         // flush audit log

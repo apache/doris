@@ -30,12 +30,14 @@ import org.apache.doris.httpv2.HttpAuthManager;
 import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.PrivilegeContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.base64.Base64;
@@ -48,6 +50,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 
@@ -57,6 +60,18 @@ public class BaseController {
 
     public static final String PALO_SESSION_ID = "PALO_SESSION_ID";
     private static final int PALO_SESSION_EXPIRED_TIME = 3600 * 24; // one day
+    private static final int HEADER_SPLIT_LIMIT = 2;
+    private static final int USER_HOST_PARTS_NUM = 2;
+    private static final int FIRST_PART_INDEX = 0;
+    private static final int SECOND_PART_INDEX = 1;
+    private static final String AUTHORIZATION_HEADER = "Authorization";
+    private static final String SU_USER_HEADER = "X-Doris-Su-User";
+    private static final String SU_ROLES_HEADER = "X-Doris-Su-Roles";
+    private static final String USER_HOST_SEPARATOR = "@";
+    private static final String ROLE_SEPARATOR = ",";
+    private static final String DEFAULT_SU_HOST = "%";
+    private static final String AUTH_HEADER_SPACE_REGEX = "\\s+";
+    private static final String USER_PASS_SEPARATOR = ":";
 
     public void checkAuthWithCookie(HttpServletRequest request, HttpServletResponse response) {
         checkWithCookie(request, response, true);
@@ -65,7 +80,7 @@ public class BaseController {
     public ActionAuthorizationInfo checkWithCookie(HttpServletRequest request,
             HttpServletResponse response, boolean checkAuth) {
         // First we check if the request has Authorization header.
-        String encodedAuthString = request.getHeader("Authorization");
+        String encodedAuthString = request.getHeader(AUTHORIZATION_HEADER);
         if (encodedAuthString != null) {
             // If has Authorization header, check auth info
             ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
@@ -85,6 +100,37 @@ public class BaseController {
             ctx.setRemoteIP(authInfo.remoteIp);
             ctx.setCurrentUserIdentity(currentUser);
             ctx.setEnv(Env.getCurrentEnv());
+
+            // Handle su header: allow root to switch to another user with specified roles
+            String suUserHeader = request.getHeader(SU_USER_HEADER);
+            if (suUserHeader != null) {
+                if (!currentUser.isRootUser()) {
+                    throw new UnauthorizedException("Only root can use X-Doris-Su-User header");
+                }
+                String[] parts = suUserHeader.split(USER_HOST_SEPARATOR, HEADER_SPLIT_LIMIT);
+                String suUserName = parts[FIRST_PART_INDEX];
+                String suHost = parts.length > SECOND_PART_INDEX ? parts[SECOND_PART_INDEX] : DEFAULT_SU_HOST;
+                UserIdentity suUser = UserIdentity.createAnalyzedUserIdentWithIp(suUserName, suHost);
+                ctx.setCurrentUserIdentity(suUser);
+
+                Set<String> roleOverride = Sets.newHashSet();
+                String suRolesHeader = request.getHeader(SU_ROLES_HEADER);
+                if (suRolesHeader != null && !suRolesHeader.isEmpty()) {
+                    for (String roleName : suRolesHeader.split(ROLE_SEPARATOR)) {
+                        roleName = roleName.trim();
+                        if (!Env.getCurrentEnv().getAuth().doesRoleExist(roleName)) {
+                            LOG.warn("HTTP su: ignore non-existing role {}", roleName);
+                            continue;
+                        }
+                        roleOverride.add(roleName);
+                    }
+                }
+                ctx.setCurrentRoles(roleOverride);
+                authInfo.executeAsUser = suUser;
+                authInfo.executeAsRoles = roleOverride;
+                LOG.info("HTTP su: root switched to user={}, roles={}", suUser, roleOverride);
+            }
+
             ctx.setThreadLocalInfo();
             if (LOG.isDebugEnabled()) {
                 LOG.debug("check auth without cookie success for user: {}, thread: {}",
@@ -132,8 +178,8 @@ public class BaseController {
             return null;
         }
 
-        if (checkAuth && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(sessionValue.currentUser,
-                PrivPredicate.ADMIN_OR_NODE)) {
+        if (checkAuth && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(
+                PrivilegeContext.of(sessionValue.currentUser), PrivPredicate.ADMIN_OR_NODE)) {
             // need to check auth and check auth failed
             return null;
         }
@@ -199,6 +245,8 @@ public class BaseController {
         public String remoteIp;
         public String password;
         public String cluster;
+        public UserIdentity executeAsUser;
+        public Set<String> executeAsRoles;
 
         @Override
         public String toString() {
@@ -219,7 +267,7 @@ public class BaseController {
     }
 
     protected void checkGlobalAuth(UserIdentity currentUser, PrivPredicate predicate) throws UnauthorizedException {
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUser, predicate)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(PrivilegeContext.of(currentUser), predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
                     + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }
@@ -228,7 +276,7 @@ public class BaseController {
     protected void checkDbAuth(UserIdentity currentUser, String db, PrivPredicate predicate)
             throws UnauthorizedException {
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkDbPriv(currentUser, InternalCatalog.INTERNAL_CATALOG_NAME, db, predicate)) {
+                .checkDbPriv(PrivilegeContext.of(currentUser), InternalCatalog.INTERNAL_CATALOG_NAME, db, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
                     + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }
@@ -243,7 +291,7 @@ public class BaseController {
             PrivPredicate predicate)
             throws UnauthorizedException {
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(currentUser, catalog, db, tbl, predicate)) {
+                .checkTblPriv(PrivilegeContext.of(currentUser), catalog, db, tbl, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
                     + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }
@@ -268,7 +316,7 @@ public class BaseController {
         ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
         if (!parseAuthInfo(request, authInfo)) {
             LOG.info("parse auth info failed, Authorization header {}, url {}",
-                    request.getHeader("Authorization"), request.getRequestURI());
+                    request.getHeader(AUTHORIZATION_HEADER), request.getRequestURI());
             throw new UnauthorizedException("Need auth information.");
         }
         if (LOG.isDebugEnabled()) {
@@ -278,15 +326,15 @@ public class BaseController {
     }
 
     private boolean parseAuthInfo(HttpServletRequest request, ActionAuthorizationInfo authInfo) {
-        String encodedAuthString = request.getHeader("Authorization");
+        String encodedAuthString = request.getHeader(AUTHORIZATION_HEADER);
         if (Strings.isNullOrEmpty(encodedAuthString)) {
             return false;
         }
-        String[] parts = encodedAuthString.split("\\s+");
-        if (parts.length != 2) {
+        String[] parts = encodedAuthString.split(AUTH_HEADER_SPACE_REGEX);
+        if (parts.length != USER_HOST_PARTS_NUM) {
             return false;
         }
-        encodedAuthString = parts[1];
+        encodedAuthString = parts[SECOND_PART_INDEX];
         ByteBuf buf = null;
         ByteBuf decodeBuf = null;
         try {
@@ -298,15 +346,15 @@ public class BaseController {
             String authString = decodeBuf.toString(CharsetUtil.UTF_8);
             // Note that password may contain colon, so can not simply use a
             // colon to split.
-            int index = authString.indexOf(":");
+            int index = authString.indexOf(USER_PASS_SEPARATOR);
             authInfo.fullUserName = authString.substring(0, index);
-            final String[] elements = authInfo.fullUserName.split("@");
-            if (elements != null && elements.length < 2) {
+            final String[] elements = authInfo.fullUserName.split(USER_HOST_SEPARATOR);
+            if (elements != null && elements.length < USER_HOST_PARTS_NUM) {
                 authInfo.fullUserName = ClusterNamespace.getNameFromFullName(authInfo.fullUserName);
-            } else if (elements != null && elements.length == 2) {
-                authInfo.fullUserName = ClusterNamespace.getNameFromFullName(elements[0]);
+            } else if (elements != null && elements.length == USER_HOST_PARTS_NUM) {
+                authInfo.fullUserName = ClusterNamespace.getNameFromFullName(elements[FIRST_PART_INDEX]);
             }
-            authInfo.password = authString.substring(index + 1);
+            authInfo.password = authString.substring(index + SECOND_PART_INDEX);
             authInfo.remoteIp = request.getRemoteAddr();
         } finally {
             // release the buf and decode buf after using Unpooled.copiedBuffer
