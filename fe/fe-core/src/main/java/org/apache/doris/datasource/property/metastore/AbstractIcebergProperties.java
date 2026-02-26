@@ -23,6 +23,7 @@ import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
+import com.google.common.base.Strings;
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.CatalogProperties;
@@ -81,6 +82,14 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
                     + "Must be a positive value. Default: 8388608 (8MB)."
     )
     protected String ioManifestCacheMaxContentLength;
+
+    @Getter
+    @ConnectorProperty(
+            names = {CatalogProperties.FILE_IO_IMPL},
+            required = false,
+            description = "Custom io impl for iceberg"
+    )
+    protected String ioImpl;
 
     @Getter
     protected ExecutionAuthenticator executionAuthenticator = new ExecutionAuthenticator(){};
@@ -179,4 +188,10 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
             Map<String, String> catalogProps,
             List<StorageProperties> storagePropertiesList
     );
+
+    protected void tryAddingIOImpl(Map<String, String> options) {
+        if (!Strings.isNullOrEmpty(ioImpl)) {
+            options.put(CatalogProperties.FILE_IO_IMPL, ioImpl);
+        }
+    }
 }

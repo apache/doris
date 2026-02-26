@@ -48,6 +48,7 @@ public class IcebergFileSystemMetaStoreProperties extends AbstractIcebergPropert
         HadoopCatalog catalog = new HadoopCatalog();
         buildCatalogProps(storagePropertiesList);
         catalog.setConf(configuration);
+        tryAddingIOImpl(catalogProps);
         try {
             this.executionAuthenticator.execute(() -> {
                 catalog.initialize(catalogName, catalogProps);

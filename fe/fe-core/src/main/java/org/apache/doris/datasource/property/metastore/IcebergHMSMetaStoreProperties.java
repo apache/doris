@@ -82,6 +82,7 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
                 }
             }*/
         });
+        tryAddingIOImpl(catalogProps);
         buildCatalogProperties(catalogProps);
         try {
             this.executionAuthenticator.execute(() -> hiveCatalog.initialize(catalogName, catalogProps));

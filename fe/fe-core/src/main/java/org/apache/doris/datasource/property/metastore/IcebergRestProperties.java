@@ -184,6 +184,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         // 3. Merge properties for REST catalog service.
         Map<String, String> options = Maps.newHashMap(getIcebergRestCatalogProperties());
         options.putAll(fileIOProperties);
+        tryAddingIOImpl(options);
 
         // 4. Build iceberg catalog
         return CatalogUtil.buildIcebergCatalog(catalogName, options, conf);

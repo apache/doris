@@ -142,6 +142,7 @@ public class IcebergJdbcMetaStoreProperties extends AbstractIcebergProperties {
 
         Map<String, String> options = Maps.newHashMap(getIcebergJdbcCatalogProperties());
         options.putAll(fileIOProperties);
+        tryAddingIOImpl(options);
 
         // Support dynamic JDBC driver loading
         // We need to register the driver with DriverManager because Iceberg uses DriverManager.getConnection()
