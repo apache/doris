@@ -41,6 +41,7 @@ public class OzonePropertiesTest {
 
     @Test
     public void testValidOzoneConfiguration() {
+        origProps.put(StorageProperties.FS_OZONE_SUPPORT, "true");
         origProps.put("ozone.endpoint", "http://ozone-s3g:9878");
         origProps.put("ozone.access_key", "hadoop");
         origProps.put("ozone.secret_key", "hadoop");
@@ -63,13 +64,13 @@ public class OzonePropertiesTest {
     }
 
     @Test
-    public void testFsS3aPropertiesBinding() {
+    public void testS3PropertiesBinding() {
         origProps.put(StorageProperties.FS_OZONE_SUPPORT, "true");
-        origProps.put("fs.s3a.endpoint", "http://ozone-s3g:9878");
-        origProps.put("fs.s3a.access.key", "hadoop");
-        origProps.put("fs.s3a.secret.key", "hadoop");
-        origProps.put("fs.s3a.path.style.access", "true");
-        origProps.put("fs.s3a.endpoint.region", "us-east-1");
+        origProps.put("s3.endpoint", "http://ozone-s3g:9878");
+        origProps.put("s3.access_key", "hadoop");
+        origProps.put("s3.secret_key", "hadoop");
+        origProps.put("use_path_style", "true");
+        origProps.put("s3.region", "us-east-1");
 
         OzoneProperties ozoneProperties = (OzoneProperties) StorageProperties.createPrimary(origProps);
         Map<String, String> backendProps = ozoneProperties.getBackendConfigProperties();
@@ -85,13 +86,25 @@ public class OzonePropertiesTest {
     }
 
     @Test
-    public void testCreateAllWithDefaultFs() throws UserException {
+    public void testFsS3aPropertiesAreNotSupported() {
         origProps.put(StorageProperties.FS_OZONE_SUPPORT, "true");
-        origProps.put("fs.defaultFS", "s3a://dn-data/");
         origProps.put("fs.s3a.endpoint", "http://ozone-s3g:9878");
         origProps.put("fs.s3a.access.key", "hadoop");
         origProps.put("fs.s3a.secret.key", "hadoop");
-        origProps.put("fs.s3a.path.style.access", "true");
+
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
+                "Property ozone.endpoint is required.",
+                () -> StorageProperties.createPrimary(origProps));
+    }
+
+    @Test
+    public void testCreateAllWithDefaultFs() throws UserException {
+        origProps.put(StorageProperties.FS_OZONE_SUPPORT, "true");
+        origProps.put("fs.defaultFS", "s3a://dn-data/");
+        origProps.put("s3.endpoint", "http://ozone-s3g:9878");
+        origProps.put("s3.access_key", "hadoop");
+        origProps.put("s3.secret_key", "hadoop");
+        origProps.put("use_path_style", "true");
 
         List<StorageProperties> properties = StorageProperties.createAll(origProps);
         Assertions.assertEquals(HdfsProperties.class, properties.get(0).getClass());
@@ -105,6 +118,7 @@ public class OzonePropertiesTest {
 
     @Test
     public void testMissingAccessKeyOrSecretKey() {
+        origProps.put(StorageProperties.FS_OZONE_SUPPORT, "true");
         origProps.put("ozone.endpoint", "http://ozone-s3g:9878");
         origProps.put("ozone.access_key", "hadoop");
         ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
@@ -120,6 +134,7 @@ public class OzonePropertiesTest {
 
     @Test
     public void testMissingEndpoint() {
+        origProps.put(StorageProperties.FS_OZONE_SUPPORT, "true");
         origProps.put("ozone.access_key", "hadoop");
         origProps.put("ozone.secret_key", "hadoop");
         ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
@@ -128,16 +143,19 @@ public class OzonePropertiesTest {
     }
 
     @Test
-    public void testGuessIsMe() {
-        origProps.put("fs.s3a.endpoint", "http://ozone-s3g:9878");
-        Assertions.assertTrue(OzoneProperties.guessIsMe(origProps));
-
-        origProps.clear();
-        origProps.put("fs.s3a.endpoint", "http://minio:9000");
-        Assertions.assertFalse(OzoneProperties.guessIsMe(origProps));
-
-        origProps.clear();
+    public void testRequireExplicitFsOzoneSupport() throws UserException {
         origProps.put("ozone.endpoint", "http://127.0.0.1:9878");
-        Assertions.assertTrue(OzoneProperties.guessIsMe(origProps));
+        origProps.put("ozone.access_key", "hadoop");
+        origProps.put("ozone.secret_key", "hadoop");
+
+        List<StorageProperties> propertiesWithoutFlag = StorageProperties.createAll(origProps);
+        Assertions.assertEquals(1, propertiesWithoutFlag.size());
+        Assertions.assertEquals(HdfsProperties.class, propertiesWithoutFlag.get(0).getClass());
+
+        origProps.put(StorageProperties.FS_OZONE_SUPPORT, "true");
+        List<StorageProperties> propertiesWithFlag = StorageProperties.createAll(origProps);
+        Assertions.assertEquals(2, propertiesWithFlag.size());
+        Assertions.assertEquals(HdfsProperties.class, propertiesWithFlag.get(0).getClass());
+        Assertions.assertEquals(OzoneProperties.class, propertiesWithFlag.get(1).getClass());
     }
 }

@@ -205,9 +205,9 @@ public abstract class StorageProperties extends ConnectionProperties {
                     props -> (isFsSupport(props, FS_AZURE_SUPPORT)
                             || AzureProperties.guessIsMe(props)) ? new AzureProperties(props) : null,
                     props -> (isFsSupport(props, FS_MINIO_SUPPORT)
-                            || MinioProperties.guessIsMe(props)) ? new MinioProperties(props) : null,
-                    props -> (isFsSupport(props, FS_OZONE_SUPPORT)
-                            || OzoneProperties.guessIsMe(props)) ? new OzoneProperties(props) : null,
+                            || (!isFsSupport(props, FS_OZONE_SUPPORT)
+                            && MinioProperties.guessIsMe(props))) ? new MinioProperties(props) : null,
+                    props -> isFsSupport(props, FS_OZONE_SUPPORT) ? new OzoneProperties(props) : null,
                     props -> (isFsSupport(props, FS_BROKER_SUPPORT)
                             || BrokerProperties.guessIsMe(props)) ? new BrokerProperties(props) : null,
                     props -> (isFsSupport(props, FS_LOCAL_SUPPORT)
