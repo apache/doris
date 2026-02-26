@@ -102,21 +102,61 @@ public class MaxComputeMetadataOps implements ExternalMetadataOps {
         return dorisCatalog.listTableNames(null, dbName);
     }
 
-    // ==================== Create Database (not supported yet) ====================
+    // ==================== Create/Drop Database ====================
 
     @Override
     public boolean createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties)
             throws DdlException {
-        throw new DdlException("Create database is not supported for MaxCompute catalog.");
+        ExternalDatabase<?> dorisDb = dorisCatalog.getDbNullable(dbName);
+        boolean exists = databaseExist(dbName);
+        if (dorisDb != null || exists) {
+            if (ifNotExists) {
+                LOG.info("create database[{}] which already exists", dbName);
+                return true;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, dbName);
+            }
+        }
+        dorisCatalog.getMcStructureHelper().createDb(odps, dbName, ifNotExists);
+        return false;
+    }
+
+    @Override
+    public void afterCreateDb() {
+        dorisCatalog.resetMetaCacheNames();
     }
 
     @Override
     public void dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
-        throw new DdlException("Drop database is not supported for MaxCompute catalog.");
+        ExternalDatabase<?> dorisDb = dorisCatalog.getDbNullable(dbName);
+        if (dorisDb == null) {
+            if (ifExists) {
+                LOG.info("drop database[{}] which does not exist", dbName);
+                return;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_DB_DROP_EXISTS, dbName);
+            }
+        }
+        if (force) {
+            List<String> remoteTableNames = listTableNames(dorisDb.getRemoteName());
+            for (String remoteTableName : remoteTableNames) {
+                ExternalTable tbl = null;
+                try {
+                    tbl = (ExternalTable) dorisDb.getTableOrDdlException(remoteTableName);
+                } catch (DdlException e) {
+                    LOG.warn("failed to get table when force drop database [{}], table[{}], error: {}",
+                            dbName, remoteTableName, e.getMessage());
+                    continue;
+                }
+                dropTableImpl(tbl, true);
+            }
+        }
+        dorisCatalog.getMcStructureHelper().dropDb(odps, dbName, ifExists);
     }
 
     @Override
     public void afterDropDb(String dbName) {
+        dorisCatalog.unregisterDatabase(dbName);
     }
 
     // ==================== Create Table ====================
@@ -194,7 +234,7 @@ public class MaxComputeMetadataOps implements ExternalMetadataOps {
         }
 
         if (bucketNum != null) {
-            creator.withBucketNum(bucketNum);
+            creator.withDeltaTableBucketNum(bucketNum);
         }
 
         try {

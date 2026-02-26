@@ -1209,15 +1209,40 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
                 }
 
                 schema_pb.set_disable_auto_compaction(tablet_meta_info.disable_auto_compaction());
+                // Directly overwrite schema KV instead of using put_schema_kv,
+                // because put_schema_kv skips writing when the key already exists.
                 auto key = meta_schema_key(
                         {instance_id, tablet_meta.index_id(), tablet_meta.schema_version()});
-                put_schema_kv(code, msg, txn.get(), key, schema_pb);
-                if (code != MetaServiceCode::OK) return;
+                LOG_INFO("overwrite schema kv for disable_auto_compaction update")
+                        .tag("key", hex(key))
+                        .tag("disable_auto_compaction", tablet_meta_info.disable_auto_compaction());
+                // Remove old blob chunks first to avoid orphaned KVs when
+                // the value format or size changes across versions.
+                ValueBuf old_val;
+                auto get_err = cloud::blob_get(txn.get(), key, &old_val);
+                if (get_err == TxnErrorCode::TXN_OK) {
+                    bool skip_remove = false;
+                    TEST_SYNC_POINT_CALLBACK("update_tablet::skip_schema_remove", &skip_remove);
+                    if (!skip_remove) {
+                        old_val.remove(txn.get());
+                    }
+                }
+                uint8_t ver = config::meta_schema_value_version;
+                if (ver > 0) {
+                    cloud::blob_put(txn.get(), key, schema_pb, ver);
+                } else {
+                    auto schema_value = schema_pb.SerializeAsString();
+                    txn->put(key, schema_value);
+                }
                 if (is_versioned_write) {
                     auto key = versioned::meta_schema_key(
                             {instance_id, tablet_meta.index_id(), tablet_meta.schema_version()});
-                    put_versioned_schema_kv(code, msg, txn.get(), key, schema_pb);
-                    if (code != MetaServiceCode::OK) return;
+                    doris::TabletSchemaCloudPB tablet_schema(schema_pb);
+                    if (!document_put(txn.get(), key, std::move(tablet_schema))) {
+                        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                        msg = "failed to serialize versioned tablet schema";
+                        return;
+                    }
                 }
             }
         }

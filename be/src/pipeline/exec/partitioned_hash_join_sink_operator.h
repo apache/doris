@@ -150,6 +150,9 @@ public:
     bool is_shuffled_operator() const override {
         return _inner_sink_operator->is_shuffled_operator();
     }
+    bool followed_by_shuffled_operator() const override {
+        return _inner_sink_operator->followed_by_shuffled_operator();
+    }
 
     void update_operator(const TPlanNode& tnode, bool followed_by_shuffled_operator,
                          bool require_bucket_distribution) override {

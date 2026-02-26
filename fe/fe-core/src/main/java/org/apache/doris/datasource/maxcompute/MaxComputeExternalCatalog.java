@@ -26,6 +26,7 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.constants.MCProperties;
+import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.Partition;
@@ -233,7 +234,9 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
                 props.getOrDefault(MCProperties.ENABLE_NAMESPACE_SCHEMA, MCProperties.DEFAULT_ENABLE_NAMESPACE_SCHEMA));
         mcStructureHelper = McStructureHelper.getHelper(enableNamespaceSchema, defaultProject);
 
+        initPreExecutionAuthenticator();
         metadataOps = ExternalMetadataOperations.newMaxComputeMetadataOps(this, odps);
+        transactionManager = TransactionManagerFactory.createMCTransactionManager(this);
     }
 
     public Odps getClient() {

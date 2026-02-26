@@ -656,16 +656,32 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     public Expr visitSearchExpression(SearchExpression searchExpression,
             PlanTranslatorContext context) {
         List<Expr> slotChildren = new ArrayList<>();
+        List<Index> fieldIndexes = new ArrayList<>();
 
         // Convert slot reference children from Nereids to Analysis
         for (Expression slotExpr : searchExpression.getSlotChildren()) {
             Expr translatedSlot = slotExpr.accept(this, context);
             slotChildren.add(translatedSlot);
+
+            // Look up the inverted index for each field (needed for variant subcolumn analyzer)
+            Index invertedIndex = null;
+            if (slotExpr instanceof SlotReference) {
+                SlotReference slot = (SlotReference) slotExpr;
+                OlapTable olapTbl = getOlapTableDirectly(slot);
+                if (olapTbl != null) {
+                    Column column = slot.getOriginalColumn().orElse(null);
+                    if (column != null) {
+                        invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath());
+                    }
+                }
+            }
+            fieldIndexes.add(invertedIndex);
         }
 
         // Create SearchPredicate with proper slot children for BE "action on slot" detection
         SearchPredicate searchPredicate = new SearchPredicate(searchExpression.getDslString(),
-                searchExpression.getQsPlan(), slotChildren, searchExpression.nullable());
+                searchExpression.getQsPlan(), slotChildren, fieldIndexes,
+                searchExpression.nullable());
         return searchPredicate;
     }
 

@@ -24,6 +24,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -61,6 +62,8 @@ public class UnboundTableSinkCreator {
             return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions, query);
         } else if (curCatalog instanceof IcebergExternalCatalog) {
             return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions, query);
+        } else if (curCatalog instanceof MaxComputeExternalCatalog) {
+            return new UnboundMaxComputeTableSink<>(nameParts, colNames, hints, partitions, query);
         }
         throw new UserException("Load data to " + curCatalog.getClass().getSimpleName() + " is not supported.");
     }
@@ -99,6 +102,9 @@ public class UnboundTableSinkCreator {
         } else if (curCatalog instanceof JdbcExternalCatalog) {
             return new UnboundJdbcTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan);
+        } else if (curCatalog instanceof MaxComputeExternalCatalog) {
+            return new UnboundMaxComputeTableSink<>(nameParts, colNames, hints, partitions,
+                    dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
         }
         throw new RuntimeException("Load data to " + curCatalog.getClass().getSimpleName() + " is not supported.");
     }
@@ -137,6 +143,9 @@ public class UnboundTableSinkCreator {
         } else if (curCatalog instanceof JdbcExternalCatalog) {
             return new UnboundJdbcTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan);
+        } else if (curCatalog instanceof MaxComputeExternalCatalog && !isAutoDetectPartition) {
+            return new UnboundMaxComputeTableSink<>(nameParts, colNames, hints, partitions,
+                    dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
         }
 
         throw new AnalysisException(

@@ -204,6 +204,10 @@ DECLARE_mDouble(compaction_rw_separation_version_threshold_ratio);
 
 DECLARE_mBool(enable_cache_read_from_peer);
 
+// Rate limit for warmup download in bytes per second, default 100MB/s
+// <= 0 means no limit
+DECLARE_mInt64(file_cache_warmup_download_rate_limit_bytes_per_second);
+
 DECLARE_mInt64(cache_read_from_peer_expired_seconds);
 
 // Base compaction output: only write index files to file cache, not data files

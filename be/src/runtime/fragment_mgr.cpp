@@ -553,6 +553,19 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         }
     }
 
+    if (auto mcd = req.runtime_state->mc_commit_datas(); !mcd.empty()) {
+        params.__isset.mc_commit_datas = true;
+        params.mc_commit_datas.insert(params.mc_commit_datas.end(), mcd.begin(), mcd.end());
+    } else if (!req.runtime_states.empty()) {
+        for (auto* rs : req.runtime_states) {
+            if (auto rs_mcd = rs->mc_commit_datas(); !rs_mcd.empty()) {
+                params.__isset.mc_commit_datas = true;
+                params.mc_commit_datas.insert(params.mc_commit_datas.end(), rs_mcd.begin(),
+                                              rs_mcd.end());
+            }
+        }
+    }
+
     // Send new errors to coordinator
     req.runtime_state->get_unreported_errors(&(params.error_log));
     params.__isset.error_log = (!params.error_log.empty());

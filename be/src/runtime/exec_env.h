@@ -61,6 +61,7 @@ struct RuntimeFilterTimerQueue;
 } // namespace pipeline
 class WorkloadGroupMgr;
 struct WriteCooldownMetaExecutors;
+class S3RateLimiterHolder;
 namespace io {
 class FileCacheFactory;
 class HdfsMgr;
@@ -309,6 +310,7 @@ public:
     io::HdfsMgr* hdfs_mgr() { return _hdfs_mgr; }
     io::PackedFileManager* packed_file_manager() { return _packed_file_manager; }
     IndexPolicyMgr* index_policy_mgr() { return _index_policy_mgr; }
+    S3RateLimiterHolder* warmup_download_rate_limiter() { return _warmup_download_rate_limiter; }
 
 #ifdef BE_TEST
     void set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs) {
@@ -569,6 +571,7 @@ private:
     kerberos::KerberosTicketMgr* _kerberos_ticket_mgr = nullptr;
     io::HdfsMgr* _hdfs_mgr = nullptr;
     io::PackedFileManager* _packed_file_manager = nullptr;
+    S3RateLimiterHolder* _warmup_download_rate_limiter = nullptr;
 };
 
 template <>

@@ -29,6 +29,7 @@ import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.thrift.TFileAttributes;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 
 import java.util.Optional;
@@ -89,5 +90,13 @@ public class PaimonSource {
 
     public String getFileFormatFromTableProperties() {
         return originTable.options().getOrDefault("file.format", "parquet");
+    }
+
+    public String getTableLocation() {
+        if (originTable instanceof FileStoreTable) {
+            return ((FileStoreTable) originTable).location().toString();
+        }
+        // Fallback to path option
+        return originTable.options().get("path");
     }
 }

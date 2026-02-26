@@ -22,7 +22,9 @@ import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
+import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
+import org.apache.doris.nereids.analyzer.UnboundTVFTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalBlackholeSink;
@@ -32,9 +34,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
@@ -43,9 +47,11 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTableSink;
 
 /**
@@ -93,6 +99,14 @@ public interface SinkVisitor<R, C> {
         return visitLogicalSink(unboundBlackholeSink, context);
     }
 
+    default R visitUnboundMaxComputeTableSink(UnboundMaxComputeTableSink<? extends Plan> unboundTableSink, C context) {
+        return visitLogicalSink(unboundTableSink, context);
+    }
+
+    default R visitUnboundTVFTableSink(UnboundTVFTableSink<? extends Plan> unboundTVFTableSink, C context) {
+        return visitLogicalSink(unboundTVFTableSink, context);
+    }
+
     // *******************************
     // logical
     // *******************************
@@ -117,6 +131,10 @@ public interface SinkVisitor<R, C> {
         return visitLogicalTableSink(icebergTableSink, context);
     }
 
+    default R visitLogicalMaxComputeTableSink(LogicalMaxComputeTableSink<? extends Plan> mcTableSink, C context) {
+        return visitLogicalTableSink(mcTableSink, context);
+    }
+
     default R visitLogicalJdbcTableSink(LogicalJdbcTableSink<? extends Plan> jdbcTableSink, C context) {
         return visitLogicalTableSink(jdbcTableSink, context);
     }
@@ -137,6 +155,11 @@ public interface SinkVisitor<R, C> {
     default R visitLogicalBlackholeSink(
             LogicalBlackholeSink<? extends Plan> logicalBlackholeSink, C context) {
         return visitLogicalSink(logicalBlackholeSink, context);
+    }
+
+    default R visitLogicalTVFTableSink(
+            LogicalTVFTableSink<? extends Plan> logicalTVFTableSink, C context) {
+        return visitLogicalSink(logicalTVFTableSink, context);
     }
 
     // *******************************
@@ -168,6 +191,10 @@ public interface SinkVisitor<R, C> {
         return visitPhysicalTableSink(icebergTableSink, context);
     }
 
+    default R visitPhysicalMaxComputeTableSink(PhysicalMaxComputeTableSink<? extends Plan> mcTableSink, C context) {
+        return visitPhysicalTableSink(mcTableSink, context);
+    }
+
     default R visitPhysicalJdbcTableSink(PhysicalJdbcTableSink<? extends Plan> jdbcTableSink, C context) {
         return visitPhysicalTableSink(jdbcTableSink, context);
     }
@@ -183,5 +210,10 @@ public interface SinkVisitor<R, C> {
     default R visitPhysicalDeferMaterializeResultSink(
             PhysicalDeferMaterializeResultSink<? extends Plan> sink, C context) {
         return visitPhysicalSink(sink, context);
+    }
+
+    default R visitPhysicalTVFTableSink(
+            PhysicalTVFTableSink<? extends Plan> tvfTableSink, C context) {
+        return visitPhysicalSink(tvfTableSink, context);
     }
 }
