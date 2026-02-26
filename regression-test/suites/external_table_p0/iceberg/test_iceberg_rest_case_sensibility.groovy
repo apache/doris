@@ -126,6 +126,7 @@ suite("test_iceberg_rest_case_sensibility", "p0,external,doris,external_docker,e
                     exception "Table 'CASE_TBL11' already exists"
                 }
             }
+            // for case 1,2, like is case insensible, and CASE_TBL11 is not created, so will show case_tbl11
             qt_sqlx """show tables from iceberg_rest_case_db1 like "%CASE_TBL11%""""
 
             sql """create table iceberg_rest_case_db1.CASE_TBL12 (k1 int);"""

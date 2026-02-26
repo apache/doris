@@ -207,7 +207,7 @@ iceberg_hadoop_case_db1
 -- !sql7 --
 
 -- !sqlx --
-CASE_TBL11
+case_tbl11
 
 -- !sql8 --
 CASE_TBL14
