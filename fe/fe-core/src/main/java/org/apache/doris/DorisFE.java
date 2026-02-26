@@ -188,6 +188,10 @@ public class DorisFE {
 
             fuzzyConfigs();
 
+            // Start periodic cleanup of Hadoop metrics2 to prevent memory leak from
+            // Trino's HdfsClassLoader instances accumulating DefaultMetricsSystem sources.
+            org.apache.doris.fs.HadoopMetricsDisabler.startPeriodicCleanup();
+
             LOG.info("Doris FE starting...");
 
             FrontendOptions.init();
