@@ -40,7 +40,7 @@ suite("test_workload_sched_policy_username_be") {
     """
 
     // 4. Verify policy creation
-    def policy = sql "SHOW WORKLOAD POLICY WHERE NAME='test_mixed_policy'"
+    def policy = sql "SELECT * FROM information_schema.workload_policy WHERE name='test_mixed_policy'"
     assertTrue(policy.size() > 0, "Policy should be created successfully")
 
     // 5. Test execution (simulate via sleep)
