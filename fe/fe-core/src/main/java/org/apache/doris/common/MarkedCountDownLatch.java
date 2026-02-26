@@ -28,13 +28,17 @@ import java.util.concurrent.TimeUnit;
 
 public class MarkedCountDownLatch<K, V>  {
 
+    private static final long DEFAULT_INIT_TIMEOUT = 2 * 60 * 1000L;
+
     private final Object lock = new Object();
+    private final Object signal = new Object();
 
     private Multimap<K, V> marks;
     private Multimap<K, V> failedMarks;
     private Status st = Status.OK;
     private int markCount;
-    private CountDownLatch downLatch;
+    private long initTimeout;
+    private volatile CountDownLatch downLatch;
 
 
     public MarkedCountDownLatch() {
@@ -42,43 +46,64 @@ public class MarkedCountDownLatch<K, V>  {
         failedMarks = HashMultimap.create();
         markCount = 0;
         downLatch = null;
+        initTimeout = DEFAULT_INIT_TIMEOUT;
     }
 
-    public int getMarkCount() {
-        return markCount;
-    }
-
-    public long getCount() {
-        synchronized (lock) {
-            if (downLatch == null) {
-                throw new IllegalStateException("downLatch is not initialize checkout usage is valid.");
-            }
-        }
-        return downLatch.getCount();
-    }
-
-    public void countDown() {
-        synchronized (lock) {
-            if (downLatch == null) {
-                throw new IllegalStateException("downLatch is not initialize checkout usage is valid.");
-            }
-        }
-        downLatch.countDown();
+    public void setInitTimeout(long initTimeout) {
+        this.initTimeout = initTimeout;
     }
 
     public void addMark(K key, V value) {
+        if (downLatch != null) {
+            throw new IllegalStateException("downLatch must initialize after mark.");
+        }
         synchronized (lock) {
             marks.put(key, value);
             markCount++;
         }
     }
 
-    public boolean markedCountDown(K key, V value) {
-        synchronized (lock) {
+    public boolean await(long timeout, TimeUnit unit) throws InterruptedException {
+        synchronized (signal) {
             if (downLatch == null) {
-                throw new IllegalStateException("downLatch is not initialize checkout usage is valid.");
+                this.downLatch = new CountDownLatch(markCount);
+                signal.notifyAll();
             }
+        }
+        return downLatch.await(timeout, unit);
+    }
+
+    public void await() throws InterruptedException {
+        synchronized (signal) {
+            if (downLatch == null) {
+                this.downLatch = new CountDownLatch(markCount);
+                signal.notifyAll();
+            }
+        }
+        downLatch.await();
+    }
+
+    public boolean markedCountDown(K key, V value) {
+        // check and wait util downLatch is initialized
+        if (downLatch == null) {
+            synchronized (signal) {
+                long startTime = System.currentTimeMillis();
+                while (downLatch == null) {
+                    if (System.currentTimeMillis() - startTime > initTimeout) {
+                        throw new RuntimeException("MarkedCountDownLatch init timeout.");
+                    }
+                    try {
+                        signal.wait(initTimeout);
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
+            }
+        }
+        //remove mark and countDown
+        synchronized (lock) {
             if (marks.remove(key, value)) {
+                markCount--;
                 downLatch.countDown();
                 return true;
             }
@@ -86,31 +111,26 @@ public class MarkedCountDownLatch<K, V>  {
         }
     }
 
-    public boolean await(long timeout, TimeUnit unit) throws InterruptedException {
-        synchronized (lock) {
-            if (downLatch == null) {
-                this.downLatch = new CountDownLatch(markCount);
+    public boolean markedCountDownWithStatus(K key, V value, Status status)  {
+        // check and wait util downLatch is initialized
+        if (downLatch == null) {
+            synchronized (signal) {
+                long startTime = System.currentTimeMillis();
+                while (downLatch == null) {
+                    if (System.currentTimeMillis() - startTime > initTimeout) {
+                        throw new RuntimeException("MarkedCountDownLatch init timeout.");
+                    }
+                    try {
+                        signal.wait(initTimeout);
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
             }
         }
-        return downLatch.await(timeout, unit);
-    }
-
-    public void await() throws InterruptedException {
-        synchronized (lock) {
-            if (downLatch == null) {
-                this.downLatch = new CountDownLatch(markCount);
-            }
-        }
-        downLatch.await();
-    }
-
-    public boolean markedCountDownWithStatus(K key, V value, Status status) {
         // update status first before countDown.
         // so that the waiting thread will get the correct status.
         synchronized (lock) {
-            if (downLatch == null) {
-                throw new IllegalStateException("downLatch is not initialize checkout usage is valid.");
-            }
 
             if (st.ok()) {
                 st = status;
@@ -123,10 +143,52 @@ public class MarkedCountDownLatch<K, V>  {
             // Search `getLeftMarks` for details.
             if (!failedMarks.containsEntry(key, value)) {
                 failedMarks.put(key, value);
+                marks.remove(key, value);
+                markCount--;
                 downLatch.countDown();
                 return true;
             }
             return false;
+        }
+    }
+
+    public void countDownToZero(Status status)  {
+        // check and wait util downLatch is initialized
+        if (downLatch == null) {
+            synchronized (signal) {
+                long startTime = System.currentTimeMillis();
+                while (downLatch == null) {
+                    if (System.currentTimeMillis() - startTime > initTimeout) {
+                        throw new RuntimeException("MarkedCountDownLatch init timeout.");
+                    }
+                    try {
+                        signal.wait(initTimeout);
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
+            }
+        }
+
+        // update status first before countDown.
+        // so that the waiting thread will get the correct status.
+        synchronized (lock) {
+            if (st.ok()) {
+                st = status;
+            }
+            while (downLatch.getCount() > 0) {
+                markCount--;
+                downLatch.countDown();
+            }
+
+            //clear up the marks list
+            marks.clear();
+        }
+    }
+
+    public int getMarkCount() {
+        synchronized (lock) {
+            return markCount;
         }
     }
 
@@ -142,19 +204,5 @@ public class MarkedCountDownLatch<K, V>  {
         }
     }
 
-    public void countDownToZero(Status status) {
-        synchronized (lock) {
-            if (downLatch == null) {
-                throw new IllegalStateException("downLatch is not initialize checkout usage is valid.");
-            }
-            // update status first before countDown.
-            // so that the waiting thread will get the correct status.
-            if (st.ok()) {
-                st = status;
-            }
-            while (downLatch.getCount() > 0) {
-                downLatch.countDown();
-            }
-        }
-    }
+
 }

@@ -75,7 +75,8 @@ public class AlterReplicaTask extends AgentTask {
             int baseSchemaHash, long version, long jobId, AlterJobV2.JobType jobType, Map<String, Expr> defineExprs,
             DescriptorTable descTable, List<Column> baseSchemaColumns, Map<Object, Object> objectPool,
             Expr whereClause, long expiration, String vaultId, TQueryOptions queryOptions, TQueryGlobals queryGlobals) {
-        super(null, backendId, TTaskType.ALTER, dbId, tableId, partitionId, rollupIndexId, rollupTabletId);
+        super(null, backendId, TTaskType.ALTER, dbId, tableId, partitionId, rollupIndexId,
+                rollupTabletId, newReplicaId);
 
         this.baseTabletId = baseTabletId;
         this.newReplicaId = newReplicaId;

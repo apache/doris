@@ -261,7 +261,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                 totalReplicaNum += tablet.getReplicas().size();
             }
         }
-        MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<>();
+        MarkedCountDownLatch<String, Long> countDownLatch = new MarkedCountDownLatch<>();
 
         OlapTable tbl;
         try {
@@ -306,7 +306,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                         for (Replica shadowReplica : shadowReplicas) {
                             long backendId = shadowReplica.getBackendIdWithoutException();
                             long shadowReplicaId = shadowReplica.getId();
-                            countDownLatch.addMark(backendId, shadowTabletId);
+                            String markKey = String.format("%s-%s", backendId, shadowReplicaId);
+                            countDownLatch.addMark(markKey, shadowTabletId);
                             CreateReplicaTask createReplicaTask = new CreateReplicaTask(
                                     backendId, dbId, tableId, partitionId, shadowIdxId, shadowTabletId,
                                     shadowReplicaId, shadowShortKeyColumnCount, shadowSchemaHash,
@@ -380,7 +381,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                 } else {
                     // only show at most 3 results
                     List<String> subList = countDownLatch.getLeftMarks().stream().limit(3)
-                            .map(item -> "(backendId = " + item.getKey() + ", tabletId = "  + item.getValue() + ")")
+                            .map(item -> "(backendId-replicaId = " + item.getKey() + ", tabletId = "
+                                    + item.getValue() + ")")
                             .collect(Collectors.toList());
                     errMsg = "Error replicas:" + Joiner.on(", ").join(subList);
                 }

@@ -225,7 +225,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
     private Map<Long, AgentBoundedBatchTask> batchTaskPerTable = new HashMap<>();
 
-    private MarkedCountDownLatch<Long, Long> createReplicaTasksLatch = null;
+    private MarkedCountDownLatch<String, Long> createReplicaTasksLatch = null;
 
     public RestoreJob() {
         super(JobType.RESTORE);
@@ -1047,7 +1047,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     numBatchTasks, this);
             for (AgentBatchTask batchTask : batchTaskPerTable.values()) {
                 for (AgentTask task : batchTask.getAllTasks()) {
-                    createReplicaTasksLatch.addMark(task.getBackendId(), task.getTabletId());
+                    CreateReplicaTask crt =  (CreateReplicaTask) task;
+                    String markKey = String.format("%s-%s", crt.getBackendId(), crt.getReplicaId());
+                    createReplicaTasksLatch.addMark(markKey, task.getTabletId());
                     ((CreateReplicaTask) task).setLatch(createReplicaTasksLatch);
                 }
                 AgentTaskExecutor.submit(batchTask);
@@ -1069,7 +1071,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         try {
             if (!createReplicaTasksLatch.await(0, TimeUnit.SECONDS)) {
                 LOG.info("waiting {} create replica tasks for restore to finish. {}",
-                        createReplicaTasksLatch.getCount(), this);
+                        createReplicaTasksLatch.getMarkCount(), this);
                 long createReplicasTimeOut = DbUtil.getCreateReplicasTimeoutMs(createReplicaTasksLatch.getMarkCount());
                 long tryCreateTime = System.currentTimeMillis() - createReplicasTimeStamp;
                 if (tryCreateTime > createReplicasTimeOut) {

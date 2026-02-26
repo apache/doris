@@ -24,6 +24,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
@@ -437,6 +438,7 @@ public class NodeAction extends RestBaseController {
         @Override
         public void run() {
             String configInfo;
+            String markKey = NetUtils.getHostPortInAccessibleFormat(hostPort.first, hostPort.second);
             try {
                 configInfo = HttpUtils.doGet(url,
                         ImmutableMap.<String, String>builder().put(AUTHORIZATION, authorization).build());
@@ -447,11 +449,10 @@ public class NodeAction extends RestBaseController {
                         addConfig(conf);
                     }
                 }
-                configRequestDoneSignal.markedCountDown(NetUtils
-                        .getHostPortInAccessibleFormat(hostPort.first, hostPort.second), -1);
+                configRequestDoneSignal.markedCountDown(markKey, -1);
             } catch (Exception e) {
                 LOG.warn("get config from {}:{} failed.", hostPort.first, hostPort.second, e);
-                configRequestDoneSignal.countDown();
+                configRequestDoneSignal.markedCountDownWithStatus(markKey, -1, Status.CANCELLED);
             }
         }
 
@@ -903,6 +904,7 @@ public class NodeAction extends RestBaseController {
 
         @Override
         public void run() {
+            String markKey = concatNodeConfig(hostPort.first, hostPort.second, configName, configValue);
             try {
                 String response = HttpUtils.doPost(url,
                         ImmutableMap.<String, String>builder().put(AUTHORIZATION, authorization).build(), null);
@@ -913,13 +915,12 @@ public class NodeAction extends RestBaseController {
                             .getHostPortInAccessibleFormat(hostPort.first, hostPort.second),
                             jsonObject.get("msg").getAsString(), failed);
                 }
-                beSetConfigDoneSignal.markedCountDown(
-                        concatNodeConfig(hostPort.first, hostPort.second, configName, configValue), -1);
+                beSetConfigDoneSignal.markedCountDown(markKey, -1);
             } catch (Exception e) {
                 LOG.warn("set be:{} config:{} failed.", NetUtils
                         .getHostPortInAccessibleFormat(hostPort.first, hostPort.second),
                         configName + "=" + configValue, e);
-                beSetConfigDoneSignal.countDown();
+                beSetConfigDoneSignal.markedCountDownWithStatus(markKey, -1, Status.CANCELLED);
             }
         }
     }

@@ -28,8 +28,9 @@ public class CheckConsistencyTask extends AgentTask {
 
     public CheckConsistencyTask(TResourceInfo resourceInfo, long backendId, long dbId,
                                 long tableId, long partitionId, long indexId, long tabletId,
-                                int schemaHash, long version) {
-        super(resourceInfo, backendId, TTaskType.CHECK_CONSISTENCY, dbId, tableId, partitionId, indexId, tabletId);
+                                long replicaId, int schemaHash, long version) {
+        super(resourceInfo, backendId, TTaskType.CHECK_CONSISTENCY, dbId, tableId, partitionId,
+                indexId, tabletId, replicaId);
 
         this.schemaHash = schemaHash;
         this.version = version;

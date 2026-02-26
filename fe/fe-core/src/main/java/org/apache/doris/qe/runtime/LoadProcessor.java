@@ -125,7 +125,7 @@ public class LoadProcessor extends AbstractJobProcessor {
     }
 
     public boolean isDone() {
-        return latch.map(l -> l.getCount() == 0).orElse(false);
+        return latch.map(l -> l.getMarkCount() == 0).orElse(false);
     }
 
     public boolean join(int timeoutS) {
@@ -243,7 +243,7 @@ public class LoadProcessor extends AbstractJobProcessor {
             if (topFragmentId == params.getFragmentId()) {
                 MarkedCountDownLatch<Integer, Long> topFragmentLatch = this.topFragmentLatch.get();
                 topFragmentLatch.markedCountDown(params.getFragmentId(), params.getBackendId());
-                if (topFragmentLatch.getCount() == 0) {
+                if (topFragmentLatch.getMarkCount() == 0) {
                     tryFinishSchedule();
                 }
             }
