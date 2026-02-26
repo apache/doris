@@ -199,7 +199,7 @@ public:
                       bool* flags) const override;
     void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                      bool* flags) const override;
-    bool evaluate_and(ZoneMapInfo& statistic) const override {
+    bool evaluate_and(segment_v2::ZoneMap& statistic) const override {
         if (num_of_column_predicate() == 1) {
             return _block_column_predicate_vec[0]->evaluate_and(statistic);
         } else {

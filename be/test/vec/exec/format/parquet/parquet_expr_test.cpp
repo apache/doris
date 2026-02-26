@@ -383,7 +383,7 @@ TEST_F(ParquetExprTest, test_min_max) {
             const auto& column_meta_data =
                     doris_metadata.row_groups[row_group_idx].columns[column_idx].meta_data;
             auto col_schema = doris_file_metadata->schema().get_column(column_idx);
-            ZoneMapInfo stat;
+            segment_v2::ZoneMap stat;
             stat.col_schema = col_schema;
             stat.ctz = &ctz;
             ASSERT_TRUE(ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
@@ -394,7 +394,7 @@ TEST_F(ParquetExprTest, test_min_max) {
                                                      ->ColumnChunk(column_idx)
                                                      ->statistics()
                                                      ->null_count() > 0);
-            ASSERT_EQ(stat.is_all_null,
+            ASSERT_EQ(!stat.has_not_null,
                       arrow_reader->RowGroup(row_group_idx)
                                       ->metadata()
                                       ->ColumnChunk(column_idx)
@@ -426,30 +426,22 @@ TEST_F(ParquetExprTest, test_ge_2) { // int64_col = 10000000001   [10000000000 ,
     ctx->_opened = true;
 
     {
-        const std::function<bool(const FieldSchema*, ZoneMapInfo*)>& get_stat_func =
-                [&](const FieldSchema*, ZoneMapInfo* stat) -> bool {
+        const std::function<bool(const FieldSchema*, segment_v2::ZoneMap*)>& get_stat_func =
+                [&](const FieldSchema*, segment_v2::ZoneMap* stat) -> Status {
             const auto& column_meta_data = doris_metadata.row_groups[0].columns[loc].meta_data;
             auto col_schema = doris_file_metadata->schema().get_column(loc);
-            if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
-                                                     doris_metadata.created_by, stat)
-                         .ok()) {
-                return false;
-            }
-            return true;
+            return ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                       doris_metadata.created_by, stat);
         };
     }
 
     {
-        const std::function<bool(const FieldSchema*, ZoneMapInfo*)>& get_stat_func =
-                [&](const FieldSchema*, ZoneMapInfo* stat) -> bool {
+        const std::function<bool(const FieldSchema*, segment_v2::ZoneMap*)>& get_stat_func =
+                [&](const FieldSchema*, segment_v2::ZoneMap* stat) -> Status {
             const auto& column_meta_data = doris_metadata.row_groups[1].columns[loc].meta_data;
             auto col_schema = doris_file_metadata->schema().get_column(loc);
-            if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
-                                                     doris_metadata.created_by, stat)
-                         .ok()) {
-                return false;
-            }
-            return true;
+            return ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                       doris_metadata.created_by, stat);
         };
     }
 }
@@ -475,24 +467,24 @@ TEST_F(ParquetExprTest, test_lt_2) { // string_col < name_1
     ctx->_opened = true;
 
     {
-        const std::function<bool(const FieldSchema*, ZoneMapInfo*)>& get_stat_func =
-                [](const FieldSchema*, ZoneMapInfo* stat) -> bool {
+        const std::function<bool(const FieldSchema*, segment_v2::ZoneMap*)>& get_stat_func =
+                [](const FieldSchema*, segment_v2::ZoneMap* stat) -> Status {
             stat->max_value = Field::create_field<TYPE_STRING>("name_5");
             stat->min_value = Field::create_field<TYPE_STRING>("name_4");
-            stat->is_all_null = false;
+            stat->has_not_null = true;
             stat->has_null = false;
-            return true;
+            return Status::OK();
         };
     }
 
     {
-        const std::function<bool(const FieldSchema*, ZoneMapInfo*)>& get_stat_func =
-                [](const FieldSchema*, ZoneMapInfo* stat) -> bool {
+        const std::function<bool(const FieldSchema*, segment_v2::ZoneMap*)>& get_stat_func =
+                [](const FieldSchema*, segment_v2::ZoneMap* stat) -> Status {
             stat->max_value = Field::create_field<TYPE_STRING>("name_5");
             stat->min_value = Field::create_field<TYPE_STRING>("name_0");
-            stat->is_all_null = false;
+            stat->has_not_null = true;
             stat->has_null = false;
-            return true;
+            return Status::OK();
         };
     }
 }
@@ -517,30 +509,22 @@ TEST_F(ParquetExprTest, test_is_null) { // int32_all_null_col is null
     ctx->_opened = true;
 
     {
-        const std::function<bool(const FieldSchema*, ZoneMapInfo*)>& get_stat_func =
-                [&](const FieldSchema*, ZoneMapInfo* stat) -> bool {
+        const std::function<bool(const FieldSchema*, segment_v2::ZoneMap*)>& get_stat_func =
+                [&](const FieldSchema*, segment_v2::ZoneMap* stat) -> Status {
             const auto& column_meta_data = doris_metadata.row_groups[0].columns[1].meta_data;
             auto col_schema = doris_file_metadata->schema().get_column(1);
-            if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
-                                                     doris_metadata.created_by, stat)
-                         .ok()) {
-                return false;
-            }
-            return true;
+            return ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                       doris_metadata.created_by, stat);
         };
     }
 
     {
-        const std::function<bool(const FieldSchema*, ZoneMapInfo*)>& get_stat_func =
-                [&](const FieldSchema*, ZoneMapInfo* stat) -> bool {
+        const std::function<bool(const FieldSchema*, segment_v2::ZoneMap*)>& get_stat_func =
+                [&](const FieldSchema*, segment_v2::ZoneMap* stat) -> Status {
             const auto& column_meta_data = doris_metadata.row_groups[1].columns[1].meta_data;
             auto col_schema = doris_file_metadata->schema().get_column(1);
-            if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
-                                                     doris_metadata.created_by, stat)
-                         .ok()) {
-                return false;
-            }
-            return true;
+            return ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                       doris_metadata.created_by, stat);
         };
     }
 }
@@ -564,30 +548,22 @@ TEST_F(ParquetExprTest, test_is_not_null) { // int32_all_null_col is not null
     ctx->_opened = true;
 
     {
-        const std::function<bool(const FieldSchema*, ZoneMapInfo*)>& get_stat_func =
-                [&](const FieldSchema*, ZoneMapInfo* stat) -> bool {
+        const std::function<bool(const FieldSchema*, segment_v2::ZoneMap*)>& get_stat_func =
+                [&](const FieldSchema*, segment_v2::ZoneMap* stat) -> Status {
             const auto& column_meta_data = doris_metadata.row_groups[0].columns[1].meta_data;
             auto col_schema = doris_file_metadata->schema().get_column(1);
-            if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
-                                                     doris_metadata.created_by, stat)
-                         .ok()) {
-                return false;
-            }
-            return true;
+            return ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                       doris_metadata.created_by, stat);
         };
     }
 
     {
-        const std::function<bool(const FieldSchema*, ZoneMapInfo*)>& get_stat_func =
-                [&](const FieldSchema*, ZoneMapInfo* stat) -> bool {
+        const std::function<bool(const FieldSchema*, segment_v2::ZoneMap*)>& get_stat_func =
+                [&](const FieldSchema*, segment_v2::ZoneMap* stat) -> Status {
             const auto& column_meta_data = doris_metadata.row_groups[1].columns[1].meta_data;
             auto col_schema = doris_file_metadata->schema().get_column(1);
-            if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
-                                                     doris_metadata.created_by, stat)
-                         .ok()) {
-                return false;
-            }
-            return true;
+            return ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                       doris_metadata.created_by, stat);
         };
     }
 }
@@ -611,30 +587,22 @@ TEST_F(ParquetExprTest, test_is_null_2) { // int32_partial_null_col is null
     ctx->_opened = true;
 
     {
-        const std::function<bool(const FieldSchema*, ZoneMapInfo*)>& get_stat_func =
-                [&](const FieldSchema*, ZoneMapInfo* stat) -> bool {
+        const std::function<bool(const FieldSchema*, segment_v2::ZoneMap*)>& get_stat_func =
+                [&](const FieldSchema*, segment_v2::ZoneMap* stat) -> Status {
             const auto& column_meta_data = doris_metadata.row_groups[0].columns[0].meta_data;
             auto col_schema = doris_file_metadata->schema().get_column(0);
-            if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
-                                                     doris_metadata.created_by, stat)
-                         .ok()) {
-                return false;
-            }
-            return true;
+            return ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                       doris_metadata.created_by, stat);
         };
     }
 
     {
-        const std::function<bool(const FieldSchema*, ZoneMapInfo*)>& get_stat_func =
-                [&](const FieldSchema*, ZoneMapInfo* stat) -> bool {
+        const std::function<bool(const FieldSchema*, segment_v2::ZoneMap*)>& get_stat_func =
+                [&](const FieldSchema*, segment_v2::ZoneMap* stat) -> Status {
             const auto& column_meta_data = doris_metadata.row_groups[1].columns[0].meta_data;
             auto col_schema = doris_file_metadata->schema().get_column(0);
-            if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
-                                                     doris_metadata.created_by, stat)
-                         .ok()) {
-                return false;
-            }
-            return true;
+            return ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                       doris_metadata.created_by, stat);
         };
     }
 }
@@ -644,7 +612,7 @@ TEST_F(ParquetExprTest, test_min_max_p) {
         auto col_schema = doris_file_metadata->schema().get_column(column_id);
         const auto& column_meta_data =
                 doris_metadata.row_groups[row_group].columns[column_id].meta_data;
-        ZoneMapInfo stat;
+        segment_v2::ZoneMap stat;
         stat.col_schema = col_schema;
         stat.ctz = &ctz;
         ASSERT_TRUE(ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
@@ -854,30 +822,12 @@ TEST_F(ParquetExprTest, test_in) {
             in_expr4->debug_string());
 
     {
-        const std::function<bool(const FieldSchema*, ZoneMapInfo*)>& get_stat_func =
-                [&](const FieldSchema*, ZoneMapInfo* stat) -> bool {
+        const std::function<bool(const FieldSchema*, segment_v2::ZoneMap*)>& get_stat_func =
+                [&](const FieldSchema*, segment_v2::ZoneMap* stat) -> Status {
             const auto& column_meta_data = doris_metadata.row_groups[0].columns[loc].meta_data;
             auto col_schema = doris_file_metadata->schema().get_column(loc);
-            if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
-                                                     doris_metadata.created_by, stat)
-                         .ok()) {
-                return false;
-            }
-            return true;
-        };
-    }
-
-    {
-        const std::function<bool(const FieldSchema*, ZoneMapInfo*)>& get_stat_func =
-                [&](const FieldSchema*, ZoneMapInfo* stat) -> bool {
-            const auto& column_meta_data = doris_metadata.row_groups[1].columns[loc].meta_data;
-            auto col_schema = doris_file_metadata->schema().get_column(loc);
-            if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
-                                                     doris_metadata.created_by, stat)
-                         .ok()) {
-                return false;
-            }
-            return true;
+            return ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                       doris_metadata.created_by, stat);
         };
     }
 }
@@ -900,16 +850,12 @@ TEST_F(ParquetExprTest, test_expr_push_down_le_int64) {
     ctx->_prepared = true;
     ctx->_opened = true;
 
-    const std::function<bool(const FieldSchema*, ZoneMapInfo*)>& get_stat_func =
-            [&](const FieldSchema*, ZoneMapInfo* stat) -> bool {
+    const std::function<bool(const FieldSchema*, segment_v2::ZoneMap*)>& get_stat_func =
+            [&](const FieldSchema*, segment_v2::ZoneMap* stat) -> Status {
         const auto& column_meta_data = doris_metadata.row_groups[0].columns[2].meta_data;
         auto col_schema = doris_file_metadata->schema().get_column(2);
-        if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
-                                                 doris_metadata.created_by, stat)
-                     .ok()) {
-            return false;
-        }
-        return true;
+        return ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                   doris_metadata.created_by, stat);
     };
 }
 
@@ -926,22 +872,6 @@ TEST_F(ParquetExprTest, test_expr_push_down_gt_float) {
     slot_ref->_slot_id = 3;
     slot_ref->_column_id = 3;
     EXPECT_FALSE(fn_gt->is_constant());
-
-    auto ctx = VExprContext::create_shared(fn_gt);
-    ctx->_prepared = true;
-    ctx->_opened = true;
-
-    const std::function<bool(const FieldSchema*, ZoneMapInfo*)>& get_stat_func =
-            [&](const FieldSchema*, ZoneMapInfo* stat) -> bool {
-        const auto& column_meta_data = doris_metadata.row_groups[0].columns[3].meta_data;
-        auto col_schema = doris_file_metadata->schema().get_column(3);
-        if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
-                                                 doris_metadata.created_by, stat)
-                     .ok()) {
-            return false;
-        }
-        return true;
-    };
 }
 
 TEST_F(ParquetExprTest, test_expr_push_down_ge_double) {
@@ -957,22 +887,6 @@ TEST_F(ParquetExprTest, test_expr_push_down_ge_double) {
     slot_ref->_slot_id = 4;
     slot_ref->_column_id = 4;
     EXPECT_FALSE(fn_ge->is_constant());
-
-    auto ctx = VExprContext::create_shared(fn_ge);
-    ctx->_prepared = true;
-    ctx->_opened = true;
-
-    const std::function<bool(const FieldSchema*, ZoneMapInfo*)>& get_stat_func =
-            [&](const FieldSchema*, ZoneMapInfo* stat) -> bool {
-        const auto& column_meta_data = doris_metadata.row_groups[0].columns[4].meta_data;
-        auto col_schema = doris_file_metadata->schema().get_column(4);
-        if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
-                                                 doris_metadata.created_by, stat)
-                     .ok()) {
-            return false;
-        }
-        return true;
-    };
 }
 
 TEST_F(ParquetExprTest, test_expr_push_down_lt_string) {
@@ -988,22 +902,6 @@ TEST_F(ParquetExprTest, test_expr_push_down_lt_string) {
     slot_ref->_slot_id = 5;
     slot_ref->_column_id = 5;
     EXPECT_FALSE(fn_lt->is_constant());
-
-    auto ctx = VExprContext::create_shared(fn_lt);
-    ctx->_prepared = true;
-    ctx->_opened = true;
-
-    const std::function<bool(const FieldSchema*, ZoneMapInfo*)>& get_stat_func =
-            [&](const FieldSchema*, ZoneMapInfo* stat) -> bool {
-        const auto& column_meta_data = doris_metadata.row_groups[0].columns[5].meta_data;
-        auto col_schema = doris_file_metadata->schema().get_column(5);
-        if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
-                                                 doris_metadata.created_by, stat)
-                     .ok()) {
-            return false;
-        }
-        return true;
-    };
 }
 
 TEST_F(ParquetExprTest, test_expr_push_down_eq_bool) {
@@ -1019,21 +917,6 @@ TEST_F(ParquetExprTest, test_expr_push_down_eq_bool) {
     slot_ref->_slot_id = 6;
     slot_ref->_column_id = 6;
     EXPECT_FALSE(fn_eq->is_constant());
-
-    auto ctx = VExprContext::create_shared(fn_eq);
-    ctx->_prepared = true;
-    ctx->_opened = true;
-    const std::function<bool(const FieldSchema*, ZoneMapInfo*)>& get_stat_func =
-            [&](const FieldSchema*, ZoneMapInfo* stat) -> bool {
-        const auto& column_meta_data = doris_metadata.row_groups[0].columns[6].meta_data;
-        auto col_schema = doris_file_metadata->schema().get_column(6);
-        if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
-                                                 doris_metadata.created_by, stat)
-                     .ok()) {
-            return false;
-        }
-        return true;
-    };
 }
 
 TEST_F(ParquetExprTest, test_expr_push_down_and) {
@@ -1061,17 +944,6 @@ TEST_F(ParquetExprTest, test_expr_push_down_and) {
                         2, "", Field::create_field<TYPE_BIGINT>(900))));
     }
 
-    const std::function<bool(const FieldSchema*, ZoneMapInfo*)>& get_stat_func =
-            [&](const FieldSchema*, ZoneMapInfo* stat) -> bool {
-        const auto& column_meta_data = doris_metadata.row_groups[0].columns[2].meta_data;
-        auto col_schema = doris_file_metadata->schema().get_column(2);
-        if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
-                                                 doris_metadata.created_by, stat)
-                     .ok()) {
-            return false;
-        }
-        return true;
-    };
     p_reader->_enable_filter_by_min_max = true;
     p_reader->_push_down_predicates.push_back(std::move(pred));
 
@@ -1136,18 +1008,6 @@ TEST_F(ParquetExprTest, test_expr_push_down_or_string) {
         ctx->_opened = true;
         or_expr->add_child(ctx->root());
     }
-
-    const std::function<bool(const FieldSchema*, ZoneMapInfo*)>& get_stat_func =
-            [&](const FieldSchema*, ZoneMapInfo* stat) -> bool {
-        const auto& column_meta_data = doris_metadata.row_groups[0].columns[5].meta_data;
-        auto col_schema = doris_file_metadata->schema().get_column(5);
-        if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
-                                                 doris_metadata.created_by, stat)
-                     .ok()) {
-            return false;
-        }
-        return true;
-    };
 }
 
 TEST_F(ParquetExprTest, test_bloom_filter_skipped_when_range_miss) {
@@ -1156,22 +1016,23 @@ TEST_F(ParquetExprTest, test_bloom_filter_skipped_when_range_miss) {
     ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
             col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
 
-    ZoneMapInfo stat;
+    segment_v2::ZoneMap stat;
     stat.ctz = &ctz;
     const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
 
     const int64_t min_value = predicate_value + 1;
     const int64_t max_value = predicate_value + 5;
 
-    std::function<bool(ZoneMapInfo*, int)> get_stat_func = [&](ZoneMapInfo* current_stat, int cid) {
-        EXPECT_EQ(col_idx, cid);
-        current_stat->col_schema = col_schema;
-        current_stat->has_null = false;
-        current_stat->is_all_null = false;
-        current_stat->min_value = vectorized::Field::create_field<TYPE_BIGINT>(min_value);
-        current_stat->max_value = vectorized::Field::create_field<TYPE_BIGINT>(max_value);
-        return true;
-    };
+    std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func =
+            [&](segment_v2::ZoneMap* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->has_null = false;
+                current_stat->has_not_null = true;
+                current_stat->min_value = vectorized::Field::create_field<TYPE_BIGINT>(min_value);
+                current_stat->max_value = vectorized::Field::create_field<TYPE_BIGINT>(max_value);
+                return Status::OK();
+            };
     stat.get_stat_func = &get_stat_func;
 
     EXPECT_FALSE(eq_pred.evaluate_and(stat));
@@ -1183,22 +1044,23 @@ TEST_F(ParquetExprTest, test_bloom_filter_rejects_value) {
     ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
             col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
 
-    ZoneMapInfo stat;
+    segment_v2::ZoneMap stat;
     stat.ctz = &ctz;
     const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
 
     const int64_t min_value = predicate_value;
     const int64_t max_value = predicate_value + 5;
 
-    std::function<bool(ZoneMapInfo*, int)> get_stat_func = [&](ZoneMapInfo* current_stat, int cid) {
-        EXPECT_EQ(col_idx, cid);
-        current_stat->col_schema = col_schema;
-        current_stat->has_null = false;
-        current_stat->is_all_null = false;
-        current_stat->min_value = vectorized::Field::create_field<TYPE_BIGINT>(min_value);
-        current_stat->max_value = vectorized::Field::create_field<TYPE_BIGINT>(max_value);
-        return true;
-    };
+    std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func =
+            [&](segment_v2::ZoneMap* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->has_null = false;
+                current_stat->has_not_null = true;
+                current_stat->min_value = vectorized::Field::create_field<TYPE_BIGINT>(min_value);
+                current_stat->max_value = vectorized::Field::create_field<TYPE_BIGINT>(max_value);
+                return Status::OK();
+            };
     stat.get_stat_func = &get_stat_func;
 
     // Value is within range [min_value, max_value], so should return true
@@ -1211,22 +1073,23 @@ TEST_F(ParquetExprTest, test_bloom_filter_accepts_value) {
     ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
             col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
 
-    ZoneMapInfo stat;
+    segment_v2::ZoneMap stat;
     stat.ctz = &ctz;
     const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
 
     const int64_t min_value = predicate_value - 1;
     const int64_t max_value = predicate_value + 5;
 
-    std::function<bool(ZoneMapInfo*, int)> get_stat_func = [&](ZoneMapInfo* current_stat, int cid) {
-        EXPECT_EQ(col_idx, cid);
-        current_stat->col_schema = col_schema;
-        current_stat->has_null = false;
-        current_stat->is_all_null = false;
-        current_stat->min_value = vectorized::Field::create_field<TYPE_BIGINT>(min_value);
-        current_stat->max_value = vectorized::Field::create_field<TYPE_BIGINT>(max_value);
-        return true;
-    };
+    std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func =
+            [&](segment_v2::ZoneMap* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->has_null = false;
+                current_stat->has_not_null = true;
+                current_stat->min_value = vectorized::Field::create_field<TYPE_BIGINT>(min_value);
+                current_stat->max_value = vectorized::Field::create_field<TYPE_BIGINT>(max_value);
+                return Status::OK();
+            };
     stat.get_stat_func = &get_stat_func;
 
     // Value is within range, so should return true
@@ -1239,22 +1102,23 @@ TEST_F(ParquetExprTest, test_bloom_filter_skipped_when_min_max_evicts_rowgroup) 
     ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
             col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
 
-    ZoneMapInfo stat;
+    segment_v2::ZoneMap stat;
     stat.ctz = &ctz;
     const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
 
     const int64_t min_value = predicate_value - 5;
     const int64_t max_value = predicate_value - 1;
 
-    std::function<bool(ZoneMapInfo*, int)> get_stat_func = [&](ZoneMapInfo* current_stat, int cid) {
-        EXPECT_EQ(col_idx, cid);
-        current_stat->col_schema = col_schema;
-        current_stat->min_value = vectorized::Field::create_field<TYPE_BIGINT>(min_value);
-        current_stat->max_value = vectorized::Field::create_field<TYPE_BIGINT>(max_value);
-        current_stat->has_null = false;
-        current_stat->is_all_null = false;
-        return true;
-    };
+    std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func =
+            [&](segment_v2::ZoneMap* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->min_value = vectorized::Field::create_field<TYPE_BIGINT>(min_value);
+                current_stat->max_value = vectorized::Field::create_field<TYPE_BIGINT>(max_value);
+                current_stat->has_null = false;
+                current_stat->has_not_null = true;
+                return Status::OK();
+            };
     stat.get_stat_func = &get_stat_func;
 
     // Value is outside range [min_value, max_value], so should return false
@@ -1267,22 +1131,23 @@ TEST_F(ParquetExprTest, test_bloom_filter_loader_called_when_min_max_allows) {
     ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
             col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
 
-    ZoneMapInfo stat;
+    segment_v2::ZoneMap stat;
     stat.ctz = &ctz;
     const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
 
     const int64_t min_value = predicate_value - 5;
     const int64_t max_value = predicate_value + 5;
 
-    std::function<bool(ZoneMapInfo*, int)> get_stat_func = [&](ZoneMapInfo* current_stat, int cid) {
-        EXPECT_EQ(col_idx, cid);
-        current_stat->col_schema = col_schema;
-        current_stat->min_value = vectorized::Field::create_field<TYPE_BIGINT>(min_value);
-        current_stat->max_value = vectorized::Field::create_field<TYPE_BIGINT>(max_value);
-        current_stat->has_null = false;
-        current_stat->is_all_null = false;
-        return true;
-    };
+    std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func =
+            [&](segment_v2::ZoneMap* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->min_value = vectorized::Field::create_field<TYPE_BIGINT>(min_value);
+                current_stat->max_value = vectorized::Field::create_field<TYPE_BIGINT>(max_value);
+                current_stat->has_null = false;
+                current_stat->has_not_null = true;
+                return Status::OK();
+            };
     stat.get_stat_func = &get_stat_func;
 
     // Value is within range, so should return true
@@ -1295,22 +1160,23 @@ TEST_F(ParquetExprTest, test_bloom_filter_loader_not_called_when_missing_metadat
     ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
             col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
 
-    ZoneMapInfo stat;
+    segment_v2::ZoneMap stat;
     stat.ctz = &ctz;
     const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
 
     const int64_t min_value = predicate_value - 5;
     const int64_t max_value = predicate_value + 5;
 
-    std::function<bool(ZoneMapInfo*, int)> get_stat_func = [&](ZoneMapInfo* current_stat, int cid) {
-        EXPECT_EQ(col_idx, cid);
-        current_stat->col_schema = col_schema;
-        current_stat->min_value = vectorized::Field::create_field<TYPE_BIGINT>(min_value);
-        current_stat->max_value = vectorized::Field::create_field<TYPE_BIGINT>(max_value);
-        current_stat->has_null = false;
-        current_stat->is_all_null = false;
-        return true;
-    };
+    std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func =
+            [&](segment_v2::ZoneMap* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->min_value = vectorized::Field::create_field<TYPE_BIGINT>(min_value);
+                current_stat->max_value = vectorized::Field::create_field<TYPE_BIGINT>(max_value);
+                current_stat->has_null = false;
+                current_stat->has_not_null = true;
+                return Status::OK();
+            };
     stat.get_stat_func = &get_stat_func;
 
     // Value is within range, so should return true
@@ -1323,22 +1189,23 @@ TEST_F(ParquetExprTest, test_bloom_filter_loader_resets_on_failure) {
     ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
             col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
 
-    ZoneMapInfo stat;
+    segment_v2::ZoneMap stat;
     stat.ctz = &ctz;
     const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
 
     const int64_t min_value = predicate_value - 5;
     const int64_t max_value = predicate_value + 5;
 
-    std::function<bool(ZoneMapInfo*, int)> get_stat_func = [&](ZoneMapInfo* current_stat, int cid) {
-        EXPECT_EQ(col_idx, cid);
-        current_stat->col_schema = col_schema;
-        current_stat->min_value = vectorized::Field::create_field<TYPE_BIGINT>(min_value);
-        current_stat->max_value = vectorized::Field::create_field<TYPE_BIGINT>(max_value);
-        current_stat->has_null = false;
-        current_stat->is_all_null = false;
-        return true;
-    };
+    std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func =
+            [&](segment_v2::ZoneMap* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->min_value = vectorized::Field::create_field<TYPE_BIGINT>(min_value);
+                current_stat->max_value = vectorized::Field::create_field<TYPE_BIGINT>(max_value);
+                current_stat->has_null = false;
+                current_stat->has_not_null = true;
+                return Status::OK();
+            };
     stat.get_stat_func = &get_stat_func;
 
     // Value is within range, so should return true
@@ -1351,22 +1218,23 @@ TEST_F(ParquetExprTest, test_bloom_filter_not_supported_type) {
     ComparisonPredicateBase<TYPE_BOOLEAN, PredicateType::EQ> eq_pred(
             col_idx, "", vectorized::Field::create_field<TYPE_BOOLEAN>(predicate_value));
 
-    ZoneMapInfo stat;
+    segment_v2::ZoneMap stat;
     stat.ctz = &ctz;
     const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
 
     uint8_t min_value = 0;
     uint8_t max_value = 1;
 
-    std::function<bool(ZoneMapInfo*, int)> get_stat_func = [&](ZoneMapInfo* current_stat, int cid) {
-        EXPECT_EQ(col_idx, cid);
-        current_stat->col_schema = col_schema;
-        current_stat->min_value = vectorized::Field::create_field<TYPE_BOOLEAN>(min_value);
-        current_stat->max_value = vectorized::Field::create_field<TYPE_BOOLEAN>(max_value);
-        current_stat->has_null = false;
-        current_stat->is_all_null = false;
-        return true;
-    };
+    std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func =
+            [&](segment_v2::ZoneMap* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->min_value = vectorized::Field::create_field<TYPE_BOOLEAN>(min_value);
+                current_stat->max_value = vectorized::Field::create_field<TYPE_BOOLEAN>(max_value);
+                current_stat->has_null = false;
+                current_stat->has_not_null = true;
+                return Status::OK();
+            };
     stat.get_stat_func = &get_stat_func;
 
     // Value is within range [0, 1], so should return true
@@ -1379,22 +1247,23 @@ TEST_F(ParquetExprTest, test_bloom_filter_min_max_overlap_but_no_loader) {
     ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
             col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
 
-    ZoneMapInfo stat;
+    segment_v2::ZoneMap stat;
     stat.ctz = &ctz;
     const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
 
     const int64_t min_value = predicate_value - 1;
     const int64_t max_value = predicate_value + 1;
 
-    std::function<bool(ZoneMapInfo*, int)> get_stat_func = [&](ZoneMapInfo* current_stat, int cid) {
-        EXPECT_EQ(col_idx, cid);
-        current_stat->col_schema = col_schema;
-        current_stat->min_value = vectorized::Field::create_field<TYPE_BIGINT>(min_value);
-        current_stat->max_value = vectorized::Field::create_field<TYPE_BIGINT>(max_value);
-        current_stat->has_null = false;
-        current_stat->is_all_null = false;
-        return true;
-    };
+    std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func =
+            [&](segment_v2::ZoneMap* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->min_value = vectorized::Field::create_field<TYPE_BIGINT>(min_value);
+                current_stat->max_value = vectorized::Field::create_field<TYPE_BIGINT>(max_value);
+                current_stat->has_null = false;
+                current_stat->has_not_null = true;
+                return Status::OK();
+            };
     stat.get_stat_func = &get_stat_func;
 
     // Value is within range, so should return true
@@ -1413,19 +1282,22 @@ TEST_F(ParquetExprTest, test_in_list_predicate_uses_bloom_filter) {
 
     InListPredicateBase<TYPE_BIGINT, PredicateType::IN_LIST, 3> in_pred(col_idx, "", set, false);
 
-    ZoneMapInfo stat;
+    segment_v2::ZoneMap stat;
     stat.ctz = &ctz;
     const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
 
-    std::function<bool(ZoneMapInfo*, int)> get_stat_func = [&](ZoneMapInfo* current_stat, int cid) {
-        EXPECT_EQ(col_idx, cid);
-        current_stat->col_schema = col_schema;
-        current_stat->min_value = vectorized::Field::create_field<TYPE_BIGINT>(min_candidate);
-        current_stat->max_value = vectorized::Field::create_field<TYPE_BIGINT>(max_candidate);
-        current_stat->has_null = false;
-        current_stat->is_all_null = false;
-        return true;
-    };
+    std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func =
+            [&](segment_v2::ZoneMap* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->min_value =
+                        vectorized::Field::create_field<TYPE_BIGINT>(min_candidate);
+                current_stat->max_value =
+                        vectorized::Field::create_field<TYPE_BIGINT>(max_candidate);
+                current_stat->has_null = false;
+                current_stat->has_not_null = true;
+                return Status::OK();
+            };
     stat.get_stat_func = &get_stat_func;
 
     // Some values in the set are within range, so should return true
@@ -1441,22 +1313,23 @@ TEST_F(ParquetExprTest, test_in_list_predicate_no_loader_on_range_miss) {
 
     InListPredicateBase<TYPE_BIGINT, PredicateType::IN_LIST, 2> in_pred(col_idx, "", set, false);
 
-    ZoneMapInfo stat;
+    segment_v2::ZoneMap stat;
     stat.ctz = &ctz;
     const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
 
     const int64_t min_value = 10000000000;
     const int64_t max_value = 10000000005;
 
-    std::function<bool(ZoneMapInfo*, int)> get_stat_func = [&](ZoneMapInfo* current_stat, int cid) {
-        EXPECT_EQ(col_idx, cid);
-        current_stat->col_schema = col_schema;
-        current_stat->min_value = vectorized::Field::create_field<TYPE_BIGINT>(min_value);
-        current_stat->max_value = vectorized::Field::create_field<TYPE_BIGINT>(max_value);
-        current_stat->has_null = false;
-        current_stat->is_all_null = false;
-        return true;
-    };
+    std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func =
+            [&](segment_v2::ZoneMap* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->min_value = vectorized::Field::create_field<TYPE_BIGINT>(min_value);
+                current_stat->max_value = vectorized::Field::create_field<TYPE_BIGINT>(max_value);
+                current_stat->has_null = false;
+                current_stat->has_not_null = true;
+                return Status::OK();
+            };
     stat.get_stat_func = &get_stat_func;
 
     // All values in the set are outside range [min_value, max_value], so should return false
@@ -1469,22 +1342,23 @@ TEST_F(ParquetExprTest, test_bloom_filter_reused_after_first_load) {
     ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
             col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
 
-    ZoneMapInfo stat;
+    segment_v2::ZoneMap stat;
     stat.ctz = &ctz;
     const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
 
     const int64_t min_value = predicate_value - 5;
     const int64_t max_value = predicate_value + 5;
 
-    std::function<bool(ZoneMapInfo*, int)> get_stat_func = [&](ZoneMapInfo* current_stat, int cid) {
-        EXPECT_EQ(col_idx, cid);
-        current_stat->col_schema = col_schema;
-        current_stat->min_value = vectorized::Field::create_field<TYPE_BIGINT>(min_value);
-        current_stat->max_value = vectorized::Field::create_field<TYPE_BIGINT>(max_value);
-        current_stat->has_null = false;
-        current_stat->is_all_null = false;
-        return true;
-    };
+    std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func =
+            [&](segment_v2::ZoneMap* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->min_value = vectorized::Field::create_field<TYPE_BIGINT>(min_value);
+                current_stat->max_value = vectorized::Field::create_field<TYPE_BIGINT>(max_value);
+                current_stat->has_null = false;
+                current_stat->has_not_null = true;
+                return Status::OK();
+            };
     stat.get_stat_func = &get_stat_func;
 
     // Value is within range, so should return true

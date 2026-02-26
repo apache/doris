@@ -188,7 +188,7 @@ public:
 
         // Verify ZoneMap::from_proto can correctly parse the truncated zone map
         ZoneMap seg_zone_map;
-        ASSERT_TRUE(ZoneMap::from_proto(seg_zm, data_type, seg_zone_map).ok());
+        ASSERT_TRUE(ZoneMap::from_proto(seg_zm, data_type, &seg_zone_map).ok());
         EXPECT_EQ(seg_zone_map.has_null, false);
         EXPECT_EQ(seg_zone_map.has_not_null, true);
         EXPECT_EQ(seg_zone_map.pass_all, false);
@@ -213,7 +213,7 @@ public:
 
         {
             ZoneMap page_zone_map;
-            ASSERT_TRUE(ZoneMap::from_proto(zone_maps[0], data_type, page_zone_map).ok());
+            ASSERT_TRUE(ZoneMap::from_proto(zone_maps[0], data_type, &page_zone_map).ok());
             EXPECT_EQ(page_zone_map.has_null, false);
             EXPECT_EQ(page_zone_map.has_not_null, true);
             EXPECT_EQ(page_zone_map.pass_all, pass_all);
@@ -229,7 +229,7 @@ public:
         }
         {
             ZoneMap page_zone_map;
-            ASSERT_TRUE(ZoneMap::from_proto(zone_maps[1], data_type, page_zone_map).ok());
+            ASSERT_TRUE(ZoneMap::from_proto(zone_maps[1], data_type, &page_zone_map).ok());
             EXPECT_EQ(page_zone_map.has_null, false);
             EXPECT_EQ(page_zone_map.has_not_null, true);
             EXPECT_EQ(page_zone_map.pass_all, pass_all);
@@ -284,7 +284,7 @@ public:
 
         // Verify ZoneMap::from_proto can correctly parse the truncated zone map
         ZoneMap seg_zone_map;
-        ASSERT_TRUE(ZoneMap::from_proto(seg_zm, data_type, seg_zone_map).ok());
+        ASSERT_TRUE(ZoneMap::from_proto(seg_zm, data_type, &seg_zone_map).ok());
         EXPECT_EQ(seg_zone_map.has_null, false);
         EXPECT_EQ(seg_zone_map.has_not_null, true);
         EXPECT_EQ(seg_zone_map.pass_all, false);
@@ -309,7 +309,7 @@ public:
 
         {
             ZoneMap page_zone_map;
-            ASSERT_TRUE(ZoneMap::from_proto(zone_maps[0], data_type, page_zone_map).ok());
+            ASSERT_TRUE(ZoneMap::from_proto(zone_maps[0], data_type, &page_zone_map).ok());
             EXPECT_EQ(page_zone_map.has_null, false);
             EXPECT_EQ(page_zone_map.has_not_null, true);
             EXPECT_EQ(page_zone_map.pass_all, pass_all);
@@ -376,7 +376,7 @@ public:
 
         // Verify ZoneMap::from_proto can correctly parse the truncated zone map
         ZoneMap seg_zone_map;
-        ASSERT_TRUE(ZoneMap::from_proto(seg_zm, data_type, seg_zone_map).ok());
+        ASSERT_TRUE(ZoneMap::from_proto(seg_zm, data_type, &seg_zone_map).ok());
         EXPECT_EQ(seg_zone_map.has_null, false);
         EXPECT_EQ(seg_zone_map.has_not_null, true);
         EXPECT_EQ(seg_zone_map.pass_all, false);
@@ -401,7 +401,7 @@ public:
 
         {
             ZoneMap page_zone_map;
-            ASSERT_TRUE(ZoneMap::from_proto(zone_maps[0], data_type, page_zone_map).ok());
+            ASSERT_TRUE(ZoneMap::from_proto(zone_maps[0], data_type, &page_zone_map).ok());
             EXPECT_EQ(page_zone_map.has_null, false);
             EXPECT_EQ(page_zone_map.has_not_null, true);
             EXPECT_EQ(page_zone_map.pass_all, pass_all);
@@ -462,7 +462,7 @@ public:
         // EXPECT_EQ(seg_zm.max(), value3);
 
         ZoneMap seg_zone_map;
-        ASSERT_TRUE(ZoneMap::from_proto(seg_zm, data_type, seg_zone_map).ok());
+        ASSERT_TRUE(ZoneMap::from_proto(seg_zm, data_type, &seg_zone_map).ok());
         EXPECT_EQ(seg_zone_map.has_null, false);
         EXPECT_EQ(seg_zone_map.has_not_null, true);
         EXPECT_EQ(seg_zone_map.pass_all, false);
@@ -485,7 +485,7 @@ public:
 
         {
             ZoneMap page_zone_map;
-            ASSERT_TRUE(ZoneMap::from_proto(zone_maps[0], data_type, page_zone_map).ok());
+            ASSERT_TRUE(ZoneMap::from_proto(zone_maps[0], data_type, &page_zone_map).ok());
             EXPECT_EQ(page_zone_map.has_null, false);
             EXPECT_EQ(page_zone_map.has_not_null, true);
             EXPECT_EQ(page_zone_map.pass_all, pass_all);
@@ -543,7 +543,7 @@ public:
         const auto& seg_zm = index_meta.zone_map_index().segment_zone_map();
 
         ZoneMap seg_zone_map;
-        ASSERT_TRUE(ZoneMap::from_proto(seg_zm, data_type, seg_zone_map).ok());
+        ASSERT_TRUE(ZoneMap::from_proto(seg_zm, data_type, &seg_zone_map).ok());
         EXPECT_EQ(seg_zone_map.has_null, false);
         EXPECT_EQ(seg_zone_map.has_not_null, true);
         EXPECT_EQ(seg_zone_map.pass_all, false);
@@ -566,7 +566,7 @@ public:
 
         {
             ZoneMap page_zone_map;
-            ASSERT_TRUE(ZoneMap::from_proto(zone_maps[0], data_type, page_zone_map).ok());
+            ASSERT_TRUE(ZoneMap::from_proto(zone_maps[0], data_type, &page_zone_map).ok());
             EXPECT_EQ(page_zone_map.has_null, false);
             EXPECT_EQ(page_zone_map.has_not_null, true);
             EXPECT_EQ(page_zone_map.pass_all, pass_all);

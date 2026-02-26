@@ -37,8 +37,10 @@
 #include "vec/exec/format/parquet/schema_desc.h"
 
 namespace doris {
-struct ZoneMapInfo;
 struct BloomFilterInfo;
+namespace segment_v2 {
+struct ZoneMap;
+}
 } // namespace doris
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -353,7 +355,8 @@ public:
     static Status read_column_stats(const FieldSchema* col_schema,
                                     const tparquet::ColumnMetaData& column_meta_data,
                                     std::unordered_map<tparquet::Type::type, bool>* ignored_stats,
-                                    const std::string& file_created_by, ZoneMapInfo* ans_stat);
+                                    const std::string& file_created_by,
+                                    segment_v2::ZoneMap* ans_stat);
 
     static Status read_bloom_filter(const tparquet::ColumnMetaData& column_meta_data,
                                     io::FileReaderSPtr file_reader, io::IOContext* io_ctx,

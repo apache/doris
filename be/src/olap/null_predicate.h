@@ -75,7 +75,7 @@ public:
                       bool* flags) const override;
 
     bool evaluate_and(segment_v2::ZoneMap& zone_map) const override {
-        if (!(*zone_map.get_stat_func)(&zone_map, column_id())) {
+        if (!(*zone_map.get_stat_func)(&zone_map, column_id()).ok()) {
             return true;
         }
         if (_is_null) {
@@ -101,7 +101,7 @@ public:
     }
 
     bool evaluate_del(segment_v2::ZoneMap& zone_map) const override {
-        if (!(*zone_map.get_stat_func)(&zone_map, column_id())) {
+        if (!(*zone_map.get_stat_func)(&zone_map, column_id()).ok()) {
             return false;
         }
         // evaluate_del only use for delete condition to filter page, need use delete condition origin value,

@@ -331,7 +331,7 @@ void ColumnReader::check_data_by_zone_map_for_test(const vectorized::MutableColu
     }
 
     ZoneMap zone_map;
-    THROW_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
+    THROW_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, &zone_map));
 
     if (zone_map.has_null) {
         return;
@@ -449,7 +449,7 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
     }
     // TODO: this work to get min/max value seems should only do once
     ZoneMap zone_map;
-    RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
+    RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, &zone_map));
 
     dst->reserve(*n);
     if (!zone_map.has_not_null) {
@@ -470,9 +470,9 @@ Status ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicat
         return Status::OK();
     }
     ZoneMap zone_map;
-    std::function<bool(ZoneMap*, int)> get_stat_func = [&](ZoneMap* stat, const int cid) {
-        THROW_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, stat));
-        return Status::OK();
+    std::function<Status(ZoneMap*, int)> get_stat_func = [&](ZoneMap* stat,
+                                                             const int cid) -> Status {
+        return ZoneMap::from_proto(*_segment_zone_map, _data_type, stat);
     };
     zone_map.get_stat_func = &get_stat_func;
 
@@ -489,13 +489,12 @@ Status ColumnReader::prune_predicates_by_zone_map(
     }
 
     ZoneMap zone_map;
-    RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
+    RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, &zone_map));
     if (zone_map.pass_all) {
         return Status::OK();
     }
-    std::function<bool(ZoneMap*, int)> get_stat_func = [&](ZoneMap* stat, const int cid) {
-        return Status::OK();
-    };
+    std::function<Status(ZoneMap*, int)> get_stat_func =
+            [&](ZoneMap* stat, const int cid) -> Status { return Status::OK(); };
     zone_map.get_stat_func = &get_stat_func;
 
     for (auto it = predicates.begin(); it != predicates.end();) {
@@ -510,7 +509,7 @@ Status ColumnReader::prune_predicates_by_zone_map(
     return Status::OK();
 }
 
-bool ColumnReader::_zone_map_match_condition(const ZoneMap& zone_map,
+bool ColumnReader::_zone_map_match_condition(ZoneMap& zone_map,
                                              const AndBlockColumnPredicate* col_predicates) const {
     if (zone_map.pass_all) {
         return true;
@@ -532,9 +531,9 @@ Status ColumnReader::_get_filtered_pages(
             page_indexes->push_back(cast_set<uint32_t>(i));
         } else {
             ZoneMap zone_map;
-            std::function<bool(ZoneMap*, int)> get_stat_func = [&](ZoneMap* stat, const int cid) {
-                THROW_IF_ERROR(ZoneMap::from_proto(zone_maps[i], _data_type, zone_map));
-                return Status::OK();
+            std::function<Status(ZoneMap*, int)> get_stat_func = [&](ZoneMap* stat,
+                                                                     const int cid) -> Status {
+                return ZoneMap::from_proto(zone_maps[i], _data_type, stat);
             };
             zone_map.get_stat_func = &get_stat_func;
             if (_zone_map_match_condition(zone_map, col_predicates)) {

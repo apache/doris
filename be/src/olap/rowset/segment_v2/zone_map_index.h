@@ -72,7 +72,7 @@ struct ZoneMap {
 
     const vectorized::FieldSchema* col_schema = nullptr;
     const cctz::time_zone* ctz = nullptr;
-    std::function<bool(ZoneMap*, const int)>* get_stat_func = nullptr;
+    std::function<Status(ZoneMap*, const int)>* get_stat_func = nullptr;
 
     void to_proto(ZoneMapPB* dst, const vectorized::DataTypePtr& data_type) const {
         if (pass_all || !has_not_null) {
@@ -91,7 +91,7 @@ struct ZoneMap {
     }
 
     static Status from_proto(const ZoneMapPB& zone_map, const vectorized::DataTypePtr& data_type,
-                             ZoneMap& zone_map_info);
+                             ZoneMap* zone_map_info);
 };
 
 class ZoneMapIndexWriter {

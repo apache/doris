@@ -246,7 +246,7 @@ public:
     }
 
     bool evaluate_and(segment_v2::ZoneMap& zone_map) const override {
-        if (!(*zone_map.get_stat_func)(&zone_map, column_id())) {
+        if (!(*zone_map.get_stat_func)(&zone_map, column_id()).ok()) {
             return true;
         }
         if (!zone_map.has_not_null) {
@@ -314,7 +314,7 @@ public:
     }
 
     bool evaluate_del(segment_v2::ZoneMap& zone_map) const override {
-        if (!(*zone_map.get_stat_func)(&zone_map, column_id())) {
+        if (!(*zone_map.get_stat_func)(&zone_map, column_id()).ok()) {
             return false;
         }
         if (zone_map.has_null) {

@@ -26,7 +26,7 @@ namespace doris::vectorized {
 Status ParquetPredicate::read_column_stats(
         const FieldSchema* col_schema, const tparquet::ColumnMetaData& column_meta_data,
         std::unordered_map<tparquet::Type::type, bool>* ignored_stats,
-        const std::string& file_created_by, ZoneMapInfo* ans_stat) {
+        const std::string& file_created_by, segment_v2::ZoneMap* ans_stat) {
     auto& statistic = column_meta_data.statistics;
 
     std::string min_string;
@@ -35,8 +35,8 @@ Status ParquetPredicate::read_column_stats(
         return Status::DataQualityError("This parquet Column meta no set null_count.");
     }
     ans_stat->has_null = statistic.null_count > 0;
-    ans_stat->is_all_null = statistic.null_count == column_meta_data.num_values;
-    if (ans_stat->is_all_null) {
+    ans_stat->has_not_null = statistic.null_count != column_meta_data.num_values;
+    if (!ans_stat->has_not_null) {
         return Status::OK();
     }
     auto prim_type = remove_nullable(col_schema->data_type)->get_primitive_type();
