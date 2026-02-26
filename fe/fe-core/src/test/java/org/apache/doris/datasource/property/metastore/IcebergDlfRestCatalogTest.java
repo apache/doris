@@ -36,8 +36,8 @@ import java.util.Map;
 @Disabled("set your aliyun's access key, secret key before running the test")
 public class IcebergDlfRestCatalogTest {
 
-    private String ak = "";
-    private String sk = "";
+    private String ak = "ak";
+    private String sk = "sk";
 
     @Test
     public void testIcebergDlRestCatalog() {
