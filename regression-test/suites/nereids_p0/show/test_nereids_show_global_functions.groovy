@@ -19,6 +19,7 @@ suite("test_nereids_show_global_functions") {
     String dbName = "show_functions_db"
     String functionName = "global_xyz"
 
+    sql """DROP GLOBAL FUNCTION IF EXISTS ${functionName}(INT);"""
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
     sql """CREATE global ALIAS FUNCTION ${functionName}(INT) WITH PARAMETER(id)  AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));"""
 
@@ -34,10 +35,11 @@ suite("test_nereids_show_global_functions") {
     // in nereids, each column of 'show full functions' is empty string, except Signature.
     def res3 = sql """use ${dbName}; show global full functions like '${functionName}%';"""
     assertTrue(res3.size() == 1)
-    assertEquals(res3.get(0).get(0), functionName)
-    assertEquals(res3.get(0).get(1), "")
-    assertEquals(res3.get(0).get(2), "")
+    assertEquals(res3.get(0).get(0), "global_xyz(int)")
+    assertEquals(res3.get(0).get(1), "varchar(65533)")
+    assertEquals(res3.get(0).get(2), "ALIAS/JAVA_UDF")
     assertEquals(res3.get(0).get(3), "")
-    assertEquals(res3.get(0).get(4), "")
+    assertTrue(res3[0][4].contains("NULLABLE_MODE="))
+    assertTrue(res3[0][4].contains("ALIAS_OF="))
     sql """DROP GLOBAL FUNCTION  ${functionName}(INT)"""
 }
