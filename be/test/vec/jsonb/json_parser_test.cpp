@@ -506,8 +506,8 @@ TEST(JsonParserTest, ParseWithSkipPatternsLegacyAndCompiledConfig) {
     std::string json = R"({"secret":1,"debug_x":2,"keep":3})";
     ParseConfig legacy_config;
     legacy_config.skip_patterns = &skip_patterns;
-    auto st = doris::vectorized::variant_util::build_compiled_skip_patterns(
-            skip_patterns, false, &legacy_config);
+    auto st = doris::vectorized::variant_util::build_compiled_skip_patterns(skip_patterns, false,
+                                                                            &legacy_config);
     EXPECT_TRUE(st.ok()) << st.to_string();
     auto legacy_result = parser.parse(json.c_str(), json.size(), legacy_config);
     ASSERT_TRUE(legacy_result.has_value());
@@ -518,8 +518,8 @@ TEST(JsonParserTest, ParseWithSkipPatternsLegacyAndCompiledConfig) {
 
     ParseConfig compiled_config;
     compiled_config.skip_patterns = &skip_patterns;
-    st = doris::vectorized::variant_util::build_compiled_skip_patterns(
-            skip_patterns, true, &compiled_config);
+    st = doris::vectorized::variant_util::build_compiled_skip_patterns(skip_patterns, true,
+                                                                       &compiled_config);
     EXPECT_TRUE(st.ok()) << st.to_string();
     auto compiled_result = parser.parse(json.c_str(), json.size(), compiled_config);
     ASSERT_TRUE(compiled_result.has_value());
@@ -536,8 +536,8 @@ TEST(JsonParserTest, ParseWithInvalidSkipGlobDoesNotDropPaths) {
 
     ParseConfig config;
     config.skip_patterns = &skip_patterns;
-    auto st = doris::vectorized::variant_util::build_compiled_skip_patterns(
-            skip_patterns, false, &config);
+    auto st = doris::vectorized::variant_util::build_compiled_skip_patterns(skip_patterns, false,
+                                                                            &config);
     EXPECT_TRUE(st.ok()) << st.to_string();
     auto result = parser.parse(json.c_str(), json.size(), config);
     ASSERT_TRUE(result.has_value());
@@ -547,8 +547,8 @@ TEST(JsonParserTest, ParseWithInvalidSkipGlobDoesNotDropPaths) {
 
     ParseConfig compiled_config;
     compiled_config.skip_patterns = &skip_patterns;
-    st = doris::vectorized::variant_util::build_compiled_skip_patterns(
-            skip_patterns, true, &compiled_config);
+    st = doris::vectorized::variant_util::build_compiled_skip_patterns(skip_patterns, true,
+                                                                       &compiled_config);
     EXPECT_TRUE(st.ok()) << st.to_string();
     auto compiled_result = parser.parse(json.c_str(), json.size(), compiled_config);
     ASSERT_TRUE(compiled_result.has_value());
@@ -567,8 +567,8 @@ TEST(JsonParserTest, SkipPatternsDoNotApplyInsideArrayElements) {
     ParseConfig config;
     config.enable_flatten_nested = true;
     config.skip_patterns = &skip_patterns;
-    auto st = doris::vectorized::variant_util::build_compiled_skip_patterns(
-            skip_patterns, true, &config);
+    auto st = doris::vectorized::variant_util::build_compiled_skip_patterns(skip_patterns, true,
+                                                                            &config);
     EXPECT_TRUE(st.ok()) << st.to_string();
     auto result = parser.parse(json.c_str(), json.size(), config);
     ASSERT_TRUE(result.has_value());

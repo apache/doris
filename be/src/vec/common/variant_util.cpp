@@ -174,8 +174,7 @@ Status build_compiled_skip_patterns(
 }
 
 bool should_skip_path(const ParseConfig& parse_config, const std::string& path) {
-    if (parse_config.skip_exact_patterns.find(path) !=
-        parse_config.skip_exact_patterns.end()) {
+    if (parse_config.skip_exact_patterns.find(path) != parse_config.skip_exact_patterns.end()) {
         return true;
     }
 
