@@ -63,6 +63,14 @@ public class MicrosecondFromUnixtime extends ScalarFunction
     }
 
     @Override
+    public FunctionSignature computeSignature(FunctionSignature signature) {
+        // skip super.computeSignature() to avoid changing the decimal precision
+        // manually set decimal argument's type to always decimal(18, 6), same with FROM_UNIXTIME
+        return FunctionSignature.ret(IntegerType.INSTANCE)
+                .args(DecimalV3Type.createDecimalV3Type(18, 6));
+    }
+
+    @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
     }

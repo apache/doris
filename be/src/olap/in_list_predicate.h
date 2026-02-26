@@ -245,13 +245,13 @@ public:
         _evaluate_bit<false>(column, sel, size, flags);
     }
 
-    bool evaluate_and(const ZoneMapInfo& zone_map_info) const override {
-        if (zone_map_info.is_all_null) {
+    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override {
+        if (!zone_map.has_not_null) {
             return false;
         }
         if constexpr (PT == PredicateType::IN_LIST) {
-            return Compare::less_equal(zone_map_info.min_value.template get<Type>(), _max_value) &&
-                   Compare::greater_equal(zone_map_info.max_value.template get<Type>(), _min_value);
+            return Compare::less_equal(zone_map.min_value.template get<Type>(), _max_value) &&
+                   Compare::greater_equal(zone_map.max_value.template get<Type>(), _min_value);
         } else {
             return true;
         }
@@ -340,13 +340,13 @@ public:
         return false;
     }
 
-    bool evaluate_del(const ZoneMapInfo& zone_map_info) const override {
-        if (zone_map_info.has_null) {
+    bool evaluate_del(const segment_v2::ZoneMap& zone_map) const override {
+        if (zone_map.has_null) {
             return false;
         }
         if constexpr (PT == PredicateType::NOT_IN_LIST) {
-            return Compare::greater(zone_map_info.min_value.template get<Type>(), _max_value) ||
-                   Compare::less(zone_map_info.max_value.template get<Type>(), _min_value);
+            return Compare::greater(zone_map.min_value.template get<Type>(), _max_value) ||
+                   Compare::less(zone_map.max_value.template get<Type>(), _min_value);
         } else {
             return false;
         }

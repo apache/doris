@@ -15,18 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common;
+package org.apache.doris.nereids.types;
 
-import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 
-public class QuotaExceedException extends UserException {
+import java.util.ArrayList;
+import java.util.List;
 
-    public QuotaExceedException(String databaseName, long dataQuotaBytes) {
-        super("Database[" + databaseName + "] data size exceeds quota["
-                + DebugUtil.printByteWithUnit(dataQuotaBytes) + "]");
-    }
+/**
+ * utils for data type of nereids.
+ */
+public class DataTypeUtils {
 
-    public QuotaExceedException(String msg) {
-        super(msg);
+    /**
+     * getMockedExpressions.
+     */
+    public static List<Expression> getMockedExpressions(AggStateType aggStateType) {
+        List<Expression> result = new ArrayList<>();
+        for (int i = 0; i < aggStateType.getSubTypes().size(); i++) {
+            result.add(new SlotReference("mocked", aggStateType.getSubTypes().get(i),
+                    aggStateType.getSubTypeNullables().get(i)));
+        }
+        return result;
     }
 }

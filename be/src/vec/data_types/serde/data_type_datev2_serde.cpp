@@ -23,13 +23,13 @@
 
 #include <cstdint>
 
-#include "io/io_common.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/functions/cast/cast_base.h"
 #include "vec/functions/cast/cast_to_datev2_impl.hpp"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -440,6 +440,10 @@ Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch(
         col_data.get_data()[i] = val;
     }
     return Status::OK();
+}
+
+std::string DataTypeDateV2SerDe::to_olap_string(const vectorized::Field& field) const {
+    return CastToString::from_datev2(field.get<TYPE_DATEV2>());
 }
 // NOLINTEND(readability-function-cognitive-complexity)
 // NOLINTEND(readability-function-size)

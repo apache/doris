@@ -46,6 +46,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
+import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.datasource.doris.source.RemoteDorisScanNode;
 import org.apache.doris.datasource.es.EsExternalTable;
 import org.apache.doris.datasource.es.source.EsScanNode;
@@ -213,6 +214,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RecursiveCteNode;
 import org.apache.doris.planner.RecursiveCteScanNode;
+import org.apache.doris.planner.RemoteOlapTableSink;
 import org.apache.doris.planner.RepeatNode;
 import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.planner.ResultSink;
@@ -537,20 +539,29 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             syncMvWhereClauses.put(entry.getKey(), ExpressionTranslator.translate(entry.getValue(), context));
         }
         OlapTableSink sink;
-        // This statement is only used in the group_commit mode
-        if (context.getConnectContext().isGroupCommit()) {
-            sink = new GroupCommitBlockSink(olapTableSink.getTargetTable(), olapTuple,
-                    olapTableSink.getTargetTable().getPartitionIds(), olapTableSink.isSingleReplicaLoad(),
+        OlapTable targetTable = olapTableSink.getTargetTable();
+        if (targetTable instanceof RemoteOlapTable) {
+            if (context.getConnectContext().isGroupCommit()) {
+                throw new RuntimeException("remote olap table do not support group commit");
+            }
+            sink = new RemoteOlapTableSink(
+                    (RemoteOlapTable) targetTable,
+                    olapTuple,
+                    olapTableSink.getPartitionIds().isEmpty() ? null : olapTableSink.getPartitionIds(),
+                    olapTableSink.isSingleReplicaLoad(), partitionExprs, syncMvWhereClauses);
+        } else if (context.getConnectContext().isGroupCommit()) {
+            sink = new GroupCommitBlockSink(targetTable, olapTuple,
+                    targetTable.getPartitionIds(), olapTableSink.isSingleReplicaLoad(),
                     partitionExprs, syncMvWhereClauses,
                     context.getSessionVariable().getGroupCommit(),
                     ConnectContext.get().getSessionVariable().getEnableInsertStrict() ? 0
                             : ConnectContext.get().getSessionVariable().getInsertMaxFilterRatio());
         } else {
             sink = new OlapTableSink(
-                olapTableSink.getTargetTable(),
-                olapTuple,
-                olapTableSink.getPartitionIds().isEmpty() ? null : olapTableSink.getPartitionIds(),
-                olapTableSink.isSingleReplicaLoad(), partitionExprs, syncMvWhereClauses
+                    targetTable,
+                    olapTuple,
+                    olapTableSink.getPartitionIds().isEmpty() ? null : olapTableSink.getPartitionIds(),
+                    olapTableSink.isSingleReplicaLoad(), partitionExprs, syncMvWhereClauses
             );
         }
         sink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateCols);

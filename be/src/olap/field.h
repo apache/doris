@@ -67,26 +67,12 @@ public:
     const vectorized::PathInDataPtr& path() const { return _path; }
 
     virtual void set_to_max(char* buf) const { return _type_info->set_to_max(buf); }
-    virtual void set_to_zone_map_max(char* buf) const { set_to_max(buf); }
 
     virtual void set_to_min(char* buf) const { return _type_info->set_to_min(buf); }
-    virtual void set_to_zone_map_min(char* buf) const { set_to_min(buf); }
 
     void set_long_text_buf(char** buf) { _long_text_buf = buf; }
 
-    // This function allocate memory from arena, other than allocate_memory
-    // reserve memory from continuous memory.
-    virtual char* allocate_value(vectorized::Arena& arena) const {
-        return arena.alloc(_type_info->size());
-    }
-
-    virtual char* allocate_zone_map_value(vectorized::Arena& arena) const {
-        return allocate_value(arena);
-    }
-
     virtual size_t get_variable_len() const { return 0; }
-
-    virtual void modify_zone_map_index(char*) const {}
 
     virtual Field* clone() const {
         auto* local = new Field(_desc);
@@ -120,29 +106,6 @@ public:
         return l_null ? 0 : _type_info->cmp(lhs.cell_ptr(), rhs.cell_ptr());
     }
 
-    // Copy source cell's content to destination cell directly.
-    // For string type, this function assume that destination has
-    // enough space and copy source content into destination without
-    // memory allocation.
-    template <typename DstCellType, typename SrcCellType>
-    void direct_copy(DstCellType* dst, const SrcCellType& src) const {
-        bool is_null = src.is_null();
-        dst->set_is_null(is_null);
-        if (is_null) {
-            return;
-        }
-        if (type() == FieldType::OLAP_FIELD_TYPE_STRING) {
-            auto dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
-            auto src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
-            if (dst_slice->size < src_slice->size) {
-                *_long_text_buf = static_cast<char*>(realloc(*_long_text_buf, src_slice->size));
-                dst_slice->data = *_long_text_buf;
-                dst_slice->size = src_slice->size;
-            }
-        }
-        return _type_info->direct_copy(dst->mutable_cell_ptr(), src.cell_ptr());
-    }
-
     // deep copy source cell' content to destination cell.
     // For string type, this will allocate data form arena,
     // and copy source's content.
@@ -169,21 +132,6 @@ public:
             }
         }
         return _type_info->from_string(buf, value_string, precision, scale);
-    }
-
-    //  convert inner value to string
-    //  performance is not considered, only for debug use
-    std::string to_string(const char* src) const { return _type_info->to_string(src); }
-
-    template <typename CellType>
-    std::string debug_string(const CellType& cell) const {
-        std::stringstream ss;
-        if (cell.is_null()) {
-            ss << "(null)";
-        } else {
-            ss << _type_info->to_string(cell.cell_ptr());
-        }
-        return ss.str();
     }
 
     FieldType type() const { return _type_info->type(); }
@@ -313,42 +261,9 @@ public:
         return local;
     }
 
-    char* allocate_value(vectorized::Arena& arena) const override {
-        return Field::allocate_string_value(arena);
-    }
-
     void set_to_max(char* ch) const override {
         auto slice = reinterpret_cast<Slice*>(ch);
         slice->size = _length;
-        memset(slice->data, 0xFF, slice->size);
-    }
-
-    // To prevent zone map cost too many memory, if varchar length
-    // longer than `MAX_ZONE_MAP_INDEX_SIZE`. we just allocate
-    // `MAX_ZONE_MAP_INDEX_SIZE` of memory
-    char* allocate_zone_map_value(vectorized::Arena& arena) const override {
-        char* type_value = arena.alloc(sizeof(Slice));
-        auto slice = reinterpret_cast<Slice*>(type_value);
-        slice->size = MAX_ZONE_MAP_INDEX_SIZE > _length ? _length : MAX_ZONE_MAP_INDEX_SIZE;
-        slice->data = arena.alloc(slice->size);
-        return type_value;
-    }
-
-    // only varchar filed need modify zone map index when zone map max_value
-    // index longer than `MAX_ZONE_MAP_INDEX_SIZE`. so here we add one
-    // for the last byte
-    // In UTF8 encoding, here do not appear 0xff in last byte
-    void modify_zone_map_index(char* src) const override {
-        auto slice = reinterpret_cast<Slice*>(src);
-        if (slice->size == MAX_ZONE_MAP_INDEX_SIZE) {
-            slice->mutable_data()[slice->size - 1] += 1;
-        }
-    }
-
-    void set_to_zone_map_max(char* ch) const override {
-        auto slice = reinterpret_cast<Slice*>(ch);
-        size_t length = _length < MAX_ZONE_MAP_INDEX_SIZE ? _length : MAX_ZONE_MAP_INDEX_SIZE;
-        slice->size = length;
         memset(slice->data, 0xFF, slice->size);
     }
 };
@@ -365,42 +280,9 @@ public:
         return local;
     }
 
-    char* allocate_value(vectorized::Arena& arena) const override {
-        return Field::allocate_string_value(arena);
-    }
-
-    // To prevent zone map cost too many memory, if varchar length
-    // longer than `MAX_ZONE_MAP_INDEX_SIZE`. we just allocate
-    // `MAX_ZONE_MAP_INDEX_SIZE` of memory
-    char* allocate_zone_map_value(vectorized::Arena& arena) const override {
-        char* type_value = arena.alloc(sizeof(Slice));
-        auto slice = reinterpret_cast<Slice*>(type_value);
-        slice->size = MAX_ZONE_MAP_INDEX_SIZE > _length ? _length : MAX_ZONE_MAP_INDEX_SIZE;
-        slice->data = arena.alloc(slice->size);
-        return type_value;
-    }
-
-    // only varchar/string filed need modify zone map index when zone map max_value
-    // index longer than `MAX_ZONE_MAP_INDEX_SIZE`. so here we add one
-    // for the last byte
-    // In UTF8 encoding, here do not appear 0xff in last byte
-    void modify_zone_map_index(char* src) const override {
-        auto slice = reinterpret_cast<Slice*>(src);
-        if (slice->size == MAX_ZONE_MAP_INDEX_SIZE) {
-            slice->mutable_data()[slice->size - 1] += 1;
-        }
-    }
-
     void set_to_max(char* ch) const override {
         auto slice = reinterpret_cast<Slice*>(ch);
         slice->size = _length - OLAP_VARCHAR_MAX_BYTES;
-        memset(slice->data, 0xFF, slice->size);
-    }
-    void set_to_zone_map_max(char* ch) const override {
-        auto slice = reinterpret_cast<Slice*>(ch);
-        size_t length = _length < MAX_ZONE_MAP_INDEX_SIZE ? _length : MAX_ZONE_MAP_INDEX_SIZE;
-
-        slice->size = length - OLAP_VARCHAR_MAX_BYTES;
         memset(slice->data, 0xFF, slice->size);
     }
 };
@@ -414,39 +296,9 @@ public:
         return local;
     }
 
-    char* allocate_value(vectorized::Arena& arena) const override {
-        return Field::allocate_string_value(arena);
-    }
-
-    char* allocate_zone_map_value(vectorized::Arena& arena) const override {
-        char* type_value = arena.alloc(sizeof(Slice));
-        auto slice = reinterpret_cast<Slice*>(type_value);
-        slice->size = MAX_ZONE_MAP_INDEX_SIZE;
-        slice->data = arena.alloc(slice->size);
-        return type_value;
-    }
     void set_to_max(char* ch) const override {
         auto slice = reinterpret_cast<Slice*>(ch);
         memset(slice->data, 0xFF, slice->size);
-    }
-    // only varchar/string filed need modify zone map index when zone map max_value
-    // index longer than `MAX_ZONE_MAP_INDEX_SIZE`. so here we add one
-    // for the last byte
-    // In UTF8 encoding, here do not appear 0xff in last byte
-    void modify_zone_map_index(char* src) const override {
-        auto slice = reinterpret_cast<Slice*>(src);
-        if (slice->size == MAX_ZONE_MAP_INDEX_SIZE) {
-            slice->mutable_data()[slice->size - 1] += 1;
-        }
-    }
-
-    void set_to_zone_map_max(char* ch) const override {
-        auto slice = reinterpret_cast<Slice*>(ch);
-        memset(slice->data, 0xFF, slice->size);
-    }
-    void set_to_zone_map_min(char* ch) const override {
-        auto slice = reinterpret_cast<Slice*>(ch);
-        memset(slice->data, 0x00, slice->size);
     }
 };
 

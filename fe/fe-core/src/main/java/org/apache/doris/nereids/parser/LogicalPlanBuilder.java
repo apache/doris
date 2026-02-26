@@ -5091,7 +5091,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 // TODO use function binder to check function exists
                 throw new ParseException("Can not found function '" + functionName + "'", ctx);
             }
-            return new AggStateType(functionName, dataTypes, nullables);
+            return new AggStateType(functionName, dataTypes, nullables,
+                    BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(functionName));
         });
     }
 

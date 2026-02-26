@@ -31,6 +31,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
@@ -173,8 +174,8 @@ public class BindSink implements AnalysisRuleFactory {
 
     private Plan bindOlapTableSink(MatchingContext<UnboundTableSink<Plan>> ctx) {
         UnboundTableSink<?> sink = ctx.root;
-        Pair<Database, OlapTable> pair = bind(ctx.cascadesContext, sink);
-        Database database = pair.first;
+        Pair<DatabaseIf, OlapTable> pair = bind(ctx.cascadesContext, sink);
+        DatabaseIf database = pair.first;
         OlapTable table = pair.second;
         boolean isPartialUpdate = sink.isPartialUpdate() && table.getKeysType() == KeysType.UNIQUE_KEYS;
         TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = sink.getPartialUpdateNewRowPolicy();
@@ -993,15 +994,16 @@ public class BindSink implements AnalysisRuleFactory {
         return columnToOutput;
     }
 
-    private Pair<Database, OlapTable> bind(CascadesContext cascadesContext, UnboundTableSink<? extends Plan> sink) {
+    private Pair<DatabaseIf, OlapTable> bind(CascadesContext cascadesContext, UnboundTableSink<? extends Plan> sink) {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 sink.getNameParts());
         Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
                 cascadesContext.getConnectContext().getEnv(), Optional.empty());
-        if (!(pair.second instanceof OlapTable)) {
+        if (!(pair.second instanceof OlapTable) && !(pair.second instanceof RemoteDorisExternalTable)) {
             throw new AnalysisException("the target table of insert into is not an OLAP table");
         }
-        return Pair.of(((Database) pair.first), (OlapTable) pair.second);
+        return Pair.of(pair.first, pair.second instanceof RemoteDorisExternalTable
+                ? ((RemoteDorisExternalTable) pair.second).getOlapTable() : (OlapTable) pair.second);
     }
 
     private Pair<HMSExternalDatabase, HMSExternalTable> bind(CascadesContext cascadesContext,
