@@ -825,6 +825,9 @@ Status ParquetReader::_next_row_group_reader() {
     _current_group_reader->set_current_row_group_idx(_current_row_group_index);
     _current_group_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
     _current_group_reader->set_col_name_to_block_idx(_col_name_to_block_idx);
+    if (_condition_cache_ctx) {
+        _current_group_reader->set_condition_cache_context(_condition_cache_ctx);
+    }
 
     _current_group_reader->_table_info_node_ptr = _table_info_node_ptr;
     return _current_group_reader->init(_file_metadata->schema(), candidate_row_ranges, _col_offsets,

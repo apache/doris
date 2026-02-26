@@ -115,7 +115,8 @@ Status RowGroupReader::init(
     _col_name_to_slot_id = colname_to_slot_id;
     _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
     _read_ranges = row_ranges;
-    _remaining_rows = row_ranges.count();
+    _filter_read_ranges_by_condition_cache();
+    _remaining_rows = _read_ranges.count();
 
     if (_read_table_columns.empty()) {
         // Query task that only select columns in path.
@@ -325,6 +326,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         return _do_lazy_read(block, batch_size, read_rows, batch_eof);
     } else {
         FilterMap filter_map;
+        int64_t batch_base_row = _total_read_rows;
         RETURN_IF_ERROR((_read_column_data(block, _lazy_read_ctx.all_read_columns, batch_size,
                                            read_rows, batch_eof, filter_map)));
         RETURN_IF_ERROR(
@@ -377,6 +379,12 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
                             _filter_conjuncts, &filters, block, &result_filter, &can_filter_all));
                 }
 
+                // Condition cache MISS: mark granules with surviving rows (non-lazy path)
+                if (!can_filter_all) {
+                    _mark_condition_cache_granules(result_filter.data(), block->rows(),
+                                                   batch_base_row);
+                }
+
                 if (can_filter_all) {
                     for (auto& col : columns_to_filter) {
                         std::move(*block->get_by_position(col).column).assume_mutable()->clear();
@@ -406,6 +414,100 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         *read_rows = block->rows();
         return Status::OK();
     }
+}
+
+// On condition cache HIT, removes row ranges whose granules have no surviving rows from
+// _read_ranges BEFORE column readers are created. This makes ParquetColumnReader skip I/O
+// entirely for false-granule rows — both predicate and lazy columns — via its existing
+// page/row-skipping infrastructure.
+//
+// After filtering, _condition_cache_ctx is set to nullptr because:
+// 1. The batch-level cache checks in _do_lazy_read() / non-lazy path are now redundant
+//    (false-granule rows have already been excluded from _read_ranges).
+// Maps each batch row to its global parquet file position via _read_ranges, then marks
+// the corresponding condition cache granule as true if the filter indicates the row survived.
+// batch_seq_start is the number of rows already read sequentially before this batch
+// (i.e., _total_read_rows before the batch started).
+void RowGroupReader::_mark_condition_cache_granules(const uint8_t* filter_data, size_t num_rows,
+                                                    int64_t batch_seq_start) {
+    if (!_condition_cache_ctx || _condition_cache_ctx->is_hit) {
+        return;
+    }
+    auto& cache = *_condition_cache_ctx->filter_result;
+    for (size_t i = 0; i < num_rows; i++) {
+        if (filter_data[i]) {
+            // row-group-relative position of this row
+            int64_t rg_pos = _read_ranges.get_row_index_by_pos(batch_seq_start + i);
+            // global row number in the parquet file
+            size_t granule = (_current_row_group_idx.first_row + rg_pos) /
+                             ConditionCacheContext::GRANULE_SIZE;
+            if (granule >= cache.size()) {
+                cache.resize(granule + 1, false);
+            }
+            cache[granule] = true;
+        }
+    }
+}
+
+// 2. The MISS population code paths should not execute on a HIT.
+// 3. FileScanner retains its own shared_ptr to the context for cache finalization.
+void RowGroupReader::_filter_read_ranges_by_condition_cache() {
+    if (!_condition_cache_ctx || !_condition_cache_ctx->is_hit) {
+        return;
+    }
+    auto& filter_result = *_condition_cache_ctx->filter_result;
+    if (filter_result.empty()) {
+        return;
+    }
+
+    _read_ranges =
+            filter_ranges_by_cache(_read_ranges, filter_result, _current_row_group_idx.first_row);
+    _is_row_group_filtered = _read_ranges.is_empty();
+    _condition_cache_ctx = nullptr;
+}
+
+// Filters read_ranges by removing rows whose cache granule is false.
+//
+// Cache granule i covers global file rows [i*GS, (i+1)*GS). Since read_ranges uses
+// row-group-relative indices and first_row is the global position of the row group's
+// first row, granule i maps to row-group-relative range:
+//   [max(0, i*GS - first_row), max(0, (i+1)*GS - first_row))
+//
+// We build a RowRanges of all false-granule regions (in row-group-relative coordinates),
+// then subtract from read_ranges via ranges_exception.
+//
+// Granules beyond cache.size() are kept conservatively (assumed true).
+//
+// Example 1: first_row = 0, read_ranges = [0, 8192), cache = {true, false, true, false}
+//   false granules 1,3 -> filtered = [2048, 4096), [6144, 8192)
+//   Result: [0, 2048), [4096, 6144)
+//
+// Example 2: first_row = 1024, read_ranges = [0, 4096), cache = {false, true, false}
+//   granule 0 -> rg [-1024, 1024) clipped to [0, 1024)
+//   granule 2 -> rg [3072, 5120) clipped to [3072, 4096) by ranges_exception
+//   filtered = [0, 1024), [3072, 5120)
+//   Result: [1024, 3072)
+RowRanges RowGroupReader::filter_ranges_by_cache(const RowRanges& read_ranges,
+                                                 const std::vector<bool>& cache,
+                                                 int64_t first_row) {
+    constexpr int64_t GS = ConditionCacheContext::GRANULE_SIZE;
+    RowRanges filtered_ranges;
+
+    for (size_t i = 0; i < cache.size(); i++) {
+        if (!cache[i]) {
+            int64_t rg_from =
+                    std::max(static_cast<int64_t>(0), static_cast<int64_t>(i) * GS - first_row);
+            int64_t rg_to = std::max(static_cast<int64_t>(0),
+                                     (static_cast<int64_t>(i) + 1) * GS - first_row);
+            if (rg_from < rg_to) {
+                filtered_ranges.add(RowRange(rg_from, rg_to));
+            }
+        }
+    }
+
+    RowRanges result;
+    RowRanges::ranges_exception(read_ranges, filtered_ranges, &result);
+    return result;
 }
 
 Status RowGroupReader::_read_column_data(Block* block,
@@ -504,6 +606,8 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
         pre_read_rows = 0;
         pre_eof = false;
         FilterMap filter_map;
+        int64_t batch_base_row = _total_read_rows;
+        ;
         RETURN_IF_ERROR(_read_column_data(block, _lazy_read_ctx.predicate_columns.first, batch_size,
                                           &pre_read_rows, &pre_eof, filter_map));
         if (pre_read_rows == 0) {
@@ -511,6 +615,29 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
             break;
         }
         pre_raw_read_rows += pre_read_rows;
+
+        // Condition cache HIT: check if all rows in this batch are in false granules
+        bool cache_skip_batch = false;
+        if (_condition_cache_ctx && _condition_cache_ctx->is_hit) {
+            auto& cache = *_condition_cache_ctx->filter_result;
+            int64_t first_rg_pos = _read_ranges.get_row_index_by_pos(batch_base_row);
+            int64_t last_rg_pos =
+                    _read_ranges.get_row_index_by_pos(batch_base_row + pre_read_rows - 1);
+            size_t start_granule = (_current_row_group_idx.first_row + first_rg_pos) /
+                                   ConditionCacheContext::GRANULE_SIZE;
+            size_t end_granule = (_current_row_group_idx.first_row + last_rg_pos) /
+                                 ConditionCacheContext::GRANULE_SIZE;
+            bool has_surviving_granule = false;
+            for (size_t g = start_granule; g <= end_granule && !has_surviving_granule; g++) {
+                if (g < cache.size() && cache[g]) {
+                    has_surviving_granule = true;
+                }
+            }
+            if (!has_surviving_granule) {
+                cache_skip_batch = true;
+            }
+        }
+
         RETURN_IF_ERROR(_fill_partition_columns(block, pre_read_rows,
                                                 _lazy_read_ctx.predicate_partition_columns));
         RETURN_IF_ERROR(_fill_missing_columns(block, pre_read_rows,
@@ -535,31 +662,43 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
         {
             SCOPED_RAW_TIMER(&_predicate_filter_time);
 
-            // generate filter vector
-            if (_lazy_read_ctx.resize_first_column) {
-                // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
-                // The following process may be tricky and time-consuming, but we have no other way.
-                block->get_by_position(0).column->assume_mutable()->resize(pre_read_rows);
-            }
-            result_filter.assign(pre_read_rows, static_cast<unsigned char>(1));
-            std::vector<IColumn::Filter*> filters;
-            if (_position_delete_ctx.has_filter) {
-                filters.push_back(_pos_delete_filter_ptr.get());
-            }
+            // Condition cache HIT: skip predicate evaluation for false-granule batches
+            if (cache_skip_batch) {
+                can_filter_all = true;
+                result_filter.assign(pre_read_rows, static_cast<unsigned char>(0));
+            } else {
+                // generate filter vector
+                if (_lazy_read_ctx.resize_first_column) {
+                    // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
+                    // The following process may be tricky and time-consuming, but we have no other way.
+                    block->get_by_position(0).column->assume_mutable()->resize(pre_read_rows);
+                }
+                result_filter.assign(pre_read_rows, static_cast<unsigned char>(1));
+                std::vector<IColumn::Filter*> filters;
+                if (_position_delete_ctx.has_filter) {
+                    filters.push_back(_pos_delete_filter_ptr.get());
+                }
 
-            VExprContextSPtrs filter_contexts;
-            for (auto& conjunct : _filter_conjuncts) {
-                filter_contexts.emplace_back(conjunct);
-            }
+                VExprContextSPtrs filter_contexts;
+                for (auto& conjunct : _filter_conjuncts) {
+                    filter_contexts.emplace_back(conjunct);
+                }
 
-            {
-                RETURN_IF_ERROR(VExprContext::execute_conjuncts(filter_contexts, &filters, block,
-                                                                &result_filter, &can_filter_all));
-            }
+                {
+                    RETURN_IF_ERROR(VExprContext::execute_conjuncts(
+                            filter_contexts, &filters, block, &result_filter, &can_filter_all));
+                }
 
-            if (_lazy_read_ctx.resize_first_column) {
-                // We have to clean the first column to insert right data.
-                block->get_by_position(0).column->assume_mutable()->clear();
+                // Condition cache MISS: mark granules with surviving rows
+                if (!can_filter_all) {
+                    _mark_condition_cache_granules(result_filter.data(), pre_read_rows,
+                                                   batch_base_row);
+                }
+
+                if (_lazy_read_ctx.resize_first_column) {
+                    // We have to clean the first column to insert right data.
+                    block->get_by_position(0).column->assume_mutable()->clear();
+                }
             }
         }
 

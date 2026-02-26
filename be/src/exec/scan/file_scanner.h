@@ -36,6 +36,8 @@
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "io/io_common.h"
+#include "storage/segment/condition_cache.h"
+#include "exec/operator/file_scan_operator.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
 #include "storage/olap_common.h"
@@ -232,6 +234,14 @@ private:
     int64_t _last_bytes_read_from_local = 0;
     int64_t _last_bytes_read_from_remote = 0;
 
+    // Condition cache for external tables
+    uint64_t _condition_cache_digest = 0;
+    bool _condition_cache_hit = false;
+    std::shared_ptr<std::vector<bool>> _condition_cache;
+    std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
+    RuntimeProfile::Counter* _condition_cache_hit_range_counter = nullptr;
+    RuntimeProfile::Counter* _condition_cache_filtered_batch_counter = nullptr;
+
 private:
     Status _init_expr_ctxes();
     Status _init_src_block(Block* block);
@@ -276,6 +286,9 @@ private:
         _counter.num_rows_unselected = 0;
         _counter.num_rows_filtered = 0;
     }
+
+    void _init_condition_cache_for_range();
+    void _finalize_condition_cache_for_range();
 
     TPushAggOp::type _get_push_down_agg_type() {
         return _local_state == nullptr ? TPushAggOp::type::NONE

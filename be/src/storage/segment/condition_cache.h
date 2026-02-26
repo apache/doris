@@ -69,6 +69,30 @@ public:
         std::shared_ptr<std::vector<bool>> filter_result;
     };
 
+    // Cache key for external tables (Hive ORC/Parquet)
+    struct ExternalCacheKey {
+        ExternalCacheKey(const std::string& path_, int64_t modification_time_, int64_t file_size_,
+                         uint64_t digest_)
+                : path(path_),
+                  modification_time(modification_time_),
+                  file_size(file_size_),
+                  digest(digest_) {}
+        std::string path;
+        int64_t modification_time;
+        int64_t file_size;
+        uint64_t digest;
+
+        [[nodiscard]] std::string encode() const {
+            std::string key = path;
+            char buf[24];
+            memcpy(buf, &modification_time, 8);
+            memcpy(buf + 8, &file_size, 8);
+            memcpy(buf + 16, &digest, 8);
+            key.append(buf, 24);
+            return key;
+        }
+    };
+
     // Create global instance of this class
     static ConditionCache* create_global_cache(size_t capacity, uint32_t num_shards = 16) {
         auto* res = new ConditionCache(capacity, num_shards);
@@ -90,6 +114,10 @@ public:
     bool lookup(const CacheKey& key, ConditionCacheHandle* handle);
 
     void insert(const CacheKey& key, std::shared_ptr<std::vector<bool>> filter_result);
+
+    bool lookup(const ExternalCacheKey& key, ConditionCacheHandle* handle);
+
+    void insert(const ExternalCacheKey& key, std::shared_ptr<std::vector<bool>> filter_result);
 };
 
 class ConditionCacheHandle {

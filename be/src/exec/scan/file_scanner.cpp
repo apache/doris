@@ -159,6 +159,11 @@ Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
             ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
                                    "RuntimeFilterPartitionPrunedRangeNum", TUnit::UNIT, 1);
 
+    _condition_cache_hit_range_counter = ADD_COUNTER_WITH_LEVEL(
+            _local_state->scanner_profile(), "ConditionCacheHitRangeNum", TUnit::UNIT, 1);
+    _condition_cache_filtered_batch_counter = ADD_COUNTER_WITH_LEVEL(
+            _local_state->scanner_profile(), "ConditionCacheFilteredBatchNum", TUnit::UNIT, 1);
+
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _file_reader_stats.reset(new io::FileReaderStats());
 
@@ -375,6 +380,9 @@ void FileScanner::_get_slot_ids(VExpr* expr, std::vector<int>* slot_ids) {
 Status FileScanner::_open_impl(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(Scanner::_open_impl(state));
+    if (_local_state) {
+        _condition_cache_digest = _local_state->get_condition_cache_digest();
+    }
     RETURN_IF_ERROR(_split_source->get_next(&_first_scan_range, &_current_range));
     if (_first_scan_range) {
         RETURN_IF_ERROR(_init_expr_ctxes());
@@ -424,6 +432,7 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
     do {
         RETURN_IF_CANCELLED(state);
         if (_cur_reader == nullptr || _cur_reader_eof) {
+            _finalize_condition_cache_for_range();
             // The file may not exist because the file list is got from meta cache,
             // And the file may already be removed from storage.
             // Just ignore not found files.
@@ -438,6 +447,11 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
                 continue;
             } else if (!st) {
                 return st;
+            }
+            _init_condition_cache_for_range();
+            // Pass condition cache context to the reader
+            if (_cur_reader && _condition_cache_ctx) {
+                _cur_reader->set_condition_cache_context(_condition_cache_ctx);
             }
         }
 
@@ -1739,10 +1753,71 @@ Status FileScanner::_init_expr_ctxes() {
     return Status::OK();
 }
 
+void FileScanner::_init_condition_cache_for_range() {
+    _condition_cache_hit = false;
+    _condition_cache = nullptr;
+    _condition_cache_ctx = nullptr;
+
+    if (_condition_cache_digest == 0 || _is_load) {
+        return;
+    }
+
+    // Disable condition cache when delete operations exist (e.g. Iceberg position/equality
+    // deletes, Hive ACID deletes). Cached granule results may become stale if delete files
+    // change between queries while the data file's cache key remains the same.
+    if (_cur_reader && _cur_reader->has_delete_operations()) {
+        return;
+    }
+
+    auto* cache = segment_v2::ConditionCache::instance();
+    segment_v2::ConditionCache::ExternalCacheKey cache_key(
+            _current_range.path, _current_range.__isset.file_size ? _current_range.file_size : -1,
+            _current_range.__isset.modification_time ? _current_range.modification_time : 0,
+            _condition_cache_digest);
+
+    segment_v2::ConditionCacheHandle handle;
+    _condition_cache_hit = cache->lookup(cache_key, &handle);
+    if (_condition_cache_hit) {
+        _condition_cache = handle.get_filter_result();
+        COUNTER_UPDATE(_condition_cache_hit_range_counter, 1);
+    } else {
+        // Allocate empty cache for population during miss
+        _condition_cache = std::make_shared<std::vector<bool>>();
+    }
+
+    // Create context to pass to readers
+    _condition_cache_ctx = std::make_shared<ConditionCacheContext>();
+    _condition_cache_ctx->is_hit = _condition_cache_hit;
+    _condition_cache_ctx->filter_result = _condition_cache;
+}
+
+void FileScanner::_finalize_condition_cache_for_range() {
+    if (_condition_cache == nullptr || _condition_cache_hit || _condition_cache_digest == 0 ||
+        _is_load) {
+        _condition_cache = nullptr;
+        _condition_cache_hit = false;
+        _condition_cache_ctx = nullptr;
+        return;
+    }
+
+    auto* cache = segment_v2::ConditionCache::instance();
+    segment_v2::ConditionCache::ExternalCacheKey cache_key(
+            _current_range.path, _current_range.__isset.file_size ? _current_range.file_size : -1,
+            _current_range.__isset.modification_time ? _current_range.modification_time : 0,
+            _condition_cache_digest);
+
+    cache->insert(cache_key, std::move(_condition_cache));
+    _condition_cache = nullptr;
+    _condition_cache_hit = false;
+    _condition_cache_ctx = nullptr;
+}
+
 Status FileScanner::close(RuntimeState* state) {
     if (!_try_close()) {
         return Status::OK();
     }
+
+    _finalize_condition_cache_for_range();
 
     if (_cur_reader) {
         RETURN_IF_ERROR(_cur_reader->close());

@@ -192,6 +192,52 @@ public:
         *result = std::move(tmp_range);
     }
 
+    // Calculates the exception (set difference) of the two specified RowRanges objects: left \ right.
+    // The result contains all row indexes that are in the left ranges but NOT in the right ranges.
+    // For example:
+    // [100, 300) \ [150, 200) = [100, 150), [200, 300)
+    // [100, 300) \ [0, 150) = [150, 300)
+    // [100, 300) \ [250, 400) = [100, 250)
+    // [100, 200) \ [200, 300) = [100, 200)
+    // [100, 300) \ [0, 400) = <EMPTY>
+    // [100, 200), [300, 400) \ [150, 350) = [100, 150), [350, 400)
+    static void ranges_exception(const RowRanges& left, const RowRanges& right, RowRanges* result) {
+        RowRanges tmp_range;
+        int right_index = 0;
+        for (auto it1 = left._ranges.begin(); it1 != left._ranges.end(); ++it1) {
+            int64_t current_from = it1->from();
+            int64_t current_to = it1->to();
+            for (int i = right_index; i < right._ranges.size(); ++i) {
+                const RowRange& range2 = right._ranges[i];
+                if (current_from >= current_to) {
+                    // Current range fully consumed
+                    break;
+                }
+                if (current_to <= range2.from()) {
+                    // Current remaining range is entirely before range2, no more subtraction needed
+                    break;
+                }
+                if (current_from >= range2.to()) {
+                    // range2 is entirely before the current remaining range, advance right_index
+                    right_index = i + 1;
+                    continue;
+                }
+                // There is overlap between [current_from, current_to) and range2
+                if (current_from < range2.from()) {
+                    // Left portion before the overlap: [current_from, range2.from())
+                    tmp_range.add(RowRange(current_from, range2.from()));
+                }
+                // Advance current_from past the overlap
+                current_from = range2.to();
+            }
+            // Add whatever remains of the current left range
+            if (current_from < current_to) {
+                tmp_range.add(RowRange(current_from, current_to));
+            }
+        }
+        *result = std::move(tmp_range);
+    }
+
     static roaring::Roaring ranges_to_roaring(const RowRanges& ranges) {
         roaring::Roaring result;
         for (auto it = ranges._ranges.begin(); it != ranges._ranges.end(); ++it) {
@@ -273,6 +319,23 @@ public:
         }
         _ranges.emplace_back(range_to_add);
         _count += range_to_add.count();
+    }
+
+    // Returns the row index (within the original row space) of the pos-th element
+    // across all ranges. For example, if ranges are [0,3000) and [8000,11000),
+    // pos=0 returns 0, pos=2999 returns 2999, pos=3000 returns 8000.
+    int64_t get_row_index_by_pos(int64_t pos) const {
+        size_t remaining = pos;
+        for (const auto& range : _ranges) {
+            size_t range_len = range.count();
+            if (remaining < range_len) {
+                return range.from() + remaining;
+            }
+            remaining -= range_len;
+        }
+        // pos is out of bounds; return -1 to indicate invalid
+        DCHECK(false) << "pos " << pos << " is out of bounds for RowRanges with count " << _count;
+        return -1;
     }
 
     uint64_t get_digest(uint64_t seed) const {

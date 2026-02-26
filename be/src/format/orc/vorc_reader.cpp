@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <limits>
 #include <list>
 
 #include "exprs/vdirect_in_predicate.h"
@@ -2250,6 +2251,9 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
         return Status::OK();
     }
 
+    _last_read_row_number = _row_reader->getRowNumber() == std::numeric_limits<uint64_t>::max()
+                                    ? 0
+                                    : _row_reader->getRowNumber();
     if (_lazy_read_ctx.can_lazy_read) {
         std::vector<uint32_t> columns_to_filter;
         int column_to_keep = block->columns();
@@ -2264,6 +2268,23 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
             // reset decimal_scale_params_index;
             _decimal_scale_params_index = 0;
             try {
+                // Condition cache HIT: skip consecutive false granules before reading
+                if (_condition_cache_ctx && _condition_cache_ctx->is_hit) {
+                    auto& cache = *_condition_cache_ctx->filter_result;
+                    uint64_t granule = _last_read_row_number / ConditionCacheContext::GRANULE_SIZE;
+                    auto max_granule = cache.size();
+                    while (granule < max_granule && !cache[granule]) {
+                        granule++;
+                    }
+                    if (granule < max_granule) {
+                        uint64_t target_row = granule * ConditionCacheContext::GRANULE_SIZE;
+                        if (target_row > _last_read_row_number) {
+                            _row_reader->seekToRow(target_row);
+                        }
+                    }
+                    // If granule >= max_granule: no more surviving granules in cache,
+                    // but cache may not cover all rows. Let nextBatch determine actual EOF.
+                }
                 rr = _row_reader->nextBatch(*_batch, block);
                 if (rr == 0 || _batch->numElements == 0) {
                     *eof = true;
@@ -2363,6 +2384,23 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
             // reset decimal_scale_params_index;
             _decimal_scale_params_index = 0;
             try {
+                // Condition cache HIT: skip consecutive false granules before reading
+                if (_condition_cache_ctx && _condition_cache_ctx->is_hit) {
+                    auto& cache = *_condition_cache_ctx->filter_result;
+                    uint64_t granule = _last_read_row_number / ConditionCacheContext::GRANULE_SIZE;
+                    auto max_granule = cache.size();
+                    while (granule < max_granule && !cache[granule]) {
+                        granule++;
+                    }
+                    if (granule < max_granule) {
+                        uint64_t target_row = granule * ConditionCacheContext::GRANULE_SIZE;
+                        if (target_row > _last_read_row_number) {
+                            _row_reader->seekToRow(target_row);
+                        }
+                    }
+                    // If granule >= max_granule: no more surviving granules in cache,
+                    // but cache may not cover all rows. Let nextBatch determine actual EOF.
+                }
                 rr = _row_reader->nextBatch(*_batch, block);
                 if (rr == 0 || _batch->numElements == 0) {
                     *eof = true;
@@ -2480,6 +2518,24 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
                 bool can_filter_all = false;
                 RETURN_IF_ERROR_OR_CATCH_EXCEPTION(VExprContext::execute_conjuncts(
                         filter_conjuncts, &filters, block, &result_filter, &can_filter_all));
+
+                // Condition cache MISS: mark granules with surviving rows (non-lazy path)
+                if (_condition_cache_ctx && !_condition_cache_ctx->is_hit) {
+                    auto& cache = *_condition_cache_ctx->filter_result;
+                    auto* filter_data = result_filter.data();
+                    size_t num_rows = block->rows();
+                    for (size_t i = 0; i < num_rows; i++) {
+                        if (filter_data[i]) {
+                            size_t granule = (_last_read_row_number + i) /
+                                             ConditionCacheContext::GRANULE_SIZE;
+                            if (granule >= cache.size()) {
+                                cache.resize(granule + 1, false);
+                            }
+                            cache[granule] = true;
+                        }
+                    }
+                }
+
                 if (can_filter_all) {
                     for (auto& col : columns_to_filter) {
                         std::move(*block->get_by_position(col).column).assume_mutable()->clear();
@@ -2697,6 +2753,21 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
         sel[new_size] = i;
         new_size += result_filter_data[i] ? 1 : 0;
     }
+
+    // Condition cache MISS: mark granules with surviving rows
+    if (_condition_cache_ctx && !_condition_cache_ctx->is_hit && new_size > 0) {
+        auto& cache = *_condition_cache_ctx->filter_result;
+        for (uint16_t i = 0; i < size; i++) {
+            if (result_filter_data[i]) {
+                size_t granule = (_last_read_row_number + i) / ConditionCacheContext::GRANULE_SIZE;
+                if (granule >= cache.size()) {
+                    cache.resize(granule + 1, false);
+                }
+                cache[granule] = true;
+            }
+        }
+    }
+
     _statistics.lazy_read_filtered_rows += static_cast<int64_t>(size - new_size);
     data.numElements = new_size;
     return Status::OK();

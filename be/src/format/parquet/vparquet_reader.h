@@ -173,6 +173,14 @@ public:
 
     bool count_read_rows() override { return true; }
 
+    void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override {
+        _condition_cache_ctx = std::move(ctx);
+    }
+
+    bool has_delete_operations() const override {
+        return _delete_rows != nullptr && !_delete_rows->empty();
+    }
+
 protected:
     void _collect_profile_before_close() override;
 
@@ -303,6 +311,8 @@ private:
     // read to the end of current reader
     bool _row_group_eof = true;
     size_t _total_groups; // num of groups(stripes) of a parquet(orc) file
+
+    std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
 
     // Through this node, you can find the file column based on the table column.
     std::shared_ptr<TableSchemaChangeHelper::Node> _table_info_node_ptr =

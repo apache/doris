@@ -230,6 +230,16 @@ public:
 
     bool count_read_rows() override { return true; }
 
+    void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override {
+        _condition_cache_ctx = std::move(ctx);
+    }
+
+    bool has_delete_operations() const override {
+        return (_position_delete_ordered_rowids != nullptr &&
+                !_position_delete_ordered_rowids->empty()) ||
+               (_delete_rows != nullptr && !_delete_rows->empty());
+    }
+
 protected:
     void _collect_profile_before_close() override;
 
@@ -698,6 +708,9 @@ private:
     std::unique_ptr<orc::ColumnVectorBatch> _batch;
     std::unique_ptr<orc::Reader> _reader = nullptr;
     std::unique_ptr<orc::RowReader> _row_reader;
+
+    uint64_t _last_read_row_number = -1;
+    std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
     std::unique_ptr<ORCFilterImpl> _orc_filter;
     orc::RowReaderOptions _row_reader_options;
 
