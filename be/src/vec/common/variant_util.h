@@ -35,8 +35,8 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_variant.h"
-#include "vec/common/variant_glob_regex_util.h"
 #include "vec/common/string_ref.h"
+#include "vec/common/variant_glob_regex_util.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -67,8 +67,6 @@ const std::string SPARSE_COLUMN_PATH = "__DORIS_VARIANT_SPARSE__";
 const std::string DOC_VALUE_COLUMN_PATH = "__DORIS_VARIANT_DOC_VALUE__";
 namespace doris::vectorized::variant_util {
 
-struct CompiledSkipMatcher;
-
 inline bool is_typed_path_pattern_type(PatternTypePB pattern_type) {
     return pattern_type == PatternTypePB::MATCH_NAME ||
            pattern_type == PatternTypePB::MATCH_NAME_GLOB;
@@ -83,12 +81,12 @@ inline bool is_skip_glob_path_pattern_type(PatternTypePB pattern_type) {
 }
 
 // Build an immutable matcher for skip patterns used in hot parsing paths.
-Status build_compiled_skip_matcher(
+Status build_compiled_skip_patterns(
         const std::vector<std::pair<std::string, PatternTypePB>>& skip_patterns,
-        bool enable_re2_set, std::shared_ptr<const CompiledSkipMatcher>* out);
+        bool enable_re2_set, ParseConfig* parse_config);
 
-// Match a dot-separated path against precompiled skip patterns.
-bool should_skip_path(const CompiledSkipMatcher& matcher, std::string_view path);
+// Match a dot-separated path against precompiled skip patterns in ParseConfig.
+bool should_skip_path(const ParseConfig& parse_config, const std::string& path);
 
 // Check if a dot-separated path should be skipped based on skip patterns.
 // For SKIP_NAME_GLOB, uses glob matching; for SKIP_NAME, uses exact string comparison.

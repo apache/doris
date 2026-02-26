@@ -50,8 +50,7 @@ std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, 
     // NestedGroup expansion is now handled at storage layer
     context.enable_flatten_nested = config.enable_flatten_nested;
     context.is_top_array = document.isArray();
-    context.skip_patterns = config.skip_patterns;
-    context.skip_matcher = config.compiled_skip_matcher.get();
+    context.parse_config = &config;
     traverse(document, context);
     ParseResult result;
     result.values = std::move(context.values);
@@ -103,9 +102,9 @@ void JSONDataParser<ParserImpl>::traverseObject(const JSONObject& object, ParseC
                     fmt::format("Key length exceeds maximum allowed size of {} bytes.",
                                 max_key_length));
         }
-        const bool has_skip_patterns =
-                ctx.skip_matcher != nullptr ||
-                (ctx.skip_patterns != nullptr && !ctx.skip_patterns->empty());
+        const bool has_skip_patterns = ctx.parse_config != nullptr &&
+                                       ctx.parse_config->skip_patterns != nullptr &&
+                                       !ctx.parse_config->skip_patterns->empty();
         // Check skip patterns: build the dot-separated path and test against patterns.
         if (has_skip_patterns) {
             const size_t old_length = ctx.current_path.size();
@@ -118,10 +117,7 @@ void JSONDataParser<ParserImpl>::traverseObject(const JSONObject& object, ParseC
             }
             ctx.current_path.append(key.data(), key.size());
 
-            bool is_skipped =
-                    ctx.skip_matcher != nullptr
-                            ? variant_util::should_skip_path(*ctx.skip_matcher, ctx.current_path)
-                            : variant_util::should_skip_path(*ctx.skip_patterns, ctx.current_path);
+            bool is_skipped = variant_util::should_skip_path(*ctx.parse_config, ctx.current_path);
 
             if (is_skipped) {
                 ctx.current_path.resize(old_length);
@@ -239,8 +235,7 @@ void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
     ParseContext element_ctx;
     element_ctx.has_nested_in_flatten = ctx.has_nested_in_flatten;
     element_ctx.is_top_array = ctx.is_top_array;
-    element_ctx.skip_patterns = nullptr;
-    element_ctx.skip_matcher = nullptr;
+    element_ctx.parse_config = nullptr;
     traverse(element, element_ctx);
     auto& paths = element_ctx.paths;
     auto& values = element_ctx.values;

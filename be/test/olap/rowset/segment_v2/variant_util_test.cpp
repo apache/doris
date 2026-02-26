@@ -621,15 +621,15 @@ TEST(VariantUtilTest, PatternTypeHelpers) {
     EXPECT_FALSE(is_skip_glob_path_pattern_type(PatternTypePB::MATCH_NAME_GLOB));
 }
 
-TEST(VariantUtilTest, BuildCompiledSkipMatcherRejectsNullOutPointer) {
+TEST(VariantUtilTest, BuildCompiledSkipPatternsRejectsNullConfig) {
     std::vector<std::pair<std::string, PatternTypePB>> skip_patterns = {
             {"secret", PatternTypePB::SKIP_NAME},
     };
-    Status st = build_compiled_skip_matcher(skip_patterns, true, nullptr);
+    Status st = build_compiled_skip_patterns(skip_patterns, true, nullptr);
     EXPECT_FALSE(st.ok());
 }
 
-TEST(VariantUtilTest, BuildCompiledSkipMatcherMixedPatterns) {
+TEST(VariantUtilTest, BuildCompiledSkipPatternsMixedPatterns) {
     std::vector<std::pair<std::string, PatternTypePB>> skip_patterns = {
             {"secret", PatternTypePB::SKIP_NAME},
             {"debug_*", PatternTypePB::SKIP_NAME_GLOB},
@@ -637,31 +637,31 @@ TEST(VariantUtilTest, BuildCompiledSkipMatcherMixedPatterns) {
             {"typed_*", PatternTypePB::MATCH_NAME_GLOB},
     };
 
-    std::shared_ptr<const CompiledSkipMatcher> matcher;
-    Status st = build_compiled_skip_matcher(skip_patterns, false, &matcher);
-    ASSERT_TRUE(st.ok()) << st.to_string();
-    ASSERT_TRUE(matcher != nullptr);
+    vectorized::ParseConfig config;
+    config.skip_patterns = &skip_patterns;
+    Status st = build_compiled_skip_patterns(skip_patterns, false, &config);
+    EXPECT_TRUE(st.ok()) << st.to_string();
 
-    EXPECT_TRUE(should_skip_path(*matcher, "secret"));
-    EXPECT_TRUE(should_skip_path(*matcher, "debug_field"));
-    EXPECT_FALSE(should_skip_path(*matcher, "typed_field"));
-    EXPECT_FALSE(should_skip_path(*matcher, "other"));
+    EXPECT_TRUE(should_skip_path(config, "secret"));
+    EXPECT_TRUE(should_skip_path(config, "debug_field"));
+    EXPECT_FALSE(should_skip_path(config, "typed_field"));
+    EXPECT_FALSE(should_skip_path(config, "other"));
 }
 
-TEST(VariantUtilTest, BuildCompiledSkipMatcherWithRe2Set) {
+TEST(VariantUtilTest, BuildCompiledSkipPatternsWithRe2Set) {
     std::vector<std::pair<std::string, PatternTypePB>> skip_patterns;
     for (int i = 0; i < 40; ++i) {
         skip_patterns.emplace_back("k" + std::to_string(i) + "_*", PatternTypePB::SKIP_NAME_GLOB);
     }
 
-    std::shared_ptr<const CompiledSkipMatcher> matcher;
-    Status st = build_compiled_skip_matcher(skip_patterns, true, &matcher);
-    ASSERT_TRUE(st.ok()) << st.to_string();
-    ASSERT_TRUE(matcher != nullptr);
+    vectorized::ParseConfig config;
+    config.skip_patterns = &skip_patterns;
+    Status st = build_compiled_skip_patterns(skip_patterns, true, &config);
+    EXPECT_TRUE(st.ok()) << st.to_string();
 
-    EXPECT_TRUE(should_skip_path(*matcher, "k1_abc"));
-    EXPECT_TRUE(should_skip_path(*matcher, "k39_abc"));
-    EXPECT_FALSE(should_skip_path(*matcher, "unknown_abc"));
+    EXPECT_TRUE(should_skip_path(config, "k1_abc"));
+    EXPECT_TRUE(should_skip_path(config, "k39_abc"));
+    EXPECT_FALSE(should_skip_path(config, "unknown_abc"));
 }
 
 TEST(VariantUtilTest, ParseVariantColumnsApplySkipPatternsFromSchemaChildren) {
@@ -718,7 +718,7 @@ TEST(VariantUtilTest, ParseVariantColumnsApplySkipPatternsFromSchemaChildren) {
 
     Status st =
             parse_and_materialize_variant_columns(block, tablet_schema, std::vector<uint32_t> {0});
-    ASSERT_TRUE(st.ok()) << st.to_string();
+    EXPECT_TRUE(st.ok()) << st.to_string();
 
     const auto& col0 = *block.get_by_position(0).column;
     const auto& out = assert_cast<const vectorized::ColumnVariant&>(col0);
@@ -754,23 +754,24 @@ TEST(VariantUtilTest, SkipPatternPerfCompareOptimizationMatrix) {
     legacy_config.enable_flatten_nested = false;
     legacy_config.parse_to = vectorized::ParseConfig::ParseTo::OnlySubcolumns;
     legacy_config.skip_patterns = &skip_patterns;
-    legacy_config.compiled_skip_matcher = nullptr;
-
-    std::shared_ptr<const CompiledSkipMatcher> compiled_matcher_with_re2_set;
-    Status st = build_compiled_skip_matcher(skip_patterns, true, &compiled_matcher_with_re2_set);
-    ASSERT_TRUE(st.ok()) << st.to_string();
-
-    std::shared_ptr<const CompiledSkipMatcher> compiled_matcher_without_re2_set;
-    st = build_compiled_skip_matcher(skip_patterns, false, &compiled_matcher_without_re2_set);
-    ASSERT_TRUE(st.ok()) << st.to_string();
+    Status st = build_compiled_skip_patterns(skip_patterns, false, &legacy_config);
+    EXPECT_TRUE(st.ok()) << st.to_string();
 
     // 3) current optimization - RE2::Set disabled.
-    vectorized::ParseConfig optimized_no_re2set_config = legacy_config;
-    optimized_no_re2set_config.compiled_skip_matcher = compiled_matcher_without_re2_set;
+    vectorized::ParseConfig optimized_no_re2set_config;
+    optimized_no_re2set_config.enable_flatten_nested = false;
+    optimized_no_re2set_config.parse_to = vectorized::ParseConfig::ParseTo::OnlySubcolumns;
+    optimized_no_re2set_config.skip_patterns = &skip_patterns;
+    st = build_compiled_skip_patterns(skip_patterns, false, &optimized_no_re2set_config);
+    EXPECT_TRUE(st.ok()) << st.to_string();
 
     // 4) current optimization.
-    vectorized::ParseConfig optimized_config = legacy_config;
-    optimized_config.compiled_skip_matcher = compiled_matcher_with_re2_set;
+    vectorized::ParseConfig optimized_config;
+    optimized_config.enable_flatten_nested = false;
+    optimized_config.parse_to = vectorized::ParseConfig::ParseTo::OnlySubcolumns;
+    optimized_config.skip_patterns = &skip_patterns;
+    st = build_compiled_skip_patterns(skip_patterns, true, &optimized_config);
+    EXPECT_TRUE(st.ok()) << st.to_string();
 
     auto no_skip_result = _run_parse_perf(*json_column, no_skip_config);
     auto legacy_result = _run_parse_perf(*json_column, legacy_config);

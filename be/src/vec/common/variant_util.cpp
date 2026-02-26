@@ -107,41 +107,24 @@ namespace doris::vectorized::variant_util {
 // Enable RE2::Set when glob pattern count is large enough to amortize setup cost.
 constexpr size_t kSkipRe2SetThreshold = 32;
 
-struct TransparentStringHash {
-    using is_transparent = void;
-    size_t operator()(std::string_view s) const { return std::hash<std::string_view> {}(s); }
-    size_t operator()(const std::string& s) const {
-        return std::hash<std::string_view> {}(std::string_view(s));
-    }
-};
-
-struct TransparentStringEq {
-    using is_transparent = void;
-    bool operator()(std::string_view lhs, std::string_view rhs) const { return lhs == rhs; }
-};
-
-struct CompiledSkipMatcher {
-    phmap::flat_hash_set<std::string, TransparentStringHash, TransparentStringEq> exact_patterns;
-    std::vector<std::unique_ptr<RE2>> glob_regexes;
-    std::unique_ptr<RE2::Set> glob_regex_set;
-    bool use_re2_set = false;
-};
-
-Status build_compiled_skip_matcher(
+Status build_compiled_skip_patterns(
         const std::vector<std::pair<std::string, PatternTypePB>>& skip_patterns,
-        bool enable_re2_set, std::shared_ptr<const CompiledSkipMatcher>* out) {
-    if (out == nullptr) {
-        return Status::InvalidArgument("Output pointer for compiled skip matcher is null");
+        bool enable_re2_set, ParseConfig* parse_config) {
+    if (parse_config == nullptr) {
+        return Status::InvalidArgument("ParseConfig for compiled skip patterns is null");
     }
 
-    auto matcher = std::make_shared<CompiledSkipMatcher>();
-    matcher->exact_patterns.reserve(skip_patterns.size());
+    parse_config->skip_exact_patterns.clear();
+    parse_config->compiled_skip_glob_regexes.clear();
+    parse_config->compiled_skip_glob_regex_set.reset();
+    parse_config->compiled_skip_use_re2_set = false;
+    parse_config->skip_exact_patterns.reserve(skip_patterns.size());
 
     std::vector<std::string> glob_regex_patterns;
     glob_regex_patterns.reserve(skip_patterns.size());
     for (const auto& [pattern, pt] : skip_patterns) {
         if (is_skip_exact_path_pattern_type(pt)) {
-            matcher->exact_patterns.insert(pattern);
+            parse_config->skip_exact_patterns.insert(pattern);
             continue;
         }
         if (!is_skip_glob_path_pattern_type(pt)) {
@@ -157,7 +140,6 @@ Status build_compiled_skip_matcher(
     }
 
     if (glob_regex_patterns.empty()) {
-        *out = std::move(matcher);
         return Status::OK();
     }
 
@@ -173,10 +155,10 @@ Status build_compiled_skip_matcher(
         if (!set->Compile()) {
             return Status::InvalidArgument("Failed to compile skip pattern matcher set");
         }
-        matcher->glob_regex_set = std::move(set);
-        matcher->use_re2_set = true;
+        parse_config->compiled_skip_glob_regex_set = std::move(set);
+        parse_config->compiled_skip_use_re2_set = true;
     } else {
-        matcher->glob_regexes.reserve(glob_regex_patterns.size());
+        parse_config->compiled_skip_glob_regexes.reserve(glob_regex_patterns.size());
         for (const auto& regex_pattern : glob_regex_patterns) {
             auto compiled = std::make_unique<RE2>(regex_pattern);
             if (!compiled->ok()) {
@@ -184,30 +166,32 @@ Status build_compiled_skip_matcher(
                         "Invalid regexp '{}' generated from skip glob pattern: {}", regex_pattern,
                         compiled->error());
             }
-            matcher->glob_regexes.emplace_back(std::move(compiled));
+            parse_config->compiled_skip_glob_regexes.emplace_back(std::move(compiled));
         }
     }
 
-    *out = std::move(matcher);
     return Status::OK();
 }
 
-bool should_skip_path(const CompiledSkipMatcher& matcher, std::string_view path) {
-    if (matcher.exact_patterns.find(path) != matcher.exact_patterns.end()) {
+bool should_skip_path(const ParseConfig& parse_config, const std::string& path) {
+    if (parse_config.skip_exact_patterns.find(path) !=
+        parse_config.skip_exact_patterns.end()) {
         return true;
     }
 
-    if (matcher.use_re2_set) {
+    if (parse_config.compiled_skip_use_re2_set &&
+        parse_config.compiled_skip_glob_regex_set != nullptr) {
         std::vector<int> matched_indexes;
-        return matcher.glob_regex_set->Match(path, &matched_indexes);
-    }
-
-    for (const auto& regex : matcher.glob_regexes) {
-        if (RE2::FullMatch(path, *regex)) {
+        if (parse_config.compiled_skip_glob_regex_set->Match(path, &matched_indexes)) {
             return true;
         }
+    } else {
+        for (const auto& regex : parse_config.compiled_skip_glob_regexes) {
+            if (RE2::FullMatch(path, *regex)) {
+                return true;
+            }
+        }
     }
-
     return false;
 }
 
@@ -2154,8 +2138,8 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
         collect_variant_skip_patterns_from_children(column, &variant_skip_patterns[i]);
         if (!variant_skip_patterns[i].empty()) {
             configs[i].skip_patterns = &variant_skip_patterns[i];
-            RETURN_IF_ERROR(build_compiled_skip_matcher(variant_skip_patterns[i], true,
-                                                        &configs[i].compiled_skip_matcher));
+            RETURN_IF_ERROR(
+                    build_compiled_skip_patterns(variant_skip_patterns[i], true, &configs[i]));
         }
         // if doc mode is not enabled, no need to parse to doc value column
         if (!column.variant_enable_doc_mode()) {

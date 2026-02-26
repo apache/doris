@@ -21,6 +21,8 @@
 #pragma once
 
 #include <parallel_hashmap/phmap.h>
+#include <re2/re2.h>
+#include <re2/set.h>
 #include <stddef.h>
 
 #include <memory>
@@ -40,10 +42,6 @@
 #include "vec/json/simd_json_parser.h"
 
 namespace doris::vectorized {
-namespace variant_util {
-struct CompiledSkipMatcher;
-}
-
 template <typename Element>
 Field getValueAsField(const Element& element) {
     // bool will convert to type FiledType::UInt64
@@ -111,10 +109,15 @@ struct ParseConfig {
         OnlyDocValueColumn = 1,
     };
     ParseTo parse_to = ParseTo::OnlySubcolumns;
+
     // skip patterns for variant column (pointer to avoid copy; nullptr means no skip)
     const std::vector<std::pair<std::string, PatternTypePB>>* skip_patterns = nullptr;
-    // pre-compiled skip matcher for hot parsing path
-    std::shared_ptr<const variant_util::CompiledSkipMatcher> compiled_skip_matcher = nullptr;
+
+    // pre-compiled skip patterns for hot parsing path
+    phmap::flat_hash_set<std::string> skip_exact_patterns;
+    std::vector<std::unique_ptr<RE2>> compiled_skip_glob_regexes;
+    std::unique_ptr<RE2::Set> compiled_skip_glob_regex_set;
+    bool compiled_skip_use_re2_set = false;
 };
 /// Result of parsing of a document.
 /// Contains all paths extracted from document
@@ -139,10 +142,8 @@ private:
         bool enable_flatten_nested = false;
         bool has_nested_in_flatten = false;
         bool is_top_array = false;
-        // skip patterns pointer (nullptr means no skip)
-        const std::vector<std::pair<std::string, PatternTypePB>>* skip_patterns = nullptr;
-        // pre-compiled skip matcher (nullptr means use skip_patterns fallback)
-        const variant_util::CompiledSkipMatcher* skip_matcher = nullptr;
+        // parse config pointer (nullptr means no skip)
+        const ParseConfig* parse_config = nullptr;
         // incrementally maintained dot-separated path for skip matching
         std::string current_path;
     };

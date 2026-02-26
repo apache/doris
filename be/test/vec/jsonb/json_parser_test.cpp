@@ -495,7 +495,7 @@ TEST(JsonParserTest, KeyLengthLimitByConfig) {
     }
 }
 
-TEST(JsonParserTest, ParseWithSkipPatternsLegacyAndCompiledMatcher) {
+TEST(JsonParserTest, ParseWithSkipPatternsLegacyAndCompiledConfig) {
     JSONDataParser<SimdJSONParser> parser;
 
     std::vector<std::pair<std::string, PatternTypePB>> skip_patterns = {
@@ -506,6 +506,9 @@ TEST(JsonParserTest, ParseWithSkipPatternsLegacyAndCompiledMatcher) {
     std::string json = R"({"secret":1,"debug_x":2,"keep":3})";
     ParseConfig legacy_config;
     legacy_config.skip_patterns = &skip_patterns;
+    auto st = doris::vectorized::variant_util::build_compiled_skip_patterns(
+            skip_patterns, false, &legacy_config);
+    EXPECT_TRUE(st.ok()) << st.to_string();
     auto legacy_result = parser.parse(json.c_str(), json.size(), legacy_config);
     ASSERT_TRUE(legacy_result.has_value());
     std::set<std::string> legacy_paths = collect_paths(legacy_result.value());
@@ -513,14 +516,11 @@ TEST(JsonParserTest, ParseWithSkipPatternsLegacyAndCompiledMatcher) {
     EXPECT_EQ(legacy_paths.find("debug_x"), legacy_paths.end());
     EXPECT_NE(legacy_paths.find("keep"), legacy_paths.end());
 
-    std::shared_ptr<const doris::vectorized::variant_util::CompiledSkipMatcher> matcher;
-    auto st = doris::vectorized::variant_util::build_compiled_skip_matcher(skip_patterns, true,
-                                                                           &matcher);
-    ASSERT_TRUE(st.ok()) << st.to_string();
-
     ParseConfig compiled_config;
     compiled_config.skip_patterns = &skip_patterns;
-    compiled_config.compiled_skip_matcher = matcher;
+    st = doris::vectorized::variant_util::build_compiled_skip_patterns(
+            skip_patterns, true, &compiled_config);
+    EXPECT_TRUE(st.ok()) << st.to_string();
     auto compiled_result = parser.parse(json.c_str(), json.size(), compiled_config);
     ASSERT_TRUE(compiled_result.has_value());
     std::set<std::string> compiled_paths = collect_paths(compiled_result.value());
@@ -536,20 +536,20 @@ TEST(JsonParserTest, ParseWithInvalidSkipGlobDoesNotDropPaths) {
 
     ParseConfig config;
     config.skip_patterns = &skip_patterns;
+    auto st = doris::vectorized::variant_util::build_compiled_skip_patterns(
+            skip_patterns, false, &config);
+    EXPECT_TRUE(st.ok()) << st.to_string();
     auto result = parser.parse(json.c_str(), json.size(), config);
     ASSERT_TRUE(result.has_value());
     std::set<std::string> paths = collect_paths(result.value());
     EXPECT_NE(paths.find("invalid"), paths.end());
     EXPECT_NE(paths.find("keep"), paths.end());
 
-    std::shared_ptr<const doris::vectorized::variant_util::CompiledSkipMatcher> matcher;
-    auto st = doris::vectorized::variant_util::build_compiled_skip_matcher(skip_patterns, true,
-                                                                           &matcher);
-    ASSERT_TRUE(st.ok()) << st.to_string();
-
     ParseConfig compiled_config;
     compiled_config.skip_patterns = &skip_patterns;
-    compiled_config.compiled_skip_matcher = matcher;
+    st = doris::vectorized::variant_util::build_compiled_skip_patterns(
+            skip_patterns, true, &compiled_config);
+    EXPECT_TRUE(st.ok()) << st.to_string();
     auto compiled_result = parser.parse(json.c_str(), json.size(), compiled_config);
     ASSERT_TRUE(compiled_result.has_value());
     std::set<std::string> compiled_paths = collect_paths(compiled_result.value());
@@ -567,6 +567,9 @@ TEST(JsonParserTest, SkipPatternsDoNotApplyInsideArrayElements) {
     ParseConfig config;
     config.enable_flatten_nested = true;
     config.skip_patterns = &skip_patterns;
+    auto st = doris::vectorized::variant_util::build_compiled_skip_patterns(
+            skip_patterns, true, &config);
+    EXPECT_TRUE(st.ok()) << st.to_string();
     auto result = parser.parse(json.c_str(), json.size(), config);
     ASSERT_TRUE(result.has_value());
 
