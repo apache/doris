@@ -21,6 +21,7 @@
 
 #include "runtime/primitive_type.h"
 #include "vec/functions/cast/cast_parameters.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/functions/cast/cast_to_timestamptz.h"
 #include "vec/runtime/timestamptz_value.h"
 namespace doris::vectorized {
@@ -244,6 +245,10 @@ Status DataTypeTimeStampTzSerDe::write_column_to_orc(const std::string& timezone
     }
     cur_batch->numElements = end - start;
     return Status::OK();
+}
+
+std::string DataTypeTimeStampTzSerDe::to_olap_string(const vectorized::Field& field) const {
+    return CastToString::from_timestamptz(field.get<TYPE_TIMESTAMPTZ>(), 6);
 }
 
 } // namespace doris::vectorized

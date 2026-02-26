@@ -84,6 +84,8 @@ public:
 
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override;
+
+    std::string to_olap_string(const vectorized::Field& field) const override;
 };
 } // namespace vectorized
 } // namespace doris

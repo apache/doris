@@ -124,15 +124,15 @@ Status _create_column_writer(uint32_t cid, const TabletColumn& column,
         }
     }
 
-#define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \
+#define DISABLE_INDEX_IF_FIELD_TYPE(TYPE)                     \
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \
         opt->need_zone_map = false;                           \
         opt->need_bloom_filter = false;                       \
     }
 
-    DISABLE_INDEX_IF_FIELD_TYPE(ARRAY, "array")
-    DISABLE_INDEX_IF_FIELD_TYPE(JSONB, "jsonb")
-    DISABLE_INDEX_IF_FIELD_TYPE(VARIANT, "variant")
+    DISABLE_INDEX_IF_FIELD_TYPE(ARRAY)
+    DISABLE_INDEX_IF_FIELD_TYPE(JSONB)
+    DISABLE_INDEX_IF_FIELD_TYPE(VARIANT)
 
 #undef DISABLE_INDEX_IF_FIELD_TYPE
 

@@ -55,22 +55,22 @@ public:
 
     PredicateType type() const override { return PredicateType::BITMAP_FILTER; }
 
-    bool evaluate_and(const ZoneMapInfo& zone_map_info) const override {
+    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override {
         if (_specific_filter->is_not_in()) {
             return true;
         }
 
         CppType max_value;
-        if (zone_map_info.is_all_null) {
+        if (!zone_map.has_not_null) {
             // no non-null values
             return false;
         } else {
-            max_value = CppType(zone_map_info.max_value.template get<T>());
+            max_value = CppType(zone_map.max_value.template get<T>());
         }
 
-        CppType min_value = zone_map_info.has_null /* contains null values */
+        CppType min_value = zone_map.has_null /* contains null values */
                                     ? CppType(0)
-                                    : CppType(zone_map_info.min_value.template get<T>());
+                                    : CppType(zone_map.min_value.template get<T>());
         return _specific_filter->contains_any(min_value, max_value);
     }
 

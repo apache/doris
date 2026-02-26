@@ -110,6 +110,8 @@ public:
                                   int64_t row_num) const override;
     int get_scale() const override { return _scale; }
 
+    std::string to_olap_string(const vectorized::Field& field) const override;
+
 private:
     int _scale;
 };

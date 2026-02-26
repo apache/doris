@@ -123,8 +123,7 @@ public:
                                           const TabletColumn* column, io::FileWriter* file_writer,
                                           std::unique_ptr<ColumnWriter>* writer);
 
-    explicit ColumnWriter(std::unique_ptr<Field> field, bool is_nullable, ColumnMetaPB* meta)
-            : _field(std::move(field)), _is_nullable(is_nullable), _column_meta(meta) {}
+    explicit ColumnWriter(std::unique_ptr<Field> field, bool is_nullable, ColumnMetaPB* meta);
 
     virtual ~ColumnWriter() = default;
 
@@ -193,6 +192,9 @@ public:
     Field* get_field() const { return _field.get(); }
 
     ColumnMetaPB* get_column_meta() const { return _column_meta; }
+
+protected:
+    vectorized::DataTypePtr _data_type;
 
 private:
     std::unique_ptr<Field> _field;

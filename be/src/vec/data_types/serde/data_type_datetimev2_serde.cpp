@@ -29,8 +29,8 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/functions/cast/cast_base.h"
 #include "vec/functions/cast/cast_to_datetimev2_impl.hpp"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -511,6 +511,10 @@ void DataTypeDateTimeV2SerDe::write_one_cell_to_binary(const IColumn& src_column
            sizeof(uint8_t));
     memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(uint8_t), data_ref.data,
            data_ref.size);
+}
+
+std::string DataTypeDateTimeV2SerDe::to_olap_string(const vectorized::Field& field) const {
+    return CastToString::from_datetimev2(field.get<TYPE_DATETIMEV2>());
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)
