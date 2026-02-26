@@ -74,11 +74,11 @@ public:
     void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                       bool* flags) const override;
 
-    bool evaluate_and(const ZoneMapInfo& zone_map_info) const override {
+    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override {
         if (_is_null) {
-            return zone_map_info.has_null;
+            return zone_map.has_null;
         } else {
-            return !zone_map_info.is_all_null;
+            return zone_map.has_not_null;
         }
     }
 
@@ -108,14 +108,14 @@ public:
         return row_ranges->count() > 0;
     }
 
-    bool evaluate_del(const ZoneMapInfo& zone_map_info) const override {
+    bool evaluate_del(const segment_v2::ZoneMap& zone_map) const override {
         // evaluate_del only use for delete condition to filter page, need use delete condition origin value,
         // when opposite==true, origin value 'is null'->'is not null' and 'is not null'->'is null',
         // so when _is_null==true, need check 'is not null' and _is_null==false, need check 'is null'
         if (_is_null) {
-            return !zone_map_info.has_null;
+            return !zone_map.has_null;
         } else {
-            return zone_map_info.is_all_null;
+            return !zone_map.has_not_null;
         }
     }
 

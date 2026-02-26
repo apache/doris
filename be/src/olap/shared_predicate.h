@@ -103,20 +103,20 @@ public:
         DCHECK(false) << "should not reach here";
     }
 
-    bool evaluate_and(const ZoneMapInfo& zone_map_info) const override {
+    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override {
         std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
-            return ColumnPredicate::evaluate_and(zone_map_info);
+            return ColumnPredicate::evaluate_and(zone_map);
         }
-        return _nested->evaluate_and(zone_map_info);
+        return _nested->evaluate_and(zone_map);
     }
 
-    bool evaluate_del(const ZoneMapInfo& zone_map_info) const override {
+    bool evaluate_del(const segment_v2::ZoneMap& zone_map) const override {
         std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
-            return ColumnPredicate::evaluate_del(zone_map_info);
+            return ColumnPredicate::evaluate_del(zone_map);
         }
-        return _nested->evaluate_del(zone_map_info);
+        return _nested->evaluate_del(zone_map);
     }
 
     bool evaluate_and(const BloomFilter* bf) const override {
