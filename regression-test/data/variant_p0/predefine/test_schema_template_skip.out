@@ -99,3 +99,35 @@
 50	user_50	500
 100	user_100	1000
 
+-- !skip_doc_basic_glob_1 --
+1	{"normal_field":"visible"}
+2	{"keep_me":"yes"}
+
+-- !skip_doc_basic_glob_2 --
+1	{"normal_field":"visible"}
+2	{"keep_me":"yes"}
+
+-- !skip_doc_basic_glob_3 --
+1	{"normal_field":"visible"}
+2	{"keep_me":"yes"}
+
+-- !skip_doc_match_name_1 --
+1	{"profile":{"age":18},"public":"open","secret_key":"visible"}
+
+-- !skip_doc_match_name_2 --
+1	{"profile":{"age":18},"public":"open","secret_key":"visible"}
+
+-- !skip_doc_match_name_3 --
+1	{"profile":{"age":18},"public":"open","secret_key":"visible"}
+
+-- !skip_doc_priority_1 --
+1	{"other":"val"}
+
+-- !skip_doc_priority_2 --
+1	{"other":"val"}
+
+-- !skip_doc_invalid_glob_1 --
+1	{"i":"x","invalid":"y"}
+
+-- !skip_doc_invalid_glob_2 --
+1	{"i":"x","invalid":"y"}

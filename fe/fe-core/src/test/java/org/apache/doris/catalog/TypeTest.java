@@ -23,6 +23,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 
 public class TypeTest {
 
@@ -165,6 +166,21 @@ public class TypeTest {
         Assert.assertFalse(skipExact.matchesField(typed));
         Assert.assertFalse(typed.matchesField(skipExact));
         Assert.assertFalse(skipExact.equals(typed));
+    }
+
+    @Test
+    public void testVariantFieldEqualsAndHashCodeContract() {
+        VariantField field1 = new VariantField("secret", Type.STRING, "", TPatternType.SKIP_NAME);
+        VariantField field2 = new VariantField("secret", Type.STRING, "", TPatternType.SKIP_NAME);
+        VariantField field3 = new VariantField("secret", Type.STRING, "", TPatternType.MATCH_NAME);
+
+        Assert.assertEquals(field1, field2);
+        Assert.assertEquals(field1.hashCode(), field2.hashCode());
+
+        HashSet<VariantField> fields = new HashSet<>();
+        fields.add(field1);
+        Assert.assertTrue(fields.contains(field2));
+        Assert.assertFalse(fields.contains(field3));
     }
 
     // ===================== Mixed Nesting & Precision =====================
