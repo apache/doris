@@ -30,6 +30,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -92,16 +93,38 @@ public class Alias extends NamedExpression implements UnaryExpression {
 
     @Override
     public Slot toSlot() throws UnboundException {
-        SlotReference slotReference = child() instanceof SlotReference
-                ? (SlotReference) child() : null;
+        SlotReference slotReference = extractSlotReference(child());
 
         return new SlotReference(exprId, name, child().getDataType(), child().nullable(), qualifier,
-                slotReference != null ? ((SlotReference) child()).getOriginalTable().orElse(null) : null,
-                slotReference != null ? slotReference.getOriginalColumn().orElse(null) : null,
-                slotReference != null ? ((SlotReference) child()).getOneLevelTable().orElse(null) : null,
-                slotReference != null ? slotReference.getOriginalColumn().orElse(null) : null,
+                slotReference != null ? slotReference.getOriginalTable().orElse(null) : null,   // originalTable
+                slotReference != null ? slotReference.getOriginalColumn().orElse(null) : null,  // originalColumn
+                slotReference != null ? slotReference.getOneLevelTable().orElse(null) : null,   // oneLevelTable
+                slotReference != null ? slotReference.getOneLevelColumn().orElse(null) : null,  // oneLevelColumn
                 slotReference != null ? slotReference.getSubPath() : ImmutableList.of(), Optional.empty()
         );
+    }
+
+    /**
+     * Find the underlying SlotReference from an expression to preserve column metadata
+     * (originalTable, originalColumn, oneLevelTable, oneLevelColumn, subPath) in the
+     * alias output slot.
+     *
+     * Only returns a SlotReference when there is exactly one input slot, ensuring
+     * unambiguous column origin. Handles Cast(slot), Cast(ElementAt(slot, literal)), etc.
+     * Returns null for multi-slot expressions like CONCAT(col1, col2).
+     */
+    private static SlotReference extractSlotReference(Expression expr) {
+        if (expr instanceof SlotReference) {
+            return (SlotReference) expr;
+        }
+        Set<Slot> inputSlots = expr.getInputSlots();
+        if (inputSlots.size() == 1) {
+            Slot slot = inputSlots.iterator().next();
+            if (slot instanceof SlotReference) {
+                return (SlotReference) slot;
+            }
+        }
+        return null;
     }
 
     @Override
