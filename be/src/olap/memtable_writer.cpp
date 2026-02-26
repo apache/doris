@@ -383,4 +383,22 @@ int64_t MemTableWriter::active_memtable_mem_consumption() {
     return _mem_table != nullptr ? _mem_table->memory_usage() : 0;
 }
 
+int64_t MemTableWriter::total_mem_tracker_consumption() {
+    if (!_is_init) {
+        return 0;
+    }
+    int64_t total = 0;
+    std::lock_guard<std::mutex> l(_mem_table_ptr_lock);
+    if (_mem_table != nullptr) {
+        total += _mem_table->mem_tracker()->consumption();
+    }
+    for (const auto& mem_table : _freezed_mem_tables) {
+        auto mem_table_sptr = mem_table.lock();
+        if (mem_table_sptr != nullptr) {
+            total += mem_table_sptr->mem_tracker()->consumption();
+        }
+    }
+    return total;
+}
+
 } // namespace doris

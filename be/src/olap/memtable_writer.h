@@ -85,6 +85,7 @@ public:
 
     int64_t mem_consumption(MemType mem);
     int64_t active_memtable_mem_consumption();
+    int64_t total_mem_tracker_consumption();
 
     // Submit current memtable to flush queue, and return without waiting.
     // This is currently for reducing mem consumption of this memtable writer.
@@ -107,6 +108,28 @@ public:
             return wg->id();
         }
         return 0;
+    }
+
+    // Get write_tracker consumption for accurate memory tracking.
+    // write_tracker tracks all memory allocated during load process,
+    // including RowsetWriter's internal buffers (FileWriter, etc.)
+    int64_t write_tracker_mem_consumption() const {
+        if (_resource_ctx && _resource_ctx->memory_context() &&
+            _resource_ctx->memory_context()->mem_tracker() &&
+            _resource_ctx->memory_context()->mem_tracker()->write_tracker()) {
+            return _resource_ctx->memory_context()->mem_tracker()->write_tracker()->consumption();
+        }
+        return 0;
+    }
+
+    // Get write_tracker pointer for deduplication (multiple writers may share the same tracker)
+    void* write_tracker_ptr() const {
+        if (_resource_ctx && _resource_ctx->memory_context() &&
+            _resource_ctx->memory_context()->mem_tracker() &&
+            _resource_ctx->memory_context()->mem_tracker()->write_tracker()) {
+            return _resource_ctx->memory_context()->mem_tracker()->write_tracker().get();
+        }
+        return nullptr;
     }
 
 private:
