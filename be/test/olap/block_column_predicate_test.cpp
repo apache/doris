@@ -1497,561 +1497,553 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_bloom_filter) {
 }
 
 TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
-    {     // INT
-        { // EQ
-            auto value = vectorized::Field::create_field<TYPE_INT>(5);
-            int col_idx = 0;
-            std::shared_ptr<ColumnPredicate> pred(
-                    new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
-            SingleColumnBlockPredicate single_column_block_pred(pred);
-            std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-                    std::make_unique<vectorized::FieldSchema>();
-            parquet_field_col1->name = "col1";
-            parquet_field_col1->data_type =
-                    vectorized::DataTypeFactory::instance().create_data_type(
-                            PrimitiveType::TYPE_INT, true);
-            parquet_field_col1->field_id = -1;
-            parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
+    { // INT
+     {// EQ
+      auto value = vectorized::Field::create_field<TYPE_INT>(5);
+    int col_idx = 0;
+    std::shared_ptr<ColumnPredicate> pred(
+            new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
+    SingleColumnBlockPredicate single_column_block_pred(pred);
+    std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
+            std::make_unique<vectorized::FieldSchema>();
+    parquet_field_col1->name = "col1";
+    parquet_field_col1->data_type =
+            vectorized::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+    parquet_field_col1->field_id = -1;
+    parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 
-            segment_v2::ZoneMap stat;
-            cctz::time_zone tmp_ctz;
-            stat.ctz = &tmp_ctz;
+    segment_v2::ZoneMap stat;
+    cctz::time_zone tmp_ctz;
+    stat.ctz = &tmp_ctz;
 
-            std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func;
-            {
-                // 5 belongs to [5, 5]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = value;
-                    stat->max_value = value;
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
-            }
-            {
-                // 5 not belongs to [6, 7]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    int lower = 6;
-                    int upper = 7;
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = vectorized::Field::create_field<TYPE_INT>(lower);
-                    stat->max_value = vectorized::Field::create_field<TYPE_INT>(upper);
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_FALSE(single_column_block_pred.evaluate_and(stat));
-            }
-            {
-                // 5 not belongs to [1, 4]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    int lower = 1;
-                    int upper = 4;
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = vectorized::Field::create_field<TYPE_INT>(lower);
-                    stat->max_value = vectorized::Field::create_field<TYPE_INT>(upper);
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_FALSE(single_column_block_pred.evaluate_and(stat));
-            }
-            {
-                // get stat failed
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    return Status::NotSupported("");
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
-            }
-        }
-        {
-            // NE
-            auto value = vectorized::Field::create_field<TYPE_INT>(5);
-            int col_idx = 0;
-            std::shared_ptr<ColumnPredicate> pred(
-                    new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
-            SingleColumnBlockPredicate single_column_block_pred(pred);
-            std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-                    std::make_unique<vectorized::FieldSchema>();
-            parquet_field_col1->name = "col1";
-            parquet_field_col1->data_type =
-                    vectorized::DataTypeFactory::instance().create_data_type(
-                            PrimitiveType::TYPE_INT, true);
-            parquet_field_col1->field_id = -1;
-            parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
-
-            segment_v2::ZoneMap stat;
-            cctz::time_zone tmp_ctz;
-            stat.ctz = &tmp_ctz;
-
-            std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func;
-            {
-                // 5 belongs to [5, 5]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = value;
-                    stat->max_value = value;
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_FALSE(single_column_block_pred.evaluate_and(stat));
-            }
-            {
-                // 5 not belongs to [6, 7]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    int lower = 6;
-                    int upper = 7;
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = vectorized::Field::create_field<TYPE_INT>(lower);
-                    stat->max_value = vectorized::Field::create_field<TYPE_INT>(upper);
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
-            }
-            {
-                // 5 not belongs to [1, 4]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    int lower = 1;
-                    int upper = 4;
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = vectorized::Field::create_field<TYPE_INT>(lower);
-                    stat->max_value = vectorized::Field::create_field<TYPE_INT>(upper);
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
-            }
-        }
-        {
-            // GE
-            auto value = vectorized::Field::create_field<TYPE_INT>(5);
-            int col_idx = 0;
-            std::shared_ptr<ColumnPredicate> pred(
-                    new ComparisonPredicateBase<TYPE_INT, PredicateType::GE>(col_idx, "", value));
-            SingleColumnBlockPredicate single_column_block_pred(pred);
-            std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-                    std::make_unique<vectorized::FieldSchema>();
-            parquet_field_col1->name = "col1";
-            parquet_field_col1->data_type =
-                    vectorized::DataTypeFactory::instance().create_data_type(
-                            PrimitiveType::TYPE_INT, true);
-            parquet_field_col1->field_id = -1;
-            parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
-
-            segment_v2::ZoneMap stat;
-            cctz::time_zone tmp_ctz;
-            stat.ctz = &tmp_ctz;
-
-            std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func;
-            {
-                // 5 belongs to [5, 5]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = value;
-                    stat->max_value = value;
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
-            }
-            {
-                // 5 not belongs to [6, 7]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    int lower = 6;
-                    int upper = 7;
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = vectorized::Field::create_field<TYPE_INT>(lower);
-                    stat->max_value = vectorized::Field::create_field<TYPE_INT>(upper);
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
-            }
-            {
-                // 5 not belongs to [1, 4]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    int lower = 1;
-                    int upper = 4;
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = vectorized::Field::create_field<TYPE_INT>(lower);
-                    stat->max_value = vectorized::Field::create_field<TYPE_INT>(upper);
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_FALSE(single_column_block_pred.evaluate_and(stat));
-            }
-        }
-        {
-            // LE
-            auto value = vectorized::Field::create_field<TYPE_INT>(5);
-            int col_idx = 0;
-            std::shared_ptr<ColumnPredicate> pred(
-                    new ComparisonPredicateBase<TYPE_INT, PredicateType::LE>(col_idx, "", value));
-            SingleColumnBlockPredicate single_column_block_pred(pred);
-            std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-                    std::make_unique<vectorized::FieldSchema>();
-            parquet_field_col1->name = "col1";
-            parquet_field_col1->data_type =
-                    vectorized::DataTypeFactory::instance().create_data_type(
-                            PrimitiveType::TYPE_INT, true);
-            parquet_field_col1->field_id = -1;
-            parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
-
-            segment_v2::ZoneMap stat;
-            cctz::time_zone tmp_ctz;
-            stat.ctz = &tmp_ctz;
-
-            std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func;
-            {
-                // 5 belongs to [5, 5]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = value;
-                    stat->max_value = value;
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
-            }
-            {
-                // 5 not belongs to [6, 7]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    int lower = 6;
-                    int upper = 7;
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = vectorized::Field::create_field<TYPE_INT>(lower);
-                    stat->max_value = vectorized::Field::create_field<TYPE_INT>(upper);
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_FALSE(single_column_block_pred.evaluate_and(stat));
-            }
-            {
-                // 5 not belongs to [1, 4]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    int lower = 1;
-                    int upper = 4;
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = vectorized::Field::create_field<TYPE_INT>(lower);
-                    stat->max_value = vectorized::Field::create_field<TYPE_INT>(upper);
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
-            }
-        }
-    } // namespace doris
+    std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func;
     {
-        // FLOAT
+        // 5 belongs to [5, 5]
+        get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+            stat->col_schema = parquet_field_col1.get();
+            stat->has_not_null = true;
+            stat->has_null = false;
+            stat->min_value = value;
+            stat->max_value = value;
+            return Status::OK();
+        };
+        stat.get_stat_func = &get_stat_func;
+        EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
+    }
+    {
+        // 5 not belongs to [6, 7]
+        get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+            int lower = 6;
+            int upper = 7;
+            stat->col_schema = parquet_field_col1.get();
+            stat->has_not_null = true;
+            stat->has_null = false;
+            stat->min_value = vectorized::Field::create_field<TYPE_INT>(lower);
+            stat->max_value = vectorized::Field::create_field<TYPE_INT>(upper);
+            return Status::OK();
+        };
+        stat.get_stat_func = &get_stat_func;
+        EXPECT_FALSE(single_column_block_pred.evaluate_and(stat));
+    }
+    {
+        // 5 not belongs to [1, 4]
+        get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+            int lower = 1;
+            int upper = 4;
+            stat->col_schema = parquet_field_col1.get();
+            stat->has_not_null = true;
+            stat->has_null = false;
+            stat->min_value = vectorized::Field::create_field<TYPE_INT>(lower);
+            stat->max_value = vectorized::Field::create_field<TYPE_INT>(upper);
+            return Status::OK();
+        };
+        stat.get_stat_func = &get_stat_func;
+        EXPECT_FALSE(single_column_block_pred.evaluate_and(stat));
+    }
+    {
+        // get stat failed
+        get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+            return Status::NotSupported("");
+        };
+        stat.get_stat_func = &get_stat_func;
+        EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
+    }
+}
+{
+    // NE
+    auto value = vectorized::Field::create_field<TYPE_INT>(5);
+    int col_idx = 0;
+    std::shared_ptr<ColumnPredicate> pred(
+            new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
+    SingleColumnBlockPredicate single_column_block_pred(pred);
+    std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
+            std::make_unique<vectorized::FieldSchema>();
+    parquet_field_col1->name = "col1";
+    parquet_field_col1->data_type =
+            vectorized::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+    parquet_field_col1->field_id = -1;
+    parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
+
+    segment_v2::ZoneMap stat;
+    cctz::time_zone tmp_ctz;
+    stat.ctz = &tmp_ctz;
+
+    std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func;
+    {
+        // 5 belongs to [5, 5]
+        get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+            stat->col_schema = parquet_field_col1.get();
+            stat->has_not_null = true;
+            stat->has_null = false;
+            stat->min_value = value;
+            stat->max_value = value;
+            return Status::OK();
+        };
+        stat.get_stat_func = &get_stat_func;
+        EXPECT_FALSE(single_column_block_pred.evaluate_and(stat));
+    }
+    {
+        // 5 not belongs to [6, 7]
+        get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+            int lower = 6;
+            int upper = 7;
+            stat->col_schema = parquet_field_col1.get();
+            stat->has_not_null = true;
+            stat->has_null = false;
+            stat->min_value = vectorized::Field::create_field<TYPE_INT>(lower);
+            stat->max_value = vectorized::Field::create_field<TYPE_INT>(upper);
+            return Status::OK();
+        };
+        stat.get_stat_func = &get_stat_func;
+        EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
+    }
+    {
+        // 5 not belongs to [1, 4]
+        get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+            int lower = 1;
+            int upper = 4;
+            stat->col_schema = parquet_field_col1.get();
+            stat->has_not_null = true;
+            stat->has_null = false;
+            stat->min_value = vectorized::Field::create_field<TYPE_INT>(lower);
+            stat->max_value = vectorized::Field::create_field<TYPE_INT>(upper);
+            return Status::OK();
+        };
+        stat.get_stat_func = &get_stat_func;
+        EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
+    }
+}
+{
+    // GE
+    auto value = vectorized::Field::create_field<TYPE_INT>(5);
+    int col_idx = 0;
+    std::shared_ptr<ColumnPredicate> pred(
+            new ComparisonPredicateBase<TYPE_INT, PredicateType::GE>(col_idx, "", value));
+    SingleColumnBlockPredicate single_column_block_pred(pred);
+    std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
+            std::make_unique<vectorized::FieldSchema>();
+    parquet_field_col1->name = "col1";
+    parquet_field_col1->data_type =
+            vectorized::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+    parquet_field_col1->field_id = -1;
+    parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
+
+    segment_v2::ZoneMap stat;
+    cctz::time_zone tmp_ctz;
+    stat.ctz = &tmp_ctz;
+
+    std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func;
+    {
+        // 5 belongs to [5, 5]
+        get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+            stat->col_schema = parquet_field_col1.get();
+            stat->has_not_null = true;
+            stat->has_null = false;
+            stat->min_value = value;
+            stat->max_value = value;
+            return Status::OK();
+        };
+        stat.get_stat_func = &get_stat_func;
+        EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
+    }
+    {
+        // 5 not belongs to [6, 7]
+        get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+            int lower = 6;
+            int upper = 7;
+            stat->col_schema = parquet_field_col1.get();
+            stat->has_not_null = true;
+            stat->has_null = false;
+            stat->min_value = vectorized::Field::create_field<TYPE_INT>(lower);
+            stat->max_value = vectorized::Field::create_field<TYPE_INT>(upper);
+            return Status::OK();
+        };
+        stat.get_stat_func = &get_stat_func;
+        EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
+    }
+    {
+        // 5 not belongs to [1, 4]
+        get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+            int lower = 1;
+            int upper = 4;
+            stat->col_schema = parquet_field_col1.get();
+            stat->has_not_null = true;
+            stat->has_null = false;
+            stat->min_value = vectorized::Field::create_field<TYPE_INT>(lower);
+            stat->max_value = vectorized::Field::create_field<TYPE_INT>(upper);
+            return Status::OK();
+        };
+        stat.get_stat_func = &get_stat_func;
+        EXPECT_FALSE(single_column_block_pred.evaluate_and(stat));
+    }
+}
+{
+    // LE
+    auto value = vectorized::Field::create_field<TYPE_INT>(5);
+    int col_idx = 0;
+    std::shared_ptr<ColumnPredicate> pred(
+            new ComparisonPredicateBase<TYPE_INT, PredicateType::LE>(col_idx, "", value));
+    SingleColumnBlockPredicate single_column_block_pred(pred);
+    std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
+            std::make_unique<vectorized::FieldSchema>();
+    parquet_field_col1->name = "col1";
+    parquet_field_col1->data_type =
+            vectorized::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+    parquet_field_col1->field_id = -1;
+    parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
+
+    segment_v2::ZoneMap stat;
+    cctz::time_zone tmp_ctz;
+    stat.ctz = &tmp_ctz;
+
+    std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func;
+    {
+        // 5 belongs to [5, 5]
+        get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+            stat->col_schema = parquet_field_col1.get();
+            stat->has_not_null = true;
+            stat->has_null = false;
+            stat->min_value = value;
+            stat->max_value = value;
+            return Status::OK();
+        };
+        stat.get_stat_func = &get_stat_func;
+        EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
+    }
+    {
+        // 5 not belongs to [6, 7]
+        get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+            int lower = 6;
+            int upper = 7;
+            stat->col_schema = parquet_field_col1.get();
+            stat->has_not_null = true;
+            stat->has_null = false;
+            stat->min_value = vectorized::Field::create_field<TYPE_INT>(lower);
+            stat->max_value = vectorized::Field::create_field<TYPE_INT>(upper);
+            return Status::OK();
+        };
+        stat.get_stat_func = &get_stat_func;
+        EXPECT_FALSE(single_column_block_pred.evaluate_and(stat));
+    }
+    {
+        // 5 not belongs to [1, 4]
+        get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+            int lower = 1;
+            int upper = 4;
+            stat->col_schema = parquet_field_col1.get();
+            stat->has_not_null = true;
+            stat->has_null = false;
+            stat->min_value = vectorized::Field::create_field<TYPE_INT>(lower);
+            stat->max_value = vectorized::Field::create_field<TYPE_INT>(upper);
+            return Status::OK();
+        };
+        stat.get_stat_func = &get_stat_func;
+        EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
+    }
+}
+} // namespace doris
+{
+    // FLOAT
+    {
+        // EQ
+        auto value = vectorized::Field::create_field<TYPE_FLOAT>(5.0);
+        int col_idx = 0;
+        std::shared_ptr<ColumnPredicate> pred(
+                new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::EQ>(col_idx, "", value));
+        SingleColumnBlockPredicate single_column_block_pred(pred);
+        std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
+                std::make_unique<vectorized::FieldSchema>();
+        parquet_field_col1->name = "col1";
+        parquet_field_col1->data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                PrimitiveType::TYPE_FLOAT, true);
+        parquet_field_col1->field_id = -1;
+        parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
+
+        segment_v2::ZoneMap stat;
+        cctz::time_zone tmp_ctz;
+        stat.ctz = &tmp_ctz;
+
+        std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func;
         {
-            // EQ
-            auto value = vectorized::Field::create_field<TYPE_FLOAT>(5.0);
-            int col_idx = 0;
-            std::shared_ptr<ColumnPredicate> pred(
-                    new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::EQ>(col_idx, "", value));
-            SingleColumnBlockPredicate single_column_block_pred(pred);
-            std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-                    std::make_unique<vectorized::FieldSchema>();
-            parquet_field_col1->name = "col1";
-            parquet_field_col1->data_type =
-                    vectorized::DataTypeFactory::instance().create_data_type(
-                            PrimitiveType::TYPE_FLOAT, true);
-            parquet_field_col1->field_id = -1;
-            parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
-
-            segment_v2::ZoneMap stat;
-            cctz::time_zone tmp_ctz;
-            stat.ctz = &tmp_ctz;
-
-            std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func;
-            {
-                // 5 belongs to [5, 5]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = value;
-                    stat->max_value = value;
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
-            }
-            {
-                // 5 not belongs to [6, 7]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    float lower = 6.0;
-                    float upper = 7.0;
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = vectorized::Field::create_field<TYPE_FLOAT>(lower);
-                    stat->max_value = vectorized::Field::create_field<TYPE_FLOAT>(upper);
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_FALSE(single_column_block_pred.evaluate_and(stat));
-            }
-            {
-                // 5 not belongs to [1, 4]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    float lower = 1.0;
-                    float upper = 4.0;
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = vectorized::Field::create_field<TYPE_FLOAT>(lower);
-                    stat->max_value = vectorized::Field::create_field<TYPE_FLOAT>(upper);
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_FALSE(single_column_block_pred.evaluate_and(stat));
-            }
-            {
-                // get stat failed
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    return Status::NotSupported("");
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
-            }
-            {
-                // get min max failed
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    float lower = nanf("");
-                    float upper = 4.0;
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = vectorized::Field::create_field<TYPE_FLOAT>(lower);
-                    stat->max_value = vectorized::Field::create_field<TYPE_FLOAT>(upper);
-                    return Status::NotSupported("");
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
-            }
+            // 5 belongs to [5, 5]
+            get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+                stat->col_schema = parquet_field_col1.get();
+                stat->has_not_null = true;
+                stat->has_null = false;
+                stat->min_value = value;
+                stat->max_value = value;
+                return Status::OK();
+            };
+            stat.get_stat_func = &get_stat_func;
+            EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
         }
         {
-            // NE
-            auto value = vectorized::Field::create_field<TYPE_FLOAT>(5.0);
-            int col_idx = 0;
-            std::shared_ptr<ColumnPredicate> pred(
-                    new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::NE>(col_idx, "", value));
-            SingleColumnBlockPredicate single_column_block_pred(pred);
-            std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-                    std::make_unique<vectorized::FieldSchema>();
-            parquet_field_col1->name = "col1";
-            parquet_field_col1->data_type =
-                    vectorized::DataTypeFactory::instance().create_data_type(
-                            PrimitiveType::TYPE_FLOAT, true);
-            parquet_field_col1->field_id = -1;
-            parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
-
-            segment_v2::ZoneMap stat;
-            cctz::time_zone tmp_ctz;
-            stat.ctz = &tmp_ctz;
-
-            std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func;
-            {
-                // 5 belongs to [5, 5]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = value;
-                    stat->max_value = value;
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_FALSE(single_column_block_pred.evaluate_and(stat));
-            }
-            {
-                // 5 not belongs to [6, 7]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    float lower = 6.0;
-                    float upper = 7.0;
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = vectorized::Field::create_field<TYPE_FLOAT>(lower);
-                    stat->max_value = vectorized::Field::create_field<TYPE_FLOAT>(upper);
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
-            }
-            {
-                // 5 not belongs to [1, 4]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    float lower = 1.0;
-                    float upper = 4.0;
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = vectorized::Field::create_field<TYPE_FLOAT>(lower);
-                    stat->max_value = vectorized::Field::create_field<TYPE_FLOAT>(upper);
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
-            }
+            // 5 not belongs to [6, 7]
+            get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+                float lower = 6.0;
+                float upper = 7.0;
+                stat->col_schema = parquet_field_col1.get();
+                stat->has_not_null = true;
+                stat->has_null = false;
+                stat->min_value = vectorized::Field::create_field<TYPE_FLOAT>(lower);
+                stat->max_value = vectorized::Field::create_field<TYPE_FLOAT>(upper);
+                return Status::OK();
+            };
+            stat.get_stat_func = &get_stat_func;
+            EXPECT_FALSE(single_column_block_pred.evaluate_and(stat));
         }
         {
-            // GE
-            auto value = vectorized::Field::create_field<TYPE_FLOAT>(5.0);
-            int col_idx = 0;
-            std::shared_ptr<ColumnPredicate> pred(
-                    new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::GE>(col_idx, "", value));
-            SingleColumnBlockPredicate single_column_block_pred(pred);
-            std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-                    std::make_unique<vectorized::FieldSchema>();
-            parquet_field_col1->name = "col1";
-            parquet_field_col1->data_type =
-                    vectorized::DataTypeFactory::instance().create_data_type(
-                            PrimitiveType::TYPE_INT, true);
-            parquet_field_col1->field_id = -1;
-            parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
-
-            segment_v2::ZoneMap stat;
-            cctz::time_zone tmp_ctz;
-            stat.ctz = &tmp_ctz;
-
-            std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func;
-            {
-                // 5 belongs to [5, 5]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = value;
-                    stat->max_value = value;
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
-            }
-            {
-                // 5 not belongs to [6, 7]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    float lower = 6.0;
-                    float upper = 7.0;
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = vectorized::Field::create_field<TYPE_FLOAT>(lower);
-                    stat->max_value = vectorized::Field::create_field<TYPE_FLOAT>(upper);
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
-            }
-            {
-                // 5 not belongs to [1, 4]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    float lower = 1.0;
-                    float upper = 4.0;
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = vectorized::Field::create_field<TYPE_FLOAT>(lower);
-                    stat->max_value = vectorized::Field::create_field<TYPE_FLOAT>(upper);
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_FALSE(single_column_block_pred.evaluate_and(stat));
-            }
+            // 5 not belongs to [1, 4]
+            get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+                float lower = 1.0;
+                float upper = 4.0;
+                stat->col_schema = parquet_field_col1.get();
+                stat->has_not_null = true;
+                stat->has_null = false;
+                stat->min_value = vectorized::Field::create_field<TYPE_FLOAT>(lower);
+                stat->max_value = vectorized::Field::create_field<TYPE_FLOAT>(upper);
+                return Status::OK();
+            };
+            stat.get_stat_func = &get_stat_func;
+            EXPECT_FALSE(single_column_block_pred.evaluate_and(stat));
         }
         {
-            // LE
-            auto value = vectorized::Field::create_field<TYPE_FLOAT>(5.0);
-            int col_idx = 0;
-            std::shared_ptr<ColumnPredicate> pred(
-                    new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::LE>(col_idx, "", value));
-            SingleColumnBlockPredicate single_column_block_pred(pred);
-            std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-                    std::make_unique<vectorized::FieldSchema>();
-            parquet_field_col1->name = "col1";
-            parquet_field_col1->data_type =
-                    vectorized::DataTypeFactory::instance().create_data_type(
-                            PrimitiveType::TYPE_FLOAT, true);
-            parquet_field_col1->field_id = -1;
-            parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
-
-            segment_v2::ZoneMap stat;
-            cctz::time_zone tmp_ctz;
-            stat.ctz = &tmp_ctz;
-
-            std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func;
-            {
-                // 5 belongs to [5, 5]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = value;
-                    stat->max_value = value;
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
-            }
-            {
-                // 5 not belongs to [6, 7]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    float lower = 6.0;
-                    float upper = 7.0;
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = vectorized::Field::create_field<TYPE_FLOAT>(lower);
-                    stat->max_value = vectorized::Field::create_field<TYPE_FLOAT>(upper);
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_FALSE(single_column_block_pred.evaluate_and(stat));
-            }
-            {
-                // 5 not belongs to [1, 4]
-                get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
-                    float lower = 1.0;
-                    float upper = 4.0;
-                    stat->col_schema = parquet_field_col1.get();
-                    stat->has_not_null = true;
-                    stat->has_null = false;
-                    stat->min_value = vectorized::Field::create_field<TYPE_FLOAT>(lower);
-                    stat->max_value = vectorized::Field::create_field<TYPE_FLOAT>(upper);
-                    return Status::OK();
-                };
-                stat.get_stat_func = &get_stat_func;
-                EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
-            }
+            // get stat failed
+            get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+                return Status::NotSupported("");
+            };
+            stat.get_stat_func = &get_stat_func;
+            EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
+        }
+        {
+            // get min max failed
+            get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+                float lower = nanf("");
+                float upper = 4.0;
+                stat->col_schema = parquet_field_col1.get();
+                stat->has_not_null = true;
+                stat->has_null = false;
+                stat->min_value = vectorized::Field::create_field<TYPE_FLOAT>(lower);
+                stat->max_value = vectorized::Field::create_field<TYPE_FLOAT>(upper);
+                return Status::NotSupported("");
+            };
+            stat.get_stat_func = &get_stat_func;
+            EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
         }
     }
+    {
+        // NE
+        auto value = vectorized::Field::create_field<TYPE_FLOAT>(5.0);
+        int col_idx = 0;
+        std::shared_ptr<ColumnPredicate> pred(
+                new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::NE>(col_idx, "", value));
+        SingleColumnBlockPredicate single_column_block_pred(pred);
+        std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
+                std::make_unique<vectorized::FieldSchema>();
+        parquet_field_col1->name = "col1";
+        parquet_field_col1->data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                PrimitiveType::TYPE_FLOAT, true);
+        parquet_field_col1->field_id = -1;
+        parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
+
+        segment_v2::ZoneMap stat;
+        cctz::time_zone tmp_ctz;
+        stat.ctz = &tmp_ctz;
+
+        std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func;
+        {
+            // 5 belongs to [5, 5]
+            get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+                stat->col_schema = parquet_field_col1.get();
+                stat->has_not_null = true;
+                stat->has_null = false;
+                stat->min_value = value;
+                stat->max_value = value;
+                return Status::OK();
+            };
+            stat.get_stat_func = &get_stat_func;
+            EXPECT_FALSE(single_column_block_pred.evaluate_and(stat));
+        }
+        {
+            // 5 not belongs to [6, 7]
+            get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+                float lower = 6.0;
+                float upper = 7.0;
+                stat->col_schema = parquet_field_col1.get();
+                stat->has_not_null = true;
+                stat->has_null = false;
+                stat->min_value = vectorized::Field::create_field<TYPE_FLOAT>(lower);
+                stat->max_value = vectorized::Field::create_field<TYPE_FLOAT>(upper);
+                return Status::OK();
+            };
+            stat.get_stat_func = &get_stat_func;
+            EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
+        }
+        {
+            // 5 not belongs to [1, 4]
+            get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+                float lower = 1.0;
+                float upper = 4.0;
+                stat->col_schema = parquet_field_col1.get();
+                stat->has_not_null = true;
+                stat->has_null = false;
+                stat->min_value = vectorized::Field::create_field<TYPE_FLOAT>(lower);
+                stat->max_value = vectorized::Field::create_field<TYPE_FLOAT>(upper);
+                return Status::OK();
+            };
+            stat.get_stat_func = &get_stat_func;
+            EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
+        }
+    }
+    {
+        // GE
+        auto value = vectorized::Field::create_field<TYPE_FLOAT>(5.0);
+        int col_idx = 0;
+        std::shared_ptr<ColumnPredicate> pred(
+                new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::GE>(col_idx, "", value));
+        SingleColumnBlockPredicate single_column_block_pred(pred);
+        std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
+                std::make_unique<vectorized::FieldSchema>();
+        parquet_field_col1->name = "col1";
+        parquet_field_col1->data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                PrimitiveType::TYPE_INT, true);
+        parquet_field_col1->field_id = -1;
+        parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
+
+        segment_v2::ZoneMap stat;
+        cctz::time_zone tmp_ctz;
+        stat.ctz = &tmp_ctz;
+
+        std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func;
+        {
+            // 5 belongs to [5, 5]
+            get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+                stat->col_schema = parquet_field_col1.get();
+                stat->has_not_null = true;
+                stat->has_null = false;
+                stat->min_value = value;
+                stat->max_value = value;
+                return Status::OK();
+            };
+            stat.get_stat_func = &get_stat_func;
+            EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
+        }
+        {
+            // 5 not belongs to [6, 7]
+            get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+                float lower = 6.0;
+                float upper = 7.0;
+                stat->col_schema = parquet_field_col1.get();
+                stat->has_not_null = true;
+                stat->has_null = false;
+                stat->min_value = vectorized::Field::create_field<TYPE_FLOAT>(lower);
+                stat->max_value = vectorized::Field::create_field<TYPE_FLOAT>(upper);
+                return Status::OK();
+            };
+            stat.get_stat_func = &get_stat_func;
+            EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
+        }
+        {
+            // 5 not belongs to [1, 4]
+            get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+                float lower = 1.0;
+                float upper = 4.0;
+                stat->col_schema = parquet_field_col1.get();
+                stat->has_not_null = true;
+                stat->has_null = false;
+                stat->min_value = vectorized::Field::create_field<TYPE_FLOAT>(lower);
+                stat->max_value = vectorized::Field::create_field<TYPE_FLOAT>(upper);
+                return Status::OK();
+            };
+            stat.get_stat_func = &get_stat_func;
+            EXPECT_FALSE(single_column_block_pred.evaluate_and(stat));
+        }
+    }
+    {
+        // LE
+        auto value = vectorized::Field::create_field<TYPE_FLOAT>(5.0);
+        int col_idx = 0;
+        std::shared_ptr<ColumnPredicate> pred(
+                new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::LE>(col_idx, "", value));
+        SingleColumnBlockPredicate single_column_block_pred(pred);
+        std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
+                std::make_unique<vectorized::FieldSchema>();
+        parquet_field_col1->name = "col1";
+        parquet_field_col1->data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                PrimitiveType::TYPE_FLOAT, true);
+        parquet_field_col1->field_id = -1;
+        parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
+
+        segment_v2::ZoneMap stat;
+        cctz::time_zone tmp_ctz;
+        stat.ctz = &tmp_ctz;
+
+        std::function<Status(segment_v2::ZoneMap*, int)> get_stat_func;
+        {
+            // 5 belongs to [5, 5]
+            get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+                stat->col_schema = parquet_field_col1.get();
+                stat->has_not_null = true;
+                stat->has_null = false;
+                stat->min_value = value;
+                stat->max_value = value;
+                return Status::OK();
+            };
+            stat.get_stat_func = &get_stat_func;
+            EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
+        }
+        {
+            // 5 not belongs to [6, 7]
+            get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+                float lower = 6.0;
+                float upper = 7.0;
+                stat->col_schema = parquet_field_col1.get();
+                stat->has_not_null = true;
+                stat->has_null = false;
+                stat->min_value = vectorized::Field::create_field<TYPE_FLOAT>(lower);
+                stat->max_value = vectorized::Field::create_field<TYPE_FLOAT>(upper);
+                return Status::OK();
+            };
+            stat.get_stat_func = &get_stat_func;
+            EXPECT_FALSE(single_column_block_pred.evaluate_and(stat));
+        }
+        {
+            // 5 not belongs to [1, 4]
+            get_stat_func = [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+                float lower = 1.0;
+                float upper = 4.0;
+                stat->col_schema = parquet_field_col1.get();
+                stat->has_not_null = true;
+                stat->has_null = false;
+                stat->min_value = vectorized::Field::create_field<TYPE_FLOAT>(lower);
+                stat->max_value = vectorized::Field::create_field<TYPE_FLOAT>(upper);
+                return Status::OK();
+            };
+            stat.get_stat_func = &get_stat_func;
+            EXPECT_TRUE(single_column_block_pred.evaluate_and(stat));
+        }
+    }
+}
 }
 
 TEST_F(BlockColumnPredicateTest, PARQUET_IN_PREDICATE) {
