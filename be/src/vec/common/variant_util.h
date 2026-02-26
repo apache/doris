@@ -35,6 +35,7 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_variant.h"
+#include "vec/common/variant_glob_regex_util.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -80,12 +81,6 @@ inline bool is_skip_exact_path_pattern_type(PatternTypePB pattern_type) {
 inline bool is_skip_glob_path_pattern_type(PatternTypePB pattern_type) {
     return pattern_type == PatternTypePB::SKIP_NAME_GLOB;
 }
-
-// Convert a restricted glob pattern into a regex (for tests/internal use).
-Status glob_to_regex(const std::string& glob_pattern, std::string* regex_pattern);
-
-// Match a glob pattern against a path using RE2.
-bool glob_match_re2(const std::string& glob_pattern, const std::string& candidate_path);
 
 // Build an immutable matcher for skip patterns used in hot parsing paths.
 Status build_compiled_skip_matcher(
