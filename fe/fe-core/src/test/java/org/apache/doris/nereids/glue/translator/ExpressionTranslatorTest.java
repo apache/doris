@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -51,10 +52,38 @@ public class ExpressionTranslatorTest {
     }
 
     @Test
-    public void testMatch() {
+    public void testMatchNoSlotReference() {
+        // MATCH with no SlotReference in left operand should throw
         MatchAny matchAny = new MatchAny(new VarcharLiteral("collections"), new NullLiteral());
         ExpressionTranslator translator = ExpressionTranslator.INSTANCE;
         Assertions.assertThrows(AnalysisException.class, () -> translator.visitMatch(matchAny, null));
+    }
+
+    @Test
+    public void testMatchOnSlotWithoutColumnMetadata() {
+        // MATCH on an alias output slot (no originalColumn/originalTable) should NOT throw.
+        // This happens when MATCH is inside an OR predicate, preventing pushdown through
+        // the project, so MATCH references the alias output slot instead of the scan slot.
+        SlotReference aliasSlot = new SlotReference("firstname", VarcharType.SYSTEM_DEFAULT, true, ImmutableList.of());
+        MatchAny matchAny = new MatchAny(aliasSlot, new VarcharLiteral("hello"));
+        ExpressionTranslator translator = ExpressionTranslator.INSTANCE;
+        PlanTranslatorContext context = new PlanTranslatorContext();
+        context.addExprIdSlotRefPair(aliasSlot.getExprId(), new SlotRef(Type.VARCHAR, true));
+
+        Assertions.assertDoesNotThrow(() -> translator.visitMatch(matchAny, context));
+    }
+
+    @Test
+    public void testMatchOnSlotWithoutColumnMetadataAndExplicitAnalyzer() {
+        // MATCH with explicit analyzer on a slot without column metadata should throw,
+        // because we cannot validate the analyzer against the inverted index.
+        SlotReference aliasSlot = new SlotReference("firstname", VarcharType.SYSTEM_DEFAULT, true, ImmutableList.of());
+        MatchAny matchAny = new MatchAny(aliasSlot, new VarcharLiteral("hello"), "standard");
+        ExpressionTranslator translator = ExpressionTranslator.INSTANCE;
+        PlanTranslatorContext context = new PlanTranslatorContext();
+        context.addExprIdSlotRefPair(aliasSlot.getExprId(), new SlotRef(Type.VARCHAR, true));
+
+        Assertions.assertThrows(AnalysisException.class, () -> translator.visitMatch(matchAny, context));
     }
 
     @Test void testFlattenAndOrNullable() {

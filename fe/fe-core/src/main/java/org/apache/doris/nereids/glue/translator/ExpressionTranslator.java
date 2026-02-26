@@ -219,20 +219,23 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                         .orElseThrow(() -> new AnalysisException(
                                     "No SlotReference found in Match, SQL is " + match.toSql()));
 
-        Column column = slot.getOriginalColumn()
-                        .orElseThrow(() -> new AnalysisException(
-                                    "SlotReference in Match failed to get Column, SQL is " + match.toSql()));
-
-        OlapTable olapTbl = getOlapTableDirectly(slot);
-        if (olapTbl == null) {
-            throw new AnalysisException("SlotReference in Match failed to get OlapTable, SQL is " + match.toSql());
-        }
-
+        // Look up inverted index from slot metadata. The slot may lack column metadata
+        // when it comes from an alias output (e.g., CTE/subquery project) whose child
+        // is a non-SlotReference expression like Cast(ElementAt(...)). This happens when
+        // MATCH is inside an OR predicate, preventing pushdown through the project.
         String analyzer = match.getAnalyzer().orElse(null);
-        Index invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath(), analyzer);
-        if (analyzer != null && invertedIndex == null) {
-            throw new AnalysisException("No inverted index found for analyzer '" + analyzer
-                    + "' on column " + column.getName());
+        Index invertedIndex = null;
+        Column column = slot.getOriginalColumn().orElse(null);
+        OlapTable olapTbl = getOlapTableDirectly(slot);
+        if (column != null && olapTbl != null) {
+            invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath(), analyzer);
+            if (analyzer != null && invertedIndex == null) {
+                throw new AnalysisException("No inverted index found for analyzer '" + analyzer
+                        + "' on column " + column.getName());
+            }
+        } else if (analyzer != null) {
+            throw new AnalysisException("Cannot validate analyzer '" + analyzer
+                    + "' because column metadata is unavailable for slot " + slot.toSql());
         }
 
         MatchPredicate.Operator op = match.op();
