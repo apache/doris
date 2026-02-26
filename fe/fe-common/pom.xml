@@ -120,6 +120,10 @@ under the License.
                     <groupId>org.ini4j</groupId>
                     <artifactId>ini4j</artifactId>
                 </exclusion>
+                <exclusion>
+                    <groupId>org.bouncycastle</groupId>
+                    <artifactId>bcprov-jdk18on</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
     </dependencies>
