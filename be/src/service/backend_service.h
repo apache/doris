@@ -122,6 +122,11 @@ public:
     void test_storage_connectivity(TTestStorageConnectivityResponse& response,
                                    const TTestStorageConnectivityRequest& request) override;
 
+    void get_python_envs(std::vector<TPythonEnvInfo>& result) override;
+
+    void get_python_packages(std::vector<TPythonPackageInfo>& result,
+                             const std::string& python_version) override;
+
     ////////////////////////////////////////////////////////////////////////////
     // begin cloud backend functions
     ////////////////////////////////////////////////////////////////////////////

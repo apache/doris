@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <csignal>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -28,17 +29,41 @@ namespace doris {
 
 namespace fs = std::filesystem;
 
+static PythonVersion create_fake_python_version_for_pip_list(const std::string& base_path,
+                                                             const std::string& script_body,
+                                                             const std::string& full_version) {
+    const std::string bin_path = base_path + "/bin";
+    const std::string exec_path = bin_path + "/python3";
+    fs::create_directories(bin_path);
+
+    {
+        std::ofstream ofs(exec_path);
+        ofs << "#!/bin/bash\n";
+        ofs << script_body;
+    }
+    fs::permissions(exec_path, fs::perms::owner_all);
+
+    return PythonVersion(full_version, base_path, exec_path);
+}
+
 class PythonEnvTest : public ::testing::Test {
 protected:
     std::string test_dir_;
+    // Some test frameworks set SIGCHLD to SIG_IGN,
+    // which causes pclose() to get ECHILD because the kernel auto-reaps children.
+    // We reset SIGCHLD to SIG_DFL for the duration of each test to mimic production
+    // behaviour, and restore the original handler afterwards.
+    sighandler_t old_sigchld_ = SIG_DFL;
 
     void SetUp() override {
         test_dir_ = fs::temp_directory_path().string() + "/python_env_test_" +
                     std::to_string(getpid()) + "_" + std::to_string(rand());
         fs::create_directories(test_dir_);
+        old_sigchld_ = signal(SIGCHLD, SIG_DFL);
     }
 
     void TearDown() override {
+        signal(SIGCHLD, old_sigchld_);
         if (!test_dir_.empty() && fs::exists(test_dir_)) {
             fs::remove_all(test_dir_);
         }
@@ -599,6 +624,83 @@ TEST_F(PythonEnvTest, PythonVersionManagerInitCondaSuccess) {
     PythonVersionManager mgr;
     Status status = mgr.init(PythonEnvType::CONDA, conda_root, "");
     EXPECT_TRUE(status.ok()) << status.to_string();
+}
+
+// ============================================================================
+// list_installed_packages tests
+// ============================================================================
+
+TEST_F(PythonEnvTest, ListInstalledPackagesInvalidPythonVersion) {
+    PythonVersion invalid_version;
+    std::vector<std::pair<std::string, std::string>> packages;
+
+    Status status = list_installed_packages(invalid_version, &packages);
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.to_string().find("Invalid python version") != std::string::npos);
+}
+
+TEST_F(PythonEnvTest, ListInstalledPackagesPipListExitNonZero) {
+    PythonVersion version = create_fake_python_version_for_pip_list(
+            test_dir_ + "/pip_nonzero",
+            "echo '[{\"name\":\"numpy\",\"version\":\"1.26.0\"}]'\n"
+            "exit 1\n",
+            "3.9.16");
+    std::vector<std::pair<std::string, std::string>> packages;
+
+    Status status = list_installed_packages(version, &packages);
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.to_string().find("pip list failed") != std::string::npos);
+}
+
+TEST_F(PythonEnvTest, ListInstalledPackagesParseError) {
+    PythonVersion version = create_fake_python_version_for_pip_list(
+            test_dir_ + "/pip_parse_error", "echo 'not-json'\nexit 0\n", "3.9.16");
+    std::vector<std::pair<std::string, std::string>> packages;
+
+    Status status = list_installed_packages(version, &packages);
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.to_string().find("Failed to parse pip list json output") !=
+                std::string::npos);
+}
+
+TEST_F(PythonEnvTest, ListInstalledPackagesJsonIsNotArray) {
+    PythonVersion version = create_fake_python_version_for_pip_list(
+            test_dir_ + "/pip_not_array", "echo '{\"name\":\"numpy\"}'\nexit 0\n", "3.9.16");
+    std::vector<std::pair<std::string, std::string>> packages;
+
+    Status status = list_installed_packages(version, &packages);
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.to_string().find("Failed to parse pip list json output") !=
+                std::string::npos);
+}
+
+TEST_F(PythonEnvTest, ListInstalledPackagesInvalidJsonItemFormat) {
+    PythonVersion version = create_fake_python_version_for_pip_list(
+            test_dir_ + "/pip_invalid_item", "echo '[{\"name\":\"numpy\"}]'\nexit 0\n", "3.9.16");
+    std::vector<std::pair<std::string, std::string>> packages;
+
+    Status status = list_installed_packages(version, &packages);
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.to_string().find("Invalid pip list json format") != std::string::npos);
+}
+
+TEST_F(PythonEnvTest, ListInstalledPackagesSuccess) {
+    PythonVersion version = create_fake_python_version_for_pip_list(
+            test_dir_ + "/pip_success",
+            "echo "
+            "'[{\"name\":\"numpy\",\"version\":\"1.26.0\"},{\"name\":\"pandas\",\"version\":\"2.2."
+            "0\"}]'\n"
+            "exit 0\n",
+            "3.9.16");
+    std::vector<std::pair<std::string, std::string>> packages;
+
+    Status status = list_installed_packages(version, &packages);
+    EXPECT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(packages.size(), 2);
+    EXPECT_EQ(packages[0].first, "numpy");
+    EXPECT_EQ(packages[0].second, "1.26.0");
+    EXPECT_EQ(packages[1].first, "pandas");
+    EXPECT_EQ(packages[1].second, "2.2.0");
 }
 
 } // namespace doris

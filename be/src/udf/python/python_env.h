@@ -18,8 +18,10 @@
 #pragma once
 
 #include <filesystem>
+#include <utility>
 
 #include "common/status.h"
+#include "gen_cpp/BackendService_types.h"
 
 namespace doris {
 
@@ -90,6 +92,8 @@ public:
 
     Status get_version(const std::string& runtime_version, PythonVersion* version) const;
 
+    const std::vector<PythonEnvironment>& get_envs() const { return _envs; }
+
     std::string root_path() const { return _env_root_path.string(); }
 
     virtual PythonEnvType env_type() const = 0;
@@ -146,11 +150,25 @@ public:
         return _env_scanner->get_version(runtime_version, version);
     }
 
+    const std::vector<PythonEnvironment>& get_envs() const { return _env_scanner->get_envs(); }
+
+    PythonEnvType env_type() const { return _env_scanner->env_type(); }
+
     std::string to_string() const { return _env_scanner->to_string(); }
+
+    std::vector<TPythonEnvInfo> env_infos_to_thrift() const;
+
+    std::vector<TPythonPackageInfo> package_infos_to_thrift(
+            const std::vector<std::pair<std::string, std::string>>& packages) const;
 
 private:
     std::unique_ptr<PythonEnvScanner> _env_scanner;
 };
+
+// List installed pip packages for a given Python version.
+// Returns pairs of (package_name, version).
+Status list_installed_packages(const PythonVersion& version,
+                               std::vector<std::pair<std::string, std::string>>* packages);
 
 } // namespace doris
 
