@@ -24,6 +24,7 @@
 #include <string.h>
 
 #include <cstdint>
+#include <memory>
 
 #if defined(__SSE2__) || defined(__aarch64__)
 #include "util/sse_util.hpp"
@@ -86,10 +87,13 @@ inline void memcpy_small_allow_read_write_overflow15(void* __restrict dst,
 #endif
 
 // assume input address not aligned by default
+// hint to compiler that we are copying fixed size data, so it can optimize the copy using SIMD instructions if possible.
 template <typename T, bool aligned = false>
 void memcpy_fixed(char* lhs, const char* rhs) {
-    if constexpr (aligned || sizeof(T) <= 8) {
-        *(T*)lhs = *(T*)rhs;
+    if constexpr (aligned) {
+        // hint aligned address to compiler
+        memcpy(std::assume_aligned<alignof(T)>(lhs), std::assume_aligned<alignof(T)>(rhs),
+               sizeof(T));
     } else {
         memcpy(lhs, rhs, sizeof(T));
     }
