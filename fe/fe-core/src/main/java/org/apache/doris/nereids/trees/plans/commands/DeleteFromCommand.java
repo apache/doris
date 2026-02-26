@@ -150,6 +150,17 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
                     .getDeleteHandler().processEmptyRelation(ctx.getState());
             return;
         }
+        OlapTable olapTable = getTargetTable(ctx);
+
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), olapTable.getDatabase().getCatalog().getName(),
+                        olapTable.getDatabase().getFullName(), olapTable.getName(), PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    olapTable.getDatabase().getFullName() + "." + Util.getTempTableDisplayName(olapTable.getName()));
+        }
+
         Optional<PhysicalFilter<?>> optFilter = (planner.getPhysicalPlan()
                 .<PhysicalFilter<?>>collect(PhysicalFilter.class::isInstance)).stream()
                 .findAny();
@@ -157,7 +168,6 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         PhysicalFilter<?> filter = optFilter.get();
 
         // predicate check
-        OlapTable olapTable = getTargetTable(ctx);
         Set<String> columns = olapTable.getFullSchema().stream().map(Column::getName).collect(Collectors.toSet());
         try {
             // treat sql as simple `delete from t where keyC = ...`
@@ -170,32 +180,21 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
             }
         } catch (Exception e) {
             try {
-                // `DeleteFromUsingCommand`->`InsertIntoTableCommand` will check auth
                 new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions,
                         logicalQuery, Optional.empty()).run(ctx, executor);
                 return;
             } catch (Exception e2) {
-                LOG.warn("delete from command failed, previous exception", e);
-                throw e2; // we should throw the using command exception
+                LOG.warn("delete from command failed", e2);
+                throw e;
             }
         }
 
         // if table's enable_mow_light_delete is false, use `DeleteFromUsingCommand`
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()
                 && !olapTable.getEnableMowLightDelete()) {
-            // `DeleteFromUsingCommand`->`InsertIntoTableCommand` will check auth
             new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions, logicalQuery,
                     Optional.empty()).run(ctx, executor);
             return;
-        }
-
-        // check auth
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), olapTable.getDatabase().getCatalog().getName(),
-                        olapTable.getDatabase().getFullName(), olapTable.getName(), PrivPredicate.LOAD)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    olapTable.getDatabase().getFullName() + "." + Util.getTempTableDisplayName(olapTable.getName()));
         }
 
         // call delete handler to process
