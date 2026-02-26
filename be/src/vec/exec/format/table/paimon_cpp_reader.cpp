@@ -311,8 +311,9 @@ std::map<std::string, std::string> PaimonCppReader::_build_options() const {
     copy_if_missing("fs.s3a.region", "AWS_REGION");
     copy_if_missing("fs.s3a.path.style.access", "use_path_style");
 
-    // FE currently may not pass paimon table options in scan ranges.
-    // Avoid paimon-cpp defaulting manifest.format to avro when split file format is known.
+    // FE currently does not pass paimon_options in scan ranges.
+    // Backfill file.format/manifest.format from split file_format to avoid
+    // paimon-cpp falling back to default manifest.format=avro.
     if (_range.__isset.table_format_params && _range.table_format_params.__isset.paimon_params &&
         _range.table_format_params.paimon_params.__isset.file_format &&
         !_range.table_format_params.paimon_params.file_format.empty()) {
