@@ -2144,7 +2144,7 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
         const uint32_t schema_pos = column_pos[block_pos];
         const auto& column = tablet_schema.column(schema_pos);
         if (column.is_variant_type()) {
-            variant_column_pos.push_back(static_cast<uint32_t>(block_pos));
+            variant_column_pos.push_back(schema_pos);
             variant_schema_pos.push_back(schema_pos);
         }
     }
