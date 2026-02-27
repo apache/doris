@@ -220,7 +220,10 @@ public class HudiScanNode extends HiveScanNode {
 
         fsView = Env.getCurrentEnv()
             .getExtMetaCacheMgr()
-            .getFsViewProcessor(hmsTable.getCatalog())
+            .getUnifiedMetaCacheMgr()
+            .getOrCreateEngineMetaCache(hmsTable.getCatalog(),
+                    HudiEngineCache.ENGINE_TYPE, HudiEngineCache.class)
+            .getFsViewProcessor()
             .getFsView(hmsTable.getDbName(), hmsTable.getName(), hudiClient);
         // Todo: Get the current schema id of the table, instead of using -1.
         // In Be Parquet/Rrc reader, if `current table schema id == current file schema id`, then its

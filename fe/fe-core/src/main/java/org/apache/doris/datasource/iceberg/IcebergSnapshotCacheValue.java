@@ -21,10 +21,13 @@ public class IcebergSnapshotCacheValue {
 
     private final IcebergPartitionInfo partitionInfo;
     private final IcebergSnapshot snapshot;
+    private final IcebergSchemaCacheValue schema;
 
-    public IcebergSnapshotCacheValue(IcebergPartitionInfo partitionInfo, IcebergSnapshot snapshot) {
+    public IcebergSnapshotCacheValue(IcebergPartitionInfo partitionInfo, IcebergSnapshot snapshot,
+            IcebergSchemaCacheValue schema) {
         this.partitionInfo = partitionInfo;
         this.snapshot = snapshot;
+        this.schema = schema;
     }
 
     public IcebergPartitionInfo getPartitionInfo() {
@@ -33,5 +36,9 @@ public class IcebergSnapshotCacheValue {
 
     public IcebergSnapshot getSnapshot() {
         return snapshot;
+    }
+
+    public IcebergSchemaCacheValue getSchema() {
+        return schema;
     }
 }

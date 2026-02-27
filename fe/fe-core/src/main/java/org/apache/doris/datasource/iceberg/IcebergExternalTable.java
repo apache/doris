@@ -25,9 +25,9 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.metacache.EngineMtmvSupport;
 import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
@@ -36,7 +36,6 @@ import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
-import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.nereids.trees.plans.commands.info.SortFieldInfo;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -48,7 +47,6 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.PartitionField;
@@ -90,9 +88,20 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     }
 
     @Override
-    public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
-        boolean isView = isView();
-        return IcebergUtils.loadSchemaCacheValue(this, ((IcebergSchemaCacheKey) key).getSchemaId(), isView);
+    public long resolveSchemaVersionToken(Optional<MvccSnapshot> snapshot) {
+        if (snapshot.isPresent() && snapshot.get() instanceof IcebergMvccSnapshot) {
+            return ((IcebergMvccSnapshot) snapshot.get()).getSnapshotCacheValue().getSnapshot().getSchemaId();
+        }
+        return CURRENT_SCHEMA_VERSION_TOKEN;
+    }
+
+    @Override
+    public Optional<SchemaCacheValue> loadSchemaByVersion(long versionToken) {
+        setUpdateTime(System.currentTimeMillis());
+        if (versionToken == CURRENT_SCHEMA_VERSION_TOKEN) {
+            return Optional.of(IcebergUtils.getLatestSnapshotCacheValue(this).getSchema());
+        }
+        return IcebergUtils.loadSchemaCacheValue(this, versionToken, isView());
     }
 
     @Override
@@ -136,12 +145,12 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot) {
-        return Maps.newHashMap(IcebergUtils.getIcebergPartitionItems(snapshot, this));
+        return EngineMtmvSupport.getAndCopyPartitionItems(this, snapshot);
     }
 
     @Override
     public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
-        return IcebergUtils.getIcebergPartitionItems(snapshot, this);
+        return EngineMtmvSupport.getPartitionItems(this, snapshot);
     }
 
     @Override
@@ -162,21 +171,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     @Override
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
                                                Optional<MvccSnapshot> snapshot) throws AnalysisException {
-        IcebergSnapshotCacheValue snapshotValue = IcebergUtils.getSnapshotCacheValue(snapshot, this);
-        long latestSnapshotId = snapshotValue.getPartitionInfo().getLatestSnapshotId(partitionName);
-        // If partition snapshot ID is unavailable (<= 0), fallback to table snapshot ID
-        // This can happen when last_updated_snapshot_id is null in Iceberg metadata
-        if (latestSnapshotId <= 0) {
-            long tableSnapshotId = snapshotValue.getSnapshot().getSnapshotId();
-            // If table snapshot ID is also invalid, it means empty table
-            if (tableSnapshotId <= 0) {
-                throw new AnalysisException("can not find partition: " + partitionName
-                        + ", and table snapshot ID is also invalid");
-            }
-            // Use table snapshot ID as fallback when partition snapshot ID is unavailable
-            return new MTMVSnapshotIdSnapshot(tableSnapshotId);
-        }
-        return new MTMVSnapshotIdSnapshot(latestSnapshotId);
+        return EngineMtmvSupport.getPartitionSnapshot(this, partitionName, snapshot);
     }
 
     @Override
@@ -187,9 +182,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException {
-        makeSureInitialized();
-        IcebergSnapshotCacheValue snapshotValue = IcebergUtils.getSnapshotCacheValue(snapshot, this);
-        return new MTMVSnapshotIdSnapshot(snapshotValue.getSnapshot().getSnapshotId());
+        return EngineMtmvSupport.getTableSnapshot(this, snapshot);
     }
 
     @Override
@@ -256,7 +249,8 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public List<Column> getFullSchema() {
-        return IcebergUtils.getIcebergSchema(this);
+        makeSureInitialized();
+        return super.getFullSchema();
     }
 
     @Override

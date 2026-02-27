@@ -82,7 +82,7 @@ public class IcebergFastForwardAction extends BaseIcebergAction {
             icebergTable.manageSnapshots().fastForwardBranch(sourceBranch, desBranch).commit();
             long snapshotAfter = icebergTable.snapshot(sourceBranch).snapshotId();
             // invalid iceberg catalog table cache.
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) table);
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidate((ExternalTable) table);
             return Lists.newArrayList(
                     sourceBranch.trim(),
                     String.valueOf(snapshotBefore),

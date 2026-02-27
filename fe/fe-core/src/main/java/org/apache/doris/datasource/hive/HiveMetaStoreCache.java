@@ -37,10 +37,10 @@ import org.apache.doris.common.util.CacheBulkLoader;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CacheException;
-import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
+import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.fs.FileSystemCache;
 import org.apache.doris.fs.FileSystemDirectoryLister;
@@ -57,6 +57,7 @@ import org.apache.doris.planner.ListPartitionPrunerV2;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -67,7 +68,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Streams;
 import lombok.Data;
-import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.fs.BlockLocation;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.metastore.api.Partition;
@@ -104,6 +104,9 @@ public class HiveMetaStoreCache {
     private JobConf jobConf;
     private final ExecutorService refreshExecutor;
     private final ExecutorService fileListingExecutor;
+    private volatile CacheSpec partitionValuesCacheSpec;
+    private volatile CacheSpec partitionCacheSpec;
+    private volatile CacheSpec fileCacheSpec;
 
     // cache from <dbname-tblname> -> <values of partitions>
     private LoadingCache<PartitionValueCacheKey, HivePartitionValues> partitionValuesCache;
@@ -129,24 +132,21 @@ public class HiveMetaStoreCache {
      * which will bring out thread deadlock.
      **/
     public void init() {
-        long partitionCacheTtlSecond = NumberUtils.toLong(
-                (catalog.getProperties().get(HMSExternalCatalog.PARTITION_CACHE_TTL_SECOND)),
-                ExternalCatalog.CACHE_NO_TTL);
+        refreshCacheSpecs();
 
         CacheFactory partitionValuesCacheFactory = new CacheFactory(
-                OptionalLong.of(partitionCacheTtlSecond >= ExternalCatalog.CACHE_TTL_DISABLE_CACHE
-                        ? partitionCacheTtlSecond : Config.external_cache_expire_time_seconds_after_access),
+                CacheSpec.toExpireAfterAccess(partitionValuesCacheSpec.getTtlSecond()),
                 OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
-                Config.max_hive_partition_table_cache_num,
+                partitionValuesCacheSpec.getCapacity(),
                 true,
                 null);
         partitionValuesCache = partitionValuesCacheFactory.buildCache(this::loadPartitionValues,
                 refreshExecutor);
 
         CacheFactory partitionCacheFactory = new CacheFactory(
-                OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
+                CacheSpec.toExpireAfterAccess(partitionCacheSpec.getTtlSecond()),
                 OptionalLong.empty(),
-                Config.max_hive_partition_cache_num,
+                partitionCacheSpec.getCapacity(),
                 true,
                 null);
         partitionCache = partitionCacheFactory.buildCache(new CacheLoader<PartitionCacheKey, HivePartition>() {
@@ -168,16 +168,10 @@ public class HiveMetaStoreCache {
      * generate a filecache and set to fileCacheRef
      */
     private void setNewFileCache() {
-        // if the file.meta.cache.ttl-second is equal or greater than 0, the cache expired will be set to that value
-        int fileMetaCacheTtlSecond = NumberUtils.toInt(
-                (catalog.getProperties().get(HMSExternalCatalog.FILE_META_CACHE_TTL_SECOND)),
-                ExternalCatalog.CACHE_NO_TTL);
-
         CacheFactory fileCacheFactory = new CacheFactory(
-                OptionalLong.of(fileMetaCacheTtlSecond >= ExternalCatalog.CACHE_TTL_DISABLE_CACHE
-                        ? fileMetaCacheTtlSecond : Config.external_cache_expire_time_seconds_after_access),
+                CacheSpec.toExpireAfterAccess(fileCacheSpec.getTtlSecond()),
                 OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
-                Config.max_external_file_cache_num,
+                fileCacheSpec.getCapacity(),
                 true,
                 null);
 
@@ -198,6 +192,56 @@ public class HiveMetaStoreCache {
         fileCacheRef.set(fileCacheFactory.buildCache(loader, this.refreshExecutor));
         if (Objects.nonNull(oldFileCache)) {
             oldFileCache.invalidateAll();
+        }
+    }
+
+    private void refreshCacheSpecs() {
+        Map<String, String> properties = catalog.getProperties();
+        long partitionValuesTtlSecond = resolveTtlSecondWithLegacyFallback(properties,
+                HMSExternalCatalog.HIVE_PARTITION_VALUES_CACHE_TTL_SECOND,
+                HMSExternalCatalog.PARTITION_CACHE_TTL_SECOND,
+                Config.external_cache_expire_time_seconds_after_access);
+        long partitionTtlSecond = resolveTtlSecondWithLegacyFallback(properties,
+                HMSExternalCatalog.HIVE_PARTITION_CACHE_TTL_SECOND,
+                HMSExternalCatalog.PARTITION_CACHE_TTL_SECOND,
+                Config.external_cache_expire_time_seconds_after_access);
+        long fileTtlSecond = resolveTtlSecondWithLegacyFallback(properties,
+                HMSExternalCatalog.HIVE_FILE_CACHE_TTL_SECOND,
+                HMSExternalCatalog.FILE_META_CACHE_TTL_SECOND,
+                Config.external_cache_expire_time_seconds_after_access);
+
+        partitionValuesCacheSpec = CacheSpec.fromProperties(properties,
+                HMSExternalCatalog.HIVE_PARTITION_VALUES_CACHE_ENABLE, true,
+                HMSExternalCatalog.HIVE_PARTITION_VALUES_CACHE_TTL_SECOND, partitionValuesTtlSecond,
+                HMSExternalCatalog.HIVE_PARTITION_VALUES_CACHE_CAPACITY, Config.max_hive_partition_table_cache_num);
+        partitionCacheSpec = CacheSpec.fromProperties(properties,
+                HMSExternalCatalog.HIVE_PARTITION_CACHE_ENABLE, true,
+                HMSExternalCatalog.HIVE_PARTITION_CACHE_TTL_SECOND, partitionTtlSecond,
+                HMSExternalCatalog.HIVE_PARTITION_CACHE_CAPACITY, Config.max_hive_partition_cache_num);
+        fileCacheSpec = CacheSpec.fromProperties(properties,
+                HMSExternalCatalog.HIVE_FILE_CACHE_ENABLE, true,
+                HMSExternalCatalog.HIVE_FILE_CACHE_TTL_SECOND, fileTtlSecond,
+                HMSExternalCatalog.HIVE_FILE_CACHE_CAPACITY, Config.max_external_file_cache_num);
+    }
+
+    private static long resolveTtlSecondWithLegacyFallback(Map<String, String> properties,
+            String unifiedTtlKey, String legacyTtlKey, long defaultTtlSecond) {
+        String unifiedTtl = properties.get(unifiedTtlKey);
+        if (!Strings.isNullOrEmpty(unifiedTtl)) {
+            return parseLongOrDefault(unifiedTtl, defaultTtlSecond);
+        }
+        String legacyTtl = properties.get(legacyTtlKey);
+        if (!Strings.isNullOrEmpty(legacyTtl)) {
+            return parseLongOrDefault(legacyTtl, defaultTtlSecond);
+        }
+        return defaultTtlSecond;
+    }
+
+    private static long parseLongOrDefault(String value, long defaultValue) {
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            return defaultValue;
         }
     }
 
@@ -1060,5 +1104,29 @@ public class HiveMetaStoreCache {
         res.put("hive_file_cache",
                 ExternalMetaCacheMgr.getCacheStats(fileCacheRef.get().stats(), fileCacheRef.get().estimatedSize()));
         return res;
+    }
+
+    public CacheStats getPartitionValuesCacheStats() {
+        return partitionValuesCache.stats();
+    }
+
+    public long getPartitionValuesCacheEstimatedSize() {
+        return partitionValuesCache.estimatedSize();
+    }
+
+    public CacheStats getPartitionCacheStats() {
+        return partitionCache.stats();
+    }
+
+    public long getPartitionCacheEstimatedSize() {
+        return partitionCache.estimatedSize();
+    }
+
+    public CacheStats getFileCacheStats() {
+        return fileCacheRef.get().stats();
+    }
+
+    public long getFileCacheEstimatedSize() {
+        return fileCacheRef.get().estimatedSize();
     }
 }

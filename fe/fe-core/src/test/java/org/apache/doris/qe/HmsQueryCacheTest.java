@@ -28,7 +28,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
-import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -154,7 +153,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         Mockito.when(tbl.getDatabase()).thenReturn(db);
         Mockito.when(tbl.getUpdateTime()).thenReturn(NOW);
         // mock initSchemaAndUpdateTime and do nothing
-        Mockito.when(tbl.initSchema(Mockito.any(ExternalSchemaCache.SchemaCacheKey.class)))
+        Mockito.when(tbl.loadSchemaByVersion(Mockito.anyLong()))
                 .thenReturn(Optional.empty());
 
         setField(tbl2, "objectCreated", true);
@@ -177,8 +176,8 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         Mockito.when(tbl2.getSupportedSysTables()).thenReturn(PartitionsSysTable.HIVE_SUPPORTED_SYS_TABLES);
         Mockito.when(tbl2.getUpdateTime()).thenReturn(NOW);
         Mockito.when(tbl2.getUpdateTime()).thenReturn(NOW);
-        // mock initSchemaAndUpdateTime and do nothing
-        Mockito.when(tbl2.initSchemaAndUpdateTime(Mockito.any(ExternalSchemaCache.SchemaCacheKey.class)))
+        // mock loadSchemaByVersion and do nothing
+        Mockito.when(tbl2.loadSchemaByVersion(Mockito.anyLong()))
                 .thenReturn(Optional.empty());
         Mockito.doNothing().when(tbl2).setUpdateTime(Mockito.anyLong());
 
@@ -248,8 +247,8 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         StatementBase parseStmt = analyzeAndGetStmtByNereids("select * from hms_ctl.hms_db.hms_tbl2", connectContext);
         List<ScanNode> scanNodes = Arrays.asList(hiveScanNode4);
 
-        // invoke initSchemaAndUpdateTime first and init schemaUpdateTime
-        tbl2.initSchemaAndUpdateTime(new ExternalSchemaCache.SchemaCacheKey(tbl2.getOrBuildNameMapping()));
+        // invoke loadSchemaByVersion first and init schemaUpdateTime
+        tbl2.loadSchemaByVersion(-1L);
 
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
         ca.checkCacheModeForNereids(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);

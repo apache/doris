@@ -23,7 +23,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SessionContext;
-import org.apache.doris.datasource.metacache.CacheSpec;
+import org.apache.doris.datasource.metacache.UnifiedCacheModuleKey;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractPaimonProperties;
 
@@ -35,9 +35,9 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 // The subclasses of this class are all deprecated, only for meta persistence compatibility.
 public class PaimonExternalCatalog extends ExternalCatalog {
@@ -50,6 +50,8 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     public static final String PAIMON_TABLE_CACHE_ENABLE = "meta.cache.paimon.table.enable";
     public static final String PAIMON_TABLE_CACHE_TTL_SECOND = "meta.cache.paimon.table.ttl-second";
     public static final String PAIMON_TABLE_CACHE_CAPACITY = "meta.cache.paimon.table.capacity";
+    private static final List<UnifiedCacheModuleKey> CACHE_MODULE_KEYS = Collections.singletonList(
+            UnifiedCacheModuleKey.of(PaimonEngineCache.ENGINE_TYPE, "table"));
     protected String catalogType;
     protected Catalog catalog;
 
@@ -161,23 +163,14 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     @Override
     public void checkProperties() throws DdlException {
         super.checkProperties();
-        CacheSpec.checkBooleanProperty(catalogProperty.getOrDefault(PAIMON_TABLE_CACHE_ENABLE, null),
-                PAIMON_TABLE_CACHE_ENABLE);
-        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(PAIMON_TABLE_CACHE_TTL_SECOND, null),
-                -1L, PAIMON_TABLE_CACHE_TTL_SECOND);
-        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(PAIMON_TABLE_CACHE_CAPACITY, null),
-                0L, PAIMON_TABLE_CACHE_CAPACITY);
+        UnifiedCacheModuleKey.checkProperties(catalogProperty.getProperties(), CACHE_MODULE_KEYS);
         catalogProperty.checkMetaStoreAndStorageProperties(AbstractPaimonProperties.class);
     }
 
     @Override
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         super.notifyPropertiesUpdated(updatedProps);
-        String tableCacheEnable = updatedProps.getOrDefault(PAIMON_TABLE_CACHE_ENABLE, null);
-        String tableCacheTtl = updatedProps.getOrDefault(PAIMON_TABLE_CACHE_TTL_SECOND, null);
-        String tableCacheCapacity = updatedProps.getOrDefault(PAIMON_TABLE_CACHE_CAPACITY, null);
-        if (Objects.nonNull(tableCacheEnable) || Objects.nonNull(tableCacheTtl)
-                || Objects.nonNull(tableCacheCapacity)) {
+        if (UnifiedCacheModuleKey.hasAnyUpdatedProperty(updatedProps, CACHE_MODULE_KEYS)) {
             PaimonUtils.getPaimonMetadataCache(this).init();
         }
     }

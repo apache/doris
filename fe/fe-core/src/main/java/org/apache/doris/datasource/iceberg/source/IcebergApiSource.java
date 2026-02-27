@@ -55,7 +55,11 @@ public class IcebergApiSource implements IcebergSource {
         }
         this.icebergExtTable = table;
         this.originTable = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getIcebergMetadataCache(table.getCatalog()).getIcebergTable(icebergExtTable);
+                .getUnifiedMetaCacheMgr()
+                .getOrCreateEngineMetaCache(table.getCatalog(),
+                        org.apache.doris.datasource.iceberg.IcebergEngineCache.ENGINE_TYPE,
+                        org.apache.doris.datasource.iceberg.IcebergEngineCache.class)
+                .getMetadataCache().getIcebergTable(icebergExtTable);
         this.desc = desc;
     }
 

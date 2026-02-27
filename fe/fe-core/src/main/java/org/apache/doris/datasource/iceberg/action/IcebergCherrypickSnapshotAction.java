@@ -83,7 +83,7 @@ public class IcebergCherrypickSnapshotAction extends BaseIcebergAction {
             Snapshot currentSnapshot = icebergTable.currentSnapshot();
 
             // invalid iceberg catalog table cache.
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) table);
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidate((ExternalTable) table);
             return Lists.newArrayList(
                     String.valueOf(sourceSnapshotId),
                     String.valueOf(currentSnapshot.snapshotId()

@@ -238,7 +238,7 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
 
             // Invalidate cache
             Env.getCurrentEnv().getExtMetaCacheMgr()
-                .invalidateTableCache((ExternalTable) table);
+                .invalidate((ExternalTable) table);
 
             return Lists.newArrayList(
                 String.valueOf(deletedDataFilesCount.get()),

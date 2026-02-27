@@ -45,22 +45,33 @@ public class IcebergManifestCacheLoader {
 
     public static ManifestCacheValue loadDataFilesWithCache(IcebergManifestCache cache, ManifestFile manifest,
             Table table) {
-        return loadDataFilesWithCache(cache, manifest, table, null);
+        return loadDataFilesWithCache(cache, manifest, table, table.name(), null);
     }
 
     public static ManifestCacheValue loadDataFilesWithCache(IcebergManifestCache cache, ManifestFile manifest,
             Table table, Consumer<Boolean> cacheHitRecorder) {
-        return loadWithCache(cache, manifest, cacheHitRecorder, () -> loadDataFiles(manifest, table));
+        return loadDataFilesWithCache(cache, manifest, table, table.name(), cacheHitRecorder);
+    }
+
+    public static ManifestCacheValue loadDataFilesWithCache(IcebergManifestCache cache, ManifestFile manifest,
+            Table table, String tableIdentifier, Consumer<Boolean> cacheHitRecorder) {
+        return loadWithCache(cache, manifest, tableIdentifier, cacheHitRecorder, () -> loadDataFiles(manifest, table));
     }
 
     public static ManifestCacheValue loadDeleteFilesWithCache(IcebergManifestCache cache, ManifestFile manifest,
             Table table) {
-        return loadDeleteFilesWithCache(cache, manifest, table, null);
+        return loadDeleteFilesWithCache(cache, manifest, table, table.name(), null);
     }
 
     public static ManifestCacheValue loadDeleteFilesWithCache(IcebergManifestCache cache, ManifestFile manifest,
             Table table, Consumer<Boolean> cacheHitRecorder) {
-        return loadWithCache(cache, manifest, cacheHitRecorder, () -> loadDeleteFiles(manifest, table));
+        return loadDeleteFilesWithCache(cache, manifest, table, table.name(), cacheHitRecorder);
+    }
+
+    public static ManifestCacheValue loadDeleteFilesWithCache(IcebergManifestCache cache, ManifestFile manifest,
+            Table table, String tableIdentifier, Consumer<Boolean> cacheHitRecorder) {
+        return loadWithCache(cache, manifest, tableIdentifier, cacheHitRecorder,
+                () -> loadDeleteFiles(manifest, table));
     }
 
     private static ManifestCacheValue loadDataFiles(ManifestFile manifest, Table table) {
@@ -93,6 +104,7 @@ public class IcebergManifestCacheLoader {
     }
 
     private static ManifestCacheValue loadWithCache(IcebergManifestCache cache, ManifestFile manifest,
+            String tableIdentifier,
             Consumer<Boolean> cacheHitRecorder, Loader loader) {
         ManifestCacheKey key = buildKey(cache, manifest);
         Optional<ManifestCacheValue> cached = cache.peek(key);
@@ -101,9 +113,12 @@ public class IcebergManifestCacheLoader {
             cacheHitRecorder.accept(cacheHit);
         }
         if (cacheHit) {
+            cache.registerManifestPath(tableIdentifier, manifest.path());
             return cached.get();
         }
-        return cache.get(key, loader::load);
+        ManifestCacheValue loaded = cache.get(key, loader::load);
+        cache.registerManifestPath(tableIdentifier, manifest.path());
+        return loaded;
     }
 
     @FunctionalInterface

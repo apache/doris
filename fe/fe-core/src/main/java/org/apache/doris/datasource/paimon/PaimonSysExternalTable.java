@@ -19,7 +19,6 @@ package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -131,6 +130,10 @@ public class PaimonSysExternalTable extends ExternalTable {
      */
     @Override
     public List<Column> getFullSchema() {
+        return super.getFullSchema();
+    }
+
+    private List<Column> buildFullSchema() {
         Table sysTable = getSysPaimonTable();
         List<DataField> fields = sysTable.rowType().getFields();
         List<Column> columns = Lists.newArrayListWithCapacity(fields.size());
@@ -195,19 +198,18 @@ public class PaimonSysExternalTable extends ExternalTable {
     public TTableDescriptor toThrift() {
         List<Column> schema = getFullSchema();
         String catalogType = sourceTable.getPaimonCatalogType();
-        if (PaimonExternalCatalog.PAIMON_HMS.equals(catalogType)
-                || PaimonExternalCatalog.PAIMON_FILESYSTEM.equals(catalogType)
-                || PaimonExternalCatalog.PAIMON_DLF.equals(catalogType)
-                || PaimonExternalCatalog.PAIMON_REST.equals(catalogType)) {
-            THiveTable tHiveTable = new THiveTable(dbName, name, new HashMap<>());
-            TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HIVE_TABLE, schema.size(), 0,
-                    getName(), dbName);
-            tTableDescriptor.setHiveTable(tHiveTable);
-            return tTableDescriptor;
-        } else {
+        if (!PaimonExternalCatalog.PAIMON_HMS.equals(catalogType)
+                && !PaimonExternalCatalog.PAIMON_FILESYSTEM.equals(catalogType)
+                && !PaimonExternalCatalog.PAIMON_DLF.equals(catalogType)
+                && !PaimonExternalCatalog.PAIMON_REST.equals(catalogType)) {
             throw new IllegalArgumentException(
                     "Currently only supports hms/dlf/rest/filesystem catalog, do not support :" + catalogType);
         }
+        THiveTable tHiveTable = new THiveTable(dbName, name, new HashMap<>());
+        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HIVE_TABLE, schema.size(), 0,
+                getName(), dbName);
+        tTableDescriptor.setHiveTable(tHiveTable);
+        return tTableDescriptor;
     }
 
     @Override
@@ -225,8 +227,9 @@ public class PaimonSysExternalTable extends ExternalTable {
     }
 
     @Override
-    public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
-        return Optional.of(new SchemaCacheValue(getFullSchema()));
+    public Optional<SchemaCacheValue> initSchema() {
+        setUpdateTime(System.currentTimeMillis());
+        return Optional.of(new SchemaCacheValue(buildFullSchema()));
     }
 
     @Override

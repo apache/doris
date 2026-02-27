@@ -25,7 +25,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
-import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
@@ -47,6 +46,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 public class HmsCatalogTest extends AnalyzeCheckTestBase {
     private static final String HMS_CATALOG = "hms_ctl";
@@ -143,9 +143,10 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
                 minTimes = 0;
                 result = TableIf.TableType.HMS_EXTERNAL_TABLE;
 
-                // mock initSchemaAndUpdateTime and do nothing
-                tbl.initSchemaAndUpdateTime(new ExternalSchemaCache.SchemaCacheKey(tbl.getOrBuildNameMapping()));
+                // mock loadSchemaByVersion and do nothing
+                tbl.loadSchemaByVersion(anyLong);
                 minTimes = 0;
+                result = Optional.empty();
 
                 tbl.getDatabase();
                 minTimes = 0;

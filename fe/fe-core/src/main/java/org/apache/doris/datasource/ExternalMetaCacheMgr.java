@@ -17,37 +17,26 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.Type;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.doris.DorisExternalMetaCacheMgr;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveMetaStoreCache;
-import org.apache.doris.datasource.hudi.source.HudiCachedFsViewProcessor;
-import org.apache.doris.datasource.hudi.source.HudiCachedMetaClientProcessor;
-import org.apache.doris.datasource.hudi.source.HudiMetadataCacheMgr;
-import org.apache.doris.datasource.hudi.source.HudiPartitionProcessor;
-import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
-import org.apache.doris.datasource.maxcompute.MaxComputeMetadataCache;
-import org.apache.doris.datasource.maxcompute.MaxComputeMetadataCacheMgr;
 import org.apache.doris.datasource.metacache.MetaCache;
-import org.apache.doris.datasource.mvcc.MvccUtil;
-import org.apache.doris.datasource.paimon.PaimonMetadataCache;
+import org.apache.doris.datasource.metacache.UnifiedMetaCacheMgr;
 import org.apache.doris.fs.FileSystemCache;
-import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.system.Backend;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
@@ -86,18 +75,12 @@ public class ExternalMetaCacheMgr {
     // This executor is used to schedule the getting split tasks
     private ExecutorService scheduleExecutor;
 
-    private final CatalogScopedCacheMgr<HiveMetaStoreCache> hiveMetaStoreCacheMgr;
-    private final CatalogScopedCacheMgr<IcebergMetadataCache> icebergMetadataCacheMgr;
-    private final CatalogScopedCacheMgr<PaimonMetadataCache> paimonMetadataCacheMgr;
-    private final CatalogScopedCacheMgr<ExternalSchemaCache> schemaCacheMgr;
-    // hudi partition manager
-    private final HudiMetadataCacheMgr hudiMetadataCacheMgr;
     // all catalogs could share the same fsCache.
     private FileSystemCache fsCache;
     // all external table row count cache.
     private ExternalRowCountCache rowCountCache;
-    private final MaxComputeMetadataCacheMgr maxComputeMetadataCacheMgr;
     private final DorisExternalMetaCacheMgr dorisExternalMetaCacheMgr;
+    private final UnifiedMetaCacheMgr unifiedMetaCacheMgr;
 
     public ExternalMetaCacheMgr(boolean isCheckpointCatalog) {
         rowCountRefreshExecutor = newThreadPool(isCheckpointCatalog,
@@ -125,17 +108,7 @@ public class ExternalMetaCacheMgr {
         fsCache = new FileSystemCache();
         rowCountCache = new ExternalRowCountCache(rowCountRefreshExecutor);
 
-        hudiMetadataCacheMgr = new HudiMetadataCacheMgr(commonRefreshExecutor);
-        maxComputeMetadataCacheMgr = new MaxComputeMetadataCacheMgr();
-        hiveMetaStoreCacheMgr = new CatalogScopedCacheMgr<>(
-                catalog -> new HiveMetaStoreCache((HMSExternalCatalog) catalog,
-                        commonRefreshExecutor, fileListingExecutor));
-        icebergMetadataCacheMgr = new CatalogScopedCacheMgr<>(
-                catalog -> new IcebergMetadataCache(catalog, commonRefreshExecutor));
-        schemaCacheMgr = new CatalogScopedCacheMgr<>(
-                catalog -> new ExternalSchemaCache(catalog, commonRefreshExecutor));
-        paimonMetadataCacheMgr = new CatalogScopedCacheMgr<>(
-                catalog -> new PaimonMetadataCache(catalog, commonRefreshExecutor));
+        unifiedMetaCacheMgr = new UnifiedMetaCacheMgr(commonRefreshExecutor, fileListingExecutor);
         dorisExternalMetaCacheMgr = new DorisExternalMetaCacheMgr(commonRefreshExecutor);
     }
 
@@ -162,40 +135,12 @@ public class ExternalMetaCacheMgr {
         return scheduleExecutor;
     }
 
-    public HiveMetaStoreCache getMetaStoreCache(HMSExternalCatalog catalog) {
-        return hiveMetaStoreCacheMgr.getCache(catalog);
+    public UnifiedMetaCacheMgr getUnifiedMetaCacheMgr() {
+        return unifiedMetaCacheMgr;
     }
 
-    public ExternalSchemaCache getSchemaCache(ExternalCatalog catalog) {
-        return schemaCacheMgr.getCache(catalog);
-    }
-
-    public HudiPartitionProcessor getHudiPartitionProcess(ExternalCatalog catalog) {
-        return hudiMetadataCacheMgr.getPartitionProcessor(catalog);
-    }
-
-    public HudiCachedFsViewProcessor getFsViewProcessor(ExternalCatalog catalog) {
-        return hudiMetadataCacheMgr.getFsViewProcessor(catalog);
-    }
-
-    public HudiCachedMetaClientProcessor getMetaClientProcessor(ExternalCatalog catalog) {
-        return hudiMetadataCacheMgr.getHudiMetaClientProcessor(catalog);
-    }
-
-    public HudiMetadataCacheMgr getHudiMetadataCacheMgr() {
-        return hudiMetadataCacheMgr;
-    }
-
-    public IcebergMetadataCache getIcebergMetadataCache(ExternalCatalog catalog) {
-        return icebergMetadataCacheMgr.getCache(catalog);
-    }
-
-    public PaimonMetadataCache getPaimonMetadataCache(ExternalCatalog catalog) {
-        return paimonMetadataCacheMgr.getCache(catalog);
-    }
-
-    public MaxComputeMetadataCache getMaxComputeMetadataCache(long catalogId) {
-        return maxComputeMetadataCacheMgr.getMaxComputeMetadataCache(catalogId);
+    public Optional<SchemaCacheValue> getSchema(ExternalTable table, long versionToken) {
+        return unifiedMetaCacheMgr.getSchema(table, versionToken);
     }
 
     public FileSystemCache getFsCache() {
@@ -206,144 +151,52 @@ public class ExternalMetaCacheMgr {
         return rowCountCache;
     }
 
-    public DorisExternalMetaCacheMgr getDorisExternalMetaCacheMgr() {
-        return dorisExternalMetaCacheMgr;
+    public ImmutableMap<Long, Backend> getDorisBackends(long catalogId) {
+        return dorisExternalMetaCacheMgr.getBackends(catalogId);
     }
 
-    public void removeCache(long catalogId) {
-        if (hiveMetaStoreCacheMgr.removeCache(catalogId) != null) {
-            LOG.info("remove hive metastore cache for catalog {}", catalogId);
-        }
-        if (schemaCacheMgr.removeCache(catalogId) != null) {
-            LOG.info("remove schema cache for catalog {}", catalogId);
-        }
-        if (icebergMetadataCacheMgr.removeCache(catalogId) != null) {
-            LOG.info("remove iceberg meta cache for catalog {}", catalogId);
-        }
-        hudiMetadataCacheMgr.removeCache(catalogId);
-        maxComputeMetadataCacheMgr.removeCache(catalogId);
-        PaimonMetadataCache paimonMetadataCache = paimonMetadataCacheMgr.removeCache(catalogId);
-        if (paimonMetadataCache != null) {
-            paimonMetadataCache.invalidateCatalogCache(catalogId);
-        }
+    public void invalidateDorisBackends(long catalogId) {
+        dorisExternalMetaCacheMgr.invalidateBackendCache(catalogId);
+    }
+
+    public void removeCache(ExternalCatalog catalog) {
+        Objects.requireNonNull(catalog, "catalog cannot be null");
+        long catalogId = catalog.getId();
+        unifiedMetaCacheMgr.removeCatalogMetaCache(catalogId);
         dorisExternalMetaCacheMgr.removeCache(catalogId);
     }
 
-    public void invalidateTableCache(ExternalTable dorisTable) {
-        ExternalSchemaCache schemaCache = schemaCacheMgr.getCache(dorisTable.getCatalog().getId());
-        if (schemaCache != null) {
-            schemaCache.invalidateTableCache(dorisTable);
-        }
-        HiveMetaStoreCache hiveMetaCache = hiveMetaStoreCacheMgr.getCache(dorisTable.getCatalog().getId());
-        if (hiveMetaCache != null) {
-            hiveMetaCache.invalidateTableCache(dorisTable.getOrBuildNameMapping());
-        }
-        IcebergMetadataCache icebergMetadataCache = icebergMetadataCacheMgr.getCache(dorisTable.getCatalog().getId());
-        if (icebergMetadataCache != null) {
-            icebergMetadataCache.invalidateTableCache(dorisTable);
-        }
-        hudiMetadataCacheMgr.invalidateTableCache(dorisTable);
-        maxComputeMetadataCacheMgr.invalidateTableCache(dorisTable);
-        PaimonMetadataCache paimonMetadataCache = paimonMetadataCacheMgr.getCache(dorisTable.getCatalog().getId());
-        if (paimonMetadataCache != null) {
-            paimonMetadataCache.invalidateTableCache(dorisTable);
-        }
+    public void invalidate(ExternalTable table) {
+        Objects.requireNonNull(table, "table cannot be null");
+        unifiedMetaCacheMgr.invalidateTableCache(table);
         if (LOG.isDebugEnabled()) {
-            LOG.debug("invalid table cache for {}.{} in catalog {}", dorisTable.getRemoteDbName(),
-                    dorisTable.getRemoteName(), dorisTable.getCatalog().getName());
+            LOG.debug("invalid table cache for {}.{} in catalog {}", table.getRemoteDbName(),
+                    table.getRemoteName(), table.getCatalog().getName());
         }
     }
 
-    public void invalidateDbCache(long catalogId, String dbName) {
-        dbName = ClusterNamespace.getNameFromFullName(dbName);
-        ExternalSchemaCache schemaCache = schemaCacheMgr.getCache(catalogId);
-        if (schemaCache != null) {
-            schemaCache.invalidateDbCache(dbName);
-        }
-        HiveMetaStoreCache metaCache = hiveMetaStoreCacheMgr.getCache(catalogId);
-        if (metaCache != null) {
-            metaCache.invalidateDbCache(dbName);
-        }
-        IcebergMetadataCache icebergMetadataCache = icebergMetadataCacheMgr.getCache(catalogId);
-        if (icebergMetadataCache != null) {
-            icebergMetadataCache.invalidateDbCache(catalogId, dbName);
-        }
-        hudiMetadataCacheMgr.invalidateDbCache(catalogId, dbName);
-        maxComputeMetadataCacheMgr.invalidateDbCache(catalogId, dbName);
-        PaimonMetadataCache paimonMetadataCache = paimonMetadataCacheMgr.getCache(catalogId);
-        if (paimonMetadataCache != null) {
-            paimonMetadataCache.invalidateDbCache(catalogId, dbName);
-        }
+    public void invalidate(ExternalDatabase<? extends ExternalTable> db) {
+        Objects.requireNonNull(db, "database cannot be null");
+        invalidate((ExternalCatalog) db.getCatalog(), db.getFullName());
+    }
+
+    public void invalidate(ExternalCatalog catalog, String dbName) {
+        Objects.requireNonNull(catalog, "catalog cannot be null");
+        String normalizedDbName = org.apache.doris.cluster.ClusterNamespace.getNameFromFullName(dbName);
+        long catalogId = catalog.getId();
+        unifiedMetaCacheMgr.invalidateDbCache(catalogId, normalizedDbName);
         if (LOG.isDebugEnabled()) {
-            LOG.debug("invalid db cache for {} in catalog {}", dbName, catalogId);
+            LOG.debug("invalid db cache for {} in catalog {}", normalizedDbName, catalogId);
         }
     }
 
-    public void invalidateCatalogCache(long catalogId) {
-        schemaCacheMgr.removeCache(catalogId);
-        HiveMetaStoreCache metaCache = hiveMetaStoreCacheMgr.getCache(catalogId);
-        if (metaCache != null) {
-            metaCache.invalidateAll();
-        }
-        IcebergMetadataCache icebergMetadataCache = icebergMetadataCacheMgr.getCache(catalogId);
-        if (icebergMetadataCache != null) {
-            icebergMetadataCache.invalidateCatalogCache(catalogId);
-        }
-        hudiMetadataCacheMgr.invalidateCatalogCache(catalogId);
-        maxComputeMetadataCacheMgr.invalidateCatalogCache(catalogId);
-        PaimonMetadataCache paimonMetadataCache = paimonMetadataCacheMgr.getCache(catalogId);
-        if (paimonMetadataCache != null) {
-            paimonMetadataCache.invalidateCatalogCache(catalogId);
-        }
+    public void invalidate(ExternalCatalog catalog) {
+        Objects.requireNonNull(catalog, "catalog cannot be null");
+        long catalogId = catalog.getId();
+        unifiedMetaCacheMgr.invalidateCatalogCache(catalogId);
         dorisExternalMetaCacheMgr.invalidateCatalogCache(catalogId);
         if (LOG.isDebugEnabled()) {
             LOG.debug("invalid catalog cache for {}", catalogId);
-        }
-    }
-
-    public void invalidSchemaCache(long catalogId) {
-        schemaCacheMgr.removeCache(catalogId);
-    }
-
-    public void addPartitionsCache(long catalogId, HMSExternalTable table, List<String> partitionNames) {
-        String dbName = ClusterNamespace.getNameFromFullName(table.getDbName());
-        HiveMetaStoreCache metaCache = hiveMetaStoreCacheMgr.getCache(catalogId);
-        if (metaCache != null) {
-            List<Type> partitionColumnTypes;
-            try {
-                partitionColumnTypes = table.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(table));
-            } catch (NotSupportedException e) {
-                LOG.warn("Ignore not supported hms table, message: {} ", e.getMessage());
-                return;
-            }
-            metaCache.addPartitionsCache(table.getOrBuildNameMapping(), partitionNames, partitionColumnTypes);
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("add partition cache for {}.{} in catalog {}", dbName, table.getName(), catalogId);
-        }
-    }
-
-    public void dropPartitionsCache(long catalogId, HMSExternalTable table, List<String> partitionNames) {
-        String dbName = ClusterNamespace.getNameFromFullName(table.getDbName());
-        HiveMetaStoreCache metaCache = hiveMetaStoreCacheMgr.getCache(catalogId);
-        if (metaCache != null) {
-            metaCache.dropPartitionsCache(table, partitionNames, true);
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("drop partition cache for {}.{} in catalog {}", dbName, table.getName(), catalogId);
-        }
-    }
-
-    public void invalidatePartitionsCache(ExternalTable dorisTable, List<String> partitionNames) {
-        HiveMetaStoreCache metaCache = hiveMetaStoreCacheMgr.getCache(dorisTable.getCatalog().getId());
-        if (metaCache != null) {
-            for (String partitionName : partitionNames) {
-                metaCache.invalidatePartitionCache(dorisTable, partitionName);
-            }
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("invalidate partition cache for {}.{} in catalog {}",
-                    dorisTable.getDbName(), dorisTable.getName(), dorisTable.getCatalog().getName());
         }
     }
 

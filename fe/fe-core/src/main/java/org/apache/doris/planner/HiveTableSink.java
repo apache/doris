@@ -26,6 +26,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HiveEngineCache;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.hive.HivePartition;
@@ -209,7 +210,10 @@ public class HiveTableSink extends BaseExternalTableDataSink {
         if (targetTable.isPartitionedTable()) {
             // Get partitions from cache instead of HMS client (similar to HiveScanNode)
             HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                    .getMetaStoreCache((HMSExternalCatalog) targetTable.getCatalog());
+                    .getUnifiedMetaCacheMgr()
+                    .getOrCreateEngineMetaCache((HMSExternalCatalog) targetTable.getCatalog(),
+                            HiveEngineCache.ENGINE_TYPE, HiveEngineCache.class)
+                    .getMetaStoreCache();
             HiveMetaStoreCache.HivePartitionValues partitionValues =
                     targetTable.getHivePartitionValues(MvccUtil.getSnapshotFromContext(targetTable));
             List<List<String>> partitionValuesList =

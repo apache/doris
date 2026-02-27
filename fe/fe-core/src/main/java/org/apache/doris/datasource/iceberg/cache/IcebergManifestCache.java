@@ -23,11 +23,16 @@ import org.apache.doris.datasource.metacache.CacheSpec;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * A lightweight manifest cache that stores parsed DataFile/DeleteFile lists per manifest.
@@ -36,6 +41,7 @@ public class IcebergManifestCache {
     private static final Logger LOG = LogManager.getLogger(IcebergManifestCache.class);
 
     private final LoadingCache<ManifestCacheKey, ManifestCacheValue> cache;
+    private final ConcurrentHashMap<String, Set<String>> tableManifestPathIndex = new ConcurrentHashMap<>();
 
     public IcebergManifestCache(long capacity, long ttlSec) {
         CacheFactory cacheFactory = new CacheFactory(
@@ -70,15 +76,53 @@ public class IcebergManifestCache {
         return Optional.ofNullable(cache.getIfPresent(key));
     }
 
+    public void registerManifestPath(String tableName, String path) {
+        String nonNullTableName = Objects.requireNonNull(tableName, "tableName cannot be null");
+        String nonNullPath = Objects.requireNonNull(path, "path cannot be null");
+        tableManifestPathIndex.computeIfAbsent(nonNullTableName, ignored -> ConcurrentHashMap.newKeySet())
+                .add(nonNullPath);
+    }
+
     public void invalidateByPath(String path) {
-        cache.invalidate(buildKey(path));
+        String nonNullPath = Objects.requireNonNull(path, "path cannot be null");
+        cache.invalidate(buildKey(nonNullPath));
+        tableManifestPathIndex.values().forEach(paths -> paths.remove(nonNullPath));
+    }
+
+    public void invalidateByTable(String tableName) {
+        Set<String> paths = tableManifestPathIndex.remove(
+                Objects.requireNonNull(tableName, "tableName cannot be null"));
+        if (paths == null || paths.isEmpty()) {
+            return;
+        }
+        for (String path : paths) {
+            cache.invalidate(buildKey(path));
+        }
+    }
+
+    public void invalidateByTablePrefix(String tablePrefix) {
+        String nonNullTablePrefix = Objects.requireNonNull(tablePrefix, "tablePrefix cannot be null");
+        for (String tableName : new ArrayList<>(tableManifestPathIndex.keySet())) {
+            if (tableName.startsWith(nonNullTablePrefix)) {
+                invalidateByTable(tableName);
+            }
+        }
     }
 
     public void invalidateAll() {
         cache.invalidateAll();
+        tableManifestPathIndex.clear();
     }
 
     public ManifestCacheKey buildKey(String path) {
         return new ManifestCacheKey(path);
+    }
+
+    public CacheStats getStats() {
+        return cache.stats();
+    }
+
+    public long getEstimatedSize() {
+        return cache.estimatedSize();
     }
 }

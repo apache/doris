@@ -26,14 +26,13 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.datasource.ExternalSchemaCache;
-import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hudi.source.HudiCachedPartitionProcessor;
+import org.apache.doris.datasource.hudi.source.HudiEngineCache;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.schema.external.TArrayField;
@@ -285,8 +284,10 @@ public class HudiUtils {
         TablePartitionValues partitionValues = new TablePartitionValues();
 
         HoodieTableMetaClient hudiClient = hmsTable.getHudiClient();
-        HudiCachedPartitionProcessor processor = (HudiCachedPartitionProcessor) Env.getCurrentEnv()
-                .getExtMetaCacheMgr().getHudiPartitionProcess(hmsTable.getCatalog());
+        HudiCachedPartitionProcessor processor = Env.getCurrentEnv()
+                .getExtMetaCacheMgr().getUnifiedMetaCacheMgr().getOrCreateEngineMetaCache(
+                        hmsTable.getCatalog(), HudiEngineCache.ENGINE_TYPE, HudiEngineCache.class)
+                .getPartitionProcessor();
         boolean useHiveSyncPartition = hmsTable.useHiveSyncPartition();
 
         if (tableSnapshot.isPresent()) {
@@ -328,9 +329,9 @@ public class HudiUtils {
 
 
     public static HudiSchemaCacheValue getSchemaCacheValue(HMSExternalTable hmsTable, String queryInstant) {
-        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(hmsTable.getCatalog());
-        SchemaCacheKey key = new HudiSchemaCacheKey(hmsTable.getOrBuildNameMapping(), Long.parseLong(queryInstant));
-        Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(key);
+        long timestamp = Long.parseLong(queryInstant);
+        Optional<SchemaCacheValue> schemaCacheValue = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getSchema(hmsTable, timestamp);
         return (HudiSchemaCacheValue) schemaCacheValue.get();
     }
 

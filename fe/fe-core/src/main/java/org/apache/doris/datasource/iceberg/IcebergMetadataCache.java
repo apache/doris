@@ -29,9 +29,11 @@ import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.cache.IcebergManifestCache;
 import org.apache.doris.datasource.metacache.CacheSpec;
+import org.apache.doris.datasource.metacache.UnifiedCacheModuleKey;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -47,11 +49,17 @@ import org.jetbrains.annotations.NotNull;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
 
 public class IcebergMetadataCache {
     private static final Logger LOG = LogManager.getLogger(IcebergMetadataCache.class);
+    private static final UnifiedCacheModuleKey TABLE_CACHE_MODULE_KEY =
+            UnifiedCacheModuleKey.of(IcebergEngineCache.ENGINE_TYPE, "table");
+    private static final UnifiedCacheModuleKey MANIFEST_CACHE_MODULE_KEY =
+            UnifiedCacheModuleKey.of(IcebergEngineCache.ENGINE_TYPE, "manifest");
+
     private final ExecutorService executor;
     private final ExternalCatalog catalog;
     private LoadingCache<IcebergMetadataCacheKey, IcebergTableCacheValue> tableCache;
@@ -81,21 +89,14 @@ public class IcebergMetadataCache {
     }
 
     private CacheSpec resolveTableCacheSpec() {
-        return CacheSpec.fromProperties(catalog.getProperties(),
-                IcebergExternalCatalog.ICEBERG_TABLE_CACHE_ENABLE, true,
-                IcebergExternalCatalog.ICEBERG_TABLE_CACHE_TTL_SECOND,
-                Config.external_cache_expire_time_seconds_after_access,
-                IcebergExternalCatalog.ICEBERG_TABLE_CACHE_CAPACITY,
-                Config.max_external_table_cache_num);
+        return TABLE_CACHE_MODULE_KEY.toCacheSpec(catalog.getProperties(),
+                true, Config.external_cache_expire_time_seconds_after_access, Config.max_external_table_cache_num);
     }
 
     private CacheSpec resolveManifestCacheSpec() {
-        return CacheSpec.fromProperties(catalog.getProperties(),
-                IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_ENABLE,
+        return MANIFEST_CACHE_MODULE_KEY.toCacheSpec(catalog.getProperties(),
                 IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE,
-                IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_TTL_SECOND,
                 IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND,
-                IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_CAPACITY,
                 IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY);
     }
 
@@ -165,14 +166,16 @@ public class IcebergMetadataCache {
         try {
             MTMVRelatedTableIf table = (MTMVRelatedTableIf) dorisTable;
             IcebergSnapshot latestIcebergSnapshot = IcebergUtils.getLatestIcebergSnapshot(icebergTable);
+            IcebergSchemaCacheValue schema = IcebergUtils.loadTableSchemaValue(dorisTable, icebergTable,
+                    latestIcebergSnapshot.getSchemaId());
             IcebergPartitionInfo icebergPartitionInfo;
             if (!table.isValidRelatedTable()) {
                 icebergPartitionInfo = IcebergPartitionInfo.empty();
             } else {
                 icebergPartitionInfo = IcebergUtils.loadPartitionInfo(dorisTable, icebergTable,
-                        latestIcebergSnapshot.getSnapshotId(), latestIcebergSnapshot.getSchemaId());
+                        latestIcebergSnapshot.getSnapshotId(), schema.getPartitionColumns());
             }
-            return new IcebergSnapshotCacheValue(icebergPartitionInfo, latestIcebergSnapshot);
+            return new IcebergSnapshotCacheValue(icebergPartitionInfo, latestIcebergSnapshot, schema);
         } catch (AnalysisException e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
         }
@@ -199,6 +202,7 @@ public class IcebergMetadataCache {
     }
 
     private void invalidateTableCache(IcebergMetadataCacheKey key, IcebergTableCacheValue tableCacheValue) {
+        invalidateManifestCache(tableCacheValue.getIcebergTable());
         ManifestFiles.dropCache(tableCacheValue.getIcebergTable().io());
         if (LOG.isDebugEnabled()) {
             LOG.debug("invalidate iceberg table cache {}", key.nameMapping, new Exception());
@@ -208,8 +212,10 @@ public class IcebergMetadataCache {
     }
 
     private void invalidateTableCacheByLocalName(ExternalTable dorisTable) {
-        String dbName = dorisTable.getDbName();
-        String tblName = dorisTable.getName();
+        invalidateTableCacheByLocalName(dorisTable.getDbName(), dorisTable.getName());
+    }
+
+    public void invalidateTableCacheByLocalName(String dbName, String tblName) {
         tableCache.asMap().entrySet().stream()
                 .filter(entry -> entry.getKey().nameMapping.getLocalDbName().equals(dbName)
                         && entry.getKey().nameMapping.getLocalTblName().equals(tblName))
@@ -224,6 +230,7 @@ public class IcebergMetadataCache {
         tableCache.asMap().entrySet().stream()
                 .filter(entry -> entry.getKey().nameMapping.getLocalDbName().equals(dbName))
                 .forEach(entry -> {
+                    invalidateManifestCache(entry.getValue().getIcebergTable());
                     ManifestFiles.dropCache(entry.getValue().getIcebergTable().io());
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("invalidate iceberg table cache {} when invalidating db cache",
@@ -234,6 +241,21 @@ public class IcebergMetadataCache {
         viewCache.asMap().keySet().stream()
                 .filter(key -> key.nameMapping.getLocalDbName().equals(dbName))
                 .forEach(viewCache::invalidate);
+    }
+
+    public void invalidateManifestCacheByLocalName(String dbName, String tblName) {
+        manifestCache.invalidateByTable(buildManifestTableIdentifier(dbName, tblName));
+        tableCache.asMap().entrySet().stream()
+                .filter(entry -> entry.getKey().nameMapping.getLocalDbName().equals(dbName)
+                        && entry.getKey().nameMapping.getLocalTblName().equals(tblName))
+                .forEach(entry -> invalidateManifestCache(entry.getValue().getIcebergTable()));
+    }
+
+    public void invalidateManifestCacheByDbName(String dbName) {
+        manifestCache.invalidateByTablePrefix(buildManifestDbPrefix(dbName));
+        tableCache.asMap().entrySet().stream()
+                .filter(entry -> entry.getKey().nameMapping.getLocalDbName().equals(dbName))
+                .forEach(entry -> invalidateManifestCache(entry.getValue().getIcebergTable()));
     }
 
     private static void initIcebergTableFileIO(Table table, Map<String, String> props) {
@@ -284,6 +306,37 @@ public class IcebergMetadataCache {
         res.put("iceberg_table_cache", ExternalMetaCacheMgr.getCacheStats(tableCache.stats(),
                 tableCache.estimatedSize()));
         return res;
+    }
+
+    public CacheStats getTableCacheStats() {
+        return tableCache.stats();
+    }
+
+    public long getTableCacheEstimatedSize() {
+        return tableCache.estimatedSize();
+    }
+
+    public CacheStats getManifestCacheStats() {
+        return manifestCache.getStats();
+    }
+
+    public long getManifestCacheEstimatedSize() {
+        return manifestCache.getEstimatedSize();
+    }
+
+    private void invalidateManifestCache(Table icebergTable) {
+        if (icebergTable == null) {
+            return;
+        }
+        manifestCache.invalidateByTable(icebergTable.name());
+    }
+
+    public static String buildManifestTableIdentifier(String dbName, String tblName) {
+        return buildManifestDbPrefix(dbName) + Objects.requireNonNull(tblName, "tblName cannot be null");
+    }
+
+    private static String buildManifestDbPrefix(String dbName) {
+        return Objects.requireNonNull(dbName, "dbName cannot be null") + ".";
     }
 
     private View loadView(IcebergMetadataCacheKey key) {

@@ -105,13 +105,12 @@ public class RemoteOlapTable extends OlapTable {
 
     public void invalidateBackendsIfNeed() {
         ImmutableMap<Long, Backend> backends =
-                Env.getCurrentEnv().getExtMetaCacheMgr().getDorisExternalMetaCacheMgr().getBackends(catalog.getId());
+                Env.getCurrentEnv().getExtMetaCacheMgr().getDorisBackends(catalog.getId());
         for (Partition partition : getPartitions()) {
             for (Tablet tablet : partition.getBaseIndex().getTablets()) {
                 for (long backendId : tablet.getBackendIds()) {
                     if (!backends.containsKey(backendId)) {
-                        Env.getCurrentEnv().getExtMetaCacheMgr().getDorisExternalMetaCacheMgr()
-                                .invalidateBackendCache(catalog.getId());
+                        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDorisBackends(catalog.getId());
                         return;
                     }
                 }
@@ -125,6 +124,6 @@ public class RemoteOlapTable extends OlapTable {
     }
 
     public ImmutableMap<Long, Backend> getAllBackendsByAllCluster() {
-        return Env.getCurrentEnv().getExtMetaCacheMgr().getDorisExternalMetaCacheMgr().getBackends(catalog.getId());
+        return Env.getCurrentEnv().getExtMetaCacheMgr().getDorisBackends(catalog.getId());
     }
 }

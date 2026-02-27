@@ -28,6 +28,7 @@ import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HiveEngineCache;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.persist.OperationType;
 
@@ -192,7 +193,10 @@ public class RefreshManager {
                     || (newPartNames != null && !newPartNames.isEmpty()))) {
                 // Partition-level cache invalidation, only for hive catalog
                 HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                        .getMetaStoreCache((HMSExternalCatalog) catalog);
+                        .getUnifiedMetaCacheMgr()
+                        .getOrCreateEngineMetaCache((HMSExternalCatalog) catalog,
+                                HiveEngineCache.ENGINE_TYPE, HiveEngineCache.class)
+                        .getMetaStoreCache();
                 cache.refreshAffectedPartitionsCache((HMSExternalTable) table.get(), modifiedPartNames, newPartNames);
                 if (table.get() instanceof HMSExternalTable && log.getLastUpdateTime() > 0) {
                     ((HMSExternalTable) table.get()).setUpdateTime(log.getLastUpdateTime());
@@ -235,7 +239,7 @@ public class RefreshManager {
         if (updateTime > 0) {
             table.setUpdateTime(updateTime);
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table);
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidate(table);
         LOG.info("refresh table {}, id {} from db {} in catalog {}, update time: {}",
                 table.getName(), table.getId(), db.getFullName(), db.getCatalog().getName(), updateTime);
     }
@@ -270,7 +274,15 @@ public class RefreshManager {
             return;
         }
 
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidatePartitionsCache((ExternalTable) table, partitionNames);
+        HiveEngineCache hiveEngineCache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getUnifiedMetaCacheMgr()
+                .getEngineMetaCache(catalog.getId(), HiveEngineCache.ENGINE_TYPE, HiveEngineCache.class);
+        if (hiveEngineCache != null) {
+            HiveMetaStoreCache metaStoreCache = hiveEngineCache.getMetaStoreCache();
+            for (String partitionName : partitionNames) {
+                metaStoreCache.invalidatePartitionCache((HMSExternalTable) table, partitionName);
+            }
+        }
         ((HMSExternalTable) table).setUpdateTime(updateTime);
     }
 

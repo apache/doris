@@ -26,6 +26,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSTransaction;
+import org.apache.doris.datasource.hive.HiveEngineCache;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.qe.ConnectContext;
@@ -90,11 +91,14 @@ public class HiveInsertExecutor extends BaseExternalTableInsertExecutor {
         List<String> newPartNames = Lists.newArrayList();
         if (hmsTable.isPartitionedTable() && partitionUpdates != null && !partitionUpdates.isEmpty()) {
             HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                    .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
+                    .getUnifiedMetaCacheMgr()
+                    .getOrCreateEngineMetaCache((HMSExternalCatalog) hmsTable.getCatalog(),
+                            HiveEngineCache.ENGINE_TYPE, HiveEngineCache.class)
+                    .getMetaStoreCache();
             cache.refreshAffectedPartitions(hmsTable, partitionUpdates, modifiedPartNames, newPartNames);
         } else {
             // Non-partitioned table or no partition updates, do full table refresh
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(hmsTable);
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidate(hmsTable);
         }
 
         // Write edit log to notify other FEs

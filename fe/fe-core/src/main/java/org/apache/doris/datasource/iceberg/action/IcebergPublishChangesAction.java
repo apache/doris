@@ -97,7 +97,7 @@ public class IcebergPublishChangesAction extends BaseIcebergAction {
             Long currentSnapshotId = currentSnapshot != null ? currentSnapshot.snapshotId() : null;
 
             // Invalidate iceberg catalog table cache
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) table);
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidate((ExternalTable) table);
 
             String previousSnapshotIdString = previousSnapshotId != null ? String.valueOf(previousSnapshotId) : "null";
             String currentSnapshotIdString = currentSnapshotId != null ? String.valueOf(currentSnapshotId) : "null";

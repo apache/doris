@@ -23,8 +23,10 @@ import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.datasource.metacache.CacheSpec;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
@@ -41,11 +43,11 @@ public class HudiCachedMetaClientProcessor {
     private static final Logger LOG = LogManager.getLogger(HudiCachedMetaClientProcessor.class);
     private final LoadingCache<HudiCachedClientKey, HoodieTableMetaClient> hudiTableMetaClientCache;
 
-    public HudiCachedMetaClientProcessor(ExecutorService executor) {
+    public HudiCachedMetaClientProcessor(ExecutorService executor, CacheSpec cacheSpec) {
         CacheFactory partitionCacheFactory = new CacheFactory(
-                OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
+                CacheSpec.toExpireAfterAccess(cacheSpec.getTtlSecond()),
                 OptionalLong.of(Config.external_cache_refresh_time_minutes * 60),
-                Config.max_external_table_cache_num,
+                cacheSpec.getCapacity(),
                 true,
                 null);
 
@@ -88,9 +90,13 @@ public class HudiCachedMetaClientProcessor {
     }
 
     public void invalidateTableCache(ExternalTable dorisTable) {
+        invalidateTableCache(dorisTable.getDbName(), dorisTable.getName());
+    }
+
+    public void invalidateTableCache(String dbName, String tableName) {
         hudiTableMetaClientCache.asMap().forEach((k, v) -> {
-            if (k.getNameMapping().getLocalDbName().equals(dorisTable.getDbName())
-                    && k.getNameMapping().getLocalTblName().equals(dorisTable.getName())) {
+            if (k.getNameMapping().getLocalDbName().equals(dbName)
+                    && k.getNameMapping().getLocalTblName().equals(tableName)) {
                 hudiTableMetaClientCache.invalidate(k);
             }
         });
@@ -143,5 +149,13 @@ public class HudiCachedMetaClientProcessor {
         res.put("hudi_meta_client_cache", ExternalMetaCacheMgr.getCacheStats(hudiTableMetaClientCache.stats(),
                 hudiTableMetaClientCache.estimatedSize()));
         return res;
+    }
+
+    public CacheStats getMetaClientCacheStats() {
+        return hudiTableMetaClientCache.stats();
+    }
+
+    public long getMetaClientCacheEstimatedSize() {
+        return hudiTableMetaClientCache.estimatedSize();
     }
 }

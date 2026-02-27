@@ -104,7 +104,7 @@ public class RewriteManifestExecutor {
                     .count();
 
             // Invalidate table cache to ensure metadata is refreshed
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(extTable);
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidate(extTable);
 
             return new Result(rewrittenCount, addedCount);
         } catch (Exception e) {

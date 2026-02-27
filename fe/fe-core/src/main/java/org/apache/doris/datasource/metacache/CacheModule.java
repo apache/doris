@@ -15,30 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.paimon;
+package org.apache.doris.datasource.metacache;
 
-public class PaimonSnapshotCacheValue {
+import com.github.benmanes.caffeine.cache.stats.CacheStats;
 
-    private final PaimonPartitionInfo partitionInfo;
-    private final PaimonSnapshot snapshot;
-    private final PaimonSchemaCacheValue schema;
+/**
+ * Cache module interface for a specific engine cache component.
+ */
+public interface CacheModule {
+    String getName();
 
-    public PaimonSnapshotCacheValue(PaimonPartitionInfo partitionInfo, PaimonSnapshot snapshot,
-            PaimonSchemaCacheValue schema) {
-        this.partitionInfo = partitionInfo;
-        this.snapshot = snapshot;
-        this.schema = schema;
-    }
+    CacheSpec getSpec();
 
-    public PaimonPartitionInfo getPartitionInfo() {
-        return partitionInfo;
-    }
+    void invalidateAll();
 
-    public PaimonSnapshot getSnapshot() {
-        return snapshot;
-    }
+    void invalidateDb(String dbName);
 
-    public PaimonSchemaCacheValue getSchema() {
-        return schema;
+    void invalidateTable(String dbName, String tableName);
+
+    CacheStats getStats();
+
+    default long getEstimatedSize() {
+        return 0L;
     }
 }

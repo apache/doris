@@ -21,8 +21,10 @@ import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.metacache.CacheSpec;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import com.google.common.collect.Maps;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.engine.HoodieLocalEngineContext;
@@ -41,11 +43,11 @@ public class HudiCachedFsViewProcessor {
     private static final Logger LOG = LogManager.getLogger(HudiCachedFsViewProcessor.class);
     private final LoadingCache<FsViewKey, HoodieTableFileSystemView> fsViewCache;
 
-    public HudiCachedFsViewProcessor(ExecutorService executor) {
+    public HudiCachedFsViewProcessor(ExecutorService executor, CacheSpec cacheSpec) {
         CacheFactory partitionCacheFactory = new CacheFactory(
-                OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
+                CacheSpec.toExpireAfterAccess(cacheSpec.getTtlSecond()),
                 OptionalLong.of(Config.external_cache_refresh_time_minutes * 60),
-                Config.max_external_table_cache_num,
+                cacheSpec.getCapacity(),
                 true,
                 null);
         this.fsViewCache = partitionCacheFactory.buildCache(this::createFsView, executor);
@@ -78,8 +80,12 @@ public class HudiCachedFsViewProcessor {
     }
 
     public void invalidateTableCache(ExternalTable dorisTable) {
+        invalidateTableCache(dorisTable.getDbName(), dorisTable.getName());
+    }
+
+    public void invalidateTableCache(String dbName, String tableName) {
         fsViewCache.asMap().forEach((k, v) -> {
-            if (k.getDbName().equals(dorisTable.getDbName()) && k.getTbName().equals(dorisTable.getName())) {
+            if (k.getDbName().equals(dbName) && k.getTbName().equals(tableName)) {
                 fsViewCache.invalidate(k);
             }
         });
@@ -132,5 +138,13 @@ public class HudiCachedFsViewProcessor {
         res.put("hudi_fs_view_cache",
                 ExternalMetaCacheMgr.getCacheStats(fsViewCache.stats(), fsViewCache.estimatedSize()));
         return res;
+    }
+
+    public CacheStats getFsViewCacheStats() {
+        return fsViewCache.stats();
+    }
+
+    public long getFsViewCacheEstimatedSize() {
+        return fsViewCache.estimatedSize();
     }
 }

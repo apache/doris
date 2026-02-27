@@ -18,12 +18,14 @@
 package org.apache.doris.datasource.maxcompute;
 
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.credentials.CloudCredential;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.metacache.UnifiedCacheModuleKey;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.constants.MCProperties;
 
@@ -51,6 +53,13 @@ import java.util.stream.Collectors;
 
 public class MaxComputeExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = Logger.getLogger(MaxComputeExternalCatalog.class);
+
+    public static final String MC_PARTITION_VALUES_CACHE_ENABLE = "meta.cache.maxcompute.partition-values.enable";
+    public static final String MC_PARTITION_VALUES_CACHE_TTL_SECOND =
+            "meta.cache.maxcompute.partition-values.ttl-second";
+    public static final String MC_PARTITION_VALUES_CACHE_CAPACITY = "meta.cache.maxcompute.partition-values.capacity";
+    private static final List<UnifiedCacheModuleKey> CACHE_MODULE_KEYS = Collections.singletonList(
+            UnifiedCacheModuleKey.of(MaxComputeEngineCache.ENGINE_TYPE, "partition-values"));
 
     // you can ref : https://help.aliyun.com/zh/maxcompute/user-guide/endpoints
     private static final String endpointTemplate = "http://service.{}.maxcompute.aliyun-inc.com/api";
@@ -461,6 +470,16 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         if (!credential.isWhole()) {
             throw new DdlException("Max-Compute credential properties '"
                     + MCProperties.ACCESS_KEY + "' and  '" + MCProperties.SECRET_KEY + "' are required.");
+        }
+
+        UnifiedCacheModuleKey.checkProperties(props, CACHE_MODULE_KEYS);
+    }
+
+    @Override
+    public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
+        super.notifyPropertiesUpdated(updatedProps);
+        if (UnifiedCacheModuleKey.hasAnyUpdatedProperty(updatedProps, CACHE_MODULE_KEYS)) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidate(this);
         }
     }
 }

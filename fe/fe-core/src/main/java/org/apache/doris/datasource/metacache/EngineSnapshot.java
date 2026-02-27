@@ -15,30 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.paimon;
+package org.apache.doris.datasource.metacache;
 
-public class PaimonSnapshotCacheValue {
-
-    private final PaimonPartitionInfo partitionInfo;
-    private final PaimonSnapshot snapshot;
-    private final PaimonSchemaCacheValue schema;
-
-    public PaimonSnapshotCacheValue(PaimonPartitionInfo partitionInfo, PaimonSnapshot snapshot,
-            PaimonSchemaCacheValue schema) {
-        this.partitionInfo = partitionInfo;
-        this.snapshot = snapshot;
-        this.schema = schema;
-    }
-
-    public PaimonPartitionInfo getPartitionInfo() {
-        return partitionInfo;
-    }
-
-    public PaimonSnapshot getSnapshot() {
-        return snapshot;
-    }
-
-    public PaimonSchemaCacheValue getSchema() {
-        return schema;
-    }
+/**
+ * Marker interface for engine-specific snapshot metadata.
+ */
+public interface EngineSnapshot {
 }

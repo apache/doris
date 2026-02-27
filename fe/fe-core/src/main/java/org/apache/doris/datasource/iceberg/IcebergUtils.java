@@ -51,9 +51,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.iceberg.cache.IcebergManifestCache;
@@ -738,11 +736,10 @@ public class IcebergUtils {
 
     // Centralize cache access to keep call sites consistent and easy to understand.
     private static IcebergMetadataCache icebergMetadataCache(ExternalCatalog catalog) {
-        return Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache(catalog);
-    }
-
-    private static ExternalSchemaCache schemaCache(ExternalCatalog catalog) {
-        return Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
+        return Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getUnifiedMetaCacheMgr()
+                .getOrCreateEngineMetaCache(catalog, IcebergEngineCache.ENGINE_TYPE, IcebergEngineCache.class)
+                .getMetadataCache();
     }
 
     public static org.apache.iceberg.types.Type dorisTypeToIcebergType(Type type) {
@@ -1219,15 +1216,8 @@ public class IcebergUtils {
         return false;
     }
 
-    // read schema from external schema cache
     public static IcebergSchemaCacheValue getSchemaCacheValue(ExternalTable dorisTable, long schemaId) {
-        Optional<SchemaCacheValue> schemaCacheValue = schemaCache(dorisTable.getCatalog()).getSchemaValue(
-                new IcebergSchemaCacheKey(dorisTable.getOrBuildNameMapping(), schemaId));
-        if (!schemaCacheValue.isPresent()) {
-            throw new CacheException("failed to getSchema for: %s.%s.%s.%s",
-                    null, dorisTable.getCatalog().getName(), dorisTable.getDbName(), dorisTable.getName(), schemaId);
-        }
-        return (IcebergSchemaCacheValue) schemaCacheValue.get();
+        return loadTableSchemaValue(dorisTable, getIcebergTable(dorisTable), schemaId);
     }
 
     public static IcebergSnapshot getLatestIcebergSnapshot(Table table) {
@@ -1250,6 +1240,12 @@ public class IcebergUtils {
 
     public static IcebergPartitionInfo loadPartitionInfo(ExternalTable dorisTable, Table table, long snapshotId,
             long schemaId) throws AnalysisException {
+        return loadPartitionInfo(dorisTable, table, snapshotId,
+                IcebergUtils.getSchemaCacheValue(dorisTable, schemaId).getPartitionColumns());
+    }
+
+    public static IcebergPartitionInfo loadPartitionInfo(ExternalTable dorisTable, Table table, long snapshotId,
+            List<Column> partitionColumns) throws AnalysisException {
         if (snapshotId == IcebergUtils.UNKNOWN_SNAPSHOT_ID) {
             return IcebergPartitionInfo.empty();
         }
@@ -1266,7 +1262,6 @@ public class IcebergUtils {
         Map<String, IcebergPartition> nameToPartition = Maps.newHashMap();
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
 
-        List<Column> partitionColumns = IcebergUtils.getSchemaCacheValue(dorisTable, schemaId).getPartitionColumns();
         for (IcebergPartition partition : icebergPartitions) {
             nameToPartition.put(partition.getPartitionName(), partition);
             String transform = table.specs().get(partition.getSpecId()).fields().get(0).transform().toString();
@@ -1493,7 +1488,7 @@ public class IcebergUtils {
     }
 
     public static IcebergSchemaCacheValue getSchemaCacheValue(ExternalTable dorisTable, IcebergSnapshotCacheValue sv) {
-        return getSchemaCacheValue(dorisTable, sv.getSnapshot().getSchemaId());
+        return sv.getSchema();
     }
 
     public static IcebergSnapshotCacheValue getLatestSnapshotCacheValue(ExternalTable dorisTable) {
@@ -1521,9 +1516,11 @@ public class IcebergUtils {
             } catch (UserException e) {
                 throw new RuntimeException(e);
             }
+            IcebergSchemaCacheValue schema = loadTableSchemaValue(dorisTable, icebergTable, info.getSchemaId());
             return new IcebergSnapshotCacheValue(
                     IcebergPartitionInfo.empty(),
-                    new IcebergSnapshot(info.getSnapshotId(), info.getSchemaId()));
+                    new IcebergSnapshot(info.getSnapshotId(), info.getSchemaId()),
+                    schema);
         }
         return getLatestSnapshotCacheValue(dorisTable);
     }
@@ -1562,6 +1559,11 @@ public class IcebergUtils {
 
     private static Optional<SchemaCacheValue> loadTableSchemaCacheValue(ExternalTable dorisTable, long schemaId) {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        return Optional.of(loadTableSchemaValue(dorisTable, icebergTable, schemaId));
+    }
+
+    public static IcebergSchemaCacheValue loadTableSchemaValue(ExternalTable dorisTable, Table icebergTable,
+            long schemaId) {
         List<Column> schema = IcebergUtils.getSchema(dorisTable, schemaId, false, icebergTable);
         // get table partition column info
         List<Column> tmpColumns = Lists.newArrayList();
@@ -1575,7 +1577,7 @@ public class IcebergUtils {
                 }
             }
         }
-        return Optional.of(new IcebergSchemaCacheValue(schema, tmpColumns));
+        return new IcebergSchemaCacheValue(schema, tmpColumns);
     }
 
     public static String showCreateView(IcebergExternalTable icebergExternalTable) {

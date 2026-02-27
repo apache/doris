@@ -35,7 +35,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.connectivity.CatalogConnectivityTestCoordinator;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.es.EsExternalDatabase;
@@ -47,6 +46,7 @@ import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
+import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
@@ -79,7 +79,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
-import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -117,6 +116,7 @@ public abstract class ExternalCatalog
 
     // https://help.aliyun.com/zh/emr/emr-on-ecs/user-guide/use-rootpolicy-to-access-oss-hdfs?spm=a2c4g.11186623.help-menu-search-28066.d_0
     public static final String OOS_ROOT_POLICY = "oss.root_policy";
+    // Legacy schema cache ttl property, kept for compatibility.
     public static final String SCHEMA_CACHE_TTL_SECOND = "schema.cache.ttl-second";
     // -1 means cache with no ttl
     public static final int CACHE_NO_TTL = -1;
@@ -392,14 +392,7 @@ public abstract class ExternalCatalog
                 throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
             }
         }
-
-        // check schema.cache.ttl-second parameter
-        String schemaCacheTtlSecond = catalogProperty.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
-        if (java.util.Objects.nonNull(schemaCacheTtlSecond) && NumberUtils.toInt(schemaCacheTtlSecond, CACHE_NO_TTL)
-                < CACHE_TTL_DISABLE_CACHE) {
-            throw new DdlException(
-                    "The parameter " + SCHEMA_CACHE_TTL_SECOND + " is wrong, value is " + schemaCacheTtlSecond);
-        }
+        CacheSpec.checkLongProperty(properties.get(SCHEMA_CACHE_TTL_SECOND), -1L, SCHEMA_CACHE_TTL_SECOND);
     }
 
     /**
@@ -553,7 +546,7 @@ public abstract class ExternalCatalog
         setLastUpdateTime(System.currentTimeMillis());
         refreshMetaCacheOnly();
         if (invalidCache) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidate(this);
         }
     }
 
@@ -565,18 +558,6 @@ public abstract class ExternalCatalog
         if (metaCache != null) {
             metaCache.invalidateAll();
         }
-    }
-
-    public final Optional<SchemaCacheValue> getSchema(SchemaCacheKey key) {
-        makeSureInitialized();
-        Optional<ExternalDatabase<? extends ExternalTable>> db = getDb(key.getNameMapping().getLocalDbName());
-        if (db.isPresent()) {
-            Optional<? extends ExternalTable> table = db.get().getTable(key.getNameMapping().getLocalTblName());
-            if (table.isPresent()) {
-                return table.get().initSchemaAndUpdateTime(key);
-            }
-        }
-        return Optional.empty();
     }
 
     @Override
@@ -1053,7 +1034,7 @@ public abstract class ExternalCatalog
         if (isInitialized()) {
             metaCache.invalidate(dbName, Util.genIdByName(name, dbName));
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(getId(), dbName);
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidate(this, dbName);
     }
 
     public void registerDatabase(long dbId, String dbName) {
@@ -1197,9 +1178,20 @@ public abstract class ExternalCatalog
     @Override
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         CatalogIf.super.notifyPropertiesUpdated(updatedProps);
-        String schemaCacheTtl = updatedProps.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
-        if (java.util.Objects.nonNull(schemaCacheTtl)) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidSchemaCache(id);
+        if (updatedProps.containsKey(SCHEMA_CACHE_TTL_SECOND)) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().getUnifiedMetaCacheMgr().removeCatalogMetaCache(id);
+        }
+    }
+
+    public long getSchemaCacheTtlSecond() {
+        String ttlSecond = catalogProperty.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
+        if (ttlSecond == null) {
+            return Config.external_cache_expire_time_seconds_after_access;
+        }
+        try {
+            return Long.parseLong(ttlSecond);
+        } catch (NumberFormatException e) {
+            return Config.external_cache_expire_time_seconds_after_access;
         }
     }
 

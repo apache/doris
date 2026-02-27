@@ -127,7 +127,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 metaCache.invalidateAll();
             }
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(getCatalog().getId(), getFullName());
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidate(this);
     }
 
     public boolean isInitialized() {
@@ -568,7 +568,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             lowerCaseToTableName.remove(dorisTable.getName().toLowerCase());
         }
 
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(dorisTable);
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidate(dorisTable);
     }
 
     @Override

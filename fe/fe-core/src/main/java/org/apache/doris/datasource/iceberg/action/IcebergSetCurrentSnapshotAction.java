@@ -130,7 +130,7 @@ public class IcebergSetCurrentSnapshotAction extends BaseIcebergAction {
             }
 
             // invalid iceberg catalog table cache.
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) table);
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidate((ExternalTable) table);
             return Lists.newArrayList(
                     String.valueOf(previousSnapshotId),
                     String.valueOf(targetSnapshotId)

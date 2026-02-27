@@ -38,6 +38,7 @@ import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.iceberg.cache.IcebergManifestCache;
 import org.apache.doris.datasource.iceberg.cache.IcebergManifestCacheLoader;
@@ -538,6 +539,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         // ========== Phase 1: Load delete files from delete manifests ==========
         List<DeleteFile> deleteFiles = new ArrayList<>();
         List<ManifestFile> deleteManifests = snapshot.deleteManifests(icebergTable.io());
+        String manifestTableIdentifier = getManifestTableIdentifier();
         for (ManifestFile manifest : deleteManifests) {
             // Skip non-delete manifests
             if (manifest.content() != ManifestContent.DELETES) {
@@ -557,7 +559,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
             // Load delete files from cache (or from storage if not cached)
             ManifestCacheValue value = IcebergManifestCacheLoader.loadDeleteFilesWithCache(cache, manifest,
-                    icebergTable, this::recordManifestCacheAccess);
+                    icebergTable, manifestTableIdentifier, this::recordManifestCacheAccess);
             deleteFiles.addAll(value.getDeleteFiles());
         }
 
@@ -590,7 +592,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
                 // Load data files from cache (or from storage if not cached)
                 ManifestCacheValue value = IcebergManifestCacheLoader.loadDataFilesWithCache(cache, manifest,
-                        icebergTable, this::recordManifestCacheAccess);
+                        icebergTable, manifestTableIdentifier, this::recordManifestCacheAccess);
 
                 // Process each data file in the manifest
                 for (org.apache.iceberg.DataFile dataFile : value.getDataFiles()) {
@@ -620,6 +622,16 @@ public class IcebergScanNode extends FileQueryScanNode {
         // Split tasks into smaller chunks based on target split size for parallel processing
         targetSplitSize = determineTargetFileSplitSize(tasks);
         return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(tasks), targetSplitSize);
+    }
+
+    private String getManifestTableIdentifier() {
+        TableIf targetTable = source.getTargetTable();
+        if (targetTable instanceof ExternalTable) {
+            ExternalTable externalTable = (ExternalTable) targetTable;
+            return IcebergMetadataCache.buildManifestTableIdentifier(externalTable.getDbName(),
+                    externalTable.getName());
+        }
+        return icebergTable.name();
     }
 
     /**

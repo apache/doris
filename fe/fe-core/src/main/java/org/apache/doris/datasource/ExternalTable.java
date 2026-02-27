@@ -31,8 +31,9 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
@@ -68,6 +69,7 @@ import java.util.Set;
  */
 public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(ExternalTable.class);
+    public static final long CURRENT_SCHEMA_VERSION_TOKEN = -1L;
 
     @SerializedName(value = "id")
     protected long id;
@@ -174,8 +176,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     @Override
     public List<Column> getFullSchema() {
-        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
-        Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(new SchemaCacheKey(getOrBuildNameMapping()));
+        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
         return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
     }
 
@@ -336,20 +337,13 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return Optional.empty();
     }
 
-    /**
-     * Should only be called in ExternalCatalog's getSchema(),
-     * which is called from schema cache.
-     * If you want to get schema of this table, use getFullSchema()
-     *
-     * @return
-     */
-    public Optional<SchemaCacheValue> initSchemaAndUpdateTime(SchemaCacheKey key) {
+    public Optional<SchemaCacheValue> loadSchemaByVersion(long versionToken) {
         setUpdateTime(System.currentTimeMillis());
-        return initSchema(key);
+        return initSchema();
     }
 
-    public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
-        return initSchema();
+    public long resolveSchemaVersionToken(Optional<MvccSnapshot> snapshot) {
+        return CURRENT_SCHEMA_VERSION_TOKEN;
     }
 
     public Optional<SchemaCacheValue> initSchema() {
@@ -396,8 +390,15 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
-        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
-        return cache.getSchemaValue(new SchemaCacheKey(getOrBuildNameMapping()));
+        return getSchemaCacheValue(this instanceof MvccTable
+                ? MvccUtil.getSnapshotFromContext(this)
+                : Optional.empty());
+    }
+
+    public Optional<SchemaCacheValue> getSchemaCacheValue(Optional<MvccSnapshot> snapshot) {
+        makeSureInitialized();
+        long schemaVersionToken = resolveSchemaVersionToken(snapshot);
+        return Env.getCurrentEnv().getExtMetaCacheMgr().getSchema(this, schemaVersionToken);
     }
 
     @Override

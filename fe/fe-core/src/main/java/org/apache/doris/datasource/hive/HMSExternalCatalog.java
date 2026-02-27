@@ -28,8 +28,11 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.hudi.source.HudiEngineCache;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.metacache.CacheSpec;
+import org.apache.doris.datasource.metacache.UnifiedCacheModuleKey;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractHiveProperties;
 import org.apache.doris.fs.FileSystemProvider;
@@ -38,14 +41,13 @@ import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.google.common.annotations.VisibleForTesting;
-import org.apache.commons.lang3.math.NumberUtils;
+import com.google.common.collect.ImmutableList;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.ThreadPoolExecutor;
 
 /**
@@ -54,8 +56,42 @@ import java.util.concurrent.ThreadPoolExecutor;
 public class HMSExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(HMSExternalCatalog.class);
 
+    // Legacy cache properties (kept for compatibility).
     public static final String FILE_META_CACHE_TTL_SECOND = "file.meta.cache.ttl-second";
     public static final String PARTITION_CACHE_TTL_SECOND = "partition.cache.ttl-second";
+
+    // Unified cache properties
+    public static final String HIVE_PARTITION_VALUES_CACHE_ENABLE = "meta.cache.hive.partition-values.enable";
+    public static final String HIVE_PARTITION_VALUES_CACHE_TTL_SECOND = "meta.cache.hive.partition-values.ttl-second";
+    public static final String HIVE_PARTITION_VALUES_CACHE_CAPACITY = "meta.cache.hive.partition-values.capacity";
+    public static final String HIVE_PARTITION_CACHE_ENABLE = "meta.cache.hive.partition.enable";
+    public static final String HIVE_PARTITION_CACHE_TTL_SECOND = "meta.cache.hive.partition.ttl-second";
+    public static final String HIVE_PARTITION_CACHE_CAPACITY = "meta.cache.hive.partition.capacity";
+    public static final String HIVE_FILE_CACHE_ENABLE = "meta.cache.hive.file.enable";
+    public static final String HIVE_FILE_CACHE_TTL_SECOND = "meta.cache.hive.file.ttl-second";
+    public static final String HIVE_FILE_CACHE_CAPACITY = "meta.cache.hive.file.capacity";
+    public static final String HUDI_PARTITION_CACHE_ENABLE = "meta.cache.hudi.partition.enable";
+    public static final String HUDI_PARTITION_CACHE_TTL_SECOND = "meta.cache.hudi.partition.ttl-second";
+    public static final String HUDI_PARTITION_CACHE_CAPACITY = "meta.cache.hudi.partition.capacity";
+    public static final String HUDI_FS_VIEW_CACHE_ENABLE = "meta.cache.hudi.fs-view.enable";
+    public static final String HUDI_FS_VIEW_CACHE_TTL_SECOND = "meta.cache.hudi.fs-view.ttl-second";
+    public static final String HUDI_FS_VIEW_CACHE_CAPACITY = "meta.cache.hudi.fs-view.capacity";
+    public static final String HUDI_META_CLIENT_CACHE_ENABLE = "meta.cache.hudi.meta-client.enable";
+    public static final String HUDI_META_CLIENT_CACHE_TTL_SECOND = "meta.cache.hudi.meta-client.ttl-second";
+    public static final String HUDI_META_CLIENT_CACHE_CAPACITY = "meta.cache.hudi.meta-client.capacity";
+    private static final List<UnifiedCacheModuleKey> HIVE_CACHE_MODULE_KEYS = ImmutableList.of(
+            UnifiedCacheModuleKey.of(HiveEngineCache.ENGINE_TYPE, "partition-values"),
+            UnifiedCacheModuleKey.of(HiveEngineCache.ENGINE_TYPE, "partition"),
+            UnifiedCacheModuleKey.of(HiveEngineCache.ENGINE_TYPE, "file"));
+    private static final List<UnifiedCacheModuleKey> HUDI_CACHE_MODULE_KEYS = ImmutableList.of(
+            UnifiedCacheModuleKey.of(HudiEngineCache.ENGINE_TYPE, "partition"),
+            UnifiedCacheModuleKey.of(HudiEngineCache.ENGINE_TYPE, "fs-view"),
+            UnifiedCacheModuleKey.of(HudiEngineCache.ENGINE_TYPE, "meta-client"));
+    private static final List<UnifiedCacheModuleKey> ALL_CACHE_MODULE_KEYS =
+            ImmutableList.<UnifiedCacheModuleKey>builder()
+                    .addAll(HIVE_CACHE_MODULE_KEYS)
+                    .addAll(HUDI_CACHE_MODULE_KEYS)
+                    .build();
     public static final String HIVE_STAGING_DIR = "hive.staging_dir";
     public static final String DEFAULT_STAGING_BASE_DIR = "/tmp/.doris_staging";
     // broker name for file split and query scan.
@@ -109,21 +145,11 @@ public class HMSExternalCatalog extends ExternalCatalog {
     @Override
     public void checkProperties() throws DdlException {
         super.checkProperties();
-        // check file.meta.cache.ttl-second parameter
-        String fileMetaCacheTtlSecond = catalogProperty.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
-        if (Objects.nonNull(fileMetaCacheTtlSecond) && NumberUtils.toInt(fileMetaCacheTtlSecond, CACHE_NO_TTL)
-                < CACHE_TTL_DISABLE_CACHE) {
-            throw new DdlException(
-                    "The parameter " + FILE_META_CACHE_TTL_SECOND + " is wrong, value is " + fileMetaCacheTtlSecond);
-        }
-
-        // check partition.cache.ttl-second parameter
-        String partitionCacheTtlSecond = catalogProperty.getOrDefault(PARTITION_CACHE_TTL_SECOND, null);
-        if (Objects.nonNull(partitionCacheTtlSecond) && NumberUtils.toInt(partitionCacheTtlSecond, CACHE_NO_TTL)
-                < CACHE_TTL_DISABLE_CACHE) {
-            throw new DdlException(
-                    "The parameter " + PARTITION_CACHE_TTL_SECOND + " is wrong, value is " + partitionCacheTtlSecond);
-        }
+        UnifiedCacheModuleKey.checkProperties(catalogProperty.getProperties(), ALL_CACHE_MODULE_KEYS);
+        CacheSpec.checkLongProperty(catalogProperty.getProperties().get(FILE_META_CACHE_TTL_SECOND),
+                -1L, FILE_META_CACHE_TTL_SECOND);
+        CacheSpec.checkLongProperty(catalogProperty.getProperties().get(PARTITION_CACHE_TTL_SECOND),
+                -1L, PARTITION_CACHE_TTL_SECOND);
         catalogProperty.checkMetaStoreAndStorageProperties(AbstractHiveProperties.class);
     }
 
@@ -217,10 +243,16 @@ public class HMSExternalCatalog extends ExternalCatalog {
     @Override
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         super.notifyPropertiesUpdated(updatedProps);
-        String fileMetaCacheTtl = updatedProps.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
-        String partitionCacheTtl = updatedProps.getOrDefault(PARTITION_CACHE_TTL_SECOND, null);
-        if (Objects.nonNull(fileMetaCacheTtl) || Objects.nonNull(partitionCacheTtl)) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().getMetaStoreCache(this).init();
+        if (UnifiedCacheModuleKey.hasAnyUpdatedProperty(updatedProps, HIVE_CACHE_MODULE_KEYS)
+                || updatedProps.containsKey(FILE_META_CACHE_TTL_SECOND)
+                || updatedProps.containsKey(PARTITION_CACHE_TTL_SECOND)) {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .getUnifiedMetaCacheMgr()
+                    .getOrCreateEngineMetaCache(this, HiveEngineCache.ENGINE_TYPE, HiveEngineCache.class)
+                    .getMetaStoreCache().init();
+        }
+        if (UnifiedCacheModuleKey.hasAnyUpdatedProperty(updatedProps, HUDI_CACHE_MODULE_KEYS)) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().removeCache(this);
         }
     }
 
@@ -242,4 +274,3 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return icebergMetadataOps;
     }
 }
-

@@ -25,7 +25,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
-import org.apache.doris.datasource.metacache.CacheSpec;
+import org.apache.doris.datasource.metacache.UnifiedCacheModuleKey;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractIcebergProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
@@ -33,13 +33,13 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
@@ -62,6 +62,9 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public static final boolean DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE = false;
     public static final long DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY = 1024;
     public static final long DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND = 48 * 60 * 60;
+    private static final List<UnifiedCacheModuleKey> CACHE_MODULE_KEYS = ImmutableList.of(
+            UnifiedCacheModuleKey.of(IcebergEngineCache.ENGINE_TYPE, "table"),
+            UnifiedCacheModuleKey.of(IcebergEngineCache.ENGINE_TYPE, "manifest"));
     protected String icebergCatalogType;
     protected Catalog catalog;
 
@@ -89,35 +92,18 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     @Override
     public void checkProperties() throws DdlException {
         super.checkProperties();
-        CacheSpec.checkBooleanProperty(catalogProperty.getOrDefault(ICEBERG_TABLE_CACHE_ENABLE, null),
-                ICEBERG_TABLE_CACHE_ENABLE);
-        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(ICEBERG_TABLE_CACHE_TTL_SECOND, null),
-                -1L, ICEBERG_TABLE_CACHE_TTL_SECOND);
-        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(ICEBERG_TABLE_CACHE_CAPACITY, null),
-                0L, ICEBERG_TABLE_CACHE_CAPACITY);
-
-        CacheSpec.checkBooleanProperty(catalogProperty.getOrDefault(ICEBERG_MANIFEST_CACHE_ENABLE, null),
-                ICEBERG_MANIFEST_CACHE_ENABLE);
-        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(ICEBERG_MANIFEST_CACHE_TTL_SECOND, null),
-                -1L, ICEBERG_MANIFEST_CACHE_TTL_SECOND);
-        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(ICEBERG_MANIFEST_CACHE_CAPACITY, null),
-                0L, ICEBERG_MANIFEST_CACHE_CAPACITY);
+        UnifiedCacheModuleKey.checkProperties(catalogProperty.getProperties(), CACHE_MODULE_KEYS);
         catalogProperty.checkMetaStoreAndStorageProperties(AbstractIcebergProperties.class);
     }
 
     @Override
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         super.notifyPropertiesUpdated(updatedProps);
-        String tableCacheEnable = updatedProps.getOrDefault(ICEBERG_TABLE_CACHE_ENABLE, null);
-        String tableCacheTtl = updatedProps.getOrDefault(ICEBERG_TABLE_CACHE_TTL_SECOND, null);
-        String tableCacheCapacity = updatedProps.getOrDefault(ICEBERG_TABLE_CACHE_CAPACITY, null);
-        String manifestCacheEnable = updatedProps.getOrDefault(ICEBERG_MANIFEST_CACHE_ENABLE, null);
-        String manifestCacheCapacity = updatedProps.getOrDefault(ICEBERG_MANIFEST_CACHE_CAPACITY, null);
-        String manifestCacheTtl = updatedProps.getOrDefault(ICEBERG_MANIFEST_CACHE_TTL_SECOND, null);
-        if (Objects.nonNull(tableCacheEnable) || Objects.nonNull(tableCacheTtl) || Objects.nonNull(tableCacheCapacity)
-                || Objects.nonNull(manifestCacheEnable) || Objects.nonNull(manifestCacheCapacity)
-                || Objects.nonNull(manifestCacheTtl)) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache(this).init();
+        if (UnifiedCacheModuleKey.hasAnyUpdatedProperty(updatedProps, CACHE_MODULE_KEYS)) {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .getUnifiedMetaCacheMgr()
+                    .getOrCreateEngineMetaCache(this, IcebergEngineCache.ENGINE_TYPE, IcebergEngineCache.class)
+                    .getMetadataCache().init();
         }
     }
 

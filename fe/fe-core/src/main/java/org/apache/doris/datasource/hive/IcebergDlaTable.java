@@ -18,24 +18,16 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
-import org.apache.doris.mtmv.MTMVRefreshContext;
-import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
-import org.apache.doris.mtmv.MTMVSnapshotIf;
 
-import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Table;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -47,11 +39,6 @@ public class IcebergDlaTable extends HMSDlaTable {
 
     public IcebergDlaTable(HMSExternalTable table) {
         super(table);
-    }
-
-    @Override
-    public Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot) {
-        return Maps.newHashMap(IcebergUtils.getIcebergPartitionItems(snapshot, hmsTable));
     }
 
     @Override
@@ -67,41 +54,6 @@ public class IcebergDlaTable extends HMSDlaTable {
     @Override
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
         return IcebergUtils.getIcebergPartitionColumns(snapshot, hmsTable);
-    }
-
-    @Override
-    public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
-                                               Optional<MvccSnapshot> snapshot) throws AnalysisException {
-        IcebergSnapshotCacheValue snapshotValue = IcebergUtils.getSnapshotCacheValue(snapshot, hmsTable);
-        long latestSnapshotId = snapshotValue.getPartitionInfo().getLatestSnapshotId(partitionName);
-        // If partition snapshot ID is unavailable (<= 0), fallback to table snapshot ID
-        // This can happen when last_updated_snapshot_id is null in Iceberg metadata
-        if (latestSnapshotId <= 0) {
-            long tableSnapshotId = snapshotValue.getSnapshot().getSnapshotId();
-            // If table snapshot ID is also invalid, it means empty table
-            if (tableSnapshotId <= 0) {
-                throw new AnalysisException("can not find partition: " + partitionName
-                        + ", and table snapshot ID is also invalid");
-            }
-            // Use table snapshot ID as fallback when partition snapshot ID is unavailable
-            return new MTMVSnapshotIdSnapshot(tableSnapshotId);
-        }
-        return new MTMVSnapshotIdSnapshot(latestSnapshotId);
-    }
-
-    @Override
-    public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
-            throws AnalysisException {
-        hmsTable.makeSureInitialized();
-        IcebergSnapshotCacheValue snapshotValue = IcebergUtils.getSnapshotCacheValue(snapshot, hmsTable);
-        return new MTMVSnapshotIdSnapshot(snapshotValue.getSnapshot().getSnapshotId());
-    }
-
-    @Override
-    public MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException {
-        hmsTable.makeSureInitialized();
-        IcebergSnapshotCacheValue snapshotValue = IcebergUtils.getSnapshotCacheValue(snapshot, hmsTable);
-        return new MTMVSnapshotIdSnapshot(snapshotValue.getSnapshot().getSnapshotId());
     }
 
     @Override

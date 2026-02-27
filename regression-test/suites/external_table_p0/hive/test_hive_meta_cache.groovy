@@ -327,7 +327,7 @@ suite("test_hive_meta_cache", "p0,external,hive,external_docker,external_docker_
             def sql_sct01_3col = sql "show create table test_hive_meta_cache_db.sales"
             println "${sql_sct01_3col}"
             assertTrue(sql_sct01_3col[0][1].contains("CREATE TABLE `sales`(\n  `id` int,\n  `amount` double)\nPARTITIONED BY (\n `year` int)"));
-            
+
             // add a new column in hive
             hive_docker "alter table test_hive_meta_cache_db.sales add columns(k1 string)"
             // desc table, 4 columns
@@ -359,4 +359,3 @@ suite("test_hive_meta_cache", "p0,external,hive,external_docker,external_docker_
         }
     }
 }
-

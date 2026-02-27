@@ -21,7 +21,9 @@ import org.apache.doris.common.DdlException;
 
 import org.apache.commons.lang3.math.NumberUtils;
 
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.OptionalLong;
 
 /**
@@ -35,6 +37,7 @@ import java.util.OptionalLong;
  * </ul>
  */
 public final class CacheSpec {
+    public static final String UNIFIED_META_CACHE_KEY_PREFIX = "meta.cache.";
     public static final long CACHE_NO_TTL = -1L;
     public static final long CACHE_TTL_DISABLE_CACHE = 0L;
 
@@ -62,25 +65,16 @@ public final class CacheSpec {
     }
 
     /**
-     * Build a cache spec from a ttl property value and fixed capacity.
-     *
-     * <p>Semantics are compatible with legacy schema cache behavior:
-     * <ul>
-     *   <li>ttlValue is null: use default ttl</li>
-     *   <li>ttl=-1: no expiration</li>
-     *   <li>ttl=0: disable cache by forcing capacity=0</li>
-     *   <li>ttl parse failure: fallback to -1 (no expiration)</li>
-     * </ul>
-     * TODO: Refactor schema cache and its parameters to the unified enable/ttl/capacity model,
-     * then remove this ttl-only adapter.
+     * Build cache spec using unified module property format:
+     * meta.cache.&lt;engine&gt;.&lt;module&gt;.{enable,ttl-second,capacity}.
      */
-    public static CacheSpec fromTtlValue(String ttlValue, long defaultTtlSecond, long defaultCapacity) {
-        long ttlSecond = ttlValue == null ? defaultTtlSecond : NumberUtils.toLong(ttlValue, CACHE_NO_TTL);
-        long capacity = defaultCapacity;
-        if (!isCacheEnabled(true, ttlSecond, capacity)) {
-            capacity = 0;
-        }
-        return new CacheSpec(true, ttlSecond, capacity);
+    public static CacheSpec fromUnifiedProperties(Map<String, String> properties, String engineType, String moduleName,
+            boolean defaultEnable, long defaultTtlSecond, long defaultCapacity) {
+        String keyPrefix = getUnifiedModuleKeyPrefix(engineType, moduleName);
+        return fromProperties(properties,
+                keyPrefix + "enable", defaultEnable,
+                keyPrefix + "ttl-second", defaultTtlSecond,
+                keyPrefix + "capacity", defaultCapacity);
     }
 
     public static void checkBooleanProperty(String value, String key) throws DdlException {
@@ -122,6 +116,11 @@ public final class CacheSpec {
         return OptionalLong.of(Math.max(ttlSecond, CACHE_TTL_DISABLE_CACHE));
     }
 
+    public static String getUnifiedModuleKeyPrefix(String engineType, String moduleName) {
+        return UNIFIED_META_CACHE_KEY_PREFIX + normalizeKeyPart(engineType) + "."
+                + normalizeKeyPart(moduleName) + ".";
+    }
+
     private static boolean getBooleanProperty(Map<String, String> properties, String key, boolean defaultValue) {
         String value = properties.get(key);
         if (value == null) {
@@ -148,5 +147,14 @@ public final class CacheSpec {
 
     public long getCapacity() {
         return capacity;
+    }
+
+    private static String normalizeKeyPart(String keyPart) {
+        String normalized = Objects.requireNonNull(keyPart, "key part cannot be null")
+                .trim().toLowerCase(Locale.ROOT);
+        if (normalized.isEmpty()) {
+            throw new IllegalArgumentException("key part cannot be empty");
+        }
+        return normalized;
     }
 }

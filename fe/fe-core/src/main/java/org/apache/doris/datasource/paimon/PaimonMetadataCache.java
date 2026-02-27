@@ -25,14 +25,16 @@ import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
-import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
-import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.metacache.CacheSpec;
+import org.apache.doris.datasource.metacache.UnifiedCacheModuleKey;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.stats.CacheStats;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
@@ -40,6 +42,8 @@ import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataTypeRoot;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -51,6 +55,8 @@ import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
 
 public class PaimonMetadataCache {
+    private static final UnifiedCacheModuleKey TABLE_CACHE_MODULE_KEY =
+            UnifiedCacheModuleKey.of(PaimonEngineCache.ENGINE_TYPE, "table");
 
     private final ExecutorService executor;
     private final ExternalCatalog catalog;
@@ -74,12 +80,8 @@ public class PaimonMetadataCache {
     }
 
     private CacheSpec resolveTableCacheSpec() {
-        return CacheSpec.fromProperties(catalog.getProperties(),
-                PaimonExternalCatalog.PAIMON_TABLE_CACHE_ENABLE, true,
-                PaimonExternalCatalog.PAIMON_TABLE_CACHE_TTL_SECOND,
-                Config.external_cache_expire_time_seconds_after_access,
-                PaimonExternalCatalog.PAIMON_TABLE_CACHE_CAPACITY,
-                Config.max_external_table_cache_num);
+        return TABLE_CACHE_MODULE_KEY.toCacheSpec(catalog.getProperties(),
+                true, Config.external_cache_expire_time_seconds_after_access, Config.max_external_table_cache_num);
     }
 
     @NotNull
@@ -103,10 +105,11 @@ public class PaimonMetadataCache {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
         try {
             PaimonSnapshot latestSnapshot = loadLatestSnapshot(paimonTable, nameMapping);
-            List<Column> partitionColumns = getPaimonSchemaCacheValue(nameMapping,
-                    latestSnapshot.getSchemaId()).getPartitionColumns();
+            PaimonSchemaCacheValue schema = buildSchemaCacheValue(catalog, latestSnapshot.getTable(),
+                    latestSnapshot.getSchemaId());
+            List<Column> partitionColumns = schema.getPartitionColumns();
             PaimonPartitionInfo partitionInfo = loadPartitionInfo(nameMapping, partitionColumns);
-            return new PaimonSnapshotCacheValue(partitionInfo, latestSnapshot);
+            return new PaimonSnapshotCacheValue(partitionInfo, latestSnapshot, schema);
         } catch (Exception e) {
             throw new CacheException("failed to load paimon snapshot %s.%s.%s: %s",
                     e, nameMapping.getCtlId(), nameMapping.getLocalDbName(),
@@ -114,22 +117,40 @@ public class PaimonMetadataCache {
         }
     }
 
-    public PaimonSchemaCacheValue getPaimonSchemaCacheValue(NameMapping nameMapping, long schemaId) {
-        ExternalCatalog catalog = (ExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
-                .getCatalog(nameMapping.getCtlId());
-        if (catalog == null) {
-            throw new CacheException("catalog %s not found when getting paimon schema cache value",
-                    null, nameMapping.getCtlId());
+    public PaimonSchemaCacheValue getPaimonSchemaCacheValue(ExternalTable dorisTable, long schemaId) {
+        PaimonSnapshotCacheValue snapshotCacheValue = getSnapshotCache(dorisTable);
+        if (snapshotCacheValue.getSnapshot().getSchemaId() == schemaId) {
+            return snapshotCacheValue.getSchema();
         }
-        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
-        Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(
-                new PaimonSchemaCacheKey(nameMapping, schemaId));
-        if (!schemaCacheValue.isPresent()) {
-            throw new CacheException("failed to get paimon schema cache value for: %s.%s.%s with schema id: %s",
-                    null, nameMapping.getCtlId(), nameMapping.getLocalDbName(), nameMapping.getLocalTblName(),
-                    schemaId);
+        return buildSchemaCacheValue(catalog, getPaimonTable(dorisTable), schemaId);
+    }
+
+    static PaimonSchemaCacheValue buildSchemaCacheValue(ExternalCatalog catalog, Table table, long schemaId) {
+        DataTable dataTable = (DataTable) table;
+        TableSchema tableSchema = dataTable.schemaManager().schema(schemaId);
+        if (tableSchema == null) {
+            throw new CacheException("failed to load paimon schema with schema id: %s", null, schemaId);
         }
-        return (PaimonSchemaCacheValue) schemaCacheValue.get();
+        List<DataField> fields = tableSchema.fields();
+        List<Column> schema = Lists.newArrayListWithCapacity(fields.size());
+        List<Column> partitionColumns = Lists.newArrayList();
+        java.util.Set<String> partitionColumnNames = Sets.newHashSet(tableSchema.partitionKeys());
+        for (DataField field : fields) {
+            Column column = new Column(field.name().toLowerCase(),
+                    PaimonUtil.paimonTypeToDorisType(field.type(),
+                            catalog.getEnableMappingVarbinary(),
+                            catalog.getEnableMappingTimestampTz()),
+                    true, null, true, field.description(), true, -1);
+            PaimonUtil.updatePaimonColumnUniqueId(column, field);
+            if (field.type().getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+                column.setWithTZExtraInfo();
+            }
+            schema.add(column);
+            if (partitionColumnNames.contains(field.name())) {
+                partitionColumns.add(column);
+            }
+        }
+        return new PaimonSchemaCacheValue(schema, partitionColumns, tableSchema);
     }
 
     private PaimonPartitionInfo loadPartitionInfo(NameMapping nameMapping, List<Column> partitionColumns)
@@ -183,6 +204,13 @@ public class PaimonMetadataCache {
         tableCache.invalidate(key);
     }
 
+    public void invalidateTableCacheByLocalName(String dbName, String tableName) {
+        tableCache.asMap().keySet().stream()
+                .filter(key -> key.getNameMapping().getLocalDbName().equals(dbName)
+                        && key.getNameMapping().getLocalTblName().equals(tableName))
+                .forEach(tableCache::invalidate);
+    }
+
     public void invalidateDbCache(long catalogId, String dbName) {
         tableCache.asMap().keySet().stream()
                 .filter(key -> key.getNameMapping().getLocalDbName().equals(dbName))
@@ -194,6 +222,14 @@ public class PaimonMetadataCache {
         res.put("paimon_table_cache", ExternalMetaCacheMgr.getCacheStats(tableCache.stats(),
                 tableCache.estimatedSize()));
         return res;
+    }
+
+    public CacheStats getTableCacheStats() {
+        return tableCache.stats();
+    }
+
+    public long getTableCacheEstimatedSize() {
+        return tableCache.estimatedSize();
     }
 
     static class PaimonTableCacheKey {

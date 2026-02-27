@@ -27,8 +27,10 @@ import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.TablePartitionValues.TablePartitionKey;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.metacache.CacheSpec;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.hive.common.FileUtils;
@@ -54,13 +56,13 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
     private final Executor executor;
     private final LoadingCache<TablePartitionKey, TablePartitionValues> partitionCache;
 
-    public HudiCachedPartitionProcessor(long catalogId, ExecutorService executor) {
+    public HudiCachedPartitionProcessor(long catalogId, ExecutorService executor, CacheSpec cacheSpec) {
         this.catalogId = catalogId;
         this.executor = executor;
         CacheFactory partitionCacheFactory = new CacheFactory(
-                OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
+                CacheSpec.toExpireAfterAccess(cacheSpec.getTtlSecond()),
                 OptionalLong.of(Config.external_cache_refresh_time_minutes * 60),
-                Config.max_external_table_cache_num,
+                cacheSpec.getCapacity(),
                 true,
                 null);
         this.partitionCache = partitionCacheFactory.buildCache(key -> new TablePartitionValues(), executor);
@@ -79,9 +81,13 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
 
     @Override
     public void cleanTablePartitions(ExternalTable dorisTable) {
+        cleanTablePartitions(dorisTable.getDbName(), dorisTable.getName());
+    }
+
+    public void cleanTablePartitions(String dbName, String tableName) {
         partitionCache.asMap().keySet().stream()
-                .filter(k -> k.getDbName().equals(dorisTable.getDbName())
-                        && k.getTblName().equals(dorisTable.getName()))
+                .filter(k -> k.getDbName().equals(dbName)
+                        && k.getTblName().equals(tableName))
                 .collect(Collectors.toList())
                 .forEach(partitionCache::invalidate);
     }
@@ -189,5 +195,13 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
         res.put("hudi_partition_cache", ExternalMetaCacheMgr.getCacheStats(partitionCache.stats(),
                 partitionCache.estimatedSize()));
         return res;
+    }
+
+    public CacheStats getPartitionCacheStats() {
+        return partitionCache.stats();
+    }
+
+    public long getPartitionCacheEstimatedSize() {
+        return partitionCache.estimatedSize();
     }
 }

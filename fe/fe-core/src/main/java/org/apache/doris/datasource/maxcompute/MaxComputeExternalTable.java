@@ -117,8 +117,11 @@ public class MaxComputeExternalTable extends ExternalTable {
         Table odpsTable = ((MaxComputeSchemaCacheValue) schemaCacheValue.get()).getOdpsTable();
         String projectName = odpsTable.getProject();
         String tableName = odpsTable.getName();
-        MaxComputeMetadataCache metadataCache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMaxComputeMetadataCache(catalog.getId());
+        MaxComputeMetadataCache metadataCache = Env.getCurrentEnv()
+                .getExtMetaCacheMgr().getUnifiedMetaCacheMgr().getOrCreateEngineMetaCache(
+                        (MaxComputeExternalCatalog) catalog,
+                        MaxComputeEngineCache.ENGINE_TYPE, MaxComputeEngineCache.class)
+                .getMetadataCache();
         return metadataCache.getCachedPartitionValues(
                 new MaxComputeCacheKey(projectName, tableName),
                 key -> loadPartitionValues((MaxComputeSchemaCacheValue) schemaCacheValue.get()));

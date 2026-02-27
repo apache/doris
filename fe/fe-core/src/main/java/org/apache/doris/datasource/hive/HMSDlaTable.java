@@ -19,17 +19,12 @@ package org.apache.doris.datasource.hive;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
-import org.apache.doris.mtmv.MTMVRefreshContext;
-import org.apache.doris.mtmv.MTMVSnapshotIf;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -53,22 +48,11 @@ public abstract class HMSDlaTable implements MTMVBaseTableIf {
         this.hmsTable = table;
     }
 
-    abstract Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot)
-            throws AnalysisException;
-
     abstract PartitionType getPartitionType(Optional<MvccSnapshot> snapshot);
 
     abstract Set<String> getPartitionColumnNames(Optional<MvccSnapshot> snapshot);
 
     abstract List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot);
-
-    abstract MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
-            Optional<MvccSnapshot> snapshot) throws AnalysisException;
-
-    abstract MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
-            throws AnalysisException;
-
-    abstract MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException;
 
     abstract boolean isPartitionColumnAllowNull();
 

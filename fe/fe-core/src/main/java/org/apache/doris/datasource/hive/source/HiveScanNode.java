@@ -37,6 +37,7 @@ import org.apache.doris.datasource.hive.AcidInfo;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HiveEngineCache;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheValue;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
@@ -139,7 +140,10 @@ public class HiveScanNode extends FileQueryScanNode {
     protected List<HivePartition> getPartitions() throws AnalysisException {
         List<HivePartition> resPartitions = Lists.newArrayList();
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
+                .getUnifiedMetaCacheMgr()
+                .getOrCreateEngineMetaCache((HMSExternalCatalog) hmsTable.getCatalog(),
+                        HiveEngineCache.ENGINE_TYPE, HiveEngineCache.class)
+                .getMetaStoreCache();
         List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(hmsTable));
         if (!partitionColumnTypes.isEmpty()) {
             // partitioned table
@@ -183,7 +187,10 @@ public class HiveScanNode extends FileQueryScanNode {
                 partitionInit = true;
             }
             HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                    .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
+                    .getUnifiedMetaCacheMgr()
+                    .getOrCreateEngineMetaCache((HMSExternalCatalog) hmsTable.getCatalog(),
+                            HiveEngineCache.ENGINE_TYPE, HiveEngineCache.class)
+                    .getMetaStoreCache();
             String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
             List<Split> allFiles = Lists.newArrayList();
             getFileSplitByPartitions(cache, prunedPartitions, allFiles, bindBrokerName, numBackends, false);
@@ -211,7 +218,10 @@ public class HiveScanNode extends FileQueryScanNode {
             return;
         }
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
+                .getUnifiedMetaCacheMgr()
+                .getOrCreateEngineMetaCache((HMSExternalCatalog) hmsTable.getCatalog(),
+                        HiveEngineCache.ENGINE_TYPE, HiveEngineCache.class)
+                .getMetaStoreCache();
         Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
         AtomicInteger numFinishedPartitions = new AtomicInteger(0);
@@ -637,4 +647,3 @@ public class HiveScanNode extends FileQueryScanNode {
         return compressType;
     }
 }
-

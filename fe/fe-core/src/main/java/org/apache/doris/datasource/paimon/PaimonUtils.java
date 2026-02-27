@@ -46,12 +46,12 @@ public class PaimonUtils {
 
     public static PaimonSchemaCacheValue getSchemaCacheValue(ExternalTable dorisTable,
             PaimonSnapshotCacheValue snapshotValue) {
-        return getSchemaCacheValue(dorisTable, snapshotValue.getSnapshot().getSchemaId());
+        return snapshotValue.getSchema();
     }
 
     public static PaimonSchemaCacheValue getSchemaCacheValue(ExternalTable dorisTable, long schemaId) {
         return paimonMetadataCache(dorisTable.getCatalog())
-                .getPaimonSchemaCacheValue(dorisTable.getOrBuildNameMapping(), schemaId);
+                .getPaimonSchemaCacheValue(dorisTable, schemaId);
     }
 
     public static PaimonMetadataCache getPaimonMetadataCache(ExternalCatalog catalog) {
@@ -59,6 +59,8 @@ public class PaimonUtils {
     }
 
     private static PaimonMetadataCache paimonMetadataCache(ExternalCatalog catalog) {
-        return Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache(catalog);
+        return Env.getCurrentEnv().getExtMetaCacheMgr().getUnifiedMetaCacheMgr()
+                .getOrCreateEngineMetaCache(catalog, PaimonEngineCache.ENGINE_TYPE, PaimonEngineCache.class)
+                .getMetadataCache();
     }
 }

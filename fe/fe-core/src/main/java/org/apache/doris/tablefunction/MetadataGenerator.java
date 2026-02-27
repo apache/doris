@@ -62,10 +62,10 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hudi.source.HudiCachedMetaClientProcessor;
-import org.apache.doris.datasource.hudi.source.HudiMetadataCacheMgr;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
+import org.apache.doris.datasource.metacache.CacheModule;
+import org.apache.doris.datasource.metacache.CatalogMetaCache;
+import org.apache.doris.datasource.metacache.EngineMetaCache;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.extensions.insert.streaming.AbstractStreamingTask;
@@ -395,7 +395,11 @@ public class MetadataGenerator {
         }
 
         HudiCachedMetaClientProcessor hudiMetadataCache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getHudiMetadataCacheMgr().getHudiMetaClientProcessor(catalog);
+                .getUnifiedMetaCacheMgr()
+                .getOrCreateEngineMetaCache((ExternalCatalog) catalog,
+                        org.apache.doris.datasource.hudi.source.HudiEngineCache.ENGINE_TYPE,
+                        org.apache.doris.datasource.hudi.source.HudiEngineCache.class)
+                .getMetaClientProcessor();
         String hudiBasePathString = ((HMSExternalCatalog) catalog).getClient()
                 .getTable(dorisTable.getRemoteDbName(), dorisTable.getRemoteName()).getSd().getLocation();
         Configuration conf = ((HMSExternalCatalog) catalog).getConfiguration();
@@ -1586,20 +1590,22 @@ public class MetadataGenerator {
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         ExternalMetaCacheMgr mgr = Env.getCurrentEnv().getExtMetaCacheMgr();
         for (CatalogIf catalogIf : Env.getCurrentEnv().getCatalogMgr().getCopyOfCatalog()) {
-            if (catalogIf instanceof HMSExternalCatalog) {
-                HMSExternalCatalog catalog = (HMSExternalCatalog) catalogIf;
-                // 1. hive metastore cache
-                HiveMetaStoreCache cache = mgr.getMetaStoreCache(catalog);
-                if (cache != null) {
-                    fillBatch(dataBatch, cache.getStats(), catalog.getName());
+            if (!(catalogIf instanceof ExternalCatalog)) {
+                continue;
+            }
+            CatalogMetaCache catalogMetaCache = mgr.getUnifiedMetaCacheMgr()
+                    .getCatalogMetaCache((ExternalCatalog) catalogIf);
+            if (catalogMetaCache == null) {
+                continue;
+            }
+            for (EngineMetaCache engineMetaCache : catalogMetaCache.getEngineMetaCaches()) {
+                for (CacheModule cacheModule : engineMetaCache.getCacheModules()) {
+                    fillBatch(dataBatch,
+                            ExternalMetaCacheMgr.getCacheStats(
+                                    cacheModule.getStats(), cacheModule.getEstimatedSize()),
+                            catalogIf.getName(),
+                            buildUnifiedCacheName(engineMetaCache.getEngineType(), cacheModule.getName()));
                 }
-                // 2. hudi cache
-                HudiMetadataCacheMgr hudiMetadataCacheMgr = mgr.getHudiMetadataCacheMgr();
-                fillBatch(dataBatch, hudiMetadataCacheMgr.getCacheStats(catalog), catalog.getName());
-            } else if (catalogIf instanceof IcebergExternalCatalog) {
-                // 3. iceberg cache
-                IcebergMetadataCache icebergCache = mgr.getIcebergMetadataCache((IcebergExternalCatalog) catalogIf);
-                fillBatch(dataBatch, icebergCache.getCacheStats(), catalogIf.getName());
             }
         }
         result.setDataBatch(dataBatch);
@@ -1809,22 +1815,22 @@ public class MetadataGenerator {
         return result;
     }
 
-    private static void fillBatch(List<TRow> dataBatch, Map<String, Map<String, String>> stats,
-            String catalogName) {
-        for (Map.Entry<String, Map<String, String>> entry : stats.entrySet()) {
-            String cacheName = entry.getKey();
-            Map<String, String> cacheStats = entry.getValue();
-            for (Map.Entry<String, String> cacheStatsEntry : cacheStats.entrySet()) {
-                String metricName = cacheStatsEntry.getKey();
-                String metricValue = cacheStatsEntry.getValue();
-                TRow trow = new TRow();
-                trow.addToColumnValue(new TCell().setStringVal(catalogName)); // CATALOG_NAME
-                trow.addToColumnValue(new TCell().setStringVal(cacheName)); // CACHE_NAME
-                trow.addToColumnValue(new TCell().setStringVal(metricName)); // METRIC_NAME
-                trow.addToColumnValue(new TCell().setStringVal(metricValue)); // METRIC_VALUE
-                dataBatch.add(trow);
-            }
+    private static void fillBatch(List<TRow> dataBatch, Map<String, String> cacheStats,
+            String catalogName, String cacheName) {
+        for (Map.Entry<String, String> cacheStatsEntry : cacheStats.entrySet()) {
+            String metricName = cacheStatsEntry.getKey();
+            String metricValue = cacheStatsEntry.getValue();
+            TRow trow = new TRow();
+            trow.addToColumnValue(new TCell().setStringVal(catalogName)); // CATALOG_NAME
+            trow.addToColumnValue(new TCell().setStringVal(cacheName)); // CACHE_NAME
+            trow.addToColumnValue(new TCell().setStringVal(metricName)); // METRIC_NAME
+            trow.addToColumnValue(new TCell().setStringVal(metricValue)); // METRIC_VALUE
+            dataBatch.add(trow);
         }
+    }
+
+    private static String buildUnifiedCacheName(String engineType, String moduleName) {
+        return engineType + "_" + moduleName.replace("-", "_") + "_cache";
     }
 
     private static TFetchSchemaTableDataResult partitionValuesMetadataResult(TMetadataTableRequestParams params) {
