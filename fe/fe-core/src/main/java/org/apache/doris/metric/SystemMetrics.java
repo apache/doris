@@ -340,7 +340,7 @@ public class SystemMetrics {
             lastUpdateTime = currentTime;
 
         } catch (Exception e) {
-            LOG.warn("failed to get /proc/stat: {}", e.getMessage());
+            LOG.warn("failed to get /proc/stat: {}", e.getMessage(), e);
         }
     }
 
