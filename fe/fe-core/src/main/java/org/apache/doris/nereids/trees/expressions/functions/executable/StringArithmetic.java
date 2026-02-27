@@ -751,6 +751,60 @@ public class StringArithmetic {
     }
 
     /**
+     * Executable arithmetic functions split_by_string with limit
+     */
+    @ExecFunction(name = "split_by_string")
+    public static Expression splitByString(StringLikeLiteral first, StringLikeLiteral second,
+            IntegerLiteral limit) {
+        int maxParts = limit.getValue();
+        if (maxParts <= 0) {
+            return splitByString(first, second);
+        }
+        if (first.getValue().isEmpty()) {
+            return new ArrayLiteral(ImmutableList.of(), ArrayType.of(first.getDataType()));
+        }
+        if (second.getValue().isEmpty()) {
+            List<String> graphemes = splitByGrapheme(first);
+            List<Literal> result = new ArrayList<>();
+            if (maxParts >= graphemes.size()) {
+                for (String resultStr : graphemes) {
+                    result.add(castStringLikeLiteral(first, resultStr));
+                }
+            } else {
+                for (int i = 0; i < maxParts - 1; i++) {
+                    result.add(castStringLikeLiteral(first, graphemes.get(i)));
+                }
+                StringBuilder remaining = new StringBuilder();
+                for (int i = maxParts - 1; i < graphemes.size(); i++) {
+                    remaining.append(graphemes.get(i));
+                }
+                result.add(castStringLikeLiteral(first, remaining.toString()));
+            }
+            return new ArrayLiteral(result);
+        }
+        String[] parts = first.getValue().split(Pattern.quote(second.getValue()), -1);
+        List<Literal> items = new ArrayList<>();
+        if (maxParts >= parts.length) {
+            for (String s : parts) {
+                items.add(castStringLikeLiteral(first, s));
+            }
+        } else {
+            for (int i = 0; i < maxParts - 1; i++) {
+                items.add(castStringLikeLiteral(first, parts[i]));
+            }
+            StringBuilder rest = new StringBuilder();
+            for (int i = maxParts - 1; i < parts.length; i++) {
+                if (i > maxParts - 1) {
+                    rest.append(second.getValue());
+                }
+                rest.append(parts[i]);
+            }
+            items.add(castStringLikeLiteral(first, rest.toString()));
+        }
+        return new ArrayLiteral(items);
+    }
+
+    /**
      * Executable arithmetic functions split_part
      */
     @ExecFunction(name = "split_part")
