@@ -176,8 +176,6 @@ import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TFetchSplitBatchRequest;
 import org.apache.doris.thrift.TFetchSplitBatchResult;
 import org.apache.doris.thrift.TFinishTaskRequest;
-import org.apache.doris.thrift.TForwardMakeCloudTmpRsVisibleRequest;
-import org.apache.doris.thrift.TForwardMakeCloudTmpRsVisibleResult;
 import org.apache.doris.thrift.TFrontendPingFrontendRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendResult;
 import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
@@ -5463,50 +5461,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.addToErrorMsgs(e.getMessage());
             return result;
         }
-    }
-
-    @Override
-    public TForwardMakeCloudTmpRsVisibleResult forwardMakeCloudTmpRsVisible(
-            TForwardMakeCloudTmpRsVisibleRequest request) throws TException {
-        String clientAddr = getClientAddrAsString();
-        LOG.info("receive forward make cloud tmp rs visible request from BE: {}, txn_id: {}",
-                clientAddr, request.getTxnId());
-
-        TForwardMakeCloudTmpRsVisibleResult result = new TForwardMakeCloudTmpRsVisibleResult();
-        TStatus status = new TStatus(TStatusCode.OK);
-        result.setStatus(status);
-
-        // Check if this is master FE
-        if (!Env.getCurrentEnv().isMaster()) {
-            LOG.warn("failed to handle forward make cloud tmp rs visible: not master, backend: {}",
-                    clientAddr);
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            return result;
-        }
-
-        if (!Config.isCloudMode()) {
-            return result;
-        }
-
-        try {
-            // Send agent tasks to notify all involved BEs
-            ((CloudGlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr()).sendMakeCloudTmpRsVisibleTasks(
-                    request.getTxnId(),
-                    request.getCommitInfos(),
-                    request.getPartitionVersionMap(),
-                    request.getVersionUpdateTimeMs());
-
-            LOG.info("successfully forwarded make cloud tmp rs visible notification, txn_id: {}",
-                    request.getTxnId());
-        } catch (Exception e) {
-            LOG.warn("failed to forward make cloud tmp rs visible, txn_id: {}, error: {}",
-                    request.getTxnId(), e.getMessage(), e);
-            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
-            status.addToErrorMsgs("Failed to forward notification: " + e.getMessage());
-        }
-
-        return result;
     }
 
     private TStatus checkMaster() {
