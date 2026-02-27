@@ -36,7 +36,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_variant.h"
 #include "vec/common/string_ref.h"
-#include "vec/common/variant_glob_regex_util.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -87,24 +86,6 @@ Status build_compiled_skip_patterns(
 
 // Match a dot-separated path against precompiled skip patterns in ParseConfig.
 bool should_skip_path(const ParseConfig& parse_config, const std::string& path);
-
-// Check if a dot-separated path should be skipped based on skip patterns.
-// For SKIP_NAME_GLOB, uses glob matching; for SKIP_NAME, uses exact string comparison.
-inline bool should_skip_path(
-        const std::vector<std::pair<std::string, PatternTypePB>>& skip_patterns,
-        const std::string& path) {
-    for (const auto& [pattern, pt] : skip_patterns) {
-        if (is_skip_exact_path_pattern_type(pt) && path == pattern) {
-            return true;
-        }
-    }
-    for (const auto& [pattern, pt] : skip_patterns) {
-        if (is_skip_glob_path_pattern_type(pt) && glob_match_re2(pattern, path)) {
-            return true;
-        }
-    }
-    return false;
-}
 
 using PathToNoneNullValues = std::unordered_map<std::string, int64_t>;
 using PathToDataTypes = std::unordered_map<PathInData, std::vector<DataTypePtr>, PathInData::Hash>;

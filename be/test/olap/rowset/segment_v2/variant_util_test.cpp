@@ -596,19 +596,6 @@ TEST(VariantUtilTest, GlobMatchRe2) {
     EXPECT_FALSE(glob_match_re2("a[\\]b", "a]b"));
 }
 
-TEST(VariantUtilTest, ShouldSkipPathLegacyPatterns) {
-    std::vector<std::pair<std::string, PatternTypePB>> skip_patterns = {
-            {"secret", PatternTypePB::SKIP_NAME},
-            {"debug_*", PatternTypePB::SKIP_NAME_GLOB},
-            {"typed_*", PatternTypePB::MATCH_NAME_GLOB},
-    };
-
-    EXPECT_TRUE(should_skip_path(skip_patterns, "secret"));
-    EXPECT_TRUE(should_skip_path(skip_patterns, "debug_field"));
-    EXPECT_FALSE(should_skip_path(skip_patterns, "typed_field"));
-    EXPECT_FALSE(should_skip_path(skip_patterns, "other"));
-}
-
 TEST(VariantUtilTest, PatternTypeHelpers) {
     EXPECT_TRUE(is_typed_path_pattern_type(PatternTypePB::MATCH_NAME));
     EXPECT_TRUE(is_typed_path_pattern_type(PatternTypePB::MATCH_NAME_GLOB));
