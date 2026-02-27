@@ -104,6 +104,15 @@ public class SystemMetrics {
     protected long procsRunning = 0;
     protected long procsBlocked = 0;
 
+    // Previous values for rate calculation
+    protected long prevCtxt = 0;
+    protected long prevProcesses = 0;
+
+    // Derived rate metrics
+    protected double ctxtRate = 0.0;  // Context switches per second
+    protected double processesRate = 0.0;  // Process forks per second
+    protected long lastUpdateTime = System.currentTimeMillis();
+
     public synchronized void update() {
         updateSnmpMetrics();
         updateMemoryMetrics();
@@ -155,7 +164,7 @@ public class SystemMetrics {
             tcpOutSegs = Long.valueOf(parts[headerMap.get("OutSegs")]);
 
         } catch (Exception e) {
-            LOG.warn("failed to get /proc/net/snmp: ", e.getMessage());
+            LOG.warn("failed to get /proc/net/snmp: {}", e.getMessage());
         }
     }
 
@@ -204,6 +213,7 @@ public class SystemMetrics {
         try (FileReader fileReader = new FileReader(procFile);
                 BufferedReader br = new BufferedReader(fileReader)) {
             String line;
+            boolean cpuLineFound = false;
 
             // Store previous values for delta calculation
             long prevTotal = prevCpuUser + prevCpuNice + prevCpuSystem + prevCpuIdle
@@ -211,8 +221,10 @@ public class SystemMetrics {
 
             while ((line = br.readLine()) != null) {
                 if (line.startsWith("cpu ")) {  // Overall CPU stats (not per-core)
+                    cpuLineFound = true;
                     String[] parts = line.split("\\s+");
                     if (parts.length >= 11) {
+                        // Full format with guest/guest_nice (kernel >= 2.6.24 with guest, >= 2.6.33 with guest_nice)
                         cpuUser = Long.parseLong(parts[1]);
                         cpuNice = Long.parseLong(parts[2]);
                         cpuSystem = Long.parseLong(parts[3]);
@@ -223,8 +235,8 @@ public class SystemMetrics {
                         cpuSteal = Long.parseLong(parts[8]);
                         cpuGuest = Long.parseLong(parts[9]);
                         cpuGuestNice = Long.parseLong(parts[10]);
-                    } else if (parts.length >= 8) {
-                        // Fallback for older kernels without guest/guest_nice
+                    } else if (parts.length >= 9) {
+                        // Format with steal but without guest/guest_nice (kernel >= 2.6.11)
                         cpuUser = Long.parseLong(parts[1]);
                         cpuNice = Long.parseLong(parts[2]);
                         cpuSystem = Long.parseLong(parts[3]);
@@ -232,7 +244,19 @@ public class SystemMetrics {
                         cpuIowait = Long.parseLong(parts[5]);
                         cpuIrq = Long.parseLong(parts[6]);
                         cpuSoftirq = Long.parseLong(parts[7]);
-                        cpuSteal = parts.length >= 9 ? Long.parseLong(parts[8]) : 0;
+                        cpuSteal = Long.parseLong(parts[8]);
+                        cpuGuest = 0;
+                        cpuGuestNice = 0;
+                    } else if (parts.length >= 8) {
+                        // Older format without steal (kernel < 2.6.11)
+                        cpuUser = Long.parseLong(parts[1]);
+                        cpuNice = Long.parseLong(parts[2]);
+                        cpuSystem = Long.parseLong(parts[3]);
+                        cpuIdle = Long.parseLong(parts[4]);
+                        cpuIowait = Long.parseLong(parts[5]);
+                        cpuIrq = Long.parseLong(parts[6]);
+                        cpuSoftirq = Long.parseLong(parts[7]);
+                        cpuSteal = 0;
                         cpuGuest = 0;
                         cpuGuestNice = 0;
                     }
@@ -259,27 +283,37 @@ public class SystemMetrics {
                 }
             }
 
-            // Calculate percentages based on delta
-            long total = cpuUser + cpuNice + cpuSystem + cpuIdle + cpuIowait
-                    + cpuIrq + cpuSoftirq + cpuSteal;
-            long delta = total - prevTotal;
-
-            if (delta > 0) {
-                // Calculate usage as percentage of non-idle time
-                long idleDelta = cpuIdle - prevCpuIdle;
-                long userDelta = cpuUser - prevCpuUser;
-                long systemDelta = cpuSystem - prevCpuSystem;
-                long iowaitDelta = cpuIowait - prevCpuIowait;
-                long stealDelta = cpuSteal - prevCpuSteal;
-
-                cpuUsagePercent = 100.0 * (delta - idleDelta) / delta;
-                cpuUserPercent = 100.0 * userDelta / delta;
-                cpuSystemPercent = 100.0 * systemDelta / delta;
-                cpuIowaitPercent = 100.0 * iowaitDelta / delta;
-                cpuStealPercent = 100.0 * stealDelta / delta;
+            // Validate that CPU line was found
+            if (!cpuLineFound) {
+                LOG.warn("failed to get /proc/stat: cpu line not found");
+                return;
             }
 
-            // Store current values as previous for next iteration
+            // Calculate percentages based on delta (skip on first call to avoid inflated values)
+            long total = cpuUser + cpuNice + cpuSystem + cpuIdle + cpuIowait
+                    + cpuIrq + cpuSoftirq + cpuSteal;
+
+            // Only calculate percentages if this is not the first call (prevTotal > 0)
+            if (prevTotal > 0) {
+                long delta = total - prevTotal;
+
+                if (delta > 0) {
+                    // Calculate usage as percentage of non-idle time
+                    long idleDelta = cpuIdle - prevCpuIdle;
+                    long userDelta = cpuUser - prevCpuUser;
+                    long systemDelta = cpuSystem - prevCpuSystem;
+                    long iowaitDelta = cpuIowait - prevCpuIowait;
+                    long stealDelta = cpuSteal - prevCpuSteal;
+
+                    cpuUsagePercent = 100.0 * (delta - idleDelta) / delta;
+                    cpuUserPercent = 100.0 * userDelta / delta;
+                    cpuSystemPercent = 100.0 * systemDelta / delta;
+                    cpuIowaitPercent = 100.0 * iowaitDelta / delta;
+                    cpuStealPercent = 100.0 * stealDelta / delta;
+                }
+            }
+
+            // Store current CPU values as previous for next iteration
             prevCpuUser = cpuUser;
             prevCpuNice = cpuNice;
             prevCpuSystem = cpuSystem;
@@ -288,6 +322,22 @@ public class SystemMetrics {
             prevCpuIrq = cpuIrq;
             prevCpuSoftirq = cpuSoftirq;
             prevCpuSteal = cpuSteal;
+
+            // Calculate context switch and process fork rates (skip on first call)
+            long currentTime = System.currentTimeMillis();
+            long timeDelta = currentTime - lastUpdateTime;
+
+            if (timeDelta > 0 && prevCtxt > 0 && prevProcesses > 0) {
+                // Calculate rates per second
+                double timeInSeconds = timeDelta / 1000.0;
+                ctxtRate = (ctxt - prevCtxt) / timeInSeconds;
+                processesRate = (processes - prevProcesses) / timeInSeconds;
+            }
+
+            // Store current values as previous for next iteration
+            prevCtxt = ctxt;
+            prevProcesses = processes;
+            lastUpdateTime = currentTime;
 
         } catch (Exception e) {
             LOG.warn("failed to get /proc/stat: {}", e.getMessage());

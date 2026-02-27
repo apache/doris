@@ -68,6 +68,81 @@ public class MetricsTest {
     }
 
     @Test
+    public void testCpuMetrics() {
+        // Test CPU percentage metrics
+        List<Metric> cpuMetrics = MetricRepo.getMetricsByName("cpu");
+        // Expected: 5 CPU percentage metrics + 2 rate metrics + 2 process count metrics = 9 total
+        Assert.assertTrue("Expected at least 9 CPU metrics", cpuMetrics.size() >= 9);
+
+        boolean foundUsagePercent = false;
+        boolean foundUserPercent = false;
+        boolean foundSystemPercent = false;
+        boolean foundIowaitPercent = false;
+        boolean foundStealPercent = false;
+        boolean foundContextSwitchesRate = false;
+        boolean foundProcessForksRate = false;
+        boolean foundProcsRunning = false;
+        boolean foundProcsBlocked = false;
+
+        for (Metric metric : cpuMetrics) {
+            String metricName = metric.getLabels().get(0).getValue();
+            switch (metricName) {
+                case "cpu_usage_percent":
+                    foundUsagePercent = true;
+                    GaugeMetric<Double> usageMetric = (GaugeMetric<Double>) metric;
+                    Assert.assertTrue("CPU usage should be non-negative", usageMetric.getValue() >= 0.0);
+                    break;
+                case "cpu_user_percent":
+                    foundUserPercent = true;
+                    break;
+                case "cpu_system_percent":
+                    foundSystemPercent = true;
+                    break;
+                case "cpu_iowait_percent":
+                    foundIowaitPercent = true;
+                    break;
+                case "cpu_steal_percent":
+                    foundStealPercent = true;
+                    break;
+                case "context_switches_rate":
+                    foundContextSwitchesRate = true;
+                    GaugeMetric<Double> ctxtMetric = (GaugeMetric<Double>) metric;
+                    Assert.assertTrue("Context switches rate should be non-negative",
+                            ctxtMetric.getValue() >= 0.0);
+                    break;
+                case "process_forks_rate":
+                    foundProcessForksRate = true;
+                    GaugeMetric<Double> procsMetric = (GaugeMetric<Double>) metric;
+                    Assert.assertTrue("Process forks rate should be non-negative",
+                            procsMetric.getValue() >= 0.0);
+                    break;
+                case "procs_running":
+                    foundProcsRunning = true;
+                    GaugeMetric<Long> runningMetric = (GaugeMetric<Long>) metric;
+                    Assert.assertEquals("Expected 3 running processes from test data",
+                            Long.valueOf(3L), runningMetric.getValue());
+                    break;
+                case "procs_blocked":
+                    foundProcsBlocked = true;
+                    GaugeMetric<Long> blockedMetric = (GaugeMetric<Long>) metric;
+                    Assert.assertEquals("Expected 1 blocked process from test data",
+                            Long.valueOf(1L), blockedMetric.getValue());
+                    break;
+            }
+        }
+
+        Assert.assertTrue("cpu_usage_percent metric not found", foundUsagePercent);
+        Assert.assertTrue("cpu_user_percent metric not found", foundUserPercent);
+        Assert.assertTrue("cpu_system_percent metric not found", foundSystemPercent);
+        Assert.assertTrue("cpu_iowait_percent metric not found", foundIowaitPercent);
+        Assert.assertTrue("cpu_steal_percent metric not found", foundStealPercent);
+        Assert.assertTrue("context_switches_rate metric not found", foundContextSwitchesRate);
+        Assert.assertTrue("process_forks_rate metric not found", foundProcessForksRate);
+        Assert.assertTrue("procs_running metric not found", foundProcsRunning);
+        Assert.assertTrue("procs_blocked metric not found", foundProcsBlocked);
+    }
+
+    @Test
     public void testUserQueryMetrics() {
         MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd("test_user").increase(1L);
         MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd("test_user").increase(1L);

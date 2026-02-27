@@ -1301,16 +1301,27 @@ public final class MetricRepo {
         cpuStealPercent.addLabel(new MetricLabel("name", "cpu_steal_percent"));
         DORIS_METRIC_REGISTER.addSystemMetrics(cpuStealPercent);
 
-        // Context Switches
-        GaugeMetric<Long> contextSwitches = (GaugeMetric<Long>) new GaugeMetric<Long>(
-                "cpu", MetricUnit.NOUNIT, "Number of context switches") {
+        // Context Switches Rate
+        GaugeMetric<Double> contextSwitchesRate = (GaugeMetric<Double>) new GaugeMetric<Double>(
+                "cpu", MetricUnit.NOUNIT, "Context switches per second") {
             @Override
-            public Long getValue() {
-                return SYSTEM_METRICS.ctxt;
+            public Double getValue() {
+                return SYSTEM_METRICS.ctxtRate;
             }
         };
-        contextSwitches.addLabel(new MetricLabel("name", "context_switches"));
-        DORIS_METRIC_REGISTER.addSystemMetrics(contextSwitches);
+        contextSwitchesRate.addLabel(new MetricLabel("name", "context_switches_rate"));
+        DORIS_METRIC_REGISTER.addSystemMetrics(contextSwitchesRate);
+
+        // Process Forks Rate
+        GaugeMetric<Double> processForkRate = (GaugeMetric<Double>) new GaugeMetric<Double>(
+                "cpu", MetricUnit.NOUNIT, "Process forks per second") {
+            @Override
+            public Double getValue() {
+                return SYSTEM_METRICS.processesRate;
+            }
+        };
+        processForkRate.addLabel(new MetricLabel("name", "process_forks_rate"));
+        DORIS_METRIC_REGISTER.addSystemMetrics(processForkRate);
 
         // Processes Running
         GaugeMetric<Long> procsRunning = (GaugeMetric<Long>) new GaugeMetric<Long>(
