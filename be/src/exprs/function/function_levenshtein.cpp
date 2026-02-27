@@ -41,8 +41,7 @@ struct LevenshteinImpl {
     static Status vector_vector(const ColumnString::Chars& ldata,
                                 const ColumnString::Offsets& loffsets,
                                 const ColumnString::Chars& rdata,
-                                const ColumnString::Offsets& roffsets,
-                                ResultPaddedPODArray& res) {
+                                const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
         DCHECK_EQ(loffsets.size(), roffsets.size());
 
         const size_t size = loffsets.size();
@@ -66,8 +65,7 @@ struct LevenshteinImpl {
     }
 
     static Status scalar_vector(const StringRef& ldata, const ColumnString::Chars& rdata,
-                                const ColumnString::Offsets& roffsets,
-                                ResultPaddedPODArray& res) {
+                                const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
         const size_t size = roffsets.size();
         res.resize(size);
         for (size_t i = 0; i < size; ++i) {

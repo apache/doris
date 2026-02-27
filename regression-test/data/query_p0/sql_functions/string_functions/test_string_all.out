@@ -971,11 +971,17 @@ R163	R163
 -- !levenshtein_332 --
 0	3	3	\N	\N
 
+-- !levenshtein_333 --
+2	1	1
+
 -- !levenshtein_tbl --
 1	3
 2	0
 3	1
 4	\N
+5	1
+6	2
+7	3
 
 -- !hamming_distance_333 --
 0	0	1	1
@@ -983,11 +989,17 @@ R163	R163
 -- !hamming_distance_334 --
 0	\N	\N
 
+-- !hamming_distance_335 --
+4	1	2
+
 -- !hamming_distance_tbl --
 1	0
 2	1
 3	1
 4	\N
+5	4
+6	1
+7	2
 
 -- !space_333 --
      

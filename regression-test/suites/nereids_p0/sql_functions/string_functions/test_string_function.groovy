@@ -266,6 +266,9 @@ suite("test_string_function") {
     qt_levenshtein """SELECT LEVENSHTEIN('abc', NULL);"""
     qt_levenshtein """SELECT LEVENSHTEIN('你好', '你们');"""
     qt_levenshtein """SELECT LEVENSHTEIN('数据库', '数据');"""
+    qt_levenshtein """SELECT LEVENSHTEIN('abcd', 'abdc');"""
+    qt_levenshtein """SELECT LEVENSHTEIN('你好呀', '你好');"""
+    qt_levenshtein """SELECT LEVENSHTEIN('a你b', 'a们b');"""
 
     sql """DROP TABLE IF EXISTS string_distance_lv_test"""
     sql """
@@ -282,7 +285,10 @@ suite("test_string_function") {
         (1, 'kitten', 'sitting'),
         (2, 'abc', 'abc'),
         (3, '数据库', '数据'),
-        (4, null, 'abc')
+        (4, null, 'abc'),
+        (5, '你好呀', '你好'),
+        (6, 'abcd', 'abdc'),
+        (7, '', '数据库')
     """
     qt_levenshtein_tbl """SELECT id, LEVENSHTEIN(s1, s2) FROM string_distance_lv_test ORDER BY id"""
 
@@ -292,6 +298,9 @@ suite("test_string_function") {
     qt_hamming_distance """SELECT HAMMING_DISTANCE('你好', '你们');"""
     qt_hamming_distance """SELECT HAMMING_DISTANCE(NULL, 'abc');"""
     qt_hamming_distance """SELECT HAMMING_DISTANCE('abc', NULL);"""
+    qt_hamming_distance """SELECT HAMMING_DISTANCE('abcd', 'wxyz');"""
+    qt_hamming_distance """SELECT HAMMING_DISTANCE('你好吗', '你们吗');"""
+    qt_hamming_distance """SELECT HAMMING_DISTANCE('数据库', '数库据');"""
     test{
         sql """SELECT HAMMING_DISTANCE('abc', 'ab');"""
         exception "hamming_distance requires strings of the same length"
@@ -312,7 +321,10 @@ suite("test_string_function") {
         (1, 'abc', 'abc'),
         (2, 'abc', 'abd'),
         (3, '你好', '你们'),
-        (4, null, 'abc')
+        (4, null, 'abc'),
+        (5, 'abcd', 'wxyz'),
+        (6, '你好吗', '你们吗'),
+        (7, '数据库', '数库据')
     """
     qt_hamming_distance_tbl """SELECT id, HAMMING_DISTANCE(s1, s2) FROM string_distance_hd_test ORDER BY id"""
 

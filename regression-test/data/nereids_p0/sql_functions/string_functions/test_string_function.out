@@ -599,11 +599,23 @@ W520
 -- !levenshtein --
 1
 
+-- !levenshtein --
+2
+
+-- !levenshtein --
+1
+
+-- !levenshtein --
+1
+
 -- !levenshtein_tbl --
 1	3
 2	0
 3	1
 4	\N
+5	1
+6	2
+7	3
 
 -- !hamming_distance --
 0
@@ -620,11 +632,23 @@ W520
 -- !hamming_distance --
 \N
 
+-- !hamming_distance --
+4
+
+-- !hamming_distance --
+1
+
+-- !hamming_distance --
+2
+
 -- !hamming_distance_tbl --
 1	0
 2	1
 3	1
 4	\N
+5	4
+6	1
+7	2
 
 -- !hamming_distance --
 \N
