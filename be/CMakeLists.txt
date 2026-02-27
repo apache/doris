@@ -630,62 +630,107 @@ set(PAIMON_ARROW_FILESYSTEM_LIB)
 set(PAIMON_ARROW_DATASET_LIB)
 set(PAIMON_ARROW_ACERO_LIB)
 if (ENABLE_PAIMON_CPP)
-    set(_paimon_arrow_core_candidates
-        ${THIRDPARTY_DIR}/paimon-cpp/lib64/paimon_deps/libarrow.a
-        ${THIRDPARTY_DIR}/lib64/libarrow.a
-        ${THIRDPARTY_DIR}/lib/libarrow.a
-    )
-    foreach(_paimon_arrow_core_candidate IN LISTS _paimon_arrow_core_candidates)
-        if (EXISTS "${_paimon_arrow_core_candidate}")
-            add_library(paimon_arrow_core STATIC IMPORTED)
-            set_target_properties(paimon_arrow_core PROPERTIES
-                IMPORTED_LOCATION ${_paimon_arrow_core_candidate})
-            set(PAIMON_ARROW_CORE_LIB paimon_arrow_core)
-            break()
+    # Select Arrow as one consistent stack (Doris or paimon_deps) to avoid
+    # mixing different Arrow versions (e.g. Doris core + paimon dataset/acero),
+    # which causes link/runtime instability.
+    set(_doris_arrow_core)
+    set(_doris_arrow_dataset)
+    set(_doris_arrow_acero)
+    set(_doris_arrow_filesystem)
+    foreach(_doris_arrow_dir IN ITEMS ${THIRDPARTY_DIR}/lib64 ${THIRDPARTY_DIR}/lib)
+        if (NOT _doris_arrow_core AND EXISTS "${_doris_arrow_dir}/libarrow.a")
+            set(_doris_arrow_core "${_doris_arrow_dir}/libarrow.a")
+        endif()
+        if (NOT _doris_arrow_dataset AND EXISTS "${_doris_arrow_dir}/libarrow_dataset.a")
+            set(_doris_arrow_dataset "${_doris_arrow_dir}/libarrow_dataset.a")
+        endif()
+        if (NOT _doris_arrow_acero AND EXISTS "${_doris_arrow_dir}/libarrow_acero.a")
+            set(_doris_arrow_acero "${_doris_arrow_dir}/libarrow_acero.a")
+        endif()
+        if (NOT _doris_arrow_filesystem AND EXISTS "${_doris_arrow_dir}/libarrow_filesystem.a")
+            set(_doris_arrow_filesystem "${_doris_arrow_dir}/libarrow_filesystem.a")
         endif()
     endforeach()
-    set(_paimon_arrow_filesystem_candidates
-        ${THIRDPARTY_DIR}/paimon-cpp/lib64/paimon_deps/libarrow_filesystem.a
-        ${THIRDPARTY_DIR}/lib64/libarrow_filesystem.a
-        ${THIRDPARTY_DIR}/lib/libarrow_filesystem.a
-    )
-    foreach(_paimon_arrow_filesystem_candidate IN LISTS _paimon_arrow_filesystem_candidates)
-        if (EXISTS "${_paimon_arrow_filesystem_candidate}")
-            add_library(paimon_arrow_filesystem STATIC IMPORTED)
-            set_target_properties(paimon_arrow_filesystem PROPERTIES
-                IMPORTED_LOCATION ${_paimon_arrow_filesystem_candidate})
-            set(PAIMON_ARROW_FILESYSTEM_LIB paimon_arrow_filesystem)
-            break()
+
+    set(_paimon_arrow_dir ${THIRDPARTY_DIR}/paimon-cpp/lib64/paimon_deps)
+    set(_paimon_arrow_core)
+    set(_paimon_arrow_dataset)
+    set(_paimon_arrow_acero)
+    set(_paimon_arrow_filesystem)
+    if (EXISTS "${_paimon_arrow_dir}/libarrow.a")
+        set(_paimon_arrow_core "${_paimon_arrow_dir}/libarrow.a")
+    endif()
+    if (EXISTS "${_paimon_arrow_dir}/libarrow_dataset.a")
+        set(_paimon_arrow_dataset "${_paimon_arrow_dir}/libarrow_dataset.a")
+    endif()
+    if (EXISTS "${_paimon_arrow_dir}/libarrow_acero.a")
+        set(_paimon_arrow_acero "${_paimon_arrow_dir}/libarrow_acero.a")
+    endif()
+    if (EXISTS "${_paimon_arrow_dir}/libarrow_filesystem.a")
+        set(_paimon_arrow_filesystem "${_paimon_arrow_dir}/libarrow_filesystem.a")
+    endif()
+
+    set(_selected_arrow_core)
+    set(_selected_arrow_dataset)
+    set(_selected_arrow_acero)
+    set(_selected_arrow_filesystem)
+    set(_selected_arrow_stack)
+    if (_doris_arrow_core AND _doris_arrow_dataset AND _doris_arrow_acero)
+        set(_selected_arrow_stack "doris")
+        set(_selected_arrow_core "${_doris_arrow_core}")
+        set(_selected_arrow_dataset "${_doris_arrow_dataset}")
+        set(_selected_arrow_acero "${_doris_arrow_acero}")
+        set(_selected_arrow_filesystem "${_doris_arrow_filesystem}")
+    elseif (_paimon_arrow_core AND _paimon_arrow_dataset AND _paimon_arrow_acero)
+        set(_selected_arrow_stack "paimon_deps")
+        set(_selected_arrow_core "${_paimon_arrow_core}")
+        set(_selected_arrow_dataset "${_paimon_arrow_dataset}")
+        set(_selected_arrow_acero "${_paimon_arrow_acero}")
+        set(_selected_arrow_filesystem "${_paimon_arrow_filesystem}")
+    endif()
+
+    if (_selected_arrow_core)
+        add_library(paimon_arrow_core STATIC IMPORTED)
+        set_target_properties(paimon_arrow_core PROPERTIES
+            IMPORTED_LOCATION ${_selected_arrow_core})
+        set(PAIMON_ARROW_CORE_LIB paimon_arrow_core)
+    endif()
+    if (_selected_arrow_filesystem)
+        add_library(paimon_arrow_filesystem STATIC IMPORTED)
+        set_target_properties(paimon_arrow_filesystem PROPERTIES
+            IMPORTED_LOCATION ${_selected_arrow_filesystem})
+        set(PAIMON_ARROW_FILESYSTEM_LIB paimon_arrow_filesystem)
+    endif()
+    if (_selected_arrow_dataset)
+        add_library(paimon_arrow_dataset STATIC IMPORTED)
+        set_target_properties(paimon_arrow_dataset PROPERTIES
+            IMPORTED_LOCATION ${_selected_arrow_dataset})
+        set(PAIMON_ARROW_DATASET_LIB paimon_arrow_dataset)
+    endif()
+    if (_selected_arrow_acero)
+        add_library(paimon_arrow_acero STATIC IMPORTED)
+        set_target_properties(paimon_arrow_acero PROPERTIES
+            IMPORTED_LOCATION ${_selected_arrow_acero})
+        set(PAIMON_ARROW_ACERO_LIB paimon_arrow_acero)
+    endif()
+
+    if (_selected_arrow_stack)
+        message(STATUS "Paimon C++: using ${_selected_arrow_stack} Arrow stack")
+        if (_selected_arrow_stack STREQUAL "paimon_deps")
+            # paimon's libarrow.a is a superset of Doris's libarrow.a
+            # (COMPUTE/FILESYSTEM/DATASET=ON vs OFF), same Arrow 17.0.0.
+            # Remove Doris's arrow from COMMON_THIRDPARTY to avoid duplicate
+            # symbols (3698 overlapping globals), which cause SIGSEGV when
+            # libarrow_dataset.a resolves arrow core calls to the wrong copy.
+            # Doris's arrow_flight / arrow_flight_sql remain – they only
+            # depend on arrow core ABI, which paimon's libarrow.a provides.
+            list(REMOVE_ITEM COMMON_THIRDPARTY arrow)
+            message(STATUS "Paimon C++: removed Doris 'arrow' from COMMON_THIRDPARTY to avoid duplicate libarrow.a")
         endif()
-    endforeach()
-    set(_paimon_arrow_dataset_candidates
-        ${THIRDPARTY_DIR}/paimon-cpp/lib64/paimon_deps/libarrow_dataset.a
-        ${THIRDPARTY_DIR}/lib64/libarrow_dataset.a
-        ${THIRDPARTY_DIR}/lib/libarrow_dataset.a
-    )
-    foreach(_paimon_arrow_dataset_candidate IN LISTS _paimon_arrow_dataset_candidates)
-        if (EXISTS "${_paimon_arrow_dataset_candidate}")
-            add_library(paimon_arrow_dataset STATIC IMPORTED)
-            set_target_properties(paimon_arrow_dataset PROPERTIES
-                IMPORTED_LOCATION ${_paimon_arrow_dataset_candidate})
-            set(PAIMON_ARROW_DATASET_LIB paimon_arrow_dataset)
-            break()
-        endif()
-    endforeach()
-    set(_paimon_arrow_acero_candidates
-        ${THIRDPARTY_DIR}/paimon-cpp/lib64/paimon_deps/libarrow_acero.a
-        ${THIRDPARTY_DIR}/lib64/libarrow_acero.a
-        ${THIRDPARTY_DIR}/lib/libarrow_acero.a
-    )
-    foreach(_paimon_arrow_acero_candidate IN LISTS _paimon_arrow_acero_candidates)
-        if (EXISTS "${_paimon_arrow_acero_candidate}")
-            add_library(paimon_arrow_acero STATIC IMPORTED)
-            set_target_properties(paimon_arrow_acero PROPERTIES
-                IMPORTED_LOCATION ${_paimon_arrow_acero_candidate})
-            set(PAIMON_ARROW_ACERO_LIB paimon_arrow_acero)
-            break()
-        endif()
-    endforeach()
+    else()
+        message(STATUS "Paimon C++: no complete Arrow stack found (need libarrow + libarrow_dataset + libarrow_acero)")
+    endif()
+
     if (PAIMON_ARROW_DATASET_LIB)
         # paimon_parquet_file_format depends on Arrow Dataset symbols.
         # Force-link it only when arrow_dataset is available.
