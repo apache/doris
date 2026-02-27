@@ -93,7 +93,7 @@ suite("test_orc_lazy_mat_profile", "p0,external,hive,external_docker,external_do
     }
 
     def extractProfileValue =  { String profileText, String keyName -> 
-        def matcher = profileText =~ /(?m)^\s*-\s*${keyName}:\s*(.+)$/
+        def matcher = profileText =~ /(?m)^\s*-\s*${keyName}:\s*sum\s+(\S+),/
         return matcher.find() ? matcher.group(1).trim() : null
     }
 

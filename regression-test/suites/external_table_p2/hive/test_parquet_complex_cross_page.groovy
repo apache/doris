@@ -17,22 +17,23 @@
 
 suite("test_parquet_complex_cross_page", "p2,external,hive,external_remote,external_remote_hive") {
 
-    String enabled = context.config.otherConfigs.get("enableExternalHudiTest")
+    String enabled = context.config.otherConfigs.get("enableExternalEmrTest")
     //hudi hive use same catalog in p2.
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable test")
         return;
     }
 
-    String props = context.config.otherConfigs.get("hudiEmrCatalog")    
+    String props = context.config.otherConfigs.get("emrCatalogCommonProp")    
     String hms_catalog_name = "test_parquet_complex_cross_page"
 
     sql """drop catalog if exists ${hms_catalog_name};"""
     sql """
         CREATE CATALOG IF NOT EXISTS ${hms_catalog_name}
-        PROPERTIES ( 
+        PROPERTIES (
+            "type" = "hms",
+            'hive.version' = '3.1.3', 
             ${props}
-            ,'hive.version' = '3.1.3'
         );
     """
 
