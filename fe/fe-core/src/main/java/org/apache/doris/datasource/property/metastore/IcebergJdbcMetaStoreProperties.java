@@ -20,16 +20,12 @@ package org.apache.doris.datasource.property.metastore;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.ConnectorProperty;
-import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
-import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
-import org.apache.iceberg.aws.AwsClientProperties;
-import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;

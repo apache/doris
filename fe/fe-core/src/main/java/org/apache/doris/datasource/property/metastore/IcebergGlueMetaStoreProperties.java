@@ -26,7 +26,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.aws.AwsProperties;
-import org.apache.iceberg.aws.glue.GlueCatalog;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
 

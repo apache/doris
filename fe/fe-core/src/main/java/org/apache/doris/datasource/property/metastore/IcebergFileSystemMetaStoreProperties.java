@@ -28,7 +28,6 @@ import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.Catalog;
 
-
 import java.util.List;
 import java.util.Map;
 

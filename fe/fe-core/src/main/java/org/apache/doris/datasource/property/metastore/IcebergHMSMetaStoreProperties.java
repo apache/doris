@@ -30,7 +30,6 @@ import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.hive.HiveCatalog;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
