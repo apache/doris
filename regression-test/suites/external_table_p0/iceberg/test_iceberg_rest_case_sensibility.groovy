@@ -144,6 +144,7 @@ suite("test_iceberg_rest_case_sensibility", "p0,external,doris,external_docker,e
             }
             qt_sql11 """show tables from iceberg_rest_case_db2 like "%case_tbl14%"""" // empty
             qt_sql12 """show tables from iceberg_rest_case_db2 like "%case_tbl21%"""" // empty
+            // for case 1,2, like is case insensible, and case_tbl22 is not created, so will show CASE_TBL22
             qt_sql12 """show tables from iceberg_rest_case_db2 like "%case_tbl22%""""
 
             order_qt_sql13 """select * from information_schema.tables where TABLE_SCHEMA="iceberg_rest_case_db2";"""
