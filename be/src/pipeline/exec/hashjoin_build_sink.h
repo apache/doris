@@ -128,15 +128,17 @@ public:
 
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
-            return {ExchangeType::NOOP};
+            return {TLocalPartitionType::NOOP};
         } else if (_is_broadcast_join) {
-            return _child->is_serial_operator() ? DataDistribution(ExchangeType::PASS_TO_ONE)
-                                                : DataDistribution(ExchangeType::NOOP);
+            return _child->is_serial_operator() ? DataDistribution(TLocalPartitionType::PASS_TO_ONE)
+                                                : DataDistribution(TLocalPartitionType::NOOP);
         }
         return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
                                _join_distribution == TJoinDistributionType::COLOCATE
-                       ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
-                       : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+                       ? DataDistribution(TLocalPartitionType::BUCKET_HASH_SHUFFLE,
+                                          _partition_exprs)
+                       : DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE,
+                                          _partition_exprs);
     }
 
     bool is_shuffled_operator() const override {

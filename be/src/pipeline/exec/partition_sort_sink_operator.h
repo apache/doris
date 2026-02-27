@@ -95,9 +95,9 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_topn_phase == TPartTopNPhase::TWO_PHASE_GLOBAL) {
-            return DataDistribution(ExchangeType::HASH_SHUFFLE, _distribute_exprs);
+            return DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE, _distribute_exprs);
         }
-        return {ExchangeType::PASSTHROUGH};
+        return {TLocalPartitionType::PASSTHROUGH};
     }
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;

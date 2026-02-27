@@ -105,10 +105,10 @@ public:
 
     DataDistribution required_data_distribution(RuntimeState* state) const override {
         if (_require_bucket_distribution) {
-            return DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE);
+            return DataDistribution(TLocalPartitionType::BUCKET_HASH_SHUFFLE);
         }
         if (_followed_by_shuffled_operator) {
-            return DataDistribution(ExchangeType::HASH_SHUFFLE);
+            return DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE);
         }
         return Base::required_data_distribution(state);
     }

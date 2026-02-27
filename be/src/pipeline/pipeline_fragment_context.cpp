@@ -276,7 +276,7 @@ Status PipelineFragmentContext::_build_and_prepare_full_pipeline(ThreadPool* thr
         }
     }
     // 4. Build local exchanger
-    if (_runtime_state->enable_local_shuffle()) {
+    if (_runtime_state->plan_local_shuffle()) {
         SCOPED_TIMER(_plan_local_exchanger_timer);
         RETURN_IF_ERROR(_plan_local_exchange(_params.num_buckets,
                                              _params.bucket_seq_to_instance_idx,
@@ -774,28 +774,35 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
             sink_id, local_exchange_id, use_global_hash_shuffle ? _total_instances : _num_instances,
             data_distribution.partition_exprs, bucket_seq_to_instance_idx);
     if (bucket_seq_to_instance_idx.empty() &&
-        data_distribution.distribution_type == ExchangeType::BUCKET_HASH_SHUFFLE) {
-        data_distribution.distribution_type = ExchangeType::HASH_SHUFFLE;
+        data_distribution.distribution_type == TLocalPartitionType::BUCKET_HASH_SHUFFLE) {
+        data_distribution.distribution_type =
+                use_global_hash_shuffle ? TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE
+                                        : TLocalPartitionType::LOCAL_EXECUTION_HASH_SHUFFLE;
+    }
+    if (!use_global_hash_shuffle &&
+        data_distribution.distribution_type == TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE) {
+        data_distribution.distribution_type = TLocalPartitionType::LOCAL_EXECUTION_HASH_SHUFFLE;
     }
     RETURN_IF_ERROR(new_pip->set_sink(sink));
     RETURN_IF_ERROR(new_pip->sink()->init(_runtime_state.get(), data_distribution.distribution_type,
-                                          num_buckets, use_global_hash_shuffle,
-                                          shuffle_idx_to_instance_idx));
+                                          num_buckets, shuffle_idx_to_instance_idx));
 
     // 2. Create and initialize LocalExchangeSharedState.
     std::shared_ptr<LocalExchangeSharedState> shared_state =
             LocalExchangeSharedState::create_shared(_num_instances);
     switch (data_distribution.distribution_type) {
-    case ExchangeType::HASH_SHUFFLE:
+    case TLocalPartitionType::LOCAL_EXECUTION_HASH_SHUFFLE:
+    case TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE:
         shared_state->exchanger = ShuffleExchanger::create_unique(
                 std::max(cur_pipe->num_tasks(), _num_instances), _num_instances,
                 use_global_hash_shuffle ? _total_instances : _num_instances,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
                         ? cast_set<int>(
                                   _runtime_state->query_options().local_exchange_free_blocks_limit)
-                        : 0);
+                        : 0,
+                data_distribution.distribution_type);
         break;
-    case ExchangeType::BUCKET_HASH_SHUFFLE:
+    case TLocalPartitionType::BUCKET_HASH_SHUFFLE:
         shared_state->exchanger = BucketShuffleExchanger::create_unique(
                 std::max(cur_pipe->num_tasks(), _num_instances), _num_instances, num_buckets,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
@@ -803,7 +810,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                                   _runtime_state->query_options().local_exchange_free_blocks_limit)
                         : 0);
         break;
-    case ExchangeType::PASSTHROUGH:
+    case TLocalPartitionType::PASSTHROUGH:
         shared_state->exchanger = PassthroughExchanger::create_unique(
                 cur_pipe->num_tasks(), _num_instances,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
@@ -811,7 +818,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                                   _runtime_state->query_options().local_exchange_free_blocks_limit)
                         : 0);
         break;
-    case ExchangeType::BROADCAST:
+    case TLocalPartitionType::BROADCAST:
         shared_state->exchanger = BroadcastExchanger::create_unique(
                 cur_pipe->num_tasks(), _num_instances,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
@@ -819,7 +826,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                                   _runtime_state->query_options().local_exchange_free_blocks_limit)
                         : 0);
         break;
-    case ExchangeType::PASS_TO_ONE:
+    case TLocalPartitionType::PASS_TO_ONE:
         if (_runtime_state->enable_share_hash_table_for_broadcast_join()) {
             // If shared hash table is enabled for BJ, hash table will be built by only one task
             shared_state->exchanger = PassToOneExchanger::create_unique(
@@ -837,7 +844,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                             : 0);
         }
         break;
-    case ExchangeType::ADAPTIVE_PASSTHROUGH:
+    case TLocalPartitionType::ADAPTIVE_PASSTHROUGH:
         shared_state->exchanger = AdaptivePassthroughExchanger::create_unique(
                 std::max(cur_pipe->num_tasks(), _num_instances), _num_instances,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
@@ -948,9 +955,9 @@ Status PipelineFragmentContext::_add_local_exchange(
         Pipeline::heavy_operations_on_the_sink(data_distribution.distribution_type)) {
         RETURN_IF_ERROR(_add_local_exchange_impl(
                 cast_set<int>(new_pip->operators().size()), pool, new_pip,
-                add_pipeline(new_pip, pip_idx + 2), DataDistribution(ExchangeType::PASSTHROUGH),
-                do_local_exchange, num_buckets, bucket_seq_to_instance_idx,
-                shuffle_idx_to_instance_idx));
+                add_pipeline(new_pip, pip_idx + 2),
+                DataDistribution(TLocalPartitionType::PASSTHROUGH), do_local_exchange, num_buckets,
+                bucket_seq_to_instance_idx, shuffle_idx_to_instance_idx));
     }
     return Status::OK();
 }
@@ -1696,6 +1703,43 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     case TPlanNodeType::REC_CTE_SCAN_NODE: {
         op = std::make_shared<RecCTEScanOperatorX>(pool, tnode, next_operator_id(), descs);
         RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
+        break;
+    }
+    case TPlanNodeType::LOCAL_EXCHANGE_NODE: {
+        op = std::make_shared<LocalExchangeSourceOperatorX>(pool, tnode, next_operator_id(), descs);
+        RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
+
+        const auto downstream_pipeline_id = cur_pipe->id();
+        if (!_dag.contains(downstream_pipeline_id)) {
+            _dag.insert({downstream_pipeline_id, {}});
+        }
+        cur_pipe = add_pipeline(cur_pipe);
+        _dag[downstream_pipeline_id].push_back(cur_pipe->id());
+        int num_partitions = 0;
+        std::map<int, int> shuffle_id_to_instance_idx;
+        switch (tnode.local_exchange_node.partition_type) {
+        case TLocalPartitionType::BUCKET_HASH_SHUFFLE:
+            num_partitions = _params.num_buckets;
+            shuffle_id_to_instance_idx = _params.bucket_seq_to_instance_idx;
+            break;
+        case TLocalPartitionType::LOCAL_EXECUTION_HASH_SHUFFLE:
+            for (int i = 0; i < _num_instances; i++) {
+                shuffle_id_to_instance_idx[i] = i;
+            }
+            num_partitions = _num_instances;
+            break;
+        case TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE:
+            num_partitions = _total_instances;
+            shuffle_id_to_instance_idx = _params.shuffle_idx_to_instance_idx;
+            break;
+        default:
+            break;
+        }
+        sink_ops.push_back(std::make_shared<LocalExchangeSinkOperatorX>(
+                next_sink_operator_id(), op->operator_id(), tnode, num_partitions,
+                shuffle_id_to_instance_idx));
+        RETURN_IF_ERROR(cur_pipe->set_sink(sink_ops.back()));
+        RETURN_IF_ERROR(cur_pipe->sink()->init(tnode, _runtime_state.get()));
         break;
     }
     default:

@@ -146,7 +146,7 @@ public:
                              Profile&& profile, SourceInfo&& source_info) = 0;
     virtual Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
                         Profile&& profile, SinkInfo& sink_info) = 0;
-    virtual ExchangeType get_type() const = 0;
+    virtual TLocalPartitionType::type get_type() const = 0;
     // Called if a local exchanger source operator are closed. Free the unused data block in data_queue.
     virtual void close(SourceInfo&& source_info) = 0;
     // Called if all local exchanger source operators are closed. We free the memory in
@@ -231,16 +231,19 @@ using BlockWrapperSPtr = std::shared_ptr<ExchangerBase::BlockWrapper>;
 template <typename BlockType>
 class Exchanger : public ExchangerBase {
 public:
-    Exchanger(int running_sink_operators, int num_partitions, int free_block_limit)
-            : ExchangerBase(running_sink_operators, num_partitions, free_block_limit) {
+    Exchanger(int running_sink_operators, int num_partitions, int free_block_limit,
+              TLocalPartitionType::type type)
+            : ExchangerBase(running_sink_operators, num_partitions, free_block_limit), _type(type) {
         _data_queue.resize(num_partitions);
         _m.resize(num_partitions);
         for (size_t i = 0; i < num_partitions; i++) {
             _m[i] = std::make_unique<std::mutex>();
         }
     }
-    Exchanger(int running_sink_operators, int num_sources, int num_partitions, int free_block_limit)
-            : ExchangerBase(running_sink_operators, num_sources, num_partitions, free_block_limit) {
+    Exchanger(int running_sink_operators, int num_sources, int num_partitions, int free_block_limit,
+              TLocalPartitionType::type type)
+            : ExchangerBase(running_sink_operators, num_sources, num_partitions, free_block_limit),
+              _type(type) {
         _data_queue.resize(num_sources);
         _m.resize(num_sources);
         for (size_t i = 0; i < num_sources; i++) {
@@ -248,6 +251,7 @@ public:
         }
     }
     ~Exchanger() override = default;
+    TLocalPartitionType::type get_type() const override { return _type; }
     std::string data_queue_debug_string(int i) override {
         return fmt::format("Data Queue {}: [size approx = {}, eos = {}]", i,
                            _data_queue[i].data_queue.size_approx(), _data_queue[i].eos);
@@ -264,6 +268,7 @@ protected:
     bool _dequeue_data(BlockType& block, bool* eos, vectorized::Block* data_block, int channel_id);
     std::vector<BlockQueue<BlockType>> _data_queue;
     std::vector<std::unique_ptr<std::mutex>> _m;
+    const TLocalPartitionType::type _type;
 };
 
 class LocalExchangeSourceLocalState;
@@ -273,9 +278,9 @@ class ShuffleExchanger : public Exchanger<PartitionedBlock> {
 public:
     ENABLE_FACTORY_CREATOR(ShuffleExchanger);
     ShuffleExchanger(int running_sink_operators, int num_sources, int num_partitions,
-                     int free_block_limit)
+                     int free_block_limit, TLocalPartitionType::type type)
             : Exchanger<PartitionedBlock>(running_sink_operators, num_sources, num_partitions,
-                                          free_block_limit) {
+                                          free_block_limit, type) {
         DCHECK_GT(num_partitions, 0);
         DCHECK_GT(num_sources, 0);
         _partition_rows_histogram.resize(running_sink_operators);
@@ -287,7 +292,6 @@ public:
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos, Profile&& profile,
                      SourceInfo&& source_info) override;
     void close(SourceInfo&& source_info) override;
-    ExchangeType get_type() const override { return ExchangeType::HASH_SHUFFLE; }
 
 protected:
     Status _split_rows(RuntimeState* state, const std::vector<uint32_t>& channel_ids,
@@ -304,24 +308,22 @@ class BucketShuffleExchanger final : public ShuffleExchanger {
     BucketShuffleExchanger(int running_sink_operators, int num_sources, int num_partitions,
                            int free_block_limit)
             : ShuffleExchanger(running_sink_operators, num_sources, num_partitions,
-                               free_block_limit) {}
+                               free_block_limit, TLocalPartitionType::BUCKET_HASH_SHUFFLE) {}
     ~BucketShuffleExchanger() override = default;
-    ExchangeType get_type() const override { return ExchangeType::BUCKET_HASH_SHUFFLE; }
 };
 
 class PassthroughExchanger final : public Exchanger<BlockWrapperSPtr> {
 public:
     ENABLE_FACTORY_CREATOR(PassthroughExchanger);
     PassthroughExchanger(int running_sink_operators, int num_partitions, int free_block_limit)
-            : Exchanger<BlockWrapperSPtr>(running_sink_operators, num_partitions,
-                                          free_block_limit) {}
+            : Exchanger<BlockWrapperSPtr>(running_sink_operators, num_partitions, free_block_limit,
+                                          TLocalPartitionType::PASSTHROUGH) {}
     ~PassthroughExchanger() override = default;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
                 SinkInfo& sink_info) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos, Profile&& profile,
                      SourceInfo&& source_info) override;
-    ExchangeType get_type() const override { return ExchangeType::PASSTHROUGH; }
     void close(SourceInfo&& source_info) override;
 };
 
@@ -329,29 +331,28 @@ class PassToOneExchanger final : public Exchanger<BlockWrapperSPtr> {
 public:
     ENABLE_FACTORY_CREATOR(PassToOneExchanger);
     PassToOneExchanger(int running_sink_operators, int num_partitions, int free_block_limit)
-            : Exchanger<BlockWrapperSPtr>(running_sink_operators, num_partitions,
-                                          free_block_limit) {}
+            : Exchanger<BlockWrapperSPtr>(running_sink_operators, num_partitions, free_block_limit,
+                                          TLocalPartitionType::PASS_TO_ONE) {}
     ~PassToOneExchanger() override = default;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
                 SinkInfo& sink_info) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos, Profile&& profile,
                      SourceInfo&& source_info) override;
-    ExchangeType get_type() const override { return ExchangeType::PASS_TO_ONE; }
     void close(SourceInfo&& source_info) override;
 };
 class BroadcastExchanger final : public Exchanger<BroadcastBlock> {
 public:
     ENABLE_FACTORY_CREATOR(BroadcastExchanger);
     BroadcastExchanger(int running_sink_operators, int num_partitions, int free_block_limit)
-            : Exchanger<BroadcastBlock>(running_sink_operators, num_partitions, free_block_limit) {}
+            : Exchanger<BroadcastBlock>(running_sink_operators, num_partitions, free_block_limit,
+                                        TLocalPartitionType::BROADCAST) {}
     ~BroadcastExchanger() override = default;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
                 SinkInfo& sink_info) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos, Profile&& profile,
                      SourceInfo&& source_info) override;
-    ExchangeType get_type() const override { return ExchangeType::BROADCAST; }
     void close(SourceInfo&& source_info) override;
 };
 
@@ -362,8 +363,8 @@ public:
     ENABLE_FACTORY_CREATOR(AdaptivePassthroughExchanger);
     AdaptivePassthroughExchanger(int running_sink_operators, int num_partitions,
                                  int free_block_limit)
-            : Exchanger<BlockWrapperSPtr>(running_sink_operators, num_partitions,
-                                          free_block_limit) {
+            : Exchanger<BlockWrapperSPtr>(running_sink_operators, num_partitions, free_block_limit,
+                                          TLocalPartitionType::ADAPTIVE_PASSTHROUGH) {
         _partition_rows_histogram.resize(running_sink_operators);
     }
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
@@ -371,7 +372,6 @@ public:
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos, Profile&& profile,
                      SourceInfo&& source_info) override;
-    ExchangeType get_type() const override { return ExchangeType::ADAPTIVE_PASSTHROUGH; }
 
     void close(SourceInfo&& source_info) override;
 

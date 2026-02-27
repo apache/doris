@@ -215,11 +215,13 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_partition_by_eq_expr_ctxs.empty()) {
-            return {ExchangeType::PASSTHROUGH};
+            return {TLocalPartitionType::PASSTHROUGH};
         } else {
             return _is_colocate && _require_bucket_distribution
-                           ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
-                           : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+                           ? DataDistribution(TLocalPartitionType::BUCKET_HASH_SHUFFLE,
+                                              _partition_exprs)
+                           : DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE,
+                                              _partition_exprs);
         }
     }
 
