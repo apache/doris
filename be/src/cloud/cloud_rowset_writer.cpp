@@ -17,8 +17,10 @@
 
 #include "cloud/cloud_rowset_writer.h"
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "io/fs/packed_file_manager.h"
 #include "io/fs/packed_file_writer.h"
 #include "olap/rowset/rowset_factory.h"
 
@@ -80,6 +82,9 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
 }
 
 Status CloudRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num) {
+    VLOG_NOTICE << "start to build rowset meta. tablet_id=" << rowset_meta->tablet_id()
+                << ", rowset_id=" << rowset_meta->rowset_id()
+                << ", check_segment_num=" << check_segment_num;
     // Call base class implementation
     RETURN_IF_ERROR(BaseBetaRowsetWriter::_build_rowset_meta(rowset_meta, check_segment_num));
 
@@ -157,6 +162,8 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
 }
 
 Status CloudRowsetWriter::_collect_all_packed_slice_locations(RowsetMeta* rowset_meta) {
+    VLOG_NOTICE << "start to collect packed slice locations for rowset meta. tablet_id="
+                << rowset_meta->tablet_id() << ", rowset_id=" << rowset_meta->rowset_id();
     if (!_context.packed_file_active) {
         return Status::OK();
     }
@@ -189,17 +196,22 @@ Status CloudRowsetWriter::_collect_all_packed_slice_locations(RowsetMeta* rowset
 Status CloudRowsetWriter::_collect_packed_slice_location(io::FileWriter* file_writer,
                                                          const std::string& file_path,
                                                          RowsetMeta* rowset_meta) {
-    // At this point, we only call this when RowsetWriterContext::merge_file_active is true,
-    // and all writers should be MergeFileWriter. So we can safely cast without extra checks.
-    auto* packed_writer = static_cast<io::PackedFileWriter*>(file_writer);
-
-    if (packed_writer->state() != io::FileWriter::State::CLOSED) {
+    VLOG_NOTICE << "collect packed slice location for file: " << file_path;
+    // Check if file writer is closed
+    if (file_writer->state() != io::FileWriter::State::CLOSED) {
         // Writer is still open; index will be collected after it is closed.
         return Status::OK();
     }
 
+    // Check if file is actually in packed file (not direct write for large files)
+    if (!file_writer->is_in_packed_file()) {
+        return Status::OK();
+    }
+
+    // Get packed slice location directly from PackedFileManager
     io::PackedSliceLocation index;
-    RETURN_IF_ERROR(packed_writer->get_packed_slice_location(&index));
+    RETURN_IF_ERROR(
+            io::PackedFileManager::instance()->get_packed_slice_location(file_path, &index));
     if (index.packed_file_path.empty()) {
         return Status::OK(); // File not in packed file, skip
     }
