@@ -1707,7 +1707,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     maxTabletsNum = tabletNum;
                 }
             } else {
-                LOG.info("backend {} not found", be);
+                LOG.debug("backend {} not found", be);
             }
         }
         return srcBe;
