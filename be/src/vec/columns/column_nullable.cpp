@@ -545,7 +545,7 @@ void ColumnNullable::reserve(size_t n) {
 void ColumnNullable::resize(size_t n) {
     auto& null_map_data = get_null_map_data();
     get_nested_column().resize(n);
-    null_map_data.resize(n);
+    null_map_data.resize_fill(n, 1);
 }
 
 size_t ColumnNullable::byte_size() const {

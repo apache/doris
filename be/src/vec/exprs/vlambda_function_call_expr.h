@@ -63,8 +63,8 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override {
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
         DCHECK(_open_finished || block == nullptr);
         return _lambda_function->execute(context, block, selector, count, result_column, _data_type,
                                          _children);

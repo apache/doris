@@ -149,8 +149,39 @@ public:
     // In the future this interface will add an additional parameter, Selector, which specifies
     // which rows in the block should be evaluated.
     // If expr is executing constant expressions, then block should be nullptr.
-    virtual Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                                  size_t count, ColumnPtr& result_column) const = 0;
+
+    Status execute_column(VExprContext* context, const Block* block, const Selector* selector,
+                          size_t count, ColumnPtr& result_column) const {
+        if (count == 0) {
+            result_column = execute_type(block)->create_column();
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(execute_column_impl(context, block, selector, count, result_column));
+        if (result_column->size() != count) {
+            return Status::InternalError(
+                    "Expr {} return column size {} not equal to expected size {}", expr_name(),
+                    result_column->size(), count);
+        }
+        DCHECK(selector == nullptr || selector->size() == count);
+#ifndef NDEBUG
+        {
+            Selector mock_selector;
+            mock_selector.push_back(0);
+            ColumnPtr mock_result_column;
+            RETURN_IF_ERROR(
+                    execute_column_impl(context, block, &mock_selector, 1, mock_result_column));
+        }
+
+        RETURN_IF_ERROR(result_column->column_self_check());
+        auto result_type = execute_type(block);
+        RETURN_IF_ERROR(result_type->check_column(*result_column));
+#endif
+        return Status::OK();
+    }
+
+    virtual Status execute_column_impl(VExprContext* context, const Block* block,
+                                       const Selector* selector, size_t count,
+                                       ColumnPtr& result_column) const = 0;
 
     // Currently, due to fe planning issues, for slot-ref expressions the type of the returned Column may not match data_type.
     // Therefore we need a function like this to return the actual type produced by execution.
@@ -327,7 +358,7 @@ public:
     }
 
     // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
-    bool fast_execute(VExprContext* context, Selector* selector, size_t count,
+    bool fast_execute(VExprContext* context, const Selector* selector, size_t count,
                       ColumnPtr& result_column) const;
 
     virtual bool can_push_down_to_index() const { return false; }

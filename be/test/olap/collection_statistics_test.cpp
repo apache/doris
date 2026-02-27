@@ -52,9 +52,9 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(vectorized::VExprContext* context, const vectorized::Block* block,
-                          vectorized::Selector* selector, size_t count,
-                          vectorized::ColumnPtr& result_column) const override {
+    Status execute_column_impl(vectorized::VExprContext* context, const vectorized::Block* block,
+                               const vectorized::Selector* selector, size_t count,
+                               vectorized::ColumnPtr& result_column) const override {
         return Status::OK();
     }
 

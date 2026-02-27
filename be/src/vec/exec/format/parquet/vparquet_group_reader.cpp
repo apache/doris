@@ -774,7 +774,9 @@ Status RowGroupReader::_fill_missing_columns(
                 // so _src_block_ptr->rows() may return wrong result, cause the column created by `ctx->execute()`
                 // has only one row.
                 auto mutable_column = result_column_ptr->assume_mutable();
-                mutable_column->resize(rows);
+                if (rows > mutable_column->size()) {
+                    mutable_column->insert_many_defaults(rows - mutable_column->size());
+                }
                 // result_column_ptr maybe a ColumnConst, convert it to a normal column
                 result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
                 auto origin_column_type =
