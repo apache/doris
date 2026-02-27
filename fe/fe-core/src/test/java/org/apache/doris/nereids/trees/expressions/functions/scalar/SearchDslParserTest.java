@@ -2473,4 +2473,59 @@ public class SearchDslParserTest {
         Assertions.assertEquals(1, plan.getFieldBindings().size());
         Assertions.assertEquals("title", plan.getFieldBindings().get(0).getFieldName());
     }
+
+    @Test
+    public void testMultiFieldMatchAllDocsPreservesOccurInOrQuery() {
+        // Test: '"Lauren Boebert" OR *' with multi-field + lucene mode + best_fields
+        // Bug: expandCrossFields was dropping the SHOULD occur on MATCH_ALL_DOCS nodes,
+        // causing BE to default to MUST, which changed the semantics from
+        // "phrase OR match_all" (= all docs) to "phrase AND match_all" (= only phrase matches).
+        String dsl = "\"Lauren Boebert\" OR *";
+        String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"best_fields\","
+                + "\"default_operator\":\"AND\",\"mode\":\"lucene\",\"minimum_should_match\":0}";
+
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+        Assertions.assertNotNull(plan);
+
+        // Root should be OCCUR_BOOLEAN
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
+
+        // Find the MATCH_ALL_DOCS child - it MUST have occur=SHOULD
+        boolean foundMatchAllWithShould = false;
+        for (QsNode child : plan.getRoot().getChildren()) {
+            if (child.getType() == QsClauseType.MATCH_ALL_DOCS) {
+                Assertions.assertEquals(QsOccur.SHOULD, child.getOccur(),
+                        "MATCH_ALL_DOCS must preserve SHOULD occur after multi-field expansion");
+                foundMatchAllWithShould = true;
+            }
+        }
+        Assertions.assertTrue(foundMatchAllWithShould,
+                "Should contain MATCH_ALL_DOCS node with SHOULD occur");
+    }
+
+    @Test
+    public void testMultiFieldMatchAllDocsPreservesOccurWithAndOperator() {
+        // Test: 'Dollar AND *' with multi-field + lucene mode
+        // MATCH_ALL_DOCS should have occur=MUST (from AND operator)
+        String dsl = "Dollar AND *";
+        String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"best_fields\","
+                + "\"default_operator\":\"OR\",\"mode\":\"lucene\",\"minimum_should_match\":0}";
+
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+        Assertions.assertNotNull(plan);
+
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
+
+        // Find the MATCH_ALL_DOCS child - it MUST have occur=MUST (from AND operator)
+        boolean foundMatchAllWithMust = false;
+        for (QsNode child : plan.getRoot().getChildren()) {
+            if (child.getType() == QsClauseType.MATCH_ALL_DOCS) {
+                Assertions.assertEquals(QsOccur.MUST, child.getOccur(),
+                        "MATCH_ALL_DOCS must preserve MUST occur after multi-field expansion");
+                foundMatchAllWithMust = true;
+            }
+        }
+        Assertions.assertTrue(foundMatchAllWithMust,
+                "Should contain MATCH_ALL_DOCS node with MUST occur");
+    }
 }
