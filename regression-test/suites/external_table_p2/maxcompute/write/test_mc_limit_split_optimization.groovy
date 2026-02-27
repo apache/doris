@@ -25,7 +25,7 @@ suite("test_mc_limit_split_optimization", "p2,external,maxcompute,external_remot
     String ak = context.config.otherConfigs.get("ak")
     String sk = context.config.otherConfigs.get("sk")
     String mc_catalog_name = "test_mc_limit_split_opt"
-    String defaultProject = "mc_doris_test_write""
+    String defaultProject = "mc_doris_test_write"
 
     sql """drop catalog if exists ${mc_catalog_name}"""
     sql """
