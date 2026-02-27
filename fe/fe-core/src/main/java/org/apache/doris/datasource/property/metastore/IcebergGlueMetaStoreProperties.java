@@ -66,8 +66,10 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
         appendGlueProps(catalogProps);
         catalogProps.put("client.region", glueProperties.glueRegion);
         catalogProps.putIfAbsent(CatalogProperties.WAREHOUSE_LOCATION, CHECKED_WAREHOUSE);
+        // can not set
+        catalogProps.remove(CatalogUtil.ICEBERG_CATALOG_TYPE);
         catalogProps.put(CatalogProperties.CATALOG_IMPL, CatalogUtil.ICEBERG_CATALOG_GLUE);
-        return CatalogUtil.buildIcebergCatalog(catalogName, catalogProps, null);
+        return buildIcebergCatalog(catalogName, catalogProps, null);
     }
 
     private void appendS3Props(Map<String, String> props) {

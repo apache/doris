@@ -48,8 +48,8 @@ public class IcebergRestPropertiesTest {
         restProps.initNormalizeAndCheckProps();
 
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
-        Assertions.assertEquals(CatalogUtil.ICEBERG_CATALOG_TYPE_REST,
-                catalogProps.get(CatalogUtil.ICEBERG_CATALOG_TYPE));
+        Assertions.assertEquals(CatalogUtil.ICEBERG_CATALOG_REST,
+                catalogProps.get(CatalogProperties.CATALOG_IMPL));
         Assertions.assertEquals("http://localhost:8080", catalogProps.get(CatalogProperties.URI));
         Assertions.assertEquals("s3://warehouse/path", catalogProps.get(CatalogProperties.WAREHOUSE_LOCATION));
         Assertions.assertEquals("prefix", catalogProps.get("prefix"));
@@ -181,8 +181,8 @@ public class IcebergRestPropertiesTest {
 
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
         // Should only have basic properties, no OAuth2 properties
-        Assertions.assertEquals(CatalogUtil.ICEBERG_CATALOG_TYPE_REST,
-                catalogProps.get(CatalogUtil.ICEBERG_CATALOG_TYPE));
+        Assertions.assertEquals(CatalogUtil.ICEBERG_CATALOG_REST,
+                catalogProps.get(CatalogProperties.CATALOG_IMPL));
         Assertions.assertEquals("http://localhost:8080", catalogProps.get(CatalogProperties.URI));
         Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.CREDENTIAL));
         Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.TOKEN));

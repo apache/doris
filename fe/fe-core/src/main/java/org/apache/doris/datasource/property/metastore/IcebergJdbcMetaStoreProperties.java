@@ -142,7 +142,7 @@ public class IcebergJdbcMetaStoreProperties extends AbstractIcebergProperties {
             registerJdbcDriver(driverUrl, driverClass);
             LOG.info("Using dynamic JDBC driver from: {}", driverUrl);
         }
-        return CatalogUtil.buildIcebergCatalog(catalogName, catalogProps, configuration);
+        return buildIcebergCatalog(catalogName, catalogProps, configuration);
     }
 
     /**
@@ -238,7 +238,7 @@ public class IcebergJdbcMetaStoreProperties extends AbstractIcebergProperties {
 
     private void initIcebergJdbcCatalogProperties() {
         icebergJdbcCatalogProperties = new HashMap<>();
-        icebergJdbcCatalogProperties.put(CatalogUtil.ICEBERG_CATALOG_TYPE, CatalogUtil.ICEBERG_CATALOG_TYPE_JDBC);
+        icebergJdbcCatalogProperties.put(CatalogProperties.CATALOG_IMPL, CatalogUtil.ICEBERG_CATALOG_JDBC);
         icebergJdbcCatalogProperties.put(CatalogProperties.URI, uri);
         addIfNotBlank(icebergJdbcCatalogProperties, "jdbc.user", jdbcUser);
         addIfNotBlank(icebergJdbcCatalogProperties, "jdbc.password", jdbcPassword);

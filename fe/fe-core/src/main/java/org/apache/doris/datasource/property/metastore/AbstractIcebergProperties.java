@@ -25,11 +25,13 @@ import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperti
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
+import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
@@ -266,4 +268,13 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
         }
     }
 
+    protected Catalog buildIcebergCatalog(String catalogName, Map<String, String> options, Configuration conf) {
+        // For Iceberg SDK, "type" means catalog type, such as hive, jdbc, rest.
+        // But in Doris, "type" is "iceberg".
+        // And Iceberg SDK does not allow with both "type" and "catalog-impl" properties,
+        // So here we remove "type" and make sure "catalog-impl" is set.
+        options.remove(CatalogUtil.ICEBERG_CATALOG_TYPE);
+        Preconditions.checkArgument(options.containsKey(CatalogProperties.CATALOG_IMPL));
+        return CatalogUtil.buildIcebergCatalog(catalogName, options, conf);
+    }
 }

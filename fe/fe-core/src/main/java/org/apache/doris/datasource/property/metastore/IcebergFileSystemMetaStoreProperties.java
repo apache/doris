@@ -51,7 +51,7 @@ public class IcebergFileSystemMetaStoreProperties extends AbstractIcebergPropert
             catalogProps.put(CatalogProperties.CATALOG_IMPL, CatalogUtil.ICEBERG_CATALOG_HADOOP);
             buildExecutionAuthenticator(storagePropertiesList);
             return this.executionAuthenticator.execute(() ->
-                    CatalogUtil.buildIcebergCatalog(catalogName, catalogProps, configuration));
+                    buildIcebergCatalog(catalogName, catalogProps, configuration));
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize iceberg filesystem catalog: "
                     + ExceptionUtils.getRootCauseMessage(e), e);

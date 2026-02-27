@@ -175,7 +175,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         Configuration configuration = new Configuration();
         toFileIOProperties(storagePropertiesList, catalogProps, configuration);
         // 4. Build iceberg catalog
-        return CatalogUtil.buildIcebergCatalog(catalogName, catalogProps, configuration);
+        return buildIcebergCatalog(catalogName, catalogProps, configuration);
     }
 
     @Override
@@ -243,7 +243,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     private void addCoreCatalogProperties() {
         // See CatalogUtil.java
-        icebergRestCatalogProperties.put(CatalogUtil.ICEBERG_CATALOG_TYPE, CatalogUtil.ICEBERG_CATALOG_TYPE_REST);
+        icebergRestCatalogProperties.put(CatalogProperties.CATALOG_IMPL, CatalogUtil.ICEBERG_CATALOG_REST);
         // See CatalogProperties.java
         icebergRestCatalogProperties.put(CatalogProperties.URI, icebergRestUri);
     }

@@ -71,7 +71,7 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
             catalogProps.put(CatalogProperties.CATALOG_IMPL, CatalogUtil.ICEBERG_CATALOG_HIVE);
             Configuration conf = buildHiveConfiguration(storagePropertiesList);
             return this.executionAuthenticator.execute(() ->
-                    CatalogUtil.buildIcebergCatalog(catalogName, catalogProps, conf));
+                    buildIcebergCatalog(catalogName, catalogProps, conf));
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize HiveCatalog for Iceberg. "
                     + "CatalogName=" + catalogName + ", msg :" + ExceptionUtils.getRootCauseMessage(e), e);
