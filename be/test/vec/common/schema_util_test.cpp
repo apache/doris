@@ -719,7 +719,10 @@ TEST_F(SchemaUtilTest, TestParseVariantColumns) {
     std::vector<uint32_t> variant_pos {0};
     ParseConfig config;
 
-    std::vector<ParseConfig> configs {config};
+    std::vector<ParseConfig> configs(1);
+    configs[0].enable_flatten_nested = config.enable_flatten_nested;
+    configs[0].parse_to = config.parse_to;
+    configs[0].skip_patterns = config.skip_patterns;
     auto status = variant_util::parse_and_materialize_variant_columns(block, variant_pos, configs);
     EXPECT_TRUE(status.ok());
 
@@ -1236,7 +1239,10 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsEdgeCases) {
     std::vector<uint32_t> variant_pos {0};
     ParseConfig config;
 
-    std::vector<ParseConfig> configs {config};
+    std::vector<ParseConfig> configs(1);
+    configs[0].enable_flatten_nested = config.enable_flatten_nested;
+    configs[0].parse_to = config.parse_to;
+    configs[0].skip_patterns = config.skip_patterns;
     auto status = variant_util::parse_and_materialize_variant_columns(block, variant_pos, configs);
     EXPECT_TRUE(status.ok());
 
@@ -1285,7 +1291,10 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsWithNulls) {
     std::vector<uint32_t> variant_pos {0};
     ParseConfig config;
 
-    std::vector<ParseConfig> configs {config};
+    std::vector<ParseConfig> configs(1);
+    configs[0].enable_flatten_nested = config.enable_flatten_nested;
+    configs[0].parse_to = config.parse_to;
+    configs[0].skip_patterns = config.skip_patterns;
     auto status = variant_util::parse_and_materialize_variant_columns(block, variant_pos, configs);
     EXPECT_TRUE(status.ok());
 
@@ -1895,7 +1904,11 @@ TEST_F(SchemaUtilTest, parse_and_materialize_variant_columns_ambiguous_paths) {
     config.enable_flatten_nested = true;
 
     // Should throw due to ambiguous paths
-    Status st = variant_util::parse_and_materialize_variant_columns(block, variant_pos, {config});
+    std::vector<ParseConfig> configs(1);
+    configs[0].enable_flatten_nested = config.enable_flatten_nested;
+    configs[0].parse_to = config.parse_to;
+    configs[0].skip_patterns = config.skip_patterns;
+    Status st = variant_util::parse_and_materialize_variant_columns(block, variant_pos, configs);
     EXPECT_FALSE(st.ok());
     EXPECT_TRUE(st.to_string().find("Ambiguous paths") != std::string::npos);
 }

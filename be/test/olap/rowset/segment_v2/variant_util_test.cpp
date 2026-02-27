@@ -31,6 +31,7 @@
 #include "olap/tablet_schema.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_variant.h"
+#include "vec/common/variant_glob_regex_util.h"
 #include "vec/common/variant_util.h"
 #include "vec/core/block.h"
 #include "vec/core/field.h"
@@ -405,8 +406,10 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeBinaryToSubcolumns) {
     vectorized::ParseConfig parse_cfg;
     parse_cfg.enable_flatten_nested = false;
     parse_cfg.parse_to = vectorized::ParseConfig::ParseTo::OnlyDocValueColumn;
-    Status st =
-            parse_and_materialize_variant_columns(block, std::vector<uint32_t> {0}, {parse_cfg});
+    std::vector<vectorized::ParseConfig> parse_cfgs(1);
+    parse_cfgs[0].enable_flatten_nested = parse_cfg.enable_flatten_nested;
+    parse_cfgs[0].parse_to = parse_cfg.parse_to;
+    Status st = parse_and_materialize_variant_columns(block, std::vector<uint32_t> {0}, parse_cfgs);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
     const auto& out =
@@ -459,8 +462,10 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeRejectOnlySubcolumnsConfig) {
     vectorized::ParseConfig parse_cfg;
     parse_cfg.enable_flatten_nested = false;
     parse_cfg.parse_to = vectorized::ParseConfig::ParseTo::OnlyDocValueColumn;
-    Status st =
-            parse_and_materialize_variant_columns(block, std::vector<uint32_t> {0}, {parse_cfg});
+    std::vector<vectorized::ParseConfig> parse_cfgs(1);
+    parse_cfgs[0].enable_flatten_nested = parse_cfg.enable_flatten_nested;
+    parse_cfgs[0].parse_to = parse_cfg.parse_to;
+    Status st = parse_and_materialize_variant_columns(block, std::vector<uint32_t> {0}, parse_cfgs);
     EXPECT_TRUE(st.ok()) << st.to_string();
 }
 

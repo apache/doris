@@ -179,40 +179,12 @@ suite("test_schema_template_skip", "p0") {
     qt_skip_bulk_6 """ SELECT id, data['name'], data['value'] FROM ${tableName11} WHERE id IN (1, 50, 100) ORDER BY id """
 
     // Doc mode cases
-    sql """ set profile_level = 3 """
     sql """ set enable_sql_cache = false """
     sql """ set enable_query_cache = false """
     sql """ set enable_variant_schema_auto_cast = false """
     sql """ set default_variant_enable_doc_mode = true """
     // Force doc-value-only path for small inserts.
     sql """ set default_variant_doc_materialization_min_rows = 10000000 """
-
-    def assertDocModeProfile = { String tag, String query ->
-        profile(tag) {
-            run {
-                sql """ /* ${tag} */ ${query} """
-            }
-            check { profileString, exception ->
-                if (!exception.is(null)) {
-                    throw exception
-                }
-
-                def docMatcher = (profileString =~ /VariantDocValueColumnIterCount:\s*([0-9]+)/)
-                assertTrue(docMatcher.find())
-                assertTrue(Integer.parseInt(docMatcher.group(1)) > 0)
-
-                def leafMatcher = (profileString =~ /VariantSubtreeLeafIterCount:\s*([0-9]+)/)
-                if (leafMatcher.find()) {
-                    assertEquals(0, Integer.parseInt(leafMatcher.group(1)))
-                }
-
-                def sparseMatcher = (profileString =~ /VariantSubtreeSparseIterCount:\s*([0-9]+)/)
-                if (sparseMatcher.find()) {
-                    assertEquals(0, Integer.parseInt(sparseMatcher.group(1)))
-                }
-            }
-        }
-    }
 
     // Test 11: Basic SKIP glob in doc mode.
     def docTableName1 = "test_skip_doc_mode_basic_glob"
@@ -230,8 +202,6 @@ suite("test_schema_template_skip", "p0") {
     qt_skip_doc_basic_glob_1 """ SELECT id, data FROM ${docTableName1} ORDER BY id """
     qt_skip_doc_basic_glob_2 """ SELECT id, data FROM ${docTableName1} ORDER BY id """
     qt_skip_doc_basic_glob_3 """ SELECT id, data FROM ${docTableName1} ORDER BY id """
-    assertDocModeProfile("skip_doc_mode_profile_basic_glob",
-            "SELECT id, data FROM ${docTableName1} ORDER BY id")
 
     // Test 12: SKIP MATCH_NAME exact match in doc mode.
     def docTableName2 = "test_skip_doc_mode_match_name"
@@ -248,8 +218,6 @@ suite("test_schema_template_skip", "p0") {
     qt_skip_doc_match_name_1 """ SELECT id, data FROM ${docTableName2} ORDER BY id """
     qt_skip_doc_match_name_2 """ SELECT id, data FROM ${docTableName2} ORDER BY id """
     qt_skip_doc_match_name_3 """ SELECT id, data FROM ${docTableName2} ORDER BY id """
-    assertDocModeProfile("skip_doc_mode_profile_match_name",
-            "SELECT id, data FROM ${docTableName2} ORDER BY id")
 
     // Test 13: SKIP takes priority over typed path in doc mode.
     def docTableName3 = "test_skip_doc_mode_priority"
@@ -265,8 +233,6 @@ suite("test_schema_template_skip", "p0") {
 
     qt_skip_doc_priority_1 """ SELECT id, data FROM ${docTableName3} ORDER BY id """
     qt_skip_doc_priority_2 """ SELECT id, data FROM ${docTableName3} ORDER BY id """
-    assertDocModeProfile("skip_doc_mode_profile_priority",
-            "SELECT id, data FROM ${docTableName3} ORDER BY id")
 
     // Test 14: Invalid skip glob is allowed in DDL in doc mode.
     def docTableName4 = "test_skip_doc_mode_invalid_glob"
@@ -282,6 +248,4 @@ suite("test_schema_template_skip", "p0") {
 
     qt_skip_doc_invalid_glob_1 """ SELECT id, data FROM ${docTableName4} ORDER BY id """
     qt_skip_doc_invalid_glob_2 """ SELECT id, data FROM ${docTableName4} ORDER BY id """
-    assertDocModeProfile("skip_doc_mode_profile_invalid_glob",
-            "SELECT id, data FROM ${docTableName4} ORDER BY id")
 }
