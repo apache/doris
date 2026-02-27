@@ -658,29 +658,29 @@ public:
 
     int64_t spill_min_revocable_mem() const {
         if (_query_options.__isset.min_revocable_mem) {
-            return std::max(_query_options.min_revocable_mem, (int64_t)1);
+            return std::max(_query_options.min_revocable_mem, (int64_t)1 << 20);
         }
         return 32 << 20;
     }
 
     int spill_aggregation_partition_count() const {
         if (_query_options.__isset.spill_aggregation_partition_count) {
-            return std::min(std::max(_query_options.spill_aggregation_partition_count, 16), 8192);
+            return _query_options.spill_aggregation_partition_count;
         }
         return 32;
     }
 
     int spill_hash_join_partition_count() const {
         if (_query_options.__isset.spill_hash_join_partition_count) {
-            return std::min(std::max(_query_options.spill_hash_join_partition_count, 16), 8192);
+            return _query_options.spill_hash_join_partition_count;
         }
-        return 32;
+        return 4;
     }
 
     int spill_repartition_max_depth() const {
         if (_query_options.__isset.spill_repartition_max_depth) {
-            // Clamp to a reasonable range: [1, 64]
-            return std::min(std::max(_query_options.spill_repartition_max_depth, 1), 64);
+            // Clamp to a reasonable range: [1, 128]
+            return std::min(_query_options.spill_repartition_max_depth, 128);
         }
         return 8;
     }
