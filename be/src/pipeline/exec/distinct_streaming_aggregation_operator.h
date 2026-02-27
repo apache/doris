@@ -129,6 +129,9 @@ public:
     }
 
     bool is_colocated_operator() const override { return _is_colocate; }
+    bool is_shuffled_operator() const override {
+        return !_partition_exprs.empty() && _needs_finalize;
+    }
 
 private:
     friend class DistinctStreamingAggLocalState;
