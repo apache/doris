@@ -24,6 +24,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <cctype>
 #include <limits>
 #include <vector>
 
@@ -289,6 +290,211 @@ private:
     }
 };
 
+/// Case-insensitive ASCII searcher (ported from ClickHouse)
+template <>
+class StringSearcher<false, true> : public StringSearcherBase {
+private:
+    /// string to be searched for
+    const uint8_t* const needle;
+    const uint8_t* const needle_end;
+    /// lowercase and uppercase variants of the first character in `needle`
+    uint8_t l {};
+    uint8_t u {};
+
+#if defined(__SSE4_1__) || defined(__aarch64__)
+    /// SIMD patterns for lowercase and uppercase of first character
+    __m128i patl;
+    __m128i patu;
+    /// cache of first 16 characters of needle in both cases
+    __m128i cachel = _mm_setzero_si128();
+    __m128i cacheu = _mm_setzero_si128();
+    int cachemask {};
+#endif
+
+public:
+    template <typename CharT>
+    StringSearcher(const CharT* needle_, const size_t needle_size)
+            : needle {reinterpret_cast<const uint8_t*>(needle_)},
+              needle_end {needle + needle_size} {
+        if (0 == needle_size) return;
+
+        l = static_cast<uint8_t>(std::tolower(static_cast<unsigned char>(*needle)));
+        u = static_cast<uint8_t>(std::toupper(static_cast<unsigned char>(*needle)));
+
+#if defined(__SSE4_1__) || defined(__aarch64__)
+        patl = _mm_set1_epi8(l);
+        patu = _mm_set1_epi8(u);
+
+        const auto* needle_pos = needle;
+
+        for (size_t i = 0; i < n; i++) {
+            cachel = _mm_srli_si128(cachel, 1);
+            cacheu = _mm_srli_si128(cacheu, 1);
+
+            if (needle_pos != needle_end) {
+                cachel = _mm_insert_epi8(
+                        cachel, std::tolower(static_cast<unsigned char>(*needle_pos)), n - 1);
+                cacheu = _mm_insert_epi8(
+                        cacheu, std::toupper(static_cast<unsigned char>(*needle_pos)), n - 1);
+                cachemask |= 1 << i;
+                ++needle_pos;
+            }
+        }
+#endif
+    }
+
+    template <typename CharT>
+    const CharT* search(const CharT* haystack, const CharT* haystack_end) const {
+        return reinterpret_cast<const CharT*>(
+                _search(reinterpret_cast<const uint8_t*>(haystack),
+                        reinterpret_cast<const uint8_t*>(haystack_end)));
+    }
+
+    template <typename CharT>
+    const CharT* search(const CharT* haystack, const size_t haystack_size) const {
+        return reinterpret_cast<const CharT*>(
+                _search(reinterpret_cast<const uint8_t*>(haystack), haystack_size));
+    }
+
+private:
+    ALWAYS_INLINE bool _compare(const uint8_t* /*haystack*/, const uint8_t* /*haystack_end*/,
+                                const uint8_t* pos) const {
+#if defined(__SSE4_1__) || defined(__aarch64__)
+        if (needle_end - needle > static_cast<std::ptrdiff_t>(n) && page_safe(pos)) {
+            const auto v_haystack = _mm_loadu_si128(reinterpret_cast<const __m128i*>(pos));
+            const auto v_against_l = _mm_cmpeq_epi8(v_haystack, cachel);
+            const auto v_against_u = _mm_cmpeq_epi8(v_haystack, cacheu);
+            const auto v_against_l_or_u = _mm_or_si128(v_against_l, v_against_u);
+            const auto mask = _mm_movemask_epi8(v_against_l_or_u);
+
+            if (0xffff == cachemask) {
+                if (mask == cachemask) {
+                    pos += n;
+                    const auto* needle_pos = needle + n;
+
+                    while (needle_pos < needle_end &&
+                           std::tolower(static_cast<unsigned char>(*pos)) ==
+                                   std::tolower(static_cast<unsigned char>(*needle_pos))) {
+                        ++pos, ++needle_pos;
+                    }
+
+                    if (needle_pos == needle_end) {
+                        return true;
+                    }
+                }
+            } else if ((mask & cachemask) == cachemask) {
+                return true;
+            }
+
+            return false;
+        }
+#endif
+
+        if (*pos == l || *pos == u) {
+            ++pos;
+            const auto* needle_pos = needle + 1;
+
+            while (needle_pos < needle_end &&
+                   std::tolower(static_cast<unsigned char>(*pos)) ==
+                           std::tolower(static_cast<unsigned char>(*needle_pos))) {
+                ++pos, ++needle_pos;
+            }
+
+            if (needle_pos == needle_end) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    const uint8_t* _search(const uint8_t* haystack, const uint8_t* const haystack_end) const {
+        if (needle == needle_end) {
+            return haystack;
+        }
+
+        while (haystack < haystack_end) {
+#if defined(__SSE4_1__) || defined(__aarch64__)
+            if (haystack + n <= haystack_end && page_safe(haystack)) {
+                const auto v_haystack = _mm_loadu_si128(reinterpret_cast<const __m128i*>(haystack));
+                const auto v_against_l = _mm_cmpeq_epi8(v_haystack, patl);
+                const auto v_against_u = _mm_cmpeq_epi8(v_haystack, patu);
+                const auto v_against_l_or_u = _mm_or_si128(v_against_l, v_against_u);
+
+                const auto mask = _mm_movemask_epi8(v_against_l_or_u);
+
+                if (mask == 0) {
+                    haystack += n;
+                    continue;
+                }
+
+                const auto offset = __builtin_ctz(mask);
+                haystack += offset;
+
+                if (haystack + n <= haystack_end && page_safe(haystack)) {
+                    const auto v_haystack_offset =
+                            _mm_loadu_si128(reinterpret_cast<const __m128i*>(haystack));
+                    const auto v_against_l_offset = _mm_cmpeq_epi8(v_haystack_offset, cachel);
+                    const auto v_against_u_offset = _mm_cmpeq_epi8(v_haystack_offset, cacheu);
+                    const auto v_against_l_or_u_offset =
+                            _mm_or_si128(v_against_l_offset, v_against_u_offset);
+                    const auto mask_offset = _mm_movemask_epi8(v_against_l_or_u_offset);
+
+                    if (0xffff == cachemask) {
+                        if (mask_offset == cachemask) {
+                            const auto* haystack_pos = haystack + n;
+                            const auto* needle_pos = needle + n;
+
+                            while (haystack_pos < haystack_end && needle_pos < needle_end &&
+                                   std::tolower(static_cast<unsigned char>(*haystack_pos)) ==
+                                           std::tolower(static_cast<unsigned char>(*needle_pos))) {
+                                ++haystack_pos, ++needle_pos;
+                            }
+
+                            if (needle_pos == needle_end) {
+                                return haystack;
+                            }
+                        }
+                    } else if ((mask_offset & cachemask) == cachemask) {
+                        return haystack;
+                    }
+
+                    ++haystack;
+                    continue;
+                }
+            }
+#endif
+
+            if (haystack == haystack_end) {
+                return haystack_end;
+            }
+
+            if (*haystack == l || *haystack == u) {
+                const auto* haystack_pos = haystack + 1;
+                const auto* needle_pos = needle + 1;
+
+                while (haystack_pos < haystack_end && needle_pos < needle_end &&
+                       std::tolower(static_cast<unsigned char>(*haystack_pos)) ==
+                               std::tolower(static_cast<unsigned char>(*needle_pos))) {
+                    ++haystack_pos, ++needle_pos;
+                }
+
+                if (needle_pos == needle_end) {
+                    return haystack;
+                }
+            }
+
+            ++haystack;
+        }
+
+        return haystack_end;
+    }
+
+    const uint8_t* _search(const uint8_t* haystack, const size_t haystack_size) const {
+        return _search(haystack, haystack + haystack_size);
+    }
+};
+
 // Searches for needle surrounded by token-separators.
 // Separators are anything inside ASCII (0-128) and not alphanum.
 // Any value outside of basic ASCII (>=128) is considered a non-separator symbol, hence UTF-8 strings
@@ -313,8 +519,9 @@ public:
     ALWAYS_INLINE bool compare(const CharT* haystack, const CharT* haystack_end,
                                const CharT* pos) const {
         // use searcher only if pos is in the beginning of token and pos + searcher.needle_size is end of token.
-        if (isToken(haystack, haystack_end, pos))
+        if (isToken(haystack, haystack_end, pos)) {
             return searcher.compare(haystack, haystack_end, pos);
+        }
 
         return false;
     }
@@ -328,7 +535,9 @@ public:
         const auto* pos = haystack;
         while (pos < haystack_end) {
             pos = searcher.search(pos, haystack_end);
-            if (pos == haystack_end || isToken(haystack, haystack_end, pos)) return pos;
+            if (pos == haystack_end || isToken(haystack, haystack_end, pos)) {
+                return pos;
+            }
 
             // assuming that heendle does not contain any token separators.
             pos += needle_size;
@@ -356,11 +565,11 @@ public:
 };
 
 using ASCIICaseSensitiveStringSearcher = StringSearcher<true, true>;
-// using ASCIICaseInsensitiveStringSearcher = StringSearcher<false, true>;
+using ASCIICaseInsensitiveStringSearcher = StringSearcher<false, true>;
 using UTF8CaseSensitiveStringSearcher = StringSearcher<true, false>;
 // using UTF8CaseInsensitiveStringSearcher = StringSearcher<false, false>;
 using ASCIICaseSensitiveTokenSearcher = TokenSearcher<ASCIICaseSensitiveStringSearcher>;
-// using ASCIICaseInsensitiveTokenSearcher = TokenSearcher<ASCIICaseInsensitiveStringSearcher>;
+using ASCIICaseInsensitiveTokenSearcher = TokenSearcher<ASCIICaseInsensitiveStringSearcher>;
 
 /** Uses functions from libc.
   * It makes sense to use only with short haystacks when cheap initialization is required.
@@ -381,7 +590,9 @@ struct LibCASCIICaseSensitiveStringSearcher : public StringSearcherBase {
     const CharT* search(const CharT* haystack, const CharT* const haystack_end) const {
         const auto* res = strstr(reinterpret_cast<const char*>(haystack),
                                  reinterpret_cast<const char*>(needle));
-        if (!res) return haystack_end;
+        if (!res) {
+            return haystack_end;
+        }
         return reinterpret_cast<const CharT*>(res);
     }
 
@@ -406,7 +617,9 @@ struct LibCASCIICaseInsensitiveStringSearcher : public StringSearcherBase {
     const CharT* search(const CharT* haystack, const CharT* const haystack_end) const {
         const auto* res = strcasestr(reinterpret_cast<const char*>(haystack),
                                      reinterpret_cast<const char*>(needle));
-        if (!res) return haystack_end;
+        if (!res) {
+            return haystack_end;
+        }
         return reinterpret_cast<const CharT*>(res);
     }
 

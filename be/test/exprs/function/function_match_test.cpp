@@ -27,6 +27,7 @@
 #include "core/block/block.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "exec/common/string_searcher.h"
 #include "exprs/function/match.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 
@@ -839,6 +840,295 @@ TEST(FunctionMatchTest, function_registration) {
     // Note: Full testing would require access to SimpleFunctionFactory
     // This test verifies the concept exists
     EXPECT_TRUE(true);
+}
+
+// Helper function to create inverted index context with is_lowercase
+TestInvertedIndexCtx create_inverted_index_ctx(InvertedIndexParserType parser_type,
+                                               bool is_lowercase) {
+    auto test_ctx = create_inverted_index_ctx(parser_type);
+    test_ctx.ctx->is_lowercase = is_lowercase;
+    return test_ctx;
+}
+
+// =====================================================================
+// TokenSearcher Fast Path Tests
+// =====================================================================
+
+// Helper: search a C-string with a TokenSearcher and return the byte offset
+// of the match position, or -1 if no match was found.
+template <typename Searcher>
+ptrdiff_t token_search_offset(const Searcher& searcher, const char* text) {
+    const auto* begin = reinterpret_cast<const uint8_t*>(text);
+    const auto* end = begin + strlen(text);
+    const auto* result = searcher.search(begin, end);
+    if (result >= end) {
+        return -1;
+    }
+    return result - begin;
+}
+
+TEST(FunctionMatchTest, token_searcher_case_sensitive_basic) {
+    using doris::ASCIICaseSensitiveTokenSearcher;
+
+    // Match "brown" as a whole token in "The quick brown fox"
+    {
+        ASCIICaseSensitiveTokenSearcher searcher("brown", 5);
+        EXPECT_EQ(token_search_offset(searcher, "The quick brown fox"), 10);
+    }
+
+    // Should NOT match partial token: "brown" in "brownie"
+    {
+        ASCIICaseSensitiveTokenSearcher searcher("brown", 5);
+        EXPECT_EQ(token_search_offset(searcher, "brownie recipe"), -1);
+    }
+
+    // Token at start of string
+    {
+        ASCIICaseSensitiveTokenSearcher searcher("hello", 5);
+        EXPECT_EQ(token_search_offset(searcher, "hello world"), 0);
+    }
+
+    // Token at end of string
+    {
+        ASCIICaseSensitiveTokenSearcher searcher("world", 5);
+        EXPECT_EQ(token_search_offset(searcher, "hello world"), 6);
+    }
+
+    // No match
+    {
+        ASCIICaseSensitiveTokenSearcher searcher("missing", 7);
+        EXPECT_EQ(token_search_offset(searcher, "hello world"), -1);
+    }
+
+    // Case-sensitive: "Brown" should not match "brown"
+    {
+        ASCIICaseSensitiveTokenSearcher searcher("Brown", 5);
+        EXPECT_EQ(token_search_offset(searcher, "the quick brown fox"), -1);
+    }
+
+    // Token separated by non-alphanumeric characters
+    {
+        ASCIICaseSensitiveTokenSearcher searcher("test", 4);
+        EXPECT_EQ(token_search_offset(searcher, "foo.test.bar"), 4);
+    }
+
+    // Single character token
+    {
+        ASCIICaseSensitiveTokenSearcher searcher("a", 1);
+        EXPECT_GE(token_search_offset(searcher, "this is a test"), 0);
+    }
+
+    // Empty haystack
+    {
+        ASCIICaseSensitiveTokenSearcher searcher("test", 4);
+        EXPECT_EQ(token_search_offset(searcher, ""), -1);
+    }
+}
+
+TEST(FunctionMatchTest, token_searcher_case_insensitive) {
+    using doris::ASCIICaseInsensitiveTokenSearcher;
+
+    // "brown" should match "BROWN" case-insensitively
+    {
+        ASCIICaseInsensitiveTokenSearcher searcher("brown", 5);
+        EXPECT_GE(token_search_offset(searcher, "The Quick BROWN Fox"), 0);
+    }
+
+    // Mixed case should match
+    {
+        ASCIICaseInsensitiveTokenSearcher searcher("Hello", 5);
+        EXPECT_GE(token_search_offset(searcher, "say hElLo world"), 0);
+    }
+
+    // Should NOT match partial token even case-insensitively
+    {
+        ASCIICaseInsensitiveTokenSearcher searcher("brown", 5);
+        EXPECT_EQ(token_search_offset(searcher, "BROWNIE recipe"), -1);
+    }
+
+    // Token at end of string, case-insensitive
+    {
+        ASCIICaseInsensitiveTokenSearcher searcher("WORLD", 5);
+        EXPECT_EQ(token_search_offset(searcher, "hello world"), 6);
+    }
+
+    // Case-insensitive with special separators
+    {
+        ASCIICaseInsensitiveTokenSearcher searcher("TEST", 4);
+        EXPECT_EQ(token_search_offset(searcher, "foo.test.bar"), 4);
+    }
+}
+
+// Test is_lowercase field propagation
+TEST(FunctionMatchTest, is_lowercase_field) {
+    {
+        auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_ENGLISH, true);
+        EXPECT_TRUE(ctx.ctx->is_lowercase);
+    }
+    {
+        auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_ENGLISH, false);
+        EXPECT_FALSE(ctx.ctx->is_lowercase);
+    }
+    {
+        auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_STANDARD, true);
+        EXPECT_TRUE(ctx.ctx->is_lowercase);
+    }
+}
+
+// Test can_use_token_search conditions
+TEST(FunctionMatchTest, can_use_token_search) {
+    // nullptr analyzer_ctx -> false
+    EXPECT_FALSE(FunctionMatchBase::can_use_token_search(nullptr, nullptr));
+
+    // PARSER_NONE -> false (no tokenization)
+    {
+        auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_NONE);
+        EXPECT_FALSE(FunctionMatchBase::can_use_token_search(ctx.ctx.get(), nullptr));
+    }
+
+    // PARSER_ENGLISH -> false (SimpleAnalyzer treats digits as separators, incompatible)
+    {
+        auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_ENGLISH);
+        EXPECT_FALSE(FunctionMatchBase::can_use_token_search(ctx.ctx.get(), nullptr));
+    }
+
+    // PARSER_STANDARD -> true
+    {
+        auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_STANDARD);
+        EXPECT_TRUE(FunctionMatchBase::can_use_token_search(ctx.ctx.get(), nullptr));
+    }
+
+    // PARSER_UNICODE -> false (CJK tokenization incompatible with ASCII-only TokenSearcher)
+    {
+        auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_UNICODE);
+        EXPECT_FALSE(FunctionMatchBase::can_use_token_search(ctx.ctx.get(), nullptr));
+    }
+
+    // PARSER_CHINESE -> false
+    {
+        auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_CHINESE);
+        EXPECT_FALSE(FunctionMatchBase::can_use_token_search(ctx.ctx.get(), nullptr));
+    }
+
+    // With array_offsets -> false
+    {
+        auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_STANDARD);
+        ColumnArray::Offsets64 offsets = {2, 4};
+        EXPECT_FALSE(FunctionMatchBase::can_use_token_search(ctx.ctx.get(), &offsets));
+    }
+
+    // With non-empty char_filter_map -> false
+    {
+        auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_STANDARD);
+        ctx.ctx->char_filter_map["_"] = " ";
+        EXPECT_FALSE(FunctionMatchBase::can_use_token_search(ctx.ctx.get(), nullptr));
+    }
+}
+
+// Test TokenSearcher with digit-containing tokens (PARSER_STANDARD specific behavior)
+TEST(FunctionMatchTest, token_searcher_digit_tokens) {
+    // Digits should be part of tokens, not separators
+    {
+        ASCIICaseSensitiveTokenSearcher searcher("test123", 7);
+        EXPECT_GE(token_search_offset(searcher, "foo test123 bar"), 0);
+        // Should not match partial: "test1234" is a different token
+        EXPECT_EQ(token_search_offset(searcher, "foo test1234 bar"), -1);
+        // Should not match partial: "test12" is shorter
+        EXPECT_EQ(token_search_offset(searcher, "foo test12 bar"), -1);
+    }
+    // Pure numeric token
+    {
+        ASCIICaseSensitiveTokenSearcher searcher("42", 2);
+        EXPECT_GE(token_search_offset(searcher, "answer is 42 indeed"), 0);
+        EXPECT_EQ(token_search_offset(searcher, "answer is 421 indeed"), -1);
+    }
+}
+
+// Test TokenSearcher with separator-only input and edge cases
+TEST(FunctionMatchTest, token_searcher_edge_cases) {
+    // Separator-only haystack - no tokens can match
+    {
+        ASCIICaseSensitiveTokenSearcher searcher("hello", 5);
+        EXPECT_EQ(token_search_offset(searcher, "... --- !!!"), -1);
+        EXPECT_EQ(token_search_offset(searcher, ""), -1);
+        EXPECT_EQ(token_search_offset(searcher, "   "), -1);
+    }
+    // Single character token
+    {
+        ASCIICaseSensitiveTokenSearcher searcher("x", 1);
+        EXPECT_GE(token_search_offset(searcher, "a x b"), 0);
+        EXPECT_EQ(token_search_offset(searcher, "axb"), -1); // not a token boundary
+        EXPECT_GE(token_search_offset(searcher, "x"), 0);    // exact match
+    }
+    // Token at various positions
+    {
+        ASCIICaseSensitiveTokenSearcher searcher("mid", 3);
+        EXPECT_GE(token_search_offset(searcher, "mid end"), 0);       // start
+        EXPECT_GE(token_search_offset(searcher, "start mid"), 0);     // end
+        EXPECT_GE(token_search_offset(searcher, "start mid end"), 0); // middle
+    }
+}
+
+// Test multi-token search patterns (match_any/match_all semantics)
+TEST(FunctionMatchTest, token_searcher_multi_token_patterns) {
+    const char* text = "the quick brown fox jumps over the lazy dog";
+    auto text_begin = reinterpret_cast<const uint8_t*>(text);
+    auto text_end = text_begin + strlen(text);
+
+    // match_any pattern: any token found -> match
+    {
+        ASCIICaseSensitiveTokenSearcher s1("quick", 5);
+        ASCIICaseSensitiveTokenSearcher s2("missing", 7);
+        // "quick" is found, "missing" is not -- match_any should succeed
+        bool any_found = false;
+        for (const auto& s : {s1, s2}) {
+            if (s.search(text_begin, text_end) < text_end) {
+                any_found = true;
+                break;
+            }
+        }
+        EXPECT_TRUE(any_found);
+    }
+    // match_any pattern: no tokens found -> no match
+    {
+        ASCIICaseSensitiveTokenSearcher s1("missing", 7);
+        ASCIICaseSensitiveTokenSearcher s2("absent", 6);
+        bool any_found = false;
+        for (const auto& s : {s1, s2}) {
+            if (s.search(text_begin, text_end) < text_end) {
+                any_found = true;
+                break;
+            }
+        }
+        EXPECT_FALSE(any_found);
+    }
+
+    // match_all pattern: all tokens found -> match
+    {
+        ASCIICaseSensitiveTokenSearcher s1("quick", 5);
+        ASCIICaseSensitiveTokenSearcher s2("fox", 3);
+        bool all_found = true;
+        for (const auto& s : {s1, s2}) {
+            if (s.search(text_begin, text_end) >= text_end) {
+                all_found = false;
+                break;
+            }
+        }
+        EXPECT_TRUE(all_found);
+    }
+    // match_all pattern: not all tokens found -> no match
+    {
+        ASCIICaseSensitiveTokenSearcher s1("quick", 5);
+        ASCIICaseSensitiveTokenSearcher s2("missing", 7);
+        bool all_found = true;
+        for (const auto& s : {s1, s2}) {
+            if (s.search(text_begin, text_end) >= text_end) {
+                all_found = false;
+                break;
+            }
+        }
+        EXPECT_FALSE(all_found);
+    }
 }
 
 } // namespace doris
