@@ -26,7 +26,6 @@ import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
