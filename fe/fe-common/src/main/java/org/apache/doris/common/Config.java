@@ -2764,6 +2764,15 @@ public class Config extends ConfigBase {
             "The maximum number of partitions allowed by Export job"})
     public static int maximum_number_of_export_partitions = 2000;
 
+    @ConfField(mutable = true, description = {
+            "设置为 true 时，Ranger 客户端将强制使用 /secure/ URL 路径与 Ranger Admin 通信。"
+                    + "适用于 Ranger Server 启用了 Kerberos 但 Doris FE 无需 Kerberos 凭据的场景。",
+            "When set to true, Ranger client will force using /secure/ URL paths to communicate"
+                    + " with Ranger Admin. This is for scenarios where Ranger Server has Kerberos enabled"
+                    + " but Doris FE does not need Kerberos credentials."
+    })
+    public static boolean ranger_force_secure_url = false;
+
     @Deprecated
     @ConfField(mutable = true, description = {
             "Export 任务允许的最大并行数",
