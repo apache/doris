@@ -40,8 +40,7 @@ struct HammingDistanceImpl {
     static Status vector_vector(const ColumnString::Chars& ldata,
                                 const ColumnString::Offsets& loffsets,
                                 const ColumnString::Chars& rdata,
-                                const ColumnString::Offsets& roffsets,
-                                ResultPaddedPODArray& res) {
+                                const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
         DCHECK_EQ(loffsets.size(), roffsets.size());
 
         const size_t size = loffsets.size();
@@ -65,8 +64,7 @@ struct HammingDistanceImpl {
     }
 
     static Status scalar_vector(const StringRef& ldata, const ColumnString::Chars& rdata,
-                                const ColumnString::Offsets& roffsets,
-                                ResultPaddedPODArray& res) {
+                                const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
         const size_t size = roffsets.size();
         res.resize(size);
         for (size_t i = 0; i < size; ++i) {
@@ -132,13 +130,19 @@ private:
 
         Int64 distance = 0;
         const size_t len = left_offsets.size();
-        for (size_t i = 0; i < len; ++i) {
+        for (size_t i = 0; i + 1 < len; ++i) {
             const size_t left_off = left_offsets[i];
-            const size_t left_next = i + 1 < len ? left_offsets[i + 1] : left.size;
+            const size_t left_next = left_offsets[i + 1];
             const size_t right_off = right_offsets[i];
-            const size_t right_next = i + 1 < len ? right_offsets[i + 1] : right.size;
+            const size_t right_next = right_offsets[i + 1];
             distance += static_cast<Int64>(
                     !utf8_char_equal(left, left_off, left_next, right, right_off, right_next));
+        }
+        if (len > 0) {
+            const size_t left_off = left_offsets[len - 1];
+            const size_t right_off = right_offsets[len - 1];
+            distance += static_cast<Int64>(
+                    !utf8_char_equal(left, left_off, left.size, right, right_off, right.size));
         }
 
         result = distance;
