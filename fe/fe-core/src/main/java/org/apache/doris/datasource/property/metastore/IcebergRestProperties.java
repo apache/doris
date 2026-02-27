@@ -177,17 +177,11 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     @Override
     public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
             List<StorageProperties> storagePropertiesList) {
-        Map<String, String> fileIOProperties = Maps.newHashMap();
-        Configuration conf = new Configuration();
-        toFileIOProperties(storagePropertiesList, fileIOProperties, conf);
-
-        // 3. Merge properties for REST catalog service.
-        Map<String, String> options = Maps.newHashMap(getIcebergRestCatalogProperties());
-        options.putAll(fileIOProperties);
-        tryAddingIOImpl(options);
-
+        catalogProps.putAll(getIcebergRestCatalogProperties());
+        Configuration configuration = new Configuration();
+        toFileIOProperties(storagePropertiesList, catalogProps, configuration);
         // 4. Build iceberg catalog
-        return CatalogUtil.buildIcebergCatalog(catalogName, options, conf);
+        return CatalogUtil.buildIcebergCatalog(catalogName, catalogProps, configuration);
     }
 
     @Override
@@ -317,7 +311,6 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         }
     }
 
-
     public Map<String, String> getIcebergRestCatalogProperties() {
         return Collections.unmodifiableMap(icebergRestCatalogProperties);
     }
@@ -329,72 +322,6 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     public boolean isIcebergRestNestedNamespaceEnabled() {
         return Boolean.parseBoolean(icebergRestNestedNamespaceEnabled);
     }
-
-    /**
-     * Unified method to configure FileIO properties for Iceberg catalog.
-     * This method handles all storage types (HDFS, S3, MinIO, etc.) and populates
-     * the fileIOProperties map and Configuration object accordingly.
-     *
-     * @param storagePropertiesList Map of storage properties
-     * @param fileIOProperties Options map to be populated
-     * @param conf Configuration object to be populated (for HDFS), will be created if null and HDFS is used
-     */
-    public void toFileIOProperties(List<StorageProperties> storagePropertiesList,
-            Map<String, String> fileIOProperties, Configuration conf) {
-
-        // We only support one S3-compatible storage property for FileIO configuration.
-        // When multiple AbstractS3CompatibleProperties exist, prefer the first non-S3Properties one,
-        // because a non-S3 type (e.g. OSSProperties, COSProperties) indicates the user has explicitly
-        // specified a concrete S3-compatible storage, which should take priority over the generic S3Properties.
-        AbstractS3CompatibleProperties s3Fallback = null;
-        AbstractS3CompatibleProperties s3Target = null;
-        for (StorageProperties storageProperties : storagePropertiesList) {
-            if (storageProperties instanceof AbstractS3CompatibleProperties) {
-                if (s3Fallback == null) {
-                    s3Fallback = (AbstractS3CompatibleProperties) storageProperties;
-                }
-                if (s3Target == null && !(storageProperties instanceof S3Properties)) {
-                    s3Target = (AbstractS3CompatibleProperties) storageProperties;
-                }
-            } else {
-                conf.addResource(storageProperties.getHadoopStorageConfig());
-            }
-        }
-        AbstractS3CompatibleProperties chosen = s3Target != null ? s3Target : s3Fallback;
-        if (chosen != null) {
-            toS3FileIOProperties(chosen, fileIOProperties);
-        }
-    }
-
-    /**
-     * Configure S3 FileIO properties for all S3-compatible storage types (S3, MinIO, etc.)
-     * This method provides a unified way to convert S3-compatible properties to Iceberg S3FileIO format.
-     *
-     * @param s3Properties S3-compatible properties
-     * @param options Options map to be populated with S3 FileIO properties
-     */
-    public void toS3FileIOProperties(AbstractS3CompatibleProperties s3Properties, Map<String, String> options) {
-        // Common properties - only set if not blank
-        if (StringUtils.isNotBlank(s3Properties.getEndpoint())) {
-            options.put(S3FileIOProperties.ENDPOINT, s3Properties.getEndpoint());
-        }
-        if (StringUtils.isNotBlank(s3Properties.getUsePathStyle())) {
-            options.put(S3FileIOProperties.PATH_STYLE_ACCESS, s3Properties.getUsePathStyle());
-        }
-        if (StringUtils.isNotBlank(s3Properties.getRegion())) {
-            options.put(AwsClientProperties.CLIENT_REGION, s3Properties.getRegion());
-        }
-        if (StringUtils.isNotBlank(s3Properties.getAccessKey())) {
-            options.put(S3FileIOProperties.ACCESS_KEY_ID, s3Properties.getAccessKey());
-        }
-        if (StringUtils.isNotBlank(s3Properties.getSecretKey())) {
-            options.put(S3FileIOProperties.SECRET_ACCESS_KEY, s3Properties.getSecretKey());
-        }
-        if (StringUtils.isNotBlank(s3Properties.getSessionToken())) {
-            options.put(S3FileIOProperties.SESSION_TOKEN, s3Properties.getSessionToken());
-        }
-    }
-
 
     public enum Security {
         NONE,
