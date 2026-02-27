@@ -49,6 +49,8 @@ class StartTabletJobResponse;
 class TabletJobInfoPB;
 class TabletStatsPB;
 class TabletIndexPB;
+class HostLevelMSRpcRateLimiters;
+class MSBackpressureHandler;
 
 using StorageVaultInfos = std::vector<
         std::tuple<std::string, std::variant<S3Conf, HdfsVaultInfo>, StorageVaultPB_PathFormat>>;
@@ -78,16 +80,17 @@ public:
             CloudTablet* tablet, std::unique_lock<bthread::Mutex>& lock /* _sync_meta_lock */,
             const SyncOptions& options = {}, SyncRowsetStats* sync_stats = nullptr);
 
-    Status prepare_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
+    Status prepare_rowset(const RowsetMeta& rs_meta, const std::string& job_id, int64_t table_id,
                           std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
-    Status commit_rowset(RowsetMeta& rs_meta, const std::string& job_id,
+    Status commit_rowset(RowsetMeta& rs_meta, const std::string& job_id, int64_t table_id,
                          std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
-    Status update_tmp_rowset(const RowsetMeta& rs_meta);
+    Status update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_id);
 
     Status update_packed_file_info(const std::string& packed_file_path,
-                                   const cloud::PackedFileInfoPB& packed_file_info);
+                                   const cloud::PackedFileInfoPB& packed_file_info,
+                                   int64_t table_id);
 
     Status commit_txn(const StreamLoadContext& ctx, bool is_2pc);
 
@@ -141,12 +144,12 @@ public:
                                 DeleteBitmap* delete_bitmap, DeleteBitmap* delete_bitmap_v2,
                                 std::string rowset_id,
                                 std::optional<StorageResource> storage_resource,
-                                int64_t store_version, int64_t txn_id = -1,
+                                int64_t store_version, int64_t table_id, int64_t txn_id = -1,
                                 bool is_explicit_txn = false, int64_t next_visible_version = -1);
 
     Status cloud_update_delete_bitmap_without_lock(
             const CloudTablet& tablet, DeleteBitmap* delete_bitmap,
-            std::map<std::string, int64_t>& rowset_to_versions,
+            std::map<std::string, int64_t>& rowset_to_versions, int64_t table_id,
             int64_t pre_rowset_agg_start_version = 0, int64_t pre_rowset_agg_end_version = 0);
 
     Status get_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
@@ -174,6 +177,14 @@ public:
     // If my_cluster_id is not null, also returns the requesting node's cluster_id
     Status get_cluster_status(std::unordered_map<std::string, std::pair<int32_t, int64_t>>* result,
                               std::string* my_cluster_id = nullptr);
+
+    void set_host_level_ms_rpc_rate_limiters(HostLevelMSRpcRateLimiters* limiters) {
+        host_level_ms_rpc_rate_limiters_ = limiters;
+    }
+
+    void set_ms_backpressure_handler(MSBackpressureHandler* handler) {
+        ms_backpressure_handler_ = handler;
+    }
 
 private:
     bool sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64_t old_max_version,
@@ -203,6 +214,9 @@ private:
     void check_table_size_correctness(RowsetMeta& rs_meta);
     int64_t get_segment_file_size(RowsetMeta& rs_meta);
     int64_t get_inverted_index_file_size(RowsetMeta& rs_meta);
+
+    HostLevelMSRpcRateLimiters* host_level_ms_rpc_rate_limiters_ {nullptr};
+    MSBackpressureHandler* ms_backpressure_handler_ {nullptr};
 };
 
 } // namespace cloud

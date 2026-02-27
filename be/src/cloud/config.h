@@ -216,5 +216,67 @@ DECLARE_mBool(enable_file_cache_write_base_compaction_index_only);
 // Cumulative compaction output: only write index files to file cache, not data files
 DECLARE_mBool(enable_file_cache_write_cumu_compaction_index_only);
 
+// MS RPC rate limiting config
+// Enable host-level rate limiting for MS RPCs to prevent burst traffic
+DECLARE_mBool(enable_ms_rpc_host_level_rate_limit);
+
+// Per-RPC QPS limit configs (per CPU core)
+// QPS limit = config_value * num_cores
+// Set to 0 to disable rate limiting for a specific RPC
+// Set to -1 to use ms_rpc_qps_default config value
+DECLARE_mInt32(ms_rpc_qps_default);
+DECLARE_mInt32(ms_rpc_qps_get_tablet_meta);
+DECLARE_mInt32(ms_rpc_qps_get_rowset);
+DECLARE_mInt32(ms_rpc_qps_prepare_rowset);
+DECLARE_mInt32(ms_rpc_qps_commit_rowset);
+DECLARE_mInt32(ms_rpc_qps_update_tmp_rowset);
+DECLARE_mInt32(ms_rpc_qps_commit_txn);
+DECLARE_mInt32(ms_rpc_qps_abort_txn);
+DECLARE_mInt32(ms_rpc_qps_precommit_txn);
+DECLARE_mInt32(ms_rpc_qps_get_obj_store_info);
+DECLARE_mInt32(ms_rpc_qps_start_tablet_job);
+DECLARE_mInt32(ms_rpc_qps_finish_tablet_job);
+DECLARE_mInt32(ms_rpc_qps_get_delete_bitmap);
+DECLARE_mInt32(ms_rpc_qps_update_delete_bitmap);
+DECLARE_mInt32(ms_rpc_qps_get_delete_bitmap_update_lock);
+DECLARE_mInt32(ms_rpc_qps_remove_delete_bitmap_update_lock);
+DECLARE_mInt32(ms_rpc_qps_get_instance);
+DECLARE_mInt32(ms_rpc_qps_prepare_restore_job);
+DECLARE_mInt32(ms_rpc_qps_commit_restore_job);
+DECLARE_mInt32(ms_rpc_qps_finish_restore_job);
+DECLARE_mInt32(ms_rpc_qps_list_snapshots);
+DECLARE_mInt32(ms_rpc_qps_update_packed_file_info);
+
+// ============== Table-level backpressure handling config ==============
+
+// Enable MS backpressure response handling (table-level adaptive throttling)
+DECLARE_mBool(enable_ms_backpressure_handling);
+
+// Time window (seconds) for computing per-table QPS via bvar::PerSecond.
+// Larger window smooths out short-term spikes; smaller window reacts faster.
+// Immutable: takes effect only at counter creation time.
+DECLARE_Int32(ms_rpc_table_qps_window_sec);
+
+// ------------ Throttle upgrade config ------------
+
+// Minimum interval between throttle upgrades after receiving MS_BUSY (milliseconds)
+DECLARE_mInt32(ms_backpressure_upgrade_interval_ms);
+
+// Number of top-k tables to throttle on each upgrade
+DECLARE_mInt32(ms_backpressure_upgrade_top_k);
+
+// QPS decay ratio when upgrading throttle
+// New limit = current QPS * ratio (first time) or current limit * ratio (already limited)
+DECLARE_mDouble(ms_backpressure_throttle_ratio);
+
+// Floor value for table-level QPS limit
+// Throttle upgrade will not reduce QPS limit below this value
+DECLARE_mDouble(ms_rpc_table_qps_limit_floor);
+
+// ------------ Throttle downgrade config ------------
+
+// Time without MS_BUSY before triggering throttle downgrade (milliseconds)
+DECLARE_mInt32(ms_backpressure_downgrade_interval_ms);
+
 #include "common/compile_check_end.h"
 } // namespace doris::config

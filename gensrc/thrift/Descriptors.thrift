@@ -214,6 +214,7 @@ enum TSchemaTableType {
     SCH_LOAD_JOBS = 64;
     SCH_FILE_CACHE_INFO = 65;
     SCH_DATABASE_PROPERTIES = 66;
+    SCH_BACKEND_MS_RPC_TABLE_THROTTLERS = 67;
 }
 
 enum THdfsCompression {

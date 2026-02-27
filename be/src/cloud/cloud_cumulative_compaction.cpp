@@ -419,7 +419,8 @@ Status CloudCumulativeCompaction::modify_rowsets() {
                 DBUG_BLOCK);
         auto status = _engine.meta_mgr().cloud_update_delete_bitmap_without_lock(
                 *cloud_tablet(), pre_rowsets_delete_bitmap.get(), pre_rowset_to_versions,
-                _output_rowset->start_version(), _output_rowset->end_version());
+                cloud_tablet()->table_id(), _output_rowset->start_version(),
+                _output_rowset->end_version());
         if (!status.ok()) {
             LOG(WARNING) << "failed to agg pre rowsets delete bitmap to ms. tablet_id="
                          << _tablet->tablet_id() << ", pre rowset num=" << pre_rowsets.size()

@@ -39,8 +39,8 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/metrics/doris_metrics.h"
-#include "cpp/s3_rate_limiter.h"
 #include "cpp/sync_point.h"
+#include "cpp/token_bucket_rate_limiter.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/block_file_cache_profile.h"
