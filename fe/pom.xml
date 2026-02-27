@@ -1342,7 +1342,7 @@ under the License.
                 <!-- This is a dependency chain: odps-sdk-core:0.53.2-public → credentials-java:0.3.12 → com.aliyun:tea:[1.1.14,2.0.0)-->
                 <groupId>com.aliyun</groupId>
                 <artifactId>tea</artifactId>
-                <version>1.4.1</version>
+                <version>1.1.14</version>
             </dependency>
             <!-- For Iceberg, must be consistent with Iceberg version -->
             <dependency>
