@@ -75,20 +75,10 @@ Status SpillSortLocalState::_execute_merge_sort_spill_streams(RuntimeState* stat
     SCOPED_TIMER(_spill_merge_sort_timer);
     Status status;
     Defer defer {[&]() {
-        if (!status.ok() || state->is_cancelled()) {
-            if (!status.ok()) {
-                LOG(WARNING) << fmt::format(
-                        "Query:{}, sort source:{}, task:{}, merge spill data error:{}",
-                        print_id(query_id), _parent->node_id(), state->task_id(), status);
-            }
-            for (auto& stream : _current_merging_streams) {
-                ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
-            }
-            _current_merging_streams.clear();
-        } else {
-            VLOG_DEBUG << fmt::format("Query:{}, sort source:{}, task:{}, merge spill data finish",
-                                      print_id(query_id), _parent->node_id(), state->task_id());
+        for (auto& stream : _current_merging_streams) {
+            ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
         }
+        _current_merging_streams.clear();
     }};
     vectorized::Block merge_sorted_block;
     vectorized::SpillStreamSPtr tmp_stream;
@@ -102,7 +92,6 @@ Status SpillSortLocalState::_execute_merge_sort_spill_streams(RuntimeState* stat
         RETURN_IF_ERROR(_create_intermediate_merger(
                 max_stream_count,
                 parent._sort_source_operator->get_sort_description(_runtime_state.get())));
-
         // It is a fast path, because all the remaining streams can be merged in a run
         if (_shared_state->sorted_streams.empty()) {
             return Status::OK();
@@ -138,11 +127,6 @@ Status SpillSortLocalState::_execute_merge_sort_spill_streams(RuntimeState* stat
             }
             RETURN_IF_ERROR(status);
         }
-
-        for (auto& stream : _current_merging_streams) {
-            ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
-        }
-        _current_merging_streams.clear();
     }
     return Status::OK();
 }

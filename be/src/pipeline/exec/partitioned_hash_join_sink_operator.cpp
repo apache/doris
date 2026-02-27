@@ -530,8 +530,10 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
 
     if (eos) {
         local_state._child_eos = true;
-        RETURN_IF_ERROR(local_state._force_flush_partitions(state));
-        RETURN_IF_ERROR(local_state._finish_spilling(state));
+        if (local_state._shared_state->_is_spilled) {
+            RETURN_IF_ERROR(local_state._force_flush_partitions(state));
+            RETURN_IF_ERROR(local_state._finish_spilling(state));
+        }
         local_state._dependency->set_ready_to_read();
     }
     return Status::OK();
