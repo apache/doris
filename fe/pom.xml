@@ -224,7 +224,8 @@ under the License.
         <module>fe-authentication</module>
     </modules>
     <properties>
-        <doris.hive.catalog.shade.version>3.1.0</doris.hive.catalog.shade.version>
+        <doris.hive.catalog.shade.version>3.1.0-jd-SNAPSHOT</doris.hive.catalog.shade.version>
+        <doris.hadoop.shade.version>3.1.0-jd-SNAPSHOT</doris.hadoop.shade.version>
         <!-- iceberg 1.9.1 depends avro on 1.12 -->
         <avro.version>1.12.1</avro.version>
         <parquet.version>1.17.0</parquet.version>
@@ -334,8 +335,6 @@ under the License.
         <!-- Arrow 19.0.1 will MacOS compile error and decimal type error when convert to Parquet
          https://github.com/apache/doris/pull/51217-->
         <arrow.version>17.0.0</arrow.version>
-        <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
-        <presto.hive.version>3.0.0-8</presto.hive.version>
         <!-- lakesoul -->
         <lakesoul.version>2.6.2</lakesoul.version>
 
@@ -351,7 +350,7 @@ under the License.
         <httpcore.version>4.4.15</httpcore.version>
         <aws-java-sdk.version>1.12.669</aws-java-sdk.version>
         <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
-        <hadoop.version>3.4.2</hadoop.version>
+        <hadoop.version>2.100.87_2025111417-SNAPSHOT</hadoop.version>
         <re2j.version>1.8</re2j.version>
         <hadoop.thirdparty.guava.version>1.2.0</hadoop.thirdparty.guava.version>
         <hadoop.thirdparty.protobuf_3_25.version>1.5.0</hadoop.thirdparty.protobuf_3_25.version>
@@ -695,6 +694,18 @@ under the License.
                 </exclusions>
             </dependency>
             <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-yarn-api</artifactId>
+                <version>${hadoop.version}</version>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-yarn-common</artifactId>
+                <version>${hadoop.version}</version>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
                 <groupId>com.google.re2j</groupId>
                 <artifactId>re2j</artifactId>
                 <version>${re2j.version}</version>
@@ -729,6 +740,11 @@ under the License.
                 <groupId>org.apache.doris</groupId>
                 <artifactId>hive-catalog-shade</artifactId>
                 <version>${doris.hive.catalog.shade.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.doris</groupId>
+                <artifactId>hadoop-shade</artifactId>
+                <version>${doris.hadoop.shade.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.kerby</groupId>
@@ -1255,6 +1271,10 @@ under the License.
                     <exclusion>
                         <groupId>javax.servlet.jsp</groupId>
                         <artifactId>jsp-api</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>javax.servlet</groupId>
+                        <artifactId>servlet-api</artifactId>
                     </exclusion>
                     <exclusion>
                         <groupId>io.netty</groupId>

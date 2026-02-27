@@ -428,6 +428,10 @@ under the License.
             <artifactId>hive-catalog-shade</artifactId>
         </dependency>
         <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>hadoop-shade</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-hdfs</artifactId>
         </dependency>

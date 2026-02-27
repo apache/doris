@@ -106,32 +106,17 @@ private:
         bool kerberos_login = false;
         if (conf.has_hdfs_kerberos_keytab()) {
             kerberos_login = true;
-#ifdef USE_HADOOP_HDFS
-            hdfsBuilderSetKerb5Conf(hdfs_builder_, config::kerberos_krb5_conf_path.c_str());
-            hdfsBuilderSetKeyTabFile(hdfs_builder_, conf.hdfs_kerberos_keytab().c_str());
-#endif
         }
 
         if (conf.has_hdfs_kerberos_principal()) {
             kerberos_login = true;
-            hdfsBuilderSetPrincipal(hdfs_builder_, conf.hdfs_kerberos_principal().c_str());
         } else if (conf.has_user()) {
             hdfsBuilderSetUserName(hdfs_builder_, conf.user().c_str());
-#ifdef USE_HADOOP_HDFS
-            hdfsBuilderSetKerb5Conf(hdfs_builder_, nullptr);
-            hdfsBuilderSetKeyTabFile(hdfs_builder_, nullptr);
-#endif
         }
 
         // set other conf
         for (const auto& kv : conf.hdfs_confs()) {
             hdfsBuilderConfSetStr(hdfs_builder_, kv.key().c_str(), kv.value().c_str());
-#ifdef USE_HADOOP_HDFS
-            // Set krb5.conf, we should define java.security.krb5.conf in catalog properties
-            if (kv.key() == "java.security.krb5.conf") {
-                hdfsBuilderSetKerb5Conf(hdfs_builder_, kv.value().c_str());
-            }
-#endif
         }
 
         if (kerberos_login) {

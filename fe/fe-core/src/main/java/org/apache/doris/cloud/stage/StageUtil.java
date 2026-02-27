@@ -41,10 +41,10 @@ import org.apache.doris.thrift.TFileCompressType;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Triple;
-import org.apache.hadoop.fs.GlobExpander;
-import org.apache.hadoop.fs.GlobFilter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import s3.org.apache.hadoop.fs.GlobExpander;
+import s3.org.apache.hadoop.fs.GlobFilter;
 
 import java.io.IOException;
 import java.nio.file.FileSystems;
