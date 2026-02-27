@@ -430,7 +430,7 @@ TEST_F(WorkloadSchedPolicyTest, policy_action_execution) {
     std::vector<std::unique_ptr<WorkloadCondition>> cond_ptr_list;
     cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::USERNAME,
                                                       TCompareOperator::type::EQUAL, "admin"));
-    
+
     std::vector<std::unique_ptr<WorkloadAction>> action_ptr_list;
     auto mock_action = std::make_unique<MockWorkloadAction>(WorkloadActionType::CANCEL_QUERY);
     MockWorkloadAction* mock_action_ptr = mock_action.get();
@@ -456,7 +456,7 @@ TEST_F(WorkloadSchedPolicyTest, invalid_condition_creation) {
     cond.metric_name = static_cast<TWorkloadMetricType::type>(999); // Invalid type
     cond.op = TCompareOperator::type::EQUAL;
     cond.value = "test";
-    
+
     auto result = WorkloadConditionFactory::create_workload_condition(&cond);
     EXPECT_EQ(result, nullptr);
 }
