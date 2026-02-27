@@ -119,6 +119,25 @@ struct TBoolLiteral {
 struct TCaseExpr {
   1: required bool has_case_expr
   2: required bool has_else_expr
+  // For simple CASE optimization: CASE column WHEN 'O' THEN ... WHEN 'F' THEN ...
+  // When is_simple_case is true, children structure is:
+  //   [caseOperand, literal1, then1, literal2, then2, ..., else?]
+  // Where:
+  //   - caseOperand: the expression being compared (e.g., a column)
+  //   - literal_i: non-NULL integer or string literal values
+  //   - then_i: result expressions for each WHEN clause
+  //   - else: optional else expression
+  // This allows BE to optimize using techniques like hash lookup instead of sequential comparison.
+  //
+  // When is_simple_case is false (default), children structure is the normal:
+  //   [when1, then1, when2, then2, ..., else?]
+  //
+  // is_simple_case is set to true only when ALL of the following conditions are met:
+  //   1. All WHEN conditions are EqualTo(sameExpr, literal)
+  //   2. All literals are non-NULL constants
+  //   3. All literals are Integer or String type
+  //   4. All WHEN clauses compare the same expression
+  3: optional bool is_simple_case = false
 }
 
 struct TDateLiteral {

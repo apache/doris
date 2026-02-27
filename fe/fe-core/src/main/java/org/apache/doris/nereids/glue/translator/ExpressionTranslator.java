@@ -398,6 +398,37 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitCaseWhen(CaseWhen caseWhen, PlanTranslatorContext context) {
+        Expr elseExpr = null;
+        Optional<Expression> defaultValue = caseWhen.getDefaultValue();
+        if (defaultValue.isPresent()) {
+            elseExpr = defaultValue.get().accept(this, context);
+        }
+
+        // Try to extract simple case info for optimization
+        // e.g., CASE column WHEN 'O' THEN ... WHEN 'F' THEN ... END
+        // When successful, build children as: [caseOperand, literal1, then1, literal2, then2, ..., else?]
+        // This allows BE to optimize using hash lookup instead of sequential comparison
+        Optional<CaseWhen.SimpleCaseInfo> simpleCaseInfo = caseWhen.extractSimpleCaseInfo();
+        if (simpleCaseInfo.isPresent()) {
+            CaseWhen.SimpleCaseInfo info = simpleCaseInfo.get();
+            List<Expr> simpleCaseChildren = new ArrayList<>();
+            // First child is the case operand (the expression being compared)
+            simpleCaseChildren.add(info.getCaseOperand().accept(this, context));
+            // Then pairs of (literal, then) for each WHEN clause
+            List<Literal> literals = info.getLiterals();
+            List<Expression> thenExprs = info.getThenExprs();
+            for (int i = 0; i < literals.size(); i++) {
+                simpleCaseChildren.add(literals.get(i).accept(this, context));
+                simpleCaseChildren.add(thenExprs.get(i).accept(this, context));
+            }
+            // Finally, the else expression if present
+            if (elseExpr != null) {
+                simpleCaseChildren.add(elseExpr);
+            }
+            return new CaseExpr(simpleCaseChildren, elseExpr != null, caseWhen.nullable());
+        }
+
+        // Normal case: build children as [when1, then1, when2, then2, ..., else?]
         List<CaseWhenClause> caseWhenClauses = new ArrayList<>();
         for (WhenClause whenClause : caseWhen.getWhenClauses()) {
             caseWhenClauses.add(new CaseWhenClause(
@@ -405,11 +436,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                     whenClause.right().accept(this, context)
             ));
         }
-        Expr elseExpr = null;
-        Optional<Expression> defaultValue = caseWhen.getDefaultValue();
-        if (defaultValue.isPresent()) {
-            elseExpr = defaultValue.get().accept(this, context);
-        }
+
         CaseExpr caseExpr = new CaseExpr(caseWhenClauses, elseExpr, caseWhen.nullable());
         return caseExpr;
     }

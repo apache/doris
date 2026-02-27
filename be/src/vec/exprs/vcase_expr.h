@@ -309,4 +309,7 @@ private:
     inline static const std::string FUNCTION_NAME = "case";
     inline static const std::string EXPR_NAME = "vcase expr";
 };
+
+
+
 } // namespace doris::vectorized

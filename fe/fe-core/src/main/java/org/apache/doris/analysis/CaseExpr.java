@@ -70,12 +70,20 @@ public class CaseExpr extends Expr {
     @SerializedName("hee")
     private boolean hasElseExpr;
 
+    // For simple CASE optimization: CASE column WHEN 'O' THEN ... WHEN 'F' THEN ...
+    // When isSimpleCase is true, children structure is:
+    //   [caseOperand, literal1, then1, literal2, then2, ..., else?]
+    // This allows BE to optimize using techniques like hash lookup instead of sequential comparison.
+    // When isSimpleCase is false, children structure is the normal:
+    //   [when1, then1, when2, then2, ..., else?]
+    private boolean isSimpleCase;
+
     private CaseExpr() {
         // use for serde only
     }
 
     /**
-     * use for Nereids ONLY
+     * use for Nereids ONLY - normal case (not simple case)
      */
     public CaseExpr(List<CaseWhenClause> whenClauses, Expr elseExpr, boolean nullable) {
         super();
@@ -91,12 +99,33 @@ public class CaseExpr extends Expr {
         // so just use the first then type
         type = children.get(1).getType();
         this.nullable = nullable;
+        this.isSimpleCase = false;
+    }
+
+    /**
+     * use for Nereids ONLY - simple case with pre-built children
+     * Children structure: [caseOperand, literal1, then1, literal2, then2, ..., else?]
+     *
+     * @param simpleCaseChildren the pre-built children list for simple case
+     * @param hasElse whether there is an else expression
+     * @param nullable whether the result is nullable
+     */
+    public CaseExpr(List<Expr> simpleCaseChildren, boolean hasElse, boolean nullable) {
+        super();
+        this.children.addAll(simpleCaseChildren);
+        this.hasElseExpr = hasElse;
+        this.hasCaseExpr = true;  // simple case always has a case expression
+        this.isSimpleCase = true;
+        // type is the first then expression: children[2] (after caseOperand and first literal)
+        this.type = simpleCaseChildren.get(2).getType();
+        this.nullable = nullable;
     }
 
     protected CaseExpr(CaseExpr other) {
         super(other);
         hasCaseExpr = other.hasCaseExpr;
         hasElseExpr = other.hasElseExpr;
+        isSimpleCase = other.isSimpleCase;
     }
 
     @Override
@@ -166,5 +195,8 @@ public class CaseExpr extends Expr {
         if (ConnectContext.get() != null) {
             msg.setShortCircuitEvaluation(ConnectContext.get().getSessionVariable().isShortCircuitEvaluation());
         }
+
+        // Always explicitly set is_simple_case to ensure BE gets the correct value
+        msg.case_expr.is_simple_case = isSimpleCase;
     }
 }

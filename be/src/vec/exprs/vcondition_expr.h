@@ -140,4 +140,19 @@ public:
     inline static const std::string NAME = "coalesce";
 };
 
+class VectorizedSimpleCase  : public VConditionExpr {
+
+    ENABLE_FACTORY_CREATOR(VectorizedSimpleCase);
+
+public:
+    VectorizedSimpleCase(const TExprNode& node) : VConditionExpr(node) {}
+    ~VectorizedSimpleCase() override = default;
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override;
+    const std::string& expr_name() const override { return NAME; }
+    inline static const std::string NAME = "simple_case";
+};
+
+
+
 } // namespace doris::vectorized

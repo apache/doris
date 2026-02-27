@@ -19,6 +19,7 @@
 
 #include <glog/logging.h>
 
+#include "common/logging.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -766,6 +767,17 @@ Status VectorizedCoalesceExpr::execute_column(VExprContext* context, const Block
     }
 
     DCHECK_EQ(return_column->size(), count);
+    return Status::OK();
+}
+
+Status VectorizedSimpleCase::execute_column(VExprContext* context, const Block* block,
+                                            Selector* selector, size_t count,
+                                            ColumnPtr& result_column) const {
+    LOG_WARNING("yxc test").tag("debug_string", debug_string());
+
+    auto mut_col = _data_type->create_column();
+    mut_col->resize(count);
+    result_column = std::move(mut_col);
     return Status::OK();
 }
 

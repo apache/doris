@@ -19,6 +19,10 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
@@ -168,5 +172,138 @@ public class CaseWhen extends Expression implements NeedSessionVarGuard {
             defaultValue.ifPresent(expression -> dataTypes.add(expression.getDataType()));
             return dataTypes.build();
         });
+    }
+
+    /**
+     * Result class for extractSimpleCaseInfo() method.
+     * Contains the case operand expression, the list of literal values, and the list of then expressions.
+     */
+    public static class SimpleCaseInfo {
+        private final Expression caseOperand;
+        private final List<Literal> literals;
+        private final List<Expression> thenExprs;
+
+        public SimpleCaseInfo(Expression caseOperand, List<Literal> literals, List<Expression> thenExprs) {
+            this.caseOperand = caseOperand;
+            this.literals = literals;
+            this.thenExprs = thenExprs;
+        }
+
+        public Expression getCaseOperand() {
+            return caseOperand;
+        }
+
+        public List<Literal> getLiterals() {
+            return literals;
+        }
+
+        public List<Expression> getThenExprs() {
+            return thenExprs;
+        }
+    }
+
+    /**
+     * Check if this CaseWhen is in "simple case" form and extract the necessary information.
+     * Simple case form: CASE column WHEN 'O' THEN ... WHEN 'F' THEN ... END
+     * which is represented as: CASE WHEN column = 'O' THEN ... WHEN column = 'F' THEN ... END
+     *
+     * Note: WhenClause's operand can be any expression, not just EqualTo. For example:
+     * - EqualTo: CASE WHEN col = 'value' THEN ...  (from simple case syntax)
+     * - IsNull: CASE WHEN col IS NULL THEN ...
+     * - And/Or: CASE WHEN col > 1 AND col < 10 THEN ...
+     * - etc.
+     *
+     * This method returns SimpleCaseInfo when ALL of the following conditions are met:
+     * 1. All WhenClauses have operands in the form of EqualTo(sameExpr, literal)
+     *    (the literal can be wrapped in Cast)
+     * 2. All literals are non-NULL (NullLiteral is excluded)
+     * 3. All literals are Integer or String type (IntegerLikeLiteral or StringLikeLiteral)
+     * 4. All WHEN clauses compare the same expression
+     *
+     * When SimpleCaseInfo is returned, the caller can build children as:
+     * [caseOperand, literal1, then1, literal2, then2, ..., else?]
+     * This allows BE to optimize using techniques like hash lookup.
+     *
+     * This pattern is created by LogicalPlanBuilder.visitSimpleCase() when parsing
+     * "CASE expr WHEN value THEN ..." syntax.
+     *
+     * @return Optional containing SimpleCaseInfo if this is a simple case form, or empty otherwise.
+     */
+    public Optional<SimpleCaseInfo> extractSimpleCaseInfo() {
+        if (whenClauses.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Expression caseOperand = null;
+        List<Literal> literals = new ArrayList<>();
+        List<Expression> thenExprs = new ArrayList<>();
+
+        for (WhenClause whenClause : whenClauses) {
+            Expression operand = whenClause.getOperand();
+            // WhenClause's operand can be any boolean expression (EqualTo, IsNull, And, Or, etc.)
+            // We only handle the simple case pattern: EqualTo(column, literal)
+            if (!(operand instanceof EqualTo)) {
+                return Optional.empty();
+            }
+
+            EqualTo equalTo = (EqualTo) operand;
+            Expression left = equalTo.left();
+            Expression right = equalTo.right();
+
+            // Unwrap Cast if present (type inference may add Cast around literals)
+            Expression unwrappedLeft = unwrapCast(left);
+            Expression unwrappedRight = unwrapCast(right);
+
+            // Determine which side is the literal and which is the case expression
+            Expression currentCaseOperand;
+            Literal literal;
+            if (unwrappedRight instanceof Literal && !(unwrappedLeft instanceof Literal)) {
+                currentCaseOperand = left;  // Keep the original (possibly casted) expression
+                literal = (Literal) unwrappedRight;
+            } else if (unwrappedLeft instanceof Literal && !(unwrappedRight instanceof Literal)) {
+                currentCaseOperand = right;  // Keep the original (possibly casted) expression
+                literal = (Literal) unwrappedLeft;
+            } else {
+                // Both are literals or both are non-literals
+                return Optional.empty();
+            }
+
+            // Exclude NULL literals - we can't optimize CASE column WHEN NULL THEN ...
+            // because NULL comparison has special semantics (NULL = NULL is NULL, not TRUE)
+            if (literal instanceof NullLiteral) {
+                return Optional.empty();
+            }
+
+            // Only support Integer and String type literals for simple case optimization
+            if (!(literal instanceof IntegerLikeLiteral) && !(literal instanceof StringLikeLiteral)) {
+                return Optional.empty();
+            }
+
+            // Check that all WHEN clauses compare the same expression
+            // Compare unwrapped expressions to handle cases where Cast is added
+            Expression unwrappedCaseOperand = unwrapCast(currentCaseOperand);
+            if (caseOperand == null) {
+                caseOperand = currentCaseOperand;
+            } else if (!unwrapCast(caseOperand).equals(unwrappedCaseOperand)) {
+                // Different case expressions in different WHEN clauses
+                return Optional.empty();
+            }
+
+            literals.add(literal);
+            thenExprs.add(whenClause.getResult());
+        }
+
+        return Optional.of(new SimpleCaseInfo(caseOperand, literals, thenExprs));
+    }
+
+    /**
+     * Unwrap Cast expression to get the underlying expression.
+     * This is needed because type inference may add Cast around literals.
+     */
+    private Expression unwrapCast(Expression expr) {
+        while (expr instanceof Cast) {
+            expr = ((Cast) expr).child();
+        }
+        return expr;
     }
 }

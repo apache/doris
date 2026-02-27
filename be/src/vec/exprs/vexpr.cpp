@@ -531,7 +531,14 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
             if (expr_node.__isset.short_circuit_evaluation && expr_node.short_circuit_evaluation) {
                 expr = ShortCircuitCaseExpr::create_shared(expr_node);
             } else {
-                expr = VCaseExpr::create_shared(expr_node);
+                // Check if is_simple_case is set and true
+                bool is_simple_case = expr_node.case_expr.__isset.is_simple_case &&
+                                      expr_node.case_expr.is_simple_case;
+                if (is_simple_case) {
+                    expr = VectorizedSimpleCase::create_shared(expr_node);
+                } else {
+                    expr = VCaseExpr::create_shared(expr_node);
+                }
             }
             break;
         }
