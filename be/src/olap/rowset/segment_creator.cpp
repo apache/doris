@@ -105,6 +105,17 @@ Status SegmentFlusher::_internal_parse_variant_columns(vectorized::Block& block)
 
     vectorized::ParseConfig config;
     config.enable_flatten_nested = _context.tablet_schema->variant_flatten_nested();
+
+    {
+        auto mode_str = config::variant_duplicate_key_mode;
+        if (mode_str == "KEEP_FIRST") {
+            config.duplicate_key_mode = vectorized::DuplicateKeyMode::KEEP_FIRST;
+        } else if (mode_str == "KEEP_LAST") {
+            config.duplicate_key_mode = vectorized::DuplicateKeyMode::KEEP_LAST;
+        } else {
+            config.duplicate_key_mode = vectorized::DuplicateKeyMode::STRICT;
+        }
+    }
     RETURN_IF_ERROR(
             vectorized::schema_util::parse_variant_columns(block, variant_column_pos, config));
     return Status::OK();

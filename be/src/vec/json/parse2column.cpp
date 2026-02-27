@@ -188,9 +188,25 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
             subcolumn->reset_current_num_of_defaults();
         }
         if (subcolumn->size() != old_num_rows) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                   "subcolumn {} size missmatched, may contains duplicated entry",
-                                   paths[i].get_path());
+            // Duplicate key detected
+            switch (config.duplicate_key_mode) {
+            case DuplicateKeyMode::KEEP_FIRST:
+                // Skip this duplicate, keep the first occurrence
+                VLOG_DEBUG << "Skipping duplicate key (KEEP_FIRST): " << paths[i].get_path();
+                continue;
+            case DuplicateKeyMode::KEEP_LAST: {
+                // Remove the previously inserted value, then insert the new one below
+                VLOG_DEBUG << "Overwriting duplicate key (KEEP_LAST): " << paths[i].get_path();
+                subcolumn->pop_back(1);
+                break;
+            }
+            case DuplicateKeyMode::STRICT:
+            default:
+                throw doris::Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "subcolumn {} size missmatched, may contains duplicated entry",
+                        paths[i].get_path());
+            }
         }
         subcolumn->insert(std::move(values[i]), std::move(field_info));
     }

@@ -1374,6 +1374,9 @@ DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
 DECLARE_mInt32(variant_max_json_key_length);
 // Treat invalid json format str as string, instead of throwing exception if false
 DECLARE_mBool(variant_throw_exeception_on_invalid_json);
+// Control behavior when duplicate keys are found in JSON objects during variant parsing.
+// Valid values: "STRICT" (error), "KEEP_FIRST" (keep first), "KEEP_LAST" (keep last)
+DECLARE_mString(variant_duplicate_key_mode);
 // Enable vertical compact subcolumns of variant column
 DECLARE_mBool(enable_vertical_compact_variant_subcolumns);
 

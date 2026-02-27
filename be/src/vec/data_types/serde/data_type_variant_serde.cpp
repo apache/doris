@@ -21,6 +21,7 @@
 #include <string>
 
 #include "common/cast_set.h"
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "runtime/jsonb_value.h"
@@ -111,6 +112,17 @@ Status DataTypeVariantSerDe::serialize_one_cell_to_json(const IColumn& column, i
 Status DataTypeVariantSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                             const FormatOptions& options) const {
     vectorized::ParseConfig config;
+
+    {
+        auto mode_str = doris::config::variant_duplicate_key_mode;
+        if (mode_str == "KEEP_FIRST") {
+            config.duplicate_key_mode = vectorized::DuplicateKeyMode::KEEP_FIRST;
+        } else if (mode_str == "KEEP_LAST") {
+            config.duplicate_key_mode = vectorized::DuplicateKeyMode::KEEP_LAST;
+        } else {
+            config.duplicate_key_mode = vectorized::DuplicateKeyMode::STRICT;
+        }
+    }
     auto parser = parsers_pool.get([] { return new JsonParser(); });
     RETURN_IF_CATCH_EXCEPTION(
             parse_json_to_variant(column, slice.data, slice.size, parser.get(), config));

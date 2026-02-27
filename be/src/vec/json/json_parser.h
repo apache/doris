@@ -99,8 +99,19 @@ void writeValueAsJsonb(const Element& element, JsonbWriter& writer) {
     }
 }
 
+// Controls behavior when duplicate keys are found in a JSON object during variant parsing.
+// STRICT: throw an error (default, current behavior)
+// KEEP_FIRST: keep the first occurrence, skip subsequent duplicates
+// KEEP_LAST: keep the last occurrence, overwrite previous ones
+enum class DuplicateKeyMode {
+    STRICT = 0,
+    KEEP_FIRST = 1,
+    KEEP_LAST = 2,
+};
+
 struct ParseConfig {
     bool enable_flatten_nested = false;
+    DuplicateKeyMode duplicate_key_mode = DuplicateKeyMode::STRICT;
 };
 /// Result of parsing of a document.
 /// Contains all paths extracted from document
