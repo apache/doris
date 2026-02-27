@@ -2513,7 +2513,9 @@ Status CloudMetaMgr::get_cluster_status(
     GetClusterStatusResponse resp;
     req.add_cloud_unique_ids(config::cloud_unique_id);
 
-    Status s = retry_rpc("get cluster status", req, &resp, &MetaService_Stub::get_cluster_status);
+    Status s = retry_rpc(MetaServiceRPC::GET_CLUSTER_STATUS, req, &resp,
+                         &MetaService_Stub::get_cluster_status,
+                         {.host_limiters = host_level_ms_rpc_rate_limiters_});
     if (!s.ok()) {
         return s;
     }

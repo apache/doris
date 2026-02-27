@@ -201,6 +201,7 @@ DEFINE_mInt32(ms_rpc_qps_prepare_restore_job, "-1");
 DEFINE_mInt32(ms_rpc_qps_commit_restore_job, "-1");
 DEFINE_mInt32(ms_rpc_qps_finish_restore_job, "-1");
 DEFINE_mInt32(ms_rpc_qps_list_snapshots, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_cluster_status, "-1");
 DEFINE_mInt32(ms_rpc_qps_update_packed_file_info, "-1");
 
 // Table-level backpressure handling config

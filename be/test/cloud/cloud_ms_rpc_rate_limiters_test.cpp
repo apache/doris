@@ -191,6 +191,8 @@ TEST_F(HostLevelMSRpcRateLimitersTest, DisplayNames) {
     EXPECT_EQ(meta_service_rpc_display_name(MetaServiceRPC::FINISH_RESTORE_JOB),
               "finish restore job");
     EXPECT_EQ(meta_service_rpc_display_name(MetaServiceRPC::LIST_SNAPSHOTS), "list snapshots");
+    EXPECT_EQ(meta_service_rpc_display_name(MetaServiceRPC::GET_CLUSTER_STATUS),
+              "get cluster status");
     EXPECT_EQ(meta_service_rpc_display_name(MetaServiceRPC::UPDATE_PACKED_FILE_INFO),
               "update packed file info");
 }
