@@ -196,12 +196,6 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
             List<StorageProperties> storagePropertiesList
     );
 
-    protected void tryAddingIOImpl(Map<String, String> options) {
-        if (!Strings.isNullOrEmpty(ioImpl)) {
-            options.put(CatalogProperties.FILE_IO_IMPL, ioImpl);
-        }
-    }
-
     /**
      * Unified method to configure FileIO properties for Iceberg catalog.
      * This method handles all storage types (HDFS, S3, MinIO, etc.) by:

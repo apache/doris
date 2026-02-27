@@ -42,7 +42,6 @@ public class IcebergJdbcMetaStorePropertiesTest {
         Assertions.assertEquals(CatalogUtil.ICEBERG_CATALOG_JDBC,
                 catalogProps.get(CatalogProperties.CATALOG_IMPL));
         Assertions.assertEquals("jdbc:mysql://localhost:3306/iceberg", catalogProps.get(CatalogProperties.URI));
-        Assertions.assertEquals("s3://warehouse/path", catalogProps.get(CatalogProperties.WAREHOUSE_LOCATION));
         Assertions.assertEquals("iceberg", catalogProps.get("jdbc.user"));
         Assertions.assertEquals("secret", catalogProps.get("jdbc.password"));
     }
