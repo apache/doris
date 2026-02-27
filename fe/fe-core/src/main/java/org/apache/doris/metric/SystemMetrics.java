@@ -164,7 +164,7 @@ public class SystemMetrics {
             tcpOutSegs = Long.valueOf(parts[headerMap.get("OutSegs")]);
 
         } catch (Exception e) {
-            LOG.warn("failed to get /proc/net/snmp: {}", e.getMessage());
+            LOG.warn("failed to get /proc/net/snmp: ", e.getMessage());
         }
     }
 
