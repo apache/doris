@@ -1438,11 +1438,9 @@ public class SearchDslParserTest {
 
     @Test
     public void testMultiFieldLuceneModeSimpleOr() {
-        // Test: "a OR b" + fields=["title","content"] + lucene mode
-        // Expanded: "(title:a OR content:a) OR (title:b OR content:b)"
-        // With Lucene semantics: both groups are SHOULD
+        // Test: "a OR b" + fields=["title","content"] + lucene mode + cross_fields
         String dsl = "a OR b";
-        String options = "{\"fields\":[\"title\",\"content\"],\"mode\":\"lucene\"}";
+        String options = "{\"fields\":[\"title\",\"content\"],\"mode\":\"lucene\",\"type\":\"cross_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1502,15 +1500,14 @@ public class SearchDslParserTest {
 
     @Test
     public void testMultiFieldLuceneModeSingleTerm() {
-        // Test: single term with multi-field + lucene mode
+        // Test: single term with multi-field + lucene mode + cross_fields
         String dsl = "hello";
-        String options = "{\"fields\":[\"title\",\"content\"],\"mode\":\"lucene\"}";
+        String options = "{\"fields\":[\"title\",\"content\"],\"mode\":\"lucene\",\"type\":\"cross_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        // In Lucene mode, even single term OR groups are wrapped as OCCUR_BOOLEAN
+        // In Lucene cross_fields, single term is wrapped as OCCUR_BOOLEAN
         Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
-        // The OCCUR_BOOLEAN contains the OR group's children with SHOULD occur
         Assertions.assertEquals(2, plan.getRoot().getChildren().size());
     }
 
@@ -1600,107 +1597,110 @@ public class SearchDslParserTest {
 
     @Test
     public void testMultiFieldBestFieldsLuceneMode() {
-        // Test: best_fields with Lucene mode uses per-clause expansion (matching ES query_string)
-        // "hello world" with AND → each term independently expanded across fields:
-        //   MUST(SHOULD(title:hello, content:hello)) AND MUST(SHOULD(title:world, content:world))
+        // Test: best_fields with Lucene mode copies entire query per field, joined with OR.
+        // "hello world" with AND → (title:hello AND title:world) OR (content:hello AND content:world)
         String dsl = "hello world";
         String options = "{\"fields\":[\"title\",\"content\"],\"default_operator\":\"and\",\"mode\":\"lucene\",\"type\":\"best_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
-        // Per-clause expansion: 2 children (one per term), each expanded across fields
+        // Root is OR joining the per-field copies
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
         Assertions.assertEquals(2, plan.getRoot().getChildren().size());
-        for (QsNode child : plan.getRoot().getChildren()) {
-            // Each child is an OCCUR_BOOLEAN wrapping the per-field expansion
-            Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, child.getType());
-            Assertions.assertEquals(2, child.getChildren().size()); // one per field
-        }
+
+        // Each child: OCCUR_BOOLEAN with terms pinned to one field
+        QsNode titleCopy = plan.getRoot().getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, titleCopy.getType());
+        Assertions.assertEquals("title", titleCopy.getChildren().get(0).getField());
+        Assertions.assertEquals("title", titleCopy.getChildren().get(1).getField());
+
+        QsNode contentCopy = plan.getRoot().getChildren().get(1);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, contentCopy.getType());
+        Assertions.assertEquals("content", contentCopy.getChildren().get(0).getField());
+        Assertions.assertEquals("content", contentCopy.getChildren().get(1).getField());
     }
 
     @Test
-    public void testMultiFieldBestFieldsLuceneModePerClauseExpansion() {
-        // Test: best_fields with phrase + regex uses per-clause expansion (not per-field)
-        // ES query_string expands each clause independently across fields:
-        //   ("Costner" AND /Li../) → MUST(title:"Costner" | content:"Costner") AND MUST(title:/Li../ | content:/Li../)
-        // NOT: (title:"Costner" AND title:/Li../) OR (content:"Costner" AND content:/Li../)
+    public void testMultiFieldBestFieldsLuceneModePerFieldExpansion() {
+        // Test: best_fields copies entire query per field.
+        // ("Costner" AND /Li../) → (title:"Costner" AND title:/Li../) OR (content:"Costner" AND content:/Li../)
         String dsl = "\"Costner\" /Li../";
         String options = "{\"fields\":[\"title\",\"content\"],\"default_operator\":\"and\",\"mode\":\"lucene\",\"type\":\"best_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
         QsNode root = plan.getRoot();
-        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, root.getType());
-        // 2 children: one for phrase "Costner", one for regex /Li../
+        Assertions.assertEquals(QsClauseType.OR, root.getType());
         Assertions.assertEquals(2, root.getChildren().size());
 
-        // First child: phrase "Costner" expanded across fields
-        QsNode phraseGroup = root.getChildren().get(0);
-        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, phraseGroup.getType());
-        Assertions.assertEquals(2, phraseGroup.getChildren().size());
-        Assertions.assertEquals(QsClauseType.PHRASE, phraseGroup.getChildren().get(0).getType());
-        Assertions.assertEquals(QsClauseType.PHRASE, phraseGroup.getChildren().get(1).getType());
+        // First child: title copy
+        QsNode titleCopy = root.getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, titleCopy.getType());
+        Assertions.assertEquals(QsClauseType.PHRASE, titleCopy.getChildren().get(0).getType());
+        Assertions.assertEquals("title", titleCopy.getChildren().get(0).getField());
+        Assertions.assertEquals(QsClauseType.REGEXP, titleCopy.getChildren().get(1).getType());
+        Assertions.assertEquals("title", titleCopy.getChildren().get(1).getField());
 
-        // Second child: regex /Li../ expanded across fields
-        QsNode regexpGroup = root.getChildren().get(1);
-        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, regexpGroup.getType());
-        Assertions.assertEquals(2, regexpGroup.getChildren().size());
-        Assertions.assertEquals(QsClauseType.REGEXP, regexpGroup.getChildren().get(0).getType());
-        Assertions.assertEquals(QsClauseType.REGEXP, regexpGroup.getChildren().get(1).getType());
+        // Second child: content copy
+        QsNode contentCopy = root.getChildren().get(1);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, contentCopy.getType());
+        Assertions.assertEquals(QsClauseType.PHRASE, contentCopy.getChildren().get(0).getType());
+        Assertions.assertEquals("content", contentCopy.getChildren().get(0).getField());
+        Assertions.assertEquals(QsClauseType.REGEXP, contentCopy.getChildren().get(1).getType());
+        Assertions.assertEquals("content", contentCopy.getChildren().get(1).getField());
     }
 
     @Test
     public void testMultiFieldExplicitFieldNotExpanded() {
-        // Bug #1: explicit field prefix (field:term) should NOT be expanded across fields,
-        // even when the field is in the fields list. Matches ES query_string behavior.
-        // "title:music AND content:history" → +title:music +content:history (no expansion)
+        // Explicit field prefix (field:term) preserved in per-field copies.
+        // "title:music AND content:history" with best_fields →
+        //   OR(OCCUR_BOOLEAN(title:music, content:history), OCCUR_BOOLEAN(title:music, content:history))
         String dsl = "title:music AND content:history";
         String options = "{\"fields\":[\"title\",\"content\"],\"default_operator\":\"and\",\"mode\":\"lucene\",\"type\":\"best_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
         QsNode root = plan.getRoot();
-        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, root.getType());
+        Assertions.assertEquals(QsClauseType.OR, root.getType());
         Assertions.assertEquals(2, root.getChildren().size());
 
-        // First child: title:music - should be a TERM pinned to "title", NOT expanded
-        QsNode musicNode = root.getChildren().get(0);
-        Assertions.assertEquals(QsClauseType.TERM, musicNode.getType());
-        Assertions.assertEquals("title", musicNode.getField());
-        Assertions.assertEquals("music", musicNode.getValue());
-
-        // Second child: content:history - should be a TERM pinned to "content", NOT expanded
-        QsNode historyNode = root.getChildren().get(1);
-        Assertions.assertEquals(QsClauseType.TERM, historyNode.getType());
-        Assertions.assertEquals("content", historyNode.getField());
-        Assertions.assertEquals("history", historyNode.getValue());
+        // Both children preserve explicit fields
+        for (QsNode fieldCopy : root.getChildren()) {
+            Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, fieldCopy.getType());
+            Assertions.assertEquals(2, fieldCopy.getChildren().size());
+            Assertions.assertEquals("title", fieldCopy.getChildren().get(0).getField());
+            Assertions.assertEquals("music", fieldCopy.getChildren().get(0).getValue());
+            Assertions.assertEquals("content", fieldCopy.getChildren().get(1).getField());
+            Assertions.assertEquals("history", fieldCopy.getChildren().get(1).getValue());
+        }
     }
 
     @Test
     public void testMultiFieldMixedExplicitAndBareTerms() {
-        // "title:football AND american" → +title:football +(title:american | content:american)
-        // Explicit field pinned, bare term expanded
+        // "title:football AND american" with best_fields →
+        //   OR(OCCUR_BOOLEAN(title:football, title:american), OCCUR_BOOLEAN(title:football, content:american))
         String dsl = "title:football AND american";
         String options = "{\"fields\":[\"title\",\"content\"],\"default_operator\":\"and\",\"mode\":\"lucene\",\"type\":\"best_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
         QsNode root = plan.getRoot();
-        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, root.getType());
+        Assertions.assertEquals(QsClauseType.OR, root.getType());
         Assertions.assertEquals(2, root.getChildren().size());
 
-        // First child: title:football - pinned to "title"
-        QsNode footballNode = root.getChildren().get(0);
-        Assertions.assertEquals(QsClauseType.TERM, footballNode.getType());
-        Assertions.assertEquals("title", footballNode.getField());
-        Assertions.assertEquals("football", footballNode.getValue());
+        // First child: title copy → title:football AND title:american
+        QsNode titleCopy = root.getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, titleCopy.getType());
+        Assertions.assertEquals("title", titleCopy.getChildren().get(0).getField());
+        Assertions.assertEquals("football", titleCopy.getChildren().get(0).getValue());
+        Assertions.assertEquals("title", titleCopy.getChildren().get(1).getField());
+        Assertions.assertEquals("american", titleCopy.getChildren().get(1).getValue());
 
-        // Second child: american - expanded across [title, content]
-        QsNode americanGroup = root.getChildren().get(1);
-        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, americanGroup.getType());
-        Assertions.assertEquals(2, americanGroup.getChildren().size());
-        Assertions.assertEquals("title", americanGroup.getChildren().get(0).getField());
-        Assertions.assertEquals("content", americanGroup.getChildren().get(1).getField());
+        // Second child: content copy → title:football AND content:american
+        QsNode contentCopy = root.getChildren().get(1);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, contentCopy.getType());
+        Assertions.assertEquals("title", contentCopy.getChildren().get(0).getField());
+        Assertions.assertEquals("content", contentCopy.getChildren().get(1).getField());
     }
 
     @Test
@@ -2393,8 +2393,8 @@ public class SearchDslParserTest {
     // ============ Tests for MATCH_ALL_DOCS in multi-field mode ============
     @Test
     public void testMultiFieldMatchAllDocsBestFieldsLuceneMode() {
-        // Test: "*" with best_fields + lucene mode should produce MATCH_ALL_DOCS
-        // with field bindings for all specified fields (needed for push-down)
+        // Test: "*" with best_fields + lucene mode should produce OR(MATCH_ALL_DOCS, MATCH_ALL_DOCS)
+        // because best_fields duplicates the entire query per field.
         String dsl = "*";
         String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"best_fields\","
                 + "\"default_operator\":\"AND\",\"mode\":\"lucene\",\"minimum_should_match\":0}";
@@ -2402,19 +2402,13 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.MATCH_ALL_DOCS, plan.getRoot().getType());
-
-        // Must have field bindings for push-down to work
-        Assertions.assertNotNull(plan.getFieldBindings());
-        Assertions.assertFalse(plan.getFieldBindings().isEmpty(),
-                "MATCH_ALL_DOCS in multi-field mode must have field bindings for push-down");
-        Assertions.assertEquals(2, plan.getFieldBindings().size());
-
-        // Verify field names
-        java.util.List<String> bindingNames = plan.getFieldBindings().stream()
-                .map(QsFieldBinding::getFieldName).collect(java.util.stream.Collectors.toList());
-        Assertions.assertTrue(bindingNames.contains("title"));
-        Assertions.assertTrue(bindingNames.contains("content"));
+        // best_fields wraps per-field copies in OR
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
+        // Each child is a MATCH_ALL_DOCS copy
+        for (QsNode child : plan.getRoot().getChildren()) {
+            Assertions.assertEquals(QsClauseType.MATCH_ALL_DOCS, child.getType());
+        }
     }
 
     @Test
@@ -2477,9 +2471,8 @@ public class SearchDslParserTest {
     @Test
     public void testMultiFieldMatchAllDocsPreservesOccurInOrQuery() {
         // Test: '"Lauren Boebert" OR *' with multi-field + lucene mode + best_fields
-        // Bug: expandCrossFields was dropping the SHOULD occur on MATCH_ALL_DOCS nodes,
-        // causing BE to default to MUST, which changed the semantics from
-        // "phrase OR match_all" (= all docs) to "phrase AND match_all" (= only phrase matches).
+        // best_fields duplicates the entire query per field, wrapping in OR.
+        // Each per-field copy should preserve MATCH_ALL_DOCS with SHOULD occur.
         String dsl = "\"Lauren Boebert\" OR *";
         String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"best_fields\","
                 + "\"default_operator\":\"AND\",\"mode\":\"lucene\",\"minimum_should_match\":0}";
@@ -2487,26 +2480,32 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
         Assertions.assertNotNull(plan);
 
-        // Root should be OCCUR_BOOLEAN
-        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
+        // Root should be OR (best_fields per-field wrapping)
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
 
-        // Find the MATCH_ALL_DOCS child - it MUST have occur=SHOULD
-        boolean foundMatchAllWithShould = false;
-        for (QsNode child : plan.getRoot().getChildren()) {
-            if (child.getType() == QsClauseType.MATCH_ALL_DOCS) {
-                Assertions.assertEquals(QsOccur.SHOULD, child.getOccur(),
-                        "MATCH_ALL_DOCS must preserve SHOULD occur after multi-field expansion");
-                foundMatchAllWithShould = true;
+        // Each OR child is a per-field copy containing MATCH_ALL_DOCS with SHOULD
+        for (QsNode fieldCopy : plan.getRoot().getChildren()) {
+            boolean foundMatchAllWithShould = false;
+            // The per-field copy is an OCCUR_BOOLEAN with phrase + MATCH_ALL_DOCS children
+            Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, fieldCopy.getType());
+            for (QsNode child : fieldCopy.getChildren()) {
+                if (child.getType() == QsClauseType.MATCH_ALL_DOCS) {
+                    Assertions.assertEquals(QsOccur.SHOULD, child.getOccur(),
+                            "MATCH_ALL_DOCS must preserve SHOULD occur in best_fields expansion");
+                    foundMatchAllWithShould = true;
+                }
             }
+            Assertions.assertTrue(foundMatchAllWithShould,
+                    "Each per-field copy should contain MATCH_ALL_DOCS with SHOULD occur");
         }
-        Assertions.assertTrue(foundMatchAllWithShould,
-                "Should contain MATCH_ALL_DOCS node with SHOULD occur");
     }
 
     @Test
     public void testMultiFieldMatchAllDocsPreservesOccurWithAndOperator() {
-        // Test: 'Dollar AND *' with multi-field + lucene mode
-        // MATCH_ALL_DOCS should have occur=MUST (from AND operator)
+        // Test: 'Dollar AND *' with multi-field + lucene mode + best_fields
+        // best_fields duplicates the entire query per field, wrapping in OR.
+        // Each per-field copy should preserve MATCH_ALL_DOCS with MUST occur.
         String dsl = "Dollar AND *";
         String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"best_fields\","
                 + "\"default_operator\":\"OR\",\"mode\":\"lucene\",\"minimum_should_match\":0}";
@@ -2514,18 +2513,48 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
         Assertions.assertNotNull(plan);
 
-        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
+        // Root should be OR (best_fields per-field wrapping)
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
 
-        // Find the MATCH_ALL_DOCS child - it MUST have occur=MUST (from AND operator)
-        boolean foundMatchAllWithMust = false;
-        for (QsNode child : plan.getRoot().getChildren()) {
-            if (child.getType() == QsClauseType.MATCH_ALL_DOCS) {
-                Assertions.assertEquals(QsOccur.MUST, child.getOccur(),
-                        "MATCH_ALL_DOCS must preserve MUST occur after multi-field expansion");
-                foundMatchAllWithMust = true;
+        // Each OR child is a per-field copy containing MATCH_ALL_DOCS with MUST
+        for (QsNode fieldCopy : plan.getRoot().getChildren()) {
+            boolean foundMatchAllWithMust = false;
+            Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, fieldCopy.getType());
+            for (QsNode child : fieldCopy.getChildren()) {
+                if (child.getType() == QsClauseType.MATCH_ALL_DOCS) {
+                    Assertions.assertEquals(QsOccur.MUST, child.getOccur(),
+                            "MATCH_ALL_DOCS must preserve MUST occur in best_fields expansion");
+                    foundMatchAllWithMust = true;
+                }
             }
+            Assertions.assertTrue(foundMatchAllWithMust,
+                    "Each per-field copy should contain MATCH_ALL_DOCS with MUST occur");
         }
-        Assertions.assertTrue(foundMatchAllWithMust,
-                "Should contain MATCH_ALL_DOCS node with MUST occur");
+    }
+
+    @Test
+    public void testMultiFieldBestFieldsVsCrossFieldsDifferentStructure() {
+        // Verify that best_fields and cross_fields produce structurally different trees.
+        // best_fields: OR(entire_query_for_field1, entire_query_for_field2)
+        // cross_fields: each leaf term → OR(field1:term, field2:term)
+        String dsl = "hello AND world";
+        String bestFieldsOpts = "{\"fields\":[\"title\",\"content\"],\"type\":\"best_fields\","
+                + "\"default_operator\":\"OR\",\"mode\":\"lucene\",\"minimum_should_match\":0}";
+        String crossFieldsOpts = "{\"fields\":[\"title\",\"content\"],\"type\":\"cross_fields\","
+                + "\"default_operator\":\"OR\",\"mode\":\"lucene\",\"minimum_should_match\":0}";
+
+        QsPlan bestPlan = SearchDslParser.parseDsl(dsl, bestFieldsOpts);
+        QsPlan crossPlan = SearchDslParser.parseDsl(dsl, crossFieldsOpts);
+
+        // best_fields: OR root, each child is a per-field OCCUR_BOOLEAN
+        Assertions.assertEquals(QsClauseType.OR, bestPlan.getRoot().getType());
+        Assertions.assertEquals(2, bestPlan.getRoot().getChildren().size());
+        for (QsNode child : bestPlan.getRoot().getChildren()) {
+            Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, child.getType());
+        }
+
+        // cross_fields: OCCUR_BOOLEAN root, each leaf term expanded to OR(field1, field2)
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, crossPlan.getRoot().getType());
     }
 }

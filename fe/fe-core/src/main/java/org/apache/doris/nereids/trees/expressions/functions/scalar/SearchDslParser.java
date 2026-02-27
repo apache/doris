@@ -567,12 +567,17 @@ public class SearchDslParser {
             QsLuceneModeAstBuilder visitor = new QsLuceneModeAstBuilder(effectiveOptions, fields.get(0));
             QsNode root = visitor.visit(tree);
 
-            // In ES query_string, both best_fields and cross_fields use per-clause expansion
-            // (each clause is independently expanded across fields). The difference is only
-            // in scoring (dis_max vs blended analysis), which doesn't apply to Doris since
-            // search() is a boolean filter. So we always use expandCrossFields here.
-            // Type validation already happened in SearchOptions.setType().
-            QsNode expandedRoot = MultiFieldExpander.expandCrossFields(root, fields, true);
+            // Apply multi-field expansion based on type (same as standard mode).
+            // best_fields: entire query copied per field, joined with OR (dis_max in ES).
+            //   Semantics: doc matches if full query matches in ANY single field.
+            // cross_fields: each term expands across fields independently.
+            //   Semantics: doc matches if each term exists in at least one field.
+            QsNode expandedRoot;
+            if (effectiveOptions.isBestFieldsMode()) {
+                expandedRoot = MultiFieldExpander.expandBestFields(root, fields);
+            } else {
+                expandedRoot = MultiFieldExpander.expandCrossFields(root, fields, true);
+            }
 
             // Extract field bindings from expanded AST
             Set<String> fieldNames = collectFieldNames(expandedRoot);
