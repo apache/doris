@@ -292,6 +292,20 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
     private synchronized void eraseDatabaseWithSameName(String dbName, long currentTimeMs,
                                                         int maxSameNameTrashNum, List<Long> sameNameDbIdList) {
+        // clean up stale ids that lost their recycleTime to avoid NPE during sort
+        Iterator<Long> staleIt = sameNameDbIdList.iterator();
+        while (staleIt.hasNext()) {
+            Long id = staleIt.next();
+            if (!idToRecycleTime.containsKey(id)) {
+                LOG.warn("eraseDatabaseWithSameName: db[{}] in dbNameToIds[{}] but not in idToRecycleTime,"
+                        + " cleaning up stale entry", id, dbName);
+                staleIt.remove();
+                dbNameToIds.computeIfPresent(dbName, (k, v) -> {
+                    v.remove(id);
+                    return v.isEmpty() ? null : v;
+                });
+            }
+        }
         List<Long> dbIdToErase = getIdListToEraseByRecycleTime(sameNameDbIdList, maxSameNameTrashNum);
         for (Long dbId : dbIdToErase) {
             RecycleDatabaseInfo dbInfo = idToDatabase.get(dbId);
@@ -376,6 +390,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 long tableId = table.getId();
 
                 if (isExpire(tableId, currentTimeMs)) {
+                    LOG.info("eraseTable: about to erase table[{}-{}], isManagedTable={}, type={}",
+                            tableId, table.getName(), table.isManagedTable(), table.getType());
                     if (table.isManagedTable()) {
                         Env.getCurrentEnv().onEraseOlapTable(tableInfo.dbId, (OlapTable) table, false);
                     }
@@ -413,6 +429,20 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
     private synchronized void eraseTableWithSameName(long dbId, String tableName, long currentTimeMs,
             int maxSameNameTrashNum, List<Long> sameNameTableIdList) {
+        // clean up stale ids that lost their recycleTime to avoid NPE during sort
+        Iterator<Long> staleIt = sameNameTableIdList.iterator();
+        while (staleIt.hasNext()) {
+            Long id = staleIt.next();
+            if (!idToRecycleTime.containsKey(id)) {
+                LOG.warn("eraseTableWithSameName: table[{}] in dbIdTableNameToIds[{}-{}] but not in"
+                        + " idToRecycleTime, cleaning up stale entry", id, dbId, tableName);
+                staleIt.remove();
+                dbIdTableNameToIds.computeIfPresent(Pair.of(dbId, tableName), (k, v) -> {
+                    v.remove(id);
+                    return v.isEmpty() ? null : v;
+                });
+            }
+        }
         List<Long> tableIdToErase = getIdListToEraseByRecycleTime(sameNameTableIdList, maxSameNameTrashNum);
         for (Long tableId : tableIdToErase) {
             RecycleTableInfo tableInfo = idToTable.get(tableId);
@@ -444,6 +474,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         if (tableInfo == null) {
             // FIXME(walter): Sometimes `eraseTable` in 'DROP DB ... FORCE' may be executed earlier than
             // finish drop db, especially in the case of drop db with many tables.
+            LOG.warn("replayEraseTable: tableInfo is null for table[{}], skip onEraseOlapTable!", tableId);
             return;
         }
 
@@ -569,8 +600,14 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         if (ids.size() <= maxTrashNum) {
             return idToErase;
         }
+        // filter out ids whose recycleTime has already been removed to avoid NPE during sort
+        ids.removeIf(id -> !idToRecycleTime.containsKey(id));
+        if (ids.size() <= maxTrashNum) {
+            return idToErase;
+        }
         // order by recycle time desc
-        ids.sort((x, y) -> Long.compare(idToRecycleTime.get(y), idToRecycleTime.get(x)));
+        ids.sort((x, y) -> Long.compare(idToRecycleTime.getOrDefault(y, 0L),
+                                         idToRecycleTime.getOrDefault(x, 0L)));
 
         for (int i = maxTrashNum; i < ids.size(); i++) {
             idToErase.add(ids.get(i));
@@ -1189,6 +1226,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         erasePartition(currentTimeMs, keepNum);
         eraseTable(currentTimeMs, keepNum);
         eraseDatabase(currentTimeMs, keepNum);
+        LOG.info("recycleBin cleanup done. idToTable={}, idToPartition={}, idToDatabase={}, invertedIndexSize={}",
+                idToTable.size(), idToPartition.size(), idToDatabase.size(),
+                Env.getCurrentInvertedIndex().getTabletMetaMap().size());
     }
 
     public synchronized List<List<String>> getInfo() {
