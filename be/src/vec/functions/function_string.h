@@ -199,7 +199,6 @@ public:
         auto right_column =
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
 
-
         const auto* left = check_and_get_column<ColumnString>(left_column.get());
         const auto* right = check_and_get_column<ColumnString>(right_column.get());
 
@@ -249,7 +248,6 @@ public:
         return Status::OK();
     }
 };
-
 
 class FunctionAutoPartitionName : public IFunction {
 public:
