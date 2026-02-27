@@ -1449,8 +1449,6 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionOverlay>();
     factory.register_function<FunctionStrcmp>();
     factory.register_function<FunctionHammingDistance>();
-    factory.register_function<FunctionNgramSearch>();
-
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");

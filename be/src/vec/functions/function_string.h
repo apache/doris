@@ -194,8 +194,11 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        auto left_column = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto right_column = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto left_column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto right_column =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+
 
         const auto* left = check_and_get_column<ColumnString>(left_column.get());
         const auto* right = check_and_get_column<ColumnString>(right_column.get());
@@ -231,8 +234,7 @@ public:
                 uint8_t l_step = simd::get_utf8_byte_length(static_cast<uint8_t>(l.data[l_pos]));
                 uint8_t r_step = simd::get_utf8_byte_length(static_cast<uint8_t>(r.data[r_pos]));
 
-                if (l_step != r_step ||
-                    std::memcmp(l.data + l_pos, r.data + r_pos, l_step) != 0) {
+                if (l_step != r_step || std::memcmp(l.data + l_pos, r.data + r_pos, l_step) != 0) {
                     ++distance;
                 }
 
