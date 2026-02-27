@@ -60,6 +60,18 @@ protected:
     void SetUp() override {}
 };
 
+class MockTaskController : public TaskController {
+public:
+    MockTaskController() = default;
+    ~MockTaskController() override = default;
+
+    std::string get_user() override { return _user; }
+    void set_user(std::string user) { _user = user; }
+
+private:
+    std::string _user;
+};
+
 TEST_F(WorkloadSchedPolicyTest, one_policy_one_condition) {
     // 1 empty resource
     {
@@ -322,6 +334,46 @@ TEST_F(WorkloadSchedPolicyTest, test_task_controller_running_time) {
 
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     EXPECT_EQ(task_controller->running_time(), finished_running_time);
+}
+
+TEST_F(WorkloadSchedPolicyTest, one_policy_username_condition) {
+    std::shared_ptr<WorkloadSchedPolicy> policy = std::make_shared<WorkloadSchedPolicy>();
+    std::vector<std::unique_ptr<WorkloadCondition>> cond_ptr_list;
+    cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::USERNAME,
+                                                      TCompareOperator::type::EQUAL, "admin"));
+    std::vector<std::unique_ptr<WorkloadAction>> action_ptr_list;
+    action_ptr_list.push_back(create_workload_action(TWorkloadActionType::type::CANCEL_QUERY));
+    std::set<int64_t> wg_id_set;
+    policy->init(0, "p1", 0, true, 0, wg_id_set, std::move(cond_ptr_list),
+                 std::move(action_ptr_list));
+
+    WorkloadAction::RuntimeContext action_runtime_ctx = create_runtime_context();
+    std::unique_ptr<MockTaskController> task_controller = std::make_unique<MockTaskController>();
+    task_controller->set_user("root");
+    action_runtime_ctx.resource_ctx->set_task_controller(std::move(task_controller));
+    EXPECT_FALSE(policy->is_match(&action_runtime_ctx));
+
+    static_cast<MockTaskController*>(action_runtime_ctx.resource_ctx->task_controller())
+            ->set_user("admin");
+    EXPECT_TRUE(policy->is_match(&action_runtime_ctx));
+
+    // Test INVALID operator
+    {
+        std::shared_ptr<WorkloadSchedPolicy> policy = std::make_shared<WorkloadSchedPolicy>();
+        std::vector<std::unique_ptr<WorkloadCondition>> cond_ptr_list;
+        cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::USERNAME,
+                                                          TCompareOperator::type::GREATER, "admin"));
+        std::vector<std::unique_ptr<WorkloadAction>> action_ptr_list;
+        std::set<int64_t> wg_id_set;
+        policy->init(0, "p1", 0, true, 0, wg_id_set, std::move(cond_ptr_list),
+                     std::move(action_ptr_list));
+
+        WorkloadAction::RuntimeContext action_runtime_ctx = create_runtime_context();
+        std::unique_ptr<MockTaskController> task_controller = std::make_unique<MockTaskController>();
+        task_controller->set_user("admin");
+        action_runtime_ctx.resource_ctx->set_task_controller(std::move(task_controller));
+        EXPECT_FALSE(policy->is_match(&action_runtime_ctx));
+    }
 }
 
 } // namespace doris

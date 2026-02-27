@@ -247,4 +247,43 @@ suite("test_workload_sched_policy") {
 
     sql "drop user test_alter_policy_user"
     sql "drop workload policy test_alter_policy"
+
+    // ============================================================================
+    // Test mixed policy (Username + Query Time)
+    // ============================================================================
+    
+    // 1. Create a user
+    sql "DROP USER IF EXISTS 'test_policy_user_be'"
+    sql "CREATE USER 'test_policy_user_be'@'%' IDENTIFIED BY '12345'"
+    sql "GRANT SELECT_PRIV ON *.* TO 'test_policy_user_be'@'%'"
+
+    // 2. Create a workload group
+    sql "DROP WORKLOAD GROUP IF EXISTS policy_group_be $forComputeGroupStr"
+    sql "CREATE WORKLOAD GROUP policy_group_be $forComputeGroupStr PROPERTIES ('max_cpu_percent'='100')"
+    sql "GRANT USAGE_PRIV ON WORKLOAD GROUP 'policy_group_be' TO 'test_policy_user_be'@'%'"
+
+    // 3. Create a policy with both username (FE metric) and query_time (BE metric)
+    sql "DROP WORKLOAD POLICY IF EXISTS test_mixed_policy"
+    
+    sql """
+        CREATE WORKLOAD POLICY test_mixed_policy
+        CONDITIONS(username='test_policy_user_be', query_time > 1000)
+        ACTIONS(cancel_query) 
+        PROPERTIES('workload_group'='${currentCgName}policy_group_be')
+    """
+
+    // 4. Verify policy creation
+    def policy = sql "SELECT * FROM information_schema.workload_policy WHERE name='test_mixed_policy'"
+    assertTrue(policy.size() > 0, "Policy should be created successfully")
+
+    // 5. Test execution
+    connect('test_policy_user_be', '12345', context.config.jdbcUrl) {
+        sql "set workload_group = 'policy_group_be'"
+        sql "SELECT 1" 
+    }
+
+    // Cleanup
+    sql "DROP WORKLOAD POLICY IF EXISTS test_mixed_policy"
+    sql "DROP WORKLOAD GROUP IF EXISTS policy_group_be $forComputeGroupStr"
+    sql "DROP USER IF EXISTS 'test_policy_user_be'"
 }
