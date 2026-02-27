@@ -1822,28 +1822,29 @@ void CloudTablet::clear_unused_visible_pending_rowsets() {
 void CloudTablet::try_make_committed_rs_visible(int64_t txn_id, int64_t visible_version,
                                                 int64_t version_update_time_ms) {
     if (enable_unique_key_merge_on_write()) {
+        // for mow tablet, we get committed rowset from `CloudTxnDeleteBitmapCache` rather than `CommittedRowsetManager`
         try_make_committed_rs_visible_for_mow(txn_id, visible_version, version_update_time_ms);
-    } else {
-        auto& committed_rs_mgr = _engine.committed_rs_mgr();
-        auto res = committed_rs_mgr.get_committed_rowset(txn_id, tablet_id());
-        if (!res.has_value()) {
-            return;
-        }
-        auto [rowset_meta, expiration_time] = res.value();
-        bool is_empty_rowset = (rowset_meta == nullptr);
-        if (!is_empty_rowset) {
-            rowset_meta->set_cloud_fields_after_visible(visible_version, version_update_time_ms);
-        }
-        {
-            std::lock_guard<std::mutex> lock(_visible_pending_rs_lock);
-            _visible_pending_rs_map.emplace(
-                    visible_version,
-                    VisiblePendingRowset {rowset_meta, expiration_time, is_empty_rowset});
-        }
-
-        apply_visible_pending_rowsets();
-        committed_rs_mgr.remove_committed_rowset(txn_id, tablet_id());
+        return;
     }
+
+    auto& committed_rs_mgr = _engine.committed_rs_mgr();
+    auto res = committed_rs_mgr.get_committed_rowset(txn_id, tablet_id());
+    if (!res.has_value()) {
+        return;
+    }
+    auto [rowset_meta, expiration_time] = res.value();
+    bool is_empty_rowset = (rowset_meta == nullptr);
+    if (!is_empty_rowset) {
+        rowset_meta->set_cloud_fields_after_visible(visible_version, version_update_time_ms);
+    }
+    {
+        std::lock_guard<std::mutex> lock(_visible_pending_rs_lock);
+        _visible_pending_rs_map.emplace(
+                visible_version,
+                VisiblePendingRowset {rowset_meta, expiration_time, is_empty_rowset});
+    }
+    apply_visible_pending_rowsets();
+    committed_rs_mgr.remove_committed_rowset(txn_id, tablet_id());
 }
 
 void CloudTablet::try_make_committed_rs_visible_for_mow(int64_t txn_id, int64_t visible_version,
@@ -1900,69 +1901,65 @@ void CloudTablet::try_make_committed_rs_visible_for_mow(int64_t txn_id, int64_t 
 
 void CloudTablet::apply_visible_pending_rowsets() {
     Defer defer {[&] { clear_unused_visible_pending_rowsets(); }};
-    {
-        std::unique_lock lock(_sync_meta_lock);
-        std::unique_lock<std::shared_mutex> meta_wlock(_meta_lock);
-        int64_t next_version = _max_version + 1;
-        std::vector<RowsetSharedPtr> to_add;
-        std::lock_guard<std::mutex> pending_lock(_visible_pending_rs_lock);
-        for (auto it = _visible_pending_rs_map.upper_bound(_max_version);
-             it != _visible_pending_rs_map.end(); ++it) {
-            if (int64_t version = it->first; version == next_version) {
-                auto& pending_rs = it->second;
-                if (pending_rs.is_empty_rowset) {
-                    RowsetSharedPtr prev_rowset {nullptr};
-                    if (!to_add.empty()) {
-                        prev_rowset = to_add.back();
-                    } else {
-                        Versions existing_versions;
-                        for (const auto& [_, rs] : tablet_meta()->all_rs_metas()) {
-                            existing_versions.emplace_back(rs->version());
-                        }
-                        if (existing_versions.empty()) {
-                            break;
-                        }
-                        auto max_version = std::ranges::max(existing_versions, {}, &Version::first);
-                        prev_rowset = get_rowset_by_version(max_version);
-                    }
-                    RowsetSharedPtr rowset;
-                    auto st = _engine.meta_mgr().create_empty_rowset_for_hole(
-                            this, version, prev_rowset->rowset_meta(), &rowset);
-                    if (!st.ok()) {
-                        return;
-                    }
-                    to_add.push_back(std::move(rowset));
-                } else {
-                    RowsetSharedPtr rowset;
-                    auto st = RowsetFactory::create_rowset(nullptr, "", pending_rs.rowset_meta,
-                                                           &rowset);
-                    if (!st.ok()) {
-                        LOG(WARNING)
-                                << "failed to create rowset from pending rowset meta, tablet_id="
-                                << tablet_id() << ", version=" << version
-                                << ", rowset_id=" << pending_rs.rowset_meta->rowset_id().to_string()
-                                << ", error=" << st;
-                        break;
-                    }
-                    to_add.push_back(std::move(rowset));
-                }
-                next_version++;
+
+    std::unique_lock lock(_sync_meta_lock);
+    std::unique_lock<std::shared_mutex> meta_wlock(_meta_lock);
+    int64_t next_version = _max_version + 1;
+    std::vector<RowsetSharedPtr> to_add;
+    std::lock_guard<std::mutex> pending_lock(_visible_pending_rs_lock);
+    for (auto it = _visible_pending_rs_map.upper_bound(_max_version);
+         it != _visible_pending_rs_map.end(); ++it) {
+        int64_t version = it->first;
+        if (version != next_version) break;
+
+        auto& pending_rs = it->second;
+        if (pending_rs.is_empty_rowset) {
+            RowsetSharedPtr prev_rowset {nullptr};
+            if (!to_add.empty()) {
+                prev_rowset = to_add.back();
             } else {
+                Versions existing_versions;
+                for (const auto& [_, rs] : tablet_meta()->all_rs_metas()) {
+                    existing_versions.emplace_back(rs->version());
+                }
+                if (existing_versions.empty()) {
+                    break;
+                }
+                auto max_version = std::ranges::max(existing_versions, {}, &Version::first);
+                prev_rowset = get_rowset_by_version(max_version);
+            }
+            RowsetSharedPtr rowset;
+            auto st = _engine.meta_mgr().create_empty_rowset_for_hole(
+                    this, version, prev_rowset->rowset_meta(), &rowset);
+            if (!st.ok()) {
+                return;
+            }
+            to_add.push_back(std::move(rowset));
+        } else {
+            RowsetSharedPtr rowset;
+            auto st = RowsetFactory::create_rowset(nullptr, "", pending_rs.rowset_meta, &rowset);
+            if (!st.ok()) {
+                LOG(WARNING) << "failed to create rowset from pending rowset meta, tablet_id="
+                             << tablet_id() << ", version=" << version
+                             << ", rowset_id=" << pending_rs.rowset_meta->rowset_id().to_string()
+                             << ", error=" << st;
                 break;
             }
+            to_add.push_back(std::move(rowset));
         }
-        if (!to_add.empty()) {
-            add_rowsets(to_add, false, meta_wlock, true);
-            LOG_INFO(
-                    "applied_visible_pending_rowsets, tablet_id={}, new_max_version={}, count={}, "
-                    "new_rowsets={}",
-                    tablet_id(), _max_version, to_add.size(),
-                    fmt::join(to_add | std::views::transform([](const RowsetSharedPtr& rs) {
-                                  return fmt::format("{}{}", rs->rowset_id().to_string(),
-                                                     rs->version().to_string());
-                              }),
-                              ","));
-        }
+        next_version++;
+    }
+    if (!to_add.empty()) {
+        add_rowsets(to_add, false, meta_wlock, true);
+        LOG_INFO(
+                "applied_visible_pending_rowsets, tablet_id={}, new_max_version={}, "
+                "count={}, new_rowsets={}",
+                tablet_id(), _max_version, to_add.size(),
+                fmt::join(to_add | std::views::transform([](const RowsetSharedPtr& rs) {
+                              return fmt::format("{}{}", rs->rowset_id().to_string(),
+                                                 rs->version().to_string());
+                          }),
+                          ","));
     }
 }
 
