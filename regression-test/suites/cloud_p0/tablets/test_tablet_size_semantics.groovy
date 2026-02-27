@@ -22,6 +22,18 @@ suite("test_tablet_size_semantics") {
 
     def dbName = "test_tablet_size_semantics_db"
     def tableName = "test_tablet_size_semantics_tbl"
+    def parseDataSizeToBytes = { Object dataSize ->
+        String normalized = dataSize == null ? "" : dataSize.toString().replaceAll("\\s+", "")
+        if (normalized.isEmpty()) {
+            return 0L
+        }
+        if (!(normalized ==~ /.*[A-Za-z]$/)) {
+            normalized = normalized + "B"
+        }
+        def parsedRows = sql_return_maparray("SELECT parse_data_size('${normalized}') AS bytes")
+        assertTrue(parsedRows.size() == 1)
+        return parsedRows[0]["bytes"].toString().toLong()
+    }
 
     sql "drop database if exists ${dbName}"
     sql "create database ${dbName}"
@@ -52,34 +64,57 @@ suite("test_tablet_size_semantics") {
     def showTabletRows = sql_return_maparray("show tablets from ${tableName}")
     assertTrue(showTabletRows.size() == 1)
     def showTabletRow = showTabletRows[0]
-    long tabletId = (showTabletRow["TabletId"] as Number).longValue()
-    long beId = (showTabletRow["BackendId"] as Number).longValue()
-    long showLocalSize = (showTabletRow["LocalDataSize"] as Number).longValue()
-    long showRemoteSize = (showTabletRow["RemoteDataSize"] as Number).longValue()
+    long tabletId = showTabletRow["TabletId"].toString().toLong()
+    long showLocalSize = -1L
+    long showRemoteSize = -1L
+    long backendLocalSize = -1L
+    long backendRemoteSize = -1L
+    boolean sizeAligned = false
 
-    def backendTabletRows = sql_return_maparray("""
-        SELECT
-            tablet_local_size AS be_local_size,
-            tablet_remote_size AS be_remote_size
-        FROM information_schema.backend_tablets
-        WHERE tablet_id = ${tabletId}
-          AND be_id = ${beId}
-        ORDER BY update_time DESC
-        LIMIT 1
-    """)
-    assertTrue(backendTabletRows.size() == 1)
-    def backendTabletRow = backendTabletRows[0]
-    long backendLocalSize = (backendTabletRow["be_local_size"] as Number).longValue()
-    long backendRemoteSize = (backendTabletRow["be_remote_size"] as Number).longValue()
+    // SHOW TABLETS size stats may lag behind backend_tablets for tens of seconds.
+    for (int i = 0; i < 120; i++) {
+        def latestShowTabletRows = sql_return_maparray("show tablets from ${tableName}")
+        assertTrue(latestShowTabletRows.size() == 1)
+        def latestShowTabletRow = latestShowTabletRows[0]
+        showLocalSize = latestShowTabletRow["LocalDataSize"].toString().toLong()
+        showRemoteSize = latestShowTabletRow["RemoteDataSize"].toString().toLong()
+        long backendIdForCheck = latestShowTabletRow["BackendId"].toString().toLong()
 
-    assertEquals(showLocalSize, backendLocalSize)
-    assertEquals(showRemoteSize, backendRemoteSize)
-    assertTrue(backendLocalSize > 0 || backendRemoteSize > 0)
+        def backendTabletRows = sql_return_maparray("""
+            SELECT
+                tablet_local_size AS be_local_size,
+                tablet_remote_size AS be_remote_size
+            FROM information_schema.backend_tablets
+            WHERE tablet_id = ${tabletId}
+              AND be_id = ${backendIdForCheck}
+            ORDER BY update_time DESC
+            LIMIT 1
+        """)
+        if (backendTabletRows.size() == 1) {
+            def backendTabletRow = backendTabletRows[0]
+            backendLocalSize = backendTabletRow["be_local_size"].toString().toLong()
+            backendRemoteSize = backendTabletRow["be_remote_size"].toString().toLong()
+            if (showLocalSize == backendLocalSize
+                    && showRemoteSize == backendRemoteSize
+                    && backendRemoteSize > 0) {
+                sizeAligned = true
+                break
+            }
+        }
 
+        logger.info("wait tablet size aligned, show local/remote: {}/{}, backend local/remote: {}/{}",
+                showLocalSize, showRemoteSize, backendLocalSize, backendRemoteSize)
+        sleep(1000)
+    }
+    assertTrue(sizeAligned,
+            "tablet size not aligned within 120s, show local/remote=${showLocalSize}/${showRemoteSize}, " +
+                    "backend local/remote=${backendLocalSize}/${backendRemoteSize}")
+    logger.info("final tablet size aligned, show local/remote: {}/{}, backend local/remote: {}/{}",
+                showLocalSize, showRemoteSize, backendLocalSize, backendRemoteSize)
     def partitionRows = sql_return_maparray("""
         SELECT
-            parse_data_size(local_data_size) AS part_local_size,
-            parse_data_size(remote_data_size) AS part_remote_size
+            local_data_size AS part_local_size,
+            remote_data_size AS part_remote_size
         FROM information_schema.partitions
         WHERE table_schema = '${dbName}'
           AND table_name = '${tableName}'
@@ -88,18 +123,9 @@ suite("test_tablet_size_semantics") {
     """)
     assertTrue(partitionRows.size() == 1)
     def partitionRow = partitionRows[0]
-    long partitionLocalSize = (partitionRow["part_local_size"] as Number).longValue()
-    long partitionRemoteSize = (partitionRow["part_remote_size"] as Number).longValue()
+    long partitionLocalSize = parseDataSizeToBytes(partitionRow["part_local_size"])
+    long partitionRemoteSize = parseDataSizeToBytes(partitionRow["part_remote_size"])
 
-    if (backendLocalSize == 0) {
-        assertEquals(0L, partitionLocalSize)
-    } else {
-        assertTrue(partitionLocalSize > 0)
-    }
-    if (backendRemoteSize == 0) {
-        assertEquals(0L, partitionRemoteSize)
-    } else {
-        assertTrue(partitionRemoteSize > 0)
-    }
+    assertEquals(0L, partitionLocalSize)
+    assertTrue(partitionRemoteSize > 0)
 }
-

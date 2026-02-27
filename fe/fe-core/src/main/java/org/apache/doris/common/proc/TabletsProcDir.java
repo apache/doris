@@ -173,9 +173,19 @@ public class TabletsProcDir implements ProcDirInterface {
                         long remoteDataSize = replica.getRemoteDataSize();
                         // In cloud mode, FE replica dataSize may hold remote bytes while remoteDataSize is 0.
                         // Keep the output semantic consistent with backend_tablets.
-                        if (Config.isCloudMode() && remoteDataSize == 0 && localDataSize > 0) {
-                            remoteDataSize = localDataSize;
-                            localDataSize = 0;
+                        if (Config.isCloudMode()) {
+                            if (remoteDataSize == 0 && localDataSize > 0) {
+                                remoteDataSize = localDataSize;
+                                localDataSize = 0;
+                            } else if (remoteDataSize == 0 && localDataSize == 0) {
+                                // For some cloud stats paths, data_size may be 0 while
+                                // index/segment sizes are already available.
+                                long derivedRemoteSize =
+                                        replica.getLocalInvertedIndexSize() + replica.getLocalSegmentSize();
+                                if (derivedRemoteSize > 0) {
+                                    remoteDataSize = derivedRemoteSize;
+                                }
+                            }
                         }
                         tabletInfo.add(localDataSize);
                         tabletInfo.add(remoteDataSize);
