@@ -23,6 +23,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Function;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.Auth;
@@ -59,13 +60,13 @@ public class ShowFunctionsCommandTest extends TestWithFeService {
 
         // test for not builtin functions
         sf = new ShowFunctionsCommand("test", false, null);
-        List<String> re2 = sf.getFunctions(connectContext);
+        List<Function> re2 = sf.getFunctions(connectContext);
         Assertions.assertEquals(1, re2.size());
-        Assertions.assertEquals("test_for_create_function", re2.get(0));
+        Assertions.assertEquals("test_for_create_function", re2.get(0).functionName());
 
         // test for full not builtin functions
         sf = new ShowFunctionsCommand("test", true, null);
-        List<String> re4 = sf.getFunctions(connectContext);
+        List<Function> re4 = sf.getFunctions(connectContext);
         Assertions.assertEquals(1, re4.size());
     }
 
@@ -75,7 +76,7 @@ public class ShowFunctionsCommandTest extends TestWithFeService {
         ShowFunctionsCommand sf;
         connectContext.setDatabase("test");
         sf = new ShowFunctionsCommand("test", false, null);
-        List<String> func2 = sf.getFunctions(connectContext);
+        List<Function> func2 = sf.getFunctions(connectContext);
         List<List<String>> re2 = sf.getResultRowSetByFunctions(func2);
         Assertions.assertEquals(1, re2.get(0).size());
         Assertions.assertEquals("test_for_create_function", re2.get(0).get(0));
@@ -83,26 +84,24 @@ public class ShowFunctionsCommandTest extends TestWithFeService {
         // test for full not builtin functions
         connectContext.setDatabase("test");
         sf = new ShowFunctionsCommand("test", true, null);
-        List<String> func4 = sf.getFunctions(connectContext);
+        List<Function> func4 = sf.getFunctions(connectContext);
         List<List<String>> re4 = sf.getResultRowSetByFunctions(func4);
         Assertions.assertEquals(5, re4.get(0).size());
-        Assertions.assertEquals("test_for_create_function", re4.get(0).get(0));
-        Assertions.assertEquals("", re4.get(0).get(1));
-        Assertions.assertEquals("", re4.get(0).get(2));
-        Assertions.assertEquals("", re4.get(0).get(3));
-        Assertions.assertEquals("", re4.get(0).get(4));
+        Assertions.assertTrue(re4.get(0).get(0).startsWith("test_for_create_function"));
+        Assertions.assertFalse(re4.get(0).get(1).isEmpty());
+        Assertions.assertFalse(re4.get(0).get(2).isEmpty());
+        Assertions.assertFalse(re4.get(0).get(4).isEmpty());
 
         // test for full not builtin functions with where condition
         String where = "test_for_create_function%";
         sf = new ShowFunctionsCommand("test", true, where);
-        List<String> func5 = sf.getFunctions(connectContext);
+        List<Function> func5 = sf.getFunctions(connectContext);
         List<List<String>> re5 = sf.getResultRowSetByFunctions(func5);
         Assertions.assertEquals(5, re5.get(0).size());
-        Assertions.assertEquals("test_for_create_function", re5.get(0).get(0));
-        Assertions.assertEquals("", re5.get(0).get(1));
-        Assertions.assertEquals("", re5.get(0).get(2));
-        Assertions.assertEquals("", re5.get(0).get(3));
-        Assertions.assertEquals("", re5.get(0).get(4));
+        Assertions.assertTrue(re5.get(0).get(0).startsWith("test_for_create_function"));
+        Assertions.assertFalse(re5.get(0).get(1).isEmpty());
+        Assertions.assertFalse(re5.get(0).get(2).isEmpty());
+        Assertions.assertFalse(re5.get(0).get(4).isEmpty());
     }
 
     @Test

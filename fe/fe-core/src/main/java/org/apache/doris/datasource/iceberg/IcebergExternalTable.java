@@ -31,13 +31,14 @@ import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
-import org.apache.doris.datasource.systable.SupportedSysTables;
+import org.apache.doris.datasource.systable.IcebergSysTable;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
+import org.apache.doris.nereids.trees.plans.commands.info.SortFieldInfo;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ExternalAnalysisTask;
@@ -278,9 +279,9 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     }
 
     @Override
-    public List<SysTable> getSupportedSysTables() {
+    public Map<String, SysTable> getSupportedSysTables() {
         makeSureInitialized();
-        return SupportedSysTables.ICEBERG_SUPPORTED_SYS_TABLES;
+        return IcebergSysTable.SUPPORTED_SYS_TABLES;
     }
 
     @Override
@@ -376,5 +377,39 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         makeSureInitialized();
         Table table = getIcebergTable();
         return table.spec().isPartitioned();
+    }
+
+    /**
+     * Get sort order SQL clause from iceberg table
+     * @return SQL string representing ORDER BY clause, or empty string if no sort order
+     */
+    public String getSortOrderSql() {
+        Table table = getIcebergTable();
+        org.apache.iceberg.SortOrder sortOrder = table.sortOrder();
+        if (sortOrder == null || sortOrder.isUnsorted() || sortOrder.fields().isEmpty()) {
+            return "";
+        }
+
+        List<String> sortItems = new java.util.ArrayList<>();
+        for (org.apache.iceberg.SortField sortField : sortOrder.fields()) {
+            String columnName = table.schema().findColumnName(sortField.sourceId());
+            if (columnName != null) {
+                boolean isAscending = sortField.direction() != org.apache.iceberg.SortDirection.DESC;
+                boolean isNullFirst = sortField.nullOrder() == org.apache.iceberg.NullOrder.NULLS_FIRST;
+                SortFieldInfo sortFieldInfo = new SortFieldInfo(columnName, isAscending, isNullFirst);
+                sortItems.add(sortFieldInfo.toSql());
+            }
+        }
+        return "ORDER BY (" + String.join(", ", sortItems) + ")";
+    }
+
+    /**
+     * Check if table has sort order defined
+     * @return true if table has sort order
+     */
+    public boolean hasSortOrder() {
+        Table table = getIcebergTable();
+        org.apache.iceberg.SortOrder sortOrder = table.sortOrder();
+        return sortOrder != null && !sortOrder.isUnsorted();
     }
 }

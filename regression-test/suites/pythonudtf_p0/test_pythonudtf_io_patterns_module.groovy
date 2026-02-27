@@ -277,9 +277,9 @@ suite("test_pythonudtf_io_patterns_module") {
         );
         """
         
-        sql """ DROP TABLE IF EXISTS test_conditional_module; """
+        sql """ DROP TABLE IF EXISTS test_conditional_module_io; """
         sql """
-        CREATE TABLE test_conditional_module (
+        CREATE TABLE test_conditional_module_io (
             id INT,
             value INT
         ) ENGINE=OLAP
@@ -289,12 +289,12 @@ suite("test_pythonudtf_io_patterns_module") {
         """
         
         sql """
-        INSERT INTO test_conditional_module VALUES (1, 10), (2, -5), (3, 0), (4, 7);
+        INSERT INTO test_conditional_module_io VALUES (1, 10), (2, -5), (3, 0), (4, 7);
         """
         
         qt_conditional """
             SELECT tmp.value, tmp.type
-            FROM test_conditional_module
+            FROM test_conditional_module_io
             LATERAL VIEW udtf_conditional_module(value) tmp AS value, type
             ORDER BY tmp.value, tmp.type;
         """
@@ -434,7 +434,7 @@ suite("test_pythonudtf_io_patterns_module") {
         try_sql("DROP TABLE IF EXISTS test_one_to_variable_module;")
         try_sql("DROP TABLE IF EXISTS test_aggregate_pattern_module;")
         try_sql("DROP TABLE IF EXISTS test_explosive_module;")
-        try_sql("DROP TABLE IF EXISTS test_conditional_module;")
+        try_sql("DROP TABLE IF EXISTS test_conditional_module_io;")
         try_sql("DROP TABLE IF EXISTS test_all_or_nothing_module;")
         try_sql("DROP TABLE IF EXISTS test_empty_input_module;")
         try_sql("DROP TABLE IF EXISTS test_batch_process_module;")

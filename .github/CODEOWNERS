@@ -39,3 +39,4 @@ fe/fe-core/src/main/java/org/apache/doris/fs @CalvinKirs
 fe/fe-core/src/main/java/org/apache/doris/fsv2 @CalvinKirs
 be/src/vec/functions @zclllyybb
 be/**/CMakeLists.txt @zclllyybb @BiteTheDDDDt
+be/src/olap/rowset/segment_v2/variant @eldenmoon @csun5285

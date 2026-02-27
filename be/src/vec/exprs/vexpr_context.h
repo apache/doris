@@ -201,7 +201,9 @@ public:
 
     [[nodiscard]] Status execute_const_expr(ColumnWithTypeAndName& result);
 
-    VExprSPtr root() const { return _root; }
+    double execute_cost() const;
+
+    VExprSPtr root() { return _root; }
     void set_root(const VExprSPtr& expr) { _root = expr; }
     void set_index_context(std::shared_ptr<IndexExecContext> index_context) {
         _index_context = std::move(index_context);
@@ -273,7 +275,12 @@ public:
         return _last_result_column_id;
     }
 
-    RuntimeFilterSelectivity& get_runtime_filter_selectivity() { return *_rf_selectivity; }
+    RuntimeFilterSelectivity& get_runtime_filter_selectivity() {
+        if (!_rf_selectivity) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "RuntimeFilterSelectivity is null");
+        }
+        return *_rf_selectivity;
+    }
 
     FunctionContext::FunctionStateScope get_function_state_scope() const {
         return _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;

@@ -21,6 +21,7 @@
 #include <arrow/table.h>
 #include <arrow/util/key_value_metadata.h>
 #include <glog/logging.h>
+#include <parquet/api/reader.h>
 #include <parquet/column_writer.h>
 #include <parquet/platform.h>
 #include <parquet/schema.h>
@@ -42,6 +43,7 @@
 #include "util/arrow/utils.h"
 #include "util/debug_util.h"
 #include "vec/exec/format/table/iceberg/arrow_schema_util.h"
+#include "vec/exec/format/table/parquet_utils.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -165,7 +167,6 @@ VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWri
                                          const iceberg::Schema* iceberg_schema)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _column_names(std::move(column_names)),
-          _parquet_schemas(nullptr),
           _parquet_options(parquet_options),
           _iceberg_schema_json(iceberg_schema_json),
           _iceberg_schema(iceberg_schema) {
@@ -174,12 +175,12 @@ VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWri
 
 VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                                          const VExprContextSPtrs& output_vexpr_ctxs,
-                                         const std::vector<TParquetSchema>& parquet_schemas,
+                                         std::vector<TParquetSchema> parquet_schemas,
                                          bool output_object_data,
                                          const ParquetFileOptions& parquet_options,
                                          const std::string* iceberg_schema_json)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
-          _parquet_schemas(&parquet_schemas),
+          _parquet_schemas(std::move(parquet_schemas)),
           _parquet_options(parquet_options),
           _iceberg_schema_json(iceberg_schema_json) {
     _iceberg_schema = nullptr;
@@ -228,9 +229,9 @@ Status VParquetTransformer::_parse_schema() {
             std::shared_ptr<arrow::DataType> type;
             RETURN_IF_ERROR(convert_to_arrow_type(_output_vexpr_ctxs[i]->root()->data_type(), &type,
                                                   _state->timezone()));
-            if (_parquet_schemas != nullptr) {
+            if (!_parquet_schemas.empty()) {
                 std::shared_ptr<arrow::Field> field =
-                        arrow::field(_parquet_schemas->operator[](i).schema_column_name, type,
+                        arrow::field(_parquet_schemas[i].schema_column_name, type,
                                      _output_vexpr_ctxs[i]->root()->is_nullable());
                 fields.emplace_back(field);
             } else {
@@ -310,7 +311,69 @@ Status VParquetTransformer::close() {
         LOG(WARNING) << "Parquet writer close error: " << e.what();
         return Status::IOError(e.what());
     }
+
     return Status::OK();
 }
 
+Status VParquetTransformer::collect_file_statistics_after_close(TIcebergColumnStats* stats) {
+    std::shared_ptr<parquet::FileMetaData> file_metadata = _writer->metadata();
+    if (file_metadata == nullptr) {
+        return Status::InternalError("File metadata is not available");
+    }
+    std::map<int, int64_t> column_sizes;
+    std::map<int, int64_t> value_counts;
+    std::map<int, int64_t> null_value_counts;
+    std::map<int, std::string> lower_bounds;
+    std::map<int, std::string> upper_bounds;
+    std::map<int, std::shared_ptr<parquet::Statistics>> merged_column_stats;
+
+    const int num_row_groups = file_metadata->num_row_groups();
+    const int num_columns = file_metadata->num_columns();
+    for (int col_idx = 0; col_idx < num_columns; ++col_idx) {
+        auto field_id = file_metadata->schema()->Column(col_idx)->schema_node()->field_id();
+
+        for (int rg_idx = 0; rg_idx < num_row_groups; ++rg_idx) {
+            auto row_group = file_metadata->RowGroup(rg_idx);
+            auto column_chunk = row_group->ColumnChunk(col_idx);
+            column_sizes[field_id] += column_chunk->total_compressed_size();
+
+            if (column_chunk->is_stats_set()) {
+                auto column_stat = column_chunk->statistics();
+                if (!merged_column_stats.contains(field_id)) {
+                    merged_column_stats[field_id] = column_stat;
+                } else {
+                    parquet_utils::merge_stats(merged_column_stats[field_id], column_stat);
+                }
+            }
+        }
+    }
+
+    bool has_any_null_count = false;
+    bool has_any_min_max = false;
+    for (const auto& [field_id, column_stat] : merged_column_stats) {
+        value_counts[field_id] = column_stat->num_values();
+        if (column_stat->HasNullCount()) {
+            has_any_null_count = true;
+            int64_t null_count = column_stat->null_count();
+            null_value_counts[field_id] = null_count;
+            value_counts[field_id] += null_count;
+        }
+        if (column_stat->HasMinMax()) {
+            has_any_min_max = true;
+            lower_bounds[field_id] = column_stat->EncodeMin();
+            upper_bounds[field_id] = column_stat->EncodeMax();
+        }
+    }
+
+    stats->__set_column_sizes(column_sizes);
+    stats->__set_value_counts(value_counts);
+    if (has_any_null_count) {
+        stats->__set_null_value_counts(null_value_counts);
+    }
+    if (has_any_min_max) {
+        stats->__set_lower_bounds(lower_bounds);
+        stats->__set_upper_bounds(upper_bounds);
+    }
+    return Status::OK();
+}
 } // namespace doris::vectorized

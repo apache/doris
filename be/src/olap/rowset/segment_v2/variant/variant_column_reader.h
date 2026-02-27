@@ -385,6 +385,11 @@ public:
 
     ordinal_t get_current_ordinal() const override { return _inner_iter->get_current_ordinal(); }
 
+    Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    void collect_prefetchers(
+            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+            PrefetcherInitMethod init_method) override;
+
 private:
     Status _process_root_column(vectorized::MutableColumnPtr& dst,
                                 vectorized::MutableColumnPtr& root_column,

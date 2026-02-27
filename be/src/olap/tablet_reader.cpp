@@ -84,20 +84,6 @@ std::string TabletReader::ReaderParams::to_string() const {
     return ss.str();
 }
 
-std::string TabletReader::KeysParam::to_string() const {
-    std::stringstream ss;
-    ss << "start_key_include=" << start_key_include << " end_key_include=" << end_key_include;
-
-    for (const auto& start_key : start_keys) {
-        ss << " keys=" << start_key.to_string();
-    }
-    for (const auto& end_key : end_keys) {
-        ss << " end_keys=" << end_key.to_string();
-    }
-
-    return ss.str();
-}
-
 Status TabletReader::init(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_timer_ns);
 

@@ -340,6 +340,10 @@ void FragmentMgr::stop() {
     _thread_pool->shutdown();
     // Only me can delete
     _query_ctx_map.clear();
+    // in one BE's graceful shutdown, cancel_worker will get related running queries via _get_all_running_queries_from_fe and cancel them.
+    // so clearing here will not make RF consumer hang. if we dont do this, in ~FragmentMgr() there may be QueryContext in _query_ctx_map_delay_delete
+    // destructred and remove it from _query_ctx_map_delay_delete which is destructring. it's UB.
+    _query_ctx_map_delay_delete.clear();
     _pipeline_map.clear();
 }
 
@@ -545,6 +549,19 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                 params.__isset.iceberg_commit_datas = true;
                 params.iceberg_commit_datas.insert(params.iceberg_commit_datas.end(),
                                                    rs_icd.begin(), rs_icd.end());
+            }
+        }
+    }
+
+    if (auto mcd = req.runtime_state->mc_commit_datas(); !mcd.empty()) {
+        params.__isset.mc_commit_datas = true;
+        params.mc_commit_datas.insert(params.mc_commit_datas.end(), mcd.begin(), mcd.end());
+    } else if (!req.runtime_states.empty()) {
+        for (auto* rs : req.runtime_states) {
+            if (auto rs_mcd = rs->mc_commit_datas(); !rs_mcd.empty()) {
+                params.__isset.mc_commit_datas = true;
+                params.mc_commit_datas.insert(params.mc_commit_datas.end(), rs_mcd.begin(),
+                                              rs_mcd.end());
             }
         }
     }

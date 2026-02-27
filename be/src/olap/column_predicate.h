@@ -23,6 +23,7 @@
 #include "common/exception.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/inverted_index_iterator.h"
+#include "olap/rowset/segment_v2/zone_map_index.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime_filter/runtime_filter_selectivity.h"
 #include "util/defer_op.h"
@@ -225,6 +226,8 @@ public:
     }
 
     virtual double get_ignore_threshold() const { return 0; }
+    // If this predicate acts on the key column, this predicate should be erased.
+    virtual bool could_be_erased() const { return false; }
     // Return the size of value set for IN/NOT IN predicates and 0 for others.
     virtual std::string debug_string() const {
         fmt::memory_buffer debug_string_buffer;
@@ -260,17 +263,11 @@ public:
 
     virtual bool support_zonemap() const { return true; }
 
-    virtual bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const {
-        return true;
-    }
+    virtual bool evaluate_and(const segment_v2::ZoneMap& zone_map) const { return true; }
 
-    virtual bool is_always_true(const std::pair<WrapperField*, WrapperField*>& statistic) const {
-        return false;
-    }
+    virtual bool is_always_true(const segment_v2::ZoneMap& zone_map) const { return false; }
 
-    virtual bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const {
-        return false;
-    }
+    virtual bool evaluate_del(const segment_v2::ZoneMap& zone_map) const { return false; }
 
     virtual bool evaluate_and(const vectorized::ParquetBlockSplitBloomFilter* bf) const {
         return true;
@@ -327,8 +324,10 @@ public:
     void attach_profile_counter(
             int filter_id, std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter,
             std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter,
-            std::shared_ptr<RuntimeProfile::Counter> predicate_always_true_rows_counter) {
+            std::shared_ptr<RuntimeProfile::Counter> predicate_always_true_rows_counter,
+            const RuntimeFilterSelectivity& rf_selectivity) {
         _runtime_filter_id = filter_id;
+        _rf_selectivity = rf_selectivity;
         DCHECK(predicate_filtered_rows_counter != nullptr);
         DCHECK(predicate_input_rows_counter != nullptr);
 
@@ -387,7 +386,7 @@ public:
         }
     }
 
-    bool always_true() const { return _always_true; }
+    bool always_true() const { return _rf_selectivity.maybe_always_true_can_ignore(); }
     // Return whether the ColumnPredicate was created by a runtime filter.
     // If true, it was definitely created by a runtime filter.
     // If false, it may still have been created by a runtime filter,
@@ -403,26 +402,17 @@ protected:
         throw Exception(INTERNAL_ERROR, "Not Implemented _evaluate_inner");
     }
 
-    void reset_judge_selectivity() const {
-        _always_true = false;
-        _judge_counter = config::runtime_filter_sampling_frequency;
-        _judge_input_rows = 0;
-        _judge_filter_rows = 0;
-    }
+    void reset_judge_selectivity() const { _rf_selectivity.reset_judge_selectivity(); }
 
     void try_reset_judge_selectivity() const {
-        if (_can_ignore() && ((_judge_counter--) == 0)) {
-            reset_judge_selectivity();
+        if (_can_ignore()) {
+            _rf_selectivity.update_judge_counter();
         }
     }
 
     void do_judge_selectivity(uint64_t filter_rows, uint64_t input_rows) const {
-        if (!_always_true) {
-            _judge_filter_rows += filter_rows;
-            _judge_input_rows += input_rows;
-            RuntimeFilterSelectivity::judge_selectivity(get_ignore_threshold(), _judge_filter_rows,
-                                                        _judge_input_rows, _always_true);
-        }
+        _rf_selectivity.update_judge_selectivity(_runtime_filter_id, filter_rows, input_rows,
+                                                 get_ignore_threshold());
     }
 
     uint32_t _column_id;
@@ -439,10 +429,7 @@ protected:
     // is evaluated as true, the logic for always_true is applied for the rest of that period
     // without recalculating. At the beginning of the next period,
     // reset_judge_selectivity is used to reset these variables.
-    mutable int _judge_counter = 0;
-    mutable uint64_t _judge_input_rows = 0;
-    mutable uint64_t _judge_filter_rows = 0;
-    mutable bool _always_true = false;
+    mutable RuntimeFilterSelectivity _rf_selectivity;
 
     std::shared_ptr<RuntimeProfile::Counter> _predicate_filtered_rows_counter =
             std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);

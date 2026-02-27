@@ -84,8 +84,6 @@ inline int compare_row_key(const RowCursor& lhs, const RowCursor& rhs) {
 
 class TabletReader {
     struct KeysParam {
-        std::string to_string() const;
-
         std::vector<RowCursor> start_keys;
         std::vector<RowCursor> end_keys;
         bool start_key_include = false;

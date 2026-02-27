@@ -242,21 +242,21 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         opts.index_file_writer = _index_file_writer;
     }
 
-#define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \
+#define DISABLE_INDEX_IF_FIELD_TYPE(TYPE)                     \
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \
         opts.need_zone_map = false;                           \
         opts.need_bloom_filter = false;                       \
     }
 
-    DISABLE_INDEX_IF_FIELD_TYPE(STRUCT, "struct")
-    DISABLE_INDEX_IF_FIELD_TYPE(ARRAY, "array")
-    DISABLE_INDEX_IF_FIELD_TYPE(JSONB, "jsonb")
-    DISABLE_INDEX_IF_FIELD_TYPE(AGG_STATE, "agg_state")
-    DISABLE_INDEX_IF_FIELD_TYPE(MAP, "map")
-    DISABLE_INDEX_IF_FIELD_TYPE(BITMAP, "object")
-    DISABLE_INDEX_IF_FIELD_TYPE(HLL, "hll")
-    DISABLE_INDEX_IF_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
-    DISABLE_INDEX_IF_FIELD_TYPE(VARIANT, "variant")
+    DISABLE_INDEX_IF_FIELD_TYPE(STRUCT)
+    DISABLE_INDEX_IF_FIELD_TYPE(ARRAY)
+    DISABLE_INDEX_IF_FIELD_TYPE(JSONB)
+    DISABLE_INDEX_IF_FIELD_TYPE(AGG_STATE)
+    DISABLE_INDEX_IF_FIELD_TYPE(MAP)
+    DISABLE_INDEX_IF_FIELD_TYPE(BITMAP)
+    DISABLE_INDEX_IF_FIELD_TYPE(HLL)
+    DISABLE_INDEX_IF_FIELD_TYPE(QUANTILE_STATE)
+    DISABLE_INDEX_IF_FIELD_TYPE(VARIANT)
 
 #undef DISABLE_INDEX_IF_FIELD_TYPE
 

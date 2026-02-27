@@ -246,6 +246,71 @@ suite("test_custom_analyzer", "p0") {
         );
     """
 
+    // Test basic tokenizer with different extra_chars settings
+    // 1. basic tokenizer without extra_chars (default)
+    sql """
+        CREATE INVERTED INDEX TOKENIZER IF NOT EXISTS basic_tokenizer_no_extra
+        PROPERTIES
+        (
+            "type" = "basic"
+        );
+    """
+
+    // 2. basic tokenizer with extra_chars = "_"
+    sql """
+        CREATE INVERTED INDEX TOKENIZER IF NOT EXISTS basic_tokenizer_underscore
+        PROPERTIES
+        (
+            "type" = "basic",
+            "extra_chars" = "_"
+        );
+    """
+
+    // 3. basic tokenizer with extra_chars = "_-"
+    sql """
+        CREATE INVERTED INDEX TOKENIZER IF NOT EXISTS basic_tokenizer_underscore_dash
+        PROPERTIES
+        (
+            "type" = "basic",
+            "extra_chars" = "_-"
+        );
+    """
+
+    // Create analyzers for each tokenizer
+    sql """
+        CREATE INVERTED INDEX ANALYZER IF NOT EXISTS basic_analyzer_no_extra
+        PROPERTIES
+        (
+            "tokenizer" = "basic_tokenizer_no_extra",
+            "token_filter" = "lowercase"
+        );
+    """
+
+    sql """
+        CREATE INVERTED INDEX ANALYZER IF NOT EXISTS basic_analyzer_underscore
+        PROPERTIES
+        (
+            "tokenizer" = "basic_tokenizer_underscore",
+            "token_filter" = "lowercase"
+        );
+    """
+
+    sql """
+        CREATE INVERTED INDEX ANALYZER IF NOT EXISTS basic_analyzer_underscore_dash
+        PROPERTIES
+        (
+            "tokenizer" = "basic_tokenizer_underscore_dash",
+            "token_filter" = "lowercase"
+        );
+    """
+
+    sql """
+        CREATE INVERTED INDEX TOKENIZER IF NOT EXISTS icu_tokenizer_no_extra
+        PROPERTIES
+        (
+            "type" = "icu"
+        );
+    """
     // Wait for all analyzers to be ready - increased timeout due to many objects
     sql """ select sleep(15) """
 
@@ -261,7 +326,13 @@ suite("test_custom_analyzer", "p0") {
     qt_tokenize_sql """ select tokenize("1080º Avalanche", '"analyzer"="lowercase_delimited"'); """
     qt_tokenize_sql """ select tokenize("GET /images/hm_bg.jpg HTTP/1.0", '"analyzer"="basic_analyzer"'); """
     qt_tokenize_sql """ select tokenize("让我们说「Hello」そして世界とつながろう！", '"analyzer"="icu_analyzer"'); """
-    
+
+    // Test basic tokenizer with extra_chars settings
+    // Test input: "hello_world-test" - contains underscore and dash
+    qt_tokenize_basic_1 """ select tokenize("hello_world-test", '"analyzer"="basic_analyzer_no_extra"'); """
+    qt_tokenize_basic_2 """ select tokenize("hello_world-test", '"analyzer"="basic_analyzer_underscore"'); """
+    qt_tokenize_basic_3 """ select tokenize("hello_world-test", '"analyzer"="basic_analyzer_underscore_dash"'); """
+
     // Test pinyin tokenize functions - different analyzers
     qt_tokenize_pinyin1 """ select tokenize("刘德华", '"analyzer"="pinyin_analyzer"'); """
     qt_tokenize_pinyin2 """ select tokenize("张学友", '"analyzer"="pinyin_analyzer"'); """

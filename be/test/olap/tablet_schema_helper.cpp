@@ -19,6 +19,8 @@
 
 #include <string.h>
 
+#include <cstdint>
+
 #include "olap/tablet_schema.h"
 #include "util/slice.h"
 #include "vec/common/arena.h"
@@ -57,26 +59,26 @@ TabletColumnPtr create_int_value(int32_t id, FieldAggregationMethod agg_method, 
     return column;
 }
 
-TabletColumnPtr create_char_key(int32_t id, bool is_nullable) {
+TabletColumnPtr create_char_key(int32_t id, bool is_nullable, int32_t length) {
     auto column = std::make_shared<TabletColumn>();
     column->_unique_id = id;
     column->_col_name = std::to_string(id);
     column->_type = FieldType::OLAP_FIELD_TYPE_CHAR;
     column->_is_key = true;
     column->_is_nullable = is_nullable;
-    column->_length = 8;
+    column->_length = length;
     column->_index_length = 1;
     return column;
 }
 
-TabletColumnPtr create_varchar_key(int32_t id, bool is_nullable) {
+TabletColumnPtr create_varchar_key(int32_t id, bool is_nullable, int32_t length) {
     auto column = std::make_shared<TabletColumn>();
     column->_unique_id = id;
     column->_col_name = std::to_string(id);
     column->_type = FieldType::OLAP_FIELD_TYPE_VARCHAR;
     column->_is_key = true;
     column->_is_nullable = is_nullable;
-    column->_length = 65533;
+    column->_length = length;
     column->_index_length = 4;
     return column;
 }

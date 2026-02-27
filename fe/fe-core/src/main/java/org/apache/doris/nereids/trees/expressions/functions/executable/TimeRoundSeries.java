@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
 import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
@@ -53,7 +54,8 @@ public class TimeRoundSeries {
     private static LocalDateTime getDateCeilOrFloor(DATE tag, LocalDateTime date, int period, LocalDateTime origin,
             boolean getCeil) {
         if (period < 1) {
-            return null;
+            throw new AnalysisException("Operation " + tag.name().toLowerCase()
+                    + (getCeil ? "_ceil" : "_floor") + " of " + period + " out of range");
         }
 
         DateTimeV2Literal dt = (DateTimeV2Literal) DateTimeV2Literal.fromJavaDateType(date);

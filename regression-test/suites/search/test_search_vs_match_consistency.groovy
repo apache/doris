@@ -15,8 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_search_vs_match_consistency") {
+suite("test_search_vs_match_consistency", "p0") {
     def tableName = "search_match_consistency_test"
+
+    // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.
+    sql """ set enable_common_expr_pushdown = true """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 
@@ -117,7 +120,7 @@ suite("test_search_vs_match_consistency") {
     // Test Suite 1: Basic OR query consistency
     qt_test_1_1_search """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('title:Ronald or title:Selma')
+        WHERE search('title:Ronald OR title:Selma')
     """
 
     qt_test_1_1_match """
@@ -128,7 +131,7 @@ suite("test_search_vs_match_consistency") {
     // Test 1.2: OR across different fields
     qt_test_1_2_search """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('title:Ronald or content:Selma')
+        WHERE search('title:Ronald OR content:Selma')
     """
 
     qt_test_1_2_match """
@@ -139,7 +142,7 @@ suite("test_search_vs_match_consistency") {
     // Test 1.3: Complex OR with ALL operation
     qt_test_1_3_search """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('title:Ronald or (content:ALL(Selma Blair))')
+        WHERE search('title:Ronald OR (content:ALL(Selma Blair))')
     """
 
     qt_test_1_3_match """
@@ -150,7 +153,7 @@ suite("test_search_vs_match_consistency") {
     // Test Suite 2: NOT query consistency
     qt_test_2_1_internal_not """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('not content:Round')
+        WHERE search('NOT content:Round')
     """
 
     qt_test_2_1_external_not """
@@ -161,7 +164,7 @@ suite("test_search_vs_match_consistency") {
     // Test 2.2: NOT with different fields
     qt_test_2_2_internal_not """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('not title:Ronald')
+        WHERE search('NOT title:Ronald')
     """
 
     qt_test_2_2_external_not """
@@ -172,49 +175,49 @@ suite("test_search_vs_match_consistency") {
     // Test 2.3: NOT with complex expression
     qt_test_2_3_internal_not """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('not (title:Ronald and content:biography)')
+        WHERE search('NOT (title:Ronald AND content:biography)')
     """
 
     qt_test_2_3_external_not """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE not search('title:Ronald and content:biography')
+        WHERE not search('title:Ronald AND content:biography')
     """
 
     // Test Suite 3: NULL value behavior in OR queries
     qt_test_3_1_or_with_null """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${tableName}
-        WHERE search('title:NonExistent or content:Ronald')
+        WHERE search('title:NonExistent OR content:Ronald')
         ORDER BY id
     """
 
     qt_test_3_2_or_multiple_null """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${tableName}
-        WHERE search('title:Mystery or content:Round')
+        WHERE search('title:Mystery OR content:Round')
         ORDER BY id
     """
 
     // Test Suite 4: AND query behavior with NULLs
     qt_test_4_1_and_with_null """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${tableName}
-        WHERE search('title:Ronald and content:biography')
+        WHERE search('title:Ronald AND content:biography')
         ORDER BY id
     """
 
     // Test Suite 5: Edge cases and complex scenarios
     qt_test_5_1_empty_string """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('title:"" or content:Round')
+        WHERE search('title:"" OR content:Round')
     """
 
     qt_test_5_2_complex_nested """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('(title:Ronald or title:Selma) and not (content:Round and author:NonExistent)')
+        WHERE search('(title:Ronald OR title:Selma) AND NOT (content:Round AND author:NonExistent)')
     """
 
     // Test Suite 6: Performance and consistency verification
     qt_test_6_1_large_or_search """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('title:Ronald or title:Selma or content:Round or content:biography or author:Smith or tags:history')
+        WHERE search('title:Ronald OR title:Selma OR content:Round OR content:biography OR author:Smith OR tags:history')
     """
 
     qt_test_6_1_large_or_match """
@@ -278,7 +281,7 @@ suite("test_search_vs_match_consistency") {
     // Mandy/Kesha consistency checks
     qt_man_pat_1_search """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${mandyTable}
-        WHERE search('content:ALL("Mandy Patinkin") or not (content:ANY("Kesha"))')
+        WHERE search('content:ALL("Mandy Patinkin") OR NOT (content:ANY("Kesha"))')
     """
 
     qt_man_pat_1_match """
@@ -291,7 +294,7 @@ suite("test_search_vs_match_consistency") {
                CASE WHEN title IS NULL THEN 'NULL' ELSE 'NOT_NULL' END AS title_status,
                CASE WHEN content IS NULL THEN 'NULL' ELSE 'NOT_NULL' END AS content_status
         FROM ${mandyTable}
-        WHERE search('content:ALL("Mandy Patinkin") or not (content:ANY("Kesha"))')
+        WHERE search('content:ALL("Mandy Patinkin") OR NOT (content:ANY("Kesha"))')
         ORDER BY id
     """
 

@@ -29,6 +29,7 @@ import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.metacache.CacheSpec;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Maps;
@@ -51,31 +52,65 @@ import java.util.concurrent.ExecutorService;
 
 public class PaimonMetadataCache {
 
-    private final LoadingCache<PaimonSnapshotCacheKey, PaimonSnapshotCacheValue> snapshotCache;
+    private final ExecutorService executor;
+    private final ExternalCatalog catalog;
+    private LoadingCache<PaimonTableCacheKey, PaimonTableCacheValue> tableCache;
 
-    public PaimonMetadataCache(ExecutorService executor) {
-        CacheFactory snapshotCacheFactory = new CacheFactory(
-                OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
-                OptionalLong.of(Config.external_cache_refresh_time_minutes * 60),
-                Config.max_external_table_cache_num,
+    public PaimonMetadataCache(ExternalCatalog catalog, ExecutorService executor) {
+        this.executor = executor;
+        this.catalog = catalog;
+        init();
+    }
+
+    public void init() {
+        CacheSpec cacheSpec = resolveTableCacheSpec();
+        CacheFactory tableCacheFactory = new CacheFactory(
+                CacheSpec.toExpireAfterAccess(cacheSpec.getTtlSecond()),
+                OptionalLong.empty(),
+                cacheSpec.getCapacity(),
                 true,
                 null);
-        this.snapshotCache = snapshotCacheFactory.buildCache(key -> loadSnapshot(key), executor);
+        this.tableCache = tableCacheFactory.buildCache(key -> loadTableCacheValue(key), executor);
+    }
+
+    private CacheSpec resolveTableCacheSpec() {
+        return CacheSpec.fromProperties(catalog.getProperties(),
+                PaimonExternalCatalog.PAIMON_TABLE_CACHE_ENABLE, true,
+                PaimonExternalCatalog.PAIMON_TABLE_CACHE_TTL_SECOND,
+                Config.external_cache_expire_time_seconds_after_access,
+                PaimonExternalCatalog.PAIMON_TABLE_CACHE_CAPACITY,
+                Config.max_external_table_cache_num);
     }
 
     @NotNull
-    private PaimonSnapshotCacheValue loadSnapshot(PaimonSnapshotCacheKey key) {
+    private PaimonTableCacheValue loadTableCacheValue(PaimonTableCacheKey key) {
         NameMapping nameMapping = key.getNameMapping();
         try {
-            PaimonSnapshot latestSnapshot = loadLatestSnapshot(key);
+            PaimonExternalCatalog externalCatalog = (PaimonExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalogOrException(nameMapping.getCtlId(),
+                            id -> new IOException("Catalog not found: " + id));
+            Table table = externalCatalog.getPaimonTable(nameMapping);
+            return new PaimonTableCacheValue(table);
+        } catch (Exception e) {
+            throw new CacheException("failed to load paimon table %s.%s.%s: %s",
+                    e, nameMapping.getCtlId(), nameMapping.getLocalDbName(),
+                    nameMapping.getLocalTblName(), e.getMessage());
+        }
+    }
+
+    @NotNull
+    private PaimonSnapshotCacheValue loadSnapshot(ExternalTable dorisTable, Table paimonTable) {
+        NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
+        try {
+            PaimonSnapshot latestSnapshot = loadLatestSnapshot(paimonTable, nameMapping);
             List<Column> partitionColumns = getPaimonSchemaCacheValue(nameMapping,
                     latestSnapshot.getSchemaId()).getPartitionColumns();
-            PaimonPartitionInfo partitionInfo = loadPartitionInfo(key, partitionColumns);
+            PaimonPartitionInfo partitionInfo = loadPartitionInfo(nameMapping, partitionColumns);
             return new PaimonSnapshotCacheValue(partitionInfo, latestSnapshot);
         } catch (Exception e) {
-            throw new CacheException("failed to load paimon snapshot %s.%s.%s or reason: %s",
-                    e, nameMapping.getCtlId(), nameMapping.getLocalDbName(), nameMapping.getLocalTblName(),
-                    e.getMessage());
+            throw new CacheException("failed to load paimon snapshot %s.%s.%s: %s",
+                    e, nameMapping.getCtlId(), nameMapping.getLocalDbName(),
+                    nameMapping.getLocalTblName(), e.getMessage());
         }
     }
 
@@ -97,67 +132,96 @@ public class PaimonMetadataCache {
         return (PaimonSchemaCacheValue) schemaCacheValue.get();
     }
 
-    private PaimonPartitionInfo loadPartitionInfo(PaimonSnapshotCacheKey key, List<Column> partitionColumns)
+    private PaimonPartitionInfo loadPartitionInfo(NameMapping nameMapping, List<Column> partitionColumns)
             throws AnalysisException {
         if (CollectionUtils.isEmpty(partitionColumns)) {
             return PaimonPartitionInfo.EMPTY;
         }
-        NameMapping nameMapping = key.getNameMapping();
         PaimonExternalCatalog externalCatalog = (PaimonExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrAnalysisException(nameMapping.getCtlId());
         List<Partition> paimonPartitions = externalCatalog.getPaimonPartitions(nameMapping);
         return PaimonUtil.generatePartitionInfo(partitionColumns, paimonPartitions);
     }
 
-    private PaimonSnapshot loadLatestSnapshot(PaimonSnapshotCacheKey key) throws IOException {
-        NameMapping nameMapping = key.getNameMapping();
-        PaimonExternalCatalog externalCatalog = (PaimonExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrException(nameMapping.getCtlId(), id -> new IOException("Catalog not found: " + id));
-        Table table = externalCatalog.getPaimonTable(nameMapping);
-        Table snapshotTable = table;
+    private PaimonSnapshot loadLatestSnapshot(Table paimonTable, NameMapping nameMapping) {
+        Table snapshotTable = paimonTable;
         // snapshotId and schemaId
         Long latestSnapshotId = PaimonSnapshot.INVALID_SNAPSHOT_ID;
-        Optional<Snapshot> optionalSnapshot = table.latestSnapshot();
+        Optional<Snapshot> optionalSnapshot = paimonTable.latestSnapshot();
         if (optionalSnapshot.isPresent()) {
             latestSnapshotId = optionalSnapshot.get().id();
-            snapshotTable =
-                table.copy(Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), latestSnapshotId.toString()));
+            snapshotTable = paimonTable.copy(
+                    Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), latestSnapshotId.toString()));
         }
-        DataTable dataTable = (DataTable) table;
+        DataTable dataTable = (DataTable) paimonTable;
         long latestSchemaId = dataTable.schemaManager().latest().map(TableSchema::id).orElse(0L);
         return new PaimonSnapshot(latestSnapshotId, latestSchemaId, snapshotTable);
     }
 
+    public Table getPaimonTable(ExternalTable dorisTable) {
+        PaimonTableCacheKey key = new PaimonTableCacheKey(dorisTable.getOrBuildNameMapping());
+        return tableCache.get(key).getPaimonTable();
+    }
+
+    public Table getPaimonTable(PaimonTableCacheKey key) {
+        return tableCache.get(key).getPaimonTable();
+    }
+
+    public PaimonSnapshotCacheValue getSnapshotCache(ExternalTable dorisTable) {
+        PaimonTableCacheKey key = new PaimonTableCacheKey(dorisTable.getOrBuildNameMapping());
+        PaimonTableCacheValue tableCacheValue = tableCache.get(key);
+        return tableCacheValue.getSnapshotCacheValue(() -> loadSnapshot(dorisTable,
+                tableCacheValue.getPaimonTable()));
+    }
+
     public void invalidateCatalogCache(long catalogId) {
-        snapshotCache.asMap().keySet().stream()
-                .filter(key -> key.getNameMapping().getCtlId() == catalogId)
-                .forEach(snapshotCache::invalidate);
+        tableCache.invalidateAll();
     }
 
     public void invalidateTableCache(ExternalTable dorisTable) {
-        snapshotCache.asMap().keySet().stream()
-                .filter(key -> key.getNameMapping().getCtlId() == dorisTable.getCatalog().getId()
-                        && key.getNameMapping().getLocalDbName().equals(dorisTable.getDbName())
-                        && key.getNameMapping().getLocalTblName().equals(dorisTable.getName()))
-                .forEach(snapshotCache::invalidate);
+        PaimonTableCacheKey key = new PaimonTableCacheKey(dorisTable.getOrBuildNameMapping());
+        tableCache.invalidate(key);
     }
 
     public void invalidateDbCache(long catalogId, String dbName) {
-        snapshotCache.asMap().keySet().stream()
-                .filter(key -> key.getNameMapping().getCtlId() == catalogId
-                        && key.getNameMapping().getLocalTblName().equals(dbName))
-                .forEach(snapshotCache::invalidate);
-    }
-
-    public PaimonSnapshotCacheValue getPaimonSnapshot(ExternalTable dorisTable) {
-        PaimonSnapshotCacheKey key = new PaimonSnapshotCacheKey(dorisTable.getOrBuildNameMapping());
-        return snapshotCache.get(key);
+        tableCache.asMap().keySet().stream()
+                .filter(key -> key.getNameMapping().getLocalDbName().equals(dbName))
+                .forEach(tableCache::invalidate);
     }
 
     public Map<String, Map<String, String>> getCacheStats() {
         Map<String, Map<String, String>> res = Maps.newHashMap();
-        res.put("paimon_snapshot_cache", ExternalMetaCacheMgr.getCacheStats(snapshotCache.stats(),
-                snapshotCache.estimatedSize()));
+        res.put("paimon_table_cache", ExternalMetaCacheMgr.getCacheStats(tableCache.stats(),
+                tableCache.estimatedSize()));
         return res;
+    }
+
+    static class PaimonTableCacheKey {
+        private final NameMapping nameMapping;
+
+        public PaimonTableCacheKey(NameMapping nameMapping) {
+            this.nameMapping = nameMapping;
+        }
+
+        public NameMapping getNameMapping() {
+            return nameMapping;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            PaimonTableCacheKey that = (PaimonTableCacheKey) o;
+            return nameMapping.equals(that.nameMapping);
+        }
+
+        @Override
+        public int hashCode() {
+            return nameMapping.hashCode();
+        }
     }
 }

@@ -815,6 +815,38 @@ TEST_F(ColumnStringTest, update_crcs_with_value_test) {
                 test_result_dir + "/column_str64_json_" + function_name + ".out");
     }
 }
+TEST_F(ColumnStringTest, update_crc32c_batch) {
+    std::string function_name = "update_crc32c_batch";
+    assert_column_vector_update_crc32c_batch_callback(
+            column_str32->get_ptr(), test_result_dir + "/column_str32_" + function_name + ".out");
+    assert_column_vector_update_crc32c_batch_callback(
+            column_str64->get_ptr(), test_result_dir + "/column_str64_" + function_name + ".out");
+
+    assert_column_vector_update_crc32c_batch_callback(
+            column_str32_json->get_ptr(),
+            test_result_dir + "/column_str32_json_" + function_name + ".out");
+
+    assert_column_vector_update_crc32c_batch_callback(
+            column_str64_json->get_ptr(),
+            test_result_dir + "/column_str64_json_" + function_name + ".out");
+}
+TEST_F(ColumnStringTest, update_crc32c_single) {
+    std::string function_name = "update_crc32c_single";
+
+    assert_column_vector_update_crc32c_single_callback(
+            column_str32->get_ptr(), test_result_dir + "/column_str32_" + function_name + ".out");
+
+    assert_column_vector_update_crc32c_single_callback(
+            column_str64->get_ptr(), test_result_dir + "/column_str64_" + function_name + ".out");
+
+    assert_column_vector_update_crc32c_single_callback(
+            column_str32_json->get_ptr(),
+            test_result_dir + "/column_str32_json_" + function_name + ".out");
+
+    assert_column_vector_update_crc32c_single_callback(
+            column_str64_json->get_ptr(),
+            test_result_dir + "/column_str64_json_" + function_name + ".out");
+}
 TEST_F(ColumnStringTest, insert_range_from) {
     column_string_common_test(assert_column_vector_insert_range_from_callback, false);
 }

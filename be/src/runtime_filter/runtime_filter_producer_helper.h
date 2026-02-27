@@ -67,6 +67,8 @@ public:
 
     void collect_realtime_profile(RuntimeProfile* parent_operator_profile);
 
+    std::shared_ptr<RuntimeFilterWrapper> detect_local_in_filter(RuntimeState* state);
+
 protected:
     virtual void _init_expr(const vectorized::VExprContextSPtrs& build_expr_ctxs,
                             const std::vector<TRuntimeFilterDesc>& runtime_filter_descs);

@@ -253,6 +253,12 @@ Status VFileResultWriter::_write_file(const Block& block) {
         RETURN_IF_ERROR(_vfile_writer->write(block));
     }
     // split file if exceed limit
+    // the written len from file writer may not be updated in real-time,
+    // because for orc writer, the orc OutputStream only flush when
+    // bufferred data is larger than strip size(default 64MB).
+    // So even if max_file_size_bytes set to 5MB, the file size will still
+    // be 64MB.
+    // TODO: opt this logic
     _current_written_bytes = _vfile_writer->written_len();
     return _create_new_file_if_exceed_size();
 }

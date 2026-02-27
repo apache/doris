@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
@@ -29,8 +30,8 @@
 #include "olap/uint24.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/common/string_view.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/json/path_in_data.h"
 #include "vec/runtime/timestamptz_value.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/template_helpers.hpp"
@@ -47,6 +48,11 @@ class ColumnStruct;
 class ColumnVarbinary;
 using ColumnString = ColumnStr<UInt32>;
 class JsonbField;
+struct Array;
+struct Tuple;
+struct Map;
+struct FieldWithDataType;
+using VariantMap = std::map<PathInData, FieldWithDataType>;
 template <DecimalNativeTypeConcept T>
 struct Decimal;
 template <PrimitiveType T>

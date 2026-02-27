@@ -149,6 +149,7 @@ public class S3PropertiesTest {
         Assertions.assertEquals("88", s3Props.get("AWS_MAX_CONNECTIONS"));
         Assertions.assertEquals("6000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
         Assertions.assertEquals("true", s3Props.get("use_path_style"));
+        Assertions.assertEquals("DEFAULT", s3Props.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
         origProps.remove("use_path_style");
         origProps.remove("s3.connection.maximum");
         origProps.remove("s3.connection.timeout");
@@ -157,6 +158,30 @@ public class S3PropertiesTest {
         Assertions.assertEquals("true", s3Props.get("use_path_style"));
         Assertions.assertEquals("88", s3Props.get("AWS_MAX_CONNECTIONS"));
         Assertions.assertEquals("6000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
+    }
+
+    @Test
+    public void testBackendCredentialsProviderType() throws UserException {
+        Map<String, String> props = new HashMap<>();
+        props.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+        props.put("s3.region", "us-west-2");
+
+        String[][] cases = new String[][] {
+                {"default", "DEFAULT"},
+                {"env", "ENV"},
+                {"system_properties", "SYSTEM_PROPERTIES"},
+                {"web_identity", "WEB_IDENTITY"},
+                {"container", "CONTAINER"},
+                {"instance_profile", "INSTANCE_PROFILE"},
+                {"anonymous", "ANONYMOUS"}
+        };
+
+        for (String[] testCase : cases) {
+            props.put("s3.credentials_provider_type", testCase[0]);
+            S3Properties s3Props = (S3Properties) StorageProperties.createPrimary(props);
+            Map<String, String> backendProps = s3Props.getBackendConfigProperties();
+            Assertions.assertEquals(testCase[1], backendProps.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
+        }
     }
 
 

@@ -167,6 +167,9 @@ public:
     bool is_colocated_operator() const override {
         return _inner_probe_operator->is_colocated_operator();
     }
+    bool followed_by_shuffled_operator() const override {
+        return _inner_probe_operator->followed_by_shuffled_operator();
+    }
 
     void update_operator(const TPlanNode& tnode, bool followed_by_shuffled_operator,
                          bool require_bucket_distribution) override {

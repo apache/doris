@@ -36,6 +36,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "olap/hll.h"
+#include "runtime/primitive_type.h"
 #include "util/bitmap_value.h"
 #include "util/quantile_state.h"
 #include "vec/common/string_view.h"
@@ -207,6 +208,31 @@ public:
         return f;
     }
 
+    template <PrimitiveType PType, typename ValType = std::conditional_t<
+                                           doris::is_string_type(PType), StringRef,
+                                           typename PrimitiveTypeTraits<PType>::StorageFieldType>>
+    static Field create_field_from_olap_value(const ValType& data) {
+        auto f = Field(PType);
+        typename PrimitiveTypeTraits<PType>::CppType cpp_value;
+        if constexpr (is_string_type(PType)) {
+            auto min_size =
+                    MAX_ZONE_MAP_INDEX_SIZE >= data.size ? data.size : MAX_ZONE_MAP_INDEX_SIZE;
+            cpp_value = String(data.data, min_size);
+        } else if constexpr (is_date_or_datetime(PType)) {
+            if constexpr (PType == TYPE_DATE) {
+                cpp_value.from_olap_date(data);
+            } else {
+                cpp_value.from_olap_datetime(data);
+            }
+        } else if constexpr (is_decimalv2(PType)) {
+            cpp_value = DecimalV2Value(data.integer, data.fraction);
+        } else {
+            cpp_value = typename PrimitiveTypeTraits<PType>::CppType(data);
+        }
+        f.template create_concrete<PType>(std::move(cpp_value));
+        return f;
+    }
+
     /** Despite the presence of a template constructor, this constructor is still needed,
       *  since, in its absence, the compiler will still generate the default constructor.
       */
@@ -244,28 +270,10 @@ public:
     // If not, use NearestFieldType<> externally.
     // Maybe modify this in the future, reference: https://github.com/ClickHouse/ClickHouse/pull/22003
     template <PrimitiveType T>
-    typename PrimitiveTypeTraits<T>::CppType& get() {
-        DCHECK(T == type ||
-               ((type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING) &&
-                (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING)) ||
-               type == TYPE_NULL)
-                << "Type mismatch: requested " << int(T) << ", actual " << get_type_name();
-        auto* MAY_ALIAS ptr = reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(&storage);
-        return *ptr;
-    }
+    typename PrimitiveTypeTraits<T>::CppType& get();
 
     template <PrimitiveType T>
-    const typename PrimitiveTypeTraits<T>::CppType& get() const {
-        // TODO(gabriel): Is it safe for null type?
-        DCHECK(T == type ||
-               ((type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING) &&
-                (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING)) ||
-               type == TYPE_NULL)
-                << "Type mismatch: requested " << int(T) << ", actual " << get_type_name();
-        const auto* MAY_ALIAS ptr =
-                reinterpret_cast<const typename PrimitiveTypeTraits<T>::CppType*>(&storage);
-        return *ptr;
-    }
+    const typename PrimitiveTypeTraits<T>::CppType& get() const;
 
     bool operator==(const Field& rhs) const {
         return operator<=>(rhs) == std::strong_ordering::equal;
@@ -304,14 +312,7 @@ private:
     void destroy();
 
     template <PrimitiveType T>
-    void destroy() {
-        using TargetType = typename PrimitiveTypeTraits<T>::CppType;
-        DCHECK(T == type || ((type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING) &&
-                             (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING)))
-                << "Type mismatch: requested " << int(T) << ", actual " << get_type_name();
-        auto* MAY_ALIAS ptr = reinterpret_cast<TargetType*>(&storage);
-        ptr->~TargetType();
-    }
+    void destroy();
 };
 
 struct FieldWithDataType {

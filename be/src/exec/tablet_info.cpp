@@ -447,6 +447,10 @@ VOlapTablePartitionParam::VOlapTablePartitionParam(std::shared_ptr<OlapTableSche
         _overwrite_group_id = t_param.overwrite_group_id;
     }
 
+    if (t_param.__isset.master_address) {
+        _master_address = std::make_shared<TNetworkAddress>(t_param.master_address);
+    }
+
     if (_is_auto_partition) {
         // the nullable mode depends on partition_exprs. not column slots. so use them.
         DCHECK(_partition_function.size() <= _slots.size())

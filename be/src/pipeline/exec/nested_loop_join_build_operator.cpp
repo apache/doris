@@ -66,8 +66,8 @@ NestedLoopJoinBuildSinkOperatorX::NestedLoopJoinBuildSinkOperatorX(ObjectPool* p
                                                                    const DescriptorTbl& descs)
         : JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>(pool, operator_id, dest_id,
                                                                     tnode, descs),
-          _is_output_left_side_only(tnode.nested_loop_join_node.__isset.is_output_left_side_only &&
-                                    tnode.nested_loop_join_node.is_output_left_side_only),
+          _is_output_probe_side_only(tnode.nested_loop_join_node.__isset.is_output_left_side_only &&
+                                     tnode.nested_loop_join_node.is_output_left_side_only),
           _row_descriptor(descs, tnode.row_tuples) {}
 
 Status NestedLoopJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -113,11 +113,11 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
 
     if (eos) {
         // optimize `in bitmap`, see https://github.com/apache/doris/issues/14338
-        if (_is_output_left_side_only && ((_join_op == TJoinOp::type::LEFT_SEMI_JOIN &&
-                                           local_state._shared_state->build_blocks.empty()) ||
-                                          (_join_op == TJoinOp::type::LEFT_ANTI_JOIN &&
-                                           !local_state._shared_state->build_blocks.empty()))) {
-            local_state._shared_state->left_side_eos = true;
+        if (_is_output_probe_side_only && ((_join_op == TJoinOp::type::LEFT_SEMI_JOIN &&
+                                            local_state._shared_state->build_blocks.empty()) ||
+                                           (_join_op == TJoinOp::type::LEFT_ANTI_JOIN &&
+                                            !local_state._shared_state->build_blocks.empty()))) {
+            local_state._shared_state->probe_side_eos = true;
         }
         local_state._dependency->set_ready_to_read();
     }
