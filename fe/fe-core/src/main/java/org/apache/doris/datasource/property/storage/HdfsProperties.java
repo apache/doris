@@ -99,8 +99,6 @@ public class HdfsProperties extends HdfsCompatibleProperties {
      */
     private Map<String, String> userOverriddenHdfsConfig;
 
-    protected Map<String, String> userOtherConfig;
-
     private static final List<String> HDFS_PROPERTIES_KEYS = Arrays.asList("hdfs.authentication.type",
             "hadoop.security.authentication", "hadoop.username", "fs.defaultFS",
             "hdfs.authentication.kerberos.principal", "hadoop.kerberos.principal", DFS_NAME_SERVICES_KEY,
@@ -135,20 +133,12 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         if (StringUtils.isBlank(fsDefaultFS)) {
             this.fsDefaultFS = HdfsPropertiesUtils.extractDefaultFsFromUri(origProps, supportSchema);
         }
-        extractUserConfig(origProps);
+        extractUserOverriddenHdfsConfig(origProps);
         initBackendConfigProperties();
         this.hadoopStorageConfig = new Configuration();
         this.backendConfigProperties.forEach(hadoopStorageConfig::set);
         HdfsPropertiesUtils.checkHaConfig(backendConfigProperties);
         hadoopAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(hadoopStorageConfig);
-    }
-
-    private void extractUserConfig(Map<String, String> origProps) {
-        extractUserOverriddenHdfsConfig(origProps);
-        extractUserOtherConfig(origProps);
-    }
-
-    protected void extractUserOtherConfig(Map<String, String> origProps) {
     }
 
     private void extractUserOverriddenHdfsConfig(Map<String, String> origProps) {
@@ -177,9 +167,6 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         Map<String, String> props = loadConfigFromFile(hadoopConfigResources);
         if (MapUtils.isNotEmpty(userOverriddenHdfsConfig)) {
             props.putAll(userOverriddenHdfsConfig);
-        }
-        if (MapUtils.isNotEmpty(userOtherConfig)) {
-            props.putAll(userOtherConfig);
         }
         if (StringUtils.isNotBlank(fsDefaultFS)) {
             props.put(HDFS_DEFAULT_FS_NAME, fsDefaultFS);

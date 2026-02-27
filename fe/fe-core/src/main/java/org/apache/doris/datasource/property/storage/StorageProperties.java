@@ -178,6 +178,8 @@ public abstract class StorageProperties extends ConnectionProperties {
 
     private static final List<Function<Map<String, String>, StorageProperties>> PROVIDERS =
             Arrays.asList(
+                props -> (isFsSupport(props, FS_OFS_SUPPORT)
+                            || OFSProperties.guessIsMe(props)) ? new OFSProperties(props) : null,
                     props -> (isFsSupport(props, FS_HDFS_SUPPORT)
                             || HdfsProperties.guessIsMe(props)) ? new HdfsProperties(props) : null,
                     props -> {
@@ -198,8 +200,6 @@ public abstract class StorageProperties extends ConnectionProperties {
                             || S3Properties.guessIsMe(props)) ? new S3Properties(props) : null,
                     props -> (isFsSupport(props, FS_OBS_SUPPORT)
                             || OBSProperties.guessIsMe(props)) ? new OBSProperties(props) : null,
-                    props -> (isFsSupport(props, FS_OFS_SUPPORT)
-                            || OFSProperties.guessIsMe(props)) ? new OFSProperties(props) : null,
                     props -> (isFsSupport(props, FS_COS_SUPPORT)
                             || COSProperties.guessIsMe(props)) ? new COSProperties(props) : null,
                     props -> (isFsSupport(props, FS_GCS_SUPPORT)

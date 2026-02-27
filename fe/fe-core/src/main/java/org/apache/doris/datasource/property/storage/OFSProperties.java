@@ -24,7 +24,6 @@ import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.net.URI;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -69,20 +68,6 @@ public class OFSProperties extends HdfsProperties {
             throw new UserException("The uri scheme is not ofs.");
         }
         return uriObj.toString();
-    }
-
-    @Override
-    protected void extractUserOtherConfig(Map<String, String> origProps) {
-        if (MapUtils.isEmpty(origProps)) {
-            return;
-        }
-        userOtherConfig = new HashMap<>();
-        origProps.forEach((key, value) -> {
-            // used for broker
-            if (key.startsWith("kerberos_")) {
-                userOtherConfig.put(key, value);
-            }
-        });
     }
 
     @Override
