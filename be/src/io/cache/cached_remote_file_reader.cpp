@@ -206,8 +206,7 @@ Status execute_peer_read(const std::vector<FileBlockSPtr>& empty_blocks, size_t 
     if (host.empty() || port == 0) {
         g_failed_get_peer_addr_counter << 1;
         VLOG_DEBUG << "PeerFileCacheReader host or port is empty"
-                   << ", host=" << host << ", port=" << port
-                   << ", file_path=" << file_path;
+                   << ", host=" << host << ", port=" << port << ", file_path=" << file_path;
         return Status::InternalError<false>("host or port is empty");
     }
     SCOPED_RAW_TIMER(&stats.peer_read_timer);
@@ -217,8 +216,7 @@ Status execute_peer_read(const std::vector<FileBlockSPtr>& empty_blocks, size_t 
                                        file_size, io_ctx);
     if (!st.ok()) {
         VLOG_DEBUG << "PeerFileCacheReader read from peer failed"
-                   << ", host=" << host << ", port=" << port
-                   << ", error=" << st.msg();
+                   << ", host=" << host << ", port=" << port << ", error=" << st.msg();
     }
     stats.from_peer_cache = true;
     return st;
