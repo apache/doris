@@ -3805,7 +3805,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             String childName = child.getName();
             if (child.getFieldPatternType() == TPatternType.MATCH_NAME_GLOB) {
                 try {
-                    com.google.re2j.Pattern compiled = GlobRegexUtil.getOrCompilePattern(childName);
+                    com.google.re2j.Pattern compiled = GlobRegexUtil.compilePattern(childName);
                     if (compiled.matcher(subPathString).matches()) {
                         fieldPattern = childName;
                     }

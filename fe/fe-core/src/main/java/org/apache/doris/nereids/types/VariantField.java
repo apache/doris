@@ -108,7 +108,7 @@ public class VariantField {
             return false;
         }
         try {
-            Pattern compiled = GlobRegexUtil.getOrCompilePattern(pattern);
+            Pattern compiled = GlobRegexUtil.compilePattern(pattern);
             return compiled.matcher(fieldName).matches();
         } catch (PatternSyntaxException | IllegalArgumentException e) {
             return false;

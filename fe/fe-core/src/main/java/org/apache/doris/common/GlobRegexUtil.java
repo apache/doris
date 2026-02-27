@@ -19,9 +19,6 @@ package org.apache.doris.common;
 
 import com.google.re2j.Pattern;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
-
 /**
  * Utility to convert a restricted glob pattern into a regex.
  *
@@ -33,30 +30,11 @@ import java.util.Map;
  * - '\\' escapes the next character
  */
 public final class GlobRegexUtil {
-    // Small LRU to cap compiled pattern memory
-    private static final int REGEX_CACHE_CAPACITY = 256;
-    private static final Map<String, Pattern> REGEX_CACHE = new LinkedHashMap<String, Pattern>(
-            REGEX_CACHE_CAPACITY, 0.75f, true) {
-        @Override
-        protected boolean removeEldestEntry(Map.Entry<String, Pattern> eldest) {
-            return size() > REGEX_CACHE_CAPACITY;
-        }
-    };
-
     private GlobRegexUtil() {
     }
 
-    public static Pattern getOrCompilePattern(String globPattern) {
-        synchronized (REGEX_CACHE) {
-            Pattern cached = REGEX_CACHE.get(globPattern);
-            if (cached != null) {
-                return cached;
-            }
-            String regex = globToRegex(globPattern);
-            Pattern compiled = Pattern.compile(regex);
-            REGEX_CACHE.put(globPattern, compiled);
-            return compiled;
-        }
+    public static Pattern compilePattern(String globPattern) {
+        return Pattern.compile(globToRegex(globPattern));
     }
 
     public static String globToRegex(String pattern) {
