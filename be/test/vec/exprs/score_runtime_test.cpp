@@ -24,6 +24,8 @@
 
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/Opcodes_types.h"
+#include "vec/columns/column_nothing.h"
+#include "vec/data_types/data_type_nothing.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/virtual_slot_ref.h"
 
@@ -40,9 +42,14 @@ public:
         return kName;
     }
 
+    DataTypePtr execute_type(const Block* block) const override {
+        return std::make_shared<DataTypeNothing>();
+    }
+
     Status execute(VExprContext*, Block*, int*) const override { return Status::OK(); }
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
+        result_column = ColumnNothing::create(count);
         return Status::OK();
     }
 };
