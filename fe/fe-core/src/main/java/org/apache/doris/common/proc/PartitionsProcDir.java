@@ -400,11 +400,11 @@ public class PartitionsProcDir implements ProcDirInterface {
         return partitionInfosInrernal.stream().map(pair -> pair.second).collect(Collectors.toList());
     }
 
-    static String getStorageMediumDisplay(String storageMedium) {
+    public static String getStorageMediumDisplay(String storageMedium) {
         return Config.isCloudMode() ? CLOUD_STORAGE_MEDIUM_DISPLAY : storageMedium;
     }
 
-    static String getReplicaAllocationDisplay(String replicaAllocation) {
+    public static String getReplicaAllocationDisplay(String replicaAllocation) {
         return Config.isCloudMode() ? FeConstants.null_string : replicaAllocation;
     }
 
