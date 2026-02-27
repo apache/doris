@@ -301,6 +301,8 @@ struct TOlapTablePartitionParam {
     11: optional bool enable_auto_detect_overwrite
     12: optional i64 overwrite_group_id
     13: optional bool partitions_is_fake = false
+    // remote insert fe master address
+    14: optional Types.TNetworkAddress master_address
 }
 
 struct TOlapTableIndex {

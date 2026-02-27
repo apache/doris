@@ -576,6 +576,13 @@ Status DataTypeDateSerDe<T>::from_decimal_strict_mode_batch(
     }
     return Status::OK();
 }
+
+template <PrimitiveType T>
+std::string DataTypeDateSerDe<T>::to_olap_string(const vectorized::Field& field) const {
+    char buf[64];
+    char* pos = field.get<T>().to_string(buf);
+    return std::string(buf, pos - buf - 1);
+}
 // NOLINTEND(readability-function-cognitive-complexity)
 // NOLINTEND(readability-function-size)
 

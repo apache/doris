@@ -30,6 +30,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 
@@ -142,6 +143,9 @@ public:
 
     void to_string_batch(const IColumn& column, ColumnString& column_to,
                          const FormatOptions& options) const override;
+
+    std::string to_olap_string(const vectorized::Field& field) const override;
+
     // will override in DateTime and Time
     virtual int get_scale() const { return 0; }
 

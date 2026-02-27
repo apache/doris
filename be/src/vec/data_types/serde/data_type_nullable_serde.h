@@ -126,6 +126,8 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                    const FormatOptions& options) const override;
 
+    std::string to_olap_string(const vectorized::Field& field) const override;
+
 private:
     DataTypeSerDeSPtr nested_serde;
 };

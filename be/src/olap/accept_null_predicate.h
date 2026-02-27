@@ -107,12 +107,12 @@ public:
         DCHECK(false) << "should not reach here";
     }
 
-    bool evaluate_and(const ZoneMapInfo& zone_map_info) const override {
+    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override {
         // there is null in range, accept it
-        if (zone_map_info.has_null) {
+        if (zone_map.has_null) {
             return true;
         }
-        return _nested->evaluate_and(zone_map_info);
+        return _nested->evaluate_and(zone_map);
     }
 
     bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
@@ -135,8 +135,8 @@ public:
         return row_ranges->count() > 0;
     }
 
-    bool evaluate_del(const ZoneMapInfo& zone_map_info) const override {
-        return _nested->evaluate_del(zone_map_info);
+    bool evaluate_del(const segment_v2::ZoneMap& zone_map) const override {
+        return _nested->evaluate_del(zone_map);
     }
 
     bool evaluate_and(const BloomFilter* bf) const override { return _nested->evaluate_and(bf); }

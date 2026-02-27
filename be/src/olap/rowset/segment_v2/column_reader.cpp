@@ -330,10 +330,10 @@ void ColumnReader::check_data_by_zone_map_for_test(const vectorized::MutableColu
         return;
     }
 
-    ZoneMapInfo zone_map_info;
-    THROW_IF_ERROR(_parse_zone_map(*_segment_zone_map, zone_map_info));
+    ZoneMap zone_map;
+    THROW_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
 
-    if (zone_map_info.has_null) {
+    if (zone_map.has_null) {
         return;
     }
 
@@ -342,8 +342,8 @@ void ColumnReader::check_data_by_zone_map_for_test(const vectorized::MutableColu
         dst->get(i, field);
         DCHECK(!field.is_null());
         const auto v = field.get<TYPE_INT>();
-        DCHECK_GE(v, zone_map_info.min_value.get<TYPE_INT>());
-        DCHECK_LE(v, zone_map_info.max_value.get<TYPE_INT>());
+        DCHECK_GE(v, zone_map.min_value.get<TYPE_INT>());
+        DCHECK_LE(v, zone_map.max_value.get<TYPE_INT>());
     }
 }
 #endif
@@ -448,17 +448,17 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
         return Status::InternalError("segment zonemap not exist");
     }
     // TODO: this work to get min/max value seems should only do once
-    ZoneMapInfo zone_map_info;
-    RETURN_IF_ERROR(_parse_zone_map(*_segment_zone_map, zone_map_info));
+    ZoneMap zone_map;
+    RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
 
     dst->reserve(*n);
-    if (zone_map_info.is_all_null) {
+    if (!zone_map.has_not_null) {
         assert_cast<vectorized::ColumnNullable&>(*dst).insert_many_defaults(*n);
         return Status::OK();
     }
-    dst->insert(zone_map_info.max_value);
+    dst->insert(zone_map.max_value);
     for (int i = 1; i < *n; ++i) {
-        dst->insert(zone_map_info.min_value);
+        dst->insert(zone_map.min_value);
     }
     return Status::OK();
 }
@@ -469,10 +469,10 @@ Status ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicat
     if (_zone_map_index == nullptr) {
         return Status::OK();
     }
-    ZoneMapInfo zone_map_info;
-    RETURN_IF_ERROR(_parse_zone_map(*_segment_zone_map, zone_map_info));
+    ZoneMap zone_map;
+    RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
 
-    *matched = _zone_map_match_condition(*_segment_zone_map, zone_map_info, col_predicates);
+    *matched = _zone_map_match_condition(zone_map, col_predicates);
     return Status::OK();
 }
 
@@ -484,12 +484,15 @@ Status ColumnReader::prune_predicates_by_zone_map(
         return Status::OK();
     }
 
-    ZoneMapInfo zone_map_info;
-    RETURN_IF_ERROR(_parse_zone_map(*_segment_zone_map, zone_map_info));
+    ZoneMap zone_map;
+    RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
+    if (zone_map.pass_all) {
+        return Status::OK();
+    }
 
     for (auto it = predicates.begin(); it != predicates.end();) {
         auto predicate = *it;
-        if (predicate->column_id() == column_id && predicate->is_always_true(zone_map_info)) {
+        if (predicate->column_id() == column_id && predicate->is_always_true(zone_map)) {
             *pruned = true;
             it = predicates.erase(it);
         } else {
@@ -499,70 +502,13 @@ Status ColumnReader::prune_predicates_by_zone_map(
     return Status::OK();
 }
 
-Status ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, ZoneMapInfo& zone_map_info) const {
-    zone_map_info.has_null = zone_map.has_null();
-    zone_map_info.is_all_null = !zone_map.has_not_null();
-    // min value and max value are valid if has_not_null is true
-    if (zone_map.has_not_null()) {
-        if (zone_map.has_negative_inf()) {
-            if (FieldType::OLAP_FIELD_TYPE_FLOAT == _meta_type) {
-                static auto constexpr float_neg_inf = -std::numeric_limits<float>::infinity();
-                zone_map_info.min_value =
-                        vectorized::Field::create_field<TYPE_FLOAT>(float_neg_inf);
-            } else if (FieldType::OLAP_FIELD_TYPE_DOUBLE == _meta_type) {
-                static auto constexpr double_neg_inf = -std::numeric_limits<double>::infinity();
-                zone_map_info.min_value =
-                        vectorized::Field::create_field<TYPE_DOUBLE>(double_neg_inf);
-            } else {
-                return Status::InternalError("invalid zone map with negative Infinity");
-            }
-        } else {
-            vectorized::DataTypeSerDe::FormatOptions opt;
-            opt.ignore_scale = true;
-            RETURN_IF_ERROR(_data_type->get_serde()->from_olap_string(
-                    zone_map.min(), zone_map_info.min_value, opt));
-        }
-
-        if (zone_map.has_nan()) {
-            if (FieldType::OLAP_FIELD_TYPE_FLOAT == _meta_type) {
-                static auto constexpr float_nan = std::numeric_limits<float>::quiet_NaN();
-                zone_map_info.max_value = vectorized::Field::create_field<TYPE_FLOAT>(float_nan);
-            } else if (FieldType::OLAP_FIELD_TYPE_DOUBLE == _meta_type) {
-                static auto constexpr double_nan = std::numeric_limits<double>::quiet_NaN();
-                zone_map_info.max_value = vectorized::Field::create_field<TYPE_DOUBLE>(double_nan);
-            } else {
-                return Status::InternalError("invalid zone map with NaN");
-            }
-        } else if (zone_map.has_positive_inf()) {
-            if (FieldType::OLAP_FIELD_TYPE_FLOAT == _meta_type) {
-                static auto constexpr float_pos_inf = std::numeric_limits<float>::infinity();
-                zone_map_info.max_value =
-                        vectorized::Field::create_field<TYPE_FLOAT>(float_pos_inf);
-            } else if (FieldType::OLAP_FIELD_TYPE_DOUBLE == _meta_type) {
-                static auto constexpr double_pos_inf = std::numeric_limits<double>::infinity();
-                zone_map_info.max_value =
-                        vectorized::Field::create_field<TYPE_DOUBLE>(double_pos_inf);
-            } else {
-                return Status::InternalError("invalid zone map with positive Infinity");
-            }
-        } else {
-            vectorized::DataTypeSerDe::FormatOptions opt;
-            opt.ignore_scale = true;
-            RETURN_IF_ERROR(_data_type->get_serde()->from_olap_string(
-                    zone_map.max(), zone_map_info.max_value, opt));
-        }
-    }
-    return Status::OK();
-}
-
-bool ColumnReader::_zone_map_match_condition(const ZoneMapPB& zone_map,
-                                             const ZoneMapInfo& zone_map_info,
+bool ColumnReader::_zone_map_match_condition(const ZoneMap& zone_map,
                                              const AndBlockColumnPredicate* col_predicates) const {
-    if (zone_map.pass_all()) {
+    if (zone_map.pass_all) {
         return true;
     }
 
-    return col_predicates->evaluate_and(zone_map_info);
+    return col_predicates->evaluate_and(zone_map);
 }
 
 Status ColumnReader::_get_filtered_pages(
@@ -577,15 +523,15 @@ Status ColumnReader::_get_filtered_pages(
         if (zone_maps[i].pass_all()) {
             page_indexes->push_back(cast_set<uint32_t>(i));
         } else {
-            ZoneMapInfo zone_map_info;
-            RETURN_IF_ERROR(_parse_zone_map(zone_maps[i], zone_map_info));
-            if (_zone_map_match_condition(zone_maps[i], zone_map_info, col_predicates)) {
+            segment_v2::ZoneMap zone_map;
+            RETURN_IF_ERROR(ZoneMap::from_proto(zone_maps[i], _data_type, zone_map));
+            if (_zone_map_match_condition(zone_map, col_predicates)) {
                 bool should_read = true;
                 if (delete_predicates != nullptr) {
                     for (auto del_pred : *delete_predicates) {
                         // TODO: Both `min_value` and `max_value` should be 0 or neither should be 0.
                         //  So nullable only need to judge once.
-                        if (del_pred->evaluate_del(zone_map_info)) {
+                        if (del_pred->evaluate_del(zone_map)) {
                             should_read = false;
                             break;
                         }

@@ -63,6 +63,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherException;
+import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
@@ -71,6 +72,7 @@ import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
@@ -84,6 +86,7 @@ import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
+import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.ErrorReason;
@@ -96,8 +99,11 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionLikeOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionOp;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
@@ -129,9 +135,15 @@ import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.tablefunction.MetadataGenerator;
 import org.apache.doris.thrift.FrontendService;
+import org.apache.doris.thrift.TAbortRemoteTxnRequest;
+import org.apache.doris.thrift.TAbortRemoteTxnResult;
+import org.apache.doris.thrift.TAddOrDropPartitionsRequest;
+import org.apache.doris.thrift.TAddOrDropPartitionsResult;
 import org.apache.doris.thrift.TAutoIncrementRangeRequest;
 import org.apache.doris.thrift.TAutoIncrementRangeResult;
 import org.apache.doris.thrift.TBackend;
+import org.apache.doris.thrift.TBeginRemoteTxnRequest;
+import org.apache.doris.thrift.TBeginRemoteTxnResult;
 import org.apache.doris.thrift.TBeginTxnRequest;
 import org.apache.doris.thrift.TBeginTxnResult;
 import org.apache.doris.thrift.TBinlog;
@@ -140,6 +152,8 @@ import org.apache.doris.thrift.TCheckAuthResult;
 import org.apache.doris.thrift.TColumnDef;
 import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TColumnInfo;
+import org.apache.doris.thrift.TCommitRemoteTxnRequest;
+import org.apache.doris.thrift.TCommitRemoteTxnResult;
 import org.apache.doris.thrift.TCommitTxnRequest;
 import org.apache.doris.thrift.TCommitTxnResult;
 import org.apache.doris.thrift.TConfirmUnusedRemoteFilesRequest;
@@ -198,6 +212,12 @@ import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
 import org.apache.doris.thrift.TGroupCommitInfo;
 import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
 import org.apache.doris.thrift.TInitExternalCtlMetaResult;
+import org.apache.doris.thrift.TInsertOverwriteRecordRequest;
+import org.apache.doris.thrift.TInsertOverwriteRecordResult;
+import org.apache.doris.thrift.TInsertOverwriteRegisterRequest;
+import org.apache.doris.thrift.TInsertOverwriteRegisterResult;
+import org.apache.doris.thrift.TInsertOverwriteTaskRequest;
+import org.apache.doris.thrift.TInsertOverwriteTaskResult;
 import org.apache.doris.thrift.TInvalidateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TListPrivilegesResult;
 import org.apache.doris.thrift.TListTableMetadataNameIdsResult;
@@ -213,6 +233,8 @@ import org.apache.doris.thrift.TLoadTxnRollbackRequest;
 import org.apache.doris.thrift.TLoadTxnRollbackResult;
 import org.apache.doris.thrift.TLockBinlogRequest;
 import org.apache.doris.thrift.TLockBinlogResult;
+import org.apache.doris.thrift.TMasterAddressRequest;
+import org.apache.doris.thrift.TMasterAddressResult;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TMasterResult;
@@ -231,8 +253,12 @@ import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TPrivilegeType;
 import org.apache.doris.thrift.TQueryStatsResult;
 import org.apache.doris.thrift.TQueryType;
+import org.apache.doris.thrift.TRecordFinishedLoadJobRequest;
+import org.apache.doris.thrift.TRecordFinishedLoadJobResult;
 import org.apache.doris.thrift.TReplacePartitionRequest;
 import org.apache.doris.thrift.TReplacePartitionResult;
+import org.apache.doris.thrift.TReplacePartitionsRequest;
+import org.apache.doris.thrift.TReplacePartitionsResult;
 import org.apache.doris.thrift.TReplicaInfo;
 import org.apache.doris.thrift.TReportCommitTxnResultRequest;
 import org.apache.doris.thrift.TReportExecStatusParams;
@@ -273,6 +299,7 @@ import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TUpdatePlanStatsCacheRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
+import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.SubTransactionState;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
@@ -284,6 +311,7 @@ import org.apache.doris.transaction.TxnCommitAttachment;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -1143,17 +1171,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return tableNames;
     }
 
-    private void checkSingleTablePasswordAndPrivs(String user, String passwd, String db, String tbl,
+    private UserIdentity checkSingleTablePasswordAndPrivs(String user, String passwd, String db, String tbl,
             String clientIp, PrivPredicate predicate) throws AuthenticationException {
-        checkPasswordAndPrivs(user, passwd, db, Lists.newArrayList(tbl), clientIp, predicate);
+        return checkPasswordAndPrivs(user, passwd, db, Lists.newArrayList(tbl), clientIp, predicate);
     }
 
-    private void checkDbPasswordAndPrivs(String user, String passwd, String db, String clientIp,
+    private UserIdentity checkDbPasswordAndPrivs(String user, String passwd, String db, String clientIp,
             PrivPredicate predicate) throws AuthenticationException {
-        checkPasswordAndPrivs(user, passwd, db, null, clientIp, predicate);
+        return checkPasswordAndPrivs(user, passwd, db, null, clientIp, predicate);
     }
 
-    private void checkPasswordAndPrivs(String user, String passwd, String db, List<String> tables,
+    private UserIdentity checkPasswordAndPrivs(String user, String passwd, String db, List<String> tables,
             String clientIp, PrivPredicate predicate) throws AuthenticationException {
 
         final String fullUserName = ClusterNamespace.getNameFromFullName(user);
@@ -1169,7 +1197,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         "Access denied; you need (at least one of) the (" + predicate.toString()
                                 + ") privilege(s) for this operation");
             }
-            return;
+            Preconditions.checkState(currentUser.size() == 1);
+            return currentUser.get(0);
         }
 
         for (String tbl : tables) {
@@ -1181,6 +1210,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                 + ") privilege(s) for this operation");
             }
         }
+        Preconditions.checkState(currentUser.size() == 1);
+        return currentUser.get(0);
     }
 
     private void checkPassword(String user, String passwd, String clientIp)
@@ -2042,6 +2073,680 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
+    public TBeginRemoteTxnResult beginRemoteTxn(TBeginRemoteTxnRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive remote txn begin request: {}, client: {}", request, clientAddr);
+        }
+
+        TBeginRemoteTxnResult result = new TBeginRemoteTxnResult();
+        TStatus status = checkMaster();
+        result.setStatus(status);
+        try {
+            if (!Strings.isNullOrEmpty(request.getToken())) {
+                if (!checkToken(request.getToken())) {
+                    throw new AuthenticationException("Invalid token: " + request.getToken());
+                }
+            } else {
+                checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
+                        request.getTbl(), clientAddr, PrivPredicate.LOAD);
+            }
+            result.setMasterAddress(new TNetworkAddress(Env.getCurrentEnv().getMasterHost(),
+                                    Env.getCurrentEnv().getMasterRpcPort()));
+            if (status.getStatusCode() != TStatusCode.OK) {
+                return result;
+            }
+            long txnId = beginRemoteTxnImpl(request);
+            result.setTxnId(txnId);
+        } catch (AuthenticationException e) {
+            status.setStatusCode(TStatusCode.NOT_AUTHORIZED);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (AnalysisException e) {
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (LabelAlreadyUsedException e) {
+            status.setStatusCode(TStatusCode.LABEL_ALREADY_EXISTS);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (BeginTransactionException e) {
+            // txn running/publishing num exceed limit
+            status.setStatusCode(TStatusCode.TOO_MANY_TASKS);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (DuplicatedRequestException e) {
+            status.setStatusCode(TStatusCode.ALREADY_EXIST);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (QuotaExceedException e) {
+            status.setStatusCode(TStatusCode.LIMIT_REACH);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (MetaNotFoundException e) {
+            status.setStatusCode(TStatusCode.NOT_FOUND);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown exception when begin remote txn", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+        }
+        return result;
+    }
+
+    private long beginRemoteTxnImpl(TBeginRemoteTxnRequest request)
+            throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException,
+            QuotaExceedException, MetaNotFoundException {
+
+        String fullDbName = request.getDb();
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(fullDbName);
+        if (db == null) {
+            throw new MetaNotFoundException("unknown database, database=" + fullDbName);
+        }
+        if (StringUtils.isEmpty(request.getTbl())) {
+            throw new AnalysisException("table name is empty");
+        }
+        TableIf tableIf = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
+        OlapTable table = (OlapTable) tableIf;
+
+        long timeoutMs = request.getTimeoutMs();
+        long timeoutSecond = timeoutMs > 0 ? TimeUnit.MILLISECONDS.toSeconds(timeoutMs)
+                : Config.stream_load_default_timeout_second;
+
+        TxnCoordinator coordinator = new TxnCoordinator(TxnSourceType.FE, 0L,
+                FrontendOptions.getLocalHostAddress(), ExecuteEnv.getInstance().getStartupTime());
+        return Env.getCurrentGlobalTransactionMgr().beginTransaction(
+                db.getId(), ImmutableList.of(table.getId()), request.getLabel(),
+                null, coordinator, TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
+    }
+
+    @Override
+    public TCommitRemoteTxnResult commitRemoteTxn(TCommitRemoteTxnRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive remote txn commit request: {}, client: {}", request, clientAddr);
+        }
+
+        TCommitRemoteTxnResult result = new TCommitRemoteTxnResult();
+        TStatus status = checkMaster();
+        result.setStatus(status);
+        try {
+            if (!Strings.isNullOrEmpty(request.getToken())) {
+                if (!checkToken(request.getToken())) {
+                    throw new AuthenticationException("Invalid token: " + request.getToken());
+                }
+            } else {
+                checkDbPasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(), clientAddr,
+                        PrivPredicate.LOAD);
+            }
+            result.setMasterAddress(new TNetworkAddress(Env.getCurrentEnv().getMasterHost(),
+                    Env.getCurrentEnv().getMasterRpcPort()));
+            if (status.getStatusCode() != TStatusCode.OK) {
+                return result;
+            }
+            result.setTxnStatus(commitRemoteTxnImpl(request));
+        } catch (AuthenticationException e) {
+            status.setStatusCode(TStatusCode.NOT_AUTHORIZED);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (UserException e) {
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        }
+        return result;
+    }
+
+    private boolean commitRemoteTxnImpl(TCommitRemoteTxnRequest request) throws UserException {
+        String dbName = request.getDb();
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
+        if (db == null) {
+            throw new MetaNotFoundException("unknown database, database=" + dbName);
+        }
+        if (StringUtils.isEmpty(request.getTbl())) {
+            throw new AnalysisException("table name is empty");
+        }
+        TableIf tableIf = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
+        OlapTable table = (OlapTable) tableIf;
+        return Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
+                db, Lists.newArrayList(table),
+                request.getTxnId(),
+                TabletCommitInfo.fromThrift(request.getCommitInfos()),
+                request.getInsertVisibleTimeoutMs(), null);
+    }
+
+    @Override
+    public TAbortRemoteTxnResult abortRemoteTxn(TAbortRemoteTxnRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive remote txn abort request: {}, client: {}", request, clientAddr);
+        }
+
+        TAbortRemoteTxnResult result = new TAbortRemoteTxnResult();
+        TStatus status = checkMaster();
+        result.setStatus(status);
+        try {
+            if (!Strings.isNullOrEmpty(request.getToken())) {
+                if (!checkToken(request.getToken())) {
+                    throw new AuthenticationException("Invalid token: " + request.getToken());
+                }
+            } else {
+                checkDbPasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
+                        clientAddr, PrivPredicate.LOAD);
+            }
+            result.setMasterAddress(new TNetworkAddress(Env.getCurrentEnv().getMasterHost(),
+                                    Env.getCurrentEnv().getMasterRpcPort()));
+            if (status.getStatusCode() != TStatusCode.OK) {
+                return result;
+            }
+            abortRemoteTxnImpl(request);
+        } catch (AuthenticationException e) {
+            status.setStatusCode(TStatusCode.NOT_AUTHORIZED);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (UserException e) {
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown exception when abort remote txn {}", request.getTxnId(), e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+        }
+        return result;
+    }
+
+    private void abortRemoteTxnImpl(TAbortRemoteTxnRequest request) throws UserException {
+        long txnId = request.getTxnId();
+        String dbName = request.getDb();
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
+        if (db == null) {
+            throw new MetaNotFoundException("unknown database, database=" + dbName);
+        }
+        String reason = request.isSetReason() ? request.getReason() : "remote abort";
+        Env.getCurrentGlobalTransactionMgr().abortTransaction(db.getId(), txnId, reason);
+    }
+
+    @Override
+    public TMasterAddressResult getMasterAddress(TMasterAddressRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive get master address request: {}, client: {}", request, clientAddr);
+        }
+        TMasterAddressResult result = new TMasterAddressResult();
+        TStatus status = checkMaster();
+        result.setStatus(status);
+        try {
+            if (!Strings.isNullOrEmpty(request.getToken())) {
+                if (!checkToken(request.getToken())) {
+                    throw new AuthenticationException("Invalid token: " + request.getToken());
+                }
+            } else {
+                final String fullUserName = ClusterNamespace.getNameFromFullName(request.getUser());
+                List<UserIdentity> currentUser = Lists.newArrayList();
+                Env.getCurrentEnv().getAuth()
+                        .checkPlainPassword(fullUserName, clientAddr, request.getPasswd(), currentUser);
+            }
+            result.setMasterAddress(new TNetworkAddress(Env.getCurrentEnv().getMasterHost(),
+                    Env.getCurrentEnv().getMasterRpcPort()));
+        } catch (AuthenticationException e) {
+            status.setStatusCode(TStatusCode.NOT_AUTHORIZED);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown exception when check master address", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+        }
+
+        return result;
+    }
+
+    @Override
+    public TAddOrDropPartitionsResult addOrDropPartitions(TAddOrDropPartitionsRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive get master address request: {}, client: {}", request, clientAddr);
+        }
+        TAddOrDropPartitionsResult result = new TAddOrDropPartitionsResult();
+        TStatus status = checkMaster();
+        result.setStatus(status);
+        try {
+            if (!Strings.isNullOrEmpty(request.getToken())) {
+                if (!checkToken(request.getToken())) {
+                    throw new AuthenticationException("Invalid token: " + request.getToken());
+                }
+            } else {
+                checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
+                        request.getTbl(), clientAddr, PrivPredicate.ALTER);
+            }
+            result.setMasterAddress(new TNetworkAddress(Env.getCurrentEnv().getMasterHost(),
+                    Env.getCurrentEnv().getMasterRpcPort()));
+            if (status.getStatusCode() != TStatusCode.OK) {
+                return result;
+            }
+            addOrDropPartitionsImpl(request);
+        } catch (AuthenticationException e) {
+            status.setStatusCode(TStatusCode.NOT_AUTHORIZED);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (DdlException e) {
+            status.setStatusCode(TStatusCode.ABORTED);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown exception when modify partitions", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+        }
+
+        return result;
+    }
+
+    private void addOrDropPartitionsImpl(TAddOrDropPartitionsRequest request) throws DdlException {
+        String dbName = request.getDb();
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Database not found: " + dbName);
+        }
+        if (StringUtils.isEmpty(request.getTbl())) {
+            throw new DdlException("Table name is empty");
+        }
+        OlapTable olapTable = (OlapTable) db.getTableNullable(request.getTbl());
+        if (olapTable == null) {
+            throw new DdlException("Table not found: " + request.getTbl());
+        }
+        try {
+            if (!olapTable.writeLockIfExist()) {
+                throw new DdlException("Table write lock failed: " + request.getTbl());
+            }
+            if (request.is_drop) {
+                for (String partitionName : request.getPartitionNames()) {
+                    if ((olapTable).getPartition(partitionName, request.is_temp) == null) {
+                        continue;
+                    }
+                    Env.getCurrentEnv().dropPartition(
+                            (Database) olapTable.getDatabase(), olapTable,
+                            new DropPartitionOp(true, partitionName, request.is_temp, request.is_force));
+                    LOG.info("successfully drop {}partition [{}] for [{}]", request.is_temp ? "temp " : "",
+                            partitionName, olapTable.getName());
+                }
+            } else {
+                List<String> partitionNames = request.getPartitionNames();
+                List<String> tempPartitionNames = request.getTempPartitionNames();
+                for (int i = 0; i < partitionNames.size(); i++) {
+                    Env.getCurrentEnv().addPartitionLike(db, request.getTbl(),
+                            new AddPartitionLikeOp(tempPartitionNames.get(i), partitionNames.get(i), request.is_temp));
+                    LOG.info("successfully add {}partition [{}] for [{}]", request.is_temp ? "temp " : "",
+                            partitionNames.get(i), olapTable.getName());
+                }
+            }
+        } catch (DdlException e) {
+            LOG.info("{} partition failed for [{}]", request.is_drop ? "drop" : "add", request.getTbl(), e);
+            throw e;
+        } finally {
+            olapTable.writeUnlock();
+        }
+    }
+
+    @Override
+    public TReplacePartitionsResult replacePartitions(TReplacePartitionsRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive get master address request: {}, client: {}", request, clientAddr);
+        }
+        TReplacePartitionsResult result = new TReplacePartitionsResult();
+        TStatus status = checkMaster();
+        result.setStatus(status);
+        try {
+            if (!Strings.isNullOrEmpty(request.getToken())) {
+                if (!checkToken(request.getToken())) {
+                    throw new AuthenticationException("Invalid token: " + request.getToken());
+                }
+            } else {
+                checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
+                        request.getTbl(), clientAddr, PrivPredicate.ALTER);
+            }
+            result.setMasterAddress(new TNetworkAddress(Env.getCurrentEnv().getMasterHost(),
+                    Env.getCurrentEnv().getMasterRpcPort()));
+            if (status.getStatusCode() != TStatusCode.OK) {
+                return result;
+            }
+            replacePartitionsImpl(request);
+        } catch (AuthenticationException e) {
+            status.setStatusCode(TStatusCode.NOT_AUTHORIZED);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (DdlException e) {
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown exception when replace partitions", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+        }
+        return result;
+    }
+
+    private void replacePartitionsImpl(TReplacePartitionsRequest request) throws DdlException {
+        String dbName = request.getDb();
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Database not found: " + dbName);
+        }
+        if (StringUtils.isEmpty(request.getTbl())) {
+            throw new DdlException("Table name is empty");
+        }
+        OlapTable olapTable = (OlapTable) db.getTableNullable(request.getTbl());
+        if (olapTable == null) {
+            throw new DdlException("Table not found: " + request.getTbl());
+        }
+        try {
+            if (!olapTable.writeLockIfExist()) {
+                throw new DdlException("Table write lock failed: " + request.getTbl());
+            }
+            Map<String, String> properties = Maps.newHashMap();
+            properties.put(PropertyAnalyzer.PROPERTIES_USE_TEMP_PARTITION_NAME, "false");
+            ReplacePartitionOp replacePartitionOp = new ReplacePartitionOp(
+                    new PartitionNamesInfo(false, request.getPartitionNames()),
+                    new PartitionNamesInfo(true, request.getTempPartitionNames()), request.is_force, properties);
+            if (replacePartitionOp.getTempPartitionNames().isEmpty()) {
+                return;
+            }
+            Env.getCurrentEnv()
+                    .replaceTempPartition((Database) olapTable.getDatabase(),
+                            olapTable, replacePartitionOp);
+        } catch (DdlException e) {
+            LOG.warn("replace partition failed for [{}], err={}",
+                    request.getTbl(), Util.getRootCauseMessage(e), e);
+            throw e;
+        } finally {
+            olapTable.writeUnlock();
+        }
+    }
+
+    @Override
+    public TInsertOverwriteRegisterResult registerInsertOverwriteTask(TInsertOverwriteRegisterRequest request)
+            throws TException {
+        String clientAddr = getClientAddrAsString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive get master address request: {}, client: {}", request, clientAddr);
+        }
+        TInsertOverwriteRegisterResult result = new TInsertOverwriteRegisterResult();
+        TStatus status = checkMaster();
+        result.setStatus(status);
+        try {
+            if (!Strings.isNullOrEmpty(request.getToken())) {
+                if (!checkToken(request.getToken())) {
+                    throw new AuthenticationException("Invalid token: " + request.getToken());
+                }
+            } else {
+                final String fullUserName = ClusterNamespace.getNameFromFullName(request.getUser());
+                List<UserIdentity> currentUser = Lists.newArrayList();
+                Env.getCurrentEnv().getAuth()
+                        .checkPlainPassword(fullUserName, clientAddr, request.getPasswd(), currentUser);
+            }
+            result.setMasterAddress(new TNetworkAddress(Env.getCurrentEnv().getMasterHost(),
+                    Env.getCurrentEnv().getMasterRpcPort()));
+            if (status.getStatusCode() != TStatusCode.OK) {
+                return result;
+            }
+            if (request.isSetPartitionNames()) {
+                result.setTaskId((registerTaskImpl(request.getDb(), request.getTbl(), request.getPartitionNames())));
+            } else if (request.isSetGroupId()) {
+                registerTaskInGroupImpl(request.getGroupId(), request.getTaskId());
+            } else {
+                result.setGroupId(registerTaskGroupImpl(request.getDb(), request.getTbl()));
+            }
+        } catch (AuthenticationException e) {
+            status.setStatusCode(TStatusCode.NOT_AUTHORIZED);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (DdlException e) {
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown exception when register insert overwrite task", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+        }
+        return result;
+    }
+
+    private long registerTaskImpl(String dbName, String tblName, List<String> tempPartitionNames) throws Exception {
+        DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Database not found: " + dbName);
+        }
+        if (StringUtils.isEmpty(tblName)) {
+            throw new DdlException("Table name is empty");
+        }
+        TableIf tbl = db.getTableNullable(tblName);
+        if (tbl == null) {
+            throw new DdlException("Table not found: " + tblName);
+        }
+        return Env.getCurrentEnv().getInsertOverwriteManager().registerTask(tbl, tempPartitionNames);
+    }
+
+    public long registerTaskGroupImpl(String dbName, String tableName) throws Exception {
+        DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Database not found: " + dbName);
+        }
+        if (StringUtils.isEmpty(tableName)) {
+            throw new DdlException("Table name is empty");
+        }
+        TableIf tbl = db.getTableNullable(tableName);
+        if (tbl == null) {
+            throw new DdlException("Table not found: " + tableName);
+        }
+        return Env.getCurrentEnv().getInsertOverwriteManager().registerTaskGroup(tbl);
+    }
+
+    public void registerTaskInGroupImpl(long groupId, long taskId) throws Exception {
+        Env.getCurrentEnv().getInsertOverwriteManager().registerTaskInGroup(groupId, taskId);
+    }
+
+    @Override
+    public TInsertOverwriteTaskResult insertOverwriteTaskAction(TInsertOverwriteTaskRequest request)
+            throws TException {
+        String clientAddr = getClientAddrAsString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive get master address request: {}, client: {}", request, clientAddr);
+        }
+        TInsertOverwriteTaskResult result = new TInsertOverwriteTaskResult();
+        TStatus status = checkMaster();
+        result.setStatus(status);
+        try {
+            if (!Strings.isNullOrEmpty(request.getToken())) {
+                if (!checkToken(request.getToken())) {
+                    throw new AuthenticationException("Invalid token: " + request.getToken());
+                }
+            } else {
+                final String fullUserName = ClusterNamespace.getNameFromFullName(request.getUser());
+                List<UserIdentity> currentUser = Lists.newArrayList();
+                Env.getCurrentEnv().getAuth()
+                        .checkPlainPassword(fullUserName, clientAddr, request.getPasswd(), currentUser);
+            }
+            result.setMasterAddress(new TNetworkAddress(Env.getCurrentEnv().getMasterHost(),
+                    Env.getCurrentEnv().getMasterRpcPort()));
+            if (status.getStatusCode() != TStatusCode.OK) {
+                return result;
+            }
+            if (request.is_success) {
+                if (request.isSetGroupId()) {
+                    taskGroupSuccessImpl(request.getDb(), request.getTbl(), request.getGroupId());
+                } else if (request.isSetTaskId()) {
+                    taskSuccessImpl(request.getTaskId());
+                }
+            } else {
+                if (request.isSetGroupId()) {
+                    taskGroupFailImpl(request.getGroupId());
+                } else if (request.isSetTaskId()) {
+                    taskFailImpl(request.getTaskId());
+                }
+            }
+        } catch (AuthenticationException e) {
+            status.setStatusCode(TStatusCode.NOT_AUTHORIZED);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (DdlException e) {
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown exception when insert overwrite task action", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+        }
+        return result;
+    }
+
+    private void taskGroupSuccessImpl(String dbName, String tblName, long groupId) throws Exception {
+        DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Database not found: " + dbName);
+        }
+        if (StringUtils.isEmpty(tblName)) {
+            throw new DdlException("Table name is empty");
+        }
+        TableIf tbl = db.getTableNullable(tblName);
+        if (tbl == null) {
+            throw new DdlException("Table not found: " + tblName);
+        }
+        Env.getCurrentEnv().getInsertOverwriteManager().taskGroupSuccess(groupId, (OlapTable) tbl);
+    }
+
+    private void taskSuccessImpl(long taskId) throws Exception {
+        Env.getCurrentEnv().getInsertOverwriteManager().taskSuccess(taskId);
+    }
+
+    private void taskGroupFailImpl(long groupId) throws Exception {
+        Env.getCurrentEnv().getInsertOverwriteManager().taskGroupFail(groupId);
+    }
+
+    private void taskFailImpl(long taskId) throws Exception {
+        Env.getCurrentEnv().getInsertOverwriteManager().taskFail(taskId);
+    }
+
+    @Override
+    public TInsertOverwriteRecordResult addOrDropInsertOverwriteRecord(TInsertOverwriteRecordRequest request)
+            throws TException {
+        String clientAddr = getClientAddrAsString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive add or drop insert overwrite record request: {}, client: {}", request, clientAddr);
+        }
+        TInsertOverwriteRecordResult result = new TInsertOverwriteRecordResult();
+        TStatus status = checkMaster();
+        result.setStatus(status);
+        try {
+            if (!Strings.isNullOrEmpty(request.getToken())) {
+                if (!checkToken(request.getToken())) {
+                    throw new AuthenticationException("Invalid token: " + request.getToken());
+                }
+            } else {
+                checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
+                        request.getTbl(), clientAddr, PrivPredicate.LOAD);
+            }
+            result.setMasterAddress(new TNetworkAddress(Env.getCurrentEnv().getMasterHost(),
+                    Env.getCurrentEnv().getMasterRpcPort()));
+            if (status.getStatusCode() != TStatusCode.OK) {
+                return result;
+            }
+            if (request.is_add) {
+                recordRunningTableOrExceptionImpl(request.getDb(), request.getTbl());
+            } else {
+                dropRunningRecordImpl(request.getDb(), request.getTbl());
+            }
+        } catch (AuthenticationException e) {
+            status.setStatusCode(TStatusCode.NOT_AUTHORIZED);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (DdlException e) {
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        }  catch (Throwable e) {
+            LOG.warn("unknown exception when add or drop insert overwrite record", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+        }
+        return result;
+    }
+
+    private void recordRunningTableOrExceptionImpl(String dbName, String tblName) throws Exception {
+        DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Database not found: " + dbName);
+        }
+        if (StringUtils.isEmpty(tblName)) {
+            throw new DdlException("Table name is empty");
+        }
+        TableIf tbl = db.getTableNullable(tblName);
+        if (tbl == null) {
+            throw new DdlException("Table not found: " + tblName);
+        }
+        Env.getCurrentEnv().getInsertOverwriteManager().recordRunningTableOrException(db, tbl);
+    }
+
+    private void dropRunningRecordImpl(String dbName, String tblName) throws Exception {
+        DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Database not found: " + dbName);
+        }
+        if (StringUtils.isEmpty(tblName)) {
+            throw new DdlException("Table name is empty");
+        }
+        TableIf tbl = db.getTableNullable(tblName);
+        if (tbl == null) {
+            throw new DdlException("Table not found: " + tblName);
+        }
+        Env.getCurrentEnv().getInsertOverwriteManager().dropRunningRecord(db, tbl);
+    }
+
+    @Override
+    public TRecordFinishedLoadJobResult recordFinishedLoadJobRequest(TRecordFinishedLoadJobRequest request)
+            throws TException {
+        String clientAddr = getClientAddrAsString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive add or drop insert overwrite record request: {}, client: {}", request, clientAddr);
+        }
+        TRecordFinishedLoadJobResult result = new TRecordFinishedLoadJobResult();
+        TStatus status = checkMaster();
+        result.setStatus(status);
+        try {
+            UserIdentity userIdentity = null;
+            if (!Strings.isNullOrEmpty(request.getToken())) {
+                if (!checkToken(request.getToken())) {
+                    throw new AuthenticationException("Invalid token: " + request.getToken());
+                }
+            } else {
+                userIdentity = checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(),
+                        request.getDb(), request.getTbl(), clientAddr, PrivPredicate.LOAD);
+            }
+            result.setMasterAddress(new TNetworkAddress(Env.getCurrentEnv().getMasterHost(),
+                    Env.getCurrentEnv().getMasterRpcPort()));
+            if (status.getStatusCode() != TStatusCode.OK) {
+                return result;
+            }
+            recordFinishedLoadJobRequestImpl(request.getLabel(), request.getTxnId(), request.getDb(), request.getTbl(),
+                    request.getCreateTs(), request.getFailMsg(), request.getTrackingUrl(), request.getFirstErrMsg(),
+                    userIdentity, request.getJobId());
+        } catch (AuthenticationException e) {
+            status.setStatusCode(TStatusCode.NOT_AUTHORIZED);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (DdlException e) {
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown exception when record finished load job", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+        }
+        return result;
+    }
+
+    private void recordFinishedLoadJobRequestImpl(String label, long txnId, String db, String tbl,
+                                                  long createTime, String failMsg, String trackingUrl,
+                                                  String firstErrorMsg, UserIdentity userIdentity,
+                                                  long jobId) throws Exception {
+        DatabaseIf database = Env.getCurrentInternalCatalog().getDbNullable(db);
+        if (database == null) {
+            throw new DdlException("Database not found: " + db);
+        }
+        TableIf table = database.getTableNullable(tbl);
+        if (table == null) {
+            throw new DdlException("Table not found: " + tbl);
+        }
+        Env.getCurrentEnv().getLoadManager().recordFinishedLoadJob(label, txnId, database.getFullName(), table.getId(),
+                EtlJobType.INSERT, createTime, failMsg, trackingUrl, firstErrorMsg, userIdentity, -1);
+    }
+
+    @Override
     public TStreamLoadPutResult streamLoadPut(TStreamLoadPutRequest request) {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
@@ -2431,7 +3136,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setStatus(MasterCatalogExecutor.STATUS_OK);
         } catch (Throwable t) {
             LOG.warn("init catalog failed. catalog: {}", catalog.getName(), t);
-            result.setStatus(Util.getRootCauseStack(t));
+            result.setStatus(Util.getRootCauseMessage(t));
         }
         return result;
     }
@@ -2456,7 +3161,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setStatus(MasterCatalogExecutor.STATUS_OK);
         } catch (Throwable t) {
             LOG.warn("init database failed. catalog.database: {}", catalog.getName(), db.getFullName(), t);
-            result.setStatus(Util.getRootCauseStack(t));
+            result.setStatus(Util.getRootCauseMessage(t));
         }
         return result;
     }
@@ -4659,6 +5364,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         updatedPartitionIds.remove(partitionMeta.getId());
                     }
                 }
+
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("receive getOlapTableMeta  db: {} table:{} update partitions: {} removed partition:{}",
                             request.getDb(), request.getTable(), updatedPartitionIds.size(),
@@ -4671,6 +5377,38 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         Text.writeString(out, GsonUtils.GSON.toJson(partition));
                         out.flush();
                         result.addToUpdatedPartitions(ByteBuffer.wrap(bOutputStream.toByteArray()));
+                    }
+                }
+                // temp partitions
+                updatedPartitionIds = Sets.newHashSet(table.getTempPartitions().getPartitionIds());
+                partitionMetas = request.getTempPartitionsSize() == 0 ? Lists.newArrayList()
+                        : request.getTempPartitions();
+                for (TPartitionMeta partitionMeta : partitionMetas) {
+                    if (request.getTableId() != table.getId()) {
+                        result.addToRemovedTempPartitions(partitionMeta.getId());
+                        continue;
+                    }
+                    Partition tempPartition = table.getTempPartitions().getPartition(partitionMeta.getId());
+                    if (tempPartition == null) {
+                        result.addToRemovedTempPartitions(partitionMeta.getId());
+                        continue;
+                    }
+                    if (tempPartition.getVisibleVersion() == partitionMeta.getVisibleVersion()
+                            && tempPartition.getVisibleVersionTime() == partitionMeta.getVisibleVersionTime()) {
+                        updatedPartitionIds.remove(partitionMeta.getId());
+                    }
+                }
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("update temp partitions: {},  removed temp partition:{}",
+                            updatedPartitionIds.size(), result.getRemovedPartitionsSize());
+                }
+                for (Long partitionId : updatedPartitionIds) {
+                    bOutputStream.reset();
+                    Partition partition = table.getTempPartitions().getPartition(partitionId);
+                    try (DataOutputStream out = new DataOutputStream(bOutputStream)) {
+                        Text.writeString(out, GsonUtils.GSON.toJson(partition));
+                        out.flush();
+                        result.addToUpdatedTempPartitions(ByteBuffer.wrap(bOutputStream.toByteArray()));
                     }
                 }
                 return result;

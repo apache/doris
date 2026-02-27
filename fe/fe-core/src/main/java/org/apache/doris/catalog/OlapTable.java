@@ -196,6 +196,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     private DistributionInfo defaultDistributionInfo;
 
     // all info about temporary partitions are save in "tempPartitions"
+    @Setter
     @Getter
     @SerializedName(value = "tps", alternate = {"tempPartitions"})
     private TempPartitions tempPartitions = new TempPartitions();
