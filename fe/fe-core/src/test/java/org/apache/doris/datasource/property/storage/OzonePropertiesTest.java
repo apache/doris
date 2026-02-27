@@ -117,6 +117,28 @@ public class OzonePropertiesTest {
     }
 
     @Test
+    public void testCreateAllWithDefaultFsAndOzoneProperties() throws UserException {
+        origProps.put(StorageProperties.FS_OZONE_SUPPORT, "true");
+        origProps.put("fs.defaultFS", "s3a://dn-data/");
+        origProps.put("ozone.endpoint", "http://ozone-s3g:9878");
+        origProps.put("ozone.access_key", "hadoop");
+        origProps.put("ozone.secret_key", "hadoop");
+        origProps.put("ozone.use_path_style", "true");
+        origProps.put("ozone.region", "us-east-1");
+
+        List<StorageProperties> properties = StorageProperties.createAll(origProps);
+        Assertions.assertEquals(HdfsProperties.class, properties.get(0).getClass());
+        Assertions.assertEquals(OzoneProperties.class, properties.get(1).getClass());
+
+        OzoneProperties ozoneProperties = (OzoneProperties) properties.get(1);
+        Assertions.assertEquals("hadoop", ozoneProperties.getHadoopStorageConfig().get("fs.s3a.access.key"));
+        Assertions.assertEquals("hadoop", ozoneProperties.getHadoopStorageConfig().get("fs.s3a.secret.key"));
+        Assertions.assertEquals("http://ozone-s3g:9878", ozoneProperties.getHadoopStorageConfig().get("fs.s3a.endpoint"));
+        Assertions.assertEquals("us-east-1", ozoneProperties.getHadoopStorageConfig().get("fs.s3a.endpoint.region"));
+        Assertions.assertEquals("true", ozoneProperties.getHadoopStorageConfig().get("fs.s3a.path.style.access"));
+    }
+
+    @Test
     public void testMissingAccessKeyOrSecretKey() {
         origProps.put(StorageProperties.FS_OZONE_SUPPORT, "true");
         origProps.put("ozone.endpoint", "http://ozone-s3g:9878");

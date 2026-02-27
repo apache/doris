@@ -102,6 +102,38 @@ public class OzoneProperties extends AbstractS3CompatibleProperties {
     }
 
     @Override
+    public void initNormalizeAndCheckProps() {
+        hydrateFromOriginalProps();
+        super.initNormalizeAndCheckProps();
+        hydrateFromOriginalProps();
+    }
+
+    private void hydrateFromOriginalProps() {
+        endpoint = StringUtils.firstNonBlank(
+                endpoint,
+                origProps.get("ozone.endpoint"),
+                origProps.get("s3.endpoint"));
+        region = StringUtils.firstNonBlank(region, origProps.get("ozone.region"), origProps.get("s3.region"));
+        accessKey = StringUtils.firstNonBlank(
+                accessKey,
+                origProps.get("ozone.access_key"),
+                origProps.get("s3.access_key"),
+                origProps.get("s3.access-key-id"));
+        secretKey = StringUtils.firstNonBlank(
+                secretKey,
+                origProps.get("ozone.secret_key"),
+                origProps.get("s3.secret_key"),
+                origProps.get("s3.secret-access-key"));
+        sessionToken = StringUtils.firstNonBlank(sessionToken, origProps.get("ozone.session_token"),
+                origProps.get("s3.session_token"), origProps.get("s3.session-token"));
+        usePathStyle = StringUtils.firstNonBlank(usePathStyle, origProps.get("ozone.use_path_style"),
+                origProps.get("use_path_style"), origProps.get("s3.path-style-access"));
+        forceParsingByStandardUrl = StringUtils.firstNonBlank(forceParsingByStandardUrl,
+                origProps.get("ozone.force_parsing_by_standard_uri"),
+                origProps.get("force_parsing_by_standard_uri"));
+    }
+
+    @Override
     protected Set<Pattern> endpointPatterns() {
         return ImmutableSet.of(Pattern.compile("^(?:https?://)?[a-zA-Z0-9.-]+(?::\\d+)?$"));
     }
