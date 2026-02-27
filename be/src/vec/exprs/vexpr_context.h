@@ -254,6 +254,12 @@ public:
                                                   const Block* block, ColumnUInt8& null_map,
                                                   IColumn::Filter& result_filter);
 
+    [[nodiscard]] static Status short_circuit_execute_conjuncts(const VExprContextSPtrs& ctxs,
+                                                                bool accept_null,
+                                                                const Block* block,
+                                                                IColumn::Filter* result_filter,
+                                                                bool* can_filter_all);
+
     static Status execute_conjuncts(const VExprContextSPtrs& ctxs,
                                     const std::vector<IColumn::Filter*>* filters, Block* block,
                                     IColumn::Filter* result_filter, bool* can_filter_all);

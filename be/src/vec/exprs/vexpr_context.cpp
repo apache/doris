@@ -35,6 +35,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/exprs/function_context.h"
+#include "vec/exprs/short_circuit_util.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
@@ -227,10 +228,99 @@ Status VExprContext::execute_filter(const Block* block, uint8_t* __restrict resu
                                  can_filter_all);
 }
 
+bool can_use_short_circuit_execute_conjuncts(const VExprContextSPtrs& ctxs,
+                                             const std::vector<IColumn::Filter*>* filters,
+                                             IColumn::Filter* result_filter) {
+    if (filters != nullptr) {
+        return false;
+    }
+    if (simd::contain_one(result_filter->data(), result_filter->size()) != result_filter->size()) {
+        return false;
+    }
+
+    // no filters, not filtered yet
+    for (const auto& ctx : ctxs) {
+        if (ctx->root()->is_rf_wrapper()) {
+            return false;
+        }
+    }
+    // no runtime filter wrapper
+    return true;
+}
+
+Status VExprContext::short_circuit_execute_conjuncts(const VExprContextSPtrs& ctxs,
+                                                     bool accept_null, const Block* block,
+                                                     IColumn::Filter* result_filter,
+                                                     bool* can_filter_all) {
+    Selector selector;
+    size_t rows = block->rows();
+    selector.resize(rows);
+    for (uint32_t i = 0; i < rows; ++i) {
+        selector[i] = i;
+    }
+
+    *can_filter_all = false;
+
+    for (const auto& ctx : ctxs) {
+        const auto& expr = ctx->root();
+        ColumnPtr result_column;
+        RETURN_IF_ERROR(
+                expr->execute_column(ctx.get(), block, &selector, selector.size(), result_column));
+
+        ConditionColumnView condition_view =
+                ConditionColumnView::create(result_column, &selector, selector.size());
+
+        Selector matched_selector;
+        auto null_func = [&](size_t, size_t executor_index) {
+            if (accept_null) {
+                matched_selector.push_back(executor_index);
+            }
+        };
+
+        auto false_func = [&](size_t, size_t executor_index) {
+            // do nothing
+        };
+
+        auto true_func = [&](size_t, size_t executor_index) {
+            matched_selector.push_back(executor_index);
+        };
+
+        condition_view.for_each(null_func, true_func, false_func);
+
+        // swap selector and not_matched_selector
+        selector.swap(matched_selector);
+
+        if (selector.empty()) {
+            break;
+        }
+    }
+
+    // fiil to result_filter
+
+    if (selector.empty()) {
+        *can_filter_all = true;
+        std::fill_n(result_filter->data(), rows, 0);
+        return Status::OK();
+    }
+
+    std::fill_n(result_filter->data(), rows, 0);
+
+    auto& result_filter_data = *result_filter;
+    for (int i = 0; i < selector.size(); ++i) {
+        result_filter_data[selector[i]] = 1;
+    }
+    return Status::OK();
+}
+
 Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                                        const std::vector<IColumn::Filter*>* filters,
                                        bool accept_null, const Block* block,
                                        IColumn::Filter* result_filter, bool* can_filter_all) {
+    if (block->rows() > 0 &&
+        can_use_short_circuit_execute_conjuncts(ctxs, filters, result_filter)) {
+        return short_circuit_execute_conjuncts(ctxs, accept_null, block, result_filter,
+                                               can_filter_all);
+    }
     size_t rows = block->rows();
     DCHECK_EQ(result_filter->size(), rows);
     *can_filter_all = false;
