@@ -650,6 +650,9 @@ public class ConnectContext {
 
     public void setCurrentUserIdentity(UserIdentity currentUserIdentity) {
         this.currentUserIdentity = currentUserIdentity;
+        if (sessionVariable != null) {
+            sessionVariable.setQualifiedUser(getQualifiedUser());
+        }
     }
 
     public SessionVariable getSessionVariable() {
@@ -658,6 +661,9 @@ public class ConnectContext {
 
     public void setSessionVariable(SessionVariable sessionVariable) {
         this.sessionVariable = sessionVariable;
+        if (this.sessionVariable != null) {
+            this.sessionVariable.setQualifiedUser(getQualifiedUser());
+        }
     }
 
     public ConnectScheduler getConnectScheduler() {
@@ -1426,6 +1432,7 @@ public class ConnectContext {
                 LOG.debug("finally set context compute group name {} for user {} with chose way '{}'",
                         cloudCluster, getCurrentUserIdentity(), choseWay);
             }
+            getSessionVariable().setCloudCluster(cloudCluster);
             return cloudCluster;
         }
 
@@ -1438,6 +1445,7 @@ public class ConnectContext {
                         getCurrentUserIdentity(), choseWay);
             }
             this.cloudCluster = userPropCluster;
+            getSessionVariable().setCloudCluster(userPropCluster);
             return userPropCluster;
         }
 
@@ -1463,6 +1471,7 @@ public class ConnectContext {
             throw exception;
         }
         this.cloudCluster = policyCluster;
+        getSessionVariable().setCloudCluster(policyCluster);
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("finally set context compute group name {} for user {} with chose way '{}'", this.cloudCluster,

@@ -1079,7 +1079,7 @@ public class SystemInfoService {
         return idToBackendRef;
     }
 
-    public int getMinPipelineExecutorSize() {
+    public int getMinPipelineExecutorSize(String clusterName) {
         List<Backend> currentBackends = null;
         try {
             currentBackends = getAllBackendsByAllCluster().values().asList();

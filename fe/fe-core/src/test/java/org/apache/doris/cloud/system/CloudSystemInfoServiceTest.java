@@ -369,7 +369,7 @@ public class CloudSystemInfoServiceTest {
 
         try {
             // Since there are no backends in the cluster, should return 1
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = getMinPipelineExecutorSizeByContext(infoService);
             Assert.assertEquals(1, result);
         } finally {
             ConnectContext.remove();
@@ -403,7 +403,7 @@ public class CloudSystemInfoServiceTest {
 
         try {
             // Should return the pipeline executor size of the single backend
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = getMinPipelineExecutorSizeByContext(infoService);
             Assert.assertEquals(8, result);
         } finally {
             ConnectContext.remove();
@@ -454,7 +454,7 @@ public class CloudSystemInfoServiceTest {
 
         try {
             // Should return the minimum pipeline executor size (6)
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = getMinPipelineExecutorSizeByContext(infoService);
             Assert.assertEquals(6, result);
         } finally {
             ConnectContext.remove();
@@ -505,7 +505,7 @@ public class CloudSystemInfoServiceTest {
 
         try {
             // Should return the minimum positive pipeline executor size (4)
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = getMinPipelineExecutorSizeByContext(infoService);
             Assert.assertEquals(4, result);
         } finally {
             ConnectContext.remove();
@@ -549,7 +549,7 @@ public class CloudSystemInfoServiceTest {
         try {
             // Should return 1 when no valid pipeline executor sizes are
             // found
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = getMinPipelineExecutorSizeByContext(infoService);
             Assert.assertEquals(1, result);
         } finally {
             ConnectContext.remove();
@@ -565,11 +565,44 @@ public class CloudSystemInfoServiceTest {
         createTestConnectContext(null);
         try {
             // Should return 1 when no cluster is set in ConnectContext
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = getMinPipelineExecutorSizeByContext(infoService);
             Assert.assertEquals(1, result);
         } finally {
             ConnectContext.remove();
         }
+    }
+
+    @Test
+    public void testGetMinPipelineExecutorSizeWithExplicitClusterNameWithoutContext() {
+        infoService = new CloudSystemInfoService();
+        String clusterName = "explicit_cluster";
+        String clusterId = "explicit_cluster_id";
+
+        ComputeGroup cg = new ComputeGroup(clusterId, clusterName, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        infoService.addComputeGroup(clusterId, cg);
+
+        List<Backend> toAdd = new ArrayList<>();
+        Backend backend1 = new Backend(Env.getCurrentEnv().getNextId(), "127.0.1.1", 9050);
+        Map<String, String> tagMap1 = Tag.DEFAULT_BACKEND_TAG.toMap();
+        tagMap1.put(Tag.CLOUD_CLUSTER_NAME, clusterName);
+        tagMap1.put(Tag.CLOUD_CLUSTER_ID, clusterId);
+        backend1.setTagMap(tagMap1);
+        backend1.setPipelineExecutorSize(10);
+        toAdd.add(backend1);
+
+        Backend backend2 = new Backend(Env.getCurrentEnv().getNextId(), "127.0.1.2", 9050);
+        Map<String, String> tagMap2 = Tag.DEFAULT_BACKEND_TAG.toMap();
+        tagMap2.put(Tag.CLOUD_CLUSTER_NAME, clusterName);
+        tagMap2.put(Tag.CLOUD_CLUSTER_ID, clusterId);
+        backend2.setTagMap(tagMap2);
+        backend2.setPipelineExecutorSize(6);
+        toAdd.add(backend2);
+
+        infoService.updateCloudClusterMapNoLock(toAdd, new ArrayList<>());
+        ConnectContext.remove();
+
+        int result = infoService.getMinPipelineExecutorSize(clusterName);
+        Assert.assertEquals(6, result);
     }
 
     @Test
@@ -628,7 +661,7 @@ public class CloudSystemInfoServiceTest {
 
         try {
             // Should return 8 (minimum valid size)
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = getMinPipelineExecutorSizeByContext(infoService);
             Assert.assertEquals(8, result);
         } finally {
             ConnectContext.remove();
@@ -679,7 +712,7 @@ public class CloudSystemInfoServiceTest {
 
         try {
             // Should return 512 (minimum among large values)
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = getMinPipelineExecutorSizeByContext(infoService);
             Assert.assertEquals(512, result);
         } finally {
             ConnectContext.remove();
@@ -715,7 +748,7 @@ public class CloudSystemInfoServiceTest {
 
         try {
             // Should return 32 (consistent across all backends)
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = getMinPipelineExecutorSizeByContext(infoService);
             Assert.assertEquals(32, result);
         } finally {
             ConnectContext.remove();
@@ -786,7 +819,7 @@ public class CloudSystemInfoServiceTest {
 
         try {
             // Should return 8 (minimum from current cluster2), not 2 (global minimum from cluster1)
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = getMinPipelineExecutorSizeByContext(infoService);
             Assert.assertEquals(8, result);
         } finally {
             ConnectContext.remove();
@@ -860,14 +893,14 @@ public class CloudSystemInfoServiceTest {
         try {
             // Should return 32 (minimum from virtual cluster's physical cluster), not 8
             // (from other cluster)
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = getMinPipelineExecutorSizeByContext(infoService);
             Assert.assertEquals(32, result);
 
             // Switch to other cluster
             ctx.setCloudCluster(otherClusterName);
 
             // Should return 8 (from other cluster)
-            result = infoService.getMinPipelineExecutorSize();
+            result = getMinPipelineExecutorSizeByContext(infoService);
             Assert.assertEquals(8, result);
 
         } finally {
@@ -885,13 +918,20 @@ public class CloudSystemInfoServiceTest {
 
         try {
             // Should return 1 because no cluster is set (will catch AnalysisException)
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = getMinPipelineExecutorSizeByContext(infoService);
             Assert.assertEquals(1, result);
 
         } finally {
             // Clean up ConnectContext
             ConnectContext.remove();
         }
+    }
+
+    @Test
+    public void testGetMinPipelineExecutorSizeWithoutConnectContext() {
+        infoService = new CloudSystemInfoService();
+        ConnectContext.remove();
+        Assert.assertEquals(1, getMinPipelineExecutorSizeByContext(infoService));
     }
 
     // Test using real ConnectContext to select compute group
@@ -958,19 +998,37 @@ public class CloudSystemInfoServiceTest {
 
         try {
             // Should return 2 (minimum from cluster1), not 16 (minimum from cluster2)
-            int result = infoService.getMinPipelineExecutorSize();
+            int result = getMinPipelineExecutorSizeByContext(infoService);
             Assert.assertEquals(2, result);
 
             // Now switch to cluster2
             ctx.setCloudCluster(cluster2Name);
 
             // Should return 16 (minimum from cluster2), not 2 (minimum from cluster1)
-            result = infoService.getMinPipelineExecutorSize();
+            result = getMinPipelineExecutorSizeByContext(infoService);
             Assert.assertEquals(16, result);
         } finally {
             // Clean up ConnectContext
             ConnectContext.remove();
         }
+    }
+
+    /**
+     * Resolve min pipeline executor size by current ConnectContext-selected cluster.
+     * Keep test intent unchanged after removing no-arg getMinPipelineExecutorSize().
+     */
+    private int getMinPipelineExecutorSizeByContext(CloudSystemInfoService infoService) {
+        ConnectContext context = ConnectContext.get();
+        if (context == null) {
+            return infoService.getMinPipelineExecutorSize("");
+        }
+        String clusterName = "";
+        try {
+            clusterName = context.getCloudCluster(false);
+        } catch (Exception e) {
+            return 1;
+        }
+        return infoService.getMinPipelineExecutorSize(clusterName);
     }
 
     /**

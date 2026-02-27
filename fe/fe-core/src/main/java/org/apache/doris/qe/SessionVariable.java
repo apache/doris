@@ -1312,6 +1312,10 @@ public class SessionVariable implements Serializable, Writable {
                         setter = "setPipelineTaskNum")
     public int parallelPipelineTaskNum = 0;
 
+    // Used by per-session auth-based overrides (for example user-level parallel instance setting).
+    // Keep it out of serialized session variables.
+    private transient String qualifiedUser;
+
 
     public enum IgnoreSplitType {
         NONE,
@@ -4176,21 +4180,41 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public int getParallelExecInstanceNum() {
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null && connectContext.getEnv() != null && connectContext.getEnv().getAuth() != null) {
-            int userParallelExecInstanceNum = connectContext.getEnv().getAuth()
-                    .getParallelFragmentExecInstanceNum(connectContext.getQualifiedUser());
+        Env currentEnv = Env.getCurrentEnv();
+        if (!Strings.isNullOrEmpty(qualifiedUser)
+                && currentEnv != null
+                && currentEnv.getAuth() != null) {
+            int userParallelExecInstanceNum = currentEnv.getAuth()
+                    .getParallelFragmentExecInstanceNum(qualifiedUser);
             if (userParallelExecInstanceNum > 0) {
                 return userParallelExecInstanceNum;
             }
         }
         if (parallelPipelineTaskNum == 0) {
-            int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize();
+            int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize(resolveCloudClusterForAutoParallel());
             int autoInstance = (size + 1) / 2;
             return Math.min(autoInstance, maxInstanceNum);
         } else {
             return parallelPipelineTaskNum;
         }
+    }
+
+    public void setQualifiedUser(String qualifiedUser) {
+        this.qualifiedUser = qualifiedUser;
+    }
+
+    private String resolveCloudClusterForAutoParallel() {
+        if (!Config.isCloudMode()) {
+            return "";
+        }
+        if (!Strings.isNullOrEmpty(cloudCluster)) {
+            return cloudCluster;
+        }
+        Env currentEnv = Env.getCurrentEnv();
+        if (currentEnv == null || currentEnv.getAuth() == null || Strings.isNullOrEmpty(qualifiedUser)) {
+            return "";
+        }
+        return Strings.nullToEmpty(currentEnv.getAuth().getDefaultCloudCluster(qualifiedUser));
     }
 
     public boolean getEnablePreferCachedRowset() {
