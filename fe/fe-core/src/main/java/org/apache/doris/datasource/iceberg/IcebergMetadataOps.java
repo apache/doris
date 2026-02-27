@@ -859,8 +859,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                     + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
         refreshTable(dorisTable, updateTime);
-        // Reset cached isValidRelatedTable flag after partition evolution
-        ((IcebergExternalTable) dorisTable).setIsValidRelatedTableCached(false);
     }
 
     /**
@@ -888,8 +886,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                     + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
         refreshTable(dorisTable, updateTime);
-        // Reset cached isValidRelatedTable flag after partition evolution
-        ((IcebergExternalTable) dorisTable).setIsValidRelatedTableCached(false);
     }
 
     /**
@@ -931,8 +927,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                     + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
         refreshTable(dorisTable, updateTime);
-        // Reset cached isValidRelatedTable flag after partition evolution
-        ((IcebergExternalTable) dorisTable).setIsValidRelatedTableCached(false);
     }
 
     @Override
@@ -1052,5 +1046,4 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         return builder.build();
     }
 }
-
 
