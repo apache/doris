@@ -122,7 +122,8 @@ public:
             return DataDistribution(TLocalPartitionType::BUCKET_HASH_SHUFFLE, _distribute_exprs);
         }
         if (_followed_by_shuffled_operator) {
-            return DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE, _distribute_exprs);
+            return DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE,
+                                    _distribute_exprs);
         }
         return Base::required_data_distribution(state);
     }
