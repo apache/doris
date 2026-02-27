@@ -6969,13 +6969,18 @@ public class Env {
         // inverted index
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         Collection<Partition> allPartitions = olapTable.getAllPartitions();
+        int tabletCount = 0;
         for (Partition partition : allPartitions) {
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 for (Tablet tablet : index.getTablets()) {
                     invertedIndex.deleteTablet(tablet.getId());
+                    tabletCount++;
                 }
             }
         }
+        LOG.info("onEraseOlapTable table[{}-{}] isReplay={}, partitions={}, tablets={}, invertedIndexSize={}",
+                olapTable.getId(), olapTable.getName(), isReplay,
+                allPartitions.size(), tabletCount, invertedIndex.getTabletMetaMap().size());
 
         // TODO: does checkpoint need update colocate index ?
         // colocation
