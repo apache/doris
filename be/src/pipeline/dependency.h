@@ -438,7 +438,6 @@ struct PartitionedAggSharedState : public BasicSharedState,
 
     // partition count is no longer stored in shared state; operators maintain their own
     bool _is_spilled = false;
-    std::atomic_bool _is_closed = false;
     std::deque<std::shared_ptr<AggSpillPartition>> _spill_partitions;
 };
 

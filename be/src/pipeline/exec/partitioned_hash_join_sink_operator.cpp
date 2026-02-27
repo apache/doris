@@ -63,14 +63,6 @@ Status PartitionedHashJoinSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(PipelineXSpillSinkLocalState::open(state));
-    auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
-    for (uint32_t i = 0; i != p._partition_count; ++i) {
-        auto& spilling_stream = _shared_state->_spilled_streams[i];
-        RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
-                state, spilling_stream, print_id(state->query_id()),
-                fmt::format("hash_build_sink_{}", i), _parent->node_id(),
-                state->spill_buffer_size_bytes(), operator_profile()));
-    }
     return p._partitioner->clone(state, _partitioner);
 }
 
@@ -163,6 +155,16 @@ Dependency* PartitionedHashJoinSinkLocalState::finishdependency() {
 }
 
 Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeState* state) {
+    // Lazy init spilled streams here, because in register spill stream, it will try to create file.
+    auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
+    for (uint32_t i = 0; i != p._partition_count; ++i) {
+        auto& spilling_stream = _shared_state->_spilled_streams[i];
+        RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
+                state, spilling_stream, print_id(state->query_id()),
+                fmt::format("hash_build_sink_{}", i), _parent->node_id(),
+                state->spill_buffer_size_bytes(), operator_profile()));
+    }
+
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
     HashJoinBuildSinkLocalState* inner_sink_state {nullptr};
     if (auto* tmp_sink_state = _shared_state->_inner_runtime_state->get_sink_local_state()) {

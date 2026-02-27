@@ -341,22 +341,18 @@ Status AggSpillPartition::get_spill_stream(RuntimeState* state, int node_id,
 }
 void AggSpillPartition::close() {
     if (spilling_stream_) {
+        spilling_stream_->close();
+        (void)ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(spilling_stream_);
         spilling_stream_.reset();
     }
     for (auto& stream : spill_streams_) {
+        stream->close();
         (void)ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
     }
     spill_streams_.clear();
 }
 
 void PartitionedAggSharedState::close() {
-    // need to use CAS instead of only `if (!is_closed)` statement,
-    // to avoid concurrent entry of close() both pass the if statement
-    bool false_close = false;
-    if (!_is_closed.compare_exchange_strong(false_close, true)) {
-        return;
-    }
-    DCHECK(!false_close && _is_closed);
     for (auto partition : _spill_partitions) {
         partition->close();
     }
