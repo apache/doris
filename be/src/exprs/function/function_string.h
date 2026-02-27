@@ -2118,8 +2118,8 @@ private:
                             const size_t new_size = old_size + remaining;
                             column_string_chars.resize(new_size);
                             memcpy_small_allow_read_write_overflow15(
-                                    column_string_chars.data() + old_size,
-                                    str_ref.data + str_pos, remaining);
+                                    column_string_chars.data() + old_size, str_ref.data + str_pos,
+                                    remaining);
                             string_pos += remaining;
                         }
                         column_string_offsets.push_back(string_pos);
