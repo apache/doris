@@ -1248,7 +1248,7 @@ public class ConnectContext {
             if (executor != null) {
                 coord = executor.getCoord();
             }
-            if (coord == null) {
+            if (coord == null && queryId != null) {
                 LOG.info("coord is null, try to get from QeProcessorImpl, queryId: {}", DebugUtil.printId(queryId));
                 coord = QeProcessorImpl.INSTANCE.getCoordinator(queryId);
             }
