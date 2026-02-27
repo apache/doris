@@ -27,6 +27,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "olap/lru_cache.h"
 #include "runtime/memory/cache_policy.h"
 #include "util/debug_points.h"
@@ -198,11 +199,21 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
                     "treat it as an error",
                     tablet_id));
         }
+        TEST_SYNC_POINT("CloudTabletMgr::get_tablet.not_found_in_cache");
         if (sync_stats) {
             ++sync_stats->tablet_meta_cache_miss;
         }
-        auto load_tablet = [this, warmup_data, sync_delete_bitmap,
-                            sync_stats](int64_t tablet_id) -> Result<std::shared_ptr<CloudTablet>> {
+        // Insert into cache and tablet_map inside SingleFlight lambda to ensure
+        // only the leader caller does this. Moving these outside the lambda causes
+        // a race condition: when multiple concurrent callers share the same CloudTablet*
+        // from SingleFlight, each creates a competing LRU cache entry. Delayed Value
+        // destructors then erase the tablet_map entry (the raw pointer safety check
+        // passes since all callers share the same pointer), and the tablet permanently
+        // disappears from tablet_map. Subsequent get_tablet() calls hit the LRU cache
+        // directly (cache hit path) which never re-inserts into tablet_map, making the
+        // tablet invisible to the compaction scheduler.
+        auto load_tablet = [this, &key, warmup_data, sync_delete_bitmap, sync_stats, cache_on_miss](
+                                   int64_t tablet_id) -> Result<std::shared_ptr<CloudTablet>> {
             TabletMetaSharedPtr tablet_meta;
             auto start = std::chrono::steady_clock::now();
             auto st = _engine.meta_mgr().get_tablet_meta(tablet_id, &tablet_meta);
@@ -226,7 +237,22 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
                 LOG(WARNING) << "failed to sync tablet " << tablet_id << ": " << st;
                 return ResultError(st);
             }
-            return tablet;
+
+            if (!cache_on_miss) {
+                set_tablet_access_time_ms(tablet.get());
+                return tablet;
+            }
+
+            auto value = std::make_unique<Value>(tablet, *_tablet_map);
+            auto* insert_handle = _cache->insert(key, value.release(), 1, sizeof(CloudTablet),
+                                                 CachePriority::NORMAL);
+            auto ret = std::shared_ptr<CloudTablet>(tablet.get(),
+                                                    [this, insert_handle](CloudTablet* tablet_ptr) {
+                                                        set_tablet_access_time_ms(tablet_ptr);
+                                                        _cache->release(insert_handle);
+                                                    });
+            _tablet_map->put(std::move(tablet));
+            return ret;
         };
 
         auto load_result = s_singleflight_load_tablet.load(tablet_id, std::move(load_tablet));
@@ -235,22 +261,8 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
                                                      load_result.error()));
         }
         auto tablet = load_result.value();
-        if (!cache_on_miss) {
-            set_tablet_access_time_ms(tablet.get());
-            return tablet;
-        }
-
-        auto value = std::make_unique<Value>(tablet, *_tablet_map);
-        auto* insert_handle =
-                _cache->insert(key, value.release(), 1, sizeof(CloudTablet), CachePriority::NORMAL);
-        auto ret = std::shared_ptr<CloudTablet>(tablet.get(),
-                                                [this, insert_handle](CloudTablet* tablet_ptr) {
-                                                    set_tablet_access_time_ms(tablet_ptr);
-                                                    _cache->release(insert_handle);
-                                                });
-        _tablet_map->put(std::move(tablet));
-        set_tablet_access_time_ms(ret.get());
-        return ret;
+        set_tablet_access_time_ms(tablet.get());
+        return tablet;
     }
     if (sync_stats) {
         ++sync_stats->tablet_meta_cache_hit;

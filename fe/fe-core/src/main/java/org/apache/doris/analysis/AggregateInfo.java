@@ -30,26 +30,26 @@ public final class AggregateInfo {
 
     // For aggregations: All unique grouping expressions from a select block.
     // For analytics: Empty.
-    protected ArrayList<Expr> groupingExprs;
+    private final ArrayList<Expr> groupingExprs;
 
     // For aggregations: All unique aggregate expressions from a select block.
     // For analytics: The results of AnalyticExpr.getFnCall() for the unique
     // AnalyticExprs of a select block.
-    protected ArrayList<FunctionCallExpr> aggregateExprs;
+    private final ArrayList<FunctionCallExpr> aggregateExprs;
 
     // The tuple into which the final output of the aggregation is materialized.
     // Contains groupingExprs.size() + aggregateExprs.size() slots, the first of which
     // contain the values of the grouping exprs, followed by slots into which the
     // aggregateExprs' finalize() symbol write its result, i.e., slots of the aggregate
     // functions' output types.
-    protected TupleDescriptor outputTupleDesc;
+    private TupleDescriptor outputTupleDesc;
 
     // For aggregation: indices into aggregate exprs for that need to be materialized
     // For analytics: indices into the analytic exprs and their corresponding aggregate
     // exprs that need to be materialized.
     // Populated in materializeRequiredSlots() which must be implemented by subclasses.
-    protected ArrayList<Integer> materializedSlots = Lists.newArrayList();
-    protected List<String> materializedSlotLabels = Lists.newArrayList();
+    private ArrayList<Integer> materializedSlots = Lists.newArrayList();
+    private List<String> materializedSlotLabels = Lists.newArrayList();
 
     public enum AggPhase {
         FIRST,

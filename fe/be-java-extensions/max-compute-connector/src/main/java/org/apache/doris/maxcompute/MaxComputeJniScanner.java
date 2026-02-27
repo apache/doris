@@ -19,10 +19,9 @@ package org.apache.doris.maxcompute;
 
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
+import org.apache.doris.common.maxcompute.MCUtils;
 
 import com.aliyun.odps.Odps;
-import com.aliyun.odps.account.Account;
-import com.aliyun.odps.account.AliyunAccount;
 import com.aliyun.odps.table.configuration.CompressionCodec;
 import com.aliyun.odps.table.configuration.ReaderOptions;
 import com.aliyun.odps.table.configuration.RestOptions;
@@ -87,7 +86,7 @@ public class MaxComputeJniScanner extends JniScanner {
     private TableBatchReadSession scan;
     public  String sessionId;
 
-    private String project; //final ???
+    private String project;
     private String table;
 
     private SplitReader<VectorSchemaRoot> currentSplitReader;
@@ -120,8 +119,6 @@ public class MaxComputeJniScanner extends JniScanner {
             }
         }
 
-        String accessKey = Objects.requireNonNull(params.get(ACCESS_KEY), "required property '" + ACCESS_KEY + "'.");
-        String secretKey = Objects.requireNonNull(params.get(SECRET_KEY), "required property '" + SECRET_KEY + "'.");
         String endpoint = Objects.requireNonNull(params.get(ENDPOINT), "required property '" + ENDPOINT + "'.");
         String quota = Objects.requireNonNull(params.get(QUOTA), "required property '" + QUOTA + "'.");
         String scanSerializer = Objects.requireNonNull(params.get(SCAN_SERIALIZER),
@@ -137,10 +134,7 @@ public class MaxComputeJniScanner extends JniScanner {
             timeZone = ZoneId.systemDefault();
         }
 
-
-        Account account = new AliyunAccount(accessKey, secretKey);
-        Odps odps = new Odps(account);
-
+        Odps odps = MCUtils.createMcClient(params);
         odps.setDefaultProject(project);
         odps.setEndpoint(endpoint);
 

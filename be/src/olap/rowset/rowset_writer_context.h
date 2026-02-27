@@ -194,12 +194,7 @@ struct RowsetWriterContext {
 #endif
         }
 
-        // Apply encryption if needed
-        if (algorithm.has_value()) {
-            fs = io::make_file_system(fs, algorithm.value());
-        }
-
-        // Apply packed file system for write path if enabled
+        // Apply packed file system first for write path if enabled
         // Create empty index_map for write path
         // Index information will be populated after write completes
         bool has_v1_inverted_index = tablet_schema != nullptr &&
@@ -227,6 +222,11 @@ struct RowsetWriterContext {
                                                   ? newest_write_timestamp + file_cache_ttl_sec
                                                   : 0;
             fs = std::make_shared<io::PackedFileSystem>(fs, append_info);
+        }
+
+        // Then apply encryption on top
+        if (algorithm.has_value()) {
+            fs = io::make_file_system(fs, algorithm.value());
         }
 
         // Cache the result to ensure consistency across multiple calls

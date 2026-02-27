@@ -15,16 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.property.constants;
-
-import org.apache.doris.common.credentials.CloudCredential;
-
-import java.util.Map;
+package org.apache.doris.common.maxcompute;
 
 /**
  * properties for aliyun max compute
  */
-public class MCProperties extends BaseProperties {
+public class MCProperties {
 
     //To be compatible with previous versions of the catalog.
     public static final String REGION = "mc.region";
@@ -99,7 +95,12 @@ public class MCProperties extends BaseProperties {
     public static final String ENABLE_NAMESPACE_SCHEMA = "mc.enable.namespace.schema";
     public static final String DEFAULT_ENABLE_NAMESPACE_SCHEMA = "false";
 
-    public static CloudCredential getCredential(Map<String, String> props) {
-        return getCloudCredential(props, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN);
-    }
+    public static final String AUTH_TYPE = "mc.auth.type";
+    public static final String AUTH_TYPE_AK_SK = "ak_sk";
+    public static final String AUTH_TYPE_RAM_ROLE_ARN = "ram_role_arn";
+    public static final String AUTH_TYPE_ECS_RAM_ROLE = "ecs_ram_role";
+    public static final String DEFAULT_AUTH_TYPE = AUTH_TYPE_AK_SK;
+
+    public static final String RAM_ROLE_ARN = "mc.ram_role_arn";
+    public static final String ECS_RAM_ROLE = "mc.ecs_ram_role";
 }

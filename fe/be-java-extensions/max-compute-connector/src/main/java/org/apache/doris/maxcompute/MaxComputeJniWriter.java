@@ -19,11 +19,10 @@ package org.apache.doris.maxcompute;
 
 import org.apache.doris.common.jni.JniWriter;
 import org.apache.doris.common.jni.vec.VectorTable;
+import org.apache.doris.common.maxcompute.MCUtils;
 
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsType;
-import com.aliyun.odps.account.Account;
-import com.aliyun.odps.account.AliyunAccount;
 import com.aliyun.odps.table.configuration.ArrowOptions;
 import com.aliyun.odps.table.configuration.ArrowOptions.TimestampUnit;
 import com.aliyun.odps.table.configuration.RestOptions;
@@ -94,8 +93,7 @@ public class MaxComputeJniWriter extends JniWriter {
     private static final String READ_TIMEOUT = "read_timeout";
     private static final String RETRY_COUNT = "retry_count";
 
-    private final String accessKey;
-    private final String secretKey;
+    private final Map<String, String> params;
     private final String endpoint;
     private final String project;
     private final String tableName;
@@ -121,8 +119,7 @@ public class MaxComputeJniWriter extends JniWriter {
 
     public MaxComputeJniWriter(int batchSize, Map<String, String> params) {
         super(batchSize, params);
-        this.accessKey = Objects.requireNonNull(params.get(ACCESS_KEY), "required property '" + ACCESS_KEY + "'.");
-        this.secretKey = Objects.requireNonNull(params.get(SECRET_KEY), "required property '" + SECRET_KEY + "'.");
+        this.params = params;
         this.endpoint = Objects.requireNonNull(params.get(ENDPOINT), "required property '" + ENDPOINT + "'.");
         this.project = Objects.requireNonNull(params.get(PROJECT), "required property '" + PROJECT + "'.");
         this.tableName = Objects.requireNonNull(params.get(TABLE), "required property '" + TABLE + "'.");
@@ -139,8 +136,7 @@ public class MaxComputeJniWriter extends JniWriter {
     @Override
     public void open() throws IOException {
         try {
-            Account account = new AliyunAccount(accessKey, secretKey);
-            Odps odps = new Odps(account);
+            Odps odps = MCUtils.createMcClient(params);
             odps.setDefaultProject(project);
             odps.setEndpoint(endpoint);
 

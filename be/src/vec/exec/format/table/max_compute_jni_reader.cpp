@@ -62,27 +62,27 @@ MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_des
         }
         index++;
     }
-    std::map<String, String> params = {
-            {"access_key", _table_desc->access_key()},
-            {"secret_key", _table_desc->secret_key()},
-            {"endpoint", _table_desc->endpoint()},
-            {"quota", _table_desc->quota()},
-            {"project", _table_desc->project()},
-            {"table", _table_desc->table()},
 
-            {"session_id", _max_compute_params.session_id},
-            {"scan_serializer", _max_compute_params.table_batch_read_session},
+    auto properties = _table_desc->properties();
+    properties["endpoint"] = _table_desc->endpoint();
+    properties["quota"] = _table_desc->quota();
+    properties["project"] = _table_desc->project();
+    properties["table"] = _table_desc->table();
 
-            {"start_offset", std::to_string(_range.start_offset)},
-            {"split_size", std::to_string(_range.size)},
-            {"required_fields", required_fields.str()},
-            {"columns_types", columns_types.str()},
+    properties["session_id"] = _max_compute_params.session_id;
+    properties["scan_serializer"] = _max_compute_params.table_batch_read_session;
 
-            {"connect_timeout", std::to_string(_max_compute_params.connect_timeout)},
-            {"read_timeout", std::to_string(_max_compute_params.read_timeout)},
-            {"retry_count", std::to_string(_max_compute_params.retry_times)}};
+    properties["start_offset"] = std::to_string(_range.start_offset);
+    properties["split_size"] = std::to_string(_range.size);
+    properties["required_fields"] = required_fields.str();
+    properties["columns_types"] = columns_types.str();
+
+    properties["connect_timeout"] = std::to_string(_max_compute_params.connect_timeout);
+    properties["read_timeout"] = std::to_string(_max_compute_params.read_timeout);
+    properties["retry_count"] = std::to_string(_max_compute_params.retry_times);
+
     _jni_connector = std::make_unique<JniConnector>(
-            "org/apache/doris/maxcompute/MaxComputeJniScanner", params, column_names);
+            "org/apache/doris/maxcompute/MaxComputeJniScanner", properties, column_names);
 }
 
 Status MaxComputeJniReader::init_reader() {
