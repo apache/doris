@@ -361,15 +361,16 @@ TEST_F(WorkloadSchedPolicyTest, one_policy_username_condition) {
     {
         std::shared_ptr<WorkloadSchedPolicy> policy = std::make_shared<WorkloadSchedPolicy>();
         std::vector<std::unique_ptr<WorkloadCondition>> cond_ptr_list;
-        cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::USERNAME,
-                                                          TCompareOperator::type::GREATER, "admin"));
+        cond_ptr_list.push_back(create_workload_condition(
+                TWorkloadMetricType::type::USERNAME, TCompareOperator::type::GREATER, "admin"));
         std::vector<std::unique_ptr<WorkloadAction>> action_ptr_list;
         std::set<int64_t> wg_id_set;
         policy->init(0, "p1", 0, true, 0, wg_id_set, std::move(cond_ptr_list),
                      std::move(action_ptr_list));
 
         WorkloadAction::RuntimeContext action_runtime_ctx = create_runtime_context();
-        std::unique_ptr<MockTaskController> task_controller = std::make_unique<MockTaskController>();
+        std::unique_ptr<MockTaskController> task_controller =
+                std::make_unique<MockTaskController>();
         task_controller->set_user("admin");
         action_runtime_ctx.resource_ctx->set_task_controller(std::move(task_controller));
         EXPECT_FALSE(policy->is_match(&action_runtime_ctx));
