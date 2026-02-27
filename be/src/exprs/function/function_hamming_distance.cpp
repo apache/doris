@@ -20,87 +20,88 @@
 
 #include "common/status.h"
 #include "util/simd/vstring_function.h"
-#include "vec/columns/column_const.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
-#include "vec/common/typeid_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/functions/function.h"
+#include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-class FunctionHammingDistance : public IFunction {
-public:
+struct NameHammingDistance {
     static constexpr auto name = "hamming_distance";
+};
 
-    static FunctionPtr create() { return std::make_shared<FunctionHammingDistance>(); }
+template <typename LeftDataType, typename RightDataType>
+struct HammingDistanceImpl {
+    using ResultDataType = DataTypeInt64;
+    using ResultPaddedPODArray = PaddedPODArray<Int64>;
 
-    String get_name() const override { return name; }
+    static Status vector_vector(const ColumnString::Chars& ldata,
+                                const ColumnString::Offsets& loffsets,
+                                const ColumnString::Chars& rdata,
+                                const ColumnString::Offsets& roffsets,
+                                ResultPaddedPODArray& res) {
+        DCHECK_EQ(loffsets.size(), roffsets.size());
 
-    size_t get_number_of_arguments() const override { return 2; }
-
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeInt64>();
+        const size_t size = loffsets.size();
+        res.resize(size);
+        for (size_t i = 0; i < size; ++i) {
+            RETURN_IF_ERROR(hamming_distance(string_ref_at(ldata, loffsets, i),
+                                             string_ref_at(rdata, roffsets, i), res[i], i));
+        }
+        return Status::OK();
     }
 
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
-        const auto& [left_col, left_const] =
-                unpack_if_const(block.get_by_position(arguments[0]).column);
-        const auto& [right_col, right_const] =
-                unpack_if_const(block.get_by_position(arguments[1]).column);
-        const auto* left_str_col =
-                check_and_get_column<ColumnString>(remove_nullable(left_col).get());
-        const auto* right_str_col =
-                check_and_get_column<ColumnString>(remove_nullable(right_col).get());
-        if (!left_str_col || !right_str_col) {
-            return Status::NotSupported("Illegal columns {}, {} of argument of function {}",
-                                        left_col->get_name(), right_col->get_name(), get_name());
+    static Status vector_scalar(const ColumnString::Chars& ldata,
+                                const ColumnString::Offsets& loffsets, const StringRef& rdata,
+                                ResultPaddedPODArray& res) {
+        const size_t size = loffsets.size();
+        res.resize(size);
+        for (size_t i = 0; i < size; ++i) {
+            RETURN_IF_ERROR(hamming_distance(string_ref_at(ldata, loffsets, i), rdata, res[i], i));
         }
+        return Status::OK();
+    }
 
-        auto res_column = ColumnInt64::create(input_rows_count);
-        auto& res_data = res_column->get_data();
-
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            const StringRef left = left_str_col->get_data_at(left_const ? 0 : i);
-            const StringRef right = right_str_col->get_data_at(right_const ? 0 : i);
-            RETURN_IF_ERROR(hamming_distance(left, right, res_data[i], i));
+    static Status scalar_vector(const StringRef& ldata, const ColumnString::Chars& rdata,
+                                const ColumnString::Offsets& roffsets,
+                                ResultPaddedPODArray& res) {
+        const size_t size = roffsets.size();
+        res.resize(size);
+        for (size_t i = 0; i < size; ++i) {
+            RETURN_IF_ERROR(hamming_distance(ldata, string_ref_at(rdata, roffsets, i), res[i], i));
         }
-
-        block.replace_by_position(result, std::move(res_column));
         return Status::OK();
     }
 
 private:
+    static StringRef string_ref_at(const ColumnString::Chars& data,
+                                   const ColumnString::Offsets& offsets, size_t i) {
+        return StringRef(reinterpret_cast<const char*>(&data[offsets[i - 1]]),
+                         offsets[i] - offsets[i - 1]);
+    }
+
     static void utf8_char_offsets(const StringRef& ref, std::vector<size_t>& offsets) {
         offsets.clear();
         offsets.reserve(ref.size);
-        const char* data = ref.data;
-        size_t size = ref.size;
         size_t i = 0;
-        while (i < size) {
+        while (i < ref.size) {
             offsets.push_back(i);
-            uint8_t char_len =
-                    doris::get_utf8_byte_length(static_cast<uint8_t>(data[i]));
-            if (i + char_len > size) {
-                char_len = static_cast<uint8_t>(size - i);
+            uint8_t char_len = doris::get_utf8_byte_length(static_cast<uint8_t>(ref.data[i]));
+            if (i + char_len > ref.size) {
+                char_len = static_cast<uint8_t>(ref.size - i);
             }
             i += char_len;
         }
     }
 
-    static inline bool utf8_char_equal(const StringRef& left, size_t left_off, size_t left_next,
-                                       const StringRef& right, size_t right_off,
-                                       size_t right_next) {
-        size_t left_len = left_next - left_off;
-        size_t right_len = right_next - right_off;
-        if (left_len != right_len) {
-            return false;
-        }
-        return std::memcmp(left.data + left_off, right.data + right_off, left_len) == 0;
+    static bool utf8_char_equal(const StringRef& left, size_t left_off, size_t left_next,
+                                const StringRef& right, size_t right_off, size_t right_next) {
+        const size_t left_len = left_next - left_off;
+        const size_t right_len = right_next - right_off;
+        return left_len == right_len &&
+               std::memcmp(left.data + left_off, right.data + right_off, left_len) == 0;
     }
 
     static Status hamming_distance(const StringRef& left, const StringRef& right, Int64& result,
@@ -110,6 +111,7 @@ private:
                 return Status::InvalidArgument(
                         "hamming_distance requires strings of the same length at row {}", row);
             }
+
             Int64 distance = 0;
             for (size_t i = 0; i < left.size; ++i) {
                 distance += static_cast<Int64>(left.data[i] != right.data[i]);
@@ -131,17 +133,21 @@ private:
         Int64 distance = 0;
         const size_t len = left_offsets.size();
         for (size_t i = 0; i < len; ++i) {
-            size_t left_off = left_offsets[i];
-            size_t left_next = (i + 1 < len) ? left_offsets[i + 1] : left.size;
-            size_t right_off = right_offsets[i];
-            size_t right_next = (i + 1 < len) ? right_offsets[i + 1] : right.size;
+            const size_t left_off = left_offsets[i];
+            const size_t left_next = i + 1 < len ? left_offsets[i + 1] : left.size;
+            const size_t right_off = right_offsets[i];
+            const size_t right_next = i + 1 < len ? right_offsets[i + 1] : right.size;
             distance += static_cast<Int64>(
                     !utf8_char_equal(left, left_off, left_next, right, right_off, right_next));
         }
+
         result = distance;
         return Status::OK();
     }
 };
+
+using FunctionHammingDistance = FunctionBinaryToType<DataTypeString, DataTypeString,
+                                                     HammingDistanceImpl, NameHammingDistance>;
 
 void register_function_hamming_distance(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionHammingDistance>();
