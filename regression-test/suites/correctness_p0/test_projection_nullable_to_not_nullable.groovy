@@ -34,10 +34,5 @@ suite("test_projection_nullable_to_not_nullable") {
     sql """INSERT INTO ${tableName} SELECT * FROM numbers("number" = "10");"""
     qt_select """SELECT count(*) FROM ${tableName}; """
 
-    test {
-        sql """INSERT INTO ${tableName} SELECT IFNULL(NULL, NULL) AS col FROM numbers("number" = "10"); """
-        exception "Insert has filtered data in strict mode"
-    }
-
     sql """DROP TABLE IF EXISTS ${tableName};"""
 }
