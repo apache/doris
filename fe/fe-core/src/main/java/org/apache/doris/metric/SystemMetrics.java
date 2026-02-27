@@ -265,11 +265,6 @@ public class SystemMetrics {
                     if (parts.length >= 2) {
                         ctxt = Long.parseLong(parts[1]);
                     }
-                } else if (line.startsWith("processes ")) {
-                    String[] parts = line.split("\\s+");
-                    if (parts.length >= 2) {
-                        processes = Long.parseLong(parts[1]);
-                    }
                 } else if (line.startsWith("procs_running ")) {
                     String[] parts = line.split("\\s+");
                     if (parts.length >= 2) {
