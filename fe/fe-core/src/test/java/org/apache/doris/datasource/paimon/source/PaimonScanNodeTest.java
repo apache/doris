@@ -68,7 +68,7 @@ public class PaimonScanNodeTest {
 
         DataFileMeta dfm1 = DataFileMeta.forAppend("f1.parquet", 64L * 1024 * 1024, 1L, SimpleStats.EMPTY_STATS,
                 1L, 1L, 1L, Collections.<String>emptyList(), null, FileSource.APPEND,
-                Collections.<String>emptyList(), "parquet", null, null);
+                Collections.<String>emptyList(), null, null, Collections.<String>emptyList());
         BinaryRow binaryRow1 = BinaryRow.singleColumn(1);
         DataSplit ds1 = DataSplit.builder()
                 .rawConvertible(true)
@@ -80,7 +80,7 @@ public class PaimonScanNodeTest {
 
         DataFileMeta dfm2 = DataFileMeta.forAppend("f2.parquet", 32L * 1024 * 1024, 2L, SimpleStats.EMPTY_STATS,
                 1L, 1L, 1L, Collections.<String>emptyList(), null, FileSource.APPEND,
-                Collections.<String>emptyList(), "parquet", null, null);
+                Collections.<String>emptyList(), null, null, Collections.<String>emptyList());
         BinaryRow binaryRow2 = BinaryRow.singleColumn(1);
         DataSplit ds2 = DataSplit.builder()
                 .rawConvertible(true)
@@ -109,8 +109,13 @@ public class PaimonScanNodeTest {
             java.lang.reflect.Field field = FileQueryScanNode.class.getDeclaredField("fileSplitter");
             field.setAccessible(true);
             field.set(spyPaimonScanNode, fileSplitter);
+
+            java.lang.reflect.Field storagePropertiesField =
+                    PaimonScanNode.class.getDeclaredField("storagePropertiesMap");
+            storagePropertiesField.setAccessible(true);
+            storagePropertiesField.set(spyPaimonScanNode, Collections.emptyMap());
         } catch (NoSuchFieldException | IllegalAccessException e) {
-            throw new RuntimeException("Failed to inject FileSplitter into PaimonScanNode test", e);
+            throw new RuntimeException("Failed to inject test fields into PaimonScanNode", e);
         }
 
         // Note: The original PaimonSource is sufficient for this test
@@ -395,7 +400,7 @@ public class PaimonScanNodeTest {
 
         DataFileMeta dfm = DataFileMeta.forAppend("f1.parquet", 64L * 1024 * 1024, 1L, SimpleStats.EMPTY_STATS,
                 1L, 1L, 1L, Collections.<String>emptyList(), null, FileSource.APPEND,
-                Collections.<String>emptyList(), "parquet", null, null);
+                Collections.<String>emptyList(), null, null, Collections.<String>emptyList());
         BinaryRow binaryRow = BinaryRow.singleColumn(1);
         DataSplit dataSplit = DataSplit.builder()
                 .rawConvertible(true)

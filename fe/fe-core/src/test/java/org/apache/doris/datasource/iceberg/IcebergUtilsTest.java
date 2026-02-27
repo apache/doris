@@ -216,6 +216,8 @@ public class IcebergUtilsTest {
         Mockito.when(file.existingRowsCount()).thenReturn(0L);
         Mockito.when(file.deletedFilesCount()).thenReturn(0);
         Mockito.when(file.deletedRowsCount()).thenReturn(0L);
+        Mockito.when(file.hasAddedFiles()).thenReturn(true);
+        Mockito.when(file.hasExistingFiles()).thenReturn(false);
         Mockito.when(file.copy()).thenReturn(file);
         return file;
     }
