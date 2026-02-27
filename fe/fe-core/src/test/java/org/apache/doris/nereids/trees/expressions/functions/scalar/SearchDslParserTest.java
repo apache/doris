@@ -782,6 +782,59 @@ public class SearchDslParserTest {
     }
 
     @Test
+    public void testLuceneModeMinusPrefixNot() {
+        // Test: "-a" should be treated as NOT a (MUST_NOT with MATCH_ALL_DOCS injection)
+        String dsl = "-field:a";
+        String options = "{\"mode\":\"lucene\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
+        Assertions.assertEquals(QsClauseType.MATCH_ALL_DOCS, plan.getRoot().getChildren().get(0).getType());
+        Assertions.assertEquals(QsOccur.MUST_NOT, plan.getRoot().getChildren().get(1).getOccur());
+    }
+
+    @Test
+    public void testLuceneModeMinusPrefixMultiple() {
+        // Test: "-a -b" with default_operator=and
+        String dsl = "-field:a -field:b";
+        String options = "{\"mode\":\"lucene\",\"default_operator\":\"and\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
+        // Both are MUST_NOT
+        long mustNotCount = plan.getRoot().getChildren().stream()
+                .filter(c -> c.getOccur() == QsOccur.MUST_NOT).count();
+        Assertions.assertTrue(mustNotCount >= 2, "Should have at least 2 MUST_NOT children");
+    }
+
+    @Test
+    public void testLuceneModePlusPrefixRequired() {
+        // Test: "+a b" - plus prefix forces MUST
+        String dsl = "+field:a field:b";
+        String options = "{\"mode\":\"lucene\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
+        Assertions.assertEquals(QsOccur.MUST, plan.getRoot().getChildren().get(0).getOccur());
+    }
+
+    @Test
+    public void testStandardModeMinusPrefix() {
+        // Test: "-a" in standard mode should parse as NOT
+        String dsl = "-field:a";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        // Standard mode: NOT wrapping
+        Assertions.assertEquals(QsClauseType.NOT, plan.getRoot().getType());
+    }
+
+    @Test
     public void testLuceneModeMinimumShouldMatchExplicit() {
         // Test: explicit minimum_should_match=1 keeps SHOULD clauses
         String dsl = "field:a AND field:b OR field:c";

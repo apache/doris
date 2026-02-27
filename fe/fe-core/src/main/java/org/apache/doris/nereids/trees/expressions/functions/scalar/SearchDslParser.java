@@ -765,7 +765,8 @@ public class SearchDslParser {
 
         @Override
         public QsNode visitNotClause(SearchParser.NotClauseContext ctx) {
-            if (ctx.NOT() != null) {
+            if (ctx.NOT() != null || ctx.MINUS() != null) {
+                // NOT or - prefix: negate the operand
                 QsNode child = visit(ctx.atomClause());
                 if (child == null) {
                     throw new RuntimeException("Invalid NOT clause: missing operand");
@@ -2208,7 +2209,8 @@ public class SearchDslParser {
 
         private void collectTermsFromNotClause(SearchParser.NotClauseContext ctx, List<TermWithOccur> terms,
                 QsOccur defaultOccur, boolean introducedByOr, boolean introducedByAnd) {
-            boolean isNegated = ctx.NOT() != null;
+            boolean isNegated = ctx.NOT() != null || ctx.MINUS() != null;
+            boolean isRequired = ctx.PLUS() != null;
             SearchParser.AtomClauseContext atomCtx = ctx.atomClause();
 
             QsNode node;
@@ -2238,6 +2240,7 @@ public class SearchDslParser {
             term.introducedByOr = introducedByOr;
             term.introducedByAnd = introducedByAnd;
             term.isNegated = isNegated;
+            term.isRequired = isRequired;
             terms.add(term);
         }
 
@@ -2264,8 +2267,17 @@ public class SearchDslParser {
             for (int i = 0; i < terms.size(); i++) {
                 TermWithOccur current = terms.get(i);
 
-                if (current.isNegated) {
-                    // NOT modifier - mark as MUST_NOT
+                if (current.isRequired) {
+                    // + prefix: force MUST regardless of context
+                    current.occur = QsOccur.MUST;
+                    if (current.introducedByOr && i > 0 && useAnd) {
+                        TermWithOccur prev = terms.get(i - 1);
+                        if (prev.occur != QsOccur.MUST_NOT) {
+                            prev.occur = QsOccur.SHOULD;
+                        }
+                    }
+                } else if (current.isNegated) {
+                    // NOT or - prefix: mark as MUST_NOT
                     current.occur = QsOccur.MUST_NOT;
 
                     if (current.introducedByAnd && i > 0) {
@@ -2350,7 +2362,8 @@ public class SearchDslParser {
 
         @Override
         public QsNode visitNotClause(SearchParser.NotClauseContext ctx) {
-            if (ctx.NOT() != null) {
+            if (ctx.NOT() != null || ctx.MINUS() != null) {
+                // NOT or - prefix: negate the operand
                 QsNode child = visit(ctx.atomClause());
                 if (child == null) {
                     throw new RuntimeException("Invalid NOT clause: missing operand");
@@ -2605,6 +2618,7 @@ public class SearchDslParser {
         boolean introducedByOr = false;
         boolean introducedByAnd = false;
         boolean isNegated = false;
+        boolean isRequired = false;
 
         TermWithOccur(QsNode node, QsOccur occur) {
             this.node = node;

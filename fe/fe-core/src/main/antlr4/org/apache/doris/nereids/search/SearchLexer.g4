@@ -45,6 +45,8 @@ AND : 'AND' ;
 OR  : 'OR' ;
 NOT : 'NOT' | '!' ;
 
+PLUS     : '+' ;
+MINUS    : '-' ;
 LPAREN   : '(' ;
 RPAREN   : ')' ;
 COLON    : ':' ;

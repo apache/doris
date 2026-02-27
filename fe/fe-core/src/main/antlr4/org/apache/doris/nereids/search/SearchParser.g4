@@ -24,7 +24,7 @@ clause     : orClause ;
 orClause   : andClause (OR andClause)* ;
 // AND is optional - space-separated terms use default_operator
 andClause  : notClause (AND? notClause)* ;
-notClause  : NOT atomClause | atomClause ;
+notClause  : NOT atomClause | MINUS atomClause | PLUS atomClause | atomClause ;
 // Note: fieldGroupQuery is listed before fieldQuery so ANTLR prioritizes field:(group) over field:value.
 // fieldQuery is listed before bareQuery so ANTLR prioritizes field:value over bare value.
 // This ensures "field:term" is parsed as fieldQuery, not bareQuery with "field" as term.
