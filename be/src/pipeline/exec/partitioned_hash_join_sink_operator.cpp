@@ -164,8 +164,6 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
                 fmt::format("hash_build_sink_{}", i), _parent->node_id(),
                 state->spill_buffer_size_bytes(), operator_profile()));
     }
-
-    auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
     HashJoinBuildSinkLocalState* inner_sink_state {nullptr};
     if (auto* tmp_sink_state = _shared_state->_inner_runtime_state->get_sink_local_state()) {
         inner_sink_state = assert_cast<HashJoinBuildSinkLocalState*>(tmp_sink_state);
