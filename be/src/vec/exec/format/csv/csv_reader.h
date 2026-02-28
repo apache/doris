@@ -34,6 +34,8 @@
 #include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "util/slice.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
 #include "vec/exec/format/generic_reader.h"
@@ -283,6 +285,14 @@ private:
     // save source text which have been splitted.
     std::vector<Slice> _split_values;
     std::vector<int> _use_nullable_string_opt;
+
+    // Cached column pointers for nullable string fast path, avoiding per-row assert_cast.
+    struct NullableStringColumnCache {
+        ColumnStr<uint32_t>* nested_str_col = nullptr;
+        NullMap* null_map = nullptr;
+    };
+    std::vector<NullableStringColumnCache> _nullable_str_col_cache;
+    bool _has_escape_char = false;
 };
 } // namespace vectorized
 #include "common/compile_check_end.h"
