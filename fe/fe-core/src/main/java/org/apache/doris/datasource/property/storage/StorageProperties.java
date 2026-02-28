@@ -271,6 +271,7 @@ public abstract class StorageProperties extends ConnectionProperties {
                 || isFsSupport(props, FS_OSS_HDFS_SUPPORT)
                 || isFsSupport(props, FS_LOCAL_SUPPORT)
                 || isFsSupport(props, FS_HTTP_SUPPORT)
+                || isFsSupport(props, FS_OZONE_SUPPORT)
                 || isFsSupport(props, DEPRECATED_OSS_HDFS_SUPPORT);
     }
 
