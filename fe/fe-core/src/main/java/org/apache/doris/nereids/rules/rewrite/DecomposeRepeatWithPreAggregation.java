@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.rewrite.DistinctAggStrategySelector.DistinctSelectorContext;
+import org.apache.doris.nereids.rules.rewrite.StatsDerive.DeriveContext;
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
 import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -50,6 +51,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -61,6 +66,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 
 /**
  * This rule will rewrite grouping sets. eg:
@@ -119,13 +125,13 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
     @Override
     public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, DistinctSelectorContext ctx) {
         aggregate = visitChildren(this, aggregate, ctx);
-        int maxGroupIndex = canOptimize(aggregate);
+        int maxGroupIndex = canOptimize(aggregate, ctx.cascadesContext.getConnectContext());
         if (maxGroupIndex < 0) {
             return aggregate;
         }
         Map<Slot, Slot> preToProducerSlotMap = new HashMap<>();
         LogicalCTEProducer<LogicalAggregate<Plan>> producer = constructProducer(aggregate, maxGroupIndex, ctx,
-                preToProducerSlotMap);
+                preToProducerSlotMap, ctx.cascadesContext.getConnectContext());
         LogicalCTEConsumer aggregateConsumer = new LogicalCTEConsumer(ctx.statementContext.getNextRelationId(),
                 producer.getCteId(), "", producer);
         LogicalCTEConsumer directConsumer = new LogicalCTEConsumer(ctx.statementContext.getNextRelationId(),
@@ -276,6 +282,8 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
                         replacedExpr.toSlot());
             }
         }
+        // NOTE: shuffle key selection is applied on the pre-agg (producer) side by setting
+        // LogicalAggregate.partitionExpressions. See constructProducer().
         return new LogicalAggregate<>(topAggGby, topAggOutput, Optional.of(newRepeat), newRepeat);
     }
 
@@ -369,16 +377,14 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
      * Determine if optimization is possible; if so, return the index of the largest group.
      * The optimization requires:
      * 1. The aggregate's child must be a LogicalRepeat
-     * 2. All aggregate functions must be Sum, Min, or Max (non-distinct)
-     * 3. No GroupingScalarFunction in repeat output
-     * 4. More than 3 grouping sets
-     * 5. There exists a grouping set that contains all other grouping sets
-     *
+     * 2. All aggregate functions must be in SUPPORT_AGG_FUNCTIONS.
+     * 3. More than 3 grouping sets
+     * 4. There exists a grouping set that contains all other grouping sets
      * @param aggregate the aggregate plan to check
      * @return value -1 means can not be optimized, values other than -1
      *      represent the index of the set that contains all other sets
      */
-    private int canOptimize(LogicalAggregate<? extends Plan> aggregate) {
+    private int canOptimize(LogicalAggregate<? extends Plan> aggregate, ConnectContext connectContext) {
         Plan aggChild = aggregate.child();
         if (!(aggChild instanceof LogicalRepeat)) {
             return -1;
@@ -398,7 +404,7 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         // This is an empirical threshold: when there are too few grouping sets,
         // the overhead of creating CTE and union may outweigh the benefits.
         // The value 3 is chosen heuristically based on practical experience.
-        if (groupingSets.size() <= 3) {
+        if (groupingSets.size() <= connectContext.getSessionVariable().decomposeRepeatThreshold) {
             return -1;
         }
         return findMaxGroupingSetIndex(groupingSets);
@@ -426,6 +432,9 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
                 maxGroupIndex = i;
             }
         }
+        if (groupingSets.get(maxGroupIndex).isEmpty()) {
+            return -1;
+        }
         // Second pass: verify that the max-size grouping set contains all other grouping sets
         ImmutableSet<Expression> maxGroup = ImmutableSet.copyOf(groupingSets.get(maxGroupIndex));
         for (int i = 0; i < groupingSets.size(); ++i) {
@@ -450,7 +459,8 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
      * @return a LogicalCTEProducer containing the pre-aggregation
      */
     private LogicalCTEProducer<LogicalAggregate<Plan>> constructProducer(LogicalAggregate<? extends Plan> aggregate,
-            int maxGroupIndex, DistinctSelectorContext ctx, Map<Slot, Slot> preToCloneSlotMap) {
+            int maxGroupIndex, DistinctSelectorContext ctx, Map<Slot, Slot> preToCloneSlotMap,
+            ConnectContext connectContext) {
         LogicalRepeat<? extends Plan> repeat = (LogicalRepeat<? extends Plan>) aggregate.child();
         List<Expression> maxGroupByList = repeat.getGroupingSets().get(maxGroupIndex);
         List<NamedExpression> originAggOutputs = aggregate.getOutputExpressions();
@@ -469,6 +479,11 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         }
 
         LogicalAggregate<Plan> preAgg = new LogicalAggregate<>(maxGroupByList, orderedAggOutputs, repeat.child());
+        Optional<List<Expression>> partitionExprs = choosePreAggShuffleKeyPartitionExprs(
+                repeat, maxGroupIndex, maxGroupByList, connectContext);
+        if (partitionExprs.isPresent() && !partitionExprs.get().isEmpty()) {
+            preAgg = preAgg.withPartitionExpressions(partitionExprs);
+        }
         LogicalAggregate<Plan> preAggClone = (LogicalAggregate<Plan>) LogicalPlanDeepCopier.INSTANCE
                 .deepCopy(preAgg, new DeepCopierContext());
         for (int i = 0; i < preAgg.getOutputExpressions().size(); ++i) {
@@ -478,6 +493,95 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
                 new LogicalCTEProducer<>(ctx.statementContext.getNextCTEId(), preAggClone);
         ctx.cteProducerList.add(producer);
         return producer;
+    }
+
+    /**
+     * Choose partition expressions (shuffle key) for pre-aggregation (producer agg).
+     */
+    private Optional<List<Expression>> choosePreAggShuffleKeyPartitionExprs(
+            LogicalRepeat<? extends Plan> repeat, int maxGroupIndex, List<Expression> maxGroupByList,
+            ConnectContext connectContext) {
+        int idx = connectContext.getSessionVariable().decomposeRepeatShuffleIndexInMaxGroup;
+        if (idx >= 0 && idx < maxGroupByList.size()) {
+            return Optional.of(ImmutableList.of(maxGroupByList.get(idx)));
+        }
+        if (repeat.child().getStats() == null) {
+            repeat.child().accept(new StatsDerive(false), new DeriveContext());
+        }
+        Statistics inputStats = repeat.child().getStats();
+        if (inputStats == null) {
+            return Optional.empty();
+        }
+        int beNumber = Math.max(1, connectContext.getEnv().getClusterInfo().getBackendsNumber(true));
+        int parallelInstance = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum());
+        int totalInstanceNum = beNumber * parallelInstance;
+        Optional<Expression> chosen;
+        switch (repeat.getRepeatType()) {
+            case CUBE:
+                // Prefer larger NDV to improve balance
+                chosen = chooseOneBalancedKey(maxGroupByList, inputStats, totalInstanceNum);
+                break;
+            case GROUPING_SETS:
+                chosen = chooseByAppearanceThenNdv(repeat.getGroupingSets(), maxGroupIndex, maxGroupByList,
+                        inputStats, totalInstanceNum);
+                break;
+            case ROLLUP:
+                chosen = chooseOneBalancedKey(maxGroupByList, inputStats, totalInstanceNum);
+                break;
+            default:
+                chosen = Optional.empty();
+        }
+        return chosen.map(ImmutableList::of);
+    }
+
+    private Optional<Expression> chooseOneBalancedKey(List<Expression> candidates, Statistics inputStats,
+            int totalInstanceNum) {
+        if (inputStats == null) {
+            return Optional.empty();
+        }
+        for (Expression candidate : candidates) {
+            ColumnStatistic columnStatistic = inputStats.findColumnStatistics(candidate);
+            if (columnStatistic == null || columnStatistic.isUnKnown()) {
+                continue;
+            }
+            if (StatisticsUtil.isBalanced(columnStatistic, inputStats.getRowCount(), totalInstanceNum)) {
+                return Optional.of(candidate);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * GROUPING_SETS: prefer keys appearing in more (non-max) grouping sets, tie-break by larger NDV.
+     */
+    private Optional<Expression> chooseByAppearanceThenNdv(List<List<Expression>> groupingSets, int maxGroupIndex,
+            List<Expression> candidates, Statistics inputStats, int totalInstanceNum) {
+        Map<Expression, Integer> appearCount = new HashMap<>();
+        for (Expression c : candidates) {
+            appearCount.put(c, 0);
+        }
+        for (int i = 0; i < groupingSets.size(); i++) {
+            if (i == maxGroupIndex) {
+                continue;
+            }
+            List<Expression> set = groupingSets.get(i);
+            for (Expression c : candidates) {
+                if (set.contains(c)) {
+                    appearCount.put(c, appearCount.get(c) + 1);
+                }
+            }
+        }
+        TreeMap<Integer, List<Expression>> countToCandidate = new TreeMap<>();
+        for (Map.Entry<Expression, Integer> entry : appearCount.entrySet()) {
+            countToCandidate.computeIfAbsent(entry.getValue(), v -> new ArrayList<>()).add(entry.getKey());
+        }
+        for (Map.Entry<Integer, List<Expression>> entry : countToCandidate.descendingMap().entrySet()) {
+            Optional<Expression> chosen = chooseOneBalancedKey(entry.getValue(), inputStats, totalInstanceNum);
+            if (chosen.isPresent()) {
+                return chosen;
+            }
+        }
+        return Optional.empty();
     }
 
     /**

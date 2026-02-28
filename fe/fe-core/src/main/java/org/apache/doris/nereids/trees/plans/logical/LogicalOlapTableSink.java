@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -50,7 +50,7 @@ import java.util.Optional;
 public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalTableSink<CHILD_TYPE>
         implements Sink, PropagateFuncDeps {
     // bound data sink
-    private final Database database;
+    private final DatabaseIf database;
     private final OlapTable targetTable;
     private final List<Long> partitionIds;
     private final boolean isPartialUpdate;
@@ -60,7 +60,7 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
     private final Map<Long, Expression> syncMvWhereClauses;
     private final List<Slot> targetTableSlots;
 
-    public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols, List<Long> partitionIds,
+    public LogicalOlapTableSink(DatabaseIf database, OlapTable targetTable, List<Column> cols, List<Long> partitionIds,
             List<NamedExpression> outputExprs, boolean isPartialUpdate,
             TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
             DMLCommandType dmlCommandType, CHILD_TYPE child) {
@@ -71,7 +71,7 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
     /**
      * constructor
      */
-    public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols,
+    public LogicalOlapTableSink(DatabaseIf database, OlapTable targetTable, List<Column> cols,
             List<Long> partitionIds, List<NamedExpression> outputExprs, boolean isPartialUpdate,
             TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
             DMLCommandType dmlCommandType, Optional<GroupExpression> groupExpression,
@@ -81,7 +81,7 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
                 groupExpression, logicalProperties, child);
     }
 
-    private LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols,
+    private LogicalOlapTableSink(DatabaseIf database, OlapTable targetTable, List<Column> cols,
             List<Long> partitionIds, List<NamedExpression> outputExprs, boolean isPartialUpdate,
             TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy, DMLCommandType dmlCommandType,
             List<Expression> partitionExprList, Map<Long, Expression> syncMvWhereClauses,
@@ -119,7 +119,7 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalTableS
                 targetTableSlots, Optional.empty(), Optional.empty(), children.get(0));
     }
 
-    public Database getDatabase() {
+    public DatabaseIf getDatabase() {
         return database;
     }
 

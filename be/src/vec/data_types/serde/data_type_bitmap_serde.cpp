@@ -224,8 +224,8 @@ Status DataTypeBitMapSerDe::from_string(StringRef& str, IColumn& column,
     return deserialize_one_cell_from_json(column, slice, options);
 }
 
-Status DataTypeBitMapSerDe::from_string(const std::string& str, Field& field,
-                                        const FormatOptions& options) const {
+Status DataTypeBitMapSerDe::from_olap_string(const std::string& str, Field& field,
+                                             const FormatOptions& options) const {
     BitmapValue value;
     if (!value.deserialize(str.data())) {
         return Status::InternalError("deserialize BITMAP from string fail!");

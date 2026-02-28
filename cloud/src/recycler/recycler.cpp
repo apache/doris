@@ -7057,6 +7057,46 @@ int InstanceRecycler::scan_and_statistics_restore_jobs() {
     return ret;
 }
 
+void InstanceRecycler::scan_and_statistics_operation_logs() {
+    if (!should_recycle_versioned_keys()) {
+        return;
+    }
+
+    RecyclerMetricsContext metrics_context(instance_id_, "recycle_operation_logs");
+
+    OperationLogRecycleChecker recycle_checker(instance_id_, txn_kv_.get(), instance_info_);
+    if (recycle_checker.init() != 0) {
+        return;
+    }
+
+    std::string log_key_prefix = versioned::log_key(instance_id_);
+    std::string begin_key = encode_versioned_key(log_key_prefix, Versionstamp::min());
+    std::string end_key = encode_versioned_key(log_key_prefix, Versionstamp::max());
+
+    std::unique_ptr<BlobIterator> iter = blob_get_range(txn_kv_, begin_key, end_key);
+    for (; iter->valid(); iter->next()) {
+        OperationLogPB operation_log;
+        if (!iter->parse_value(&operation_log)) {
+            continue;
+        }
+
+        std::string_view key = iter->key();
+        Versionstamp log_versionstamp;
+        if (!decode_versioned_key(&key, &log_versionstamp)) {
+            continue;
+        }
+
+        OperationLogReferenceInfo ref_info;
+        if (recycle_checker.can_recycle(log_versionstamp, operation_log.min_timestamp(),
+                                         &ref_info)) {
+            metrics_context.total_need_recycle_num++;
+            metrics_context.total_need_recycle_data_size += operation_log.ByteSizeLong();
+        }
+    }
+
+    metrics_context.report(true);
+}
+
 int InstanceRecycler::classify_rowset_task_by_ref_count(
         RowsetDeleteTask& task, std::vector<RowsetDeleteTask>& batch_delete_tasks) {
     constexpr int MAX_RETRY = 10;

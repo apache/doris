@@ -397,8 +397,8 @@ Status DataTypeDateSerDe<T>::from_string(StringRef& str, IColumn& column,
 }
 
 template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::from_string(const std::string& str, Field& field,
-                                         const FormatOptions& options) const {
+Status DataTypeDateSerDe<T>::from_olap_string(const std::string& str, Field& field,
+                                              const FormatOptions& options) const {
     CastParameters params {.status = Status::OK(), .is_strict = false};
 
     CppType res;
@@ -575,6 +575,13 @@ Status DataTypeDateSerDe<T>::from_decimal_strict_mode_batch(
         col_data.get_data()[i] = val;
     }
     return Status::OK();
+}
+
+template <PrimitiveType T>
+std::string DataTypeDateSerDe<T>::to_olap_string(const vectorized::Field& field) const {
+    char buf[64];
+    char* pos = field.get<T>().to_string(buf);
+    return std::string(buf, pos - buf - 1);
 }
 // NOLINTEND(readability-function-cognitive-complexity)
 // NOLINTEND(readability-function-size)

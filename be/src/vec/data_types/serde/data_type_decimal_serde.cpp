@@ -28,6 +28,7 @@
 #include "common/consts.h"
 #include "olap/tablet_schema.h"
 #include "orc/Int128.hh"
+#include "runtime/define_primitive_type.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_writer.h"
@@ -126,15 +127,17 @@ Status DataTypeDecimalSerDe<T>::from_string(StringRef& str, IColumn& column,
 }
 
 template <PrimitiveType T>
-Status DataTypeDecimalSerDe<T>::from_string(const std::string& str, Field& field,
-                                            const FormatOptions& options) const {
+Status DataTypeDecimalSerDe<T>::from_olap_string(const std::string& str, Field& field,
+                                                 const FormatOptions& options) const {
     FieldType to;
     CastParameters params;
     params.is_strict = false;
 
-    auto arg_precision = static_cast<UInt32>(precision);
-
-    if (!CastToDecimal::from_string(StringRef(str), to, arg_precision, 0, params)) {
+    // Decimal string in storage is saved as an integer. The scale is maintained by data type, so we
+    // can just parse the string as an integer here.
+    if (!CastToDecimal::from_string(StringRef(str), to, static_cast<UInt32>(precision),
+                                    options.ignore_scale ? 0 : static_cast<UInt32>(scale),
+                                    params)) {
         return Status::InvalidArgument("parse Decimal fail, string: '{}'", str);
     }
     field = Field::create_field<T>(std::move(to));
@@ -497,6 +500,23 @@ void DataTypeDecimalSerDe<T>::to_string(const IColumn& column, size_t row_num, B
     auto& data =
             assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column).get_data();
     CastToString::push_decimal(data[row_num], scale, bw);
+}
+
+template <PrimitiveType T>
+std::string DataTypeDecimalSerDe<T>::to_olap_string(const vectorized::Field& field) const {
+    auto value = field.get<T>();
+    if constexpr (T == TYPE_DECIMALV2) {
+        decimal12_t decimal_val(value.int_value(), value.frac_value());
+        return decimal_val.to_string();
+    } else if constexpr (T == TYPE_DECIMAL256) {
+        return wide::to_string(value.value);
+    } else if constexpr (T == TYPE_DECIMAL128I) {
+        fmt::memory_buffer buffer;
+        fmt::format_to(buffer, "{}", value.value);
+        return std::string(buffer.data(), buffer.size());
+    } else {
+        return std::to_string(value.value);
+    }
 }
 
 template <PrimitiveType T>

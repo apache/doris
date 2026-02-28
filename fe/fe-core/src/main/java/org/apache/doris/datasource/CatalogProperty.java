@@ -21,7 +21,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
-import com.aliyun.odps.table.utils.Preconditions;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections4.MapUtils;

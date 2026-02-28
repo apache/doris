@@ -18,7 +18,7 @@
 package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
-import org.apache.doris.job.util.StreamingJobUtils;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 
 import com.google.common.collect.Sets;
 
@@ -59,9 +59,17 @@ public class DataSourceConfigValidator {
     public static void validateTarget(Map<String, String> input) throws IllegalArgumentException {
         for (Map.Entry<String, String> entry : input.entrySet()) {
             String key = entry.getKey();
-            if (!key.startsWith(StreamingJobUtils.TABLE_PROPS_PREFIX)) {
-                throw new IllegalArgumentException("Only support target properties with prefix "
-                        + StreamingJobUtils.TABLE_PROPS_PREFIX);
+            if (!key.startsWith(DataSourceConfigKeys.TABLE_PROPS_PREFIX)
+                    && !key.startsWith(DataSourceConfigKeys.LOAD_PROPERTIES)) {
+                throw new IllegalArgumentException("Not support target properties key " + key);
+            }
+
+            if (key.equals(DataSourceConfigKeys.LOAD_PROPERTIES + LoadCommand.MAX_FILTER_RATIO_PROPERTY)) {
+                try {
+                    Double.parseDouble(entry.getValue());
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("Invalid value for key '" + key + "': " + entry.getValue());
+                }
             }
         }
     }

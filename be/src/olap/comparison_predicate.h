@@ -25,7 +25,6 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h" // IWYU pragma: keep
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
-#include "olap/wrapper_field.h"
 #include "vec/columns/column_dictionary.h"
 
 namespace doris {
@@ -51,6 +50,12 @@ public:
         fmt::format_to(debug_string_buffer, "ComparisonPredicateBase({})",
                        ColumnPredicate::debug_string());
         return fmt::to_string(debug_string_buffer);
+    }
+    bool could_be_erased() const override {
+        if ((PT == PredicateType::NE && !_opposite) || (PT == PredicateType::EQ && _opposite)) {
+            return false;
+        }
+        return true;
     }
 
     PredicateType type() const override { return PT; }
@@ -134,27 +139,26 @@ public:
         _evaluate_bit<true>(column, sel, size, flags);
     }
 
-    bool evaluate_and(const ZoneMapInfo& zone_map_info) const override {
-        if (zone_map_info.is_all_null) {
+    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override {
+        if (!zone_map.has_not_null) {
             return false;
         }
 
         if constexpr (PT == PredicateType::EQ) {
             return _operator(
-                    Compare::less_equal(zone_map_info.min_value.template get<Type>(), _value) &&
-                            Compare::greater_equal(zone_map_info.max_value.template get<Type>(),
-                                                   _value),
+                    Compare::less_equal(zone_map.min_value.template get<Type>(), _value) &&
+                            Compare::greater_equal(zone_map.max_value.template get<Type>(), _value),
                     true);
         } else if constexpr (PT == PredicateType::NE) {
             return _operator(
-                    Compare::equal(zone_map_info.min_value.template get<Type>(), _value) &&
-                            Compare::equal(zone_map_info.max_value.template get<Type>(), _value),
+                    Compare::equal(zone_map.min_value.template get<Type>(), _value) &&
+                            Compare::equal(zone_map.max_value.template get<Type>(), _value),
                     true);
         } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
-            return _operator(zone_map_info.min_value.template get<Type>(), _value);
+            return _operator(zone_map.min_value.template get<Type>(), _value);
         } else {
             static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
-            return _operator(zone_map_info.max_value.template get<Type>(), _value);
+            return _operator(zone_map.max_value.template get<Type>(), _value);
         }
     }
 
@@ -245,39 +249,39 @@ public:
         return row_ranges->count() > 0;
     }
 
-    bool is_always_true(const ZoneMapInfo& zone_map_info) const override {
-        if (zone_map_info.has_null) {
+    bool is_always_true(const segment_v2::ZoneMap& zone_map) const override {
+        if (zone_map.has_null) {
             return false;
         }
 
         if constexpr (PT == PredicateType::LT) {
-            return _value > zone_map_info.max_value.template get<Type>();
+            return _value > zone_map.max_value.template get<Type>();
         } else if constexpr (PT == PredicateType::LE) {
-            return _value >= zone_map_info.max_value.template get<Type>();
+            return _value >= zone_map.max_value.template get<Type>();
         } else if constexpr (PT == PredicateType::GT) {
-            return _value < zone_map_info.min_value.template get<Type>();
+            return _value < zone_map.min_value.template get<Type>();
         } else if constexpr (PT == PredicateType::GE) {
-            return _value <= zone_map_info.min_value.template get<Type>();
+            return _value <= zone_map.min_value.template get<Type>();
         }
 
         return false;
     }
 
-    bool evaluate_del(const ZoneMapInfo& zone_map_info) const override {
-        if (zone_map_info.has_null) {
+    bool evaluate_del(const segment_v2::ZoneMap& zone_map) const override {
+        if (zone_map.has_null) {
             return false;
         }
         if constexpr (PT == PredicateType::EQ) {
-            return zone_map_info.min_value.template get<Type>() == _value &&
-                   zone_map_info.max_value.template get<Type>() == _value;
+            return zone_map.min_value.template get<Type>() == _value &&
+                   zone_map.max_value.template get<Type>() == _value;
         } else if constexpr (PT == PredicateType::NE) {
-            return zone_map_info.min_value.template get<Type>() > _value ||
-                   zone_map_info.max_value.template get<Type>() < _value;
+            return zone_map.min_value.template get<Type>() > _value ||
+                   zone_map.max_value.template get<Type>() < _value;
         } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
-            return _operator(zone_map_info.max_value.template get<Type>(), _value);
+            return _operator(zone_map.max_value.template get<Type>(), _value);
         } else {
             static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
-            return _operator(zone_map_info.min_value.template get<Type>(), _value);
+            return _operator(zone_map.min_value.template get<Type>(), _value);
         }
     }
 

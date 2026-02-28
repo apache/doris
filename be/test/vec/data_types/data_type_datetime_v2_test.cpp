@@ -759,9 +759,9 @@ TEST_F(DataTypeDateTimeV2Test, ser_deser) {
             }
         }
     };
-    test_func(dt_datetime_v2_0, *column_datetime_v2_0, USE_CONST_SERDE);
-    test_func(dt_datetime_v2_5, *column_datetime_v2_5, USE_CONST_SERDE);
-    test_func(dt_datetime_v2_6, *column_datetime_v2_6, USE_CONST_SERDE);
+    test_func(dt_datetime_v2_0, *column_datetime_v2_0, BeExecVersionManager::max_be_exec_version);
+    test_func(dt_datetime_v2_5, *column_datetime_v2_5, BeExecVersionManager::max_be_exec_version);
+    test_func(dt_datetime_v2_6, *column_datetime_v2_6, BeExecVersionManager::max_be_exec_version);
 }
 TEST_F(DataTypeDateTimeV2Test, to_string) {
     auto test_func = [](auto& dt, const auto& source_column) {

@@ -43,6 +43,7 @@
 #include "common/kerberos/kerberos_ticket_mgr.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/s3_rate_limiter.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
@@ -140,6 +141,12 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class PBackendService_Stub;
 class PFunctionService_Stub;
+
+// Warmup download rate limiter metrics
+bvar::LatencyRecorder warmup_download_rate_limit_latency("warmup_download_rate_limit_latency");
+bvar::Adder<int64_t> warmup_download_rate_limit_ns("warmup_download_rate_limit_ns");
+bvar::Adder<int64_t> warmup_download_rate_limit_exceed_req_num(
+        "warmup_download_rate_limit_exceed_req_num");
 
 static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     bool init_system_metrics = config::enable_system_metrics;
@@ -258,6 +265,13 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_min_threads(cast_set<int>(buffered_reader_min_threads))
                               .set_max_threads(cast_set<int>(buffered_reader_max_threads))
                               .build(&_buffered_reader_prefetch_thread_pool));
+
+    static_cast<void>(ThreadPoolBuilder("SegmentPrefetchThreadPool")
+                              .set_min_threads(cast_set<int>(
+                                      config::segment_prefetch_thread_pool_thread_num_min))
+                              .set_max_threads(cast_set<int>(
+                                      config::segment_prefetch_thread_pool_thread_num_max))
+                              .build(&_segment_prefetch_thread_pool));
 
     static_cast<void>(ThreadPoolBuilder("SendTableStatsThreadPool")
                               .set_min_threads(8)
@@ -414,9 +428,30 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     if (config::is_cloud_mode()) {
         RETURN_IF_ERROR(_packed_file_manager->init());
         _packed_file_manager->start_background_manager();
+
+        // Start cluster info background worker for compaction read-write separation
+        static_cast<CloudClusterInfo*>(_cluster_info)->start_bg_worker();
     }
 
     _index_policy_mgr = new IndexPolicyMgr();
+
+    // Initialize warmup download rate limiter for cloud mode
+    // Always create the rate limiter in cloud mode to support dynamic rate limit changes
+    if (config::is_cloud_mode()) {
+        int64_t rate_limit = config::file_cache_warmup_download_rate_limit_bytes_per_second;
+        // When rate_limit <= 0, pass 0 to disable rate limiting
+        int64_t rate = rate_limit > 0 ? rate_limit : 0;
+        // max_burst is the same as rate (1 second burst)
+        // limit is 0 which means no total limit
+        // When rate is 0, S3RateLimiter will not throttle (no rate limiting)
+        _warmup_download_rate_limiter = new S3RateLimiterHolder(rate, rate, 0, [&](int64_t ns) {
+            if (ns > 0) {
+                warmup_download_rate_limit_latency << ns / 1000;
+                warmup_download_rate_limit_ns << ns;
+                warmup_download_rate_limit_exceed_req_num << 1;
+            }
+        });
+    }
 
     RETURN_IF_ERROR(_spill_stream_mgr->init());
     RETURN_IF_ERROR(_runtime_query_statistics_mgr->start_report_thread());
@@ -630,7 +665,7 @@ Status ExecEnv::init_mem_env() {
     _inverted_index_query_cache = InvertedIndexQueryCache::create_global_cache(
             inverted_index_query_cache_limit, config::inverted_index_query_cache_shards);
     LOG(INFO) << "Inverted index query match cache memory limit: "
-              << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
+              << PrettyPrinter::print(inverted_index_query_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
 
     // use memory limit
@@ -804,6 +839,11 @@ void ExecEnv::destroy() {
     // _id_manager must be destoried before tablet schema cache
     SAFE_DELETE(_id_manager);
 
+    // Stop cluster info background worker before storage engine is destroyed
+    if (config::is_cloud_mode() && _cluster_info) {
+        static_cast<CloudClusterInfo*>(_cluster_info)->stop_bg_worker();
+    }
+
     // StorageEngine must be destoried before _cache_manager destory
     SAFE_STOP(_storage_engine);
     _storage_engine.reset();
@@ -813,6 +853,7 @@ void ExecEnv::destroy() {
         _runtime_query_statistics_mgr->stop_report_thread();
     }
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
+    SAFE_SHUTDOWN(_segment_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
     SAFE_SHUTDOWN(_lazy_release_obj_pool);
     SAFE_SHUTDOWN(_non_block_close_thread_pool);
@@ -874,6 +915,7 @@ void ExecEnv::destroy() {
     _s3_file_system_thread_pool.reset(nullptr);
     _send_table_stats_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
+    _segment_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
     _udf_close_workers_thread_pool.reset(nullptr);
@@ -923,6 +965,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_heap_profiler);
 
     SAFE_DELETE(_index_policy_mgr);
+    SAFE_DELETE(_warmup_download_rate_limiter);
 
     _s_tracking_memory = false;
 
@@ -932,3 +975,23 @@ void ExecEnv::destroy() {
 }
 
 } // namespace doris
+
+namespace doris::config {
+// Callback to update warmup download rate limiter when config changes is registered
+DEFINE_ON_UPDATE(file_cache_warmup_download_rate_limit_bytes_per_second,
+                 [](int64_t old_val, int64_t new_val) {
+                     auto* rate_limiter = ExecEnv::GetInstance()->warmup_download_rate_limiter();
+                     if (rate_limiter != nullptr && new_val != old_val) {
+                         // Reset rate limiter with new rate limit value
+                         // When new_val <= 0, pass 0 to disable rate limiting
+                         int64_t rate = new_val > 0 ? new_val : 0;
+                         rate_limiter->reset(rate, rate, 0);
+                         if (rate > 0) {
+                             LOG(INFO) << "Warmup download rate limiter updated from " << old_val
+                                       << " to " << new_val << " bytes/s";
+                         } else {
+                             LOG(INFO) << "Warmup download rate limiter disabled";
+                         }
+                     }
+                 });
+} // namespace doris::config

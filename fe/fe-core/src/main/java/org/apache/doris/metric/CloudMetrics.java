@@ -51,6 +51,19 @@ public class CloudMetrics {
     protected static AutoMappedMetric<LongCounterMetric> CLUSTER_CLOUD_SMOOTH_UPGRADE_BALANCE_NUM;
     protected static AutoMappedMetric<LongCounterMetric> CLUSTER_CLOUD_WARM_UP_CACHE_BALANCE_NUM;
 
+    // Per-method meta-service RPC metrics
+    public static AutoMappedMetric<LongCounterMetric> META_SERVICE_RPC_TOTAL;
+    public static AutoMappedMetric<LongCounterMetric> META_SERVICE_RPC_FAILED;
+    public static AutoMappedMetric<LongCounterMetric> META_SERVICE_RPC_RETRY;
+    public static AutoMappedMetric<GaugeMetricImpl<Double>> META_SERVICE_RPC_PER_SECOND;
+    public static AutoMappedMetric<Histogram> META_SERVICE_RPC_LATENCY;
+
+    // Aggregate meta-service metrics
+    public static LongCounterMetric META_SERVICE_RPC_ALL_TOTAL;
+    public static LongCounterMetric META_SERVICE_RPC_ALL_FAILED;
+    public static LongCounterMetric META_SERVICE_RPC_ALL_RETRY;
+    public static GaugeMetricImpl<Double> META_SERVICE_RPC_ALL_PER_SECOND;
+
     protected static void init() {
         if (Config.isNotCloudMode()) {
             return;
@@ -124,5 +137,41 @@ public class CloudMetrics {
         CLUSTER_CLOUD_WARM_UP_CACHE_BALANCE_NUM = new AutoMappedMetric<>(name -> new LongCounterMetric(
             "cloud_warm_up_balance_num", MetricUnit.NOUNIT,
             "current cluster cloud warm up cache sync edit log number"));
+
+        // Per-method meta-service RPC metrics
+        META_SERVICE_RPC_TOTAL = MetricRepo.addLabeledMetrics("method", () ->
+            new LongCounterMetric("meta_service_rpc_total", MetricUnit.NOUNIT,
+                "total meta service RPC calls"));
+        META_SERVICE_RPC_FAILED = MetricRepo.addLabeledMetrics("method", () ->
+            new LongCounterMetric("meta_service_rpc_failed", MetricUnit.NOUNIT,
+                "failed meta service RPC calls"));
+        META_SERVICE_RPC_RETRY = MetricRepo.addLabeledMetrics("method", () ->
+            new LongCounterMetric("meta_service_rpc_retry", MetricUnit.NOUNIT,
+                "meta service RPC retry attempts"));
+        META_SERVICE_RPC_PER_SECOND = new AutoMappedMetric<>(methodName -> {
+            GaugeMetricImpl<Double> gauge = new GaugeMetricImpl<>("meta_service_rpc_per_second",
+                    MetricUnit.NOUNIT, "meta service RPC requests per second", 0.0);
+            gauge.addLabel(new MetricLabel("method", methodName));
+            return gauge;
+        });
+        META_SERVICE_RPC_LATENCY = new AutoMappedMetric<>(methodName -> {
+            String metricName = MetricRegistry.name("meta_service", "rpc", "latency", "ms",
+                    "method=" + methodName);
+            return MetricRepo.METRIC_REGISTER.histogram(metricName);
+        });
+
+        // Aggregate meta-service metrics
+        META_SERVICE_RPC_ALL_TOTAL = new LongCounterMetric("meta_service_rpc_all_total",
+            MetricUnit.NOUNIT, "total meta service RPC calls across all methods");
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(META_SERVICE_RPC_ALL_TOTAL);
+        META_SERVICE_RPC_ALL_FAILED = new LongCounterMetric("meta_service_rpc_all_failed",
+            MetricUnit.NOUNIT, "total failed meta service RPC calls");
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(META_SERVICE_RPC_ALL_FAILED);
+        META_SERVICE_RPC_ALL_RETRY = new LongCounterMetric("meta_service_rpc_all_retry",
+            MetricUnit.NOUNIT, "total meta service RPC retry attempts");
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(META_SERVICE_RPC_ALL_RETRY);
+        META_SERVICE_RPC_ALL_PER_SECOND = new GaugeMetricImpl<>("meta_service_rpc_all_per_second",
+            MetricUnit.NOUNIT, "meta service RPC requests per second (all methods)", 0.0);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(META_SERVICE_RPC_ALL_PER_SECOND);
     }
 }

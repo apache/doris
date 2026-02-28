@@ -15,8 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_search_null_semantics") {
+suite("test_search_null_semantics", "p0") {
     def tableName = "search_null_test"
+
+    // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.
+    sql """ set enable_common_expr_pushdown = true """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 
@@ -61,7 +64,7 @@ suite("test_search_null_semantics") {
     // title match "Ronald" or (content match_all "Selma Blair")
     qt_test_case_1_search """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('title:Ronald or (content:ALL(Selma Blair))')
+        WHERE search('title:Ronald OR (content:ALL(Selma Blair))')
     """
 
     qt_test_case_1_match """
@@ -73,7 +76,7 @@ suite("test_search_null_semantics") {
     // search('not content:"Round"') should match not search('content:"Round"')
     qt_test_case_2_internal_not """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('not content:Round')
+        WHERE search('NOT content:Round')
     """
 
     qt_test_case_2_external_not """
@@ -92,7 +95,7 @@ suite("test_search_null_semantics") {
     // Verify that NULL OR TRUE = TRUE logic works
     qt_test_case_3_or_with_null """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${tableName}
-        WHERE search('title:Ronald or content:biography')
+        WHERE search('title:Ronald OR content:biography')
         ORDER BY id
     """
 
@@ -100,14 +103,14 @@ suite("test_search_null_semantics") {
     // Verify that NULL AND TRUE = NULL logic works
     qt_test_case_4_and_with_null """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${tableName}
-        WHERE search('title:Ronald and content:biography')
+        WHERE search('title:Ronald AND content:biography')
         ORDER BY id
     """
 
     // Test Case 5: Complex OR query with multiple NULL scenarios
     qt_test_case_5_complex_or_search """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('title:Unknown or content:mascot or category:Test')
+        WHERE search('title:Unknown OR content:mascot OR category:Test')
     """
 
     qt_test_case_5_complex_or_match """
@@ -118,7 +121,7 @@ suite("test_search_null_semantics") {
     // Test Case 6: NOT query with different field types
     qt_test_case_6_not_title_search """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('not title:Ronald')
+        WHERE search('NOT title:Ronald')
     """
 
     qt_test_case_6_not_title_external """
@@ -129,13 +132,13 @@ suite("test_search_null_semantics") {
     // Test Case 7: Mixed boolean operations
     qt_test_case_7_mixed """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('(title:Ronald or content:Selma) and not category:Unknown')
+        WHERE search('(title:Ronald OR content:Selma) AND NOT category:Unknown')
     """
 
     // Test Case 8: Edge case - all NULL fields
     qt_test_case_8_all_null """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('title:NonExistent or content:NonExistent or category:NonExistent')
+        WHERE search('title:NonExistent OR content:NonExistent OR category:NonExistent')
     """
 
     // ------------------------------------------------------------------

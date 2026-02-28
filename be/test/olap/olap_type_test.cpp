@@ -24,6 +24,8 @@
 #include "gtest/gtest_pred_impl.h"
 #include "olap/olap_common.h"
 #include "olap/types.h"
+#include "runtime/define_primitive_type.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/functions/cast/cast_to_string.h"
 
 namespace doris {
@@ -357,9 +359,12 @@ TEST_F(OlapTypeTest, ser_deser_float) {
             }};
     test_input_values.insert(test_input_values.end(), special_input_values.begin(),
                              special_input_values.end());
+    auto data_type_ptr =
+            vectorized::DataTypeFactory::instance().create_data_type(TYPE_FLOAT, false);
+    auto data_type_serde = data_type_ptr->get_serde();
     for (const auto& [float_value, expected_str] : test_input_values) {
-        auto result_str =
-                FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT>::to_string(&float_value);
+        auto field = vectorized::Field::create_field<TYPE_FLOAT>(float_value);
+        auto result_str = data_type_serde->to_olap_string(field);
         EXPECT_EQ(result_str, expected_str);
         float deser_float_value = 0.0F;
         auto status = FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT>::from_string(
@@ -555,9 +560,12 @@ TEST_F(OlapTypeTest, ser_deser_double) {
             }};
     test_input_values.insert(test_input_values.end(), special_input_values.begin(),
                              special_input_values.end());
+    auto data_type_ptr =
+            vectorized::DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false);
+    auto data_type_serde = data_type_ptr->get_serde();
     for (const auto& [float_value, expected_str] : test_input_values) {
-        auto result_str =
-                FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE>::to_string(&float_value);
+        auto field = vectorized::Field::create_field<TYPE_DOUBLE>(float_value);
+        auto result_str = data_type_serde->to_olap_string(field);
         EXPECT_EQ(result_str, expected_str);
         double deser_float_value = 0.0;
         auto status = FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE>::from_string(

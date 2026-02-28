@@ -41,8 +41,8 @@ public:
     Status from_string_batch(const ColumnString& str, ColumnNullable& column,
                              const FormatOptions& options) const final;
 
-    Status from_string(const std::string& str, Field& field,
-                       const FormatOptions& options) const override;
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
 
     Status from_string_strict_mode_batch(const ColumnString& str, IColumn& column,
                                          const FormatOptions& options,
@@ -109,6 +109,8 @@ public:
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override;
     int get_scale() const override { return _scale; }
+
+    std::string to_olap_string(const vectorized::Field& field) const override;
 
 private:
     int _scale;

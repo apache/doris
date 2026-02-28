@@ -162,7 +162,13 @@ Status InvertedIndexColumnWriter<field_type>::create_field(lucene::document::Fie
     (*field)->setOmitTermFreqAndPositions(
             !(get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
               INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES));
-    (*field)->setOmitNorms(false);
+    if (_should_analyzer) {
+        (*field)->setOmitNorms(false);
+    }
+
+    DBUG_EXECUTE_IF("InvertedIndexColumnWriter::always_omit_norms",
+                    { (*field)->setOmitNorms(false); });
+
     DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_field_v3", {
         if (_index_file_writer->get_storage_format() != InvertedIndexStorageFormatPB::V3) {
             return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(

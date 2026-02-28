@@ -58,6 +58,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.iceberg.cache.IcebergManifestCache;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
+import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
@@ -1588,11 +1589,14 @@ public class IcebergUtils {
     }
 
     public static boolean isManifestCacheEnabled(ExternalCatalog catalog) {
-        String enabled = catalog.getProperties().get(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_ENABLE);
-        if (enabled == null) {
-            return IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE;
-        }
-        return Boolean.parseBoolean(enabled);
+        CacheSpec spec = CacheSpec.fromProperties(catalog.getProperties(),
+                IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_ENABLE,
+                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE,
+                IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_TTL_SECOND,
+                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND,
+                IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_CAPACITY,
+                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY);
+        return CacheSpec.isCacheEnabled(spec.isEnable(), spec.getTtlSecond(), spec.getCapacity());
     }
 
 }

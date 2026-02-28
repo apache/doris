@@ -26,6 +26,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/core/types.h"
 #include "vec/functions/cast/cast_to_ip.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
@@ -275,8 +276,8 @@ Status DataTypeIPv6SerDe::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
-Status DataTypeIPv6SerDe::from_string(const std::string& str, Field& field,
-                                      const FormatOptions& options) const {
+Status DataTypeIPv6SerDe::from_olap_string(const std::string& str, Field& field,
+                                           const FormatOptions& options) const {
     CastParameters params;
     params.is_strict = false;
 
@@ -317,6 +318,10 @@ void DataTypeIPv6SerDe::write_one_cell_to_binary(const IColumn& src_column,
 
     memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
     memcpy(chars.data() + old_size + sizeof(uint8_t), data_ref.data, data_ref.size);
+}
+
+std::string DataTypeIPv6SerDe::to_olap_string(const vectorized::Field& field) const {
+    return CastToString::from_ip(field.get<TYPE_IPV6>());
 }
 
 } // namespace doris::vectorized

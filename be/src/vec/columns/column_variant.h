@@ -211,6 +211,8 @@ public:
 
             explicit LeastCommonType(DataTypePtr type_, bool is_root = false);
 
+            static const LeastCommonType& nothing(bool is_root);
+
             const DataTypePtr& get() const { return type; }
 
             const DataTypePtr& get_base() const { return base_type; }
@@ -633,8 +635,6 @@ public:
                 subcolumns.size() - typed_path_count - nested_path_count - 1;
         return _max_subcolumns_count - current_subcolumns_count;
     }
-
-    void sort_doc_value_column();
 
     // doc snapshot mode: only root column, and doc snapshot column is not empty
     bool is_doc_mode() const;

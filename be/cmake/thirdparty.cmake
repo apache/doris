@@ -179,3 +179,18 @@ add_thirdparty(icudata LIB64)
 
 
 add_thirdparty(pugixml LIB64)
+
+if (ENABLE_PAIMON_CPP)
+    add_thirdparty(paimon LIB64)
+    add_thirdparty(paimon_parquet_file_format LIB64)
+    add_thirdparty(paimon_orc_file_format LIB64)
+    add_thirdparty(paimon_blob_file_format LIB64)
+    add_thirdparty(paimon_local_file_system LIB64)
+    add_thirdparty(paimon_file_index LIB64)
+    add_thirdparty(paimon_global_index LIB64)
+
+    add_thirdparty(roaring_bitmap_paimon LIB64)
+    add_thirdparty(xxhash_paimon LIB64)
+    add_thirdparty(fmt_paimon LIB64)
+    add_thirdparty(tbb_paimon LIB64)
+endif()

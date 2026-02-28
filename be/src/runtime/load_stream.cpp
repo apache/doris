@@ -606,6 +606,9 @@ void LoadStream::_report_tablet_load_info(StreamId stream, int64_t index_id) {
         PLoadStreamResponse response;
         auto* tablet_load_infos = response.mutable_tablet_load_rowset_num_infos();
         _collect_tablet_load_info_from_tablets(write_tablet_ids, tablet_load_infos);
+        if (tablet_load_infos->empty()) {
+            return;
+        }
         buf.append(response.SerializeAsString());
         auto wst = _write_stream(stream, buf);
         if (!wst.ok()) {
@@ -757,6 +760,7 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
         }
     } break;
     case PStreamHeader::CLOSE_LOAD: {
+        DBUG_EXECUTE_IF("LoadStream.close_load.block", DBUG_BLOCK);
         std::vector<int64_t> success_tablet_ids;
         FailedTablets failed_tablets;
         std::vector<PTabletID> tablets_to_commit(hdr.tablets().begin(), hdr.tablets().end());

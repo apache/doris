@@ -115,7 +115,19 @@ public:
     bool is_variable_length() const override { return true; }
 
     void sanity_check() const override;
-    void sanity_check_simple() const;
+    void sanity_check_simple() const {
+#ifndef NDEBUG
+        auto count = cast_set<int64_t>(offsets.size());
+        if (chars.size() != offsets[count - 1]) {
+            throw Exception(Status::InternalError("row count: {}, chars.size(): {}, offset[{}]: {}",
+                                                  count, chars.size(), count - 1,
+                                                  offsets[count - 1]));
+        }
+        if (offsets[-1] != 0) {
+            throw Exception(Status::InternalError("wrong offsets[-1]: {}", offsets[-1]));
+        }
+#endif
+    }
 
     std::string get_name() const override { return "String"; }
 
@@ -154,7 +166,8 @@ public:
     bool is_column_string64() const override { return sizeof(T) == sizeof(uint64_t); }
 
     void insert_from(const IColumn& src_, size_t n) override {
-        const ColumnStr<T>& src = assert_cast<const ColumnStr<T>&>(src_);
+        const ColumnStr<T>& src =
+                assert_cast<const ColumnStr<T>&, TypeCheckOnRelease::DISABLE>(src_);
         const size_t size_to_append =
                 src.offsets[n] - src.offsets[n - 1]; /// -1th index is Ok, see PaddedPODArray.
 

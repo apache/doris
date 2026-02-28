@@ -122,6 +122,10 @@ public:
 
     bool is_shuffled_operator() const override { return true; }
     bool is_colocated_operator() const override { return _is_colocate; }
+    bool followed_by_shuffled_operator() const override {
+        return (is_shuffled_operator() && !is_colocated_operator()) ||
+               Base::_followed_by_shuffled_operator;
+    }
 
 private:
     template <class HashTableContext, bool is_intersected>

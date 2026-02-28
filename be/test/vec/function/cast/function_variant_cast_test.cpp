@@ -24,9 +24,11 @@
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_variant.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -462,6 +464,152 @@ TEST(FunctionVariantCast, CastFromVariantWithEmptyRoot) {
         const auto* nullable_result = assert_cast<const ColumnNullable*>(result_col.get());
         ASSERT_EQ(nullable_result->size(), 1);
         ASSERT_TRUE(nullable_result->is_null_at(1));
+    }
+}
+
+// Regression test for JIRA-233:
+// INSERT INTO SELECT with variant→target cast returns all NULLs in strict mode.
+// The bug was that cast_from_variant_impl inherited strict mode from the INSERT context,
+// causing internal JSONB→target conversion to fail for null entries, which made the
+// entire cast return all NULLs.
+TEST(FunctionVariantCast, CastFromVariantStrictModeRegression) {
+    // Test: variant with nullable root → Int32 with strict mode enabled
+    // Before fix: strict mode causes all NULLs
+    // After fix: non-null entries produce correct values, null entries stay NULL
+    {
+        auto variant_type = std::make_shared<DataTypeVariant>();
+        auto int32_type = std::make_shared<DataTypeInt32>();
+        auto nullable_int32_type = std::make_shared<DataTypeNullable>(int32_type);
+
+        // Create variant column with nullable integer root (some null, some not)
+        auto variant_col = ColumnVariant::create(0);
+        variant_col->create_root(
+                nullable_int32_type,
+                ColumnNullable::create(ColumnInt32::create(), ColumnUInt8::create()));
+        MutableColumnPtr data = variant_col->get_root();
+
+        // Row 0: value 42
+        data->insert(Field::create_field<TYPE_INT>(42));
+        // Row 1: NULL (simulating a row where the variant subcolumn doesn't exist)
+        data->insert(Field::create_field<TYPE_NULL>(Null()));
+        // Row 2: value 100
+        data->insert(Field::create_field<TYPE_INT>(100));
+        // Row 3: NULL
+        data->insert(Field::create_field<TYPE_NULL>(Null()));
+        // Row 4: value -5
+        data->insert(Field::create_field<TYPE_INT>(-5));
+
+        variant_col->finalize();
+
+        ColumnsWithTypeAndName arguments {{variant_col->get_ptr(), variant_type, "variant_col"},
+                                          {nullptr, int32_type, "int32_type"}};
+
+        auto function =
+                SimpleFunctionFactory::instance().get_function("CAST", arguments, int32_type);
+        ASSERT_NE(function, nullptr);
+
+        Block block {arguments};
+        size_t result_column = block.columns();
+        block.insert({nullptr, int32_type, "result"});
+
+        RuntimeState state;
+        auto ctx = FunctionContext::create_context(&state, {}, {});
+
+        // Enable strict mode to simulate INSERT context (this is the key!)
+        ctx->set_enable_strict_mode(true);
+
+        ASSERT_TRUE(function->execute(ctx.get(), block, {0}, result_column, 5).ok());
+
+        auto result_col = block.get_by_position(result_column).column;
+        ASSERT_NE(result_col.get(), nullptr);
+
+        // The result should be a nullable column
+        const auto* nullable_result = assert_cast<const ColumnNullable*>(result_col.get());
+        ASSERT_EQ(nullable_result->size(), 5);
+
+        const auto& result_data =
+                assert_cast<const ColumnInt32&>(nullable_result->get_nested_column());
+        const auto& null_map = nullable_result->get_null_map_data();
+
+        // Row 0: value 42, not null
+        ASSERT_EQ(null_map[0], 0);
+        ASSERT_EQ(result_data.get_element(0), 42);
+
+        // Row 1: NULL
+        ASSERT_EQ(null_map[1], 1);
+
+        // Row 2: value 100, not null
+        ASSERT_EQ(null_map[2], 0);
+        ASSERT_EQ(result_data.get_element(2), 100);
+
+        // Row 3: NULL
+        ASSERT_EQ(null_map[3], 1);
+
+        // Row 4: value -5, not null
+        ASSERT_EQ(null_map[4], 0);
+        ASSERT_EQ(result_data.get_element(4), -5);
+    }
+
+    // Test 2: variant with string root → Int32 with strict mode
+    // Simulates casting variant['field'] that stored as string "123" to Int32
+    {
+        auto variant_type = std::make_shared<DataTypeVariant>();
+        auto int32_type = std::make_shared<DataTypeInt32>();
+        auto nullable_string_type =
+                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+
+        auto variant_col = ColumnVariant::create(0);
+        variant_col->create_root(
+                nullable_string_type,
+                ColumnNullable::create(ColumnString::create(), ColumnUInt8::create()));
+        MutableColumnPtr data = variant_col->get_root();
+
+        // Row 0: "42"
+        data->insert(Field::create_field<TYPE_STRING>(String("42")));
+        // Row 1: NULL
+        data->insert(Field::create_field<TYPE_NULL>(Null()));
+        // Row 2: "100"
+        data->insert(Field::create_field<TYPE_STRING>(String("100")));
+
+        variant_col->finalize();
+
+        ColumnsWithTypeAndName arguments {{variant_col->get_ptr(), variant_type, "variant_col"},
+                                          {nullptr, int32_type, "int32_type"}};
+
+        auto function =
+                SimpleFunctionFactory::instance().get_function("CAST", arguments, int32_type);
+        ASSERT_NE(function, nullptr);
+
+        Block block {arguments};
+        size_t result_column = block.columns();
+        block.insert({nullptr, int32_type, "result"});
+
+        RuntimeState state;
+        auto ctx = FunctionContext::create_context(&state, {}, {});
+
+        // Enable strict mode (INSERT context)
+        ctx->set_enable_strict_mode(true);
+
+        ASSERT_TRUE(function->execute(ctx.get(), block, {0}, result_column, 3).ok());
+
+        auto result_col = block.get_by_position(result_column).column;
+        ASSERT_NE(result_col.get(), nullptr);
+
+        const auto* nullable_result = assert_cast<const ColumnNullable*>(result_col.get());
+        ASSERT_EQ(nullable_result->size(), 3);
+
+        const auto& result_data =
+                assert_cast<const ColumnInt32&>(nullable_result->get_nested_column());
+        const auto& null_map = nullable_result->get_null_map_data();
+
+        // After fix: non-null entries should produce correct values
+        ASSERT_EQ(null_map[0], 0);
+        ASSERT_EQ(result_data.get_element(0), 42);
+
+        ASSERT_EQ(null_map[1], 1); // NULL stays NULL
+
+        ASSERT_EQ(null_map[2], 0);
+        ASSERT_EQ(result_data.get_element(2), 100);
     }
 }
 

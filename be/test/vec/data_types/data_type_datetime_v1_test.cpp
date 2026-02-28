@@ -434,9 +434,9 @@ TEST_F(DataTypeDateTimeV1Test, ser_deser) {
             }
         }
     };
-    test_func(dt_date, *column_date, USE_CONST_SERDE);
+    test_func(dt_date, *column_date, BeExecVersionManager::max_be_exec_version);
 
-    test_func(dt_datetime, *column_datetime, USE_CONST_SERDE);
+    test_func(dt_datetime, *column_datetime, BeExecVersionManager::max_be_exec_version);
 }
 TEST_F(DataTypeDateTimeV1Test, to_string) {
     auto test_func = [](auto& dt, const auto& source_column) {
