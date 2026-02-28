@@ -25,7 +25,7 @@ suite("test_mc_write_types", "p2,external,maxcompute,external_remote,external_re
     String ak = context.config.otherConfigs.get("ak")
     String sk = context.config.otherConfigs.get("sk")
     String mc_catalog_name = "test_mc_write_types"
-    String defaultProject = "doris_test_schema"
+    String defaultProject = "mc_doris_test_write"
 
     sql """drop catalog if exists ${mc_catalog_name}"""
     sql """
