@@ -711,7 +711,11 @@ public class ColocateTableIndex implements Writable {
                 info.add(Joiner.on(", ").join(group2Tables.get(groupId)));
                 ColocateGroupSchema groupSchema = group2Schema.get(groupId);
                 info.add(String.valueOf(groupSchema.getBucketsNum()));
-                info.add(String.valueOf(groupSchema.getReplicaAlloc().toCreateStmt()));
+                if (Config.isCloudMode()) {
+                    info.add("null");
+                } else {
+                    info.add(String.valueOf(groupSchema.getReplicaAlloc().toCreateStmt()));
+                }
                 List<String> cols = groupSchema.getDistributionColTypes().stream().map(
                         e -> e.toSql()).collect(Collectors.toList());
                 info.add(Joiner.on(", ").join(cols));

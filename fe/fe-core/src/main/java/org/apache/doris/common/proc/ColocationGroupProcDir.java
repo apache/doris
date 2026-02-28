@@ -19,12 +19,24 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.resource.Tag;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -61,6 +73,11 @@ public class ColocationGroupProcDir implements ProcDirInterface {
         GroupId groupId = new GroupId(dbId, grpId);
         ColocateTableIndex index = Env.getCurrentColocateIndex();
         Map<Tag, List<List<Long>>> beSeqs = index.getBackendsPerBucketSeq(groupId);
+        if ((beSeqs == null || beSeqs.isEmpty()) && Config.isCloudMode()) {
+            // In cloud mode, legacy backend sequence metadata may be empty.
+            // Build bucket->backend mapping from current tablet replicas for proc display.
+            beSeqs = getCloudBackendSeqsFromTablets(groupId, index);
+        }
         return new ColocationGroupBackendSeqsProcNode(beSeqs);
     }
 
@@ -73,5 +90,58 @@ public class ColocationGroupProcDir implements ProcDirInterface {
         List<List<String>> infos = index.getInfos();
         result.setRows(infos);
         return result;
+    }
+
+    private Map<Tag, List<List<Long>>> getCloudBackendSeqsFromTablets(GroupId groupId, ColocateTableIndex index) {
+        Map<Tag, List<List<Long>>> backendsSeq = Maps.newHashMap();
+        List<Long> tableIds = index.getAllTableIds(groupId);
+        if (tableIds.isEmpty()) {
+            return backendsSeq;
+        }
+
+        long targetTableId = tableIds.get(0);
+        long targetDbId = groupId.dbId == 0 ? groupId.getDbIdByTblId(targetTableId) : groupId.dbId;
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(targetDbId);
+        if (db == null) {
+            return backendsSeq;
+        }
+        Table table = db.getTableNullable(targetTableId);
+        if (!(table instanceof OlapTable)) {
+            return backendsSeq;
+        }
+        OlapTable olapTable = (OlapTable) table;
+        olapTable.readLock();
+        try {
+            Partition firstPartition = null;
+            for (Partition partition : olapTable.getAllPartitions()) {
+                firstPartition = partition;
+                break;
+            }
+            if (firstPartition == null) {
+                return backendsSeq;
+            }
+            MaterializedIndex baseIndex = firstPartition.getBaseIndex();
+            List<Tablet> tablets = baseIndex.getTablets();
+            List<List<Long>> bucketSeq = Lists.newArrayListWithCapacity(tablets.size());
+            backendsSeq.put(null, bucketSeq);
+            for (int i = 0; i < tablets.size(); i++) {
+                List<Long> bucketBackends = new ArrayList<>();
+                for (Replica replica : tablets.get(i).getReplicas()) {
+                    long backendId = replica.getBackendIdWithoutException();
+                    if (backendId < 0 && replica instanceof CloudReplica) {
+                        backendId = ((CloudReplica) replica).getPrimaryBackendId();
+                    }
+                    if (backendId < 0) {
+                        continue;
+                    }
+                    bucketBackends.add(backendId);
+                }
+                // Cloud mode should not expose real tag here, use null as placeholder.
+                bucketSeq.add(bucketBackends);
+            }
+        } finally {
+            olapTable.readUnlock();
+        }
+        return backendsSeq;
     }
 }
