@@ -45,9 +45,13 @@ import org.junit.Test;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class OlapTableTest {
 
@@ -404,5 +408,133 @@ public class OlapTableTest {
         } finally {
             ConnectContext.remove();
         }
+    }
+
+    private OlapTable createCloudOlapTable(long tableId, Database db) {
+        OlapTable table = new OlapTable() {
+            private ReadWriteLock versionLock = new ReentrantReadWriteLock();
+
+            @Override
+            public Database getDatabase() {
+                return db;
+            }
+
+            @Override
+            public void versionReadLock() {
+                versionLock.readLock().lock();
+            }
+
+            @Override
+            public void versionReadUnlock() {
+                versionLock.readLock().unlock();
+            }
+        };
+        table.id = tableId;
+        return table;
+    }
+
+    @Test
+    public void testGetVisibleVersionInBatchCached() throws Exception {
+        new MockUp<Config>() {
+            @Mock
+            public boolean isNotCloudMode() {
+                return false;
+            }
+
+            @Mock
+            public boolean isCloudMode() {
+                return true;
+            }
+        };
+
+        final Database db = new Database(1L, "test_db");
+        List<OlapTable> tables = new ArrayList<>();
+        for (long i = 0; i < 3; i++) {
+            tables.add(createCloudOlapTable(100 + i, db));
+        }
+
+        final ArrayList<ArrayList<Long>> batchVersions = new ArrayList<>(Arrays.asList(
+                new ArrayList<>(Arrays.asList(10L, 20L, 30L)),
+                new ArrayList<>(Arrays.asList(11L, 21L, 31L)),
+                new ArrayList<>(Arrays.asList(22L, 32L)),
+                new ArrayList<>(Arrays.asList(13L, 23L, 33L))
+        ));
+        final int[] callCount = {0};
+
+        new MockUp<VersionHelper>() {
+            @Mock
+            public Cloud.GetVersionResponse getVersionFromMeta(Cloud.GetVersionRequest req) {
+                Cloud.GetVersionResponse.Builder builder = Cloud.GetVersionResponse.newBuilder();
+                builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                        .setCode(Cloud.MetaServiceCode.OK).build());
+                builder.addAllVersions(batchVersions.get(callCount[0]));
+                callCount[0]++;
+                return builder.build();
+            }
+        };
+
+        ConnectContext ctx = new ConnectContext();
+        ctx.setSessionVariable(new SessionVariable());
+        ctx.setThreadLocalInfo();
+
+        // CHECKSTYLE OFF
+        try {
+            // Test 1: cache disabled (TTL = -1), all fetched from MS
+            ctx.getSessionVariable().cloudTableVersionCacheTtlMs = -1;
+            {
+                List<Long> versions = OlapTable.getVisibleVersionInBatch(tables);
+                Assert.assertEquals(1, callCount[0]);
+                Assert.assertEquals(Arrays.asList(10L, 20L, 30L), versions);
+            }
+
+            // Test 2: cache enabled with long TTL, all should hit cache
+            ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 100000;
+            {
+                List<Long> versions = OlapTable.getVisibleVersionInBatch(tables);
+                Assert.assertEquals(1, callCount[0]);
+                Assert.assertEquals(Arrays.asList(10L, 20L, 30L), versions);
+            }
+
+            // Test 3: cache disabled (TTL = 0), all fetched from MS again
+            ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 0;
+            {
+                List<Long> versions = OlapTable.getVisibleVersionInBatch(tables);
+                Assert.assertEquals(2, callCount[0]);
+                Assert.assertEquals(Arrays.asList(11L, 21L, 31L), versions);
+            }
+
+            // Test 4: short TTL, wait for expiration, then partially refresh
+            ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 500;
+            Thread.sleep(550);
+
+            // refresh one table's cache so it stays hot
+            OlapTable hotTable = tables.get(0);
+            hotTable.setCachedTableVersion(hotTable.getCachedTableVersion());
+            Assert.assertFalse(hotTable.isCachedTableVersionExpired());
+            Assert.assertTrue(tables.get(1).isCachedTableVersionExpired());
+            Assert.assertTrue(tables.get(2).isCachedTableVersionExpired());
+            {
+                // batchVersions[2] = [22, 32] for the 2 expired tables
+                List<Long> versions = OlapTable.getVisibleVersionInBatch(tables);
+                Assert.assertEquals(3, callCount[0]);
+                Assert.assertEquals(3, versions.size());
+                // hot table keeps its cached version
+                Assert.assertEquals(11L, versions.get(0).longValue());
+                // expired tables get new versions from MS
+                Assert.assertEquals(22L, versions.get(1).longValue());
+                Assert.assertEquals(32L, versions.get(2).longValue());
+            }
+
+            // Test 5: all expired again, full batch fetch
+            ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 0;
+            {
+                List<Long> versions = OlapTable.getVisibleVersionInBatch(tables);
+                Assert.assertEquals(4, callCount[0]);
+                Assert.assertEquals(Arrays.asList(13L, 23L, 33L), versions);
+            }
+        } finally {
+            ConnectContext.remove();
+        }
+        // CHECKSTYLE ONca
     }
 }

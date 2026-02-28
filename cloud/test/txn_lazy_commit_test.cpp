@@ -418,6 +418,20 @@ static void create_and_refresh_instance(
     ASSERT_TRUE(service->resource_mgr()->is_version_write_enabled(instance_id));
 }
 
+static void get_table_version(MetaServiceProxy* meta_service, int64_t db_id, int64_t table_id,
+                              int64_t& version) {
+    brpc::Controller ctrl;
+    GetVersionRequest req;
+    req.set_db_id(db_id);
+    req.set_table_id(table_id);
+    req.set_is_table_version(true);
+    GetVersionResponse resp;
+    meta_service->get_version(&ctrl, &req, &resp, nullptr);
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::OK)
+            << ", get table version res=" << resp.ShortDebugString();
+    version = resp.version();
+}
+
 TEST(TxnLazyCommitTest, CreateTabletWithDbIdTest) {
     auto txn_kv = get_mem_txn_kv();
     auto meta_service = get_meta_service(txn_kv, true);
@@ -626,6 +640,12 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithoutDbIdTest) {
         ASSERT_GE(repair_tablet_idx_count, 0);
         ASSERT_TRUE(last_pending_txn_id_hit);
         ASSERT_TRUE(commit_txn_eventually_finish_hit);
+
+        ASSERT_EQ(res.table_stats().size(), 1);
+        int64_t table_version = 0;
+        get_table_version(meta_service.get(), db_id, table_id, table_version);
+        ASSERT_EQ(table_version, 1);
+        ASSERT_EQ(res.table_stats()[0].table_version(), table_version);
     }
 
     {
@@ -917,6 +937,11 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventually) {
         ASSERT_GE(repair_tablet_idx_count, 0);
         ASSERT_TRUE(last_pending_txn_id_hit);
         ASSERT_TRUE(commit_txn_eventually_finish_hit);
+
+        ASSERT_EQ(res.table_stats().size(), 1);
+        int64_t table_version = 0;
+        get_table_version(meta_service.get(), db_id, table_id, table_version);
+        ASSERT_EQ(res.table_stats()[0].table_version(), table_version);
     }
 
     {
@@ -1448,6 +1473,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
     }
 
     int64_t txn_id1 = 0;
+    int64_t txn1_table_version = 0;
     std::thread thread1([&] {
         {
             std::unique_lock<std::mutex> _lock(go_mutex);
@@ -1494,10 +1520,14 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+            ASSERT_EQ(res.table_stats().size(), 1);
+            txn1_table_version = res.table_stats()[0].table_version();
         }
     });
 
     int64_t txn_id2 = 0;
+    int64_t txn2_table_version = 0;
     std::thread thread2([&] {
         {
             std::unique_lock<std::mutex> _lock(go_mutex);
@@ -1544,6 +1574,9 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+            ASSERT_EQ(res.table_stats().size(), 1);
+            txn2_table_version = res.table_stats()[0].table_version();
         }
     });
 
@@ -1554,6 +1587,11 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
 
     thread1.join();
     thread2.join();
+
+    ASSERT_TRUE(txn1_table_version == 1 && txn2_table_version == 2 ||
+                txn1_table_version == 2 && txn2_table_version == 1)
+            << ", txn1_table_version=" << txn1_table_version
+            << ", txn2_table_version=" << txn2_table_version;
 
     sp->clear_all_call_backs();
     sp->clear_trace();
