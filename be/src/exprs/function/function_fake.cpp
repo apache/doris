@@ -151,6 +151,34 @@ struct FunctionExplodeJsonObject {
     static std::string get_error_msg() { return "Fake function do not support execute"; }
 };
 
+// json_each(json) -> Nullable(Struct(key Nullable(String), value Nullable(JSONB)))
+struct FunctionJsonEach {
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        DCHECK_EQ(arguments[0]->get_primitive_type(), PrimitiveType::TYPE_JSONB)
+                << " json_each " << arguments[0]->get_name() << " not supported";
+        DataTypes fieldTypes(2);
+        fieldTypes[0] = make_nullable(std::make_shared<DataTypeString>());
+        fieldTypes[1] = make_nullable(std::make_shared<DataTypeJsonb>());
+        return make_nullable(std::make_shared<DataTypeStruct>(fieldTypes));
+    }
+    static DataTypes get_variadic_argument_types() { return {}; }
+    static std::string get_error_msg() { return "Fake function do not support execute"; }
+};
+
+// json_each_text(json) -> Nullable(Struct(key Nullable(String), value Nullable(String)))
+struct FunctionJsonEachText {
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        DCHECK_EQ(arguments[0]->get_primitive_type(), PrimitiveType::TYPE_JSONB)
+                << " json_each_text " << arguments[0]->get_name() << " not supported";
+        DataTypes fieldTypes(2);
+        fieldTypes[0] = make_nullable(std::make_shared<DataTypeString>());
+        fieldTypes[1] = make_nullable(std::make_shared<DataTypeString>());
+        return make_nullable(std::make_shared<DataTypeStruct>(fieldTypes));
+    }
+    static DataTypes get_variadic_argument_types() { return {}; }
+    static std::string get_error_msg() { return "Fake function do not support execute"; }
+};
+
 struct FunctionEsquery {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         return FunctionFakeBaseImpl<DataTypeUInt8>::get_return_type_impl(arguments);
@@ -239,6 +267,8 @@ void register_function_fake(SimpleFunctionFactory& factory) {
     register_table_function_expand_outer<FunctionExplodeMap>(factory, "explode_map");
 
     register_table_function_expand_outer<FunctionExplodeJsonObject>(factory, "explode_json_object");
+    register_function<FunctionJsonEach>(factory, "json_each");
+    register_function<FunctionJsonEachText>(factory, "json_each_text");
     register_table_function_expand_outer_default<DataTypeString, false>(factory, "explode_split");
     register_table_function_expand_outer_default<DataTypeInt32, false>(factory, "explode_numbers");
     register_table_function_expand_outer_default<DataTypeInt64, false>(factory,
