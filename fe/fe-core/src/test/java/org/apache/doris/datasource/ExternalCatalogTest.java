@@ -215,6 +215,145 @@ public class ExternalCatalogTest extends TestWithFeService {
         Assertions.assertEquals(MysqlStateType.OK, rootCtx.getState().getStateType());
     }
 
+    @Test
+    public void testGetIncludeTableMap() throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+
+        // Test 1: Empty include_table_list
+        String createStmt = "create catalog test_include_table_empty properties(\n"
+                + "    \"type\" = \"test\",\n"
+                + "    \"catalog_provider.class\" "
+                + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\"\n"
+                + ");";
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
+        TestExternalCatalog ctl = (TestExternalCatalog) mgr.getCatalog("test_include_table_empty");
+        Map<String, List<String>> includeTableMap = ctl.getIncludeTableMap();
+        Assertions.assertTrue(includeTableMap.isEmpty());
+
+        // Test 2: Single table
+        createStmt = "create catalog test_include_table_single properties(\n"
+                + "    \"type\" = \"test\",\n"
+                + "    \"catalog_provider.class\" "
+                + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\",\n"
+                + "    \"include_table_list\" = \"db1.tbl1\"\n"
+                + ");";
+        logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
+        ctl = (TestExternalCatalog) mgr.getCatalog("test_include_table_single");
+        includeTableMap = ctl.getIncludeTableMap();
+        Assertions.assertEquals(1, includeTableMap.size());
+        Assertions.assertTrue(includeTableMap.containsKey("db1"));
+        Assertions.assertEquals(1, includeTableMap.get("db1").size());
+        Assertions.assertEquals("tbl1", includeTableMap.get("db1").get(0));
+
+        // Test 3: Multiple tables in same database
+        createStmt = "create catalog test_include_table_same_db properties(\n"
+                + "    \"type\" = \"test\",\n"
+                + "    \"catalog_provider.class\" "
+                + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\",\n"
+                + "    \"include_table_list\" = \"db1.tbl1,db1.tbl2,db1.tbl3\"\n"
+                + ");";
+        logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
+        ctl = (TestExternalCatalog) mgr.getCatalog("test_include_table_same_db");
+        includeTableMap = ctl.getIncludeTableMap();
+        Assertions.assertEquals(1, includeTableMap.size());
+        Assertions.assertTrue(includeTableMap.containsKey("db1"));
+        Assertions.assertEquals(3, includeTableMap.get("db1").size());
+        Assertions.assertTrue(includeTableMap.get("db1").contains("tbl1"));
+        Assertions.assertTrue(includeTableMap.get("db1").contains("tbl2"));
+        Assertions.assertTrue(includeTableMap.get("db1").contains("tbl3"));
+
+        // Test 4: Multiple tables in different databases
+        createStmt = "create catalog test_include_table_diff_db properties(\n"
+                + "    \"type\" = \"test\",\n"
+                + "    \"catalog_provider.class\" "
+                + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\",\n"
+                + "    \"include_table_list\" = \"db1.tbl1,db2.tbl2,db3.tbl3\"\n"
+                + ");";
+        logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
+        ctl = (TestExternalCatalog) mgr.getCatalog("test_include_table_diff_db");
+        includeTableMap = ctl.getIncludeTableMap();
+        Assertions.assertEquals(3, includeTableMap.size());
+        Assertions.assertTrue(includeTableMap.containsKey("db1"));
+        Assertions.assertTrue(includeTableMap.containsKey("db2"));
+        Assertions.assertTrue(includeTableMap.containsKey("db3"));
+        Assertions.assertEquals(1, includeTableMap.get("db1").size());
+        Assertions.assertEquals(1, includeTableMap.get("db2").size());
+        Assertions.assertEquals(1, includeTableMap.get("db3").size());
+        Assertions.assertEquals("tbl1", includeTableMap.get("db1").get(0));
+        Assertions.assertEquals("tbl2", includeTableMap.get("db2").get(0));
+        Assertions.assertEquals("tbl3", includeTableMap.get("db3").get(0));
+
+        // Test 5: Invalid format (should be ignored)
+        createStmt = "create catalog test_include_table_invalid properties(\n"
+                + "    \"type\" = \"test\",\n"
+                + "    \"catalog_provider.class\" "
+                + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\",\n"
+                + "    \"include_table_list\" = \"db1.tbl1,invalid_format,db2.tbl2,too.many.dots\"\n"
+                + ");";
+        logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
+        ctl = (TestExternalCatalog) mgr.getCatalog("test_include_table_invalid");
+        includeTableMap = ctl.getIncludeTableMap();
+        Assertions.assertEquals(2, includeTableMap.size());
+        Assertions.assertTrue(includeTableMap.containsKey("db1"));
+        Assertions.assertTrue(includeTableMap.containsKey("db2"));
+        Assertions.assertFalse(includeTableMap.containsKey("invalid_format"));
+        Assertions.assertFalse(includeTableMap.containsKey("too"));
+
+        // Test 6: With whitespace (should be trimmed)
+        createStmt = "create catalog test_include_table_whitespace properties(\n"
+                + "    \"type\" = \"test\",\n"
+                + "    \"catalog_provider.class\" "
+                + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\",\n"
+                + "    \"include_table_list\" = \" db1.tbl1 , db2.tbl2 \"\n"
+                + ");";
+        logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
+        ctl = (TestExternalCatalog) mgr.getCatalog("test_include_table_whitespace");
+        includeTableMap = ctl.getIncludeTableMap();
+        Assertions.assertEquals(2, includeTableMap.size());
+        Assertions.assertTrue(includeTableMap.containsKey("db1"));
+        Assertions.assertTrue(includeTableMap.containsKey("db2"));
+
+        // Test 7: Mixed valid and invalid with multiple tables in same db
+        createStmt = "create catalog test_include_table_mixed properties(\n"
+                + "    \"type\" = \"test\",\n"
+                + "    \"catalog_provider.class\" "
+                + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\",\n"
+                + "    \"include_table_list\" = \"db1.tbl1,db1.tbl2,invalid,db2.tbl3\"\n"
+                + ");";
+        logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
+        ctl = (TestExternalCatalog) mgr.getCatalog("test_include_table_mixed");
+        includeTableMap = ctl.getIncludeTableMap();
+        Assertions.assertEquals(2, includeTableMap.size());
+        Assertions.assertTrue(includeTableMap.containsKey("db1"));
+        Assertions.assertTrue(includeTableMap.containsKey("db2"));
+        Assertions.assertEquals(2, includeTableMap.get("db1").size());
+        Assertions.assertTrue(includeTableMap.get("db1").contains("tbl1"));
+        Assertions.assertTrue(includeTableMap.get("db1").contains("tbl2"));
+        Assertions.assertEquals(1, includeTableMap.get("db2").size());
+        Assertions.assertTrue(includeTableMap.get("db2").contains("tbl3"));
+    }
+
     public static class RefreshCatalogProvider implements TestExternalCatalog.TestCatalogProvider {
         public static final Map<String, Map<String, List<Column>>> MOCKED_META;
 
