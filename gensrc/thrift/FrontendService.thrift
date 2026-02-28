@@ -770,6 +770,19 @@ struct TFrontendPingFrontendRequest {
    3: optional string deployMode
 }
 
+struct TCloudVersionInfo {
+   1: optional i64 tableId
+   2: optional i64 partitionId
+   3: optional i64 version
+   4: optional i64 versionUpdateTime
+}
+
+struct TFrontendSyncCloudVersionRequest {
+   1: optional i64 dbId
+   2: optional list<TCloudVersionInfo> tableVersionInfos
+   3: optional list<TCloudVersionInfo> partitionVersionInfos
+}
+
 struct TFrontendReportAliveSessionRequest {
    1: required i32 clusterId
    2: required string token
@@ -1898,6 +1911,8 @@ service FrontendService {
     TFrontendReportAliveSessionResult getAliveSessions(1: TFrontendReportAliveSessionRequest request)
 
     TFrontendPingFrontendResult ping(1: TFrontendPingFrontendRequest request)
+
+    Status.TStatus syncCloudVersion(1: TFrontendSyncCloudVersionRequest request)
 
     TInitExternalCtlMetaResult initExternalCtlMeta(1: TInitExternalCtlMetaRequest request)
 

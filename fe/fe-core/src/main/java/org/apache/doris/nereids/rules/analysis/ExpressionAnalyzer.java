@@ -106,7 +106,6 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.qe.VariableVarConverters;
@@ -1005,12 +1004,21 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                         // bound slot is `column` and no qualified
                         case 0:
                             return false;
-                        case 1: // bound slot is `table`.`column`
-                            return qualifierStar.get(0).equalsIgnoreCase(boundSlotQualifier.get(0));
-                        case 2:// bound slot is `db`.`table`.`column`
-                            return qualifierStar.get(0).equalsIgnoreCase(boundSlotQualifier.get(1));
-                        case 3:// bound slot is `catalog`.`db`.`table`.`column`
-                            return qualifierStar.get(0).equalsIgnoreCase(boundSlotQualifier.get(2));
+                        case 1: { // bound slot is `table`.`column`
+                            String catName = extractCatalogName(boundSlotQualifier);
+                            int lct = resolveLowerCaseTableNames(catName);
+                            return sameTableName(qualifierStar.get(0), boundSlotQualifier.get(0), lct);
+                        }
+                        case 2: { // bound slot is `db`.`table`.`column`
+                            String catName = extractCatalogName(boundSlotQualifier);
+                            int lct = resolveLowerCaseTableNames(catName);
+                            return sameTableName(qualifierStar.get(0), boundSlotQualifier.get(1), lct);
+                        }
+                        case 3: { // bound slot is `catalog`.`db`.`table`.`column`
+                            String catName = extractCatalogName(boundSlotQualifier);
+                            int lct = resolveLowerCaseTableNames(catName);
+                            return sameTableName(qualifierStar.get(0), boundSlotQualifier.get(2), lct);
+                        }
                         default:
                             throw new AnalysisException("Not supported qualifier: "
                                     + StringUtils.join(qualifierStar, "."));
@@ -1022,12 +1030,22 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                         case 0:
                         case 1: // bound slot is `table`.`column`
                             return false;
-                        case 2:// bound slot is `db`.`table`.`column`
-                            return compareDbNameIgnoreClusterName(qualifierStar.get(0), boundSlotQualifier.get(0))
-                                    && qualifierStar.get(1).equalsIgnoreCase(boundSlotQualifier.get(1));
-                        case 3:// bound slot is `catalog`.`db`.`table`.`column`
-                            return compareDbNameIgnoreClusterName(qualifierStar.get(0), boundSlotQualifier.get(1))
-                                    && qualifierStar.get(1).equalsIgnoreCase(boundSlotQualifier.get(2));
+                        case 2: { // bound slot is `db`.`table`.`column`
+                            String catName = extractCatalogName(boundSlotQualifier);
+                            int lct = resolveLowerCaseTableNames(catName);
+                            int lcdb = resolveLowerCaseDatabaseNames(catName);
+                            return compareDbNameIgnoreClusterName(
+                                        qualifierStar.get(0), boundSlotQualifier.get(0), lcdb)
+                                    && sameTableName(qualifierStar.get(1), boundSlotQualifier.get(1), lct);
+                        }
+                        case 3: { // bound slot is `catalog`.`db`.`table`.`column`
+                            String catName = extractCatalogName(boundSlotQualifier);
+                            int lct = resolveLowerCaseTableNames(catName);
+                            int lcdb = resolveLowerCaseDatabaseNames(catName);
+                            return compareDbNameIgnoreClusterName(
+                                        qualifierStar.get(0), boundSlotQualifier.get(1), lcdb)
+                                    && sameTableName(qualifierStar.get(1), boundSlotQualifier.get(2), lct);
+                        }
                         default:
                             throw new AnalysisException("Not supported qualifier: "
                                     + StringUtils.join(qualifierStar, ".") + ".*");
@@ -1040,10 +1058,15 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                         case 1: // bound slot is `table`.`column`
                         case 2: // bound slot is `db`.`table`.`column`
                             return false;
-                        case 3:// bound slot is `catalog`.`db`.`table`.`column`
+                        case 3: { // bound slot is `catalog`.`db`.`table`.`column`
+                            String catName = extractCatalogName(boundSlotQualifier);
+                            int lct = resolveLowerCaseTableNames(catName);
+                            int lcdb = resolveLowerCaseDatabaseNames(catName);
                             return qualifierStar.get(0).equalsIgnoreCase(boundSlotQualifier.get(0))
-                                    && compareDbNameIgnoreClusterName(qualifierStar.get(1), boundSlotQualifier.get(1))
-                                    && qualifierStar.get(2).equalsIgnoreCase(boundSlotQualifier.get(2));
+                                    && compareDbNameIgnoreClusterName(
+                                            qualifierStar.get(1), boundSlotQualifier.get(1), lcdb)
+                                    && sameTableName(qualifierStar.get(2), boundSlotQualifier.get(2), lct);
+                        }
                         default:
                             throw new AnalysisException("Not supported qualifier: "
                                     + StringUtils.join(qualifierStar, ".") + ".*");
@@ -1222,12 +1245,37 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         return Optional.of(new Alias(expression, unboundSlot.getName(), slot.getQualifier()));
     }
 
-    public static boolean sameTableName(String boundSlot, String unboundSlot) {
-        if (GlobalVariable.lowerCaseTableNames != 1) {
+    public static boolean sameTableName(String boundSlot, String unboundSlot, int lowerCaseTableNames) {
+        if (lowerCaseTableNames == 0) {
             return boundSlot.equals(unboundSlot);
         } else {
             return boundSlot.equalsIgnoreCase(unboundSlot);
         }
+    }
+
+    /** Extract catalog name from bound slot qualifier, fallback to current catalog */
+    private String extractCatalogName(List<String> boundSlotQualifier) {
+        if (boundSlotQualifier.size() >= 3) {
+            return boundSlotQualifier.get(boundSlotQualifier.size() - 3);
+        }
+        ConnectContext ctx = ConnectContext.get();
+        return (ctx != null) ? ctx.getDefaultCatalog() : null;
+    }
+
+    private int resolveLowerCaseTableNames(String catalogName) {
+        CascadesContext cascadesCtx = getCascadesContext();
+        if (cascadesCtx != null) {
+            return cascadesCtx.getStatementContext().getLowerCaseTableNames(catalogName);
+        }
+        return Env.getLowerCaseTableNames(catalogName);
+    }
+
+    private int resolveLowerCaseDatabaseNames(String catalogName) {
+        CascadesContext cascadesCtx = getCascadesContext();
+        if (cascadesCtx != null) {
+            return cascadesCtx.getStatementContext().getLowerCaseDatabaseNames(catalogName);
+        }
+        return Env.getLowerCaseDatabaseNames(catalogName);
     }
 
     private boolean shouldBindSlotBy(int namePartSize, Slot boundSlot) {
@@ -1256,7 +1304,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             }
             List<String> boundSlotQualifier = boundSlot.getQualifier();
             String boundSlotTable = boundSlotQualifier.get(boundSlotQualifier.size() - 1);
-            if (!sameTableName(boundSlotTable, table)) {
+            String catalogName = extractCatalogName(boundSlotQualifier);
+            int lctNames = resolveLowerCaseTableNames(catalogName);
+            if (!sameTableName(boundSlotTable, table, lctNames)) {
                 continue;
             }
             // set sql case as alias
@@ -1275,7 +1325,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             List<String> boundSlotQualifier = boundSlot.getQualifier();
             String boundSlotDb = boundSlotQualifier.get(boundSlotQualifier.size() - 2);
             String boundSlotTable = boundSlotQualifier.get(boundSlotQualifier.size() - 1);
-            if (!compareDbNameIgnoreClusterName(boundSlotDb, db) || !sameTableName(boundSlotTable, table)) {
+            String catalogName = extractCatalogName(boundSlotQualifier);
+            int lctNames = resolveLowerCaseTableNames(catalogName);
+            int lcdbNames = resolveLowerCaseDatabaseNames(catalogName);
+            if (!compareDbNameIgnoreClusterName(boundSlotDb, db, lcdbNames)
+                    || !sameTableName(boundSlotTable, table, lctNames)) {
                 continue;
             }
             // set sql case as alias
@@ -1295,9 +1349,12 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             String boundSlotCatalog = boundSlotQualifier.get(boundSlotQualifier.size() - 3);
             String boundSlotDb = boundSlotQualifier.get(boundSlotQualifier.size() - 2);
             String boundSlotTable = boundSlotQualifier.get(boundSlotQualifier.size() - 1);
+            String catalogName = extractCatalogName(boundSlotQualifier);
+            int lctNames = resolveLowerCaseTableNames(catalogName);
+            int lcdbNames = resolveLowerCaseDatabaseNames(catalogName);
             if (!boundSlotCatalog.equalsIgnoreCase(catalog)
-                    || !compareDbNameIgnoreClusterName(boundSlotDb, db)
-                    || !sameTableName(boundSlotTable, table)) {
+                    || !compareDbNameIgnoreClusterName(boundSlotDb, db, lcdbNames)
+                    || !sameTableName(boundSlotTable, table, lctNames)) {
                 continue;
             }
             // set sql case as alias
@@ -1307,20 +1364,23 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     }
 
     /**compareDbNameIgnoreClusterName.*/
-    public static boolean compareDbNameIgnoreClusterName(String name1, String name2) {
-        if (name1.equalsIgnoreCase(name2)) {
+    public static boolean compareDbNameIgnoreClusterName(String name1, String name2,
+            int lowerCaseDatabaseNames) {
+        boolean ignoreCase = (lowerCaseDatabaseNames != 0);
+        if (ignoreCase ? name1.equalsIgnoreCase(name2) : name1.equals(name2)) {
             return true;
         }
-        String ignoreClusterName1 = name1;
+        // Strip cluster namespace prefix (before ':')
+        String stripped1 = name1;
         int idx1 = name1.indexOf(":");
         if (idx1 > -1) {
-            ignoreClusterName1 = name1.substring(idx1 + 1);
+            stripped1 = name1.substring(idx1 + 1);
         }
-        String ignoreClusterName2 = name2;
+        String stripped2 = name2;
         int idx2 = name2.indexOf(":");
         if (idx2 > -1) {
-            ignoreClusterName2 = name2.substring(idx2 + 1);
+            stripped2 = name2.substring(idx2 + 1);
         }
-        return ignoreClusterName1.equalsIgnoreCase(ignoreClusterName2);
+        return ignoreCase ? stripped1.equalsIgnoreCase(stripped2) : stripped1.equals(stripped2);
     }
 }

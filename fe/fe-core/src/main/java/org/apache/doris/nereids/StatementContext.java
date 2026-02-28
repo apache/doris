@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.Partition;
@@ -57,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.ShortCircuitQueryContext;
@@ -315,10 +317,14 @@ public class StatementContext implements Closeable {
 
     private final Set<CTEId> mustInlineCTE = new HashSet<>();
 
+    private final Map<String, Integer> lowerCaseTableNamesCache = Maps.newHashMap();
+    private final Map<String, Integer> lowerCaseDatabaseNamesCache = Maps.newHashMap();
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
 
+    // For StatementScopeIdGenerator
     public StatementContext(int initialId) {
         this(ConnectContext.get(), null, initialId);
     }
@@ -330,7 +336,7 @@ public class StatementContext implements Closeable {
     /**
      * StatementContext
      */
-    public StatementContext(ConnectContext connectContext, OriginStatement originStatement, int initialId) {
+    private StatementContext(ConnectContext connectContext, OriginStatement originStatement, int initialId) {
         this.connectContext = connectContext;
         this.originStatement = originStatement;
         exprIdGenerator = ExprId.createGenerator(initialId);
@@ -1194,5 +1200,19 @@ public class StatementContext implements Closeable {
 
     public Set<CTEId> getMustInlineCTEs() {
         return mustInlineCTE;
+    }
+
+    public int getLowerCaseTableNames(String catalogName) {
+        if (catalogName == null) {
+            return GlobalVariable.lowerCaseTableNames;
+        }
+        return lowerCaseTableNamesCache.computeIfAbsent(catalogName, Env::getLowerCaseTableNames);
+    }
+
+    public int getLowerCaseDatabaseNames(String catalogName) {
+        if (catalogName == null) {
+            return 0;
+        }
+        return lowerCaseDatabaseNamesCache.computeIfAbsent(catalogName, Env::getLowerCaseDatabaseNames);
     }
 }

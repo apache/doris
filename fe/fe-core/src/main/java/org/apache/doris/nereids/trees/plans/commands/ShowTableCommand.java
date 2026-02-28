@@ -39,7 +39,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
@@ -107,7 +106,7 @@ public class ShowTableCommand extends ShowCommand {
      * isShowTablesCaseSensitive
      */
     public boolean isShowTablesCaseSensitive() {
-        if (GlobalVariable.lowerCaseTableNames == 0) {
+        if (Env.getLowerCaseTableNames(catalog) == 0) {
             return CaseSensibility.TABLE.getCaseSensibility();
         }
         return false;

@@ -128,6 +128,8 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 /**
@@ -242,6 +244,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     // This value is set when get the table version from meta-service, 0 means version is not cached yet
     private volatile long lastTableVersionCachedTimeMs = 0;
     private volatile long cachedTableVersion = -1;
+
+    private ReadWriteLock versionLock = Config.isCloudMode() ? new ReentrantReadWriteLock(true) : null;
 
     public OlapTable() {
         // for persist
@@ -3333,8 +3337,15 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return System.currentTimeMillis() - lastTableVersionCachedTimeMs > cacheExpirationMs;
     }
 
-    @VisibleForTesting
-    protected void setCachedTableVersion(long version) {
+    public boolean isCachedTableVersionExpired(long expirationMs) {
+        // -1 means no cache yet, need to fetch from MS
+        if (cachedTableVersion == -1 || expirationMs <= 0) {
+            return true;
+        }
+        return System.currentTimeMillis() - lastTableVersionCachedTimeMs > expirationMs;
+    }
+
+    public void setCachedTableVersion(long version) {
         if (version >= cachedTableVersion) {
             cachedTableVersion = version;
             lastTableVersionCachedTimeMs = System.currentTimeMillis();
@@ -3400,6 +3411,49 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                     .collect(Collectors.toList());
         }
 
+        ConnectContext ctx = ConnectContext.get();
+        long cloudTableVersionCacheTtlMs = ctx == null
+                ? VariableMgr.getDefaultSessionVariable().cloudTableVersionCacheTtlMs
+                : ctx.getSessionVariable().cloudTableVersionCacheTtlMs;
+        if (cloudTableVersionCacheTtlMs <= 0) { // No cached versions will be used
+            return getVisibleVersionInBatchFromMs(tables);
+        }
+
+        // tableId -> cachedVersion, 0 means to be fetched from meta-service
+        List<Pair<Long, Long>> allVersions = new ArrayList<>(tables.size());
+        List<OlapTable> expiredTables = new ArrayList<>(tables.size());
+        for (OlapTable table : tables) {
+            long ver = table.getCachedTableVersion();
+            if (table.isCachedTableVersionExpired()) {
+                expiredTables.add(table);
+                ver = 0L; // 0 means to be fetched from meta-service
+            }
+            allVersions.add(Pair.of(table.getId(), ver));
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("cloudTableVersionCacheTtlMs={}, numTables={}, numExpiredTables={}",
+                    cloudTableVersionCacheTtlMs, tables.size(), expiredTables.size());
+        }
+
+        List<Long> msVersions = null;
+        if (!expiredTables.isEmpty()) { // Not all table versions are from cache
+            msVersions = getVisibleVersionInBatchFromMs(expiredTables);
+        }
+        int msIdx = 0;
+        for (Pair<Long, Long> v : allVersions) { // ATTN: keep the assigning order!!!
+            if (v.second == 0L && msVersions != null) {
+                v.second = msVersions.get(msIdx++);
+            }
+        }
+        if (!expiredTables.isEmpty()) { // Not all table versions are from cache
+            assert msIdx == msVersions.size() : "size not match, idx=" + msIdx + " verSize=" + msVersions.size();
+        }
+
+        return allVersions.stream().map(i -> i.second).collect(Collectors.toList());
+    }
+
+    // Get the table versions in batch from meta-service, and update cache.
+    private static List<Long> getVisibleVersionInBatchFromMs(List<OlapTable> tables) {
         List<Long> dbIds = new ArrayList<>(tables.size());
         List<Long> tableIds = new ArrayList<>(tables.size());
         for (OlapTable table : tables) {
@@ -3417,7 +3471,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return versions;
     }
 
-    private static List<Long> getVisibleVersionFromMeta(List<Long> dbIds, List<Long> tableIds) {
+    public static List<Long> getVisibleVersionFromMeta(List<Long> dbIds, List<Long> tableIds) {
         // get version rpc
         Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached())
@@ -3868,5 +3922,21 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             }
         }
         return matched;
+    }
+
+    public void versionReadLock() {
+        versionLock.readLock().lock();
+    }
+
+    public void versionReadUnlock() {
+        versionLock.readLock().unlock();
+    }
+
+    public void versionWriteLock() {
+        versionLock.writeLock().lock();
+    }
+
+    public void versionWriteUnlock() {
+        versionLock.writeLock().unlock();
     }
 }

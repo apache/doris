@@ -125,6 +125,7 @@ suite("test_iceberg_hadoop_case_sensibility", "p0,external,doris,external_docker
                     exception "Table 'CASE_TBL11' already exists"
                 }
             }
+            // for case 1,2, like is case insensible, and CASE_TBL11 is not created, so will show case_tbl11
             qt_sqlx """show tables from iceberg_hadoop_case_db1 like "%CASE_TBL11%""""
 
             sql """create table iceberg_hadoop_case_db1.CASE_TBL12 (k1 int);"""
@@ -133,7 +134,7 @@ suite("test_iceberg_hadoop_case_sensibility", "p0,external,doris,external_docker
             sql """create table CASE_TBL14 (k1 int);"""
 
             qt_sql8 """show tables like "%CASE_TBL14%""""
-            qt_sql9 """show tables like "%case_tbl14%"""" // empty
+            qt_sql9 """show tables like "%case_tbl14%""""
             qt_sql10 """show tables like "%case_tbl13%""""
 
             test {
@@ -142,6 +143,7 @@ suite("test_iceberg_hadoop_case_sensibility", "p0,external,doris,external_docker
             }
             qt_sql11 """show tables from iceberg_hadoop_case_db2 like "%case_tbl14%"""" // empty
             qt_sql12 """show tables from iceberg_hadoop_case_db2 like "%case_tbl21%"""" // empty
+            // for case 1,2, like is case insensible, and case_tbl22 is not created, so will show CASE_TBL22
             qt_sql12 """show tables from iceberg_hadoop_case_db2 like "%case_tbl22%""""
 
             order_qt_sql13 """select * from information_schema.tables where TABLE_SCHEMA="iceberg_hadoop_case_db2";"""

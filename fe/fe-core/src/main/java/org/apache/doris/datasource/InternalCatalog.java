@@ -1780,7 +1780,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
                 if (!isCreateTable) {
                     afterCreatePartitions(db.getId(), olapTable.getId(), partitionIds, indexIds, isCreateTable,
-                            false /* isBatchCommit */);
+                            false /* isBatchCommit */, olapTable);
                 }
                 if (writeEditLog) {
                     Env.getCurrentEnv().getEditLog().logAddPartition(info);
@@ -2223,6 +2223,11 @@ public class InternalCatalog implements CatalogIf<Database> {
     public void afterCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
                                          boolean isCreateTable, boolean isBatchCommit)
             throws DdlException {
+        afterCreatePartitions(dbId, tableId, partitionIds, indexIds, isCreateTable, isBatchCommit, null);
+    }
+
+    public void afterCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
+            boolean isCreateTable, boolean isBatchCommit, OlapTable olapTable) throws DdlException {
     }
 
     public void checkAvailableCapacity(Database db) throws DdlException {
@@ -3004,7 +3009,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         binlogConfigForTask,
                         partitionInfo.getDataProperty(partitionId).isStorageMediumSpecified());
                 afterCreatePartitions(db.getId(), olapTable.getId(), olapTable.getPartitionIds(),
-                                olapTable.getIndexIdList(), true /* isCreateTable */, true /* isBatchCommit */);
+                        olapTable.getIndexIdList(), true /* isCreateTable */, true /* isBatchCommit */, olapTable);
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
@@ -3098,7 +3103,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         .setStoragePolicy(partionStoragePolicy);
                 }
                 afterCreatePartitions(db.getId(), olapTable.getId(), olapTable.getPartitionIds(),
-                        olapTable.getIndexIdList(), true /* isCreateTable */, true /* isBatchCommit */);
+                        olapTable.getIndexIdList(), true /* isCreateTable */, true /* isBatchCommit */, olapTable);
             } else {
                 throw new DdlException("Unsupported partition method: " + partitionInfo.getType().name());
             }
@@ -3560,7 +3565,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             afterCreatePartitions(db.getId(), copiedTbl.getId(), newPartitionIds, indexIds, true /* isCreateTable */,
-                    false /* isBatchCommit */);
+                    false /* isBatchCommit */, olapTable);
 
         } catch (DdlException e) {
             // create partition failed, remove all newly created tablets

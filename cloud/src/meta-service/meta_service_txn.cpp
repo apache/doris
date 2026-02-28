@@ -46,6 +46,8 @@ using namespace std::chrono;
 
 namespace doris::cloud {
 
+static constexpr std::string_view kMetaSyncPointDummyKey = "__meta_service_sync_point_dummy_key__";
+
 struct TableStats {
     int64_t updated_row_count = 0;
 
@@ -1537,6 +1539,9 @@ void MetaServiceImpl::commit_txn_immediately(
             LOG(WARNING) << msg;
             return;
         }
+        if (is_versioned_write) {
+            txn->enable_get_versionstamp();
+        }
         DORIS_CLOUD_DEFER {
             if (txn == nullptr) return;
             stats.get_bytes += txn->get_bytes();
@@ -1825,6 +1830,8 @@ void MetaServiceImpl::commit_txn_immediately(
             response->add_versions(new_version);
         }
 
+        // table_id -> version, for response
+        std::map<int64_t, int64_t> table_version_map;
         // Save table versions
         for (auto& i : table_id_tablet_ids) {
             if (is_versioned_read) {
@@ -1837,6 +1844,29 @@ void MetaServiceImpl::commit_txn_immediately(
                     LOG(WARNING) << msg;
                     return;
                 }
+            } else {
+                // set table versions in response
+                int64_t table_id = i.first;
+                std::string ver_key = table_version_key({instance_id, db_id, table_id});
+                std::string ver_val;
+                err = txn->get(ver_key, &ver_val);
+                int64_t table_version = 0;
+                if (err == TxnErrorCode::TXN_OK) {
+                    if (!txn->decode_atomic_int(ver_val, &table_version)) {
+                        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                        ss << "malformed table version value, err=" << err
+                           << " table_id=" << i.first;
+                        msg = ss.str();
+                        LOG(WARNING) << msg;
+                        return;
+                    }
+                } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                    code = cast_as<ErrCategory::READ>(err);
+                    ss << "failed to get table version, err=" << err << " table_id=" << table_id;
+                    msg = ss.str();
+                    return;
+                }
+                table_version_map[table_id] = table_version + 1;
             }
             update_table_version(txn.get(), instance_id, db_id, i.first);
             commit_txn_log.add_table_ids(i.first);
@@ -2002,20 +2032,40 @@ void MetaServiceImpl::commit_txn_immediately(
             return;
         }
 
+        // set table versions in response
+        if (is_versioned_read) {
+            Versionstamp vs;
+            err = txn->get_versionstamp(&vs);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                ss << "failed to get kv txn versionstamp, txn_id=" << txn_id << " err=" << err;
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                return;
+            }
+            int64_t version = vs.version();
+            for (auto& i : table_id_tablet_ids) {
+                int64_t table_id = i.first;
+                table_version_map[table_id] = version;
+            }
+        }
+
         // calculate table stats from tablets stats
         std::map<int64_t /*table_id*/, TableStats> table_stats;
         std::vector<int64_t> base_tablet_ids(request->base_tablet_ids().begin(),
                                              request->base_tablet_ids().end());
         calc_table_stats(tablet_ids, tablet_stats, table_stats, base_tablet_ids);
-        for (const auto& pair : table_stats) {
+        for (const auto& pair : table_version_map) {
             TableStatsPB* stats_pb = response->add_table_stats();
             auto table_id = pair.first;
-            auto stats = pair.second;
-            get_pb_from_tablestats(stats, stats_pb);
             stats_pb->set_table_id(table_id);
-            VLOG_DEBUG << "Add TableStats to CommitTxnResponse. txn_id=" << txn_id
-                       << " table_id=" << table_id
-                       << " updated_row_count=" << stats_pb->updated_row_count();
+            stats_pb->set_table_version(pair.second);
+            if (auto it = table_stats.find(table_id); it != table_stats.end()) {
+                get_pb_from_tablestats(it->second, stats_pb);
+                VLOG_DEBUG << "Add TableStats to CommitTxnResponse. txn_id=" << txn_id
+                           << " table_id=" << table_id
+                           << " updated_row_count=" << stats_pb->updated_row_count();
+            }
         }
         response->mutable_txn_info()->CopyFrom(txn_info);
         TEST_SYNC_POINT_CALLBACK("commit_txn_immediately::finish", &code);
@@ -2233,6 +2283,9 @@ void MetaServiceImpl::commit_txn_eventually(
             msg = ss.str();
             LOG(WARNING) << msg;
             return;
+        }
+        if (is_versioned_write) {
+            txn->enable_get_versionstamp();
         }
 
         CommitTxnLogPB commit_txn_log;
@@ -2480,6 +2533,8 @@ void MetaServiceImpl::commit_txn_eventually(
             }
         }
 
+        // table_id -> version, for response
+        std::map<int64_t, int64_t> table_version_map;
         // Save table versions
         for (auto& i : table_id_tablet_ids) {
             if (is_versioned_read) {
@@ -2492,6 +2547,29 @@ void MetaServiceImpl::commit_txn_eventually(
                     LOG(WARNING) << msg;
                     return;
                 }
+            } else {
+                // set table versions in response
+                int64_t table_id = i.first;
+                std::string ver_key = table_version_key({instance_id, db_id, table_id});
+                std::string ver_val;
+                err = txn->get(ver_key, &ver_val);
+                int64_t table_version = 0;
+                if (err == TxnErrorCode::TXN_OK) {
+                    if (!txn->decode_atomic_int(ver_val, &table_version)) {
+                        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                        ss << "malformed table version value, err=" << err
+                           << " table_id=" << i.first;
+                        msg = ss.str();
+                        LOG(WARNING) << msg;
+                        return;
+                    }
+                } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                    code = cast_as<ErrCategory::READ>(err);
+                    ss << "failed to get table version, err=" << err << " table_id=" << table_id;
+                    msg = ss.str();
+                    return;
+                }
+                table_version_map[table_id] = table_version + 1;
             }
             update_table_version(txn.get(), instance_id, db_id, i.first);
             commit_txn_log.add_table_ids(i.first);
@@ -2530,6 +2608,24 @@ void MetaServiceImpl::commit_txn_eventually(
             return;
         }
 
+        // set table versions in response
+        if (is_versioned_read) {
+            Versionstamp vs;
+            err = txn->get_versionstamp(&vs);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                ss << "failed to get kv txn versionstamp, txn_id=" << txn_id << " err=" << err;
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                return;
+            }
+            int64_t version = vs.version();
+            for (auto& i : table_id_tablet_ids) {
+                int64_t table_id = i.first;
+                table_version_map[table_id] = version;
+            }
+        }
+
         TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::abort_txn_after_mark_txn_commited");
 
         TEST_SYNC_POINT_RETURN_WITH_VOID("commit_txn_eventually::txn_lazy_committer_submit",
@@ -2560,15 +2656,17 @@ void MetaServiceImpl::commit_txn_eventually(
         std::vector<int64_t> base_tablet_ids(request->base_tablet_ids().begin(),
                                              request->base_tablet_ids().end());
         calc_table_stats(tablet_ids, tablet_stats, table_stats, base_tablet_ids);
-        for (const auto& pair : table_stats) {
+        for (const auto& pair : table_version_map) {
             TableStatsPB* stats_pb = response->add_table_stats();
             auto table_id = pair.first;
-            auto stats = pair.second;
-            get_pb_from_tablestats(stats, stats_pb);
             stats_pb->set_table_id(table_id);
-            VLOG_DEBUG << "Add TableStats to CommitTxnResponse. txn_id=" << txn_id
-                       << " table_id=" << table_id
-                       << " updated_row_count=" << stats_pb->updated_row_count();
+            stats_pb->set_table_version(pair.second);
+            if (auto it = table_stats.find(table_id); it != table_stats.end()) {
+                get_pb_from_tablestats(it->second, stats_pb);
+                VLOG_DEBUG << "Add TableStats to CommitTxnResponse. txn_id=" << txn_id
+                           << " table_id=" << table_id
+                           << " updated_row_count=" << stats_pb->updated_row_count();
+            }
         }
 
         // txn set visible for fe callback
@@ -2627,6 +2725,8 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         }
         sub_txn_to_tmp_rowsets_meta.emplace(sub_txn_id, std::move(tmp_rowsets_meta));
     }
+    bool is_versioned_write = is_version_write_enabled(instance_id);
+    bool is_versioned_read = is_version_read_enabled(instance_id);
     do {
         TEST_SYNC_POINT_CALLBACK("commit_txn_with_sub_txn:begin", &txn_id);
         // Create a readonly txn for scan tmp rowset
@@ -2638,6 +2738,9 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             msg = ss.str();
             LOG(WARNING) << msg;
             return;
+        }
+        if (is_versioned_write) {
+            txn->enable_get_versionstamp();
         }
         DORIS_CLOUD_DEFER {
             if (txn == nullptr) return;
@@ -2699,8 +2802,6 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
 
         AnnotateTag txn_tag("txn_id", txn_id);
 
-        bool is_versioned_write = is_version_write_enabled(instance_id);
-        bool is_versioned_read = is_version_read_enabled(instance_id);
         CloneChainReader meta_reader(instance_id, resource_mgr_.get());
 
         // Prepare rowset meta and new_versions
@@ -2918,6 +3019,8 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             response->add_versions(new_version);
         }
 
+        // table_id -> version, for response
+        std::map<int64_t, int64_t> table_version_map;
         // Save table versions
         for (auto& i : table_id_tablet_ids) {
             if (is_versioned_read) {
@@ -2930,6 +3033,29 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                     LOG(WARNING) << msg;
                     return;
                 }
+            } else {
+                // set table versions in response
+                int64_t table_id = i.first;
+                std::string ver_key = table_version_key({instance_id, db_id, table_id});
+                std::string ver_val;
+                err = txn->get(ver_key, &ver_val);
+                int64_t table_version = 0;
+                if (err == TxnErrorCode::TXN_OK) {
+                    if (!txn->decode_atomic_int(ver_val, &table_version)) {
+                        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                        ss << "malformed table version value, err=" << err
+                           << " table_id=" << i.first;
+                        msg = ss.str();
+                        LOG(WARNING) << msg;
+                        return;
+                    }
+                } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                    code = cast_as<ErrCategory::READ>(err);
+                    ss << "failed to get table version, err=" << err << " table_id=" << table_id;
+                    msg = ss.str();
+                    return;
+                }
+                table_version_map[table_id] = table_version + 1;
             }
             update_table_version(txn.get(), instance_id, db_id, i.first);
             commit_txn_log.add_table_ids(i.first);
@@ -3080,20 +3206,40 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             return;
         }
 
+        // set table versions in response
+        if (is_versioned_read) {
+            Versionstamp vs;
+            err = txn->get_versionstamp(&vs);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                ss << "failed to get kv txn versionstamp, txn_id=" << txn_id << " err=" << err;
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                return;
+            }
+            int64_t version = vs.version();
+            for (auto& i : table_id_tablet_ids) {
+                int64_t table_id = i.first;
+                table_version_map[table_id] = version;
+            }
+        }
+
         // calculate table stats from tablets stats
         std::map<int64_t /*table_id*/, TableStats> table_stats;
         std::vector<int64_t> base_tablet_ids(request->base_tablet_ids().begin(),
                                              request->base_tablet_ids().end());
         calc_table_stats(tablet_ids, tablet_stats, table_stats, base_tablet_ids);
-        for (const auto& pair : table_stats) {
+        for (const auto& pair : table_version_map) {
             TableStatsPB* stats_pb = response->add_table_stats();
             auto table_id = pair.first;
-            auto stats = pair.second;
-            get_pb_from_tablestats(stats, stats_pb);
             stats_pb->set_table_id(table_id);
-            VLOG_DEBUG << "Add TableStats to CommitTxnResponse. txn_id=" << txn_id
-                       << " table_id=" << table_id
-                       << " updated_row_count=" << stats_pb->updated_row_count();
+            stats_pb->set_table_version(table_version_map[table_id]);
+            if (auto it = table_stats.find(table_id); it != table_stats.end()) {
+                get_pb_from_tablestats(it->second, stats_pb);
+                VLOG_DEBUG << "Add TableStats to CommitTxnResponse. txn_id=" << txn_id
+                           << " table_id=" << table_id
+                           << " updated_row_count=" << stats_pb->updated_row_count();
+            }
         }
 
         response->mutable_txn_info()->CopyFrom(txn_info);
@@ -3626,6 +3772,60 @@ void MetaServiceImpl::get_current_max_txn_id(::google::protobuf::RpcController* 
     int64_t current_max_txn_id = read_version << 10;
     VLOG_DEBUG << "read_version=" << read_version << " current_max_txn_id=" << current_max_txn_id;
     response->set_current_max_txn_id(current_max_txn_id);
+}
+
+void MetaServiceImpl::create_meta_sync_point(::google::protobuf::RpcController* controller,
+                                             const CreateMetaSyncPointRequest* request,
+                                             CreateMetaSyncPointResponse* response,
+                                             ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(create_meta_sync_point, del);
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+    RPC_RATE_LIMIT(create_meta_sync_point)
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        msg = "failed to create txn";
+        code = cast_as<ErrCategory::CREATE>(err);
+        return;
+    }
+
+    txn->enable_get_versionstamp();
+    txn->remove(kMetaSyncPointDummyKey);
+
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        ss << "txn->commit() failed, err=" << err;
+        msg = ss.str();
+        return;
+    }
+
+    int64_t committed_version = 0;
+    err = txn->get_committed_version(&committed_version);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        ss << "get committed version failed, err=" << err;
+        msg = ss.str();
+        return;
+    }
+
+    Versionstamp versionstamp;
+    err = txn->get_versionstamp(&versionstamp);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        ss << "get versionstamp failed, err=" << err;
+        msg = ss.str();
+        return;
+    }
+
+    response->set_committed_version(committed_version);
+    response->set_versionstamp(versionstamp.to_string());
 }
 
 /**

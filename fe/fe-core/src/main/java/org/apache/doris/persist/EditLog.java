@@ -41,6 +41,7 @@ import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.cloud.persist.CloudMetaSyncPoint;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cloud.snapshot.SnapshotState;
 import org.apache.doris.common.Config;
@@ -1424,6 +1425,11 @@ public class EditLog {
                     // TODO: implement
                     break;
                 }
+                case OperationType.OP_META_SYNC_POINT: {
+                    // CloudMetaSyncPoint info = (CloudMetaSyncPoint) journal.getData();
+                    // This log is only used to keep FE/MS cut point in journal timeline.
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}, log id: {}", opCode, logId, e);
@@ -2536,5 +2542,9 @@ public class EditLog {
 
     public long logBeginSnapshot(SnapshotState snapshotState) {
         return logEdit(OperationType.OP_BEGIN_SNAPSHOT, snapshotState);
+    }
+
+    public long logMetaSyncPoint(CloudMetaSyncPoint syncPoint) {
+        return logEdit(OperationType.OP_META_SYNC_POINT, syncPoint);
     }
 }

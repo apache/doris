@@ -802,6 +802,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String CLOUD_CLUSTER = "cloud_cluster";
     public static final String COMPUTE_GROUP = "compute_group";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
+    public static final String CLOUD_FORCE_SYNC_VERSION = "cloud_force_sync_version";
     public static final String CLOUD_PARTITION_VERSION_CACHE_TTL_MS =
             "cloud_partition_version_cache_ttl_ms";
     public static final String CLOUD_TABLE_VERSION_CACHE_TTL_MS =
@@ -3040,9 +3041,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_EMPTY_PARTITION_PRUNE)
     public boolean disableEmptyPartitionPrune = false;
     @VariableMgr.VarAttr(name = CLOUD_PARTITION_VERSION_CACHE_TTL_MS)
-    public long cloudPartitionVersionCacheTtlMs = 0;
+    public long cloudPartitionVersionCacheTtlMs = Long.MAX_VALUE;
     @VariableMgr.VarAttr(name = CLOUD_TABLE_VERSION_CACHE_TTL_MS)
-    public long cloudTableVersionCacheTtlMs = 0;
+    public long cloudTableVersionCacheTtlMs = Long.MAX_VALUE;
+    @VariableMgr.VarAttr(name = CLOUD_FORCE_SYNC_VERSION)
+    public boolean cloudForceSyncVersion = false;
     // CLOUD_VARIABLES_END
 
     // fetch remote schema rpc timeout

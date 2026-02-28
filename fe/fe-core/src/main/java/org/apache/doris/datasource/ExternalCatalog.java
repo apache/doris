@@ -23,7 +23,6 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.MysqlDb;
-import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
@@ -67,6 +66,7 @@ import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.TableBranchOrTagInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.transaction.TransactionManager;
 
 import com.google.common.base.Objects;
@@ -113,7 +113,11 @@ public abstract class ExternalCatalog
     public static final boolean DEFAULT_USE_META_CACHE = true;
 
     public static final String FOUND_CONFLICTING = "Found conflicting";
+    @Deprecated
+    // use LOWER_CASE_TABLE_NAMES instead
     public static final String ONLY_TEST_LOWER_CASE_TABLE_NAMES = "only_test_lower_case_table_names";
+    public static final String LOWER_CASE_TABLE_NAMES = "lower_case_table_names";
+    public static final String LOWER_CASE_DATABASE_NAMES = "lower_case_database_names";
 
     // https://help.aliyun.com/zh/emr/emr-on-ecs/user-guide/use-rootpolicy-to-access-oss-hdfs?spm=a2c4g.11186623.help-menu-search-28066.d_0
     public static final String OOS_ROOT_POLICY = "oss.root_policy";
@@ -134,6 +138,13 @@ public abstract class ExternalCatalog
 
     public static final String TEST_CONNECTION = "test_connection";
     public static final boolean DEFAULT_TEST_CONNECTION = false;
+
+    public static final String INCLUDE_DATABASE_LIST = "include_database_list";
+    public static final String EXCLUDE_DATABASE_LIST = "exclude_database_list";
+    public static final String LOWER_CASE_META_NAMES = "lower_case_meta_names";
+    public static final String META_NAMES_MAPPING = "meta_names_mapping";
+    // db1.tbl1,db2.tbl2,...
+    public static final String INCLUDE_TABLE_LIST = "include_table_list";
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
@@ -170,6 +181,8 @@ public abstract class ExternalCatalog
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
     protected ExecutionAuthenticator executionAuthenticator;
     protected ThreadPoolExecutor threadPoolWithPreAuth;
+    // Map lowercase database names to actual remote database names for case-insensitive lookup
+    private Map<String, String> lowerCaseToDatabaseName = Maps.newConcurrentMap();
 
     private volatile Configuration cachedConf = null;
     private byte[] confLock = new byte[0];
@@ -283,9 +296,29 @@ public abstract class ExternalCatalog
 
     /**
      * @param dbName
-     * @return names of tables in specified database
+     * @return names of tables in specified database, filtered by include_table_list if configured
      */
-    public abstract List<String> listTableNames(SessionContext ctx, String dbName);
+    public final List<String> listTableNames(SessionContext ctx, String dbName) {
+        makeSureInitialized();
+        Map<String, List<String>> includeTableMap = getIncludeTableMap();
+        if (includeTableMap.containsKey(dbName) && !includeTableMap.get(dbName).isEmpty()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get table list from include map. catalog: {}, db: {}, tables: {}",
+                        name, dbName, includeTableMap.get(dbName));
+            }
+            return includeTableMap.get(dbName);
+        }
+        return listTableNamesFromRemote(ctx, dbName);
+    }
+
+    /**
+     * Subclasses implement this method to list table names from the remote data source.
+     *
+     * @param ctx session context
+     * @param dbName database name
+     * @return names of tables in the specified database from the remote source
+     */
+    protected abstract List<String> listTableNamesFromRemote(SessionContext ctx, String dbName);
 
     /**
      * check if the specified table exist.
@@ -468,6 +501,7 @@ public abstract class ExternalCatalog
         Map<String, Boolean> includeDatabaseMap = getIncludeDatabaseMap();
         Map<String, Boolean> excludeDatabaseMap = getExcludeDatabaseMap();
 
+        lowerCaseToDatabaseName.clear();
         List<Pair<String, String>> remoteToLocalPairs = Lists.newArrayList();
 
         allDatabases = allDatabases.stream().filter(dbName -> {
@@ -485,11 +519,21 @@ public abstract class ExternalCatalog
 
         for (String remoteDbName : allDatabases) {
             String localDbName = fromRemoteDatabaseName(remoteDbName);
+            // Populate lowercase mapping for case-insensitive lookups
+            lowerCaseToDatabaseName.put(remoteDbName.toLowerCase(), remoteDbName);
+            // Apply lower_case_database_names mode to local name
+            int dbNameMode = getLowerCaseDatabaseNames();
+            if (dbNameMode == 1) {
+                localDbName = localDbName.toLowerCase();
+            } else if (dbNameMode == 2) {
+                // Mode 2: preserve original remote case for display
+                localDbName = remoteDbName;
+            }
             remoteToLocalPairs.add(Pair.of(remoteDbName, localDbName));
         }
 
-        // Check for conflicts when lower_case_meta_names = true
-        if (Boolean.parseBoolean(getLowerCaseMetaNames())) {
+        // Check for conflicts when lower_case_meta_names = true or lower_case_database_names = 2
+        if (Boolean.parseBoolean(getLowerCaseMetaNames()) || getLowerCaseDatabaseNames() == 2) {
             // Map to track lowercase local names and their corresponding remote names
             Map<String, List<String>> lowerCaseToRemoteNames = Maps.newHashMap();
 
@@ -540,6 +584,7 @@ public abstract class ExternalCatalog
         synchronized (this.confLock) {
             this.cachedConf = null;
         }
+        this.lowerCaseToDatabaseName.clear();
         onClose();
         onRefreshCache(invalidCache);
     }
@@ -660,6 +705,12 @@ public abstract class ExternalCatalog
             realDbName = InfoSchemaDb.DATABASE_NAME;
         } else if (realDbName.equalsIgnoreCase(MysqlDb.DATABASE_NAME)) {
             realDbName = MysqlDb.DATABASE_NAME;
+        } else {
+            // Apply case-insensitive lookup for non-system databases
+            String localDbName = getLocalDatabaseName(realDbName, false);
+            if (localDbName != null) {
+                realDbName = localDbName;
+            }
         }
 
         // must use full qualified name to generate id.
@@ -767,7 +818,14 @@ public abstract class ExternalCatalog
         if (!isInitialized()) {
             return Optional.empty();
         }
-        return metaCache.tryGetMetaObj(dbName);
+
+        // Apply case-insensitive lookup with isReplay=true (no remote calls)
+        String localDbName = getLocalDatabaseName(dbName, true);
+        if (localDbName == null) {
+            localDbName = dbName;  // Fallback to original name
+        }
+
+        return metaCache.tryGetMetaObj(localDbName);
     }
 
     /**
@@ -889,6 +947,9 @@ public abstract class ExternalCatalog
         setDefaultPropsIfMissing(true);
         if (tableAutoAnalyzePolicy == null) {
             tableAutoAnalyzePolicy = Maps.newHashMap();
+        }
+        if (this.lowerCaseToDatabaseName == null) {
+            this.lowerCaseToDatabaseName = Maps.newConcurrentMap();
         }
     }
 
@@ -1061,11 +1122,38 @@ public abstract class ExternalCatalog
     }
 
     protected Map<String, Boolean> getIncludeDatabaseMap() {
-        return getSpecifiedDatabaseMap(Resource.INCLUDE_DATABASE_LIST);
+        return getSpecifiedDatabaseMap(ExternalCatalog.INCLUDE_DATABASE_LIST);
     }
 
     protected Map<String, Boolean> getExcludeDatabaseMap() {
-        return getSpecifiedDatabaseMap(Resource.EXCLUDE_DATABASE_LIST);
+        return getSpecifiedDatabaseMap(ExternalCatalog.EXCLUDE_DATABASE_LIST);
+    }
+
+    protected Map<String, List<String>> getIncludeTableMap() {
+        Map<String, List<String>> includeTableMap = Maps.newHashMap();
+        String tableList = catalogProperty.getOrDefault(ExternalCatalog.INCLUDE_TABLE_LIST, "");
+        if (Strings.isNullOrEmpty(tableList)) {
+            return includeTableMap;
+        }
+        String[] parts = tableList.split(",");
+        for (String part : parts) {
+            String dbTbl = part.trim();
+            String[] splits = dbTbl.split("\\.");
+            if (splits.length != 2) {
+                LOG.warn("debug invalid include table list: {}, ignore", part);
+                continue;
+            }
+            String db = splits[0];
+            String tbl = splits[1];
+            List<String> tbls = includeTableMap.get(db);
+            if (tbls == null) {
+                includeTableMap.put(db, Lists.newArrayList());
+                tbls = includeTableMap.get(db);
+            }
+            tbls.add(tbl);
+        }
+        LOG.info("debug get include table map: {}", includeTableMap);
+        return includeTableMap;
     }
 
     private Map<String, Boolean> getSpecifiedDatabaseMap(String catalogPropertyKey) {
@@ -1085,17 +1173,64 @@ public abstract class ExternalCatalog
         return specifiedDatabaseMap;
     }
 
-
     public String getLowerCaseMetaNames() {
-        return catalogProperty.getOrDefault(Resource.LOWER_CASE_META_NAMES, "false");
+        return catalogProperty.getOrDefault(LOWER_CASE_META_NAMES, "false");
     }
 
-    public int getOnlyTestLowerCaseTableNames() {
-        return Integer.parseInt(catalogProperty.getOrDefault(ONLY_TEST_LOWER_CASE_TABLE_NAMES, "0"));
+    @Override
+    public int getLowerCaseTableNames() {
+        return Integer.parseInt(catalogProperty.getOrDefault(LOWER_CASE_TABLE_NAMES,
+                catalogProperty.getOrDefault(ONLY_TEST_LOWER_CASE_TABLE_NAMES,
+                        String.valueOf(GlobalVariable.lowerCaseTableNames))));
+    }
+
+    /**
+     * Get the lower_case_database_names configuration value.
+     * Returns the mode for database name case handling:
+     * - 0: Case-sensitive (default)
+     * - 1: Database names are stored as lowercase
+     * - 2: Database name comparison is case-insensitive
+     */
+    @Override
+    public int getLowerCaseDatabaseNames() {
+        return Integer.parseInt(catalogProperty.getOrDefault(LOWER_CASE_DATABASE_NAMES, "0"));
     }
 
     public String getMetaNamesMapping() {
-        return catalogProperty.getOrDefault(Resource.META_NAMES_MAPPING, "");
+        return catalogProperty.getOrDefault(ExternalCatalog.META_NAMES_MAPPING, "");
+    }
+
+    /**
+     * Get the local database name based on the lower_case_database_names mode.
+     * Handles case-insensitive database lookup similar to ExternalDatabase.getLocalTableName().
+     */
+    @Nullable
+    private String getLocalDatabaseName(String dbName, boolean isReplay) {
+        String finalName = dbName;
+        int mode = getLowerCaseDatabaseNames();
+
+        if (mode == 1) {
+            // Mode 1: Store as lowercase
+            finalName = dbName.toLowerCase();
+        } else if (mode == 2) {
+            // Mode 2: Case-insensitive comparison
+            finalName = lowerCaseToDatabaseName.get(dbName.toLowerCase());
+            if (finalName == null && !isReplay) {
+                // Refresh database list and try again
+                try {
+                    getFilteredDatabaseNames();
+                    finalName = lowerCaseToDatabaseName.get(dbName.toLowerCase());
+                } catch (Exception e) {
+                    LOG.warn("Failed to refresh database list for catalog {}", getName(), e);
+                }
+            }
+            if (finalName == null && LOG.isDebugEnabled()) {
+                LOG.debug("Failed to get database name from: {}.{}, isReplay={}",
+                        getName(), dbName, isReplay);
+            }
+        }
+
+        return finalName;
     }
 
     public String bindBrokerName() {
