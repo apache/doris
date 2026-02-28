@@ -55,8 +55,7 @@ public enum SchemaTypeMapper {
     S3A("s3a", StorageProperties.Type.S3, FileSystemType.S3, TFileType.FILE_S3),
     S3N("s3n", StorageProperties.Type.S3, FileSystemType.S3, TFileType.FILE_S3),
     COSN("cosn", StorageProperties.Type.COS, FileSystemType.S3, TFileType.FILE_S3),
-    //todo Support for this type is planned but not yet implemented.
-    OFS("ofs", StorageProperties.Type.BROKER, FileSystemType.OFS, TFileType.FILE_BROKER),
+    OFS("ofs", StorageProperties.Type.OFS, FileSystemType.OFS, TFileType.FILE_HDFS),
     GFS("gfs", StorageProperties.Type.BROKER, FileSystemType.HDFS, TFileType.FILE_BROKER),
     JFS("jfs", StorageProperties.Type.BROKER, FileSystemType.JFS, TFileType.FILE_BROKER),
     VIEWFS("viewfs", StorageProperties.Type.HDFS, FileSystemType.HDFS, TFileType.FILE_HDFS),

@@ -24,6 +24,7 @@ import org.apache.doris.datasource.property.storage.GCSProperties;
 import org.apache.doris.datasource.property.storage.HdfsProperties;
 import org.apache.doris.datasource.property.storage.MinioProperties;
 import org.apache.doris.datasource.property.storage.OBSProperties;
+import org.apache.doris.datasource.property.storage.OFSProperties;
 import org.apache.doris.datasource.property.storage.OSSHdfsProperties;
 import org.apache.doris.datasource.property.storage.OSSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
@@ -33,6 +34,7 @@ import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.fs.remote.dfs.OFSFileSystem;
 
 import java.util.Arrays;
 import java.util.function.Function;
@@ -40,6 +42,7 @@ import java.util.function.Function;
 public enum StorageTypeMapper {
     OSS(OSSProperties.class, S3FileSystem::new),
     OBS(OBSProperties.class, S3FileSystem::new),
+    OFS(OFSProperties.class, OFSFileSystem::new),
     COS(COSProperties.class, S3FileSystem::new),
     MINIO(MinioProperties.class, S3FileSystem::new),
     AZURE(AzureProperties.class, AzureFileSystem::new),

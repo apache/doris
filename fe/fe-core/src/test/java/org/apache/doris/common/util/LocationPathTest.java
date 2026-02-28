@@ -64,6 +64,8 @@ public class LocationPathTest {
         props.put("azure.access_key", "access_key");
         props.put("azure.secret_key", "secret_key");
         props.put("broker.name", "mybroker");
+        props.put("fs.ofs.impl", "com.qcloud.chdfs.fs.CHDFSHadoopFileSystemAdapter");
+        props.put("fs.AbstractFileSystem.impl", "com.qcloud.chdfs.fs.CHDFSDelegateFSAdapter");
 
         try {
             STORAGE_PROPERTIES_MAP = StorageProperties.createAll(props).stream()

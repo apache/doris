@@ -88,6 +88,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -497,6 +498,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileRangeDesc.setSize(firstFile.getSize());
         fileRangeDesc.setFileSize(firstFile.getSize());
         fileRangeDesc.setModificationTime(firstFile.getModificationTime());
+        if (getTFileType() == TFileType.FILE_HDFS) {
+            URI fileUri = URI.create(firstFile.getPath());
+            fileRangeDesc.setFsName(fileUri.getScheme() + "://" + fileUri.getAuthority());
+        }
         // set TFileScanRange
         TFileScanRange fileScanRange = new TFileScanRange();
         fileScanRange.addToRanges(fileRangeDesc);

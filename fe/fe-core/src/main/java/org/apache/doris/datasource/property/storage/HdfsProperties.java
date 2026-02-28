@@ -105,11 +105,15 @@ public class HdfsProperties extends HdfsCompatibleProperties {
             "hdfs.config.resources");
 
     public HdfsProperties(Map<String, String> origProps) {
-        this(origProps, true);
+        this(Type.HDFS, origProps, true);
     }
 
     public HdfsProperties(Map<String, String> origProps, boolean explicitlyConfigured) {
-        super(Type.HDFS, origProps);
+        this(Type.HDFS, origProps, explicitlyConfigured);
+    }
+
+    public HdfsProperties(Type type, Map<String, String> origProps, boolean explicitlyConfigured) {
+        super(type, origProps);
         this.explicitlyConfigured = explicitlyConfigured;
     }
 
