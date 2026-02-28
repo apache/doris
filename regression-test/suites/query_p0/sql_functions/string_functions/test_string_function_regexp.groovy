@@ -76,6 +76,12 @@ suite("test_string_function_regexp") {
     qt_regexp_extract_3 'SELECT regexp_extract(\'ID:AA-1,ID:BB-2,ID:CC-3\', \'(?<=ID:)([A-Z]{2}-\\\\d)(?=,ID|$)\', 1);'
     sql "set enable_extended_regex = false;"
 
+    qt_regexp_extract_4 "SELECT REGEXP_EXTRACT(concat('foo', char(10), 'bar'), '(foo.bar)', 1);"
+    qt_regexp_extract_5 "SELECT REGEXP_EXTRACT(concat('foo', char(10), 'bar'), '(?-s)(foo.bar)', 1);"
+    qt_regexp_extract_6 "SELECT REGEXP_EXTRACT(concat('foo', char(10), 'bar'), '(?s)(foo.bar)', 1);"
+    qt_regexp_extract_7 "SELECT REGEXP_EXTRACT(concat('aXb', char(10), 'cXd'), '(?-s)(a.b)', 1);"
+    qt_regexp_extract_8 "SELECT REGEXP_EXTRACT(concat('aXb', char(10), 'cXd'), '(a.b)', 1);"
+
     qt_sql "SELECT regexp_extract_or_null('AbCdE', '([[:lower:]]+)C([[:lower:]]+)', 1);"
     qt_sql "SELECT regexp_extract_or_null('AbCdE', '([[:lower:]]+)C([[:lower:]]+)', 2);"
     qt_sql "SELECT regexp_extract_or_null('AbCdE', '([[:lower:]]+)C([[:lower:]]+)', 3);"
@@ -89,6 +95,12 @@ suite("test_string_function_regexp") {
     qt_regexp_extract_or_null_1 "SELECT regexp_extract_or_null('foo123bar', '(?<=foo)(\\\\d+)(?=bar)', 1);"
     qt_regexp_extract_or_null_2 "SELECT regexp_extract_or_null('TokenA TokenB TokenC', '(?<=Token)([A-Z])(?= TokenC)', 1);"
     sql "set enable_extended_regex = false;"
+
+    qt_regexp_extract_or_null_3 "SELECT REGEXP_EXTRACT_OR_NULL(concat('foo', char(10), 'bar'), '(foo.bar)', 1);"
+    qt_regexp_extract_or_null_4 "SELECT REGEXP_EXTRACT_OR_NULL(concat('foo', char(10), 'bar'), '(?-s)(foo.bar)', 1);"
+    qt_regexp_extract_or_null_5 "SELECT REGEXP_EXTRACT_OR_NULL(concat('foo', char(10), 'bar'), '(?s)(foo.bar)', 1);"
+    qt_regexp_extract_or_null_6 "SELECT REGEXP_EXTRACT_OR_NULL(concat('aXb', char(10), 'cXd'), '(?-s)(a.b)', 1);"
+    qt_regexp_extract_or_null_7 "SELECT REGEXP_EXTRACT_OR_NULL(concat('aXb', char(10), 'cXd'), '(a.b)', 1);"
 
     qt_sql "SELECT regexp_extract_all('x=a3&x=18abc&x=2&y=3&x=4&x=17bcd', 'x=([0-9]+)([a-z]+)');"
     qt_sql "SELECT regexp_extract_all('http://a.m.baidu.com/i41915i73660.htm', 'i([0-9]+)');"
@@ -109,6 +121,12 @@ suite("test_string_function_regexp") {
     qt_sql_regexp_extract_all_4 'SELECT REGEXP_EXTRACT_ALL(\'ID:AA-1,ID:BB-2,ID:CC-3\', \'(?<=ID:)([A-Z]{2}-\\\\d)\');'
     qt_sql_regexp_extract_all_5 'SELECT REGEXP_EXTRACT_ALL(\'EdgeCase1EdgeCase2EdgeCase3\', \'(?<=Edge)(Case\\\\d)(?=Edge|$)\');'
     sql "set enable_extended_regex = false;"
+
+    qt_sql_regexp_extract_all_6 "SELECT REGEXP_EXTRACT_ALL(concat('foo', char(10), 'bar'), '(foo.bar)');"
+    qt_sql_regexp_extract_all_7 "SELECT REGEXP_EXTRACT_ALL(concat('foo', char(10), 'bar'), '(?-s)(foo.bar)');"
+    qt_sql_regexp_extract_all_8 "SELECT REGEXP_EXTRACT_ALL(concat('foo', char(10), 'bar'), '(?s)(foo.bar)');"
+    qt_sql_regexp_extract_all_9 "SELECT REGEXP_EXTRACT_ALL(concat('aXb', char(10), 'cXd'), '(?-s)(\\\\w.\\\\w)');"
+    qt_sql_regexp_extract_all_10 "SELECT REGEXP_EXTRACT_ALL(concat('aXb', char(10), 'cXd'), '(\\\\w.\\\\w)');"
 
     qt_sql "SELECT regexp_replace('a b c', \" \", \"-\");"
     qt_sql "SELECT regexp_replace('a b c','(b)','<\\\\1>');"

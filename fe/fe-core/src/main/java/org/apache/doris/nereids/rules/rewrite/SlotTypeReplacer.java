@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.analysis.AccessPathInfo;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;

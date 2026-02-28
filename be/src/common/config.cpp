@@ -1129,6 +1129,9 @@ DEFINE_String(python_venv_interpreter_paths, "");
 // max python processes in global shared pool, each version can have up to this many processes
 // 0 means use CPU core count as default, otherwise use the specified value
 DEFINE_mInt32(max_python_process_num, "0");
+// Memory limit in bytes for all Python UDF processes; warning is logged when exceeded
+// default is 10GB
+DEFINE_mInt64(python_udf_processes_memory_limit_bytes, "10737418240");
 
 // Set config randomly to check more issues in github workflow
 DEFINE_Bool(enable_fuzzy_mode, "false");

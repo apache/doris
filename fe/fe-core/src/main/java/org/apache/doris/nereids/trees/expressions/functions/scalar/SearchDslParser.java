@@ -1576,7 +1576,14 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
         private static QsNode expandNodeCrossFields(QsNode node, List<String> fields, boolean luceneMode) {
             // MATCH_ALL_DOCS matches all documents regardless of field - don't expand
             if (node.getType() == QsClauseType.MATCH_ALL_DOCS) {
-                return new QsNode(QsClauseType.MATCH_ALL_DOCS, (List<QsNode>) null);
+                QsNode result = new QsNode(QsClauseType.MATCH_ALL_DOCS, (List<QsNode>) null);
+                // Preserve occur attribute (e.g., SHOULD from "X OR *" queries)
+                // Without this, occur defaults to null which BE interprets as MUST,
+                // changing "X OR *" from matching all docs to matching only X.
+                if (node.getOccur() != null) {
+                    result.setOccur(node.getOccur());
+                }
+                return result;
             }
 
             // Check if this is a leaf node (no children)
@@ -1660,7 +1667,11 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
         private static QsNode deepCopyWithField(QsNode node, String field, List<String> fields) {
             // MATCH_ALL_DOCS matches all documents regardless of field - don't set field
             if (node.getType() == QsClauseType.MATCH_ALL_DOCS) {
-                return new QsNode(QsClauseType.MATCH_ALL_DOCS, (List<QsNode>) null);
+                QsNode result = new QsNode(QsClauseType.MATCH_ALL_DOCS, (List<QsNode>) null);
+                if (node.getOccur() != null) {
+                    result.setOccur(node.getOccur());
+                }
+                return result;
             }
             if (isLeafNode(node)) {
                 // If the user explicitly wrote "field:term" syntax, preserve original field
@@ -1709,7 +1720,11 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
         private static QsNode setFieldOnLeaves(QsNode node, String field, List<String> fields) {
             // MATCH_ALL_DOCS matches all documents regardless of field - don't set field
             if (node.getType() == QsClauseType.MATCH_ALL_DOCS) {
-                return new QsNode(QsClauseType.MATCH_ALL_DOCS, (List<QsNode>) null);
+                QsNode result = new QsNode(QsClauseType.MATCH_ALL_DOCS, (List<QsNode>) null);
+                if (node.getOccur() != null) {
+                    result.setOccur(node.getOccur());
+                }
+                return result;
             }
             if (isLeafNode(node)) {
                 // If the user explicitly wrote "field:term" syntax, preserve original field

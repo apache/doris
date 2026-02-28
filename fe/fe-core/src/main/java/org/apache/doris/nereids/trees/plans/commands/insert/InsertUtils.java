@@ -295,6 +295,19 @@ public class InsertUtils {
             // For JDBC External Table, we always allow certain columns to be missing during insertion
             // Specific check for non-nullable columns only if insertion is direct VALUES or SELECT constants
         }
+        // Re-read partial update settings from session variable to handle multi-statement
+        // batches where SET and INSERT are parsed together before execution.
+        // Only apply to original INSERT statements, not DELETE/UPDATE converted to INSERT.
+        if (unboundLogicalSink instanceof UnboundTableSink
+                && unboundLogicalSink.getDMLCommandType() == DMLCommandType.INSERT) {
+            ConnectContext ctx = ConnectContext.get();
+            if (ctx != null) {
+                ((UnboundTableSink<? extends Plan>) unboundLogicalSink)
+                        .setPartialUpdate(ctx.getSessionVariable().isEnableUniqueKeyPartialUpdate());
+                ((UnboundTableSink<? extends Plan>) unboundLogicalSink)
+                        .setPartialUpdateNewKeyPolicy(ctx.getSessionVariable().getPartialUpdateNewRowPolicy());
+            }
+        }
         if (table instanceof OlapTable && ((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS) {
             if (unboundLogicalSink instanceof UnboundTableSink
                     && ((UnboundTableSink<? extends Plan>) unboundLogicalSink).isPartialUpdate()) {
