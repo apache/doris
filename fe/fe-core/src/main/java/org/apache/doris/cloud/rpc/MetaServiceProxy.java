@@ -286,7 +286,8 @@ public class MetaServiceProxy {
     public Future<Cloud.GetVersionResponse> getVisibleVersionAsync(Cloud.GetVersionRequest request)
             throws RpcException {
         long startTime = System.currentTimeMillis();
-        String methodName = "getVersion";
+        String methodName = request.hasIsTableVersion() && request.getIsTableVersion() ? "getTableVersion"
+                : "getPartitionVersion";
         MetaServiceClient client = null;
 
         if (MetricRepo.isInit && Config.isCloudMode()) {
@@ -341,7 +342,9 @@ public class MetaServiceProxy {
     }
 
     public Cloud.GetVersionResponse getVersion(Cloud.GetVersionRequest request) throws RpcException {
-        return executeWithMetrics("getVersion", (client) -> client.getVersion(request));
+        String methodName = request.hasIsTableVersion() && request.getIsTableVersion() ? "getTableVersion"
+                : "getPartitionVersion";
+        return executeWithMetrics(methodName, (client) -> client.getVersion(request));
     }
 
     public Cloud.CreateTabletsResponse createTablets(Cloud.CreateTabletsRequest request) throws RpcException {
