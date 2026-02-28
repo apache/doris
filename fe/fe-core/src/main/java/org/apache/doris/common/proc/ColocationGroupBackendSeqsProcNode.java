@@ -39,26 +39,26 @@ public class ColocationGroupBackendSeqsProcNode implements ProcNodeInterface {
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
-        List<String> titleNames = Lists.newArrayList();
-        titleNames.add("BucketIndex");
+        List<String> titleNames = Lists.newArrayList("BucketIndex", "BackendIds");
         int bucketNum = 0;
-        for (Tag tag : backendsSeq.keySet()) {
-            titleNames.add(tag.toString());
+        for (Map.Entry<Tag, List<List<Long>>> entry : backendsSeq.entrySet()) {
+            List<List<Long>> bucketBackends = entry.getValue();
             if (bucketNum == 0) {
-                bucketNum = backendsSeq.get(tag).size();
-            } else if (bucketNum != backendsSeq.get(tag).size()) {
+                bucketNum = bucketBackends.size();
+            } else if (bucketNum != bucketBackends.size()) {
                 throw new AnalysisException("Invalid bucket number: "
-                        + bucketNum + " vs. " + backendsSeq.get(tag).size());
+                        + bucketNum + " vs. " + bucketBackends.size());
             }
         }
         result.setNames(titleNames);
         for (int i = 0; i < bucketNum; i++) {
             List<String> info = Lists.newArrayList();
             info.add(String.valueOf(i)); // bucket index
-            for (Tag tag : backendsSeq.keySet()) {
-                List<List<Long>> bucketBackends = backendsSeq.get(tag);
-                info.add(Joiner.on(", ").join(bucketBackends.get(i)));
+            List<Long> mergedBackendIds = Lists.newArrayList();
+            for (List<List<Long>> bucketBackends : backendsSeq.values()) {
+                mergedBackendIds.addAll(bucketBackends.get(i));
             }
+            info.add(Joiner.on(", ").join(mergedBackendIds));
             result.addRow(info);
         }
         return result;
