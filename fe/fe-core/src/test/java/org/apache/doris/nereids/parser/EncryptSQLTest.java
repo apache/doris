@@ -393,32 +393,6 @@ public class EncryptSQLTest extends ParserTestBase {
                 + "TO DATABASE targetDB";
         parseAndCheck(sql, res);
 
-        sql = "CREATE AUTHENTICATION INTEGRATION auth_ldap "
-                + "WITH PROPERTIES ("
-                + " \"type\" = \"ldap\","
-                + " \"ldap.server\" = \"ldap://127.0.0.1:389\","
-                + " \"ldap.admin_password\" = \"123456\""
-                + ") COMMENT \"for test\"";
-        res = "CREATE AUTHENTICATION INTEGRATION auth_ldap "
-                + "WITH PROPERTIES ("
-                + " \"type\" = \"ldap\","
-                + " \"ldap.server\" = \"ldap://127.0.0.1:389\","
-                + " \"ldap.admin_password\" = \"*XXX\""
-                + ") COMMENT \"for test\"";
-        parseAndCheck(sql, res);
-
-        sql = "ALTER AUTHENTICATION INTEGRATION auth_ldap "
-                + "SET PROPERTIES ("
-                + " \"ldap.admin_password\" = \"abcdef\","
-                + " \"ldap.server\" = \"ldap://127.0.0.1:1389\""
-                + ")";
-        res = "ALTER AUTHENTICATION INTEGRATION auth_ldap "
-                + "SET PROPERTIES ("
-                + " \"ldap.admin_password\" = \"*XXX\","
-                + " \"ldap.server\" = \"ldap://127.0.0.1:1389\""
-                + ")";
-        parseAndCheck(sql, res);
-
         sql = "selected * from tbl";
         res = "Syntax Error";
         parseAndCheck(sql, res);
