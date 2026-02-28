@@ -86,8 +86,9 @@ Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column
     return Status::OK();
 }
 
-Status VSlotRef::execute_column(VExprContext* context, const Block* block, Selector* selector,
-                                size_t count, ColumnPtr& result_column) const {
+Status VSlotRef::execute_column_impl(VExprContext* context, const Block* block,
+                                     const Selector* selector, size_t count,
+                                     ColumnPtr& result_column) const {
     if (_column_id >= 0 && _column_id >= block->columns()) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "input block not contain slot column {}, column_id={}, block={}", *_column_name,

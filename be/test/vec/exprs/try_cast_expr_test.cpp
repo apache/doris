@@ -141,11 +141,11 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override {
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
         auto int_type = std::make_shared<DataTypeInt32>();
         auto int_column = int_type->create_column();
-        for (int i = 0; i < 3; i++) {
+        for (size_t i = 0; i < count; i++) {
             Int32 x = i;
             int_column->insert_data((const char*)&x, sizeof(Int32));
         }
@@ -184,6 +184,8 @@ TEST_F(TryCastExprTest, BasicTest1) {
             DataTypes {std::make_shared<DataTypeInt32>()}, std::make_shared<DataTypeInt32>());
 
     Block block;
+    block.insert(ColumnWithTypeAndName {ColumnNothing::create(3), std::make_shared<DataTypeInt32>(),
+                                        "mock_input_column"});
     int result_column_id = -1;
     try_cast_expr._original_cast_return_is_nullable = true;
     auto st = try_cast_expr.execute(context.get(), &block, &result_column_id);
@@ -196,6 +198,8 @@ TEST_F(TryCastExprTest, BasicTest2) {
             DataTypes {std::make_shared<DataTypeInt32>()}, std::make_shared<DataTypeInt32>());
 
     Block block;
+    block.insert(ColumnWithTypeAndName {ColumnNothing::create(3), std::make_shared<DataTypeInt32>(),
+                                        "mock_input_column"});
     int result_column_id = -1;
     try_cast_expr._original_cast_return_is_nullable = false;
     auto st = try_cast_expr.execute(context.get(), &block, &result_column_id);
@@ -208,6 +212,8 @@ TEST_F(TryCastExprTest, return_error) {
             DataTypes {std::make_shared<DataTypeInt32>()}, std::make_shared<DataTypeInt32>());
 
     Block block;
+    block.insert(ColumnWithTypeAndName {ColumnNothing::create(3), std::make_shared<DataTypeInt32>(),
+                                        "mock_input_column"});
     int result_column_id = -1;
     try_cast_expr._original_cast_return_is_nullable = false;
     auto st = try_cast_expr.execute(context.get(), &block, &result_column_id);
