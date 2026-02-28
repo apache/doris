@@ -18,6 +18,8 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.foundation.property.StoragePropertiesException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -88,6 +90,19 @@ public class AzurePropertyUtilsTest {
     }
 
     @Test
+    public void testHttpsChinaUriWithPath() throws Exception {
+        boolean originalConfig = Config.force_azure_blob_global_endpoint;
+        try {
+            Config.force_azure_blob_global_endpoint = false;
+            String input = "https://account.blob.core.chinacloudapi.cn/container/data/file.parquet";
+            String expected = "s3://container/data/file.parquet";
+            Assertions.assertEquals(expected, AzurePropertyUtils.validateAndNormalizeUri(input));
+        } finally {
+            Config.force_azure_blob_global_endpoint = originalConfig;
+        }
+    }
+
+    @Test
     public void testInvalidAzureScheme() {
         String input = "ftp://container@account.blob.core.windows.net/data/file.txt";
         Assertions.assertThrows(StoragePropertiesException.class, () ->
@@ -109,16 +124,74 @@ public class AzurePropertyUtilsTest {
     }
 
     @Test
-    public void testHttpsUriNotAzureBlob() {
-        String input = "https://account.otherdomain.com/container/file.txt";
-        Assertions.assertThrows(StoragePropertiesException.class, () ->
-                AzurePropertyUtils.validateAndNormalizeUri(input));
+    public void testHttpsUriNotAzureBlob() throws UserException {
+        boolean originalConfig = Config.force_azure_blob_global_endpoint;
+        try {
+            String input = "https://account.otherdomain.com/container/file.txt";
+
+            Config.force_azure_blob_global_endpoint = false;
+            Assertions.assertEquals("s3://container/file.txt",
+                    AzurePropertyUtils.validateAndNormalizeUri(input));
+
+            Config.force_azure_blob_global_endpoint = true;
+            Assertions.assertThrows(StoragePropertiesException.class, () ->
+                    AzurePropertyUtils.validateAndNormalizeUri(input));
+        } finally {
+            Config.force_azure_blob_global_endpoint = originalConfig;
+        }
     }
 
     @Test
     public void testBlankUri() {
         Assertions.assertThrows(StoragePropertiesException.class, () ->
                 AzurePropertyUtils.validateAndNormalizeUri(" "));
+    }
+
+    @Test
+    public void testIsAzureBlobEndpoint() {
+        boolean originalConfig = Config.force_azure_blob_global_endpoint;
+        String[] originalAzureBlobHostSuffixes = Config.azure_blob_host_suffixes;
+        try {
+            Config.force_azure_blob_global_endpoint = false;
+            Config.azure_blob_host_suffixes = new String[] {
+                    ".blob.core.windows.net",
+                    ".dfs.core.windows.net",
+                    ".blob.core.chinacloudapi.cn",
+                    ".dfs.core.chinacloudapi.cn"
+            };
+            Assertions.assertTrue(AzurePropertyUtils.isAzureBlobEndpoint("https://account.blob.core.windows.net"));
+            Assertions.assertTrue(AzurePropertyUtils.isAzureBlobEndpoint("account.blob.core.chinacloudapi.cn"));
+            Assertions.assertTrue(AzurePropertyUtils.isAzureBlobEndpoint("account.dfs.core.chinacloudapi.cn"));
+            Assertions.assertFalse(AzurePropertyUtils.isAzureBlobEndpoint("https://account.otherdomain.com"));
+
+            Config.force_azure_blob_global_endpoint = true;
+            Assertions.assertTrue(AzurePropertyUtils.isAzureBlobEndpoint("https://account.blob.core.windows.net"));
+            Assertions.assertFalse(AzurePropertyUtils.isAzureBlobEndpoint("account.blob.core.chinacloudapi.cn"));
+            Assertions.assertFalse(AzurePropertyUtils.isAzureBlobEndpoint("account.dfs.core.chinacloudapi.cn"));
+        } finally {
+            Config.force_azure_blob_global_endpoint = originalConfig;
+            Config.azure_blob_host_suffixes = originalAzureBlobHostSuffixes;
+        }
+    }
+
+    @Test
+    public void testIsAzureBlobEndpointFromConfig() {
+        boolean originalForceAzureBlobGlobalEndpoint = Config.force_azure_blob_global_endpoint;
+        String[] originalAzureBlobHostSuffixes = Config.azure_blob_host_suffixes;
+        try {
+            Config.force_azure_blob_global_endpoint = false;
+            Config.azure_blob_host_suffixes = new String[] {"blob.custom.test", "dfs.custom.test", " .blob.extra.test "};
+            Assertions.assertTrue(AzurePropertyUtils.isAzureBlobEndpoint("https://account.blob.custom.test"));
+            Assertions.assertTrue(AzurePropertyUtils.isAzureBlobEndpoint("account.dfs.custom.test"));
+            Assertions.assertTrue(AzurePropertyUtils.isAzureBlobEndpoint("account.blob.extra.test"));
+            Assertions.assertFalse(AzurePropertyUtils.isAzureBlobEndpoint("account.blob.unknown.test"));
+
+            Config.force_azure_blob_global_endpoint = true;
+            Assertions.assertFalse(AzurePropertyUtils.isAzureBlobEndpoint("account.blob.custom.test"));
+        } finally {
+            Config.force_azure_blob_global_endpoint = originalForceAzureBlobGlobalEndpoint;
+            Config.azure_blob_host_suffixes = originalAzureBlobHostSuffixes;
+        }
     }
 
     // ---------- validateAndGetUri Tests ----------

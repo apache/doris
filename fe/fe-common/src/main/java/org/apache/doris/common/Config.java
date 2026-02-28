@@ -3556,6 +3556,29 @@ public class Config extends ConfigBase {
     })
     public static boolean force_azure_blob_global_endpoint = false;
 
+    @ConfField(mutable = true, description = {
+            "指定 Azure endpoint 域名后缀白名单（包含 blob 与 dfs），多个值使用逗号分隔。"
+                    + "默认值为 .blob.core.windows.net,.dfs.core.windows.net,"
+                    + ".blob.core.chinacloudapi.cn,.dfs.core.chinacloudapi.cn,"
+                    + ".blob.core.usgovcloudapi.net,.dfs.core.usgovcloudapi.net,"
+                    + ".blob.core.cloudapi.de,.dfs.core.cloudapi.de。",
+            "The host suffix whitelist for Azure endpoints (both blob and dfs), separated by commas. "
+                    + "The default value is .blob.core.windows.net,.dfs.core.windows.net,"
+                    + ".blob.core.chinacloudapi.cn,.dfs.core.chinacloudapi.cn,"
+                    + ".blob.core.usgovcloudapi.net,.dfs.core.usgovcloudapi.net,"
+                    + ".blob.core.cloudapi.de,.dfs.core.cloudapi.de."
+    })
+    public static String[] azure_blob_host_suffixes = {
+            ".blob.core.windows.net",
+            ".dfs.core.windows.net",
+            ".blob.core.chinacloudapi.cn",
+            ".dfs.core.chinacloudapi.cn",
+            ".blob.core.usgovcloudapi.net",
+            ".dfs.core.usgovcloudapi.net",
+            ".blob.core.cloudapi.de",
+            ".dfs.core.cloudapi.de"
+    };
+
     @ConfField(mutable = true, description = {"指定 Jdbc driver url 白名单，举例：jdbc_driver_url_white_list=a,b,c",
             "the white list for jdbc driver url, if it is empty, no white list will be set"
             + "for example: jdbc_driver_url_white_list=a,b,c"

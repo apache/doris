@@ -30,6 +30,8 @@ import lombok.Setter;
 import org.apache.hadoop.conf.Configuration;
 
 import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -135,8 +137,6 @@ public class AzureProperties extends StorageProperties {
         super(Type.AZURE, origProps);
     }
 
-    private static final String AZURE_ENDPOINT_SUFFIX = ".blob.core.windows.net";
-
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
@@ -160,7 +160,7 @@ public class AzureProperties extends StorageProperties {
                 .findFirst()
                 .orElse(null);
         if (!Strings.isNullOrEmpty(value)) {
-            return value.endsWith(AZURE_ENDPOINT_SUFFIX);
+            return AzurePropertyUtils.isAzureBlobEndpoint(value);
         }
         return false;
     }
@@ -243,13 +243,24 @@ public class AzureProperties extends StorageProperties {
     }
 
     private static void setHDFSAzureAccountKeys(Configuration conf, String accountName, String accountKey) {
-        String[] endpoints = {
-                "dfs.core.windows.net",
-                "blob.core.windows.net"
-        };
+        Set<String> endpoints = new LinkedHashSet<>();
+        if (Config.azure_blob_host_suffixes != null) {
+            for (String endpointSuffix : Config.azure_blob_host_suffixes) {
+                if (Strings.isNullOrEmpty(endpointSuffix)) {
+                    continue;
+                }
+                String normalizedEndpoint = endpointSuffix.trim().toLowerCase(Locale.ROOT);
+                if (normalizedEndpoint.startsWith(".")) {
+                    normalizedEndpoint = normalizedEndpoint.substring(1);
+                }
+                if (!normalizedEndpoint.isEmpty()) {
+                    endpoints.add(normalizedEndpoint);
+                }
+            }
+        }
         for (String endpoint : endpoints) {
-            String key = String.format("fs.azure.account.key.%s.%s", accountName, endpoint);
-            conf.set(key, accountKey);
+            String accountKeyConfig = String.format("fs.azure.account.key.%s.%s", accountName, endpoint);
+            conf.set(accountKeyConfig, accountKey);
         }
         conf.set("fs.azure.account.key", accountKey);
     }

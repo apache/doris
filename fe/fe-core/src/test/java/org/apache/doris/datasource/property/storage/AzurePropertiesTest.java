@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.foundation.property.StoragePropertiesException;
 
@@ -212,5 +213,89 @@ public class AzurePropertiesTest {
         Assertions.assertEquals("myAzureClientSecret", hadoopStorageConfig.get("fs.azure.account.oauth2.client.secret.onelake.dfs.fabric.microsoft.com"));
         Assertions.assertEquals("https://login.microsoftonline.com/72f988bf-5289-5289-5289-2d7cd011db47/oauth2/token", hadoopStorageConfig.get("fs.azure.account.oauth2.client.endpoint.onelake.dfs.fabric.microsoft.com"));
 
+    }
+
+    @Test
+    public void testGuessIsMeChinaEndpoint() {
+        boolean originalConfig = Config.force_azure_blob_global_endpoint;
+        try {
+            Config.force_azure_blob_global_endpoint = false;
+            origProps.put("s3.endpoint", "https://mystorageaccount.blob.core.chinacloudapi.cn");
+            Assertions.assertTrue(AzureProperties.guessIsMe(origProps));
+            origProps.put("s3.endpoint", "mystorageaccount.blob.core.chinacloudapi.cn");
+            Assertions.assertTrue(AzureProperties.guessIsMe(origProps));
+        } finally {
+            Config.force_azure_blob_global_endpoint = originalConfig;
+        }
+    }
+
+    @Test
+    public void testGuessIsMeChinaEndpointWhenForceGlobalEndpoint() {
+        boolean originalConfig = Config.force_azure_blob_global_endpoint;
+        try {
+            Config.force_azure_blob_global_endpoint = true;
+            origProps.put("s3.endpoint", "https://mystorageaccount.blob.core.chinacloudapi.cn");
+            Assertions.assertFalse(AzureProperties.guessIsMe(origProps));
+            origProps.put("provider", "azure");
+            Assertions.assertTrue(AzureProperties.guessIsMe(origProps));
+        } finally {
+            Config.force_azure_blob_global_endpoint = originalConfig;
+        }
+    }
+
+    @Test
+    public void testFormatAzureEndpointHonorsForceGlobalEndpointConfig() {
+        boolean originalConfig = Config.force_azure_blob_global_endpoint;
+        try {
+            Config.force_azure_blob_global_endpoint = false;
+            Assertions.assertEquals("https://mystorageaccount.blob.core.chinacloudapi.cn",
+                    AzureProperties.formatAzureEndpoint("mystorageaccount.blob.core.chinacloudapi.cn",
+                            "mystorageaccount"));
+
+            Config.force_azure_blob_global_endpoint = true;
+            Assertions.assertEquals("https://mystorageaccount.blob.core.windows.net",
+                    AzureProperties.formatAzureEndpoint("mystorageaccount.blob.core.chinacloudapi.cn",
+                            "mystorageaccount"));
+        } finally {
+            Config.force_azure_blob_global_endpoint = originalConfig;
+        }
+    }
+
+    @Test
+    public void testHadoopStorageConfigContainsChinaCloudAccountKeys() throws UserException {
+        origProps.put("s3.endpoint", "https://mystorageaccount.blob.core.chinacloudapi.cn");
+        origProps.put("s3.access_key", "myAzureAccessKey");
+        origProps.put("s3.secret_key", "myAzureSecretKey");
+        origProps.put("provider", "azure");
+
+        AzureProperties azureProperties = (AzureProperties) StorageProperties.createPrimary(origProps);
+        Configuration hadoopStorageConfig = azureProperties.getHadoopStorageConfig();
+        Assertions.assertEquals("myAzureSecretKey",
+                hadoopStorageConfig.get("fs.azure.account.key.myAzureAccessKey.blob.core.chinacloudapi.cn"));
+        Assertions.assertEquals("myAzureSecretKey",
+                hadoopStorageConfig.get("fs.azure.account.key.myAzureAccessKey.dfs.core.chinacloudapi.cn"));
+    }
+
+    @Test
+    public void testHadoopStorageConfigContainsCustomAccountKeyEndpointsFromConfig() throws UserException {
+        String[] originalAzureBlobHostSuffixes = Config.azure_blob_host_suffixes;
+        try {
+            Config.azure_blob_host_suffixes = new String[] {"blob.custom.test", ".dfs.custom.test", " "};
+            origProps.put("s3.endpoint", "https://mystorageaccount.blob.custom.test");
+            origProps.put("s3.access_key", "myAzureAccessKey");
+            origProps.put("s3.secret_key", "myAzureSecretKey");
+            origProps.put("provider", "azure");
+
+            AzureProperties azureProperties = (AzureProperties) StorageProperties.createPrimary(origProps);
+            Configuration hadoopStorageConfig = azureProperties.getHadoopStorageConfig();
+            Assertions.assertEquals("myAzureSecretKey",
+                    hadoopStorageConfig.get("fs.azure.account.key.myAzureAccessKey.blob.custom.test"));
+            Assertions.assertEquals("myAzureSecretKey",
+                    hadoopStorageConfig.get("fs.azure.account.key.myAzureAccessKey.dfs.custom.test"));
+            Assertions.assertNull(
+                    hadoopStorageConfig.get("fs.azure.account.key.myAzureAccessKey.blob.core.windows.net"));
+        } finally {
+            Config.azure_blob_host_suffixes = originalAzureBlobHostSuffixes;
+        }
     }
 }
