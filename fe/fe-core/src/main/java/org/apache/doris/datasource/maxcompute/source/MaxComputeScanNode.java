@@ -335,18 +335,36 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         Set<String> partitionColumns =
                 table.getPartitionColumns().stream().map(Column::getName).collect(Collectors.toSet());
         for (Expr expr : conjuncts) {
-            if (!(expr instanceof BinaryPredicate)) {
-                return false;
-            }
-            BinaryPredicate bp = (BinaryPredicate) expr;
-            if (bp.getOp() != BinaryPredicate.Operator.EQ) {
-                return false;
-            }
-            if (!(bp.getChild(0) instanceof SlotRef) || !(bp.getChild(1) instanceof LiteralExpr)) {
-                return false;
-            }
-            String colName = ((SlotRef) bp.getChild(0)).getColumnName();
-            if (!partitionColumns.contains(colName)) {
+            if (expr instanceof BinaryPredicate) {
+                BinaryPredicate bp = (BinaryPredicate) expr;
+                if (bp.getOp() != BinaryPredicate.Operator.EQ) {
+                    return false;
+                }
+                if (!(bp.getChild(0) instanceof SlotRef) || !(bp.getChild(1) instanceof LiteralExpr)) {
+                    return false;
+                }
+                String colName = ((SlotRef) bp.getChild(0)).getColumnName();
+                if (!partitionColumns.contains(colName)) {
+                    return false;
+                }
+            } else if (expr instanceof InPredicate) {
+                InPredicate inPredicate = (InPredicate) expr;
+                if (inPredicate.isNotIn()) {
+                    return false;
+                }
+                if (!(inPredicate.getChild(0) instanceof SlotRef)) {
+                    return false;
+                }
+                String colName = ((SlotRef) inPredicate.getChild(0)).getColumnName();
+                if (!partitionColumns.contains(colName)) {
+                    return false;
+                }
+                for (int i = 1; i < inPredicate.getChildren().size(); i++) {
+                    if (!(inPredicate.getChild(i) instanceof LiteralExpr)) {
+                        return false;
+                    }
+                }
+            } else {
                 return false;
             }
         }

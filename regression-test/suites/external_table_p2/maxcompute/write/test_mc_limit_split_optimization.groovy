@@ -26,6 +26,7 @@ suite("test_mc_limit_split_optimization", "p2,external,maxcompute,external_remot
     String sk = context.config.otherConfigs.get("sk")
     String mc_catalog_name = "test_mc_limit_split_opt"
     String defaultProject = "mc_doris_test_write"
+    // String defaultProject = "doris_test_schema"
 
     sql """drop catalog if exists ${mc_catalog_name}"""
     sql """
@@ -149,9 +150,17 @@ suite("test_mc_limit_split_optimization", "p2,external,maxcompute,external_remot
         compareWithAndWithoutOpt("case7_range_pred_limit",
             "SELECT * FROM ${tb} WHERE pt > '3' ORDER BY id LIMIT 10")
 
-        // --- Case 8: partition IN predicate + LIMIT (IN is not EQ → no opt) ---
+        // --- Case 8: partition IN predicate + LIMIT (optimization should kick in) ---
         compareWithAndWithoutOpt("case8_in_pred_limit",
             "SELECT * FROM ${tb} WHERE pt IN ('1', '2', '3') ORDER BY id LIMIT 10")
+
+        // --- Case 8b: partition NOT IN predicate + LIMIT (no opt) ---
+        compareWithAndWithoutOpt("case8b_not_in_pred_limit",
+            "SELECT * FROM ${tb} WHERE pt NOT IN ('1', '2') ORDER BY id LIMIT 10")
+
+        // --- Case 8c: partition IN + partition EQ mixed + LIMIT (opt eligible) ---
+        compareWithAndWithoutOpt("case8c_in_and_eq_limit",
+            "SELECT * FROM ${tb2} WHERE dt IN ('2026-01-01', '2026-01-02') AND region = 'r1' ORDER BY id LIMIT 5")
 
         // --- Case 9: partition equality + no LIMIT (no opt) ---
         compareWithAndWithoutOpt("case9_part_eq_no_limit",

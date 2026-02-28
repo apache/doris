@@ -168,12 +168,53 @@ public class MaxComputeScanNodeTest {
     }
 
     @Test
-    public void testCheckOnlyPartEq_inPredicate() throws Exception {
+    public void testCheckOnlyPartEq_inPredicateOnPartitionColumn() throws Exception {
         SlotRef dtSlot = new SlotRef(null, "dt");
         List<Expr> inList = Lists.newArrayList(new StringLiteral("a"), new StringLiteral("b"));
         InPredicate inPred = new InPredicate(dtSlot, inList, false);
         setConjuncts(node, Lists.newArrayList(inPred));
+        Assert.assertTrue(invokeCheckOnlyPartitionEqualityPredicate(node));
+    }
+
+    @Test
+    public void testCheckOnlyPartEq_notInPredicate() throws Exception {
+        SlotRef dtSlot = new SlotRef(null, "dt");
+        List<Expr> inList = Lists.newArrayList(new StringLiteral("a"), new StringLiteral("b"));
+        InPredicate notInPred = new InPredicate(dtSlot, inList, true);
+        setConjuncts(node, Lists.newArrayList(notInPred));
         Assert.assertFalse(invokeCheckOnlyPartitionEqualityPredicate(node));
+    }
+
+    @Test
+    public void testCheckOnlyPartEq_inPredicateOnNonPartitionColumn() throws Exception {
+        SlotRef statusSlot = new SlotRef(null, "status");
+        List<Expr> inList = Lists.newArrayList(new StringLiteral("a"), new StringLiteral("b"));
+        InPredicate inPred = new InPredicate(statusSlot, inList, false);
+        setConjuncts(node, Lists.newArrayList(inPred));
+        Assert.assertFalse(invokeCheckOnlyPartitionEqualityPredicate(node));
+    }
+
+    @Test
+    public void testCheckOnlyPartEq_inPredicateWithNonLiteralValue() throws Exception {
+        SlotRef dtSlot = new SlotRef(null, "dt");
+        SlotRef hrSlot = new SlotRef(null, "hr");
+        List<Expr> inList = Lists.newArrayList(hrSlot);
+        InPredicate inPred = new InPredicate(dtSlot, inList, false);
+        setConjuncts(node, Lists.newArrayList(inPred));
+        Assert.assertFalse(invokeCheckOnlyPartitionEqualityPredicate(node));
+    }
+
+    @Test
+    public void testCheckOnlyPartEq_mixedEqAndInOnPartitionColumns() throws Exception {
+        SlotRef dtSlot = new SlotRef(null, "dt");
+        BinaryPredicate eq = new BinaryPredicate(BinaryPredicate.Operator.EQ, dtSlot, new StringLiteral("2026-01-01"));
+
+        SlotRef hrSlot = new SlotRef(null, "hr");
+        List<Expr> inList = Lists.newArrayList(new StringLiteral("10"), new StringLiteral("11"));
+        InPredicate inPred = new InPredicate(hrSlot, inList, false);
+
+        setConjuncts(node, Lists.newArrayList(eq, inPred));
+        Assert.assertTrue(invokeCheckOnlyPartitionEqualityPredicate(node));
     }
 
     @Test
