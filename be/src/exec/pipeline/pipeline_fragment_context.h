@@ -158,6 +158,8 @@ public:
     std::string get_load_error_url();
     std::string get_first_error_msg();
 
+    std::mutex& get_task_mutex() { return _task_mutex; }
+
     Status wait_close(bool close);
     Status rebuild(ThreadPool* thread_pool);
     Status set_to_rerun();
