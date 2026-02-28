@@ -726,7 +726,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
         HMSExternalTable hmsTable = (HMSExternalTable) table;
         Env.getCurrentEnv().getExtMetaCacheMgr().addPartitionsCache(catalog.getId(), hmsTable, partitionNames);
-        hmsTable.setEventUpdateTime(updateTime);
+        hmsTable.setUpdateTime(updateTime);
     }
 
     public void dropExternalPartitions(String catalogName, String dbName, String tableName,
@@ -757,7 +757,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
         HMSExternalTable hmsTable = (HMSExternalTable) table;
         Env.getCurrentEnv().getExtMetaCacheMgr().dropPartitionsCache(catalog.getId(), hmsTable, partitionNames);
-        hmsTable.setEventUpdateTime(updateTime);
+        hmsTable.setUpdateTime(updateTime);
     }
 
     public void registerCatalogRefreshListener(Env env) {

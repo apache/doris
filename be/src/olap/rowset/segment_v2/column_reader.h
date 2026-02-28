@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <sys/types.h>
 
@@ -57,17 +58,19 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 class BlockCompressionCodec;
-class WrapperField;
 class AndBlockColumnPredicate;
 class ColumnPredicate;
 class TabletIndex;
 class StorageReadOptions;
+struct ZoneMapInfo;
 
 namespace io {
 class FileReader;
 } // namespace io
 struct Slice;
 struct StringRef;
+
+using TColumnAccessPaths = std::vector<TColumnAccessPath>;
 
 namespace segment_v2 {
 class EncodingInfo;
@@ -190,10 +193,10 @@ public:
     // get row ranges with zone map
     // - cond_column is user's query predicate
     // - delete_condition is a delete predicate of one version
-    Status get_row_ranges_by_zone_map(const AndBlockColumnPredicate* col_predicates,
-                                      const std::vector<const ColumnPredicate*>* delete_predicates,
-                                      RowRanges* row_ranges,
-                                      const ColumnIteratorOptions& iter_opts);
+    Status get_row_ranges_by_zone_map(
+            const AndBlockColumnPredicate* col_predicates,
+            const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
+            RowRanges* row_ranges, const ColumnIteratorOptions& iter_opts);
 
     // get row ranges with bloom filter index
     Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
@@ -204,7 +207,7 @@ public:
 
     bool is_empty() const { return _num_rows == 0; }
 
-    Status prune_predicates_by_zone_map(std::vector<ColumnPredicate*>& predicates,
+    Status prune_predicates_by_zone_map(std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                         const int column_id, bool* pruned) const;
 
     CompressionTypePB get_compression() const { return _meta_compression; }
@@ -249,25 +252,19 @@ private:
     [[nodiscard]] Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory,
                                                   const ColumnIteratorOptions& iter_opts);
 
-    bool _zone_map_match_condition(const ZoneMapPB& zone_map, WrapperField* min_value_container,
-                                   WrapperField* max_value_container,
+    bool _zone_map_match_condition(const ZoneMapPB& zone_map, const ZoneMapInfo& zone_map_info,
                                    const AndBlockColumnPredicate* col_predicates) const;
 
-    Status _parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
-                           WrapperField* max_value_container) const;
+    Status _parse_zone_map(const ZoneMapPB& zone_map, ZoneMapInfo& zone_map_info) const;
 
-    Status _parse_zone_map_skip_null(const ZoneMapPB& zone_map, WrapperField* min_value_container,
-                                     WrapperField* max_value_container) const;
-
-    Status _get_filtered_pages(const AndBlockColumnPredicate* col_predicates,
-                               const std::vector<const ColumnPredicate*>* delete_predicates,
-                               std::vector<uint32_t>* page_indexes,
-                               const ColumnIteratorOptions& iter_opts);
+    Status _get_filtered_pages(
+            const AndBlockColumnPredicate* col_predicates,
+            const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
+            std::vector<uint32_t>* page_indexes, const ColumnIteratorOptions& iter_opts);
 
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges,
                                  const ColumnIteratorOptions& iter_opts);
 
-private:
     int64_t _meta_length;
     FieldType _meta_type;
     FieldType _meta_children_column_type;
@@ -347,7 +344,8 @@ public:
 
     virtual Status get_row_ranges_by_zone_map(
             const AndBlockColumnPredicate* col_predicates,
-            const std::vector<const ColumnPredicate*>* delete_predicates, RowRanges* row_ranges) {
+            const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
+            RowRanges* row_ranges) {
         return Status::OK();
     }
 
@@ -363,8 +361,54 @@ public:
 
     virtual bool is_all_dict_encoding() const { return false; }
 
+    virtual Status set_access_paths(const TColumnAccessPaths& all_access_paths,
+                                    const TColumnAccessPaths& predicate_access_paths) {
+        if (!predicate_access_paths.empty()) {
+            _reading_flag = ReadingFlag::READING_FOR_PREDICATE;
+        }
+        return Status::OK();
+    }
+
+    void set_column_name(const std::string& column_name) { _column_name = column_name; }
+
+    const std::string& column_name() const { return _column_name; }
+
+    // Since there may be multiple paths with conflicts or overlaps,
+    // we need to define several reading flags:
+    //
+    // NORMAL_READING — Default value, indicating that the column should be read.
+    // SKIP_READING — The column should not be read.
+    // NEED_TO_READ — The column must be read.
+    // READING_FOR_PREDICATE — The column is required for predicate evaluation.
+    //
+    // For example, suppose there are two paths:
+    // - Path 1 specifies that column A needs to be read, so it is marked as NEED_TO_READ.
+    // - Path 2 specifies that the column should not be read, but since it is already marked as NEED_TO_READ,
+    //   it should not be changed to SKIP_READING.
+    enum class ReadingFlag : int {
+        NORMAL_READING,
+        SKIP_READING,
+        NEED_TO_READ,
+        READING_FOR_PREDICATE
+    };
+    void set_reading_flag(ReadingFlag flag) {
+        if (static_cast<int>(flag) > static_cast<int>(_reading_flag)) {
+            _reading_flag = flag;
+        }
+    }
+
+    ReadingFlag reading_flag() const { return _reading_flag; }
+
+    virtual void set_need_to_read() { set_reading_flag(ReadingFlag::NEED_TO_READ); }
+
+    virtual void remove_pruned_sub_iterators() {};
+
 protected:
+    Result<TColumnAccessPaths> _get_sub_access_paths(const TColumnAccessPaths& access_paths);
     ColumnIteratorOptions _opts;
+
+    ReadingFlag _reading_flag {ReadingFlag::NORMAL_READING};
+    std::string _column_name;
 };
 
 // This iterator is used to read column data from file
@@ -392,9 +436,10 @@ public:
     // get row ranges by zone map
     // - cond_column is user's query predicate
     // - delete_condition is delete predicate of one version
-    Status get_row_ranges_by_zone_map(const AndBlockColumnPredicate* col_predicates,
-                                      const std::vector<const ColumnPredicate*>* delete_predicates,
-                                      RowRanges* row_ranges) override;
+    Status get_row_ranges_by_zone_map(
+            const AndBlockColumnPredicate* col_predicates,
+            const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
+            RowRanges* row_ranges) override;
 
     Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
                                           RowRanges* row_ranges) override;
@@ -473,8 +518,15 @@ public:
     Status _calculate_offsets(ssize_t start,
                               vectorized::ColumnArray::ColumnOffsets& column_offsets);
 
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override {
+        return _offset_iterator->read_by_rowids(rowids, count, dst);
+    }
+
 private:
     std::unique_ptr<FileColumnIterator> _offset_iterator;
+    // reuse a tiny column for peek to avoid frequent allocations
+    vectorized::MutableColumnPtr _peek_tmp_col;
 };
 
 // This iterator is used to read map value column
@@ -500,6 +552,13 @@ public:
     ordinal_t get_current_ordinal() const override {
         return _offsets_iterator->get_current_ordinal();
     }
+
+    Status set_access_paths(const TColumnAccessPaths& all_access_paths,
+                            const TColumnAccessPaths& predicate_access_paths) override;
+
+    void set_need_to_read() override;
+
+    void remove_pruned_sub_iterators() override;
 
 private:
     std::shared_ptr<ColumnReader> _map_reader = nullptr;
@@ -530,6 +589,13 @@ public:
         return _sub_column_iterators[0]->get_current_ordinal();
     }
 
+    Status set_access_paths(const TColumnAccessPaths& all_access_paths,
+                            const TColumnAccessPaths& predicate_access_paths) override;
+
+    void set_need_to_read() override;
+
+    void remove_pruned_sub_iterators() override;
+
 private:
     std::shared_ptr<ColumnReader> _struct_reader = nullptr;
     ColumnIteratorUPtr _null_iterator;
@@ -557,6 +623,12 @@ public:
     ordinal_t get_current_ordinal() const override {
         return _offset_iterator->get_current_ordinal();
     }
+
+    Status set_access_paths(const TColumnAccessPaths& all_access_paths,
+                            const TColumnAccessPaths& predicate_access_paths) override;
+    void set_need_to_read() override;
+
+    void remove_pruned_sub_iterators() override;
 
 private:
     std::shared_ptr<ColumnReader> _array_reader = nullptr;
@@ -646,15 +718,15 @@ private:
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
     DefaultValueColumnIterator(bool has_default_value, const std::string& default_value,
-                               bool is_nullable, TypeInfoPtr type_info, int precision, int scale)
+                               bool is_nullable, TypeInfoPtr type_info, int precision, int scale,
+                               int len)
             : _has_default_value(has_default_value),
               _default_value(default_value),
               _is_nullable(is_nullable),
               _type_info(std::move(type_info)),
-              _is_default_value_null(false),
-              _type_size(0),
               _precision(precision),
-              _scale(scale) {}
+              _scale(scale),
+              _len(len) {}
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -679,9 +751,6 @@ public:
 
     ordinal_t get_current_ordinal() const override { return _current_rowid; }
 
-    static void insert_default_data(const TypeInfo* type_info, size_t type_size, void* mem_value,
-                                    vectorized::MutableColumnPtr& dst, size_t n);
-
 private:
     void _insert_many_default(vectorized::MutableColumnPtr& dst, size_t n);
 
@@ -689,11 +758,10 @@ private:
     std::string _default_value;
     bool _is_nullable;
     TypeInfoPtr _type_info;
-    bool _is_default_value_null;
-    size_t _type_size;
     int _precision;
     int _scale;
-    std::vector<char> _mem_value;
+    const int _len;
+    vectorized::Field _default_value_field;
 
     // current rowid
     ordinal_t _current_rowid = 0;

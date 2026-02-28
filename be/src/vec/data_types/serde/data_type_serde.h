@@ -209,6 +209,12 @@ public:
 
         const cctz::time_zone* timezone = nullptr;
 
+        /**
+         * Ignore scale when converting decimal to string, because decimal in zone map is stored in
+         * unscaled value.
+         */
+        bool ignore_scale = false;
+
         [[nodiscard]] char get_collection_delimiter(
                 int hive_text_complex_type_delimiter_level) const {
             CHECK(0 <= hive_text_complex_type_delimiter_level &&
@@ -251,6 +257,21 @@ public:
         }
     };
 
+    static FormatOptions get_default_format_options() {
+        FormatOptions options;
+        // eg:
+        //  array: ["abc", "def", "", null]
+        //  map: {"k1":null, "k2":"v3"}
+        options.nested_string_wrapper = "\"";
+        options.wrapper_len = 1;
+        options.map_key_delim = ':';
+        options.null_format = "null";
+        options.null_len = 4;
+        options.mysql_collection_delim = ", ";
+        options.is_bool_value_num = true;
+        return options;
+    }
+
     // only used for orc file format.
     // Buffer used by date/datetime/datev2/datetimev2/largeint type
     // date/datetime/datev2/datetimev2/largeint type will be converted to string bytes to store in Buffer
@@ -273,9 +294,11 @@ public:
 
     Status default_from_string(StringRef& str, IColumn& column) const;
 
-    virtual void to_string_batch(const IColumn& column, ColumnString& column_to) const;
+    virtual void to_string_batch(const IColumn& column, ColumnString& column_to,
+                                 const FormatOptions& options) const;
 
-    virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const;
+    virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                           const FormatOptions& options) const;
 
     // All types can override this function
     // When this function is called, column should be of the corresponding type
@@ -297,6 +320,12 @@ public:
     virtual Status from_string_batch(const ColumnString& str, ColumnNullable& column,
                                      const FormatOptions& options) const {
         return Status::NotSupported("from_string is not supported");
+    }
+    // Convert string which is read from OLAP table to corresponding type.
+    // Only used for basic data types, such as Ip, Date, Number, etc.
+    virtual Status from_olap_string(const std::string& str, Field& field,
+                                    const FormatOptions& options) const {
+        return Status::NotSupported("from_olap_string is not supported");
     }
 
     // For strict mode, we should not have nullable columns, as we will directly report errors when string conversion fails instead of handling them
@@ -409,21 +438,21 @@ public:
 
     // JSONB serializer and deserializer, should write col_id
     virtual void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                         Arena& mem_pool, int32_t col_id,
-                                         int64_t row_num) const = 0;
+                                         Arena& mem_pool, int32_t col_id, int64_t row_num,
+                                         const FormatOptions& options) const = 0;
 
     virtual void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const = 0;
 
     // return true if output as string
     // return false if output null
     virtual bool write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,
-                                            int64_t row_idx) const;
+                                            int64_t row_idx, const FormatOptions& options) const;
 
     virtual bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
-                                             int64_t row_idx) const;
+                                             int64_t row_idx, const FormatOptions& options) const;
 
     virtual bool write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
-                                           int64_t row_idx) const;
+                                           int64_t row_idx, const FormatOptions& options) const;
 
     virtual Status write_column_to_mysql_binary(const IColumn& column,
                                                 MysqlRowBinaryBuffer& row_buffer, int64_t row_idx,
@@ -445,7 +474,8 @@ public:
     virtual Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                        const NullMap* null_map,
                                        orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                       int64_t end, vectorized::Arena& arena) const = 0;
+                                       int64_t end, vectorized::Arena& arena,
+                                       const FormatOptions& options) const = 0;
     // ORC deserializer
 
     virtual void set_return_object_as_string(bool value) { _return_object_as_string = value; }

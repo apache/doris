@@ -60,6 +60,7 @@ struct ColumnChunkReaderStatistics {
     int64_t decode_level_time = 0;
     int64_t skip_page_header_num = 0;
     int64_t parse_page_header_num = 0;
+    int64_t read_page_header_time = 0;
 };
 
 /**
@@ -146,11 +147,15 @@ public:
     // Get page decoder
     Decoder* get_page_decoder() { return _page_decoder; }
 
-    ColumnChunkReaderStatistics& statistics() {
-        _statistics.decode_header_time = _page_reader->statistics().decode_header_time;
-        _statistics.skip_page_header_num = _page_reader->statistics().skip_page_header_num;
-        _statistics.parse_page_header_num = _page_reader->statistics().parse_page_header_num;
-        return _statistics;
+    ColumnChunkReaderStatistics& chunk_statistics() {
+        _chunk_statistics.decode_header_time = _page_reader->page_statistics().decode_header_time;
+        _chunk_statistics.skip_page_header_num =
+                _page_reader->page_statistics().skip_page_header_num;
+        _chunk_statistics.parse_page_header_num =
+                _page_reader->page_statistics().parse_page_header_num;
+        _chunk_statistics.read_page_header_time =
+                _page_reader->page_statistics().read_page_header_time;
+        return _chunk_statistics;
     }
 
     Status read_dict_values_to_column(MutableColumnPtr& doris_column) {
@@ -201,6 +206,19 @@ private:
     void _get_uncompressed_levels(const tparquet::DataPageHeaderV2& page_v2, Slice& page_data);
     Status _skip_nested_rows_in_page(size_t num_rows);
 
+    level_t _rep_level_get_next() {
+        if constexpr (IN_COLLECTION) {
+            return _rep_level_decoder.get_next();
+        }
+        return 0;
+    }
+
+    void _rep_level_rewind_one() {
+        if constexpr (IN_COLLECTION) {
+            _rep_level_decoder.rewind_one();
+        }
+    }
+
     ColumnChunkReaderState _state = NOT_INIT;
     FieldSchema* _field_schema = nullptr;
     const level_t _max_rep_level;
@@ -238,7 +256,7 @@ private:
     // Map: encoding -> Decoder
     // Plain or Dictionary encoding. If the dictionary grows too big, the encoding will fall back to the plain encoding
     std::unordered_map<int, std::unique_ptr<Decoder>> _decoders;
-    ColumnChunkReaderStatistics _statistics;
+    ColumnChunkReaderStatistics _chunk_statistics;
 };
 #include "common/compile_check_end.h"
 

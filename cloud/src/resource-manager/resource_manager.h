@@ -218,6 +218,10 @@ public:
 
     virtual bool is_version_write_enabled(std::string_view instance_id) const;
 
+    virtual bool get_source_snapshot_info(const std::string& instance_id,
+                                          std::string* source_instance_id,
+                                          Versionstamp* source_snapshot_version);
+
     std::pair<MetaServiceCode, std::string> validate_sub_clusters(
             const std::vector<std::string>& check_clusters,
             const std::vector<ClusterPB>& clusters_in_instance);
@@ -233,6 +237,10 @@ private:
 
     // instance_id -> MultiVersionStatus
     std::unordered_map<std::string, MultiVersionStatus> instance_multi_version_status_;
+
+    // instance_id -> (source_instance_id, source_snapshot_version)
+    std::unordered_map<std::string, std::pair<std::string, Versionstamp>>
+            instance_source_snapshot_info_;
 
     std::shared_ptr<TxnKv> txn_kv_;
 };

@@ -103,6 +103,9 @@ public:
     // returns 0 when versioning is on, otherwise versioning is off or check failed
     virtual ObjectStorageResponse check_versioning(const std::string& bucket) = 0;
 
+    virtual ObjectStorageResponse abort_multipart_upload(ObjectStoragePathRef path,
+                                                         const std::string& upload_id) = 0;
+
 protected:
     ObjectStorageResponse delete_objects_recursively_(ObjectStoragePathRef path,
                                                       const ObjClientOptions& option,

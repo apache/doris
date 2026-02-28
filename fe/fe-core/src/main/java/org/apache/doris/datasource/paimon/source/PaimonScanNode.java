@@ -28,12 +28,13 @@ import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
-import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.credentials.CredentialUtils;
 import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonUtil;
+import org.apache.doris.datasource.paimon.profile.PaimonMetricRegistry;
+import org.apache.doris.datasource.paimon.profile.PaimonScanMetricsReporter;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
@@ -56,8 +57,10 @@ import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
+import org.apache.paimon.table.source.InnerTableScan;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
+import org.apache.paimon.table.source.TableScan;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -203,7 +206,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             TableSchema tableSchema = Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache()
                     .getPaimonSchemaCacheValue(table.getOrBuildNameMapping(), schemaId).getTableSchema();
             params.addToHistorySchemaInfo(
-                    PaimonUtil.getSchemaInfo(tableSchema, source.getCatalog().getEnableMappingVarbinary()));
+                    PaimonUtil.getSchemaInfo(tableSchema, source.getCatalog().getEnableMappingVarbinary(),
+                            source.getCatalog().getEnableMappingTimestampTz()));
         }
     }
 
@@ -272,6 +276,28 @@ public class PaimonScanNode extends FileQueryScanNode {
     }
 
     @Override
+    protected List<String> getDeleteFiles(TFileRangeDesc rangeDesc) {
+        List<String> deleteFiles = new ArrayList<>();
+        if (rangeDesc == null || !rangeDesc.isSetTableFormatParams()) {
+            return deleteFiles;
+        }
+        TTableFormatFileDesc tableFormatParams = rangeDesc.getTableFormatParams();
+        if (tableFormatParams == null || !tableFormatParams.isSetPaimonParams()) {
+            return deleteFiles;
+        }
+        TPaimonFileDesc paimonParams = tableFormatParams.getPaimonParams();
+        if (paimonParams == null || !paimonParams.isSetDeletionFile()) {
+            return deleteFiles;
+        }
+        TPaimonDeletionFileDesc deletionFile = paimonParams.getDeletionFile();
+        if (deletionFile != null && deletionFile.isSetPath()) {
+            // Format: path [offset: offset, length: length]
+            deleteFiles.add(deletionFile.getPath());
+        }
+        return deleteFiles;
+    }
+
+    @Override
     public List<Split> getSplits(int numBackends) throws UserException {
         boolean forceJniScanner = sessionVariable.isForceJniScanner();
         SessionVariable.IgnoreSplitType ignoreSplitType = SessionVariable.IgnoreSplitType
@@ -295,7 +321,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         // And for counting the number of selected partitions for this paimon table.
         Map<BinaryRow, Map<String, String>> partitionInfoMaps = new HashMap<>();
         // if applyCountPushdown is true, we can't split the DataSplit
-        long realFileSplitSize = getRealFileSplitSize(applyCountPushdown ? Long.MAX_VALUE : 0);
+        boolean hasDeterminedTargetFileSplitSize = false;
+        long targetFileSplitSize = 0;
         for (DataSplit dataSplit : dataSplits) {
             SplitStat splitStat = new SplitStat();
             splitStat.setRowCount(dataSplit.rowCount());
@@ -327,6 +354,10 @@ public class PaimonScanNode extends FileQueryScanNode {
                 if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_NATIVE) {
                     continue;
                 }
+                if (!hasDeterminedTargetFileSplitSize) {
+                    targetFileSplitSize = determineTargetFileSplitSize(dataSplits, isBatchMode());
+                    hasDeterminedTargetFileSplitSize = true;
+                }
                 splitStat.setType(SplitReadType.NATIVE);
                 splitStat.setRawFileConvertable(true);
                 List<RawFile> rawFiles = optRawFiles.get();
@@ -334,13 +365,13 @@ public class PaimonScanNode extends FileQueryScanNode {
                     RawFile file = rawFiles.get(i);
                     LocationPath locationPath = LocationPath.of(file.path(), storagePropertiesMap);
                     try {
-                        List<Split> dorisSplits = FileSplitter.splitFile(
+                        List<Split> dorisSplits = fileSplitter.splitFile(
                                 locationPath,
-                                realFileSplitSize,
+                                targetFileSplitSize,
                                 null,
                                 file.length(),
                                 -1,
-                                true,
+                                !applyCountPushdown,
                                 null,
                                 PaimonSplit.PaimonSplitCreator.DEFAULT);
                         for (Split dorisSplit : dorisSplits) {
@@ -385,10 +416,43 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         // We need to set the target size for all splits so that we can calculate the
         // proportion of each split later.
-        splits.forEach(s -> s.setTargetSplitSize(realFileSplitSize));
+        splits.forEach(s -> s.setTargetSplitSize(sessionVariable.getFileSplitSize() > 0
+                ? sessionVariable.getFileSplitSize() : sessionVariable.getMaxSplitSize()));
 
         this.selectedPartitionNum = partitionInfoMaps.size();
         return splits;
+    }
+
+    private long determineTargetFileSplitSize(List<DataSplit> dataSplits,
+            boolean isBatchMode) {
+        if (sessionVariable.getFileSplitSize() > 0) {
+            return sessionVariable.getFileSplitSize();
+        }
+        /** Paimon batch split mode will return 0. and <code>FileSplitter</code>
+         *  will determine file split size.
+         */
+        if (isBatchMode) {
+            return 0;
+        }
+        long result = sessionVariable.getMaxInitialSplitSize();
+        long totalFileSize = 0;
+        boolean exceedInitialThreshold = false;
+        for (DataSplit dataSplit : dataSplits) {
+            Optional<List<RawFile>> rawFiles = dataSplit.convertToRawFiles();
+            if (!supportNativeReader(rawFiles)) {
+                continue;
+            }
+            for (RawFile rawFile : rawFiles.get()) {
+                totalFileSize += rawFile.fileSize();
+                if (!exceedInitialThreshold && totalFileSize
+                        >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
+                    exceedInitialThreshold = true;
+                }
+            }
+        }
+        result = exceedInitialThreshold ? sessionVariable.getMaxSplitSize() : result;
+        result = applyMaxFileSplitNumLimit(result, totalFileSize);
+        return result;
     }
 
     @VisibleForTesting
@@ -414,9 +478,19 @@ public class PaimonScanNode extends FileQueryScanNode {
                 .filter(i -> i >= 0)
                 .toArray();
         ReadBuilder readBuilder = paimonTable.newReadBuilder();
-        return readBuilder.withFilter(predicates)
+        TableScan scan = readBuilder.withFilter(predicates)
                 .withProjection(projected)
-                .newScan().plan().splits();
+                .newScan();
+        PaimonMetricRegistry registry = new PaimonMetricRegistry();
+        if (scan instanceof InnerTableScan) {
+            scan = ((InnerTableScan) scan).withMetricsRegistry(registry);
+        }
+        List<org.apache.paimon.table.source.Split> splits = scan.plan().splits();
+        PaimonScanMetricsReporter.report(source.getTargetTable(), paimonTable.name(), registry);
+        if (!registry.getAllGroups().isEmpty()) {
+            registry.clear();
+        }
+        return splits;
     }
 
     private String getFileFormat(String path) {
@@ -700,4 +774,3 @@ public class PaimonScanNode extends FileQueryScanNode {
         return baseTable;
     }
 }
-

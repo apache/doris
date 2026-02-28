@@ -209,7 +209,9 @@ private:
 
     // query id -> QueryContext
     ConcurrentContextMap<TUniqueId, std::weak_ptr<QueryContext>, QueryContext> _query_ctx_map;
-    std::unordered_map<TUniqueId, std::unordered_map<int, int64_t>> _bf_size_map;
+    // keep query ctx do not delete immediately to make rf coordinator merge filter work well after query eos
+    ConcurrentContextMap<TUniqueId, std::shared_ptr<QueryContext>, QueryContext>
+            _query_ctx_map_delay_delete;
 
     CountDownLatch _stop_background_threads_latch;
     std::shared_ptr<Thread> _cancel_thread;

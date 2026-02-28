@@ -120,18 +120,6 @@ public class PartitionRange {
             this.fromCache = false;
             this.tooNew = false;
         }
-
-        public void debug() {
-            if (partition != null) {
-                LOG.info("partition id {}, cacheKey {}, version {}, time {}, fromCache {}, tooNew {} ",
-                        partitionId, cacheKey.realValue(),
-                        partition.getVisibleVersion(), partition.getVisibleVersionTime(),
-                        fromCache, tooNew);
-            } else {
-                LOG.info("partition id {}, cacheKey {}, fromCache {}, tooNew {} ", partitionId,
-                        cacheKey.realValue(), fromCache, tooNew);
-            }
-        }
     }
 
     public enum KeyType {
@@ -183,6 +171,7 @@ public class PartitionRange {
                 case TIMEV2:
                 case DATETIME:
                 case DATETIMEV2:
+                case TIMESTAMPTZ:
                 case FLOAT:
                 case DOUBLE:
                 case DECIMALV2:

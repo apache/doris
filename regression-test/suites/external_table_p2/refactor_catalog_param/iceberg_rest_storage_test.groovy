@@ -432,9 +432,34 @@ suite("iceberg_rest_storage_test", "p2,external,iceberg,external_docker,external
         }
 
         // -------- REST on HDFS --------
+
+        //The Iceberg + HDFS Docker environment has issues in cluster mode.
+        //Therefore, when Doris is running in cluster mode, we can disable this test case for now.
         warehouse = """
          'warehouse' = 'hdfs://${externalEnvIp}:${hdfsPort}${hdfs_parent_path}',
         """
+        def frontendsResult = sql """
+       show frontends
+       """
+        println frontendsResult
+        if (frontendsResult.size() != 1) {
+            println frontendsResult.size()
+            return
+        }
+        def feHost = frontendsResult[0][1];
+        if (!feHost.equalsIgnoreCase(externalEnvIp)) {
+            return
+        }
+        def backendsResult = sql """
+       show backends
+       """
+        if (backendsResult.size() != 1) {
+            return
+        }
+        def beHost = backendsResult[0][1];
+        if (!beHost.equalsIgnoreCase(externalEnvIp)) {
+            return
+        }
         testQueryAndInsert(iceberg_rest_type_prop_hdfs + warehouse + hdfs_storage_properties, "iceberg_rest_on_hdfs")
     }
 }

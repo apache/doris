@@ -52,6 +52,9 @@ public:
 
     ObjectStorageResponse check_versioning(const std::string& bucket) override;
 
+    ObjectStorageResponse abort_multipart_upload(ObjectStoragePathRef path,
+                                                 const std::string& upload_id) override;
+
 private:
     std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> client_;
 };

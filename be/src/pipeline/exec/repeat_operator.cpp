@@ -23,6 +23,7 @@
 #include "pipeline/exec/operator.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -190,13 +191,10 @@ Status RepeatOperatorX::push(RuntimeState* state, vectorized::Block* input_block
         intermediate_block = vectorized::Block::create_unique();
 
         for (auto& expr : expr_ctxs) {
-            int result_column_id = -1;
-            RETURN_IF_ERROR(expr->execute(input_block, &result_column_id));
-            DCHECK(result_column_id != -1);
-            input_block->get_by_position(result_column_id).column =
-                    input_block->get_by_position(result_column_id)
-                            .column->convert_to_full_column_if_const();
-            intermediate_block->insert(input_block->get_by_position(result_column_id));
+            vectorized::ColumnWithTypeAndName result_data;
+            RETURN_IF_ERROR(expr->execute(input_block, result_data));
+            result_data.column = result_data.column->convert_to_full_column_if_const();
+            intermediate_block->insert(result_data);
         }
         DCHECK_EQ(expr_ctxs.size(), intermediate_block->columns());
     }

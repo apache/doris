@@ -23,22 +23,42 @@ package org.apache.doris.common;
 public class NereidsException extends RuntimeException {
 
     private final Exception exception;
+    private final boolean suppressStackTrace;
 
     public NereidsException(Exception cause) {
+        this(cause, false);
+    }
+
+    public NereidsException(Exception cause, boolean suppressStackTrace) {
         this.exception = cause;
+        this.suppressStackTrace = suppressStackTrace;
     }
 
     public NereidsException(String message, Exception cause) {
+        this(message, cause, false);
+    }
+
+    public NereidsException(String message, Exception cause, boolean suppressStackTrace) {
         super(message, cause);
         this.exception = cause;
+        this.suppressStackTrace = suppressStackTrace;
     }
 
     public Exception getException() {
         return exception;
     }
 
+    public boolean isSuppressStackTrace() {
+        return suppressStackTrace;
+    }
+
     @Override
     public String getMessage() {
         return exception.getMessage();
+    }
+
+    @Override
+    public String toString() {
+        return getMessage();
     }
 }

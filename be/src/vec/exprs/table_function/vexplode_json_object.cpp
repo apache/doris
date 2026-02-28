@@ -44,11 +44,9 @@ Status VExplodeJsonObjectTableFunction::process_init(Block* block, RuntimeState*
             << "VExplodeJsonObjectTableFunction only support 1 child but has "
             << _expr_context->root()->children().size();
 
-    int text_column_idx = -1;
-    RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute(_expr_context.get(), block,
-                                                                  &text_column_idx));
+    RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute_column(
+            _expr_context.get(), block, nullptr, block->rows(), _json_object_column));
 
-    _json_object_column = block->get_by_position(text_column_idx).column;
     return Status::OK();
 }
 

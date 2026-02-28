@@ -137,9 +137,13 @@ lru_cache_test
 docker/thirdparties/docker-compose/*/data
 docker/thirdparties/docker-compose/*/logs
 docker/thirdparties/docker-compose/*/*.yaml
+docker/thirdparties/docker-compose/*/*.env
+docker/thirdparties/docker-compose/*/cache/
+docker/thirdparties/docker-compose/*/scripts/SUCCESS
 docker/runtime/be/resource/apache-doris/
 
 # other
 compile_commands.json
 .github
 
+.worktrees/

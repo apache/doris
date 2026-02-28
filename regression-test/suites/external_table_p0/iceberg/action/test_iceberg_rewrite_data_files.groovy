@@ -492,4 +492,5 @@ suite("test_iceberg_rewrite_data_files", "p0,external,doris,external_docker,exte
     assertTrue(northRecords[0][0] == 3, "NORTH region should still have 3 records")
     
     logger.info("Specific partition rewrite test completed successfully")
+
 }

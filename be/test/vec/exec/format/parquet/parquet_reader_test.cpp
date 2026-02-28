@@ -134,8 +134,10 @@ TEST_F(ParquetReaderTest, normal) {
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
     for (int i = 0; i < slot_descs.size(); i++) {
         column_names.push_back(slot_descs[i]->col_name());
+        col_name_to_block_idx[slot_descs[i]->col_name()] = i;
     }
     TFileScanRangeParams scan_params;
     TFileRangeDesc scan_range;
@@ -149,8 +151,9 @@ TEST_F(ParquetReaderTest, normal) {
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
 
-    static_cast<void>(p_reader->init_reader(column_names, nullptr, {}, nullptr, nullptr, nullptr,
-                                            nullptr, nullptr));
+    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
+    static_cast<void>(p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr,
+                                            nullptr, nullptr, nullptr, nullptr));
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
@@ -195,8 +198,10 @@ TEST_F(ParquetReaderTest, uuid_varbinary) {
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
     for (int i = 0; i < slot_descs.size(); i++) {
         column_names.push_back(slot_descs[i]->col_name());
+        col_name_to_block_idx[slot_descs[i]->col_name()] = i;
     }
     TFileScanRangeParams scan_params;
     scan_params.enable_mapping_varbinary = true;
@@ -211,8 +216,9 @@ TEST_F(ParquetReaderTest, uuid_varbinary) {
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
 
-    st = p_reader->init_reader(column_names, nullptr, {}, nullptr, nullptr, nullptr, nullptr,
-                               nullptr);
+    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
+    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
+                               nullptr, nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
@@ -239,9 +245,9 @@ TEST_F(ParquetReaderTest, uuid_varbinary) {
     auto varbinary_column =
             assert_cast<const ColumnVarbinary*>(nullable_column->get_nested_column_ptr().get());
     auto& data = varbinary_column->get_data();
-    EXPECT_EQ(data[0].dump_hex(), "X'550E8400E29B41D4A716446655440000'");
-    EXPECT_EQ(data[1].dump_hex(), "X'123E4567E89B12D3A456426614174000'");
-    EXPECT_EQ(data[2].dump_hex(), "X'00000000000000000000000000000000'");
+    EXPECT_EQ(data[0].dump_hex(), "0x550E8400E29B41D4A716446655440000");
+    EXPECT_EQ(data[1].dump_hex(), "0x123E4567E89B12D3A456426614174000");
+    EXPECT_EQ(data[2].dump_hex(), "0x00000000000000000000000000000000");
 }
 
 TEST_F(ParquetReaderTest, varbinary_varbinary) {
@@ -266,8 +272,10 @@ TEST_F(ParquetReaderTest, varbinary_varbinary) {
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
     for (int i = 0; i < slot_descs.size(); i++) {
         column_names.push_back(slot_descs[i]->col_name());
+        col_name_to_block_idx[slot_descs[i]->col_name()] = i;
     }
     TFileScanRangeParams scan_params;
     scan_params.enable_mapping_varbinary = true;
@@ -282,8 +290,9 @@ TEST_F(ParquetReaderTest, varbinary_varbinary) {
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
 
-    st = p_reader->init_reader(column_names, nullptr, {}, nullptr, nullptr, nullptr, nullptr,
-                               nullptr);
+    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
+    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
+                               nullptr, nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
@@ -310,9 +319,9 @@ TEST_F(ParquetReaderTest, varbinary_varbinary) {
     auto varbinary_column =
             assert_cast<const ColumnVarbinary*>(nullable_column->get_nested_column_ptr().get());
     auto& data = varbinary_column->get_data();
-    EXPECT_EQ(data[0].dump_hex(), "X'0123456789ABCDEF'");
-    EXPECT_EQ(data[1].dump_hex(), "X'FEDCBA9876543210'");
-    EXPECT_EQ(data[2].dump_hex(), "X'00'");
+    EXPECT_EQ(data[0].dump_hex(), "0x0123456789ABCDEF");
+    EXPECT_EQ(data[1].dump_hex(), "0xFEDCBA9876543210");
+    EXPECT_EQ(data[2].dump_hex(), "0x00");
 }
 
 TEST_F(ParquetReaderTest, varbinary_string) {
@@ -337,8 +346,10 @@ TEST_F(ParquetReaderTest, varbinary_string) {
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
     for (int i = 0; i < slot_descs.size(); i++) {
         column_names.push_back(slot_descs[i]->col_name());
+        col_name_to_block_idx[slot_descs[i]->col_name()] = i;
     }
     TFileScanRangeParams scan_params;
     // use string to read parquet column, but dst type is varbinary
@@ -355,8 +366,9 @@ TEST_F(ParquetReaderTest, varbinary_string) {
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
 
-    st = p_reader->init_reader(column_names, nullptr, {}, nullptr, nullptr, nullptr, nullptr,
-                               nullptr);
+    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
+    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
+                               nullptr, nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
@@ -383,9 +395,9 @@ TEST_F(ParquetReaderTest, varbinary_string) {
     auto varbinary_column =
             assert_cast<const ColumnVarbinary*>(nullable_column->get_nested_column_ptr().get());
     auto& data = varbinary_column->get_data();
-    EXPECT_EQ(data[0].dump_hex(), "X'0123456789ABCDEF'");
-    EXPECT_EQ(data[1].dump_hex(), "X'FEDCBA9876543210'");
-    EXPECT_EQ(data[2].dump_hex(), "X'00'");
+    EXPECT_EQ(data[0].dump_hex(), "0x0123456789ABCDEF");
+    EXPECT_EQ(data[1].dump_hex(), "0xFEDCBA9876543210");
+    EXPECT_EQ(data[2].dump_hex(), "0x00");
 }
 
 TEST_F(ParquetReaderTest, varbinary_string2) {
@@ -410,8 +422,10 @@ TEST_F(ParquetReaderTest, varbinary_string2) {
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
     for (int i = 0; i < slot_descs.size(); i++) {
         column_names.push_back(slot_descs[i]->col_name());
+        col_name_to_block_idx[slot_descs[i]->col_name()] = i;
     }
     TFileScanRangeParams scan_params;
     // although want use binary column read, _cached_src_physical_type is string, so use string to read parquet column, but dst type is string
@@ -428,8 +442,9 @@ TEST_F(ParquetReaderTest, varbinary_string2) {
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
 
-    st = p_reader->init_reader(column_names, nullptr, {}, nullptr, nullptr, nullptr, nullptr,
-                               nullptr);
+    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
+    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
+                               nullptr, nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
@@ -455,81 +470,9 @@ TEST_F(ParquetReaderTest, varbinary_string2) {
     auto nullable_column = assert_cast<const ColumnNullable*>(col.get());
     auto string_column =
             assert_cast<const ColumnString*>(nullable_column->get_nested_column_ptr().get());
-    EXPECT_EQ(StringView(string_column->get_data_at(0)).dump_hex(), "X'0123456789ABCDEF'");
-    EXPECT_EQ(StringView(string_column->get_data_at(1)).dump_hex(), "X'FEDCBA9876543210'");
-    EXPECT_EQ(StringView(string_column->get_data_at(2)).dump_hex(), "X'00'");
+    EXPECT_EQ(StringView(string_column->get_data_at(0)).dump_hex(), "0x0123456789ABCDEF");
+    EXPECT_EQ(StringView(string_column->get_data_at(1)).dump_hex(), "0xFEDCBA9876543210");
+    EXPECT_EQ(StringView(string_column->get_data_at(2)).dump_hex(), "0x00");
 }
-
-static ParquetReader* create_parquet_reader(TFileScanRangeParams& scan_params,
-                                            std::vector<std::string> table_column_names,
-                                            std::vector<TPrimitiveType::type> types) {
-    TDescriptorTable t_desc_table;
-    TTableDescriptor t_table_desc;
-
-    create_table_desc(t_desc_table, t_table_desc, table_column_names, types);
-    DescriptorTbl* desc_tbl;
-    ObjectPool obj_pool;
-    static_cast<void>(DescriptorTbl::create(&obj_pool, t_desc_table, &desc_tbl));
-
-    auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
-    auto local_fs = io::global_local_filesystem();
-    io::FileReaderSPtr reader;
-    static_cast<void>(local_fs->open_file(
-            "./be/test/exec/test_data/parquet_scanner/type-decoder.parquet", &reader));
-
-    cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
-    std::vector<std::string> column_names;
-    for (int i = 0; i < slot_descs.size(); i++) {
-        column_names.push_back(slot_descs[i]->col_name());
-    }
-    TFileRangeDesc scan_range;
-    {
-        scan_range.start_offset = 0;
-        scan_range.size = 1000;
-    }
-    auto p_reader =
-            new ParquetReader(nullptr, scan_params, scan_range, 992, &ctz, nullptr, nullptr);
-    p_reader->set_file_reader(reader);
-    return p_reader;
-}
-
-TEST_F(ParquetReaderTest, use_column_name) {
-    std::vector<std::string> table_column_names = {"boolean_col", "tinyint_col", "smallint_col",
-                                                   "int_col",     "bigint_col",  "float_col",
-                                                   "double_col"};
-    std::vector<TPrimitiveType::type> table_column_types = {
-            TPrimitiveType::BOOLEAN, TPrimitiveType::TINYINT, TPrimitiveType::SMALLINT,
-            TPrimitiveType::INT,     TPrimitiveType::BIGINT,  TPrimitiveType::FLOAT,
-            TPrimitiveType::DOUBLE};
-    TFileScanRangeParams scan_params;
-
-    auto p_reader = create_parquet_reader(scan_params, table_column_names, table_column_types);
-    std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
-    colname_to_value_range.emplace("boolean_col", ColumnValueRange<TYPE_BOOLEAN>("boolean_col"));
-    colname_to_value_range.emplace("tinyint_col", ColumnValueRange<TYPE_TINYINT>("tinyint_col"));
-    colname_to_value_range.emplace("smallint_col", ColumnValueRange<TYPE_SMALLINT>("smallint_col"));
-    colname_to_value_range.emplace("int_col", ColumnValueRange<TYPE_INT>("int_col"));
-
-    static_cast<void>(p_reader->init_reader(
-            table_column_names, &colname_to_value_range, {}, nullptr, nullptr, nullptr, nullptr,
-            nullptr, TableSchemaChangeHelper::ConstNode::get_instance(), false));
-
-    std::vector<std::string> read_columns_ans = {"tinyint_col", "smallint_col", "int_col",
-                                                 "bigint_col",  "boolean_col",  "float_col",
-                                                 "double_col"};
-    EXPECT_EQ(p_reader->_read_file_columns, read_columns_ans);
-
-    std::vector<std::string> miss_columns_ans = {};
-    EXPECT_EQ(p_reader->_missing_cols, miss_columns_ans);
-    std::vector<std::string> colname_to_value_range_names_ans = {"tinyint_col", "smallint_col",
-                                                                 "int_col", "boolean_col"};
-    for (auto col : colname_to_value_range_names_ans) {
-        EXPECT_TRUE(p_reader->_colname_to_value_range->contains(col));
-    }
-    EXPECT_EQ(p_reader->_colname_to_value_range->size(), colname_to_value_range_names_ans.size());
-    delete p_reader;
-}
-
 } // namespace vectorized
 } // namespace doris

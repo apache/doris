@@ -1492,7 +1492,8 @@ TEST_F(S3FileWriterTest, test_empty_file) {
     auto index_file_writer = std::make_unique<segment_v2::IndexFileWriter>(
             fs, index_path, rowset_id, seg_id, InvertedIndexStorageFormatPB::V2,
             std::move(file_writer), false);
-    EXPECT_TRUE(index_file_writer->close().ok());
+    EXPECT_TRUE(index_file_writer->begin_close().ok());
+    EXPECT_TRUE(index_file_writer->finish_close().ok());
 }
 
 } // namespace doris

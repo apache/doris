@@ -91,7 +91,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
-import org.apache.doris.nereids.trees.plans.logical.ProjectProcessor;
 import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.StructField;
@@ -353,9 +352,9 @@ public class BindExpression implements AnalysisRuleFactory {
             if (childrenProjections.get(i).stream().allMatch(SlotReference.class::isInstance)) {
                 newChild = child;
             } else {
-                List<NamedExpression> parentProject = childrenProjections.get(i);
-                newChild = ProjectProcessor.tryProcessProject(parentProject, child)
-                        .orElseGet(() -> new LogicalProject<>(parentProject, child));
+                // projects can only be mereged if it's not distinct
+                // so we should merge projects after ProjectWithDistinctToAggregate
+                newChild = new LogicalProject<>(childrenProjections.get(i), child);
             }
             newChildren.add(newChild);
             childrenOutputs.add((List<SlotReference>) (List) newChild.getOutput());

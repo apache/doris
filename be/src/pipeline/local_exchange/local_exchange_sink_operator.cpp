@@ -17,6 +17,8 @@
 
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 
+#include <memory>
+
 #include "pipeline/local_exchange/local_exchanger.h"
 #include "vec/runtime/partitioner.h"
 #include "vec/sink/vdata_stream_sender.h"
@@ -35,8 +37,8 @@ std::vector<Dependency*> LocalExchangeSinkLocalState::dependencies() const {
     return deps;
 }
 
-Status LocalExchangeSinkOperatorX::init(ExchangeType type, const int num_buckets,
-                                        const bool use_global_hash_shuffle,
+Status LocalExchangeSinkOperatorX::init(RuntimeState* state, ExchangeType type,
+                                        const int num_buckets, const bool use_global_hash_shuffle,
                                         const std::map<int, int>& shuffle_idx_to_instance_idx) {
     _name = "LOCAL_EXCHANGE_SINK_OPERATOR(" + get_exchange_type_name(type) + ")";
     _type = type;
@@ -54,13 +56,20 @@ Status LocalExchangeSinkOperatorX::init(ExchangeType type, const int num_buckets
                 _shuffle_idx_to_instance_idx[i] = i;
             }
         }
-        _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
-                _num_partitions));
+        if (state->query_options().__isset.enable_new_shuffle_hash_method &&
+            state->query_options().enable_new_shuffle_hash_method) {
+            _partitioner = std::make_unique<vectorized::Crc32CHashPartitioner>(_num_partitions);
+        } else {
+            _partitioner = std::make_unique<
+                    vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>>(
+                    _num_partitions);
+        }
         RETURN_IF_ERROR(_partitioner->init(_texprs));
     } else if (_type == ExchangeType::BUCKET_HASH_SHUFFLE) {
         DCHECK_GT(num_buckets, 0);
-        _partitioner.reset(
-                new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(num_buckets));
+        _partitioner =
+                std::make_unique<vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>>(
+                        num_buckets);
         RETURN_IF_ERROR(_partitioner->init(_texprs));
     }
     return Status::OK();
@@ -144,11 +153,14 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     if (state->low_memory_mode()) {
         set_low_memory_mode(state);
     }
+    SinkInfo sink_info = {.channel_id = &local_state._channel_id,
+                          .partitioner = local_state._partitioner.get(),
+                          .local_state = &local_state,
+                          .shuffle_idx_to_instance_idx = &_shuffle_idx_to_instance_idx};
     RETURN_IF_ERROR(local_state._exchanger->sink(
             state, in_block, eos,
             {local_state._compute_hash_value_timer, local_state._distribute_timer, nullptr},
-            {&local_state._channel_id, local_state._partitioner.get(), &local_state,
-             &_shuffle_idx_to_instance_idx}));
+            sink_info));
 
     // If all exchange sources ended due to limit reached, current task should also finish
     if (local_state._exchanger->_running_source_operators == 0) {

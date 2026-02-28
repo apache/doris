@@ -32,42 +32,40 @@
 
 namespace doris::vectorized {
 
-inline bool allow_decimal_comparison(const DataTypePtr& left_type, const DataTypePtr& right_type) {
-    if (is_decimal(left_type->get_primitive_type())) {
-        if (is_decimal(right_type->get_primitive_type()) ||
-            is_int_or_bool(right_type->get_primitive_type()))
-            return true;
-    } else if (is_int_or_bool(left_type->get_primitive_type()) &&
-               is_decimal(right_type->get_primitive_type()))
-        return true;
-    return false;
-}
-
 template <size_t>
 struct ConstructDecInt {
     static constexpr PrimitiveType Type = TYPE_INT;
+    using CompareInt = Int32;
 };
 template <>
 struct ConstructDecInt<8> {
     static constexpr PrimitiveType Type = TYPE_BIGINT;
+    using CompareInt = Int64;
 };
 template <>
 struct ConstructDecInt<16> {
     static constexpr PrimitiveType Type = TYPE_LARGEINT;
+    using CompareInt = Int128;
 };
 template <>
 struct ConstructDecInt<32> {
     static constexpr PrimitiveType Type = TYPE_DECIMAL256;
+    using CompareInt = wide::Int256;
 };
 
 template <PrimitiveType T, PrimitiveType U>
 struct DecCompareInt {
     static constexpr PrimitiveType Type =
             ConstructDecInt < (!is_decimal(U) ||
-                               sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType) >
-                                       sizeof(typename PrimitiveTypeTraits<U>::ColumnItemType))
-                    ? sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType)
-                    : sizeof(typename PrimitiveTypeTraits<U>::ColumnItemType) > ::Type;
+                               sizeof(typename PrimitiveTypeTraits<T>::CppType) >
+                                       sizeof(typename PrimitiveTypeTraits<U>::CppType))
+                    ? sizeof(typename PrimitiveTypeTraits<T>::CppType)
+                    : sizeof(typename PrimitiveTypeTraits<U>::CppType) > ::Type;
+    using CompareInt = typename ConstructDecInt<
+            (!is_decimal(U) || sizeof(typename PrimitiveTypeTraits<T>::CppType) >
+                                       sizeof(typename PrimitiveTypeTraits<U>::CppType))
+                    ? sizeof(typename PrimitiveTypeTraits<T>::CppType)
+                    : sizeof(typename PrimitiveTypeTraits<U>::CppType)>::CompareInt;
 };
 
 ///
@@ -76,7 +74,7 @@ template <PrimitiveType A, PrimitiveType B, template <PrimitiveType> typename Op
 class DecimalComparison {
 public:
     static constexpr PrimitiveType CompareIntPType = DecCompareInt<A, B>::Type;
-    using CompareInt = typename PrimitiveTypeTraits<CompareIntPType>::CppNativeType;
+    using CompareInt = typename DecCompareInt<A, B>::CompareInt;
     using Op = Operation<CompareIntPType>;
     using ColVecA = typename PrimitiveTypeTraits<A>::ColumnType;
     using ColVecB = typename PrimitiveTypeTraits<B>::ColumnType;
@@ -108,8 +106,8 @@ public:
         return false;
     }
 
-    static bool compare(typename PrimitiveTypeTraits<A>::ColumnItemType a,
-                        typename PrimitiveTypeTraits<B>::ColumnItemType b, UInt32 scale_a,
+    static bool compare(typename PrimitiveTypeTraits<A>::CppType a,
+                        typename PrimitiveTypeTraits<B>::CppType b, UInt32 scale_a,
                         UInt32 scale_b) {
         static const UInt32 max_scale = max_decimal_precision<TYPE_DECIMAL256>();
         if (scale_a > max_scale || scale_b > max_scale) {
@@ -157,8 +155,8 @@ private:
         Shift shift;
         if (decimal0 && decimal1) {
             constexpr PrimitiveType Type =
-                    sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType) >=
-                                    sizeof(typename PrimitiveTypeTraits<U>::ColumnItemType)
+                    sizeof(typename PrimitiveTypeTraits<T>::CppType) >=
+                                    sizeof(typename PrimitiveTypeTraits<U>::CppType)
                             ? T
                             : U;
             auto type_ptr = decimal_result_type(*decimal0, *decimal1, false, false, false);
@@ -207,10 +205,8 @@ private:
                 const ColumnConst* c0_const = check_and_get_column_const<ColVecA>(c0.get());
                 const ColumnConst* c1_const = check_and_get_column_const<ColVecB>(c1.get());
 
-                typename PrimitiveTypeTraits<A>::ColumnItemType a = c0_const->template get_value<
-                        typename PrimitiveTypeTraits<A>::ColumnItemType>();
-                typename PrimitiveTypeTraits<B>::ColumnItemType b = c1_const->template get_value<
-                        typename PrimitiveTypeTraits<B>::ColumnItemType>();
+                const auto& a = c0_const->template get_value<A>();
+                const auto& b = c1_const->template get_value<B>();
                 UInt8 res = apply<scale_left, scale_right>(a, b, scale);
                 return DataTypeUInt8().create_column_const(c0->size(), to_field<TYPE_BOOLEAN>(res));
             }
@@ -220,8 +216,7 @@ private:
 
             if (c0_is_const) {
                 const ColumnConst* c0_const = check_and_get_column_const<ColVecA>(c0.get());
-                typename PrimitiveTypeTraits<A>::ColumnItemType a = c0_const->template get_value<
-                        typename PrimitiveTypeTraits<A>::ColumnItemType>();
+                const auto& a = c0_const->template get_value<A>();
                 if (const ColVecB* c1_vec = check_and_get_column<ColVecB>(c1.get()))
                     constant_vector<scale_left, scale_right>(a, c1_vec->get_data(), vec_res, scale);
                 else {
@@ -229,8 +224,7 @@ private:
                 }
             } else if (c1_is_const) {
                 const ColumnConst* c1_const = check_and_get_column_const<ColVecB>(c1.get());
-                typename PrimitiveTypeTraits<B>::ColumnItemType b = c1_const->template get_value<
-                        typename PrimitiveTypeTraits<B>::ColumnItemType>();
+                const auto& b = c1_const->template get_value<B>();
                 if (const ColVecA* c0_vec = check_and_get_column<ColVecA>(c0.get()))
                     vector_constant<scale_left, scale_right>(c0_vec->get_data(), b, vec_res, scale);
                 else {
@@ -255,8 +249,8 @@ private:
     }
 
     template <bool scale_left, bool scale_right>
-    static UInt8 apply(typename PrimitiveTypeTraits<A>::ColumnItemType a,
-                       typename PrimitiveTypeTraits<B>::ColumnItemType b,
+    static UInt8 apply(typename PrimitiveTypeTraits<A>::CppType a,
+                       typename PrimitiveTypeTraits<B>::CppType b,
                        CompareInt scale [[maybe_unused]]) {
         CompareInt x = a;
         CompareInt y = b;
@@ -264,15 +258,13 @@ private:
         if constexpr (_check_overflow) {
             bool overflow = false;
 
-            if constexpr (sizeof(typename PrimitiveTypeTraits<A>::ColumnItemType) >
-                          sizeof(CompareInt))
-                overflow |= (typename PrimitiveTypeTraits<A>::ColumnItemType(x) != a);
-            if constexpr (sizeof(typename PrimitiveTypeTraits<B>::ColumnItemType) >
-                          sizeof(CompareInt))
-                overflow |= (typename PrimitiveTypeTraits<B>::ColumnItemType(y) != b);
-            if constexpr (IsUnsignedV<typename PrimitiveTypeTraits<A>::ColumnItemType>)
+            if constexpr (sizeof(typename PrimitiveTypeTraits<A>::CppType) > sizeof(CompareInt))
+                overflow |= (typename PrimitiveTypeTraits<A>::CppType(x) != a);
+            if constexpr (sizeof(typename PrimitiveTypeTraits<B>::CppType) > sizeof(CompareInt))
+                overflow |= (typename PrimitiveTypeTraits<B>::CppType(y) != b);
+            if constexpr (IsUnsignedV<typename PrimitiveTypeTraits<A>::CppType>)
                 overflow |= (x < 0);
-            if constexpr (IsUnsignedV<typename PrimitiveTypeTraits<B>::ColumnItemType>)
+            if constexpr (IsUnsignedV<typename PrimitiveTypeTraits<B>::CppType>)
                 overflow |= (y < 0);
 
             if constexpr (scale_left) overflow |= common::mul_overflow(x, scale, x);
@@ -293,10 +285,10 @@ private:
     static void NO_INLINE vector_vector(const ArrayA& a, const ArrayB& b, PaddedPODArray<UInt8>& c,
                                         CompareInt scale) {
         size_t size = a.size();
-        const typename PrimitiveTypeTraits<A>::ColumnItemType* a_pos = a.data();
-        const typename PrimitiveTypeTraits<B>::ColumnItemType* b_pos = b.data();
+        const auto* a_pos = (const typename PrimitiveTypeTraits<A>::CppType*)a.data();
+        const auto* b_pos = (const typename PrimitiveTypeTraits<B>::CppType*)b.data();
         UInt8* c_pos = c.data();
-        const typename PrimitiveTypeTraits<A>::ColumnItemType* a_end = a_pos + size;
+        const auto* a_end = a_pos + size;
 
         while (a_pos < a_end) {
             *c_pos = apply<scale_left, scale_right>(*a_pos, *b_pos, scale);
@@ -308,12 +300,12 @@ private:
 
     template <bool scale_left, bool scale_right>
     static void NO_INLINE vector_constant(const ArrayA& a,
-                                          typename PrimitiveTypeTraits<B>::ColumnItemType b,
+                                          typename PrimitiveTypeTraits<B>::CppType b,
                                           PaddedPODArray<UInt8>& c, CompareInt scale) {
         size_t size = a.size();
-        const typename PrimitiveTypeTraits<A>::ColumnItemType* a_pos = a.data();
+        const auto* a_pos = (const typename PrimitiveTypeTraits<A>::CppType*)a.data();
         UInt8* c_pos = c.data();
-        const typename PrimitiveTypeTraits<A>::ColumnItemType* a_end = a_pos + size;
+        const auto* a_end = a_pos + size;
 
         while (a_pos < a_end) {
             *c_pos = apply<scale_left, scale_right>(*a_pos, b, scale);
@@ -323,13 +315,13 @@ private:
     }
 
     template <bool scale_left, bool scale_right>
-    static void NO_INLINE constant_vector(typename PrimitiveTypeTraits<A>::ColumnItemType a,
+    static void NO_INLINE constant_vector(typename PrimitiveTypeTraits<A>::CppType a,
                                           const ArrayB& b, PaddedPODArray<UInt8>& c,
                                           CompareInt scale) {
         size_t size = b.size();
-        const typename PrimitiveTypeTraits<B>::ColumnItemType* b_pos = b.data();
+        const auto* b_pos = (const typename PrimitiveTypeTraits<B>::CppType*)b.data();
         UInt8* c_pos = c.data();
-        const typename PrimitiveTypeTraits<B>::ColumnItemType* b_end = b_pos + size;
+        const auto* b_end = b_pos + size;
 
         while (b_pos < b_end) {
             *c_pos = apply<scale_left, scale_right>(a, *b_pos, scale);

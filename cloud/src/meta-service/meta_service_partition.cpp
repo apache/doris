@@ -21,9 +21,12 @@
 #include <chrono>
 #include <memory>
 
+#include "common/defer.h"
 #include "common/logging.h"
 #include "common/stats.h"
 #include "meta-service/meta_service_helper.h"
+#include "meta-store/blob_message.h"
+#include "meta-store/clone_chain_reader.h"
 #include "meta-store/keys.h"
 #include "meta-store/meta_reader.h"
 #include "meta-store/txn_kv_error.h"
@@ -107,7 +110,7 @@ void MetaServiceImpl::prepare_index(::google::protobuf::RpcController* controlle
         return;
     }
     bool is_versioned_read = is_version_read_enabled(instance_id);
-    MetaReader reader(instance_id);
+    CloneChainReader reader(instance_id, resource_mgr_.get());
     if (!is_versioned_read) {
         err = index_exists(txn.get(), instance_id, request);
     } else {
@@ -202,7 +205,14 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
     commit_index_log.set_table_id(request->table_id());
 
     bool is_versioned_read = is_version_read_enabled(instance_id);
-    MetaReader reader(instance_id);
+    bool is_versioned_write = is_version_write_enabled(instance_id);
+    if (!request->has_db_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "db_id is required for versioned write, please upgrade your FE version";
+        return;
+    }
+
+    CloneChainReader reader(instance_id, resource_mgr_.get());
     for (auto index_id : request->index_ids()) {
         auto key = recycle_index_key({instance_id, index_id});
         std::string val;
@@ -250,7 +260,7 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
         txn->remove(key);
 
         // Save the index meta/index keys
-        if (request->has_db_id() && is_version_write_enabled(instance_id)) {
+        if (is_versioned_write) {
             int64_t db_id = request->db_id();
             int64_t table_id = request->table_id();
             std::string index_meta_key = versioned::meta_index_key({instance_id, index_id});
@@ -276,7 +286,38 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
         }
     }
 
-    if (request->has_db_id() && request->has_is_new_table() && request->is_new_table()) {
+    // Save the partition meta keys
+    if (is_versioned_write) {
+        for (auto partition_id : request->partition_ids()) {
+            int64_t db_id = request->db_id();
+            int64_t table_id = request->table_id();
+            std::string part_meta_key = versioned::meta_partition_key({instance_id, partition_id});
+            std::string part_index_key =
+                    versioned::partition_index_key({instance_id, partition_id});
+            std::string part_inverted_index_key = versioned::partition_inverted_index_key(
+                    {instance_id, db_id, table_id, partition_id});
+            PartitionIndexPB part_index_pb;
+            part_index_pb.set_db_id(db_id);
+            part_index_pb.set_table_id(table_id);
+            std::string part_index_value;
+            if (!part_index_pb.SerializeToString(&part_index_value)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                msg = fmt::format("failed to serialize PartitionIndexPB");
+                LOG_WARNING(msg).tag("part_id", partition_id);
+                return;
+            }
+            versioned_put(txn.get(), part_meta_key, "");
+            txn->put(part_inverted_index_key, "");
+            txn->put(part_index_key, part_index_value);
+
+            LOG(INFO) << "xxx put versioned partition index key=" << hex(part_index_key)
+                      << " partition_id=" << partition_id;
+
+            commit_index_log.add_partition_ids(partition_id);
+        }
+    }
+
+    if (request->has_is_new_table() && request->is_new_table()) {
         if (is_versioned_read) {
             // Read the table version, to build the operation log visible version range.
             Versionstamp table_version;
@@ -294,19 +335,16 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
 
     if (commit_index_log.index_ids_size() > 0 && is_version_write_enabled(instance_id)) {
         std::string operation_log_key = versioned::log_key({instance_id});
-        std::string operation_log_value;
         OperationLogPB operation_log;
         if (is_versioned_read) {
             operation_log.set_min_timestamp(reader.min_read_version());
         }
         operation_log.mutable_commit_index()->Swap(&commit_index_log);
-        if (!operation_log.SerializeToString(&operation_log_value)) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = fmt::format("failed to serialize OperationLogPB: {}", hex(operation_log_key));
-            LOG_WARNING(msg).tag("instance_id", instance_id).tag("table_id", request->table_id());
-            return;
-        }
-        versioned_put(txn.get(), operation_log_key, operation_log_value);
+        versioned::blob_put(txn.get(), operation_log_key, operation_log);
+        LOG_INFO("put commit index operation log key")
+                .tag("instance_id", instance_id)
+                .tag("table_id", request->table_id())
+                .tag("operation_log_key", hex(operation_log_key));
     }
 
     err = txn->commit();
@@ -355,12 +393,19 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
     bool need_commit = false;
     bool is_versioned_write = is_version_write_enabled(instance_id);
     bool is_versioned_read = is_version_read_enabled(instance_id);
+
+    if (is_versioned_write && !request->has_db_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing db_id for versioned write, please upgrade your FE version";
+        return;
+    }
+
     DropIndexLogPB drop_index_log;
     drop_index_log.set_db_id(request->db_id());
     drop_index_log.set_table_id(request->table_id());
     drop_index_log.set_expiration(request->expiration());
 
-    MetaReader reader(instance_id);
+    CloneChainReader reader(instance_id, resource_mgr_.get());
     for (auto index_id : request->index_ids()) {
         auto key = recycle_index_key({instance_id, index_id});
         std::string val;
@@ -418,23 +463,15 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
 
     if (drop_index_log.index_ids_size() > 0 && is_versioned_write) {
         std::string operation_log_key = versioned::log_key({instance_id});
-        std::string operation_log_value;
         OperationLogPB operation_log;
         if (is_versioned_read) {
             operation_log.set_min_timestamp(reader.min_read_version());
         }
         operation_log.mutable_drop_index()->Swap(&drop_index_log);
-        if (!operation_log.SerializeToString(&operation_log_value)) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = fmt::format("failed to serialize OperationLogPB: {}", hex(operation_log_key));
-            LOG_WARNING(msg).tag("instance_id", instance_id).tag("table_id", request->table_id());
-            return;
-        }
-        versioned_put(txn.get(), operation_log_key, operation_log_value);
+        versioned::blob_put(txn.get(), operation_log_key, operation_log);
         LOG(INFO) << "put drop index operation log"
                   << " instance_id=" << instance_id << " table_id=" << request->table_id()
-                  << " index_ids=" << drop_index_log.index_ids_size()
-                  << " log_size=" << operation_log_value.size();
+                  << " index_ids=" << drop_index_log.index_ids_size();
     }
 
     err = txn->commit();
@@ -503,7 +540,7 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
     if (!is_versioned_read) {
         err = partition_exists(txn.get(), instance_id, request);
     } else {
-        MetaReader reader(instance_id);
+        CloneChainReader reader(instance_id, resource_mgr_.get());
         err = reader.is_partition_exists(txn.get(), request->partition_ids(0));
     }
     // If index has existed, this might be a stale request
@@ -611,6 +648,26 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         return;
     }
 
+    constexpr size_t BATCH_COMMIT_SIZE = 1000;
+    for (size_t i = 0; i < request->partition_ids_size(); i += BATCH_COMMIT_SIZE) {
+        std::vector<int64_t> partition_ids;
+        size_t end = std::min(i + BATCH_COMMIT_SIZE, (size_t)request->partition_ids_size());
+        for (size_t j = i; j < end; j++) {
+            partition_ids.push_back(request->partition_ids(j));
+        }
+        commit_partition_internal(request, instance_id, partition_ids, code, msg, stats);
+        if (code != MetaServiceCode::OK) {
+            return;
+        }
+    }
+}
+
+void MetaServiceImpl::commit_partition_internal(const PartitionRequest* request,
+                                                const std::string& instance_id,
+                                                const std::vector<int64_t>& partition_ids,
+                                                MetaServiceCode& code, std::string& msg,
+                                                KVStats& stats) {
+    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -618,14 +675,33 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         return;
     }
 
+    DORIS_CLOUD_DEFER {
+        if (txn) {
+            stats.get_bytes += txn->get_bytes();
+            stats.put_bytes += txn->put_bytes();
+            stats.del_bytes += txn->delete_bytes();
+            stats.get_counter += txn->num_get_keys();
+            stats.put_counter += txn->num_put_keys();
+            stats.del_counter += txn->num_del_keys();
+        }
+    };
+
     CommitPartitionLogPB commit_partition_log;
     commit_partition_log.set_db_id(request->db_id());
     commit_partition_log.set_table_id(request->table_id());
     commit_partition_log.mutable_index_ids()->CopyFrom(request->index_ids());
 
     bool is_versioned_read = is_version_read_enabled(instance_id);
-    MetaReader reader(instance_id);
-    for (auto part_id : request->partition_ids()) {
+    bool is_versioned_write = is_version_write_enabled(instance_id);
+    if (is_versioned_write && !request->has_db_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing db_id for versioned write, please upgrade your FE version";
+        return;
+    }
+
+    CloneChainReader reader(instance_id, resource_mgr_.get());
+    size_t num_commit = 0;
+    for (auto part_id : partition_ids) {
         auto key = recycle_partition_key({instance_id, part_id});
         std::string val;
         err = txn->get(key, &val);
@@ -639,7 +715,8 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
                 }
                 // If partition has existed, this might be a duplicate request
                 if (err == TxnErrorCode::TXN_OK) {
-                    return; // Partition committed, OK
+                    // Partition committed, OK
+                    continue;
                 }
                 if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
                     code = cast_as<ErrCategory::READ>(err);
@@ -673,9 +750,10 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         }
         LOG_INFO("remove recycle partition").tag("key", hex(key));
         txn->remove(key);
+        num_commit += 1;
 
         // Save the partition meta/index keys
-        if (request->has_db_id() && is_version_write_enabled(instance_id)) {
+        if (is_versioned_write) {
             int64_t db_id = request->db_id();
             int64_t table_id = request->table_id();
             std::string part_meta_key = versioned::meta_partition_key({instance_id, part_id});
@@ -701,36 +779,37 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         }
     }
 
-    // update table versions
-    if (request->has_db_id()) {
-        if (is_versioned_read) {
-            // Read the table version, to build the operation log visible version range.
-            Versionstamp table_version;
-            err = reader.get_table_version(txn.get(), request->table_id(), &table_version, true);
-            if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
-                code = cast_as<ErrCategory::READ>(err);
-                msg = fmt::format("failed to get table version, err={}", err);
-                return;
-            }
-        }
-        update_table_version(txn.get(), instance_id, request->db_id(), request->table_id());
+    if (num_commit == 0) {
+        // All partitions have been committed, OK
+        return;
     }
+
+    // update table versions
+    if (is_versioned_read) {
+        // Read the table version, to build the operation log visible version range.
+        Versionstamp table_version;
+        err = reader.get_table_version(txn.get(), request->table_id(), &table_version, true);
+        if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get table version, err={}", err);
+            return;
+        }
+    }
+    update_table_version(txn.get(), instance_id, request->db_id(), request->table_id());
 
     if (commit_partition_log.partition_ids_size() > 0 && is_version_write_enabled(instance_id)) {
         std::string operation_log_key = versioned::log_key({instance_id});
-        std::string operation_log_value;
         OperationLogPB operation_log;
         if (is_versioned_read) {
             operation_log.set_min_timestamp(reader.min_read_version());
         }
         operation_log.mutable_commit_partition()->Swap(&commit_partition_log);
-        if (!operation_log.SerializeToString(&operation_log_value)) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = fmt::format("failed to serialize OperationLogPB: {}", hex(operation_log_key));
-            LOG_WARNING(msg).tag("instance_id", instance_id).tag("table_id", request->table_id());
-            return;
-        }
-        versioned_put(txn.get(), operation_log_key, operation_log_value);
+        versioned::blob_put(txn.get(), operation_log_key, operation_log);
+        LOG_INFO("put commit partition operation log key")
+                .tag("instance_id", instance_id)
+                .tag("table_id", request->table_id())
+                .tag("num_partitions", operation_log.commit_partition().partition_ids_size())
+                .tag("operation_log_key", hex(operation_log_key));
     }
 
     err = txn->commit();
@@ -760,6 +839,12 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         return;
     }
 
+    if (!request->has_db_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing db_id for drop_partition";
+        return;
+    }
+
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
@@ -786,7 +871,7 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
     drop_partition_log.mutable_index_ids()->CopyFrom(request->index_ids());
     drop_partition_log.set_expired_at_s(request->expiration());
 
-    MetaReader reader(instance_id);
+    CloneChainReader reader(instance_id, resource_mgr_.get());
     for (auto part_id : request->partition_ids()) {
         auto key = recycle_partition_key({instance_id, part_id});
         std::string val;
@@ -843,8 +928,7 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
     if (!need_commit) return;
 
     // Update table version only when deleting non-empty partitions
-    if (request->has_db_id() && request->has_need_update_table_version() &&
-        request->need_update_table_version()) {
+    if (request->has_need_update_table_version() && request->need_update_table_version()) {
         if (is_versioned_read) {
             // Read the table version, to build the operation log visible version range.
             Versionstamp table_version;
@@ -863,23 +947,15 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
          drop_partition_log.partition_ids_size() > 0) &&
         is_versioned_write) {
         std::string operation_log_key = versioned::log_key({instance_id});
-        std::string operation_log_value;
         OperationLogPB operation_log;
         if (is_versioned_read) {
             operation_log.set_min_timestamp(reader.min_read_version());
         }
         operation_log.mutable_drop_partition()->Swap(&drop_partition_log);
-        if (!operation_log.SerializeToString(&operation_log_value)) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = fmt::format("failed to serialize OperationLogPB: {}", hex(operation_log_key));
-            LOG_WARNING(msg).tag("instance_id", instance_id).tag("table_id", request->table_id());
-            return;
-        }
-        versioned_put(txn.get(), operation_log_key, operation_log_value);
+        versioned::blob_put(txn.get(), operation_log_key, operation_log);
         LOG(INFO) << "put drop partition operation log"
                   << " instance_id=" << instance_id << " table_id=" << request->table_id()
-                  << " partition_ids=" << drop_partition_log.partition_ids_size()
-                  << " log_size=" << operation_log_value.size();
+                  << " partition_ids=" << drop_partition_log.partition_ids_size();
     }
 
     err = txn->commit();

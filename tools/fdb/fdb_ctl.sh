@@ -52,6 +52,7 @@ fi
 
 # TODO verify config
 
+FDB_STORAGE_ENGINE=${FDB_STORAGE_ENGINE:-"ssd"}
 FDB_CLUSTER_DESC=${FDB_CLUSTER_DESC:-"doris-fdb"}
 
 # A dir to provide FDB binary pkgs
@@ -180,30 +181,28 @@ calculate_process_numbers() {
 
     # Find maximum number of processes while maintaining the specified ratio
     while true; do
-        # Calculate process counts based on the ratio
-        storage_processes=$((storage_processes + num_storage))
-        stateless_processes=$((storage_processes * num_stateless / num_storage))
-        log_processes=$((storage_processes * num_log / num_storage))
+        # Calculate candidate process counts based on the ratio
+        local new_storage_processes=$((storage_processes + num_storage))
+        local new_stateless_processes=$((new_storage_processes * num_stateless / num_storage))
+        local new_log_processes=$((new_storage_processes * num_log / num_storage))
 
         # Calculate total CPUs used
-        local total_cpu_used=$((storage_processes + stateless_processes + log_processes))
+        local total_cpu_used=$((new_storage_processes + new_stateless_processes + new_log_processes))
 
         # Check memory constraint
-        local total_memory_used=$(((MEMORY_STORAGE_GB * storage_processes) + (MEMORY_STATELESS_GB * stateless_processes) + (MEMORY_LOG_GB * log_processes)))
+        local total_memory_used=$(((MEMORY_STORAGE_GB * new_storage_processes) + (MEMORY_STATELESS_GB * new_stateless_processes) + (MEMORY_LOG_GB * new_log_processes)))
 
         # Check datadir limits
-        if ((storage_processes > storage_process_num_limit || log_processes > log_process_num_limit)); then
+        if ((new_storage_processes > storage_process_num_limit || new_log_processes > log_process_num_limit)); then
             break
         fi
 
         # Check overall constraints
         if ((total_memory_used <= memory_limit_gb && total_cpu_used <= cpu_cores_limit)); then
-            continue
+            storage_processes=${new_storage_processes}
+            stateless_processes=${new_stateless_processes}
+            log_processes=${new_log_processes}
         else
-            # If constraints are violated, revert back
-            storage_processes=$((storage_processes - num_storage))
-            stateless_processes=$((storage_processes * num_stateless / num_storage))
-            log_processes=$((storage_processes * num_log / num_storage))
             break
         fi
     done
@@ -332,7 +331,8 @@ datadir = ${DATA_DIR_ARRAY[${DIR_INDEX}]}/${PORT}" | tee -a "${FDB_HOME}/conf/fd
 
     echo "[backup_agent]
 command = ${FDB_HOME}/backup_agent
-logdir = ${LOG_DIR}" >>"${FDB_HOME}/conf/fdb.conf"
+logdir = ${LOG_DIR}
+[backup_agent.1]" >>"${FDB_HOME}/conf/fdb.conf"
 
     echo "Deploy FDB to: ${FDB_HOME}"
 }
@@ -433,7 +433,7 @@ function start() {
         echo "Try create database in fdb ${fdb_mode}"
 
         "${FDB_HOME}/fdbcli" -C "${FDB_HOME}/conf/fdb.cluster" \
-            --exec "configure new ${fdb_mode} ssd" ||
+            --exec "configure new ${fdb_mode} ${FDB_STORAGE_ENGINE}" ||
             "${FDB_HOME}/fdbcli" -C "${FDB_HOME}/conf/fdb.cluster" --exec "status" ||
             (echo "failed to start fdb, please check that all nodes have same FDB_CLUSTER_ID" &&
                 exit 1)

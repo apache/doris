@@ -253,8 +253,8 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
         }
     }
 
-    def test_systable_manifests = { table ->
-        def systableName = "${table}\$manifests"
+    def test_systable_manifests = { table, systableType ->
+        def systableName = "${table}\$${systableType}"
         order_qt_desc_manifests """desc ${systableName}"""
 
         List<List<Object>> desc1 = sql """desc ${systableName}"""
@@ -271,14 +271,27 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
 
         order_qt_select_manifests_count """select count(*) from ${systableName}"""
 
-        List<List<Object>> res1 = sql """select * from ${systableName} order by path"""
-        List<List<Object>> res2 = sql """select * from iceberg_meta(
-            "table" = "${catalog_name}.${db_name}.${table}",
-            "query_type" = "manifests") order by path"""
-        assertEquals(res1.size(), res2.size());
-        for (int i = 0; i < res1.size(); i++) {
-            for (int j = 0; j < res1[i].size(); j++) {
-                assertEquals(res1[i][j], res2[i][j]);
+        if (systableType.equals("manifests")) {
+            List<List<Object>> res1 = sql """select * from ${systableName} order by path"""
+            List<List<Object>> res2 = sql """select * from iceberg_meta(
+                "table" = "${catalog_name}.${db_name}.${table}",
+                "query_type" = "${systableType}") order by path"""
+            assertEquals(res1.size(), res2.size());
+            for (int i = 0; i < res1.size(); i++) {
+                for (int j = 0; j < res1[i].size(); j++) {
+                    assertEquals(res1[i][j], res2[i][j]);
+                }
+            }
+        } else {
+            List<List<Object>> res1 = sql """select * from ${systableName} order by path, reference_snapshot_id"""
+            List<List<Object>> res2 = sql """select * from iceberg_meta(
+                "table" = "${catalog_name}.${db_name}.${table}",
+                "query_type" = "${systableType}") order by path, reference_snapshot_id"""
+            assertEquals(res1.size(), res2.size());
+            for (int i = 0; i < res1.size(); i++) {
+                for (int j = 0; j < res1[i].size(); j++) {
+                    assertEquals(res1[i][j], res2[i][j]);
+                }
             }
         }
     }
@@ -323,16 +336,12 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
         test_systable_metadata_log_entries(table)
         test_systable_snapshots(table)
         test_systable_refs(table)
-        test_systable_manifests(table)
+        test_systable_manifests(table, "manifests")
+        test_systable_manifests(table, "all_manifests")
         test_systable_partitions(table)
         // TODO: these table will be supportted in future
-        // test_systable_all_manifests(table)
         // test_systable_position_deletes(table)
 
-        test {
-            sql """select * from ${table}\$all_manifests"""
-            exception "SysTable all_manifests is not supported yet"
-        }
         test {
             sql """select * from ${table}\$position_deletes"""
             exception "SysTable position_deletes is not supported yet"
@@ -390,4 +399,23 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
         sql """select committed_at, snapshot_id, parent_id, operation from ${catalog_name}.${db_name}.test_iceberg_systable_tbl1\$snapshots"""
     }
     try_sql("DROP USER ${user}")
+
+    sql """drop catalog if exists test_iceberg_varbinary_sys"""
+    sql """
+    CREATE CATALOG test_iceberg_varbinary_sys PROPERTIES (
+        'type'='iceberg',
+        'iceberg.catalog.type'='rest',
+        'uri' = 'http://${externalEnvIp}:${rest_port}',
+        "s3.access_key" = "admin",
+        "s3.secret_key" = "password",
+        "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
+        "s3.region" = "us-east-1",
+        'enable.mapping.varbinary' = 'true'
+    );"""
+
+    sql """switch test_iceberg_varbinary_sys """
+    sql """use ${db_name}"""
+
+    order_qt_varbinary_sys_table_desc """desc test_iceberg_systable_unpartitioned\$files"""
+    order_qt_varbinary_sys_table_select """select content, file_format, record_count, lower_bounds, upper_bounds from test_iceberg_systable_unpartitioned\$files;"""
 }

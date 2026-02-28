@@ -248,8 +248,8 @@ Status DataTypeStructSerDe::deserialize_column_from_json_vector(
 }
 
 void DataTypeStructSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                  Arena& arena, int32_t col_id,
-                                                  int64_t row_num) const {
+                                                  Arena& arena, int32_t col_id, int64_t row_num,
+                                                  const FormatOptions& options) const {
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const char* begin = nullptr;
     // maybe serialize_value_into_arena should move to here later.
@@ -440,14 +440,15 @@ Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, con
                                                 const NullMap* null_map,
                                                 orc::ColumnVectorBatch* orc_col_batch,
                                                 int64_t start, int64_t end,
-                                                vectorized::Arena& arena) const {
+                                                vectorized::Arena& arena,
+                                                const FormatOptions& options) const {
     auto* cur_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
     const auto& struct_col = assert_cast<const ColumnStruct&>(column);
     for (auto row_id = start; row_id < end; row_id++) {
         for (int i = 0; i < struct_col.tuple_size(); ++i) {
             RETURN_IF_ERROR(elem_serdes_ptrs[i]->write_column_to_orc(
                     timezone, struct_col.get_column(i), nullptr, cur_batch->fields[i], row_id,
-                    row_id + 1, arena));
+                    row_id + 1, arena, options));
         }
     }
 
@@ -586,8 +587,8 @@ Status DataTypeStructSerDe::from_string_strict_mode(StringRef& str, IColumn& col
     return _from_string<true>(str, column, options);
 }
 
-void DataTypeStructSerDe::to_string(const IColumn& column, size_t row_num,
-                                    BufferWritable& bw) const {
+void DataTypeStructSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                                    const DataTypeSerDe::FormatOptions& options) const {
     const auto& struct_column = assert_cast<const ColumnStruct&>(column);
     bw.write("{", 1);
     for (size_t idx = 0; idx < elem_serdes_ptrs.size(); idx++) {
@@ -596,13 +597,14 @@ void DataTypeStructSerDe::to_string(const IColumn& column, size_t row_num,
         }
         std::string col_name = "\"" + elem_names[idx] + "\":";
         bw.write(col_name.c_str(), col_name.length());
-        elem_serdes_ptrs[idx]->to_string(struct_column.get_column(idx), row_num, bw);
+        elem_serdes_ptrs[idx]->to_string(struct_column.get_column(idx), row_num, bw, options);
     }
     bw.write("}", 1);
 }
 
 bool DataTypeStructSerDe::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
-                                                      int64_t row_idx) const {
+                                                      int64_t row_idx,
+                                                      const FormatOptions& options) const {
     const auto& struct_column = assert_cast<const ColumnStruct&>(column);
     bw.write("{", 1);
     for (size_t idx = 0; idx < elem_serdes_ptrs.size(); idx++) {
@@ -612,14 +614,15 @@ bool DataTypeStructSerDe::write_column_to_presto_text(const IColumn& column, Buf
         std::string col_name = elem_names[idx] + "=";
         bw.write(col_name.c_str(), col_name.length());
         elem_serdes_ptrs[idx]->write_column_to_presto_text(struct_column.get_column(idx), bw,
-                                                           row_idx);
+                                                           row_idx, options);
     }
     bw.write("}", 1);
     return true;
 }
 
 bool DataTypeStructSerDe::write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
-                                                    int64_t row_idx) const {
+                                                    int64_t row_idx,
+                                                    const FormatOptions& options) const {
     const auto& struct_column = assert_cast<const ColumnStruct&>(column);
     bw.write("{", 1);
     for (size_t idx = 0; idx < elem_serdes_ptrs.size(); idx++) {
@@ -628,8 +631,8 @@ bool DataTypeStructSerDe::write_column_to_hive_text(const IColumn& column, Buffe
         }
         std::string col_name = "\"" + elem_names[idx] + "\":";
         bw.write(col_name.c_str(), col_name.length());
-        elem_serdes_ptrs[idx]->write_column_to_hive_text(struct_column.get_column(idx), bw,
-                                                         row_idx);
+        elem_serdes_ptrs[idx]->write_column_to_hive_text(struct_column.get_column(idx), bw, row_idx,
+                                                         options);
     }
     bw.write("}", 1);
     return true;

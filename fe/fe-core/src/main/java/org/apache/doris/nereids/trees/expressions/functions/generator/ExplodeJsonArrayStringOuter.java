@@ -76,7 +76,6 @@ public class ExplodeJsonArrayStringOuter extends TableGeneratingFunction
 
     @Override
     public Expression rewriteWhenAnalyze() {
-        Expression[] args = {new Cast(children.get(0), ArrayType.of(VarcharType.SYSTEM_DEFAULT))};
-        return new ExplodeOuter(args);
+        return new ExplodeOuter(new Cast(children.get(0), ArrayType.of(VarcharType.SYSTEM_DEFAULT)));
     }
 }

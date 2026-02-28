@@ -2962,4 +2962,142 @@ TEST_F(IndexBuilderTest, UpdateInvertedIndexInfoErrorTest) {
     }
 }
 
+// Test case: Drop one index should not affect other indexes on the same column
+// This test verifies the bug fix: when dropping one inverted index,
+// other indexes on the same column should NOT be deleted
+TEST_F(IndexBuilderTest, DropOneIndexNotAffectOtherIndexesOnSameColumnTest) {
+    // 0. prepare tablet path
+    auto tablet_path = _absolute_dir + "/" + std::to_string(15690);
+    _tablet->_tablet_path = tablet_path;
+    ASSERT_TRUE(io::global_local_filesystem()->delete_directory(tablet_path).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(tablet_path).ok());
+
+    // 1. Prepare data for writing
+    RowsetSharedPtr rowset;
+    const int num_rows = 1000;
+
+    // 2. Add two different inverted indexes on the same column (k1)
+    // First index with index_id = 1
+    TabletIndex index1;
+    index1._index_id = 1;
+    index1._index_name = "k1_index_1";
+    index1._index_type = IndexType::INVERTED;
+    index1._col_unique_ids.push_back(1); // unique_id for k1
+    _tablet_schema->append_index(TabletIndex(index1));
+
+    // Second index with index_id = 2 (different analyzer/properties)
+    TabletIndex index2;
+    index2._index_id = 2;
+    index2._index_name = "k1_index_2";
+    index2._index_type = IndexType::INVERTED;
+    index2._col_unique_ids.push_back(1); // same column: k1
+    _tablet_schema->append_index(TabletIndex(index2));
+
+    // 3. Create a rowset writer context
+    RowsetWriterContext writer_context;
+    writer_context.rowset_id.init(15690);
+    writer_context.tablet_id = 15690;
+    writer_context.tablet_schema_hash = 567997577;
+    writer_context.partition_id = 10;
+    writer_context.rowset_type = BETA_ROWSET;
+    writer_context.tablet_path = tablet_path;
+    writer_context.rowset_state = VISIBLE;
+    writer_context.tablet_schema = _tablet_schema;
+    writer_context.version.first = 10;
+    writer_context.version.second = 10;
+
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.tablet_path).ok());
+
+    // 4. Create a rowset writer
+    auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto rowset_writer = std::move(res).value();
+
+    // 5. Write data to the rowset
+    {
+        vectorized::Block block = _tablet_schema->create_block();
+        auto columns = block.mutate_columns();
+
+        // Add data for k1 and k2 columns
+        for (int i = 0; i < num_rows; ++i) {
+            // k1 column (int)
+            int32_t k1 = i * 10;
+            columns[0]->insert_data((const char*)&k1, sizeof(k1));
+
+            // k2 column (int)
+            int32_t k2 = i % 100;
+            columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        }
+
+        // Add the block to the rowset
+        Status s = rowset_writer->add_block(&block);
+        ASSERT_TRUE(s.ok()) << s.to_string();
+
+        // Flush the writer
+        s = rowset_writer->flush();
+        ASSERT_TRUE(s.ok()) << s.to_string();
+
+        // Build the rowset
+        ASSERT_TRUE(rowset_writer->build(rowset).ok());
+
+        // Add the rowset to the tablet
+        ASSERT_TRUE(_tablet->add_rowset(rowset).ok());
+    }
+
+    // 6. Verify both indexes exist before dropping
+    EXPECT_TRUE(_tablet_schema->has_inverted_index());
+    EXPECT_TRUE(_tablet_schema->has_inverted_index_with_index_id(1));
+    EXPECT_TRUE(_tablet_schema->has_inverted_index_with_index_id(2));
+
+    // 7. Prepare to drop ONLY index_id=1 (not index_id=2)
+    TOlapTableIndex drop_index;
+    drop_index.index_type = TIndexType::INVERTED;
+    drop_index.index_id = 1; // Only drop index with id=1
+    drop_index.columns.emplace_back("k1");
+    _alter_indexes.push_back(drop_index);
+
+    // 8. Create IndexBuilder with drop operation
+    IndexBuilder builder(ExecEnv::GetInstance()->storage_engine().to_local(), _tablet, _columns,
+                         _alter_indexes, true);
+
+    // 9. Initialize and verify
+    auto status = builder.init();
+    EXPECT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ(builder._alter_index_ids.size(), 1);
+    EXPECT_TRUE(builder._alter_index_ids.contains(1) > 0);
+
+    // 10. Execute drop operation
+    status = builder.do_build_inverted_index();
+    EXPECT_TRUE(status.ok()) << status.to_string();
+
+    // 11. Verify the results:
+    // - index_id=1 should be dropped
+    // - index_id=2 should still exist (this is the key verification for the bug fix)
+
+    // Get the output rowset's tablet schema to verify
+    ASSERT_FALSE(builder._output_rowsets.empty());
+    auto output_rowset = builder._output_rowsets[0];
+    auto output_schema = output_rowset->tablet_schema();
+
+    // Verify index_id=1 has been removed
+    EXPECT_FALSE(output_schema->has_inverted_index_with_index_id(1))
+            << "index_id=1 should have been dropped";
+
+    // Verify index_id=2 still exists (this is the bug fix verification)
+    EXPECT_TRUE(output_schema->has_inverted_index_with_index_id(2))
+            << "index_id=2 should still exist after dropping index_id=1";
+
+    // 12. Additional verification: check the number of inverted indexes
+    // There should be exactly 1 inverted index remaining
+    const auto& inverted_indexes = output_schema->inverted_indexes();
+    int inverted_index_count = 0;
+    for (const auto& idx : inverted_indexes) {
+        if (idx->index_type() == IndexType::INVERTED) {
+            inverted_index_count++;
+        }
+    }
+    EXPECT_EQ(inverted_index_count, 1)
+            << "Should have exactly 1 inverted index remaining after drop";
+}
+
 } // namespace doris

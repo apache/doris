@@ -1213,7 +1213,9 @@ static void decode_agg_cache_key(const std::string& key_str, int64_t& tablet_id,
 DeleteBitmapAggCache::DeleteBitmapAggCache(size_t capacity)
         : LRUCachePolicy(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE, capacity,
                          LRUCacheType::SIZE, config::delete_bitmap_agg_cache_stale_sweep_time_sec,
-                         256) {}
+                         /*num_shards*/ 256,
+                         /*element_count_capacity*/ 0, /*enable_prune*/ true,
+                         /*is_lru_k*/ false) {}
 
 DeleteBitmapAggCache* DeleteBitmapAggCache::instance() {
     return ExecEnv::GetInstance()->delete_bitmap_agg_cache();

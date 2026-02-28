@@ -17,6 +17,8 @@
 
 #include "olap/rowset/segment_v2/external_col_meta_util.h"
 
+#include <crc32c/crc32c.h>
+
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -31,7 +33,6 @@
 #include "olap/tablet_schema_helper.h"
 #include "olap/types.h"
 #include "util/coding.h"
-#include "util/crc32c.h"
 #include "vec/json/path_in_data.h"
 
 using namespace doris;
@@ -63,7 +64,7 @@ Status append_footer_trailer(io::FileWriter* fw, SegmentFooterPB* footer) {
     // footer size (4 bytes)
     put_fixed32_le(&fixed_buf, static_cast<uint32_t>(footer_buf.size()));
     // footer checksum (4 bytes)
-    uint32_t checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
+    uint32_t checksum = crc32c::Crc32c(footer_buf.data(), footer_buf.size());
     put_fixed32_le(&fixed_buf, checksum);
     // magic number (4 bytes)
     fixed_buf.append("D0R1", 4);
@@ -100,7 +101,7 @@ Status read_footer_from_file(const io::FileReaderSPtr& fr, SegmentFooterPB* foot
                                   footer_length);
     }
     const uint32_t expect_checksum = decode_fixed32_le(fixed_buf + 4);
-    const uint32_t actual_checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
+    const uint32_t actual_checksum = crc32c::Crc32c(footer_buf.data(), footer_buf.size());
     if (actual_checksum != expect_checksum) {
         return Status::Corruption("footer checksum mismatch, actual={}, expect={}", actual_checksum,
                                   expect_checksum);

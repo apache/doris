@@ -28,10 +28,11 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
 import org.apache.doris.thrift.TMatchPredicate;
 
-import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
 
@@ -76,28 +77,18 @@ public class MatchPredicate extends Predicate {
 
     @SerializedName("op")
     private Operator op;
+    // Fields for thrift serialization (restored from old version)
     private String invertedIndexParser;
     private String invertedIndexParserMode;
     private Map<String, String> invertedIndexCharFilter;
     private boolean invertedIndexParserLowercase = true;
     private String invertedIndexParserStopwords = "";
     private String invertedIndexAnalyzerName = "";
+    // Fields for SQL generation
+    private String explicitAnalyzer = "";
 
     private MatchPredicate() {
         // use for serde only
-        invertedIndexParser = InvertedIndexUtil.INVERTED_INDEX_PARSER_UNKNOWN;
-        invertedIndexParserMode = InvertedIndexUtil.INVERTED_INDEX_PARSER_FINE_GRANULARITY;
-    }
-
-    public MatchPredicate(Operator op, Expr e1, Expr e2) {
-        super();
-        this.op = op;
-        Preconditions.checkNotNull(e1);
-        children.add(e1);
-        Preconditions.checkNotNull(e2);
-        children.add(e2);
-        // TODO: Calculate selectivity
-        selectivity = Expr.DEFAULT_SELECTIVITY;
         invertedIndexParser = InvertedIndexUtil.INVERTED_INDEX_PARSER_UNKNOWN;
         invertedIndexParserMode = InvertedIndexUtil.INVERTED_INDEX_PARSER_FINE_GRANULARITY;
     }
@@ -111,24 +102,44 @@ public class MatchPredicate extends Predicate {
         invertedIndexParserLowercase = other.invertedIndexParserLowercase;
         invertedIndexParserStopwords = other.invertedIndexParserStopwords;
         invertedIndexAnalyzerName = other.invertedIndexAnalyzerName;
+        explicitAnalyzer = other.explicitAnalyzer;
     }
 
     /**
      * use for Nereids ONLY
      */
     public MatchPredicate(Operator op, Expr e1, Expr e2, Type retType,
-            NullableMode nullableMode, Index invertedIndex) {
-        this(op, e1, e2);
-        if (invertedIndex != null) {
-            this.invertedIndexParser = invertedIndex.getInvertedIndexParser();
-            this.invertedIndexParserMode = invertedIndex.getInvertedIndexParserMode();
-            this.invertedIndexCharFilter = invertedIndex.getInvertedIndexCharFilter();
-            this.invertedIndexParserLowercase = invertedIndex.getInvertedIndexParserLowercase();
-            this.invertedIndexParserStopwords = invertedIndex.getInvertedIndexParserStopwords();
-            this.invertedIndexAnalyzerName = invertedIndex.getInvertedIndexAnalyzerName();
+            NullableMode nullableMode, Index invertedIndex, boolean nullable) {
+        this(op, e1, e2, retType, nullableMode, invertedIndex, nullable, null);
+    }
+
+    public MatchPredicate(Operator op, Expr e1, Expr e2, Type retType,
+            NullableMode nullableMode, Index invertedIndex, boolean nullable, String analyzer) {
+        super();
+        this.op = op;
+        children.add(e1);
+        children.add(e2);
+        Map<String, String> properties = invertedIndex == null ? Collections.emptyMap() : invertedIndex.getProperties();
+        AnalyzerSelector.Selection selection = AnalyzerSelector.select(invertedIndex, analyzer);
+
+        // Set parser and analyzer fields
+        this.invertedIndexParser = selection.parser();
+        this.invertedIndexAnalyzerName = selection.effectiveAnalyzerName(
+                invertedIndex != null, this.invertedIndexParser);
+
+        // Extract additional index properties for thrift serialization
+        this.invertedIndexParserMode = InvertedIndexUtil.getInvertedIndexParserMode(properties);
+        this.invertedIndexCharFilter = InvertedIndexUtil.getInvertedIndexCharFilter(properties);
+        this.invertedIndexParserLowercase = InvertedIndexUtil.getInvertedIndexParserLowercase(properties);
+        this.invertedIndexParserStopwords = InvertedIndexUtil.getInvertedIndexParserStopwords(properties);
+
+        if (!Strings.isNullOrEmpty(analyzer)) {
+            // Normalize to lowercase for case-insensitive matching
+            this.explicitAnalyzer = analyzer.trim().toLowerCase();
         }
         fn = new Function(new FunctionName(op.name), Lists.newArrayList(e1.getType(), e2.getType()), retType,
                 false, true, nullableMode);
+        setNullableFromNereids(nullable);
     }
 
     @Override
@@ -145,25 +156,32 @@ public class MatchPredicate extends Predicate {
         if (!super.equals(obj)) {
             return false;
         }
-        return ((MatchPredicate) obj).op == op;
+        MatchPredicate other = (MatchPredicate) obj;
+        return other.op == op
+                && Objects.equals(explicitAnalyzer, other.explicitAnalyzer)
+                && Objects.equals(invertedIndexAnalyzerName, other.invertedIndexAnalyzerName)
+                && Objects.equals(invertedIndexParser, other.invertedIndexParser);
     }
 
     @Override
     public String toSqlImpl() {
-        return getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql();
+        return getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql()
+                + analyzerSqlFragment();
     }
 
     @Override
     public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table) {
         return getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " " + op.toString() + " "
-                + getChild(1).toSql(disableTableName, needExternalSql, tableType, table);
+                + getChild(1).toSql(disableTableName, needExternalSql, tableType, table)
+                + analyzerSqlFragment();
     }
 
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.MATCH_PRED;
         msg.setOpcode(op.getOpcode());
+        // Use new TMatchPredicate constructor with required fields
         msg.match_predicate = new TMatchPredicate(invertedIndexParser, invertedIndexParserMode);
         msg.match_predicate.setCharFilterMap(invertedIndexCharFilter);
         msg.match_predicate.setParserLowercase(invertedIndexParserLowercase);
@@ -173,6 +191,10 @@ public class MatchPredicate extends Predicate {
 
     @Override
     public int hashCode() {
-        return 31 * super.hashCode() + Objects.hashCode(op);
+        return Objects.hash(super.hashCode(), op, explicitAnalyzer, invertedIndexAnalyzerName, invertedIndexParser);
+    }
+
+    private String analyzerSqlFragment() {
+        return InvertedIndexUtil.buildAnalyzerSqlFragment(explicitAnalyzer);
     }
 }

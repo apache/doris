@@ -38,7 +38,7 @@ suite("test_array_contains_with_inverted_index") {
       `inventors` variant<
         MATCH_NAME 'inventors' : array<text>
     > NULL COMMENT '',
-      INDEX index_inverted_inventors(inventors) USING INVERTED PROPERTIES( "field_pattern" = "inventors", "support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT ''
+      INDEX index_inverted_inventors(inventors) USING INVERTED PROPERTIES( "field_pattern" = "inventors", "support_phrase" = "true", "lower_case" = "true") COMMENT ''
     ) ENGINE=OLAP
     DUPLICATE KEY(`apply_date`, `id`)
     COMMENT 'OLAP'

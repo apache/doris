@@ -138,6 +138,7 @@ public:
                                           const uint32_t* indices_end);
 
     void insert(const Field& x) override;
+    void insert_duplicate_fields(const Field& x, const size_t n) override;
     void insert_from(const IColumn& src, size_t n) override;
 
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
@@ -229,6 +230,11 @@ public:
     void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
                                 uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
+    void update_crc32c_batch(uint32_t* __restrict hashes,
+                             const uint8_t* __restrict null_map) const override;
+
+    void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                              const uint8_t* __restrict null_map) const override;
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override;
 
@@ -302,6 +308,32 @@ public:
         if (!nullable_rhs.is_null_at(row)) {
             _nested_column->replace_column_data(*nullable_rhs._nested_column, row, self_row);
         }
+    }
+
+    // Batch replace continuous range of data (for sparse compaction optimization)
+    // NOTE: This function is designed for "all non-NULL" scenario where the caller
+    // has already verified that all source values are non-NULL using SIMD count.
+    // For mixed NULL/non-NULL cases, use replace_column_data in a loop.
+    void replace_column_data_range(const IColumn& rhs, size_t src_start, size_t count,
+                                   size_t self_start) override {
+        DCHECK(size() >= self_start + count);
+        const auto& nullable_rhs =
+                assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(rhs);
+        DCHECK(nullable_rhs.size() >= src_start + count);
+
+        // Copy null_map using memcpy for efficiency
+        memcpy(get_null_map_data().data() + self_start,
+               nullable_rhs.get_null_map_data().data() + src_start, count);
+
+        // Batch copy nested column data using optimized replace_column_data_range
+        // This leverages memcpy in ColumnVector/ColumnDecimal for maximum performance
+        _nested_column->replace_column_data_range(*nullable_rhs._nested_column, src_start, count,
+                                                  self_start);
+    }
+
+    // Delegate to nested column - only fixed-width types support efficient replacement
+    bool support_replace_column_data_range() const override {
+        return _nested_column->support_replace_column_data_range();
     }
 
     void replace_float_special_values() override { _nested_column->replace_float_special_values(); }

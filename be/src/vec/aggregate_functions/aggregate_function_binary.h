@@ -69,9 +69,9 @@ struct AggregateFunctionBinary
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
         this->data(place).add(
-                static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
+                static_cast<typename PrimitiveTypeTraits<ResultType>::CppType>(
                         static_cast<const ColVecT1&>(*columns[0]).get_data()[row_num]),
-                static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
+                static_cast<typename PrimitiveTypeTraits<ResultType>::CppType>(
                         static_cast<const ColVecT2&>(*columns[1]).get_data()[row_num]));
     }
 

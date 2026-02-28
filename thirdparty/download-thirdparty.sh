@@ -55,8 +55,10 @@ SPEC_ARCHIVES=(
 while [[ $# -gt 0 ]]; do
     GIVEN_LIB=$1
     SPEC_LIB=
+    lc_given_lib=$(echo "${GIVEN_LIB}" | tr '[:upper:]' '[:lower:]')
     for TP_ARCH in "${TP_ARCHIVES[@]}"; do
-        if [[ "${GIVEN_LIB,,}" = "${TP_ARCH,,}" ]]; then
+        lc_tp_arch=$(echo "${TP_ARCH}" | tr '[:upper:]' '[:lower:]')
+        if [[ "${lc_given_lib}" = "${lc_tp_arch}" ]]; then
             SPEC_LIB=${TP_ARCH}
             break
         fi
@@ -344,10 +346,10 @@ fi
 
 # patch librdkafka to avoid crash
 if [[ " ${TP_ARCHIVES[*]} " =~ " LIBRDKAFKA " ]]; then
-    if [[ "${LIBRDKAFKA_SOURCE}" == "librdkafka-1.9.2" ]]; then
+    if [[ "${LIBRDKAFKA_SOURCE}" == "librdkafka-2.11.0" ]]; then
         cd "${TP_SOURCE_DIR}/${LIBRDKAFKA_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
-            patch -p0 <"${TP_PATCH_DIR}/librdkafka-1.9.2.patch"
+            patch -p0 <"${TP_PATCH_DIR}/librdkafka-2.11.0.patch"
             touch "${PATCHED_MARK}"
         fi
         cd -
@@ -522,6 +524,19 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " KRB5 " ]]; then
         cd -
     fi
     echo "Finished patching ${KRB5_SOURCE}"
+fi
+
+# patch libhdfs3
+if [[ " ${TP_ARCHIVES[*]} " =~ " HDFS3 " ]]; then
+    if [[ "${HDFS3_SOURCE}" == "doris-thirdparty-libhdfs3-v2.3.9" ]]; then
+        cd "${TP_SOURCE_DIR}/${HDFS3_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/libhdfs3-v2.3.9-hostname.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${HDFS3_SOURCE}"
 fi
 
 # patch bitshuffle

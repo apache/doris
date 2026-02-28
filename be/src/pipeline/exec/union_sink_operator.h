@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "operator.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -99,26 +100,20 @@ public:
         }
     }
 
-    bool require_shuffled_data_distribution() const override {
-        return _followed_by_shuffled_operator;
-    }
-
-    DataDistribution required_data_distribution() const override {
-        if (_child->is_serial_operator() && _followed_by_shuffled_operator) {
+    DataDistribution required_data_distribution(RuntimeState* state) const override {
+        if (_require_bucket_distribution) {
+            return DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _distribute_exprs);
+        }
+        if (_followed_by_shuffled_operator) {
             return DataDistribution(ExchangeType::HASH_SHUFFLE, _distribute_exprs);
         }
-        if (_child->is_serial_operator()) {
-            return DataDistribution(ExchangeType::PASSTHROUGH);
-        }
-        return DataDistribution(ExchangeType::NOOP);
+        return Base::required_data_distribution(state);
     }
 
     void set_low_memory_mode(RuntimeState* state) override {
         auto& local_state = get_local_state(state);
         local_state._shared_state->data_queue.set_low_memory_mode();
     }
-
-    bool is_shuffled_operator() const override { return _followed_by_shuffled_operator; }
 
 private:
     int _get_first_materialized_child_idx() const { return _first_materialized_child_idx; }
@@ -166,9 +161,9 @@ private:
         const auto& child_exprs = local_state._child_expr;
         vectorized::ColumnsWithTypeAndName colunms;
         for (size_t i = 0; i < child_exprs.size(); ++i) {
-            int result_column_id = -1;
-            RETURN_IF_ERROR(child_exprs[i]->execute(src_block, &result_column_id));
-            colunms.emplace_back(src_block->get_by_position(result_column_id));
+            vectorized::ColumnWithTypeAndName result_data;
+            RETURN_IF_ERROR(child_exprs[i]->execute(src_block, result_data));
+            colunms.emplace_back(result_data);
         }
         local_state._child_row_idx += src_block->rows();
         *res_block = {colunms};

@@ -83,6 +83,7 @@
 #include "olap/txn_manager.h"
 #include "olap/wal/wal_manager.h"
 #include "runtime/cache/result_cache.h"
+#include "runtime/cdc_client_mgr.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/fold_constant_executor.h"
@@ -659,8 +660,7 @@ void PInternalService::fetch_arrow_data(google::protobuf::RpcController* control
                                         PFetchArrowDataResult* result,
                                         google::protobuf::Closure* done) {
     bool ret = _arrow_flight_work_pool.try_offer([request, result, done]() {
-        brpc::ClosureGuard closure_guard(done);
-        auto ctx = vectorized::GetArrowResultBatchCtx::create_shared(result);
+        auto ctx = vectorized::GetArrowResultBatchCtx::create_shared(result, done);
         TUniqueId unique_id = UniqueId(request->finst_id()).to_thrift(); // query_id or instance_id
         std::shared_ptr<vectorized::ArrowFlightResultBlockBuffer> arrow_buffer;
         auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(unique_id, arrow_buffer);
@@ -2393,6 +2393,20 @@ void PInternalService::get_tablet_rowsets(google::protobuf::RpcController* contr
         *response->mutable_delete_bitmap() = std::move(diffset);
     }
     Status::OK().to_protobuf(response->mutable_status());
+}
+
+void PInternalService::request_cdc_client(google::protobuf::RpcController* controller,
+                                          const PRequestCdcClientRequest* request,
+                                          PRequestCdcClientResult* result,
+                                          google::protobuf::Closure* done) {
+    bool ret = _heavy_work_pool.try_offer([this, request, result, done]() {
+        _exec_env->cdc_client_mgr()->request_cdc_client_impl(request, result, done);
+    });
+
+    if (!ret) {
+        offer_failed(result, done, _heavy_work_pool);
+        return;
+    }
 }
 
 #include "common/compile_check_avoid_end.h"

@@ -42,8 +42,8 @@ Status HeapSorter::append_block(Block* block) {
         if (!current->impl->is_last(current_rows)) {
             _queue.next(current_rows);
         } else {
-            _queue.remove_top();
             _data_size -= current->impl->block->allocated_bytes();
+            _queue.remove_top();
         }
         _queue_row_num -= current_rows;
     }

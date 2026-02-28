@@ -497,7 +497,8 @@ public class RuntimeProfile {
     }
 
     boolean shouldBeIncluded() {
-        if (Objects.equals(this.name, "CommonCounters") || Objects.equals(this.name, "CustomCounters")) {
+        if (Objects.equals(this.name, "CommonCounters") || Objects.equals(this.name, "CustomCounters")
+                || Objects.equals(this.name, "Scanner")) {
             return true;
         } else {
             return this.name.matches(".*Pipeline.*") || this.name.matches(".*_OPERATOR.*");

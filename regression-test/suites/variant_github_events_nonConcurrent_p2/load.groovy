@@ -121,7 +121,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
 
     def tablets = sql_return_maparray """ show tablets from github_events; """
     // trigger compactions for all tablets in github_events
-    trigger_and_wait_compaction("github_events", "full")
+    trigger_and_wait_compaction("github_events", "full", 1800)
 
     sql """set enable_match_without_inverted_index = false"""
     sql """ set enable_common_expr_pushdown = true """

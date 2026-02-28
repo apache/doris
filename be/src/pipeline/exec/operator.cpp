@@ -135,14 +135,10 @@ Status PipelineXSinkLocalState<SharedStateArg>::terminate(RuntimeState* state) {
     return Status::OK();
 }
 
-DataDistribution OperatorBase::required_data_distribution() const {
+DataDistribution OperatorBase::required_data_distribution(RuntimeState* /*state*/) const {
     return _child && _child->is_serial_operator() && !is_source()
                    ? DataDistribution(ExchangeType::PASSTHROUGH)
                    : DataDistribution(ExchangeType::NOOP);
-}
-
-bool OperatorBase::require_shuffled_data_distribution() const {
-    return Pipeline::is_hash_exchange(required_data_distribution().distribution_type);
 }
 
 const RowDescriptor& OperatorBase::row_desc() const {
@@ -309,16 +305,16 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
     }
     vectorized::Block input_block = *origin_block;
 
-    std::vector<int> result_column_ids;
     size_t bytes_usage = 0;
+    vectorized::ColumnsWithTypeAndName new_columns;
     for (const auto& projections : local_state->_intermediate_projections) {
-        result_column_ids.resize(projections.size());
+        new_columns.resize(projections.size());
         for (int i = 0; i < projections.size(); i++) {
-            RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
+            RETURN_IF_ERROR(projections[i]->execute(&input_block, new_columns[i]));
         }
-
-        bytes_usage += input_block.allocated_bytes();
-        input_block.shuffle_columns(result_column_ids);
+        vectorized::Block tmp_block {new_columns};
+        bytes_usage += tmp_block.allocated_bytes();
+        input_block.swap(tmp_block);
     }
 
     DCHECK_EQ(rows, input_block.rows());
@@ -562,6 +558,11 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
     _exec_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "ExecTime", 1);
     _memory_used_counter =
             _common_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
+    _common_profile->add_info_string("IsColocate",
+                                     std::to_string(_parent->is_colocated_operator()));
+    _common_profile->add_info_string("IsShuffled", std::to_string(_parent->is_shuffled_operator()));
+    _common_profile->add_info_string("FollowedByShuffledOperator",
+                                     std::to_string(_parent->followed_by_shuffled_operator()));
     return Status::OK();
 }
 
@@ -660,6 +661,11 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
     _exec_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "ExecTime", 1);
     _memory_used_counter =
             _common_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
+    _common_profile->add_info_string("IsColocate",
+                                     std::to_string(_parent->is_colocated_operator()));
+    _common_profile->add_info_string("IsShuffled", std::to_string(_parent->is_shuffled_operator()));
+    _common_profile->add_info_string("FollowedByShuffledOperator",
+                                     std::to_string(_parent->followed_by_shuffled_operator()));
     return Status::OK();
 }
 

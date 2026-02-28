@@ -68,17 +68,6 @@ private:
     int _channel_id = 0;
 };
 
-// A single 32-bit division on a recent x64 processor has a throughput of one instruction every six cycles with a latency of 26 cycles.
-// In contrast, a multiplication has a throughput of one instruction every cycle and a latency of 3 cycles.
-// So we prefer to this algorithm instead of modulo.
-// Reference: https://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/
-struct LocalExchangeChannelIds {
-    static constexpr auto SHIFT_BITS = 32;
-    uint32_t operator()(uint32_t l, uint32_t r) {
-        return ((uint64_t)l * (uint64_t)r) >> SHIFT_BITS;
-    }
-};
-
 class LocalExchangeSinkOperatorX final : public DataSinkOperatorX<LocalExchangeSinkLocalState> {
 public:
     using Base = DataSinkOperatorX<LocalExchangeSinkLocalState>;
@@ -108,7 +97,8 @@ public:
         return Status::InternalError("{} should not init with TPlanNode", Base::_name);
     }
 
-    Status init(ExchangeType type, const int num_buckets, const bool use_global_hash_shuffle,
+    Status init(RuntimeState* state, ExchangeType type, const int num_buckets,
+                const bool use_global_hash_shuffle,
                 const std::map<int, int>& shuffle_idx_to_instance_idx) override;
 
     Status prepare(RuntimeState* state) override;

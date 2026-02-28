@@ -21,9 +21,20 @@
 
 namespace doris::vectorized {
 
+Status DataTypeQuantileStateSerDe::from_olap_string(const std::string& str, Field& field,
+                                                    const FormatOptions& options) const {
+    QuantileState value;
+    if (!value.deserialize(Slice(str.data(), str.size()))) {
+        return Status::InternalError("deserialize QuantileState from string fail!");
+    }
+    field = Field::create_field<TYPE_QUANTILE_STATE>(std::move(value));
+    return Status::OK();
+}
+
 void DataTypeQuantileStateSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                          Arena& arena, int32_t col_id,
-                                                         int64_t row_num) const {
+                                                         int64_t row_num,
+                                                         const FormatOptions& options) const {
     const auto& col = reinterpret_cast<const ColumnQuantileState&>(column);
     auto& val = const_cast<QuantileState&>(col.get_element(row_num));
     size_t actual_size = val.get_serialized_size();
@@ -45,8 +56,8 @@ void DataTypeQuantileStateSerDe::read_one_cell_from_jsonb(IColumn& column,
 }
 
 bool DataTypeQuantileStateSerDe::write_column_to_mysql_text(const IColumn& column,
-                                                            BufferWritable& bw,
-                                                            int64_t row_idx) const {
+                                                            BufferWritable& bw, int64_t row_idx,
+                                                            const FormatOptions& options) const {
     const auto& data_column = reinterpret_cast<const ColumnQuantileState&>(column);
 
     if (_return_object_as_string) {

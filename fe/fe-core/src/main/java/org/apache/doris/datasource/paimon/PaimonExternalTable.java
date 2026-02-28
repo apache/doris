@@ -109,11 +109,35 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             // use the specified snapshot and the corresponding schema(not the latest
             // schema).
             try {
-                Snapshot snapshot = PaimonUtil.getPaimonSnapshot(paimonTable, tableSnapshot, scanParams);
-                Table dataTable = paimonTable.copy(
-                        Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(snapshot.id())));
+                DataTable dataTable = (DataTable) paimonTable;
+                Snapshot snapshot;
+                Map<String, String> scanOptions = new HashMap<>();
+
+                if (tableSnapshot.isPresent()) {
+                    TableSnapshot snapshotOpt = tableSnapshot.get();
+                    String value = snapshotOpt.getValue();
+                    if (snapshotOpt.getType() == TableSnapshot.VersionType.TIME) {
+                        snapshot = PaimonUtil.getPaimonSnapshotByTimestamp(
+                                dataTable, value, PaimonUtil.isDigitalString(value));
+                        scanOptions.put(CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(snapshot.id()));
+                    } else {
+                        if (PaimonUtil.isDigitalString(value)) {
+                            snapshot = PaimonUtil.getPaimonSnapshotBySnapshotId(dataTable, value);
+                            scanOptions.put(CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(snapshot.id()));
+                        } else {
+                            snapshot = PaimonUtil.getPaimonSnapshotByTag(dataTable, value);
+                            scanOptions.put(CoreOptions.SCAN_TAG_NAME.key(), value);
+                        }
+                    }
+                } else {
+                    String tagName = PaimonUtil.extractBranchOrTagName(scanParams.get());
+                    snapshot = PaimonUtil.getPaimonSnapshotByTag(dataTable, tagName);
+                    scanOptions.put(CoreOptions.SCAN_TAG_NAME.key(), tagName);
+                }
+
+                Table scanTable = paimonTable.copy(scanOptions);
                 return new PaimonSnapshotCacheValue(PaimonPartitionInfo.EMPTY,
-                        new PaimonSnapshot(snapshot.id(), snapshot.schemaId(), dataTable));
+                        new PaimonSnapshot(snapshot.id(), snapshot.schemaId(), scanTable));
             } catch (Exception e) {
                 LOG.warn("Failed to get Paimon snapshot for table {}", paimonTable.name(), e);
                 throw new RuntimeException(
@@ -304,7 +328,9 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             List<Column> partitionColumns = Lists.newArrayList();
             for (DataField field : columns) {
                 Column column = new Column(field.name().toLowerCase(),
-                        PaimonUtil.paimonTypeToDorisType(field.type(), getCatalog().getEnableMappingVarbinary()), true,
+                        PaimonUtil.paimonTypeToDorisType(field.type(), getCatalog().getEnableMappingVarbinary(),
+                                getCatalog().getEnableMappingTimestampTz()),
+                        true,
                         null, true, field.description(), true,
                         -1);
                 PaimonUtil.updatePaimonColumnUniqueId(column, field);

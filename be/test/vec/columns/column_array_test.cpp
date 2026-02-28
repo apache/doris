@@ -28,8 +28,13 @@
 // for example column_ip should test these functions
 
 namespace doris::vectorized {
+static std::string test_result_dir;
 class ColumnArrayTest : public CommonColumnTest {
 protected:
+    static void SetUpTestSuite() {
+        auto root_dir = std::string(getenv("ROOT"));
+        test_result_dir = root_dir + "/be/test/expected_result/vec/columns";
+    }
     void SetUp() override {
         // insert from data csv and assert insert result
         std::string data_file_dir = "regression-test/data/nereids_function_p0/array/";
@@ -553,6 +558,18 @@ TEST_F(ColumnArrayTest, HashTest) {
 
     // SipHash
     assert_update_siphashes_with_value_callback(array_columns, serdes);
+
+    {
+        auto column_count = array_columns.size();
+        for (size_t i = 0; i < column_count; ++i) {
+            assert_column_vector_update_crc32c_batch_callback(
+                    array_columns[i], fmt::format("{}/{}{}{}", test_result_dir,
+                                                  "column_array_update_crc32c_batch_", i, ".out"));
+            assert_column_vector_update_crc32c_single_callback(
+                    array_columns[i], fmt::format("{}/{}{}{}", test_result_dir,
+                                                  "column_array_update_crc32c_single_", i, ".out"));
+        }
+    }
 };
 
 // test assert_convert_to_full_column_if_const_callback
@@ -750,7 +767,7 @@ TEST_F(ColumnArrayTest, MaxArraySizeAsFieldTest) {
         auto check_type = remove_nullable(array_types[i]);
         Field a;
         column->get(column->size() - 1, a);
-        Array af = a.get<Array>();
+        Array af = a.get<TYPE_ARRAY>();
         if (af.size() > 0) {
             auto start_size = af.size();
             Field ef = af[0];
@@ -789,12 +806,12 @@ TEST_F(ColumnArrayTest, IsDefaultAtTest) {
                 // check field Array is empty
                 Field f;
                 column->get(j, f);
-                auto array = f.get<Array>();
+                auto array = f.get<TYPE_ARRAY>();
                 EXPECT_EQ(array.size(), 0) << "array is not empty";
             } else {
                 Field f;
                 column->get(j, f);
-                auto array = f.get<Array>();
+                auto array = f.get<TYPE_ARRAY>();
                 EXPECT_GT(array.size(), 0) << "array is empty";
             }
         }
@@ -835,10 +852,10 @@ TEST_F(ColumnArrayTest, String64ArrayTest) {
     auto str64_array_column = ColumnArray::create(std::move(str64_column), std::move(off_column));
     EXPECT_EQ(str64_array_column->size(), offs.size() - 1);
     for (size_t i = 0; i < str64_array_column->size(); ++i) {
-        auto v = get<Array>(str64_array_column->operator[](i));
+        auto v = str64_array_column->operator[](i).get<TYPE_ARRAY>();
         EXPECT_EQ(v.size(), offs[i + 1] - offs[i]);
         for (size_t j = 0; j < v.size(); ++j) {
-            EXPECT_EQ(vals[offs[i] + j], get<std::string>(v[j]));
+            EXPECT_EQ(vals[offs[i] + j], v[j].get<TYPE_STRING>());
         }
     }
     // test insert ColumnArray<ColumnStr<uint64_t>> into ColumnArray<ColumnStr<uint32_t>>
@@ -852,18 +869,18 @@ TEST_F(ColumnArrayTest, String64ArrayTest) {
                                             indices.data() + indices.size());
     EXPECT_EQ(str32_array_column->size(), 3);
 
-    auto v = get<Array>(str32_array_column->operator[](0));
+    auto v = str32_array_column->operator[](0).get<TYPE_ARRAY>();
     EXPECT_EQ(v.size(), 2);
-    EXPECT_EQ(get<std::string>(v[0]), vals[0]);
-    EXPECT_EQ(get<std::string>(v[1]), vals[1]);
+    EXPECT_EQ(v[0].get<TYPE_STRING>(), vals[0]);
+    EXPECT_EQ(v[1].get<TYPE_STRING>(), vals[1]);
 
-    v = get<Array>(str32_array_column->operator[](1));
+    v = str32_array_column->operator[](1).get<TYPE_ARRAY>();
     EXPECT_EQ(v.size(), 1);
-    EXPECT_EQ(get<std::string>(v[0]), vals[2]);
+    EXPECT_EQ(v[0].get<TYPE_STRING>(), vals[2]);
 
-    v = get<Array>(str32_array_column->operator[](2));
+    v = str32_array_column->operator[](2).get<TYPE_ARRAY>();
     EXPECT_EQ(v.size(), 1);
-    EXPECT_EQ(get<std::string>(v[0]), vals[3]);
+    EXPECT_EQ(v[0].get<TYPE_STRING>(), vals[3]);
 }
 
 TEST_F(ColumnArrayTest, IntArrayPermuteTest) {

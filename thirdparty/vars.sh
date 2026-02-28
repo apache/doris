@@ -115,6 +115,12 @@ ZLIB_NAME=zlib-1.3.1.tar.gz
 ZLIB_SOURCE=zlib-1.3.1
 ZLIB_MD5SUM="9855b6d802d7fe5b7bd5b196a2271655"
 
+# crc32c
+CRC32C_DOWNLOAD="https://github.com/google/crc32c/archive/refs/tags/1.1.2.tar.gz"
+CRC32C_NAME=crc32c-1.1.2.tar.gz
+CRC32C_SOURCE=crc32c-1.1.2
+CRC32C_MD5SUM="cc0338e6a60c38cab04a70a2c36cd9f2"
+
 # lz4
 LZ4_DOWNLOAD="https://github.com/lz4/lz4/archive/v1.9.4.tar.gz"
 LZ4_NAME=lz4-1.9.4.tar.gz
@@ -215,11 +221,11 @@ CYRUS_SASL_NAME=cyrus-sasl-2.1.27.tar.gz
 CYRUS_SASL_SOURCE=cyrus-sasl-2.1.27
 CYRUS_SASL_MD5SUM="a33820c66e0622222c5aefafa1581083"
 
-# librdkafka-1.9.2
-LIBRDKAFKA_DOWNLOAD="https://github.com/edenhill/librdkafka/archive/v1.9.2.tar.gz"
-LIBRDKAFKA_NAME=librdkafka-1.9.2.tar.gz
-LIBRDKAFKA_SOURCE=librdkafka-1.9.2
-LIBRDKAFKA_MD5SUM="fe9624e905abbf8324b0f6be520d9c24"
+# librdkafka-2.11.0
+LIBRDKAFKA_DOWNLOAD="https://github.com/confluentinc/librdkafka/archive/refs/tags/v2.11.0.tar.gz"
+LIBRDKAFKA_NAME=librdkafka-2.11.0.tar.gz
+LIBRDKAFKA_SOURCE=librdkafka-2.11.0
+LIBRDKAFKA_MD5SUM="bc611d0340e269abaa8886d42ff9c558"
 
 # zstd
 ZSTD_DOWNLOAD="https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz"
@@ -559,6 +565,7 @@ export TP_ARCHIVES=(
     'SNAPPY'
     'GPERFTOOLS'
     'ZLIB'
+    'CRC32C'
     'LZ4'
     'BZIP'
     'LZO2'

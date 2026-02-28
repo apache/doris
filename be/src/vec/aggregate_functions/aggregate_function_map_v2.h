@@ -65,8 +65,8 @@ struct AggregateFunctionMapAggDataV2 {
 
     void add(const Field& key_, const Field& value) {
         DCHECK(!key_.is_null());
-        auto key_array = vectorized::get<Array>(key_);
-        auto value_array = vectorized::get<Array>(value);
+        auto key_array = key_.get<TYPE_ARRAY>();
+        auto value_array = value.get<TYPE_ARRAY>();
 
         const auto count = key_array.size();
         DCHECK_EQ(count, value_array.size());
@@ -240,7 +240,7 @@ public:
         const auto& col = assert_cast<const ColumnMap&>(column);
         auto* data = &(this->data(places));
         for (size_t i = 0; i != num_rows; ++i) {
-            auto map = doris::vectorized::get<Map>(col[i]);
+            auto map = col[i].get<TYPE_MAP>();
             data->add(map[0], map[1]);
         }
     }
@@ -258,7 +258,7 @@ public:
         const auto& col = assert_cast<const ColumnMap&>(column);
         const size_t num_rows = column.size();
         for (size_t i = 0; i != num_rows; ++i) {
-            auto map = doris::vectorized::get<Map>(col[i]);
+            auto map = col[i].get<TYPE_MAP>();
             this->data(place).add(map[0], map[1]);
         }
     }
@@ -270,7 +270,7 @@ public:
                 << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
         const auto& col = assert_cast<const ColumnMap&>(column);
         for (size_t i = begin; i <= end; ++i) {
-            auto map = doris::vectorized::get<Map>(col[i]);
+            auto map = col[i].get<TYPE_MAP>();
             this->data(place).add(map[0], map[1]);
         }
     }
@@ -280,7 +280,7 @@ public:
                                    const size_t num_rows) const override {
         const auto& col = assert_cast<const ColumnMap&>(*column);
         for (size_t i = 0; i != num_rows; ++i) {
-            auto map = doris::vectorized::get<Map>(col[i]);
+            auto map = col[i].get<TYPE_MAP>();
             this->data(places[i] + offset).add(map[0], map[1]);
         }
     }
@@ -291,7 +291,7 @@ public:
         const auto& col = assert_cast<const ColumnMap&>(*column);
         for (size_t i = 0; i != num_rows; ++i) {
             if (places[i]) {
-                auto map = doris::vectorized::get<Map>(col[i]);
+                auto map = col[i].get<TYPE_MAP>();
                 this->data(places[i] + offset).add(map[0], map[1]);
             }
         }

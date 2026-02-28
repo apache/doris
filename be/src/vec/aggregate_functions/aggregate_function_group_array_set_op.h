@@ -63,7 +63,6 @@ template <PrimitiveType T>
 struct GroupArraySetOpNumericBaseData {
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using CppType = typename PrimitiveTypeTraits<T>::CppType;
-    using ColumnItemType = typename PrimitiveTypeTraits<T>::ColumnItemType;
     using NullableNumericOrDateSetType = NullableNumericOrDateSet<T>;
     using Set = std::unique_ptr<NullableNumericOrDateSetType>;
 
@@ -127,7 +126,7 @@ struct GroupArraySetOpNumericBaseData {
             nested_col.get_data().resize(old_size + res_size);
             HybridSetBase::IteratorBase* it = set->begin();
             while (it->has_next()) {
-                const auto value = *reinterpret_cast<const ColumnItemType*>(it->get_value());
+                const auto value = *reinterpret_cast<const CppType*>(it->get_value());
                 nested_col.get_data()[old_size + i] = value;
                 col_null->get_null_map_data().push_back(0);
                 it->next();
@@ -164,7 +163,7 @@ struct GroupArrayNumericIntersectData : public GroupArraySetOpNumericBaseData<T>
                     assert_cast<const ColVecType&>(col_nullable.get_nested_column());
             for (size_t i = 0; i < arr_size; ++i) {
                 const bool is_null_element = col_nullable.is_null_at(offset + i);
-                const typename PrimitiveTypeTraits<T>::ColumnItemType* src_data =
+                const typename PrimitiveTypeTraits<T>::CppType* src_data =
                         is_null_element ? nullptr : &(nested_column_data.get_element(offset + i));
 
                 if ((!is_null_element && this->set->find(src_data)) ||

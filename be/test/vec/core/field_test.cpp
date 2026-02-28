@@ -29,26 +29,34 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 TEST(VFieldTest, field_string) {
     Field f;
 
     f = Field::create_field<TYPE_STRING>(String {"Hello, world (1)"});
-    ASSERT_EQ(f.get<String>(), "Hello, world (1)");
+    ASSERT_EQ(f.get<TYPE_STRING>(), "Hello, world (1)");
     f = Field::create_field<TYPE_STRING>(String {"Hello, world (2)"});
-    ASSERT_EQ(f.get<String>(), "Hello, world (2)");
+    ASSERT_EQ(f.get<TYPE_STRING>(), "Hello, world (2)");
     f = Field::create_field<TYPE_ARRAY>(
             Array {Field ::create_field<TYPE_STRING>(String {"Hello, world (3)"})});
-    ASSERT_EQ(f.get<Array>()[0].get<String>(), "Hello, world (3)");
+    ASSERT_EQ(f.get<TYPE_ARRAY>()[0].get<TYPE_STRING>(), "Hello, world (3)");
     f = Field::create_field<TYPE_STRING>(String {"Hello, world (4)"});
-    ASSERT_EQ(f.get<String>(), "Hello, world (4)");
+    ASSERT_EQ(f.get<TYPE_STRING>(), "Hello, world (4)");
     f = Field::create_field<TYPE_ARRAY>(
             Array {Field::create_field<TYPE_STRING>(String {"Hello, world (5)"})});
-    ASSERT_EQ(f.get<Array>()[0].get<String>(), "Hello, world (5)");
+    ASSERT_EQ(f.get<TYPE_ARRAY>()[0].get<TYPE_STRING>(), "Hello, world (5)");
     f = Field::create_field<TYPE_ARRAY>(
             Array {Field::create_field<TYPE_STRING>(String {"Hello, world (6)"})});
-    ASSERT_EQ(f.get<Array>()[0].get<String>(), "Hello, world (6)");
+    ASSERT_EQ(f.get<TYPE_ARRAY>()[0].get<TYPE_STRING>(), "Hello, world (6)");
+}
+
+TEST(VFieldTest, field_timestamptz) {
+    Field f;
+    f = Field::create_field<TYPE_TIMESTAMPTZ>(*(TimestampTzValue*)&MIN_DATETIME_V2);
+    ASSERT_EQ(f.get_type(), TYPE_TIMESTAMPTZ);
+    ASSERT_EQ(f.get<TYPE_TIMESTAMPTZ>().to_date_int_val(), MIN_DATETIME_V2);
 }
 
 TEST(VFieldTest, jsonb_field_unique_ptr) {
@@ -102,10 +110,10 @@ TEST(VFieldTest, jsonb_field_unique_ptr) {
     // Test JsonbField with Field
     Field field_jf = Field::create_field<TYPE_JSONB>(jf1);
     ASSERT_EQ(field_jf.get_type(), TYPE_JSONB);
-    ASSERT_NE(field_jf.get<JsonbField>().get_value(), nullptr);
-    ASSERT_EQ(field_jf.get<JsonbField>().get_size(), test_size);
-    ASSERT_EQ(std::string(field_jf.get<JsonbField>().get_value(),
-                          field_jf.get<JsonbField>().get_size()),
+    ASSERT_NE(field_jf.get<TYPE_JSONB>().get_value(), nullptr);
+    ASSERT_EQ(field_jf.get<TYPE_JSONB>().get_size(), test_size);
+    ASSERT_EQ(std::string(field_jf.get<TYPE_JSONB>().get_value(),
+                          field_jf.get<TYPE_JSONB>().get_size()),
               std::string(test_data));
 }
 
@@ -176,9 +184,9 @@ TEST(VFieldTest, jsonb_field_io) {
             Field f2 = Field::create_field<TYPE_JSONB>(jsonb_from_field);
 
             ASSERT_EQ(f2.get_type(), TYPE_JSONB);
-            ASSERT_NE(f2.get<JsonbField>().get_value(), nullptr);
+            ASSERT_NE(f2.get<TYPE_JSONB>().get_value(), nullptr);
             ASSERT_EQ(
-                    std::string(f2.get<JsonbField>().get_value(), f2.get<JsonbField>().get_size()),
+                    std::string(f2.get<TYPE_JSONB>().get_value(), f2.get<TYPE_JSONB>().get_size()),
                     std::string(test_data));
         }
     }

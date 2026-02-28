@@ -599,31 +599,6 @@ TEST_F(SchemaUtilTest, TestArrayDimensions) {
     EXPECT_EQ(base_type->get_primitive_type(), PrimitiveType::TYPE_INT);
 }
 
-TEST_F(SchemaUtilTest, TestIntegerConversion) {
-    // Test conversion between integers
-    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(
-            PrimitiveType::TYPE_TINYINT, PrimitiveType::TYPE_SMALLINT));
-    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(PrimitiveType::TYPE_TINYINT,
-                                                                      PrimitiveType::TYPE_INT));
-    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(PrimitiveType::TYPE_SMALLINT,
-                                                                      PrimitiveType::TYPE_INT));
-
-    EXPECT_TRUE(schema_util::is_conversion_required_between_integers(PrimitiveType::TYPE_INT,
-                                                                     PrimitiveType::TYPE_SMALLINT));
-    EXPECT_TRUE(schema_util::is_conversion_required_between_integers(PrimitiveType::TYPE_BIGINT,
-                                                                     PrimitiveType::TYPE_INT));
-
-    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(
-            PrimitiveType::TYPE_TINYINT, PrimitiveType::TYPE_SMALLINT));
-    EXPECT_TRUE(schema_util::is_conversion_required_between_integers(PrimitiveType::TYPE_INT,
-                                                                     PrimitiveType::TYPE_SMALLINT));
-
-    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(
-            PrimitiveType::TYPE_BOOLEAN, PrimitiveType::TYPE_SMALLINT));
-    EXPECT_TRUE(schema_util::is_conversion_required_between_integers(PrimitiveType::TYPE_SMALLINT,
-                                                                     PrimitiveType::TYPE_BOOLEAN));
-}
-
 TEST_F(SchemaUtilTest, TestColumnCasting) {
     // Test cast_column
     auto src_type = std::make_shared<DataTypeInt32>();

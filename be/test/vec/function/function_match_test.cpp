@@ -34,20 +34,21 @@ namespace doris::vectorized {
 
 // Helper structure to manage analyzer lifetime
 struct TestInvertedIndexCtx {
-    std::unique_ptr<InvertedIndexCtx> ctx;
+    std::unique_ptr<InvertedIndexAnalyzerCtx> ctx;
     std::shared_ptr<lucene::analysis::Analyzer> analyzer_holder;
 };
 
 // Helper function to create inverted index context
 TestInvertedIndexCtx create_inverted_index_ctx(InvertedIndexParserType parser_type) {
     TestInvertedIndexCtx test_ctx;
-    test_ctx.ctx = std::make_unique<InvertedIndexCtx>();
+    test_ctx.ctx = std::make_unique<InvertedIndexAnalyzerCtx>();
     test_ctx.ctx->parser_type = parser_type;
     if (parser_type != InvertedIndexParserType::PARSER_NONE) {
+        InvertedIndexAnalyzerConfig config;
+        config.parser_type = parser_type;
         test_ctx.analyzer_holder =
-                doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_analyzer(
-                        test_ctx.ctx.get());
-        test_ctx.ctx->analyzer = test_ctx.analyzer_holder.get();
+                doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_analyzer(&config);
+        test_ctx.ctx->analyzer = test_ctx.analyzer_holder;
     }
     return test_ctx;
 }
@@ -63,7 +64,7 @@ TEST(FunctionMatchTest, analyse_query_str) {
     }
 
     {
-        auto inverted_index_ctx = std::make_unique<InvertedIndexCtx>();
+        auto inverted_index_ctx = std::make_unique<InvertedIndexAnalyzerCtx>();
         inverted_index_ctx->parser_type = InvertedIndexParserType::PARSER_NONE;
         auto query_tokens = func_match_phrase.analyse_query_str_token(inverted_index_ctx.get(),
                                                                       "a b c", "name");
@@ -71,11 +72,13 @@ TEST(FunctionMatchTest, analyse_query_str) {
     }
 
     {
-        auto inverted_index_ctx = std::make_unique<InvertedIndexCtx>();
+        auto inverted_index_ctx = std::make_unique<InvertedIndexAnalyzerCtx>();
         inverted_index_ctx->parser_type = InvertedIndexParserType::PARSER_ENGLISH;
-        auto analyzer = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_analyzer(
-                inverted_index_ctx.get());
-        inverted_index_ctx->analyzer = analyzer.get();
+        InvertedIndexAnalyzerConfig config;
+        config.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
+        auto analyzer =
+                doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_analyzer(&config);
+        inverted_index_ctx->analyzer = analyzer;
         auto query_tokens = func_match_phrase.analyse_query_str_token(inverted_index_ctx.get(),
                                                                       "a b c", "name");
         ASSERT_EQ(query_tokens.size(), 3);

@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.service.FrontendOptions;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -40,7 +41,6 @@ import org.apache.logging.log4j.Logger;
  */
 public class AdminSetClusterSnapshotFeatureSwitchCommand extends Command implements ForwardWithSync {
 
-    public static final String PROP_ENABLED = "enabled";
     private static final Logger LOG = LogManager.getLogger(AdminSetClusterSnapshotFeatureSwitchCommand.class);
 
     private boolean on;
@@ -57,9 +57,10 @@ public class AdminSetClusterSnapshotFeatureSwitchCommand extends Command impleme
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
         Cloud.AlterInstanceRequest.Builder builder = Cloud.AlterInstanceRequest.newBuilder()
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
                 .setOp(Cloud.AlterInstanceRequest.Operation.SET_SNAPSHOT_PROPERTY)
-                .putProperties(PROP_ENABLED, String.valueOf(on));
+                .putProperties(Cloud.AlterInstanceRequest.SnapshotProperty.ENABLE_SNAPSHOT.name(), String.valueOf(on));
         CloudSnapshotHandler cloudSnapshotHandler = ((CloudEnv) ctx.getEnv()).getCloudSnapshotHandler();
         cloudSnapshotHandler.alterInstance(builder.build());
         cloudSnapshotHandler.refreshAutoSnapshotJob();

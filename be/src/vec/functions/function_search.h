@@ -27,7 +27,7 @@
 
 #include "gen_cpp/Exprs_types.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/boolean_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/operator_boolean_query.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -49,6 +49,7 @@ struct FieldReaderBinding {
     std::shared_ptr<lucene::index::IndexReader> lucene_reader;
     std::map<std::string, std::string> index_properties;
     std::string binding_key;
+    std::string analyzer_key;
 };
 
 class FieldReaderResolver {
@@ -152,6 +153,7 @@ public:
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<IndexIterator*> iterators, uint32_t num_rows,
+            const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/,
             InvertedIndexResultBitmap& bitmap_result) const override;
 
     Status evaluate_inverted_index_with_search_param(

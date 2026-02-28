@@ -70,6 +70,7 @@
 #include "pipeline/dependency.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/primitive_type.h"
 #include "runtime/types.h"
 #include "util/string_util.h"
 #include "util/types.h"
@@ -366,8 +367,8 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
         }
 
         case TYPE_DATEV2: {
-            uint32_t num = *reinterpret_cast<uint32_t*>(data);
-            assert_cast<vectorized::ColumnDateV2*>(col_ptr)->insert_value(num);
+            assert_cast<vectorized::ColumnDateV2*>(col_ptr)->insert_value(
+                    *reinterpret_cast<DateV2Value<DateV2ValueType>*>(data));
             break;
         }
 
@@ -378,8 +379,14 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
         }
 
         case TYPE_DATETIMEV2: {
-            uint64_t num = *reinterpret_cast<uint64_t*>(data);
-            assert_cast<vectorized::ColumnDateTimeV2*>(col_ptr)->insert_value(num);
+            assert_cast<vectorized::ColumnDateTimeV2*>(col_ptr)->insert_value(
+                    *reinterpret_cast<DateV2Value<DateTimeV2ValueType>*>(data));
+            break;
+        }
+
+        case TYPE_TIMESTAMPTZ: {
+            assert_cast<vectorized::ColumnTimeStampTz*>(col_ptr)->insert_value(
+                    *reinterpret_cast<TimestampTzValue*>(data));
             break;
         }
 

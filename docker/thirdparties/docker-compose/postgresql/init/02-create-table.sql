@@ -431,3 +431,10 @@ CREATE TABLE catalog_pg_test.extreme_test_multi_block (
     uuid_val uuid
 );
 
+CREATE TABLE test_timestamp_tz_db.ts_test (
+    id      int,
+    ts_tz   timestamptz NULL,
+    ts_ntz  timestamp NULL
+);
+
+

@@ -20,6 +20,8 @@
 
 #include "vec/columns/column_string.h"
 
+#include <crc32c/crc32c.h>
+
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cstring>
@@ -47,20 +49,6 @@ void ColumnStr<T>::sanity_check() const {
             throw Exception(Status::InternalError("row count: {}, offsets[{}]: {}, offsets[{}]: {}",
                                                   count, i, offsets[i], i - 1, offsets[i - 1]));
         }
-    }
-#endif
-}
-
-template <typename T>
-void ColumnStr<T>::sanity_check_simple() const {
-#ifndef NDEBUG
-    auto count = cast_set<int64_t>(offsets.size());
-    if (chars.size() != offsets[count - 1]) {
-        throw Exception(Status::InternalError("row count: {}, chars.size(): {}, offset[{}]: {}",
-                                              count, chars.size(), count - 1, offsets[count - 1]));
-    }
-    if (offsets[-1] != 0) {
-        throw Exception(Status::InternalError("wrong offsets[-1]: {}", offsets[-1]));
     }
 #endif
 }
@@ -314,6 +302,44 @@ void ColumnStr<T>::update_crcs_with_value(uint32_t* __restrict hashes, doris::Pr
                 hashes[i] = HashUtil::zlib_crc_hash(
                         data_ref.data, static_cast<uint32_t>(data_ref.size), hashes[i]);
             }
+        }
+    }
+}
+
+template <typename T>
+void ColumnStr<T>::update_crc32c_batch(uint32_t* __restrict hashes,
+                                       const uint8_t* __restrict null_map) const {
+    auto s = size();
+    if (null_map) {
+        for (size_t i = 0; i < s; i++) {
+            if (null_map[i] == 0) {
+                auto data_ref = get_data_at(i);
+                hashes[i] =
+                        crc32c_extend(hashes[i], (const uint8_t*)(data_ref.data), data_ref.size);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; i++) {
+            auto data_ref = get_data_at(i);
+            hashes[i] = crc32c_extend(hashes[i], (const uint8_t*)(data_ref.data), data_ref.size);
+        }
+    }
+}
+
+template <typename T>
+void ColumnStr<T>::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                        const uint8_t* __restrict null_map) const {
+    if (null_map) {
+        for (size_t i = start; i < end; i++) {
+            if (null_map[i] == 0) {
+                auto data_ref = get_data_at(i);
+                hash = crc32c_extend(hash, (const uint8_t*)(data_ref.data), data_ref.size);
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; i++) {
+            auto data_ref = get_data_at(i);
+            hash = crc32c_extend(hash, (const uint8_t*)(data_ref.data), data_ref.size);
         }
     }
 }
@@ -660,15 +686,15 @@ void ColumnStr<T>::insert(const Field& x) {
     StringRef s;
     if (x.get_type() == PrimitiveType::TYPE_JSONB) {
         // Handle JsonbField
-        const auto& real_field = vectorized::get<const JsonbField&>(x);
+        const auto& real_field = x.get<TYPE_JSONB>();
         s = StringRef(real_field.get_value(), real_field.get_size());
     } else {
         DCHECK(is_string_type(x.get_type()));
         // If `x.get_type()` is not String, such as UInt64, may get the error
         // `string column length is too large: total_length=13744632839234567870`
         // because `<String>(x).size() = 13744632839234567870`
-        s.data = vectorized::get<const String&>(x).data();
-        s.size = vectorized::get<const String&>(x).size();
+        s.data = x.get<TYPE_STRING>().data();
+        s.size = x.get<TYPE_STRING>().size();
     }
     const size_t old_size = chars.size();
     const size_t size_to_append = s.size;

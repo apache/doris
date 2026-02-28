@@ -100,6 +100,64 @@ public class PaimonAliyunDLFMetaStorePropertiesTest {
         }
     }
 
+
+    @Test
+    void testInitializeCatalogWithValidOssHdfsProperties() throws UserException {
+        Map<String, String> props = createValidProps();
+        PaimonAliyunDLFMetaStoreProperties dlfProps =
+                new PaimonAliyunDLFMetaStoreProperties(props);
+        dlfProps.initNormalizeAndCheckProps();
+
+        // Prepare OSSProperties mock
+        Map<String, String> ossProps = new HashMap<>();
+        ossProps.put("dlf.access_key", "ak");
+        ossProps.put("dlf.secret_key", "sk");
+        ossProps.put("dlf.endpoint", "dlf-vpc.cn-beijing.aliyuncs.com");
+        ossProps.put("dlf.region", "cn-beijing");
+        ossProps.put("oss.hdfs.enabled", "true");
+
+
+        List<StorageProperties> storageProperties = StorageProperties.createAll(ossProps);
+
+        Catalog mockCatalog = Mockito.mock(Catalog.class);
+
+        try (MockedStatic<CatalogFactory> mocked = Mockito.mockStatic(CatalogFactory.class)) {
+            mocked.when(() -> CatalogFactory.createCatalog(Mockito.any(CatalogContext.class)))
+                    .thenReturn(mockCatalog);
+
+            Catalog catalog = dlfProps.initializeCatalog("testCatalog", storageProperties);
+
+            Assertions.assertNotNull(catalog, "Catalog should not be null");
+            Assertions.assertEquals(mockCatalog, catalog, "Catalog should be the mocked one");
+
+            mocked.verify(() -> CatalogFactory.createCatalog(Mockito.any(CatalogContext.class)));
+        }
+        ossProps = new HashMap<>();
+        ossProps.put("dlf.access_key", "ak");
+        ossProps.put("dlf.secret_key", "sk");
+        ossProps.put("dlf.endpoint", "dlf-vpc.cn-beijing.aliyuncs.com");
+        ossProps.put("dlf.region", "cn-beijing");
+        ossProps.put("oss.access_key", "ak");
+        ossProps.put("oss.secret_key", "sk");
+        ossProps.put("oss.endpoint", "oss-cn-beijing.oss-dls.aliyuncs.com");
+        storageProperties = StorageProperties.createAll(ossProps);
+
+        mockCatalog = Mockito.mock(Catalog.class);
+
+        try (MockedStatic<CatalogFactory> mocked = Mockito.mockStatic(CatalogFactory.class)) {
+            mocked.when(() -> CatalogFactory.createCatalog(Mockito.any(CatalogContext.class)))
+                    .thenReturn(mockCatalog);
+
+            Catalog catalog = dlfProps.initializeCatalog("testCatalog", storageProperties);
+
+            Assertions.assertNotNull(catalog, "Catalog should not be null");
+            Assertions.assertEquals(mockCatalog, catalog, "Catalog should be the mocked one");
+
+            mocked.verify(() -> CatalogFactory.createCatalog(Mockito.any(CatalogContext.class)));
+        }
+
+    }
+
     @Test
     void testInitializeCatalogWithoutOssPropertiesThrows() {
         Map<String, String> props = createValidProps();

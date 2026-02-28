@@ -129,6 +129,18 @@ std::unique_ptr<MetaServiceProxy> get_fdb_meta_service() {
     return std::make_unique<MetaServiceProxy>(std::move(meta_service));
 }
 
+static void prepare_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
+                           CreateRowsetResponse& res) {
+    brpc::Controller cntl;
+    auto* arena = res.GetArena();
+    auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+    req->mutable_rowset_meta()->CopyFrom(rowset);
+    meta_service->prepare_rowset(&cntl, req, &res, nullptr);
+    if (!arena) {
+        delete req;
+    }
+}
+
 static void commit_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
                           CreateRowsetResponse& res) {
     brpc::Controller cntl;
@@ -208,6 +220,7 @@ void create_tablet(MetaService* meta_service, int64_t table_id, int64_t index_id
     brpc::Controller cntl;
     CreateTabletsRequest req;
     CreateTabletsResponse res;
+    req.set_db_id(1);
     auto* tablet = req.add_tablet_metas();
     tablet->set_tablet_state(not_ready ? doris::TabletStatePB::PB_NOTREADY
                                        : doris::TabletStatePB::PB_RUNNING);
@@ -234,6 +247,7 @@ static void create_tablet(MetaServiceProxy* meta_service, int64_t table_id, int6
     brpc::Controller cntl;
     CreateTabletsRequest req;
     CreateTabletsResponse res;
+    req.set_db_id(1);
     add_tablet(req, table_id, index_id, partition_id, tablet_id, rowset_id, schema_version);
     meta_service->create_tablets(&cntl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << tablet_id;
@@ -244,6 +258,7 @@ static void create_tablet(MetaServiceProxy* meta_service, int64_t table_id, int6
     brpc::Controller cntl;
     CreateTabletsRequest req;
     CreateTabletsResponse res;
+    req.set_db_id(1);
     add_tablet(req, table_id, index_id, partition_id, tablet_id);
     meta_service->create_tablets(&cntl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << tablet_id;
@@ -329,20 +344,11 @@ static void create_and_commit_rowset(MetaServiceProxy* meta_service, int64_t tab
     create_tablet(meta_service, table_id, index_id, partition_id, tablet_id);
     auto tmp_rowset = create_rowset(txn_id, tablet_id, partition_id);
     CreateRowsetResponse res;
+    prepare_rowset(meta_service, tmp_rowset, res);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    res.Clear();
     commit_rowset(meta_service, tmp_rowset, res);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
-}
-
-static void prepare_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
-                           CreateRowsetResponse& res) {
-    brpc::Controller cntl;
-    auto* arena = res.GetArena();
-    auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
-    req->mutable_rowset_meta()->CopyFrom(rowset);
-    meta_service->prepare_rowset(&cntl, req, &res, nullptr);
-    if (!arena) {
-        delete req;
-    }
 }
 
 static void get_tablet_stats(MetaService* meta_service, int64_t table_id, int64_t index_id,
@@ -1506,6 +1512,9 @@ TEST(RpcKvBvarTest, DropIndex) {
             auto tmp_rowset =
                     create_rowset(txn_id, tablet_id_base + i, index_id, partition_id, -1, 100);
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), tmp_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            res.Clear();
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         }

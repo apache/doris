@@ -64,6 +64,7 @@
 #include "vec/data_types/data_type_quantilestate.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/data_types/data_type_timestamptz.h"
 #include "vec/data_types/data_type_varbinary.h"
 #include "vec/data_types/data_type_variant.h"
 
@@ -106,8 +107,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
     } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
         nested = std::make_shared<DataTypeVariant>(col_desc.variant_max_subcolumns_count());
     } else {
-        nested =
-                _create_primitive_data_type(col_desc.type(), col_desc.precision(), col_desc.frac());
+        nested = _create_primitive_data_type(col_desc.type(), col_desc.precision(), col_desc.frac(),
+                                             col_desc.length());
     }
 
     if ((is_nullable || col_desc.is_nullable()) && nested) {
@@ -117,7 +118,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
 }
 
 DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, int precision,
-                                                         int scale) const {
+                                                         int scale, int length) const {
     DataTypePtr result = nullptr;
     switch (type) {
     case FieldType::OLAP_FIELD_TYPE_BOOL:
@@ -156,6 +157,9 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
         result = vectorized::create_datetimev2(scale);
         break;
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
+        result = std::make_shared<DataTypeTimeStampTz>(scale);
+        break;
     case FieldType::OLAP_FIELD_TYPE_DATETIME:
         result = std::make_shared<vectorized::DataTypeDateTime>();
         break;
@@ -163,7 +167,7 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         result = std::make_shared<vectorized::DataTypeFloat64>();
         break;
     case FieldType::OLAP_FIELD_TYPE_CHAR:
-        result = std::make_shared<vectorized::DataTypeString>(-1, TYPE_CHAR);
+        result = std::make_shared<vectorized::DataTypeString>(length, TYPE_CHAR);
         break;
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
         result = std::make_shared<vectorized::DataTypeString>(-1, TYPE_VARCHAR);
@@ -255,6 +259,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         break;
     case PGenericType::DATETIME:
         nested = std::make_shared<DataTypeDateTime>();
+        break;
+    case PGenericType::TIMESTAMPTZ:
+        nested = std::make_shared<DataTypeTimeStampTz>(pcolumn.decimal_param().scale());
         break;
     case PGenericType::DECIMAL32:
         nested = std::make_shared<DataTypeDecimal32>(pcolumn.decimal_param().precision(),
@@ -379,7 +386,7 @@ DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pc
     } else {
         // TODO add precision and frac
         nested = _create_primitive_data_type(static_cast<FieldType>(pcolumn.type()),
-                                             pcolumn.precision(), pcolumn.frac());
+                                             pcolumn.precision(), pcolumn.frac(), -1);
     }
 
     if (pcolumn.is_nullable() && nested) {
@@ -435,6 +442,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
     case TYPE_TIMEV2:
         nested = std::make_shared<vectorized::DataTypeTimeV2>(scale);
         break;
+    case TYPE_TIMESTAMPTZ:
+        nested = std::make_shared<vectorized::DataTypeTimeStampTz>(scale);
+        break;
     case TYPE_DOUBLE:
         nested = std::make_shared<vectorized::DataTypeFloat64>();
         break;
@@ -460,8 +470,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         nested = std::make_shared<vectorized::DataTypeBitMap>();
         break;
     case TYPE_DECIMALV2:
-        nested = std::make_shared<vectorized::DataTypeDecimalV2>(
-                precision > 0 ? precision : 0, precision > 0 ? scale : 0, precision, scale);
+        nested = std::make_shared<vectorized::DataTypeDecimalV2>(27, 9, precision, scale);
         break;
     case TYPE_QUANTILE_STATE:
         nested = std::make_shared<vectorized::DataTypeQuantileState>();

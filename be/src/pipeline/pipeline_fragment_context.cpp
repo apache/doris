@@ -640,7 +640,7 @@ Status PipelineFragmentContext::_build_pipelines(ObjectPool* pool, const Descrip
     int node_idx = 0;
 
     RETURN_IF_ERROR(_create_tree_helper(pool, _params.fragment.plan.nodes, descs, nullptr,
-                                        &node_idx, root, cur_pipe, 0, false));
+                                        &node_idx, root, cur_pipe, 0, false, false));
 
     if (node_idx + 1 != _params.fragment.plan.nodes.size()) {
         return Status::InternalError(
@@ -649,12 +649,10 @@ Status PipelineFragmentContext::_build_pipelines(ObjectPool* pool, const Descrip
     return Status::OK();
 }
 
-Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
-                                                    const std::vector<TPlanNode>& tnodes,
-                                                    const DescriptorTbl& descs, OperatorPtr parent,
-                                                    int* node_idx, OperatorPtr* root,
-                                                    PipelinePtr& cur_pipe, int child_idx,
-                                                    const bool followed_by_shuffled_operator) {
+Status PipelineFragmentContext::_create_tree_helper(
+        ObjectPool* pool, const std::vector<TPlanNode>& tnodes, const DescriptorTbl& descs,
+        OperatorPtr parent, int* node_idx, OperatorPtr* root, PipelinePtr& cur_pipe, int child_idx,
+        const bool followed_by_shuffled_operator, const bool require_bucket_distribution) {
     // propagate error case
     if (*node_idx >= tnodes.size()) {
         return Status::InternalError(
@@ -665,10 +663,12 @@ Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
 
     int num_children = tnodes[*node_idx].num_children;
     bool current_followed_by_shuffled_operator = followed_by_shuffled_operator;
+    bool current_require_bucket_distribution = require_bucket_distribution;
     OperatorPtr op = nullptr;
     RETURN_IF_ERROR(_create_operator(pool, tnodes[*node_idx], descs, op, cur_pipe,
                                      parent == nullptr ? -1 : parent->node_id(), child_idx,
-                                     followed_by_shuffled_operator));
+                                     followed_by_shuffled_operator,
+                                     current_require_bucket_distribution));
     // Initialization must be done here. For example, group by expressions in agg will be used to
     // decide if a local shuffle should be planed, so it must be initialized here.
     RETURN_IF_ERROR(op->init(tnode, _runtime_state.get()));
@@ -690,12 +690,21 @@ Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
      * If an operator's is followed by a local exchange without shuffle (e.g. passthrough), a
      * shuffled local exchanger will be used before join so it is not followed by shuffle join.
      */
-    auto require_shuffled_data_distribution =
-            cur_pipe->operators().empty() ? cur_pipe->sink()->require_shuffled_data_distribution()
-                                          : op->require_shuffled_data_distribution();
+    auto required_data_distribution =
+            cur_pipe->operators().empty()
+                    ? cur_pipe->sink()->required_data_distribution(_runtime_state.get())
+                    : op->required_data_distribution(_runtime_state.get());
     current_followed_by_shuffled_operator =
-            (followed_by_shuffled_operator || op->is_shuffled_operator()) &&
-            require_shuffled_data_distribution;
+            (followed_by_shuffled_operator ||
+             (cur_pipe->operators().empty() ? cur_pipe->sink()->is_shuffled_operator()
+                                            : op->is_shuffled_operator())) &&
+            Pipeline::is_hash_exchange(required_data_distribution.distribution_type);
+
+    current_require_bucket_distribution =
+            (require_bucket_distribution ||
+             (cur_pipe->operators().empty() ? cur_pipe->sink()->is_colocated_operator()
+                                            : op->is_colocated_operator())) &&
+            Pipeline::is_hash_exchange(required_data_distribution.distribution_type);
 
     if (num_children == 0) {
         _use_serial_source = op->is_serial_operator();
@@ -704,7 +713,8 @@ Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
     for (int i = 0; i < num_children; i++) {
         ++*node_idx;
         RETURN_IF_ERROR(_create_tree_helper(pool, tnodes, descs, op, node_idx, nullptr, cur_pipe, i,
-                                            current_followed_by_shuffled_operator));
+                                            current_followed_by_shuffled_operator,
+                                            current_require_bucket_distribution));
 
         // we are expecting a child, but have used all nodes
         // this means we have been given a bad tree and must fail
@@ -756,8 +766,9 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
         data_distribution.distribution_type = ExchangeType::HASH_SHUFFLE;
     }
     RETURN_IF_ERROR(new_pip->set_sink(sink));
-    RETURN_IF_ERROR(new_pip->sink()->init(data_distribution.distribution_type, num_buckets,
-                                          use_global_hash_shuffle, shuffle_idx_to_instance_idx));
+    RETURN_IF_ERROR(new_pip->sink()->init(_runtime_state.get(), data_distribution.distribution_type,
+                                          num_buckets, use_global_hash_shuffle,
+                                          shuffle_idx_to_instance_idx));
 
     // 2. Create and initialize LocalExchangeSharedState.
     std::shared_ptr<LocalExchangeSharedState> shared_state =
@@ -936,7 +947,7 @@ Status PipelineFragmentContext::_plan_local_exchange(
         int num_buckets, const std::map<int, int>& bucket_seq_to_instance_idx,
         const std::map<int, int>& shuffle_idx_to_instance_idx) {
     for (int pip_idx = cast_set<int>(_pipelines.size()) - 1; pip_idx >= 0; pip_idx--) {
-        _pipelines[pip_idx]->init_data_distribution();
+        _pipelines[pip_idx]->init_data_distribution(_runtime_state.get());
         // Set property if child pipeline is not join operator's child.
         if (!_pipelines[pip_idx]->children().empty()) {
             for (auto& child : _pipelines[pip_idx]->children()) {
@@ -968,11 +979,12 @@ Status PipelineFragmentContext::_plan_local_exchange(
         do_local_exchange = false;
         // Plan local exchange for each operator.
         for (; idx < ops.size();) {
-            if (ops[idx]->required_data_distribution().need_local_exchange()) {
+            if (ops[idx]->required_data_distribution(_runtime_state.get()).need_local_exchange()) {
                 RETURN_IF_ERROR(_add_local_exchange(
                         pip_idx, idx, ops[idx]->node_id(), _runtime_state->obj_pool(), pip,
-                        ops[idx]->required_data_distribution(), &do_local_exchange, num_buckets,
-                        bucket_seq_to_instance_idx, shuffle_idx_to_instance_idx));
+                        ops[idx]->required_data_distribution(_runtime_state.get()),
+                        &do_local_exchange, num_buckets, bucket_seq_to_instance_idx,
+                        shuffle_idx_to_instance_idx));
             }
             if (do_local_exchange) {
                 // If local exchange is needed for current operator, we will split this pipeline to
@@ -985,11 +997,11 @@ Status PipelineFragmentContext::_plan_local_exchange(
             idx++;
         }
     } while (do_local_exchange);
-    if (pip->sink()->required_data_distribution().need_local_exchange()) {
+    if (pip->sink()->required_data_distribution(_runtime_state.get()).need_local_exchange()) {
         RETURN_IF_ERROR(_add_local_exchange(
                 pip_idx, idx, pip->sink()->node_id(), _runtime_state->obj_pool(), pip,
-                pip->sink()->required_data_distribution(), &do_local_exchange, num_buckets,
-                bucket_seq_to_instance_idx, shuffle_idx_to_instance_idx));
+                pip->sink()->required_data_distribution(_runtime_state.get()), &do_local_exchange,
+                num_buckets, bucket_seq_to_instance_idx, shuffle_idx_to_instance_idx));
     }
     return Status::OK();
 }
@@ -1139,8 +1151,9 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             OperatorPtr source_op;
             // 1. create and set the source operator of multi_cast_data_stream_source for new pipeline
             source_op = std::make_shared<MultiCastDataStreamerSourceOperatorX>(
-                    multi_cast_node_id, i, pool, thrift_sink.multi_cast_stream_sink.sinks[i],
-                    row_desc, /*operator_id=*/source_id);
+                    /*node_id*/ source_id, /*consumer_id*/ i, pool,
+                    thrift_sink.multi_cast_stream_sink.sinks[i], row_desc,
+                    /*operator_id=*/source_id);
             RETURN_IF_ERROR(new_pipeline->add_operator(
                     source_op, params.__isset.parallel_instances ? params.parallel_instances : 0));
             // 2. create and set sink operator of data stream sender for new pipeline
@@ -1186,7 +1199,17 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                                                  const DescriptorTbl& descs, OperatorPtr& op,
                                                  PipelinePtr& cur_pipe, int parent_idx,
                                                  int child_idx,
-                                                 const bool followed_by_shuffled_operator) {
+                                                 const bool followed_by_shuffled_operator,
+                                                 const bool require_bucket_distribution) {
+    std::vector<DataSinkOperatorPtr> sink_ops;
+    Defer defer = Defer([&]() {
+        if (op) {
+            op->update_operator(tnode, followed_by_shuffled_operator, require_bucket_distribution);
+        }
+        for (auto& s : sink_ops) {
+            s->update_operator(tnode, followed_by_shuffled_operator, require_bucket_distribution);
+        }
+    });
     // We directly construct the operator from Thrift because the given array is in the order of preorder traversal.
     // Therefore, here we need to use a stack-like structure.
     _pipeline_parent_map.pop(cur_pipe, parent_idx, child_idx);
@@ -1301,19 +1324,14 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                 PipelinePtr new_pipe;
                 RETURN_IF_ERROR(create_query_cache_operator(new_pipe));
 
-                op = std::make_shared<DistinctStreamingAggOperatorX>(
-                        pool, next_operator_id(), tnode, descs, _require_bucket_distribution);
-                op->set_followed_by_shuffled_operator(false);
-                _require_bucket_distribution = true;
+                op = std::make_shared<DistinctStreamingAggOperatorX>(pool, next_operator_id(),
+                                                                     tnode, descs);
                 RETURN_IF_ERROR(new_pipe->add_operator(op, _parallel_instances));
                 RETURN_IF_ERROR(cur_pipe->operators().front()->set_child(op));
                 cur_pipe = new_pipe;
             } else {
-                op = std::make_shared<DistinctStreamingAggOperatorX>(
-                        pool, next_operator_id(), tnode, descs, _require_bucket_distribution);
-                op->set_followed_by_shuffled_operator(followed_by_shuffled_operator);
-                _require_bucket_distribution =
-                        _require_bucket_distribution || op->require_data_distribution();
+                op = std::make_shared<DistinctStreamingAggOperatorX>(pool, next_operator_id(),
+                                                                     tnode, descs);
                 RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
             }
         } else if (is_streaming_agg) {
@@ -1359,20 +1377,14 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             cur_pipe = add_pipeline(cur_pipe);
             _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
-            DataSinkOperatorPtr sink;
             if (enable_spill) {
-                sink = std::make_shared<PartitionedAggSinkOperatorX>(
-                        pool, next_sink_operator_id(), op->operator_id(), tnode, descs,
-                        _require_bucket_distribution);
+                sink_ops.push_back(std::make_shared<PartitionedAggSinkOperatorX>(
+                        pool, next_sink_operator_id(), op->operator_id(), tnode, descs));
             } else {
-                sink = std::make_shared<AggSinkOperatorX>(pool, next_sink_operator_id(),
-                                                          op->operator_id(), tnode, descs,
-                                                          _require_bucket_distribution);
+                sink_ops.push_back(std::make_shared<AggSinkOperatorX>(
+                        pool, next_sink_operator_id(), op->operator_id(), tnode, descs));
             }
-            sink->set_followed_by_shuffled_operator(followed_by_shuffled_operator);
-            _require_bucket_distribution =
-                    _require_bucket_distribution || sink->require_data_distribution();
-            RETURN_IF_ERROR(cur_pipe->set_sink(sink));
+            RETURN_IF_ERROR(cur_pipe->set_sink(sink_ops.back()));
             RETURN_IF_ERROR(cur_pipe->sink()->init(tnode, _runtime_state.get()));
         }
         break;
@@ -1418,14 +1430,12 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             RETURN_IF_ERROR(inner_sink_operator->init(tnode, _runtime_state.get()));
 
             sink_operator->set_inner_operators(inner_sink_operator, inner_probe_operator);
-            DataSinkOperatorPtr sink = std::move(sink_operator);
-            RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
+            sink_ops.push_back(std::move(sink_operator));
+            RETURN_IF_ERROR(build_side_pipe->set_sink(sink_ops.back()));
             RETURN_IF_ERROR(build_side_pipe->sink()->init(tnode_, _runtime_state.get()));
 
             _pipeline_parent_map.push(op->node_id(), cur_pipe);
             _pipeline_parent_map.push(op->node_id(), build_side_pipe);
-            sink->set_followed_by_shuffled_operator(sink->is_shuffled_operator());
-            op->set_followed_by_shuffled_operator(op->is_shuffled_operator());
         } else {
             op = std::make_shared<HashJoinProbeOperatorX>(pool, tnode, next_operator_id(), descs);
             RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
@@ -1437,16 +1447,13 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             PipelinePtr build_side_pipe = add_pipeline(cur_pipe);
             _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
 
-            DataSinkOperatorPtr sink;
-            sink = std::make_shared<HashJoinBuildSinkOperatorX>(pool, next_sink_operator_id(),
-                                                                op->operator_id(), tnode, descs);
-            RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
+            sink_ops.push_back(std::make_shared<HashJoinBuildSinkOperatorX>(
+                    pool, next_sink_operator_id(), op->operator_id(), tnode, descs));
+            RETURN_IF_ERROR(build_side_pipe->set_sink(sink_ops.back()));
             RETURN_IF_ERROR(build_side_pipe->sink()->init(tnode, _runtime_state.get()));
 
             _pipeline_parent_map.push(op->node_id(), cur_pipe);
             _pipeline_parent_map.push(op->node_id(), build_side_pipe);
-            sink->set_followed_by_shuffled_operator(sink->is_shuffled_operator());
-            op->set_followed_by_shuffled_operator(op->is_shuffled_operator());
         }
         if (is_broadcast_join && _runtime_state->enable_share_hash_table_for_broadcast_join()) {
             std::shared_ptr<HashJoinSharedState> shared_state =
@@ -1462,8 +1469,6 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             _op_id_to_shared_state.insert(
                     {op->operator_id(), {shared_state, shared_state->sink_deps}});
         }
-        _require_bucket_distribution =
-                _require_bucket_distribution || op->require_data_distribution();
         break;
     }
     case TPlanNodeType::CROSS_JOIN_NODE: {
@@ -1477,10 +1482,9 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         PipelinePtr build_side_pipe = add_pipeline(cur_pipe);
         _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
 
-        DataSinkOperatorPtr sink;
-        sink = std::make_shared<NestedLoopJoinBuildSinkOperatorX>(pool, next_sink_operator_id(),
-                                                                  op->operator_id(), tnode, descs);
-        RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
+        sink_ops.push_back(std::make_shared<NestedLoopJoinBuildSinkOperatorX>(
+                pool, next_sink_operator_id(), op->operator_id(), tnode, descs));
+        RETURN_IF_ERROR(build_side_pipe->set_sink(sink_ops.back()));
         RETURN_IF_ERROR(build_side_pipe->sink()->init(tnode, _runtime_state.get()));
         _pipeline_parent_map.push(op->node_id(), cur_pipe);
         _pipeline_parent_map.push(op->node_id(), build_side_pipe);
@@ -1489,7 +1493,6 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     case TPlanNodeType::UNION_NODE: {
         int child_count = tnode.num_children;
         op = std::make_shared<UnionSourceOperatorX>(pool, tnode, next_operator_id(), descs);
-        op->set_followed_by_shuffled_operator(_require_bucket_distribution);
         RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
 
         const auto downstream_pipeline_id = cur_pipe->id();
@@ -1499,11 +1502,9 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         for (int i = 0; i < child_count; i++) {
             PipelinePtr build_side_pipe = add_pipeline(cur_pipe);
             _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
-            DataSinkOperatorPtr sink;
-            sink = std::make_shared<UnionSinkOperatorX>(i, next_sink_operator_id(),
-                                                        op->operator_id(), pool, tnode, descs);
-            sink->set_followed_by_shuffled_operator(_require_bucket_distribution);
-            RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
+            sink_ops.push_back(std::make_shared<UnionSinkOperatorX>(
+                    i, next_sink_operator_id(), op->operator_id(), pool, tnode, descs));
+            RETURN_IF_ERROR(build_side_pipe->set_sink(sink_ops.back()));
             RETURN_IF_ERROR(build_side_pipe->sink()->init(tnode, _runtime_state.get()));
             // preset children pipelines. if any pipeline found this as its father, will use the prepared pipeline to build.
             _pipeline_parent_map.push(op->node_id(), build_side_pipe);
@@ -1532,20 +1533,14 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         cur_pipe = add_pipeline(cur_pipe);
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
-        DataSinkOperatorPtr sink;
         if (should_spill) {
-            sink = std::make_shared<SpillSortSinkOperatorX>(pool, next_sink_operator_id(),
-                                                            op->operator_id(), tnode, descs,
-                                                            _require_bucket_distribution);
+            sink_ops.push_back(std::make_shared<SpillSortSinkOperatorX>(
+                    pool, next_sink_operator_id(), op->operator_id(), tnode, descs));
         } else {
-            sink = std::make_shared<SortSinkOperatorX>(pool, next_sink_operator_id(),
-                                                       op->operator_id(), tnode, descs,
-                                                       _require_bucket_distribution);
+            sink_ops.push_back(std::make_shared<SortSinkOperatorX>(
+                    pool, next_sink_operator_id(), op->operator_id(), tnode, descs));
         }
-        sink->set_followed_by_shuffled_operator(followed_by_shuffled_operator);
-        _require_bucket_distribution =
-                _require_bucket_distribution || sink->require_data_distribution();
-        RETURN_IF_ERROR(cur_pipe->set_sink(sink));
+        RETURN_IF_ERROR(cur_pipe->set_sink(sink_ops.back()));
         RETURN_IF_ERROR(cur_pipe->sink()->init(tnode, _runtime_state.get()));
         break;
     }
@@ -1560,10 +1555,9 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         cur_pipe = add_pipeline(cur_pipe);
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
-        DataSinkOperatorPtr sink;
-        sink = std::make_shared<PartitionSortSinkOperatorX>(pool, next_sink_operator_id(),
-                                                            op->operator_id(), tnode, descs);
-        RETURN_IF_ERROR(cur_pipe->set_sink(sink));
+        sink_ops.push_back(std::make_shared<PartitionSortSinkOperatorX>(
+                pool, next_sink_operator_id(), op->operator_id(), tnode, descs));
+        RETURN_IF_ERROR(cur_pipe->set_sink(sink_ops.back()));
         RETURN_IF_ERROR(cur_pipe->sink()->init(tnode, _runtime_state.get()));
         break;
     }
@@ -1578,14 +1572,9 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         cur_pipe = add_pipeline(cur_pipe);
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
-        DataSinkOperatorPtr sink;
-        sink = std::make_shared<AnalyticSinkOperatorX>(pool, next_sink_operator_id(),
-                                                       op->operator_id(), tnode, descs,
-                                                       _require_bucket_distribution);
-        sink->set_followed_by_shuffled_operator(followed_by_shuffled_operator);
-        _require_bucket_distribution =
-                _require_bucket_distribution || sink->require_data_distribution();
-        RETURN_IF_ERROR(cur_pipe->set_sink(sink));
+        sink_ops.push_back(std::make_shared<AnalyticSinkOperatorX>(
+                pool, next_sink_operator_id(), op->operator_id(), tnode, descs));
+        RETURN_IF_ERROR(cur_pipe->set_sink(sink_ops.back()));
         RETURN_IF_ERROR(cur_pipe->sink()->init(tnode, _runtime_state.get()));
         break;
     }
@@ -1595,15 +1584,13 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         break;
     }
     case TPlanNodeType::INTERSECT_NODE: {
-        RETURN_IF_ERROR(_build_operators_for_set_operation_node<true>(
-                pool, tnode, descs, op, cur_pipe, parent_idx, child_idx));
-        op->set_followed_by_shuffled_operator(_require_bucket_distribution);
+        RETURN_IF_ERROR(_build_operators_for_set_operation_node<true>(pool, tnode, descs, op,
+                                                                      cur_pipe, sink_ops));
         break;
     }
     case TPlanNodeType::EXCEPT_NODE: {
-        RETURN_IF_ERROR(_build_operators_for_set_operation_node<false>(
-                pool, tnode, descs, op, cur_pipe, parent_idx, child_idx));
-        op->set_followed_by_shuffled_operator(_require_bucket_distribution);
+        RETURN_IF_ERROR(_build_operators_for_set_operation_node<false>(pool, tnode, descs, op,
+                                                                       cur_pipe, sink_ops));
         break;
     }
     case TPlanNodeType::REPEAT_NODE: {
@@ -1664,7 +1651,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
 template <bool is_intersect>
 Status PipelineFragmentContext::_build_operators_for_set_operation_node(
         ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs, OperatorPtr& op,
-        PipelinePtr& cur_pipe, int parent_idx, int child_idx) {
+        PipelinePtr& cur_pipe, std::vector<DataSinkOperatorPtr>& sink_ops) {
     op.reset(new SetSourceOperatorX<is_intersect>(pool, tnode, next_operator_id(), descs));
     RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
 
@@ -1677,15 +1664,14 @@ Status PipelineFragmentContext::_build_operators_for_set_operation_node(
         PipelinePtr probe_side_pipe = add_pipeline(cur_pipe);
         _dag[downstream_pipeline_id].push_back(probe_side_pipe->id());
 
-        DataSinkOperatorPtr sink;
         if (child_id == 0) {
-            sink.reset(new SetSinkOperatorX<is_intersect>(child_id, next_sink_operator_id(),
-                                                          op->operator_id(), pool, tnode, descs));
+            sink_ops.push_back(std::make_shared<SetSinkOperatorX<is_intersect>>(
+                    child_id, next_sink_operator_id(), op->operator_id(), pool, tnode, descs));
         } else {
-            sink.reset(new SetProbeSinkOperatorX<is_intersect>(
+            sink_ops.push_back(std::make_shared<SetProbeSinkOperatorX<is_intersect>>(
                     child_id, next_sink_operator_id(), op->operator_id(), pool, tnode, descs));
         }
-        RETURN_IF_ERROR(probe_side_pipe->set_sink(sink));
+        RETURN_IF_ERROR(probe_side_pipe->set_sink(sink_ops.back()));
         RETURN_IF_ERROR(probe_side_pipe->sink()->init(tnode, _runtime_state.get()));
         // prepare children pipelines. if any pipeline found this as its father, will use the prepared pipeline to build.
         _pipeline_parent_map.push(op->node_id(), probe_side_pipe);

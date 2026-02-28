@@ -217,7 +217,8 @@ void ColumnVariant::Subcolumn::insert(Field field, FieldInfo info) {
     auto least_common_type_id = least_common_type.get_base_type_id();
     auto least_common_type_dim = least_common_type.get_dimensions();
     bool type_changed = info.need_convert;
-    if (data.empty()) {
+    // Special case: when data is not empty but contains a column of DataTypeNothing, least type is DataTypeNothing
+    if (data.empty() || least_common_type_id == PrimitiveType::INVALID_TYPE) {
         if (from_dim > 1) {
             add_new_column_part(create_array_of_type(PrimitiveType::TYPE_JSONB, 0, is_nullable));
             type_changed = true;
@@ -232,9 +233,7 @@ void ColumnVariant::Subcolumn::insert(Field field, FieldInfo info) {
                 type_changed = true;
             }
         } else {
-            if (least_common_type_id != from_type_id &&
-                schema_util::is_conversion_required_between_integers(from_type_id,
-                                                                     least_common_type_id)) {
+            if (least_common_type_id != from_type_id) {
                 type_changed = true;
                 DataTypePtr new_least_common_base_type;
                 get_least_supertype_jsonb(PrimitiveTypeSet {from_type_id, least_common_type_id},
@@ -702,7 +701,7 @@ void ColumnVariant::insert_from(const IColumn& src, size_t n) {
 
 void ColumnVariant::try_insert(const Field& field) {
     size_t old_size = size();
-    const auto& object = field.get<const VariantMap&>();
+    const auto& object = field.get<TYPE_VARIANT>();
     for (const auto& [key, value] : object) {
         if (!has_subcolumn(key)) {
             bool succ = add_sub_column(key, old_size);
@@ -875,7 +874,7 @@ void ColumnVariant::get(size_t n, Field& res) const {
                                size());
     }
     res = Field::create_field<TYPE_VARIANT>(VariantMap());
-    auto& object = res.get<VariantMap&>();
+    auto& object = res.get<TYPE_VARIANT>();
 
     for (const auto& entry : subcolumns) {
         FieldWithDataType field;
@@ -1353,26 +1352,28 @@ void ColumnVariant::Subcolumn::wrapp_array_nullable() {
     }
 }
 
-void ColumnVariant::serialize_one_row_to_string(int64_t row, std::string* output) const {
+void ColumnVariant::serialize_one_row_to_string(int64_t row, std::string* output,
+                                                const DataTypeSerDe::FormatOptions& options) const {
     auto tmp_col = ColumnString::create();
     VectorBufferWriter write_buffer(*tmp_col.get());
     if (is_scalar_variant()) {
-        subcolumns.get_root()->data.serialize_text_json(row, write_buffer);
+        subcolumns.get_root()->data.serialize_text_json(row, write_buffer, options);
     } else {
         // TODO preallocate memory
-        serialize_one_row_to_json_format(row, write_buffer, nullptr);
+        serialize_one_row_to_json_format(row, write_buffer, nullptr, options);
     }
     write_buffer.commit();
     auto str_ref = tmp_col->get_data_at(0);
     *output = std::string(str_ref.data, str_ref.size);
 }
 
-void ColumnVariant::serialize_one_row_to_string(int64_t row, BufferWritable& output) const {
+void ColumnVariant::serialize_one_row_to_string(int64_t row, BufferWritable& output,
+                                                const DataTypeSerDe::FormatOptions& options) const {
     if (is_scalar_variant()) {
-        subcolumns.get_root()->data.serialize_text_json(row, output);
+        subcolumns.get_root()->data.serialize_text_json(row, output, options);
         return;
     }
-    serialize_one_row_to_json_format(row, output, nullptr);
+    serialize_one_row_to_json_format(row, output, nullptr, options);
 }
 
 /// Struct that represents elements of the JSON path.
@@ -1448,7 +1449,7 @@ bool ColumnVariant::Subcolumn::is_empty_nested(size_t row) const {
         FieldWithDataType field;
         get(row, field);
         if (field.field.get_type() == PrimitiveType::TYPE_ARRAY) {
-            const auto& array = field.field.get<Array>();
+            const auto& array = field.field.get<TYPE_ARRAY>();
             bool only_nulls_inside = true;
             for (const auto& elem : array) {
                 if (elem.get_type() != PrimitiveType::TYPE_NULL) {
@@ -1494,11 +1495,12 @@ bool ColumnVariant::is_visible_root_value(size_t nrow) const {
     return !root->data.is_null_at(nrow);
 }
 
-void ColumnVariant::serialize_one_row_to_json_format(int64_t row_num, BufferWritable& output,
-                                                     bool* is_null) const {
+void ColumnVariant::serialize_one_row_to_json_format(
+        int64_t row_num, BufferWritable& output, bool* is_null,
+        const DataTypeSerDe::FormatOptions& options) const {
     // root is not eighther null or empty, we should only process root value
     if (is_visible_root_value(row_num)) {
-        subcolumns.get_root()->data.serialize_text_json(row_num, output);
+        subcolumns.get_root()->data.serialize_text_json(row_num, output, options);
         return;
     }
     const auto& column_map = assert_cast<const ColumnMap&>(*serialized_sparse_column);
@@ -1597,17 +1599,17 @@ void ColumnVariant::serialize_one_row_to_json_format(int64_t row_num, BufferWrit
         // Serialize value of current path.
         if (auto subcolumn_it = subcolumn_path_map.find(path);
             subcolumn_it != subcolumn_path_map.end()) {
-            DataTypeSerDe::FormatOptions options;
-            options.escape_char = '\\';
-            subcolumn_it->second.serialize_text_json(row_num, output, options);
+            DataTypeSerDe::FormatOptions options2 = options;
+            options2.escape_char = '\\';
+            subcolumn_it->second.serialize_text_json(row_num, output, options2);
         } else {
             // To serialize value stored in shared data we should first deserialize it from binary format.
             Subcolumn tmp_subcolumn(0, true);
             tmp_subcolumn.deserialize_from_sparse_column(sparse_data_values,
                                                          index_in_sparse_data_values++);
-            DataTypeSerDe::FormatOptions options;
-            options.escape_char = '\\';
-            tmp_subcolumn.serialize_text_json(0, output, options);
+            DataTypeSerDe::FormatOptions options2 = options;
+            options2.escape_char = '\\';
+            tmp_subcolumn.serialize_text_json(0, output, options2);
         }
     }
 
@@ -2114,6 +2116,19 @@ void ColumnVariant::update_crc_with_value(size_t start, size_t end, uint32_t& ha
     });
 }
 
+void ColumnVariant::update_crc32c_batch(uint32_t* __restrict hashes,
+                                        const uint8_t* __restrict null_map) const {
+    for_each_imutable_column(
+            [&](const ColumnPtr column) { column->update_crc32c_batch(hashes, nullptr); });
+}
+
+void ColumnVariant::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                         const uint8_t* __restrict null_map) const {
+    for_each_imutable_column([&](const ColumnPtr column) {
+        column->update_crc32c_single(start, end, hash, nullptr);
+    });
+}
+
 std::string ColumnVariant::debug_string() const {
     std::stringstream res;
     res << get_name() << "(num_row = " << num_rows;
@@ -2194,7 +2209,7 @@ public:
             : replacement(replacement_), num_dimensions_to_keep(num_dimensions_to_keep_) {}
 
     template <PrimitiveType T>
-    Field apply(const typename PrimitiveTypeTraits<T>::NearestFieldType& x) const {
+    Field apply(const typename PrimitiveTypeTraits<T>::CppType& x) const {
         if constexpr (T == TYPE_ARRAY) {
             if (num_dimensions_to_keep == 0) {
                 return replacement;

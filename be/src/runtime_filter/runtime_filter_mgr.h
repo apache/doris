@@ -150,7 +150,10 @@ public:
 
     std::string debug_string();
 
-    void release_undone_filters(QueryContext* query_ctx);
+    bool empty() {
+        std::shared_lock<std::shared_mutex> read_lock(_filter_map_mutex);
+        return _filter_map.empty();
+    }
 
 private:
     Status _init_with_desc(std::shared_ptr<QueryContext> query_ctx,

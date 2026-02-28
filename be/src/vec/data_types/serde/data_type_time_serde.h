@@ -39,6 +39,9 @@ public:
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
 
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
+
     Status from_string_strict_mode(StringRef& str, IColumn& column,
                                    const FormatOptions& options) const override;
 
@@ -50,23 +53,24 @@ public:
                                          const NullMap::value_type* null_map = nullptr) const final;
 
     template <typename IntDataType>
-    Status from_int_batch(const IntDataType::ColumnType& int_col, ColumnNullable& target_col) const;
+    Status from_int_batch(const typename IntDataType::ColumnType& int_col,
+                          ColumnNullable& target_col) const;
     template <typename IntDataType>
-    Status from_int_strict_mode_batch(const IntDataType::ColumnType& int_col,
+    Status from_int_strict_mode_batch(const typename IntDataType::ColumnType& int_col,
                                       IColumn& target_col) const;
 
     template <typename FloatDataType>
-    Status from_float_batch(const FloatDataType::ColumnType& float_col,
+    Status from_float_batch(const typename FloatDataType::ColumnType& float_col,
                             ColumnNullable& target_col) const;
     template <typename FloatDataType>
-    Status from_float_strict_mode_batch(const FloatDataType::ColumnType& float_col,
+    Status from_float_strict_mode_batch(const typename FloatDataType::ColumnType& float_col,
                                         IColumn& target_col) const;
 
     template <typename DecimalDataType>
-    Status from_decimal_batch(const DecimalDataType::ColumnType& decimal_col,
+    Status from_decimal_batch(const typename DecimalDataType::ColumnType& decimal_col,
                               ColumnNullable& target_col) const;
     template <typename DecimalDataType>
-    Status from_decimal_strict_mode_batch(const DecimalDataType::ColumnType& decimal_col,
+    Status from_decimal_strict_mode_batch(const typename DecimalDataType::ColumnType& decimal_col,
                                           IColumn& target_col) const;
     int get_scale() const override { return _scale; }
 

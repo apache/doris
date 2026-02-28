@@ -486,7 +486,7 @@ public class Column implements GsonPostProcessable {
         PrimitiveType pType = getDataType();
         return (pType ==  PrimitiveType.SMALLINT || pType == PrimitiveType.INT
                 || pType == PrimitiveType.BIGINT || pType == PrimitiveType.LARGEINT)
-                || pType.isCharFamily() || pType.isDateType() || pType.isVariantType()
+                || pType.isCharFamily() || pType.isDateLikeType() || pType.isVariantType()
                 || pType.isDecimalV2Type() || pType.isDecimalV3Type() || pType.isIPType();
     }
 
@@ -757,6 +757,7 @@ public class Column implements GsonPostProcessable {
             case DATETIME:
                 return 8;
             case DATETIMEV2:
+            case TIMESTAMPTZ:
                 return 8;
             case FLOAT:
                 return 4;

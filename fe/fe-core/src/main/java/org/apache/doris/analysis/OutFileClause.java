@@ -255,6 +255,7 @@ public class OutFileClause {
             case HLL:
             case BITMAP:
             case QUANTILE_STATE:
+            case VARBINARY:
                 orcType = "binary";
                 break;
             case DATEV2:
@@ -262,6 +263,9 @@ public class OutFileClause {
                 break;
             case DATETIMEV2:
                 orcType = "timestamp";
+                break;
+            case TIMESTAMPTZ:
+                orcType = "timestamp with local time zone";
                 break;
             case CHAR:
                 orcType = "char(" + dorisType.getLength() + ")";
@@ -386,6 +390,10 @@ public class OutFileClause {
                 case DATETIMEV2:
                     checkOrcType(schema.second, "timestamp", true, resultType.getPrimitiveType().toString());
                     break;
+                case TIMESTAMPTZ:
+                    checkOrcType(schema.second, "timestamp with local time zone", true,
+                            resultType.getPrimitiveType().toString());
+                    break;
                 case CHAR:
                     checkOrcType(schema.second, "char", false, resultType.getPrimitiveType().toString());
                     break;
@@ -412,6 +420,7 @@ public class OutFileClause {
                 case HLL:
                 case BITMAP:
                 case QUANTILE_STATE:
+                case VARBINARY:
                     checkOrcType(schema.second, "binary", true, resultType.getPrimitiveType().toString());
                     break;
                 case STRUCT:

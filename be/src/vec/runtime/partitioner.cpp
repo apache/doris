@@ -18,6 +18,7 @@
 #include "partitioner.h"
 
 #include "common/cast_set.h"
+#include "common/status.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "runtime/thread_context.h"
 #include "vec/columns/column_const.h"
@@ -27,8 +28,7 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 template <typename ChannelIds>
-Status Crc32HashPartitioner<ChannelIds>::do_partitioning(RuntimeState* state, Block* block,
-                                                         bool eos, bool* already_sent) const {
+Status Crc32HashPartitioner<ChannelIds>::do_partitioning(RuntimeState* state, Block* block) const {
     size_t rows = block->rows();
 
     if (rows > 0) {
@@ -37,10 +37,9 @@ Status Crc32HashPartitioner<ChannelIds>::do_partitioning(RuntimeState* state, Bl
         int result_size = cast_set<int>(_partition_expr_ctxs.size());
         std::vector<int> result(result_size);
 
-        _hash_vals.resize(rows);
-        std::fill(_hash_vals.begin(), _hash_vals.end(), 0);
+        _initialize_hash_vals(rows);
         auto* __restrict hashes = _hash_vals.data();
-        { RETURN_IF_ERROR(_get_partition_column_result(block, result)); }
+        RETURN_IF_ERROR(_get_partition_column_result(block, result));
         for (int j = 0; j < result_size; ++j) {
             const auto& [col, is_const] = unpack_if_const(block->get_by_position(result[j]).column);
             if (is_const) {
@@ -53,31 +52,37 @@ Status Crc32HashPartitioner<ChannelIds>::do_partitioning(RuntimeState* state, Bl
             hashes[i] = ChannelIds()(hashes[i], _partition_count);
         }
 
-        { Block::erase_useless_column(block, column_to_keep); }
+        Block::erase_useless_column(block, column_to_keep);
     }
     return Status::OK();
 }
 
 template <typename ChannelIds>
 void Crc32HashPartitioner<ChannelIds>::_do_hash(const ColumnPtr& column,
-                                                uint32_t* __restrict result, int idx) const {
+                                                HashValType* __restrict result, int idx) const {
     column->update_crcs_with_value(
             result, _partition_expr_ctxs[idx]->root()->data_type()->get_primitive_type(),
-            cast_set<uint32_t>(column->size()));
+            cast_set<HashValType>(column->size()));
 }
 
 template <typename ChannelIds>
 Status Crc32HashPartitioner<ChannelIds>::clone(RuntimeState* state,
                                                std::unique_ptr<PartitionerBase>& partitioner) {
-    auto* new_partitioner = new Crc32HashPartitioner<ChannelIds>(cast_set<int>(_partition_count));
-
+    auto* new_partitioner = new Crc32HashPartitioner<ChannelIds>(_partition_count);
     partitioner.reset(new_partitioner);
-    new_partitioner->_partition_expr_ctxs.resize(_partition_expr_ctxs.size());
-    for (size_t i = 0; i < _partition_expr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(
-                _partition_expr_ctxs[i]->clone(state, new_partitioner->_partition_expr_ctxs[i]));
-    }
-    return Status::OK();
+    return _clone_expr_ctxs(state, new_partitioner->_partition_expr_ctxs);
+}
+
+void Crc32CHashPartitioner::_do_hash(const ColumnPtr& column, HashValType* __restrict result,
+                                     int idx) const {
+    column->update_crc32c_batch(result, nullptr);
+}
+
+Status Crc32CHashPartitioner::clone(RuntimeState* state,
+                                    std::unique_ptr<PartitionerBase>& partitioner) {
+    auto* new_partitioner = new Crc32CHashPartitioner(_partition_count);
+    partitioner.reset(new_partitioner);
+    return _clone_expr_ctxs(state, new_partitioner->_partition_expr_ctxs);
 }
 
 template class Crc32HashPartitioner<ShuffleChannelIds>;

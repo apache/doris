@@ -19,15 +19,18 @@ package org.apache.doris.job.extensions.insert.streaming;
 
 
 import com.google.gson.Gson;
+import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
 
 public class StreamingJobStatistic {
     @Getter
     @Setter
+    @SerializedName("scannedRows")
     private long scannedRows;
     @Getter
     @Setter
+    @SerializedName("loadBytes")
     private long loadBytes;
     @Getter
     @Setter
@@ -35,6 +38,9 @@ public class StreamingJobStatistic {
     @Getter
     @Setter
     private long fileSize;
+    @Getter
+    @Setter
+    private long filteredRows;
 
     public String toJson() {
         return new Gson().toJson(this);

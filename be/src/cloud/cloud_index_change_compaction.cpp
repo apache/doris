@@ -69,6 +69,11 @@ Status CloudIndexChangeCompaction::prepare_compact() {
 
     _input_rowsets.push_back(input_rowset);
 
+    // Apply transaction size truncation (usually only 1 rowset for index change)
+    int64_t kept_size = 0;
+    int64_t truncated_size = 0;
+    cloud::truncate_rowsets_by_txn_size(_input_rowsets, kept_size, truncated_size);
+
     for (auto& rs : _input_rowsets) {
         _input_row_num += rs->num_rows();
         _input_segments += rs->num_segments();

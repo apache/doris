@@ -22,13 +22,23 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
+import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.Iterator;
 
-public class CloudTablet extends Tablet {
+public class CloudTablet extends Tablet implements GsonPostProcessable {
+    private static final Logger LOG = LogManager.getLogger(CloudTablet.class);
+
+    @SerializedName(value = "r")
+    private Replica replica;
 
     public CloudTablet() {
         super();
@@ -96,4 +106,18 @@ public class CloudTablet extends Tablet {
         }
     }
 
+    @Override
+    public void gsonPostProcess() throws IOException {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("convert replica to replicas for CloudTablet: {}, replica: {}, replicas: {}", this.id,
+                    this.replica, this.replicas);
+        }
+        if (replica != null) {
+            if (this.replicas == null) {
+                this.replicas = Lists.newArrayList();
+            }
+            this.replicas.add(replica);
+            this.replica = null;
+        }
+    }
 }

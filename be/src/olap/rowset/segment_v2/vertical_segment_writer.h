@@ -125,7 +125,7 @@ public:
             *inverted_index_file_size = 0;
             return Status::OK();
         }
-        RETURN_IF_ERROR(_index_file_writer->close());
+        RETURN_IF_ERROR(_index_file_writer->begin_close());
         *inverted_index_file_size = _index_file_writer->get_index_file_total_size();
         return Status::OK();
     }
@@ -198,6 +198,8 @@ private:
             vectorized::IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
     Status _generate_short_key_index(std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
                                      size_t num_rows, const std::vector<size_t>& short_key_pos);
+    Status _finalize_column_writer_and_update_meta(size_t cid);
+
     bool _is_mow();
     bool _is_mow_with_cluster_key();
 

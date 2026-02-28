@@ -32,13 +32,14 @@
 
 #include "common/status.h"
 #include "gen_cpp/Exprs_types.h"
+#include "olap/inverted_index_parser.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query_helper.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/bit_set_query/bit_set_query.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/boolean_query.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/operator.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/boolean_query_builder.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/operator.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/multi_phrase_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/phrase_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/regexp_query/regexp_query.h"
@@ -108,9 +109,9 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     Result<InvertedIndexReaderPtr> reader_result;
     const auto& column_type = data_it->second.second;
     if (column_type) {
-        reader_result = inverted_iterator->select_best_reader(column_type, query_type);
+        reader_result = inverted_iterator->select_best_reader(column_type, query_type, "");
     } else {
-        reader_result = inverted_iterator->select_best_reader();
+        reader_result = inverted_iterator->select_best_reader("");
     }
 
     if (!reader_result.has_value()) {
@@ -167,6 +168,8 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     resolved.lucene_reader = reader_holder;
     resolved.index_properties = inverted_reader->get_index_properties();
     resolved.binding_key = binding_key;
+    resolved.analyzer_key =
+            normalize_analyzer_key(build_analyzer_key_from_properties(resolved.index_properties));
 
     _binding_readers[binding_key] = reader_holder;
     _field_readers[resolved.stored_field_wstr] = reader_holder;
@@ -187,6 +190,7 @@ Status FunctionSearch::evaluate_inverted_index(
         const ColumnsWithTypeAndName& arguments,
         const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
         std::vector<IndexIterator*> iterators, uint32_t num_rows,
+        const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/,
         InvertedIndexResultBitmap& bitmap_result) const {
     return Status::OK();
 }
@@ -316,7 +320,8 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
 // Aligned with FE QsClauseType enum - uses enum.name() as clause_type
 FunctionSearch::ClauseTypeCategory FunctionSearch::get_clause_type_category(
         const std::string& clause_type) const {
-    if (clause_type == "AND" || clause_type == "OR" || clause_type == "NOT") {
+    if (clause_type == "AND" || clause_type == "OR" || clause_type == "NOT" ||
+        clause_type == "OCCUR_BOOLEAN") {
         return ClauseTypeCategory::COMPOUND;
     } else if (clause_type == "TERM" || clause_type == "PREFIX" || clause_type == "WILDCARD" ||
                clause_type == "REGEXP" || clause_type == "RANGE" || clause_type == "LIST" ||
@@ -376,6 +381,7 @@ InvertedIndexQueryType FunctionSearch::clause_type_to_query_type(
             {"AND", InvertedIndexQueryType::BOOLEAN_QUERY},
             {"OR", InvertedIndexQueryType::BOOLEAN_QUERY},
             {"NOT", InvertedIndexQueryType::BOOLEAN_QUERY},
+            {"OCCUR_BOOLEAN", InvertedIndexQueryType::BOOLEAN_QUERY},
 
             // Non-tokenized queries (exact matching, pattern matching)
             {"TERM", InvertedIndexQueryType::EQUAL_QUERY},
@@ -405,6 +411,20 @@ InvertedIndexQueryType FunctionSearch::clause_type_to_query_type(
     return InvertedIndexQueryType::EQUAL_QUERY;
 }
 
+// Map Thrift TSearchOccur to query_v2::Occur
+static query_v2::Occur map_thrift_occur(TSearchOccur::type thrift_occur) {
+    switch (thrift_occur) {
+    case TSearchOccur::MUST:
+        return query_v2::Occur::MUST;
+    case TSearchOccur::SHOULD:
+        return query_v2::Occur::SHOULD;
+    case TSearchOccur::MUST_NOT:
+        return query_v2::Occur::MUST_NOT;
+    default:
+        return query_v2::Occur::MUST;
+    }
+}
+
 Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
                                              const std::shared_ptr<IndexQueryContext>& context,
                                              FieldReaderResolver& resolver,
@@ -417,6 +437,38 @@ Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
     }
 
     const std::string& clause_type = clause.clause_type;
+
+    // Handle OCCUR_BOOLEAN - Lucene-style boolean query with MUST/SHOULD/MUST_NOT
+    if (clause_type == "OCCUR_BOOLEAN") {
+        auto builder = segment_v2::inverted_index::query_v2::create_occur_boolean_query_builder();
+
+        // Set minimum_should_match if specified
+        if (clause.__isset.minimum_should_match) {
+            builder->set_minimum_number_should_match(clause.minimum_should_match);
+        }
+
+        if (clause.__isset.children) {
+            for (const auto& child_clause : clause.children) {
+                query_v2::QueryPtr child_query;
+                std::string child_binding_key;
+                RETURN_IF_ERROR(build_query_recursive(child_clause, context, resolver, &child_query,
+                                                      &child_binding_key));
+
+                // Determine occur type from child clause
+                query_v2::Occur occur = query_v2::Occur::MUST; // default
+                if (child_clause.__isset.occur) {
+                    occur = map_thrift_occur(child_clause.occur);
+                }
+
+                builder->add(child_query, occur);
+            }
+        }
+
+        *out = builder->build();
+        return Status::OK();
+    }
+
+    // Handle standard boolean operators (AND/OR/NOT)
     if (clause_type == "AND" || clause_type == "OR" || clause_type == "NOT") {
         query_v2::OperatorType op = query_v2::OperatorType::OP_AND;
         if (clause_type == "OR") {
@@ -425,7 +477,7 @@ Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
             op = query_v2::OperatorType::OP_NOT;
         }
 
-        query_v2::BooleanQuery::Builder builder(op);
+        auto builder = create_operator_boolean_query_builder(op);
         if (clause.__isset.children) {
             for (const auto& child_clause : clause.children) {
                 query_v2::QueryPtr child_query;
@@ -437,11 +489,11 @@ Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
                 // - AND with empty bitmap → result is empty
                 // - OR with empty bitmap → empty bitmap is ignored by OR logic
                 // - NOT with empty bitmap → NOT(empty) = all rows (handled by BooleanQuery)
-                builder.add(child_query, std::move(child_binding_key));
+                builder->add(child_query, std::move(child_binding_key));
             }
         }
 
-        *out = builder.build();
+        *out = builder->build();
         return Status::OK();
     }
 
@@ -524,13 +576,13 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                 return Status::OK();
             }
 
-            query_v2::BooleanQuery::Builder builder(query_v2::OperatorType::OP_OR);
+            auto builder = create_operator_boolean_query_builder(query_v2::OperatorType::OP_OR);
             for (const auto& term_info : term_infos) {
                 std::wstring term_wstr = StringHelper::to_wstring(term_info.get_single_term());
-                builder.add(make_term_query(term_wstr), binding.binding_key);
+                builder->add(make_term_query(term_wstr), binding.binding_key);
             }
 
-            *out = builder.build();
+            *out = builder->build();
             return Status::OK();
         }
 
@@ -576,12 +628,13 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                     std::wstring term_wstr = StringHelper::to_wstring(term_info.get_single_term());
                     *out = std::make_shared<query_v2::TermQuery>(context, field_wstr, term_wstr);
                 } else {
-                    query_v2::BooleanQuery::Builder builder(query_v2::OperatorType::OP_OR);
+                    auto builder =
+                            create_operator_boolean_query_builder(query_v2::OperatorType::OP_OR);
                     for (const auto& term : term_info.get_multi_terms()) {
                         std::wstring term_wstr = StringHelper::to_wstring(term);
-                        builder.add(make_term_query(term_wstr), binding.binding_key);
+                        builder->add(make_term_query(term_wstr), binding.binding_key);
                     }
-                    *out = builder.build();
+                    *out = builder->build();
                 }
             } else {
                 if (QueryHelper::is_simple_phrase(phrase_term_infos)) {
@@ -637,12 +690,12 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                 return Status::OK();
             }
 
-            query_v2::BooleanQuery::Builder builder(bool_type);
+            auto builder = create_operator_boolean_query_builder(bool_type);
             for (const auto& term_info : term_infos) {
                 std::wstring term_wstr = StringHelper::to_wstring(term_info.get_single_term());
-                builder.add(make_term_query(term_wstr), binding.binding_key);
+                builder->add(make_term_query(term_wstr), binding.binding_key);
             }
-            *out = builder.build();
+            *out = builder->build();
             return Status::OK();
         }
 

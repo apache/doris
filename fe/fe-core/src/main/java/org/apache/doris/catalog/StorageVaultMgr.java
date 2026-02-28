@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
 import org.apache.doris.proto.InternalService.PAlterVaultSyncRequest;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -197,7 +198,8 @@ public class StorageVaultMgr {
             throw new DdlException("Unknown storage vault type");
         }
         try {
-            Cloud.AlterObjStoreInfoRequest.Builder request = Cloud.AlterObjStoreInfoRequest.newBuilder();
+            Cloud.AlterObjStoreInfoRequest.Builder request = Cloud.AlterObjStoreInfoRequest.newBuilder()
+                    .setRequestIp(FrontendOptions.getLocalHostAddressCached());
             if (type == StorageVaultType.S3) {
                 properties.keySet().stream()
                         .filter(key -> !S3StorageVault.ALLOW_ALTER_PROPERTIES.contains(key))
@@ -241,7 +243,8 @@ public class StorageVaultMgr {
     }
 
     public void setDefaultStorageVault(String vaultName) throws DdlException {
-        Cloud.AlterObjStoreInfoRequest.Builder builder = Cloud.AlterObjStoreInfoRequest.newBuilder();
+        Cloud.AlterObjStoreInfoRequest.Builder builder = Cloud.AlterObjStoreInfoRequest.newBuilder()
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
         Cloud.StorageVaultPB.Builder vaultBuilder = Cloud.StorageVaultPB.newBuilder();
         vaultBuilder.setName(vaultName);
         builder.setVault(vaultBuilder.build());
@@ -267,7 +270,8 @@ public class StorageVaultMgr {
     }
 
     public void unsetDefaultStorageVault() throws DdlException {
-        Cloud.AlterObjStoreInfoRequest.Builder builder = Cloud.AlterObjStoreInfoRequest.newBuilder();
+        Cloud.AlterObjStoreInfoRequest.Builder builder = Cloud.AlterObjStoreInfoRequest.newBuilder()
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
         builder.setOp(Operation.UNSET_DEFAULT_VAULT);
         try {
             Cloud.AlterObjStoreInfoResponse resp =
@@ -295,7 +299,8 @@ public class StorageVaultMgr {
     public StorageVaultType getStorageVaultTypeByName(String vaultName) throws DdlException {
         try {
             Cloud.GetObjStoreInfoResponse resp = MetaServiceProxy.getInstance()
-                    .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().build());
+                    .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder()
+                    .setRequestIp(FrontendOptions.getLocalHostAddressCached()).build());
 
             for (Cloud.StorageVaultPB vault : resp.getStorageVaultList()) {
                 if (vault.getName().equals(vaultName)) {
@@ -317,7 +322,7 @@ public class StorageVaultMgr {
     public void createHdfsVault(StorageVault vault) throws Exception {
         Cloud.StorageVaultPB.Builder alterHdfsInfoBuilder = buildAlterStorageVaultRequest(vault);
         Cloud.AlterObjStoreInfoRequest.Builder requestBuilder
-                = Cloud.AlterObjStoreInfoRequest.newBuilder();
+                = Cloud.AlterObjStoreInfoRequest.newBuilder().setRequestIp(FrontendOptions.getLocalHostAddressCached());
         requestBuilder.setOp(Cloud.AlterObjStoreInfoRequest.Operation.ADD_HDFS_INFO);
         requestBuilder.setVault(alterHdfsInfoBuilder.build());
         requestBuilder.setSetAsDefaultStorageVault(vault.setAsDefault());
@@ -367,7 +372,7 @@ public class StorageVaultMgr {
     public void createS3Vault(StorageVault vault) throws Exception {
         Cloud.StorageVaultPB.Builder s3StorageVaultBuilder = buildAlterStorageVaultRequest(vault);
         Cloud.AlterObjStoreInfoRequest.Builder requestBuilder
-                = Cloud.AlterObjStoreInfoRequest.newBuilder();
+                = Cloud.AlterObjStoreInfoRequest.newBuilder().setRequestIp(FrontendOptions.getLocalHostAddressCached());
         requestBuilder.setOp(Cloud.AlterObjStoreInfoRequest.Operation.ADD_S3_VAULT);
         requestBuilder.setVault(s3StorageVaultBuilder);
         requestBuilder.setSetAsDefaultStorageVault(vault.setAsDefault());

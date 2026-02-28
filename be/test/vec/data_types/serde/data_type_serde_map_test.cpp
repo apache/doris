@@ -48,8 +48,8 @@
 #include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
-static auto serde_str_key = std::make_shared<DataTypeStringSerDe>();
-static auto serde_str_value = std::make_shared<DataTypeStringSerDe>();
+static auto serde_str_key = std::make_shared<DataTypeStringSerDe>(TYPE_STRING);
+static auto serde_str_value = std::make_shared<DataTypeStringSerDe>(TYPE_STRING);
 
 class DataTypeMapSerDeTest : public ::testing::Test {
 protected:

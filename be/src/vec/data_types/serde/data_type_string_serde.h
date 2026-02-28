@@ -95,12 +95,15 @@ class DataTypeStringSerDeBase : public DataTypeSerDe {
     using ColumnStrType = ColumnType;
 
 public:
-    DataTypeStringSerDeBase(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
+    DataTypeStringSerDeBase(PrimitiveType type, int nesting_level = 1, int len = -1)
+            : DataTypeSerDe(nesting_level), _type(type), _len(len) {}
 
     std::string get_name() const override { return "String"; }
 
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
@@ -188,7 +191,8 @@ public:
                                                 CastParameters& castParms) const override;
 
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena& mem_pool,
-                                 int32_t col_id, int64_t row_num) const override;
+                                 int32_t col_id, int64_t row_num,
+                                 const FormatOptions& options) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
@@ -214,10 +218,11 @@ public:
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end, vectorized::Arena& arena) const override;
+                               int64_t start, int64_t end, vectorized::Arena& arena,
+                               const FormatOptions& options) const override;
 
-    bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
-                                     int64_t row_idx) const override;
+    bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw, int64_t row_idx,
+                                     const FormatOptions& options) const override;
 
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override {
@@ -256,7 +261,12 @@ public:
         return data;
     }
 
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                   const FormatOptions& options) const override;
+
+private:
+    const PrimitiveType _type;
+    const int _len = -1;
 };
 
 using DataTypeStringSerDe = DataTypeStringSerDeBase<ColumnString>;

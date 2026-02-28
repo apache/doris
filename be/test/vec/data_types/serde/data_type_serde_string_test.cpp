@@ -49,7 +49,7 @@
 namespace doris::vectorized {
 static std::string test_data_dir;
 
-static auto serde_str = std::make_shared<DataTypeStringSerDe>();
+static auto serde_str = std::make_shared<DataTypeStringSerDe>(TYPE_STRING);
 
 static ColumnString::MutablePtr column_str32;
 static ColumnString64::MutablePtr column_str64;
@@ -163,9 +163,12 @@ TEST_F(DataTypeStringSerDeTest, serdes) {
             JsonbWriterT<JsonbOutStream> jsonb_writer;
             jsonb_writer.writeStartObject();
             Arena pool;
+            DataTypeSerDe::FormatOptions options;
+            auto tz = cctz::utc_time_zone();
+            options.timezone = &tz;
 
             for (size_t j = 0; j != row_count; ++j) {
-                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, pool, 0, j);
+                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, pool, 0, j, options);
             }
             jsonb_writer.writeEndObject();
 

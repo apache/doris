@@ -74,9 +74,9 @@ Result<std::unique_ptr<RowsetWriter>> RowsetFactory::create_rowset_writer(
     // TODO(plat1ko): cloud vertical rowset writer
     std::unique_ptr<RowsetWriter> writer;
     if (is_vertical) {
-        writer = std::make_unique<VerticalBetaRowsetWriter<CloudRowsetWriter>>();
+        writer = std::make_unique<VerticalBetaRowsetWriter<CloudRowsetWriter>>(engine);
     } else {
-        writer = std::make_unique<CloudRowsetWriter>();
+        writer = std::make_unique<CloudRowsetWriter>(engine);
     }
 
     RETURN_IF_ERROR_RESULT(writer->init(context));

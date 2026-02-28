@@ -189,8 +189,8 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
             // check decompressed buffer size
             _reserve_decompress_buf(uncompressed_size);
             _page_data = Slice(_decompress_buf.get(), uncompressed_size);
-            SCOPED_RAW_TIMER(&_statistics.decompress_time);
-            _statistics.decompress_cnt++;
+            SCOPED_RAW_TIMER(&_chunk_statistics.decompress_time);
+            _chunk_statistics.decompress_cnt++;
             RETURN_IF_ERROR(_block_compress_codec->decompress(compressed_data, &_page_data));
         } else {
             // Don't need decompress
@@ -205,7 +205,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
 
     // Initialize repetition level and definition level. Skip when level = 0, which means required field.
     if (_max_rep_level > 0) {
-        SCOPED_RAW_TIMER(&_statistics.decode_level_time);
+        SCOPED_RAW_TIMER(&_chunk_statistics.decode_level_time);
         if (header->__isset.data_page_header_v2) {
             RETURN_IF_ERROR(_rep_level_decoder.init_v2(_v2_rep_levels, _max_rep_level,
                                                        _remaining_rep_nums));
@@ -216,7 +216,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
         }
     }
     if (_max_def_level > 0) {
-        SCOPED_RAW_TIMER(&_statistics.decode_level_time);
+        SCOPED_RAW_TIMER(&_chunk_statistics.decode_level_time);
         if (header->__isset.data_page_header_v2) {
             RETURN_IF_ERROR(_def_level_decoder.init_v2(_v2_def_levels, _max_def_level,
                                                        _remaining_def_nums));
@@ -256,7 +256,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
     const tparquet::PageHeader* header = nullptr;
     RETURN_IF_ERROR(_page_reader->get_page_header(header));
     DCHECK_EQ(tparquet::PageType::DICTIONARY_PAGE, header->type);
-    SCOPED_RAW_TIMER(&_statistics.decode_dict_time);
+    SCOPED_RAW_TIMER(&_chunk_statistics.decode_dict_time);
 
     // Using the PLAIN_DICTIONARY enum value is deprecated in the Parquet 2.0 specification.
     // Prefer using RLE_DICTIONARY in a data page and PLAIN in a dictionary page for Parquet 2.0+ files.
@@ -315,7 +315,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::skip_values(size_t num_va
     }
     _remaining_num_values -= num_values;
     if (skip_data) {
-        SCOPED_RAW_TIMER(&_statistics.decode_value_time);
+        SCOPED_RAW_TIMER(&_chunk_statistics.decode_value_time);
         return _page_decoder->skip_values(num_values);
     } else {
         return Status::OK();
@@ -329,7 +329,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::decode_values(
     if (select_vector.num_values() == 0) {
         return Status::OK();
     }
-    SCOPED_RAW_TIMER(&_statistics.decode_value_time);
+    SCOPED_RAW_TIMER(&_chunk_statistics.decode_value_time);
     if (UNLIKELY((doris_column->is_column_dictionary() || is_dict_filter) && !_has_dict)) {
         return Status::IOError("Not dictionary coded");
     }
@@ -362,7 +362,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::seek_to_nested_row(size_t
     } else {
         while (true) {
             RETURN_IF_ERROR(parse_page_header());
-            if (_page_reader->is_header_v2()) {
+            if (_page_reader->is_header_v2() || !IN_COLLECTION) {
                 if (_page_reader->start_row() <= left_row && left_row < _page_reader->end_row()) {
                     RETURN_IF_ERROR(load_page_data());
                     // this page contain this row.
@@ -448,11 +448,11 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_nested_rows(
     *result_rows = 0;
     rep_levels.reserve(rep_levels.size() + _remaining_rep_nums);
     while (_remaining_rep_nums) {
-        level_t rep_level = _rep_level_decoder.get_next();
+        level_t rep_level = _rep_level_get_next();
         if (rep_level == 0) {               // rep_level 0 indicates start of new row
             if (*result_rows == max_rows) { // this page contain max_rows, page no end.
                 _current_row += max_rows;
-                _rep_level_decoder.rewind_one();
+                _rep_level_rewind_one();
                 return Status::OK();
             }
             (*result_rows)++;
@@ -463,8 +463,8 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_nested_rows(
     _current_row += *result_rows;
 
     auto need_check_cross_page = [&]() -> bool {
-        return !OFFSET_INDEX && _remaining_rep_nums == 0 && !_page_reader->is_header_v2() &&
-               has_next_page();
+        return !OFFSET_INDEX && IN_COLLECTION && _remaining_rep_nums == 0 &&
+               !_page_reader->is_header_v2() && has_next_page();
     };
     *cross_page = need_check_cross_page();
     return Status::OK();
@@ -479,10 +479,10 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_cross_page_nested_ro
 
     *cross_page = has_next_page();
     while (_remaining_rep_nums) {
-        level_t rep_level = _rep_level_decoder.get_next();
+        level_t rep_level = _rep_level_get_next();
         if (rep_level == 0) { // rep_level 0 indicates start of new row
             *cross_page = false;
-            _rep_level_decoder.rewind_one();
+            _rep_level_rewind_one();
             break;
         }
         _remaining_rep_nums--;

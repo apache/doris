@@ -75,12 +75,13 @@ TEST_F(SpillSortSinkOperatorTest, Basic) {
     ASSERT_EQ(sink_operator->get_reserve_mem_size(_helper.runtime_state.get(), false), 0);
     ASSERT_EQ(sink_operator->get_reserve_mem_size(_helper.runtime_state.get(), true), 0);
 
-    auto data_distribution = sink_operator->required_data_distribution();
-    auto inner_data_distribution = sink_operator->_sort_sink_operator->required_data_distribution();
+    auto data_distribution = sink_operator->required_data_distribution(_helper.runtime_state.get());
+    auto inner_data_distribution = sink_operator->_sort_sink_operator->required_data_distribution(
+            _helper.runtime_state.get());
     ASSERT_EQ(data_distribution.distribution_type, inner_data_distribution.distribution_type);
 
-    ASSERT_EQ(sink_operator->require_data_distribution(),
-              sink_operator->_sort_sink_operator->require_data_distribution());
+    ASSERT_EQ(sink_operator->is_colocated_operator(),
+              sink_operator->_sort_sink_operator->is_colocated_operator());
 
     st = sink_local_state->close(_helper.runtime_state.get(), st);
     ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();

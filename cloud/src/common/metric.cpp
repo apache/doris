@@ -141,68 +141,6 @@ static void export_fdb_status_details(const std::string& status_str) {
         DCHECK(node->value.IsDouble());
         return static_cast<int64_t>(node->value.GetDouble() * NANOSECONDS);
     };
-    auto get_process_metric = [&](std::string component) {
-        auto node = document.FindMember("cluster");
-        if (!node->value.HasMember("processes")) return;
-        node = node->value.FindMember("processes");
-        // process
-        for (auto process_node = node->value.MemberBegin(); process_node != node->value.MemberEnd();
-             process_node++) {
-            const char* process_id = process_node->name.GetString();
-            decltype(process_node) component_node;
-            // get component iter
-            if (!process_node->value.HasMember(component.data())) return;
-            component_node = process_node->value.FindMember(component.data());
-            // There are three cases here: int64, double, and object.
-            // If it is double or int64, put it directly into the bvar.
-            // If it is an object, recursively obtain the full name and corresponding value.
-            // such as: {"disk": {"reads": {"counter": 123, "hz": 0}}}
-            // component is "disk", the names of these two values should be "reads_counter" and "reads_hz"
-            auto recursive_name_helper = [](std::string& origin_name,
-                                            const char* next_level_name) -> std::string {
-                return origin_name + '_' + next_level_name;
-            };
-            // proved two type lambda func to handle object and other type
-
-            // set_bvar_value is responsible for setting integer and float values to the corresponding bvar.
-            auto set_bvar_value = [&process_id, &component](
-                                          std::string& name,
-                                          decltype(process_node)& temp_node) -> void {
-                if (temp_node->value.IsInt64()) {
-                    g_bvar_fdb_process_status_int.put({process_id, component, name},
-                                                      temp_node->value.GetInt64());
-                    return;
-                }
-                if (temp_node->value.IsDouble()) {
-                    g_bvar_fdb_process_status_float.put({process_id, component, name},
-                                                        temp_node->value.GetDouble());
-                    return;
-                }
-                LOG(WARNING) << fmt::format(
-                        "Get process metrics set_bvar_value input a wrong type node {}", name);
-            };
-            auto object_recursive = [&set_bvar_value, &recursive_name_helper](
-                                            auto&& self, std::string name,
-                                            decltype(process_node) temp_node) -> void {
-                // if the node is an object, then get Member(iter) and recursive with iter as arg
-                if (temp_node->value.IsObject()) {
-                    for (auto iter = temp_node->value.MemberBegin();
-                         iter != temp_node->value.MemberEnd(); iter++) {
-                        self(self, recursive_name_helper(name, iter->name.GetString()), iter);
-                    }
-                    return;
-                }
-                // if not object, set bvar value
-                set_bvar_value(name, temp_node);
-            };
-            // Note that the parameter passed to set_bvar_value here is the current node, not its Member
-            // so we can directly call object_recursive in the loop
-            for (auto metric_node = component_node->value.MemberBegin();
-                 metric_node != component_node->value.MemberEnd(); metric_node++) {
-                object_recursive(object_recursive, metric_node->name.GetString(), metric_node);
-            }
-        }
-    };
     // Configuration
     g_bvar_fdb_configuration_coordinators_count.set_value(
             get_value({"configuration", "coordinators_count"}));
@@ -245,26 +183,6 @@ static void export_fdb_status_details(const std::string& status_str) {
             get_nanoseconds({"latency_probe", "commit_seconds"}));
     g_bvar_fdb_latency_probe_read_ns.set_value(get_nanoseconds({"latency_probe", "read_seconds"}));
 
-    // Workload
-    g_bvar_fdb_workload_conflict_rate_hz.set_value(
-            get_value({"workload", "transactions", "conflicted", "hz"}));
-    g_bvar_fdb_workload_location_rate_hz.set_value(
-            get_value({"workload", "operations", "location_requests", "hz"}));
-    g_bvar_fdb_workload_keys_read_hz.set_value(get_value({"workload", "keys", "read", "hz"}));
-    g_bvar_fdb_workload_read_bytes_hz.set_value(get_value({"workload", "bytes", "read", "hz"}));
-    g_bvar_fdb_workload_read_rate_hz.set_value(
-            get_value({"workload", "operations", "reads", "hz"}));
-    g_bvar_fdb_workload_written_bytes_hz.set_value(
-            get_value({"workload", "bytes", "written", "hz"}));
-    g_bvar_fdb_workload_write_rate_hz.set_value(
-            get_value({"workload", "operations", "writes", "hz"}));
-    g_bvar_fdb_workload_transactions_started_hz.set_value(
-            get_value({"workload", "transactions", "started", "hz"}));
-    g_bvar_fdb_workload_transactions_committed_hz.set_value(
-            get_value({"workload", "transactions", "committed", "hz"}));
-    g_bvar_fdb_workload_transactions_rejected_hz.set_value(
-            get_value({"workload", "transactions", "rejected_for_queued_too_long", "hz"}));
-
     // QOS
     g_bvar_fdb_qos_worst_data_lag_storage_server_ns.set_value(
             get_nanoseconds({"qos", "worst_data_lag_storage_server", "seconds"}));
@@ -296,10 +214,117 @@ static void export_fdb_status_details(const std::string& status_str) {
         }
     }
 
+    // Helper function for recursive name construction
+    // such as: {"disk": {"reads": {"counter": 123, "hz": 0}}}
+    // component is "disk", the names of these two values should be "reads_counter" and "reads_hz"
+    auto recursive_name_helper = [](std::string& origin_name,
+                                    const char* next_level_name) -> std::string {
+        return origin_name + '_' + next_level_name;
+    };
+
+    // Generic recursive function to traverse JSON node and set bvar values
+    // There are three cases here: int64, double, and object.
+    // If it is double or int64, put it directly into the bvar.
+    // If it is an object, recursively obtain the full name and corresponding value.
+    auto recursive_traverse_and_set = [&recursive_name_helper](auto&& set_value_callback,
+                                                               auto&& self, std::string name,
+                                                               auto temp_node) -> void {
+        // if the node is an object, then get Member(iter) and recursive with iter as arg
+        if (temp_node->value.IsObject()) {
+            for (auto iter = temp_node->value.MemberBegin(); iter != temp_node->value.MemberEnd();
+                 iter++) {
+                self(set_value_callback, self, recursive_name_helper(name, iter->name.GetString()),
+                     iter);
+            }
+            return;
+        }
+        // if not object, set bvar value
+        set_value_callback(name, temp_node);
+    };
+
+    auto get_process_metric = [&](std::string component) {
+        auto node = document.FindMember("cluster");
+        if (!node->value.HasMember("processes")) return;
+        node = node->value.FindMember("processes");
+        // process
+        for (auto process_node = node->value.MemberBegin(); process_node != node->value.MemberEnd();
+             process_node++) {
+            const char* process_id = process_node->name.GetString();
+            decltype(process_node) component_node;
+            // get component iter
+            if (!process_node->value.HasMember(component.data())) continue;
+            component_node = process_node->value.FindMember(component.data());
+
+            // set_bvar_value is responsible for setting integer and float values to the corresponding bvar.
+            auto set_bvar_value = [&process_id, &component](
+                                          std::string& name,
+                                          decltype(process_node)& temp_node) -> void {
+                if (temp_node->value.IsInt64()) {
+                    g_bvar_fdb_cluster_processes.put(
+                            {process_id, component, name},
+                            static_cast<double>(temp_node->value.GetInt64()));
+                    return;
+                }
+                if (temp_node->value.IsDouble()) {
+                    g_bvar_fdb_cluster_processes.put({process_id, component, name},
+                                                     temp_node->value.GetDouble());
+                    return;
+                }
+                LOG(WARNING) << fmt::format(
+                        "Get process metrics set_bvar_value input a wrong type node {}", name);
+            };
+            // Note that the parameter passed to set_bvar_value here is the current node, not its Member
+            // so we can directly call recursive_traverse_and_set in the loop
+            for (auto metric_node = component_node->value.MemberBegin();
+                 metric_node != component_node->value.MemberEnd(); metric_node++) {
+                recursive_traverse_and_set(set_bvar_value, recursive_traverse_and_set,
+                                           metric_node->name.GetString(), metric_node);
+            }
+        }
+    };
+
+    auto get_workload_metric = [&](std::string component) {
+        auto node = document.FindMember("cluster");
+        if (!node->value.HasMember("workload")) return;
+        node = node->value.FindMember("workload");
+
+        if (!node->value.HasMember(component.data())) return;
+        auto component_node = node->value.FindMember(component.data());
+
+        // set_bvar_value is responsible for setting integer and float values to the corresponding bvar.
+        auto set_bvar_value = [&component](std::string& name,
+                                           decltype(component_node)& temp_node) -> void {
+            if (temp_node->value.IsInt64()) {
+                g_bvar_fdb_cluster_workload.put({component, name},
+                                                static_cast<double>(temp_node->value.GetInt64()));
+                return;
+            }
+            if (temp_node->value.IsDouble()) {
+                g_bvar_fdb_cluster_workload.put({component, name}, temp_node->value.GetDouble());
+                return;
+            }
+            LOG(WARNING) << fmt::format(
+                    "Get workload metrics set_bvar_value input a wrong type node {}", name);
+        };
+
+        // Reuse the common recursive_traverse_and_set function
+        for (auto metric_node = component_node->value.MemberBegin();
+             metric_node != component_node->value.MemberEnd(); metric_node++) {
+            recursive_traverse_and_set(set_bvar_value, recursive_traverse_and_set,
+                                       metric_node->name.GetString(), metric_node);
+        }
+    };
+
     // Process Status
     get_process_metric("cpu");
     get_process_metric("disk");
     get_process_metric("memory");
+
+    // Workload Status
+    get_workload_metric("keys");
+    get_workload_metric("bytes");
+    get_workload_metric("operations");
+    get_workload_metric("transactions");
 }
 
 // boundaries include the key category{meta, txn, recycle...}, instance_id and sub_category{rowset, txn_label...}

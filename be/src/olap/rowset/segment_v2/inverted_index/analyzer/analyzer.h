@@ -41,14 +41,14 @@ using AnalyzerPtr = std::shared_ptr<lucene::analysis::Analyzer>;
 
 class InvertedIndexAnalyzer {
 public:
-    static ReaderPtr create_reader(CharFilterMap& char_filter_map);
+    static ReaderPtr create_reader(const CharFilterMap& char_filter_map);
 
     static bool is_builtin_analyzer(const std::string& analyzer_name);
     static AnalyzerPtr create_builtin_analyzer(InvertedIndexParserType parser_type,
                                                const std::string& parser_mode,
                                                const std::string& lower_case,
                                                const std::string& stop_words);
-    static AnalyzerPtr create_analyzer(const InvertedIndexCtx* inverted_index_ctx);
+    static AnalyzerPtr create_analyzer(const InvertedIndexAnalyzerConfig* config);
 
     static std::vector<TermInfo> get_analyse_result(ReaderPtr reader,
                                                     lucene::analysis::Analyzer* analyzer);

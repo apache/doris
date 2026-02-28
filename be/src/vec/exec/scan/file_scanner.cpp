@@ -101,17 +101,15 @@ using namespace ErrorCode;
 const std::string FileScanner::FileReadBytesProfile = "FileReadBytes";
 const std::string FileScanner::FileReadTimeProfile = "FileReadTime";
 
-FileScanner::FileScanner(
-        RuntimeState* state, pipeline::FileScanLocalState* local_state, int64_t limit,
-        std::shared_ptr<vectorized::SplitSourceConnector> split_source, RuntimeProfile* profile,
-        ShardedKVCache* kv_cache,
-        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-        const std::unordered_map<std::string, int>* colname_to_slot_id)
+FileScanner::FileScanner(RuntimeState* state, pipeline::FileScanLocalState* local_state,
+                         int64_t limit,
+                         std::shared_ptr<vectorized::SplitSourceConnector> split_source,
+                         RuntimeProfile* profile, ShardedKVCache* kv_cache,
+                         const std::unordered_map<std::string, int>* colname_to_slot_id)
         : Scanner(state, local_state, limit, profile),
           _split_source(split_source),
           _cur_reader(nullptr),
           _cur_reader_eof(false),
-          _colname_to_value_range(colname_to_value_range),
           _kv_cache(kv_cache),
           _strict_mode(false),
           _col_name_to_slot_id(colname_to_slot_id) {
@@ -328,7 +326,7 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
     return Status::OK();
 }
 
-Status FileScanner::_process_conjuncts_for_dict_filter() {
+Status FileScanner::_process_conjuncts() {
     _slot_id_to_filter_conjuncts.clear();
     _not_single_slot_filter_conjuncts.clear();
     for (auto& conjunct : _push_down_conjuncts) {
@@ -338,9 +336,9 @@ Status FileScanner::_process_conjuncts_for_dict_filter() {
 
         std::vector<int> slot_ids;
         _get_slot_ids(cur_expr.get(), &slot_ids);
-        if (slot_ids.size() == 0) {
+        if (slot_ids.empty()) {
             _not_single_slot_filter_conjuncts.emplace_back(conjunct);
-            return Status::OK();
+            continue;
         }
         bool single_slot = true;
         for (int i = 1; i < slot_ids.size(); i++) {
@@ -359,15 +357,15 @@ Status FileScanner::_process_conjuncts_for_dict_filter() {
     return Status::OK();
 }
 
-Status FileScanner::_process_late_arrival_conjuncts() {
+Status FileScanner::_process_late_arrival_conjuncts(bool* changed,
+                                                    VExprContextSPtrs& new_push_down_conjuncts) {
+    *changed = false;
     if (_push_down_conjuncts.size() < _conjuncts.size()) {
-        _push_down_conjuncts.clear();
-        _push_down_conjuncts.resize(_conjuncts.size());
-        for (size_t i = 0; i != _conjuncts.size(); ++i) {
-            RETURN_IF_ERROR(_conjuncts[i]->clone(_state, _push_down_conjuncts[i]));
-        }
-        RETURN_IF_ERROR(_process_conjuncts_for_dict_filter());
-        _discard_conjuncts();
+        *changed = true;
+        _push_down_conjuncts = _conjuncts;
+        _conjuncts.clear();
+        RETURN_IF_ERROR(_process_conjuncts());
+        new_push_down_conjuncts = _push_down_conjuncts;
     }
     if (_applied_rf_num == _total_rf_num) {
         _local_state->scanner_profile()->add_info_string("ApplyAllRuntimeFilters", "True");
@@ -379,6 +377,8 @@ void FileScanner::_get_slot_ids(VExpr* expr, std::vector<int>* slot_ids) {
     for (auto& child_expr : expr->children()) {
         if (child_expr->is_slot_ref()) {
             VSlotRef* slot_ref = reinterpret_cast<VSlotRef*>(child_expr.get());
+            SlotDescriptor* slot_desc = _state->desc_tbl().get_slot_descriptor(slot_ref->slot_id());
+            slot_desc->set_is_predicate(true);
             slot_ids->emplace_back(slot_ref->slot_id());
         } else {
             _get_slot_ids(child_expr.get(), slot_ids);
@@ -537,8 +537,10 @@ Status FileScanner::_init_src_block(Block* block) {
     if (!_is_load) {
         _src_block_ptr = block;
 
-        // todo: maybe do not need to build name to index map every time
-        _src_block_name_to_idx = block->get_name_to_pos_map();
+        // Build name to index map only once on first call
+        if (_src_block_name_to_idx.empty()) {
+            _src_block_name_to_idx = block->get_name_to_pos_map();
+        }
         return Status::OK();
     }
     RETURN_IF_ERROR(_check_output_block_types());
@@ -673,16 +675,13 @@ Status FileScanner::_fill_missing_columns(size_t rows) {
         } else {
             // fill with default value
             auto& ctx = kv.second;
-            auto origin_column_num = _src_block_ptr->columns();
-            int result_column_id = -1;
+            ColumnPtr result_column_ptr;
             // PT1 => dest primitive type
-            RETURN_IF_ERROR(ctx->execute(_src_block_ptr, &result_column_id));
-            bool is_origin_column = result_column_id < origin_column_num;
-            if (!is_origin_column) {
+            RETURN_IF_ERROR(ctx->execute(_src_block_ptr, result_column_ptr));
+            if (result_column_ptr->use_count() == 1) {
                 // call resize because the first column of _src_block_ptr may not be filled by reader,
                 // so _src_block_ptr->rows() may return wrong result, cause the column created by `ctx->execute()`
                 // has only one row.
-                auto result_column_ptr = _src_block_ptr->get_by_position(result_column_id).column;
                 auto mutable_column = result_column_ptr->assume_mutable();
                 mutable_column->resize(rows);
                 // result_column_ptr maybe a ColumnConst, convert it to a normal column
@@ -697,7 +696,6 @@ Status FileScanner::_fill_missing_columns(size_t rows) {
                 _src_block_ptr->replace_by_position(
                         _src_block_name_to_idx[kv.first],
                         is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
-                _src_block_ptr->erase(result_column_id);
             }
         }
     }
@@ -771,10 +769,8 @@ Status FileScanner::_convert_to_output_block(Block* block) {
         vectorized::ColumnPtr column_ptr;
 
         auto& ctx = _dest_vexpr_ctx[dest_index];
-        int result_column_id = -1;
         // PT1 => dest primitive type
-        RETURN_IF_ERROR(ctx->execute(_src_block_ptr, &result_column_id));
-        column_ptr = _src_block_ptr->get_by_position(result_column_id).column;
+        RETURN_IF_ERROR(ctx->execute(_src_block_ptr, column_ptr));
         // column_ptr maybe a ColumnConst, convert it to a normal column
         column_ptr = column_ptr->convert_to_full_column_if_const();
         DCHECK(column_ptr);
@@ -1000,34 +996,35 @@ Status FileScanner::_get_next_reader() {
                 std::unique_ptr<MaxComputeJniReader> mc_reader = MaxComputeJniReader::create_unique(
                         mc_desc, range.table_format_params.max_compute_params, _file_slot_descs,
                         range, _state, _profile);
-                init_status = mc_reader->init_reader(_colname_to_value_range);
+                init_status = mc_reader->init_reader();
                 _cur_reader = std::move(mc_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "paimon") {
                 _cur_reader = PaimonJniReader::create_unique(_file_slot_descs, _state, _profile,
                                                              range, _params);
-                init_status = ((PaimonJniReader*)(_cur_reader.get()))
-                                      ->init_reader(_colname_to_value_range);
+                init_status = ((PaimonJniReader*)(_cur_reader.get()))->init_reader();
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "hudi") {
                 _cur_reader = HudiJniReader::create_unique(*_params,
                                                            range.table_format_params.hudi_params,
                                                            _file_slot_descs, _state, _profile);
-                init_status =
-                        ((HudiJniReader*)_cur_reader.get())->init_reader(_colname_to_value_range);
+                init_status = ((HudiJniReader*)_cur_reader.get())->init_reader();
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "lakesoul") {
                 _cur_reader =
                         LakeSoulJniReader::create_unique(range.table_format_params.lakesoul_params,
                                                          _file_slot_descs, _state, _profile);
-                init_status = ((LakeSoulJniReader*)_cur_reader.get())
-                                      ->init_reader(_colname_to_value_range);
+                init_status = ((LakeSoulJniReader*)_cur_reader.get())->init_reader();
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "trino_connector") {
                 _cur_reader = TrinoConnectorJniReader::create_unique(_file_slot_descs, _state,
                                                                      _profile, range);
-                init_status = ((TrinoConnectorJniReader*)(_cur_reader.get()))
-                                      ->init_reader(_colname_to_value_range);
+                init_status = ((TrinoConnectorJniReader*)(_cur_reader.get()))->init_reader();
+            }
+            // Set col_name_to_block_idx for JNI readers to avoid repeated map creation
+            if (_cur_reader) {
+                static_cast<JniReader*>(_cur_reader.get())
+                        ->set_col_name_to_block_idx(&_src_block_name_to_idx);
             }
             break;
         }
@@ -1048,9 +1045,7 @@ Status FileScanner::_get_next_reader() {
             // ATTN: the push down agg type may be set back to NONE,
             // see IcebergTableReader::init_row_filters for example.
             parquet_reader->set_push_down_agg_type(_get_push_down_agg_type());
-            if (push_down_predicates) {
-                RETURN_IF_ERROR(_process_late_arrival_conjuncts());
-            }
+
             RETURN_IF_ERROR(_init_parquet_reader(std::move(parquet_reader), file_meta_cache_ptr));
 
             need_to_get_parsed_schema = true;
@@ -1071,7 +1066,9 @@ Status FileScanner::_get_next_reader() {
 
             orc_reader->set_push_down_agg_type(_get_push_down_agg_type());
             if (push_down_predicates) {
-                RETURN_IF_ERROR(_process_late_arrival_conjuncts());
+                bool changed = false;
+                VExprContextSPtrs new_push_down_conjuncts;
+                RETURN_IF_ERROR(_process_late_arrival_conjuncts(&changed, new_push_down_conjuncts));
             }
             RETURN_IF_ERROR(_init_orc_reader(std::move(orc_reader), file_meta_cache_ptr));
 
@@ -1112,8 +1109,12 @@ Status FileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_AVRO: {
             _cur_reader = AvroJNIReader::create_unique(_state, _profile, *_params, _file_slot_descs,
                                                        range);
-            init_status =
-                    ((AvroJNIReader*)(_cur_reader.get()))->init_reader(_colname_to_value_range);
+            init_status = ((AvroJNIReader*)(_cur_reader.get()))->init_reader();
+            // Set col_name_to_block_idx for JNI readers to avoid repeated map creation
+            if (_cur_reader) {
+                static_cast<JniReader*>(_cur_reader.get())
+                        ->set_col_name_to_block_idx(&_src_block_name_to_idx);
+            }
             break;
         }
         case TFileFormatType::FORMAT_WAL: {
@@ -1127,6 +1128,10 @@ Status FileScanner::_get_next_reader() {
                 _cur_reader =
                         RemoteDorisReader::create_unique(_file_slot_descs, _state, _profile, range);
                 init_status = ((RemoteDorisReader*)(_cur_reader.get()))->init_reader();
+                if (_cur_reader) {
+                    static_cast<RemoteDorisReader*>(_cur_reader.get())
+                            ->set_col_name_to_block_idx(&_src_block_name_to_idx);
+                }
             } else {
                 _cur_reader =
                         ArrowStreamReader::create_unique(_state, _profile, &_counter, *_params,
@@ -1194,15 +1199,20 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
     const TFileRangeDesc& range = _current_range;
     Status init_status = Status::OK();
 
+    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> slot_id_to_predicates =
+            _local_state
+                    ? _local_state->cast<pipeline::FileScanLocalState>()._slot_id_to_predicates
+                    : phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> {};
     if (range.__isset.table_format_params &&
         range.table_format_params.table_format_type == "iceberg") {
         std::unique_ptr<IcebergParquetReader> iceberg_reader = IcebergParquetReader::create_unique(
                 std::move(parquet_reader), _profile, _state, *_params, range, _kv_cache,
                 _io_ctx.get(), file_meta_cache_ptr);
         init_status = iceberg_reader->init_reader(
-                _file_col_names, _colname_to_value_range, _push_down_conjuncts, _real_tuple_desc,
-                _default_val_row_desc.get(), _col_name_to_slot_id,
-                &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
+                _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts,
+                slot_id_to_predicates, _real_tuple_desc, _default_val_row_desc.get(),
+                _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
+                &_slot_id_to_filter_conjuncts);
         _cur_reader = std::move(iceberg_reader);
     } else if (range.__isset.table_format_params &&
                range.table_format_params.table_format_type == "paimon") {
@@ -1210,9 +1220,10 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
                 std::move(parquet_reader), _profile, _state, *_params, range, _io_ctx.get(),
                 file_meta_cache_ptr);
         init_status = paimon_reader->init_reader(
-                _file_col_names, _colname_to_value_range, _push_down_conjuncts, _real_tuple_desc,
-                _default_val_row_desc.get(), _col_name_to_slot_id,
-                &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
+                _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts,
+                slot_id_to_predicates, _real_tuple_desc, _default_val_row_desc.get(),
+                _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
+                &_slot_id_to_filter_conjuncts);
         RETURN_IF_ERROR(paimon_reader->init_row_filters());
         _cur_reader = std::move(paimon_reader);
     } else if (range.__isset.table_format_params &&
@@ -1221,18 +1232,20 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
                 std::move(parquet_reader), _profile, _state, *_params, range, _io_ctx.get(),
                 file_meta_cache_ptr);
         init_status = hudi_reader->init_reader(
-                _file_col_names, _colname_to_value_range, _push_down_conjuncts, _real_tuple_desc,
-                _default_val_row_desc.get(), _col_name_to_slot_id,
-                &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
+                _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts,
+                slot_id_to_predicates, _real_tuple_desc, _default_val_row_desc.get(),
+                _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
+                &_slot_id_to_filter_conjuncts);
         _cur_reader = std::move(hudi_reader);
     } else if (range.table_format_params.table_format_type == "hive") {
         auto hive_reader = HiveParquetReader::create_unique(std::move(parquet_reader), _profile,
                                                             _state, *_params, range, _io_ctx.get(),
                                                             &_is_file_slot, file_meta_cache_ptr);
         init_status = hive_reader->init_reader(
-                _file_col_names, _colname_to_value_range, _push_down_conjuncts, _real_tuple_desc,
-                _default_val_row_desc.get(), _col_name_to_slot_id,
-                &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
+                _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts,
+                slot_id_to_predicates, _real_tuple_desc, _default_val_row_desc.get(),
+                _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
+                &_slot_id_to_filter_conjuncts);
         _cur_reader = std::move(hive_reader);
     } else if (range.table_format_params.table_format_type == "tvf") {
         const FieldDescriptor* parquet_meta = nullptr;
@@ -1246,9 +1259,10 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
         RETURN_IF_ERROR(TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
                 _real_tuple_desc, *parquet_meta, tvf_info_node));
         init_status = parquet_reader->init_reader(
-                _file_col_names, _colname_to_value_range, _push_down_conjuncts, _real_tuple_desc,
-                _default_val_row_desc.get(), _col_name_to_slot_id,
-                &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts, tvf_info_node);
+                _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts,
+                slot_id_to_predicates, _real_tuple_desc, _default_val_row_desc.get(),
+                _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
+                &_slot_id_to_filter_conjuncts, tvf_info_node);
         _cur_reader = std::move(parquet_reader);
     } else if (_is_load) {
         const FieldDescriptor* parquet_meta = nullptr;
@@ -1276,9 +1290,10 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
         }
 
         init_status = parquet_reader->init_reader(
-                _file_col_names, _colname_to_value_range, _push_down_conjuncts, _real_tuple_desc,
-                _default_val_row_desc.get(), _col_name_to_slot_id,
-                &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts, load_info_node);
+                _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts,
+                slot_id_to_predicates, _real_tuple_desc, _default_val_row_desc.get(),
+                _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
+                &_slot_id_to_filter_conjuncts, load_info_node);
         _cur_reader = std::move(parquet_reader);
     }
 
@@ -1297,7 +1312,7 @@ Status FileScanner::_init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader,
                                                        *_params, range, _io_ctx.get(),
                                                        file_meta_cache_ptr);
         init_status = tran_orc_reader->init_reader(
-                _file_col_names, _colname_to_value_range, _push_down_conjuncts, _real_tuple_desc,
+                _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts, _real_tuple_desc,
                 _default_val_row_desc.get(), &_not_single_slot_filter_conjuncts,
                 &_slot_id_to_filter_conjuncts);
         RETURN_IF_ERROR(tran_orc_reader->init_row_filters());
@@ -1309,7 +1324,7 @@ Status FileScanner::_init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader,
                 file_meta_cache_ptr);
 
         init_status = iceberg_reader->init_reader(
-                _file_col_names, _colname_to_value_range, _push_down_conjuncts, _real_tuple_desc,
+                _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts, _real_tuple_desc,
                 _default_val_row_desc.get(), _col_name_to_slot_id,
                 &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
         _cur_reader = std::move(iceberg_reader);
@@ -1320,7 +1335,7 @@ Status FileScanner::_init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader,
                                                range, _io_ctx.get(), file_meta_cache_ptr);
 
         init_status = paimon_reader->init_reader(
-                _file_col_names, _colname_to_value_range, _push_down_conjuncts, _real_tuple_desc,
+                _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts, _real_tuple_desc,
                 _default_val_row_desc.get(), &_not_single_slot_filter_conjuncts,
                 &_slot_id_to_filter_conjuncts);
         RETURN_IF_ERROR(paimon_reader->init_row_filters());
@@ -1332,7 +1347,7 @@ Status FileScanner::_init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader,
                                              range, _io_ctx.get(), file_meta_cache_ptr);
 
         init_status = hudi_reader->init_reader(
-                _file_col_names, _colname_to_value_range, _push_down_conjuncts, _real_tuple_desc,
+                _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts, _real_tuple_desc,
                 _default_val_row_desc.get(), &_not_single_slot_filter_conjuncts,
                 &_slot_id_to_filter_conjuncts);
         _cur_reader = std::move(hudi_reader);
@@ -1343,7 +1358,7 @@ Status FileScanner::_init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader,
                 &_is_file_slot, file_meta_cache_ptr);
 
         init_status = hive_reader->init_reader(
-                _file_col_names, _colname_to_value_range, _push_down_conjuncts, _real_tuple_desc,
+                _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts, _real_tuple_desc,
                 _default_val_row_desc.get(), &_not_single_slot_filter_conjuncts,
                 &_slot_id_to_filter_conjuncts);
         _cur_reader = std::move(hive_reader);
@@ -1356,7 +1371,7 @@ Status FileScanner::_init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader,
         RETURN_IF_ERROR(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(
                 _real_tuple_desc, orc_type_ptr, tvf_info_node));
         init_status = orc_reader->init_reader(
-                &_file_col_names, _colname_to_value_range, _push_down_conjuncts, false,
+                &_file_col_names, &_src_block_name_to_idx, _push_down_conjuncts, false,
                 _real_tuple_desc, _default_val_row_desc.get(), &_not_single_slot_filter_conjuncts,
                 &_slot_id_to_filter_conjuncts, tvf_info_node);
         _cur_reader = std::move(orc_reader);
@@ -1381,7 +1396,7 @@ Status FileScanner::_init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader,
             }
         }
         init_status = orc_reader->init_reader(
-                &_file_col_names, _colname_to_value_range, _push_down_conjuncts, false,
+                &_file_col_names, &_src_block_name_to_idx, _push_down_conjuncts, false,
                 _real_tuple_desc, _default_val_row_desc.get(), &_not_single_slot_filter_conjuncts,
                 &_slot_id_to_filter_conjuncts, load_info_node);
         _cur_reader = std::move(orc_reader);
@@ -1481,8 +1496,6 @@ Status FileScanner::prepare_for_read_lines(const TFileRangeDesc& range) {
     RETURN_IF_ERROR(_init_expr_ctxes());
 
     // Since only one column is read from the file, there is no need to filter, so set these variables to empty.
-    static std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
-    _colname_to_value_range = &colname_to_value_range;
     _push_down_conjuncts.clear();
     _not_single_slot_filter_conjuncts.clear();
     _slot_id_to_filter_conjuncts.clear();
@@ -1760,6 +1773,10 @@ void FileScanner::update_realtime_counters() {
     _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes(
             _file_reader_stats->read_bytes);
 
+    int64_t delta_bytes_read_from_local =
+            _file_cache_statistics->bytes_read_from_local - _last_bytes_read_from_local;
+    int64_t delta_bytes_read_from_remote =
+            _file_cache_statistics->bytes_read_from_remote - _last_bytes_read_from_remote;
     if (_file_cache_statistics->bytes_read_from_local == 0 &&
         _file_cache_statistics->bytes_read_from_remote == 0) {
         _state->get_query_ctx()
@@ -1770,16 +1787,15 @@ void FileScanner::update_realtime_counters() {
                 _file_reader_stats->read_bytes);
     } else {
         _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
-                _file_cache_statistics->bytes_read_from_local);
+                delta_bytes_read_from_local);
         _state->get_query_ctx()
                 ->resource_ctx()
                 ->io_context()
-                ->update_scan_bytes_from_remote_storage(
-                        _file_cache_statistics->bytes_read_from_remote);
+                ->update_scan_bytes_from_remote_storage(delta_bytes_read_from_remote);
         DorisMetrics::instance()->query_scan_bytes_from_local->increment(
-                _file_cache_statistics->bytes_read_from_local);
+                delta_bytes_read_from_local);
         DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
-                _file_cache_statistics->bytes_read_from_remote);
+                delta_bytes_read_from_remote);
     }
 
     COUNTER_UPDATE(_file_read_bytes_counter, _file_reader_stats->read_bytes);
@@ -1789,8 +1805,9 @@ void FileScanner::update_realtime_counters() {
 
     _file_reader_stats->read_bytes = 0;
     _file_reader_stats->read_rows = 0;
-    _file_cache_statistics->bytes_read_from_local = 0;
-    _file_cache_statistics->bytes_read_from_remote = 0;
+
+    _last_bytes_read_from_local = _file_cache_statistics->bytes_read_from_local;
+    _last_bytes_read_from_remote = _file_cache_statistics->bytes_read_from_remote;
 }
 
 void FileScanner::_collect_profile_before_close() {

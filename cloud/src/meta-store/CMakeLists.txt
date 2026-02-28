@@ -6,6 +6,7 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/meta-store")
 
 add_library(MetaStore STATIC
     blob_message.cpp
+    clone_chain_reader.cpp
     codec.cpp
     document_message.cpp
     keys.cpp

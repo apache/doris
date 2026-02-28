@@ -54,10 +54,8 @@ public class IcebergApiSource implements IcebergSource {
             throw new UnsupportedOperationException("IcebergApiSource does not support view");
         }
         this.icebergExtTable = table;
-
-        this.originTable = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(
-                icebergExtTable);
-
+        this.originTable = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getIcebergMetadataCache(table.getCatalog()).getIcebergTable(icebergExtTable);
         this.desc = desc;
     }
 

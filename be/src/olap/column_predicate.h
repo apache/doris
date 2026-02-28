@@ -24,9 +24,11 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/inverted_index_iterator.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime_filter/runtime_filter_selectivity.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column.h"
+#include "vec/exec/format/parquet/parquet_predicate.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 
 using namespace doris::segment_v2;
@@ -119,6 +121,43 @@ inline std::string type_to_string(PredicateType type) {
     return "";
 }
 
+inline std::string type_to_op_str(PredicateType type) {
+    switch (type) {
+    case PredicateType::EQ:
+        return "=";
+
+    case PredicateType::NE:
+        return "!=";
+
+    case PredicateType::LT:
+        return "<<";
+
+    case PredicateType::LE:
+        return "<=";
+
+    case PredicateType::GT:
+        return ">>";
+
+    case PredicateType::GE:
+        return ">=";
+
+    case PredicateType::IN_LIST:
+        return "*=";
+
+    case PredicateType::NOT_IN_LIST:
+        return "!*=";
+
+    case PredicateType::IS_NULL:
+    case PredicateType::IS_NOT_NULL:
+        return "is";
+
+    default:
+        break;
+    };
+
+    return "";
+}
+
 struct PredicateTypeTraits {
     static constexpr bool is_range(PredicateType type) {
         return (type == PredicateType::LT || type == PredicateType::LE ||
@@ -157,16 +196,32 @@ struct PredicateTypeTraits {
         }                                                                                 \
     }
 
-class ColumnPredicate {
+struct ZoneMapInfo {
+    vectorized::Field min_value;
+    vectorized::Field max_value;
+    bool has_null = false;
+    bool is_all_null = false;
+};
+
+class ColumnPredicate : public std::enable_shared_from_this<ColumnPredicate> {
 public:
-    explicit ColumnPredicate(uint32_t column_id, bool opposite = false)
-            : _column_id(column_id), _opposite(opposite) {
+    explicit ColumnPredicate(uint32_t column_id, std::string col_name, PrimitiveType primitive_type,
+                             bool opposite = false)
+            : _column_id(column_id),
+              _col_name(col_name),
+              _primitive_type(primitive_type),
+              _opposite(opposite) {
         reset_judge_selectivity();
+    }
+    ColumnPredicate(const ColumnPredicate& other, uint32_t col_id) : ColumnPredicate(other) {
+        _column_id = col_id;
     }
 
     virtual ~ColumnPredicate() = default;
 
     virtual PredicateType type() const = 0;
+    virtual PrimitiveType primitive_type() const { return _primitive_type; }
+    virtual std::shared_ptr<ColumnPredicate> clone(uint32_t col_id) const = 0;
 
     //evaluate predicate on inverted
     virtual Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
@@ -177,6 +232,18 @@ public:
     }
 
     virtual double get_ignore_threshold() const { return 0; }
+    // If this predicate acts on the key column, this predicate should be erased.
+    virtual bool could_be_erased() const { return false; }
+    // Return the size of value set for IN/NOT IN predicates and 0 for others.
+    virtual std::string debug_string() const {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer,
+                       "Column ID: {}, Data Type: {}, PredicateType: {}, opposite: {}, Runtime "
+                       "Filter ID: {}",
+                       _column_id, type_to_string(primitive_type()), pred_type_string(type()),
+                       _opposite, _runtime_filter_id);
+        return fmt::to_string(debug_string_buffer);
+    }
 
     // evaluate predicate on IColumn
     // a short circuit eval way
@@ -202,16 +269,14 @@ public:
 
     virtual bool support_zonemap() const { return true; }
 
-    virtual bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const {
+    virtual bool evaluate_and(const ZoneMapInfo& zone_map_info) const { return true; }
+
+    virtual bool is_always_true(const ZoneMapInfo& zone_map_info) const { return false; }
+
+    virtual bool evaluate_del(const ZoneMapInfo& zone_map_info) const { return false; }
+
+    virtual bool evaluate_and(const vectorized::ParquetBlockSplitBloomFilter* bf) const {
         return true;
-    }
-
-    virtual bool is_always_true(const std::pair<WrapperField*, WrapperField*>& statistic) const {
-        return false;
-    }
-
-    virtual bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const {
-        return false;
     }
 
     virtual bool evaluate_and(const BloomFilter* bf) const { return true; }
@@ -221,6 +286,22 @@ public:
     }
 
     virtual bool can_do_bloom_filter(bool ngram) const { return false; }
+
+    /**
+     * Figure out whether this page is matched partially or completely.
+     */
+    virtual bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "ParquetPredicate is not supported by this predicate!");
+        return true;
+    }
+
+    virtual bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                              RowRanges* row_ranges) const {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "ParquetPredicate is not supported by this predicate!");
+        return true;
+    }
 
     // used to evaluate pre read column in lazy materialization
     // now only support integer/float
@@ -242,22 +323,17 @@ public:
         DCHECK(false) << "should not reach here";
     }
     uint32_t column_id() const { return _column_id; }
+    std::string col_name() const { return _col_name; }
 
     bool opposite() const { return _opposite; }
-
-    std::string debug_string() const {
-        return _debug_string() +
-               fmt::format(", column_id={}, opposite={}, can_ignore={}, runtime_filter_id={}",
-                           _column_id, _opposite, _can_ignore(), _runtime_filter_id);
-    }
-
-    int get_runtime_filter_id() const { return _runtime_filter_id; }
 
     void attach_profile_counter(
             int filter_id, std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter,
             std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter,
-            std::shared_ptr<RuntimeProfile::Counter> predicate_always_true_rows_counter) {
+            std::shared_ptr<RuntimeProfile::Counter> predicate_always_true_rows_counter,
+            const RuntimeFilterSelectivity& rf_selectivity) {
         _runtime_filter_id = filter_id;
+        _rf_selectivity = rf_selectivity;
         DCHECK(predicate_filtered_rows_counter != nullptr);
         DCHECK(predicate_input_rows_counter != nullptr);
 
@@ -316,7 +392,7 @@ public:
         }
     }
 
-    bool always_true() const { return _always_true; }
+    bool always_true() const { return _rf_selectivity.maybe_always_true_can_ignore(); }
     // Return whether the ColumnPredicate was created by a runtime filter.
     // If true, it was definitely created by a runtime filter.
     // If false, it may still have been created by a runtime filter,
@@ -326,36 +402,28 @@ public:
     virtual bool is_runtime_filter() const { return _can_ignore(); }
 
 protected:
-    virtual std::string _debug_string() const = 0;
     virtual bool _can_ignore() const { return _runtime_filter_id != -1; }
     virtual uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
                                      uint16_t size) const {
         throw Exception(INTERNAL_ERROR, "Not Implemented _evaluate_inner");
     }
 
-    void reset_judge_selectivity() const {
-        _always_true = false;
-        _judge_counter = config::runtime_filter_sampling_frequency;
-        _judge_input_rows = 0;
-        _judge_filter_rows = 0;
-    }
+    void reset_judge_selectivity() const { _rf_selectivity.reset_judge_selectivity(); }
 
     void try_reset_judge_selectivity() const {
-        if (_can_ignore() && ((_judge_counter--) == 0)) {
-            reset_judge_selectivity();
+        if (_can_ignore()) {
+            _rf_selectivity.update_judge_counter();
         }
     }
 
     void do_judge_selectivity(uint64_t filter_rows, uint64_t input_rows) const {
-        if (!_always_true) {
-            _judge_filter_rows += filter_rows;
-            _judge_input_rows += input_rows;
-            vectorized::VRuntimeFilterWrapper::judge_selectivity(
-                    get_ignore_threshold(), _judge_filter_rows, _judge_input_rows, _always_true);
-        }
+        _rf_selectivity.update_judge_selectivity(_runtime_filter_id, filter_rows, input_rows,
+                                                 get_ignore_threshold());
     }
 
     uint32_t _column_id;
+    const std::string _col_name;
+    PrimitiveType _primitive_type;
     // TODO: the value is only in delete condition, better be template value
     bool _opposite;
     int _runtime_filter_id = -1;
@@ -367,10 +435,7 @@ protected:
     // is evaluated as true, the logic for always_true is applied for the rest of that period
     // without recalculating. At the beginning of the next period,
     // reset_judge_selectivity is used to reset these variables.
-    mutable int _judge_counter = 0;
-    mutable uint64_t _judge_input_rows = 0;
-    mutable uint64_t _judge_filter_rows = 0;
-    mutable bool _always_true = false;
+    mutable RuntimeFilterSelectivity _rf_selectivity;
 
     std::shared_ptr<RuntimeProfile::Counter> _predicate_filtered_rows_counter =
             std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
@@ -378,6 +443,9 @@ protected:
             std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
     std::shared_ptr<RuntimeProfile::Counter> _predicate_always_true_rows_counter =
             std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
+
+private:
+    ColumnPredicate(const ColumnPredicate& other) = default;
 };
 
 } //namespace doris

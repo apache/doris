@@ -37,7 +37,6 @@
 #include "olap/rowset/segment_v2/virtual_column_iterator.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/runtime_state.h"
-#include "udf/udf.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
@@ -48,6 +47,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_agg_state.h"
+#include "vec/exprs/function_context.h"
 #include "vec/exprs/varray_literal.h"
 #include "vec/exprs/vcast_expr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -183,13 +183,14 @@ Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
-Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block,
-                                     ColumnPtr& result_column, ColumnPtr* arg_column) const {
+Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block, Selector* selector,
+                                     size_t count, ColumnPtr& result_column,
+                                     ColumnPtr* arg_column) const {
     if (is_const_and_have_executed()) { // const have executed in open function
-        result_column = get_result_from_const(block);
+        result_column = get_result_from_const(count);
         return Status::OK();
     }
-    if (fast_execute(context, result_column)) {
+    if (fast_execute(context, selector, count, result_column)) {
         return Status::OK();
     }
     DBUG_EXECUTE_IF("VectorizedFnCall.must_in_slow_path", {
@@ -210,14 +211,15 @@ Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block,
             }
         }
     })
-    DCHECK(_open_finished || _getting_const_col) << debug_string();
+    DCHECK(_open_finished || block == nullptr) << debug_string();
 
     Block temp_block;
     ColumnNumbers args(_children.size());
 
     for (int i = 0; i < _children.size(); ++i) {
         ColumnPtr tmp_arg_column;
-        RETURN_IF_ERROR(_children[i]->execute_column(context, block, tmp_arg_column));
+        RETURN_IF_ERROR(
+                _children[i]->execute_column(context, block, selector, count, tmp_arg_column));
         auto arg_type = _children[i]->execute_type(block);
         temp_block.insert({tmp_arg_column, arg_type, _children[i]->expr_name()});
         args[i] = i;
@@ -241,9 +243,9 @@ Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block,
     });
 
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), temp_block, args,
-                                       num_columns_without_result, block->rows()));
+                                       num_columns_without_result, count));
     result_column = temp_block.get_by_position(num_columns_without_result).column;
-    RETURN_IF_ERROR(block->check_type_and_column());
+    DCHECK_EQ(result_column->size(), count);
     return Status::OK();
 }
 
@@ -266,14 +268,16 @@ size_t VectorizedFnCall::estimate_memory(const size_t rows) {
 }
 
 Status VectorizedFnCall::execute_runtime_filter(VExprContext* context, const Block* block,
+                                                const uint8_t* __restrict filter, size_t count,
                                                 ColumnPtr& result_column,
                                                 ColumnPtr* arg_column) const {
-    return _do_execute(context, block, result_column, arg_column);
+    return _do_execute(context, block, nullptr, count, result_column, arg_column);
 }
 
 Status VectorizedFnCall::execute_column(VExprContext* context, const Block* block,
+                                        Selector* selector, size_t count,
                                         ColumnPtr& result_column) const {
-    return _do_execute(context, block, result_column, nullptr);
+    return _do_execute(context, block, selector, count, result_column, nullptr);
 }
 
 const std::string& VectorizedFnCall::expr_name() const {
@@ -387,31 +391,7 @@ void VectorizedFnCall::prepare_ann_range_search(
     auto left_child = get_child(0);
     auto right_child = get_child(1);
 
-    auto right_literal = std::dynamic_pointer_cast<VLiteral>(right_child);
-    if (right_literal == nullptr) {
-        suitable_for_ann_index = false;
-        return;
-    }
-
-    auto right_col = right_literal->get_column_ptr()->convert_to_full_column_if_const();
-    auto right_type = right_literal->get_data_type();
-
-    PrimitiveType right_primitive = right_type->get_primitive_type();
-    const bool float32_literal = right_primitive == PrimitiveType::TYPE_FLOAT;
-    const bool float64_literal = right_primitive == PrimitiveType::TYPE_DOUBLE;
-    if (!float32_literal && !float64_literal) {
-        mark_unsuitable("Right child is not a Float32Literal or Float64Literal.");
-        return;
-    }
-
-    if (float32_literal) {
-        const ColumnFloat32* cf32_right = assert_cast<const ColumnFloat32*>(right_col.get());
-        range_search_runtime.radius = cf32_right->get_data()[0];
-    } else if (float64_literal) {
-        const ColumnFloat64* cf64_right = assert_cast<const ColumnFloat64*>(right_col.get());
-        range_search_runtime.radius = static_cast<float>(cf64_right->get_data()[0]);
-    }
-
+    // ========== Step 1: Check left child - must be a distance function ==========
     auto get_virtual_expr = [&](const VExprSPtr& expr,
                                 std::shared_ptr<VirtualSlotRef>& slot_ref) -> VExprSPtr {
         auto virtual_ref = std::dynamic_pointer_cast<VirtualSlotRef>(expr);
@@ -426,22 +406,20 @@ void VectorizedFnCall::prepare_ann_range_search(
     std::shared_ptr<VirtualSlotRef> vir_slot_ref;
     auto normalized_left = get_virtual_expr(left_child, vir_slot_ref);
 
-    std::shared_ptr<VectorizedFnCall> function_call;
-    if (float32_literal) {
-        function_call = std::dynamic_pointer_cast<VectorizedFnCall>(normalized_left);
-        if (function_call == nullptr) {
-            mark_unsuitable("Left child is not a function call.");
-            return;
-        }
-    } else {
-        auto cast_float_to_double = std::dynamic_pointer_cast<VCastExpr>(normalized_left);
-        if (cast_float_to_double == nullptr) {
-            mark_unsuitable("Left child is not a cast expression.");
-            return;
-        }
+    // Try to find the distance function call, it may be wrapped in a Cast(Float->Double)
+    std::shared_ptr<VectorizedFnCall> function_call =
+            std::dynamic_pointer_cast<VectorizedFnCall>(normalized_left);
+    bool has_float_to_double_cast = false;
 
-        auto normalized_cast_child =
-                get_virtual_expr(cast_float_to_double->get_child(0), vir_slot_ref);
+    if (function_call == nullptr) {
+        // Check if it's a Cast expression wrapping a function call
+        auto cast_expr = std::dynamic_pointer_cast<VCastExpr>(normalized_left);
+        if (cast_expr == nullptr) {
+            mark_unsuitable("Left child is neither a function call nor a cast expression.");
+            return;
+        }
+        has_float_to_double_cast = true;
+        auto normalized_cast_child = get_virtual_expr(cast_expr->get_child(0), vir_slot_ref);
         function_call = std::dynamic_pointer_cast<VectorizedFnCall>(normalized_cast_child);
         if (function_call == nullptr) {
             mark_unsuitable("Left child of cast is not a function call.");
@@ -449,17 +427,19 @@ void VectorizedFnCall::prepare_ann_range_search(
         }
     }
 
+    // Check if it's a supported distance function
     if (DISTANCE_FUNCS.find(function_call->_function_name) == DISTANCE_FUNCS.end()) {
         mark_unsuitable(fmt::format("Left child is not a supported distance function: {}",
                                     function_call->_function_name));
         return;
-    } else {
-        // Strip the _approximate suffix.
-        std::string metric_name = function_call->_function_name;
-        metric_name = metric_name.substr(0, metric_name.size() - 12);
-        range_search_runtime.metric_type = segment_v2::string_to_metric(metric_name);
     }
 
+    // Strip the _approximate suffix to get metric type
+    std::string metric_name = function_call->_function_name;
+    metric_name = metric_name.substr(0, metric_name.size() - 12);
+    range_search_runtime.metric_type = segment_v2::string_to_metric(metric_name);
+
+    // ========== Step 2: Validate distance function arguments ==========
     // Identify the slot ref child and the constant query array child (ArrayLiteral or CAST to array)
     Int32 idx_of_slot_ref = -1;
     Int32 idx_of_array_expr = -1;
@@ -498,6 +478,47 @@ void VectorizedFnCall::prepare_ann_range_search(
     }
     range_search_runtime.query_value = extract_result.value();
     range_search_runtime.dim = range_search_runtime.query_value->size();
+
+    // ========== Step 3: Check right child - must be a float/double literal ==========
+    auto right_literal = std::dynamic_pointer_cast<VLiteral>(right_child);
+    if (right_literal == nullptr) {
+        mark_unsuitable("Right child is not a literal.");
+        return;
+    }
+
+    // Handle nullable literal gracefully - just mark as unsuitable instead of crash
+    if (right_literal->is_nullable()) {
+        mark_unsuitable("Right literal is nullable, not supported for ANN range search.");
+        return;
+    }
+
+    auto right_type = right_literal->get_data_type();
+    PrimitiveType right_primitive = right_type->get_primitive_type();
+    const bool float32_literal = right_primitive == PrimitiveType::TYPE_FLOAT;
+    const bool float64_literal = right_primitive == PrimitiveType::TYPE_DOUBLE;
+
+    if (!float32_literal && !float64_literal) {
+        mark_unsuitable("Right child is not a Float32Literal or Float64Literal.");
+        return;
+    }
+
+    // Validate consistency: if we have Cast(Float->Double), right must be double literal
+    if (has_float_to_double_cast && !float64_literal) {
+        mark_unsuitable("Cast expression expects double literal on right side.");
+        return;
+    }
+
+    // Extract radius value
+    auto right_col = right_literal->get_column_ptr()->convert_to_full_column_if_const();
+    if (float32_literal) {
+        const ColumnFloat32* cf32_right = assert_cast<const ColumnFloat32*>(right_col.get());
+        range_search_runtime.radius = cf32_right->get_data()[0];
+    } else {
+        const ColumnFloat64* cf64_right = assert_cast<const ColumnFloat64*>(right_col.get());
+        range_search_runtime.radius = static_cast<float>(cf64_right->get_data()[0]);
+    }
+
+    // ========== Done: Mark as suitable for ANN range search ==========
     range_search_runtime.is_ann_range_search = true;
     range_search_runtime.user_params = user_params;
     VLOG_DEBUG << fmt::format("Ann range search params: {}", range_search_runtime.to_string());

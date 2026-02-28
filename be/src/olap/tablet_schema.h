@@ -548,7 +548,7 @@ public:
     vectorized::Block create_block(
             const std::vector<uint32_t>& return_columns,
             const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
-    vectorized::Block create_block(bool ignore_dropped_col = true) const;
+    vectorized::Block create_block() const;
     void set_schema_version(int32_t version) { _schema_version = version; }
     void set_auto_increment_column(const std::string& auto_increment_column) {
         _auto_increment_column = auto_increment_column;
@@ -703,6 +703,14 @@ public:
         _binary_plain_encoding_default_impl = impl;
     }
 
+    void add_pruned_columns_data_type(int32_t col_unique_id, vectorized::DataTypePtr data_type) {
+        _pruned_columns_data_type[col_unique_id] = std::move(data_type);
+    }
+
+    void clear_pruned_columns_data_type() { _pruned_columns_data_type.clear(); }
+
+    bool has_pruned_columns() const { return !_pruned_columns_data_type.empty(); }
+
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
@@ -773,6 +781,7 @@ private:
     bool _enable_variant_flatten_nested = false;
 
     std::map<size_t, int32_t> _vir_col_idx_to_unique_id;
+    std::map<int32_t, vectorized::DataTypePtr> _pruned_columns_data_type;
 
     // value: extracted path set and sparse path set
     std::unordered_map<int32_t, PathsSetInfo> _path_set_info_map;

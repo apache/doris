@@ -29,7 +29,6 @@
 #include "common/status.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
-#include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_variant.h"
@@ -77,11 +76,6 @@ DataTypePtr get_base_type_of_array(const DataTypePtr& type);
 // Cast column to dst type
 Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result);
 
-/// If both of types are signed/unsigned integers and size of left field type
-/// is less than right type, we don't need to convert field,
-/// because all integer fields are stored in Int64/UInt64.
-bool is_conversion_required_between_integers(const PrimitiveType& lhs, const PrimitiveType& rhs);
-
 struct ExtraInfo {
     // -1 indicates it's not a Frontend generated column
     int32_t unique_id = -1;
@@ -125,6 +119,9 @@ void inherit_column_attributes(TabletSchemaSPtr& schema);
 // target: extracted column from variant column
 void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
                                TabletSchemaSPtr* target_schema = nullptr);
+
+// Align variant subcolumn BF inheritance with FE BF-supported types.
+bool is_bf_supported_by_fe_for_variant_subcolumn(FieldType type);
 
 // get sorted subcolumns of variant
 vectorized::ColumnVariant::Subcolumns get_sorted_subcolumns(

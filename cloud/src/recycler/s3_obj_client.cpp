@@ -18,6 +18,7 @@
 #include "recycler/s3_obj_client.h"
 
 #include <aws/s3/S3Client.h>
+#include <aws/s3/model/AbortMultipartUploadRequest.h>
 #include <aws/s3/model/DeleteObjectRequest.h>
 #include <aws/s3/model/DeleteObjectsRequest.h>
 #include <aws/s3/model/GetBucketLifecycleConfigurationRequest.h>
@@ -99,6 +100,18 @@ public:
         const auto& request_id = outcome.IsSuccess() ? outcome.GetResult().GetRequestId()
                                                      : outcome.GetError().GetRequestId();
         if (!outcome.IsSuccess()) {
+            // Treat NoSuchKey as empty response for compatibility with some S3-compatible storage providers
+            // e.g. TOS by ByteDance Cloud (Volcano Engine)
+            if (outcome.GetError().GetErrorType() == Aws::S3::S3Errors::NO_SUCH_KEY) {
+                LOG_INFO("NoSuchKey error when listing objects, treat as empty response")
+                        .tag("endpoint", endpoint_)
+                        .tag("bucket", req_.GetBucket())
+                        .tag("prefix", req_.GetPrefix())
+                        .tag("request_id", request_id);
+                has_more_ = false;
+                return false;
+            }
+
             LOG_WARNING("failed to list objects")
                     .tag("endpoint", endpoint_)
                     .tag("bucket", req_.GetBucket())
@@ -127,8 +140,21 @@ public:
                 const_cast<std::string&&>(outcome.GetResult().GetNextContinuationToken())));
 
         auto&& content = outcome.GetResult().GetContents();
-        DCHECK(!(has_more_ && content.empty()))
-                << has_more_ << ' ' << content.empty() << " request_id=" << request_id;
+        // clang-format off
+        DCHECK(!(has_more_ && req_.GetContinuationToken().empty()))
+                << "has_more=" << has_more_
+                << " token=" << req_.GetContinuationToken()
+                << " request_id=" << request_id;
+        // clang-format on
+        if (has_more_ && req_.GetContinuationToken().empty()) {
+            LOG(ERROR) << "it is impossible to have more results but no continuation token";
+            has_more_ = false;
+        }
+        if (has_more_ && content.empty()) {
+            LOG(INFO) << "Empty page with more results (possible concurrent deletion), continuing"
+                      << " request_id=" << request_id;
+            return has_next();
+        }
 
         results_.reserve(content.size());
         for (auto&& obj : std::ranges::reverse_view(content)) {
@@ -374,6 +400,29 @@ ObjectStorageResponse S3ObjClient::check_versioning(const std::string& bucket) {
         return -1;
     }
     return 0;
+}
+
+ObjectStorageResponse S3ObjClient::abort_multipart_upload(ObjectStoragePathRef path,
+                                                          const std::string& upload_id) {
+    Aws::S3::Model::AbortMultipartUploadRequest request;
+    request.WithBucket(path.bucket).WithKey(path.key).WithUploadId(upload_id);
+    auto outcome = s3_put_rate_limit([&]() { return s3_client_->AbortMultipartUpload(request); });
+    if (!outcome.IsSuccess()) {
+        LOG_WARNING("failed to abort multipart upload")
+                .tag("endpoint", endpoint_)
+                .tag("bucket", path.bucket)
+                .tag("key", path.key)
+                .tag("upload_id", upload_id)
+                .tag("responseCode", static_cast<int>(outcome.GetError().GetResponseCode()))
+                .tag("error", outcome.GetError().GetMessage())
+                .tag("exception", outcome.GetError().GetExceptionName())
+                .tag("request_id", outcome.GetError().GetRequestId());
+        if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
+            return {ObjectStorageResponse::OK};
+        }
+        return {ObjectStorageResponse::UNDEFINED, outcome.GetError().GetMessage()};
+    }
+    return {ObjectStorageResponse::OK};
 }
 
 } // namespace doris::cloud

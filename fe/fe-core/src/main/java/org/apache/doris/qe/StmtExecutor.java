@@ -543,6 +543,12 @@ public class StmtExecutor {
                 if (context.getMinidump() != null && context.getMinidump().toString(4) != null) {
                     MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
                 }
+                // COMPUTE_GROUPS_NO_ALIVE_BE, planner can't get alive be, need retry
+                if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getMessage())) {
+                    LOG.debug("planner failed with cloud compute group error, need retry. {}",
+                            context.getQueryIdentifier(), e);
+                    throw new UserException(e.getMessage());
+                }
                 LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                 context.getState().setError(e.getMessage());
                 return;
@@ -672,7 +678,7 @@ public class StmtExecutor {
             // t1: client issues create table to master fe
             // t2: client issues query sql to observer fe, the query would fail due to not exist table in plan phase.
             // t3: observer fe receive editlog creating the table from the master fe
-            syncJournalIfNeeded();
+            syncJournalIfNeeded(context);
             try {
                 ((Command) logicalPlan).verifyCommandSupported(context);
                 ((Command) logicalPlan).run(context, this);
@@ -735,7 +741,7 @@ public class StmtExecutor {
             // t2: client issues query sql to observer fe, the query would fail due to not exist table in
             //     plan phase.
             // t3: observer fe receive editlog creating the table from the master fe
-            syncJournalIfNeeded();
+            syncJournalIfNeeded(context);
             planner = new NereidsPlanner(statementContext);
             try {
                 checkBlockRulesByRegex(originStmt);
@@ -924,10 +930,9 @@ public class StmtExecutor {
                 LOG.warn("retry due to exception {}. retried {} times. is rpc error: {}, is user error: {}.",
                         e.getMessage(), i, e instanceof RpcException, e instanceof UserException);
 
-                boolean isNeedRetry = false;
+                boolean isNeedRetry = e instanceof RpcException;
                 if (Config.isCloudMode()) {
                     // cloud mode retry
-                    isNeedRetry = false;
                     // errCode = 2, detailMessage = No backend available as scan node,
                     // please check the status of your backends. [10003: not alive]
                     List<String> bes = Env.getCurrentSystemInfo().getAllBackendIds().stream()
@@ -957,8 +962,6 @@ public class StmtExecutor {
                             }
                         }
                     }
-                } else {
-                    isNeedRetry = e instanceof RpcException;
                 }
                 if (i != retryTime - 1 && isNeedRetry
                         && context.getConnectType().equals(ConnectType.MYSQL) && !context.getMysqlChannel().isSend()) {
@@ -975,7 +978,8 @@ public class StmtExecutor {
         }
     }
 
-    private void syncJournalIfNeeded() throws Exception {
+    /** syncJournalIfNeeded */
+    public static void syncJournalIfNeeded(ConnectContext context) throws Exception {
         final Env env = context.getEnv();
         if (env.isMaster() || !context.getSessionVariable().enableStrongConsistencyRead) {
             return;
@@ -1748,6 +1752,7 @@ public class StmtExecutor {
                             break;
                         case DATETIME:
                         case DATETIMEV2:
+                        case TIMESTAMPTZ:
                             DateTimeV2Literal datetime = new DateTimeV2Literal(item);
                             long microSecond = datetime.getMicroSecond();
                             // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_query_response_text_resultset.html

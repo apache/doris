@@ -394,67 +394,12 @@ if (ENABLE_INJECTION_POINT)
     add_definitions(-DENABLE_INJECTION_POINT)
 endif()
 
-# Add libs if needed, download to current dir -- ${BUILD_DIR}
-set(FDB_LIB "fdb_lib_7_1_23.tar.xz")
-if (ARCH_AARCH64)
-    set(FDB_LIB "fdb_lib_7_1_57.aarch64.tar.xz")
-endif ()
-file(GLOB RELEASE_FILE_LIST LIST_DIRECTORIES false "/etc/*release*")
-execute_process(COMMAND "cat" ${RELEASE_FILE_LIST}
-                RESULT_VARIABLE CAT_RET_CODE
-                OUTPUT_VARIABLE CAT_RET_CONTENT)
-string(TOUPPER "${CAT_RET_CONTENT}" CAT_RET_CONTENT)
-
-if (ARCH_AARCH64)
-        message("Centos OS")
-        SET(OS_RELEASE "Centos")
-        set(FDB_LIB_URL "https://doris-build.oss-cn-beijing.aliyuncs.com/thirdparty/fdb/aarch64/")
-        string(APPEND FDB_LIB_URL "${FDB_LIB}")
-        set(FDB_LIB_MD5SUM "2d01a431b7a7465077e4ae5520f89693")
-else ()
-    if ("${CAT_RET_CONTENT}" MATCHES "UBUNTU")
-        message("Ubuntu OS")
-        SET(OS_RELEASE "Ubuntu")
-        set(FDB_LIB_URL "https://doris-build.oss-cn-beijing.aliyuncs.com/thirdparty/fdb/ubuntu/")
-        string(APPEND FDB_LIB_URL "${FDB_LIB}")
-        set(FDB_LIB_MD5SUM "a00fe45da95cfac4e0caffa274bb2b30")
-    else()
-        # If it is not ubuntu, it is regarded as centos by default
-        message("Centos OS")
-        SET(OS_RELEASE "Centos")
-        set(FDB_LIB_URL "https://doris-build.oss-cn-beijing.aliyuncs.com/thirdparty/fdb/centos/")
-        string(APPEND FDB_LIB_URL "${FDB_LIB}")
-        set(FDB_LIB_MD5SUM "f9839a564849c0232a351143b4340de0")
-    endif()
-endif()
-
-if (NOT EXISTS "${THIRDPARTY_SRC}/${FDB_LIB}")
-    file(MAKE_DIRECTORY ${THIRDPARTY_SRC})
-    execute_process(COMMAND curl --retry 10 --retry-delay 2 --retry-max-time 30 ${FDB_LIB_URL}
-                            -o ${THIRDPARTY_SRC}/${FDB_LIB} -k
-                    RESULTS_VARIABLE DOWNLOAD_RET)
-    if (NOT ${DOWNLOAD_RET} STREQUAL "0")
-        execute_process(COMMAND "rm" "-rf" "${THIRDPARTY_SRC}/${FDB_LIB}")
-        message(FATAL_ERROR "Failed to download dependency of fdb ${FDB_LIB_URL}, remove it")
-    endif ()
-endif ()
-
-# Add fdb dependencies
-add_definitions(-DFDB_API_VERSION=710)
-if (NOT EXISTS ${THIRDPARTY_DIR}/include/foundationdb)
-    execute_process(COMMAND "md5sum" "${THIRDPARTY_SRC}/${FDB_LIB}"
-                    RESULT_VARIABLE MD5SUM_RET_CODE
-                    OUTPUT_VARIABLE MD5SUM_CONTENT)
-    if (NOT "${MD5SUM_CONTENT}" MATCHES "${FDB_LIB_MD5SUM}")
-        execute_process(COMMAND "rm" "-rf" "${THIRDPARTY_SRC}/${FDB_LIB}")
-        message(FATAL_ERROR "${THIRDPARTY_SRC}/${FDB_LIB} md5sum check failed, remove it")
-    endif ()
-    execute_process(COMMAND tar xf ${THIRDPARTY_SRC}/${FDB_LIB} -C ${THIRDPARTY_DIR}/)
-endif ()
-
 # enable glog custom prefix
 add_definitions(-DGLOG_CUSTOM_PREFIX_SUPPORT)
 
+set(FDB_VERSIONS "7.1.57" "7.3.69")
+set(FDB_DEFAULT_VERSION "7.1.57")
+include(install_fdb)
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lfdb_c -L${THIRDPARTY_DIR}/lib")
 
 set(DORIS_CLOUD_LIBS
@@ -556,3 +501,17 @@ install(FILES
     GROUP_READ GROUP_WRITE GROUP_EXECUTE
     WORLD_READ WORLD_EXECUTE
     DESTINATION ${OUTPUT_DIR}/lib)
+
+foreach(version ${FDB_VERSIONS})
+    if (version STREQUAL ${FDB_DEFAULT_VERSION})
+        continue()
+    endif()
+
+    string(REPLACE "." "_" version_underscored ${version})
+    install(FILES
+        ${FDB_INSTALL_DIR_${version_underscored}}/lib64/libfdb_c.so
+        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
+        GROUP_READ GROUP_WRITE GROUP_EXECUTE
+        WORLD_READ WORLD_EXECUTE
+        DESTINATION ${OUTPUT_DIR}/lib/fdb/${version})
+endforeach()

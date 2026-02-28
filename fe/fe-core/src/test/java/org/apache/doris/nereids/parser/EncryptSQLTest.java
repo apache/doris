@@ -271,7 +271,7 @@ public class EncryptSQLTest extends ParserTestBase {
         res = "SET PASSWORD FOR 'admin' = PASSWORD('*XXX')";
         parseAndCheck(sql, res);
 
-        // create job
+        // create s3 job
         sql = "CREATE JOB my_job"
                 + " ON STREAMING"
                 + " DO"
@@ -303,7 +303,7 @@ public class EncryptSQLTest extends ParserTestBase {
                 + " );";
         parseAndCheck(sql, res);
 
-        // alter job
+        // alter s3 job
         sql = "ALTER JOB my_job"
                 + " INSERT INTO test.`student`"
                 + " SELECT * FROM S3"
@@ -329,6 +329,68 @@ public class EncryptSQLTest extends ParserTestBase {
                 + " \"s3.access_key\" = \"*XXX\","
                 + " \"s3.secret_key\" = \"*XXX\""
                 + " );";
+        parseAndCheck(sql, res);
+
+        // create mysql job
+        sql = "CREATE JOB my_mysql_job "
+                + "ON STREAMING "
+                + "FROM MYSQL ( "
+                + "\"jdbc_url\" = \"jdbc:mysql://127.0.0.1:3306\", "
+                + "\"driver_url\" = \"mysql-connector-j-8.4.0.jar\", "
+                + "\"driver_class\" = \"com.mysql.cj.jdbc.Driver\", "
+                + "\"user\" = \"root\", "
+                + "\"password\" = \"123456\", "
+                + "\"database\" = \"test_cdc_db\", "
+                + "\"include_tables\" = \"mysqltable\", "
+                + "\"offset\" = \"initial\" "
+                + ") "
+                + "TO DATABASE targetDB ( "
+                + "\"table.create.properties.replication_num\" = \"1\" "
+                + ")";
+
+        res = "CREATE JOB my_mysql_job "
+                + "ON STREAMING "
+                + "FROM MYSQL ( "
+                + "\"jdbc_url\" = \"jdbc:mysql://127.0.0.1:3306\", "
+                + "\"driver_url\" = \"mysql-connector-j-8.4.0.jar\", "
+                + "\"driver_class\" = \"com.mysql.cj.jdbc.Driver\", "
+                + "\"user\" = \"root\", "
+                + "\"password\" = \"*XXX\", "
+                + "\"database\" = \"test_cdc_db\", "
+                + "\"include_tables\" = \"mysqltable\", "
+                + "\"offset\" = \"initial\" "
+                + ") "
+                + "TO DATABASE targetDB ( "
+                + "\"table.create.properties.replication_num\" = \"1\" "
+                + ")";
+        parseAndCheck(sql, res);
+
+        // alter mysql job
+        sql = "ALTER JOB my_mysql_job "
+                + "FROM MYSQL ( "
+                + "\"jdbc_url\" = \"jdbc:mysql://127.0.0.1:3306\", "
+                + "\"driver_url\" = \"mysql-connector-j-8.4.0.jar\", "
+                + "\"driver_class\" = \"com.mysql.cj.jdbc.Driver\", "
+                + "\"user\" = \"mysql_job_priv\", "
+                + "\"password\" = \"test123\", "
+                + "\"database\" = \"test_cdc_db\", "
+                + "\"include_tables\" = \"mysqltable\", "
+                + "\"offset\" = \"latest\""
+                + ")"
+                + "TO DATABASE targetDB";
+
+        res = "ALTER JOB my_mysql_job "
+                + "FROM MYSQL ( "
+                + "\"jdbc_url\" = \"jdbc:mysql://127.0.0.1:3306\", "
+                + "\"driver_url\" = \"mysql-connector-j-8.4.0.jar\", "
+                + "\"driver_class\" = \"com.mysql.cj.jdbc.Driver\", "
+                + "\"user\" = \"mysql_job_priv\", "
+                + "\"password\" = \"*XXX\", "
+                + "\"database\" = \"test_cdc_db\", "
+                + "\"include_tables\" = \"mysqltable\", "
+                + "\"offset\" = \"latest\""
+                + ")"
+                + "TO DATABASE targetDB";
         parseAndCheck(sql, res);
 
         sql = "selected * from tbl";

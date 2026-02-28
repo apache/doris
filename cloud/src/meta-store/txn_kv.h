@@ -252,6 +252,19 @@ public:
     virtual TxnErrorCode commit() = 0;
 
     /**
+     * Issue a watch on `key`, it will commit the txn and wait until the watch is triggered.
+     *
+     * A watch’s behavior is relative to the transaction that created it. A watch will report a change in
+     * relation to the key’s value as readable by that transaction. The initial value used for comparison
+     * is either that of the transaction’s read version or the value as modified by the transaction itself
+     * prior to the creation of the watch. If the value changes and then changes back to its initial value,
+     * the watch might not report the change.
+     *
+     * @return TXN_OK for success otherwise error
+     */
+    virtual TxnErrorCode watch_key(std::string_view key) = 0;
+
+    /**
      * Gets the read version used by the txn.
      * Note that it does not make any sense we call this function before
      * any `Transaction::get()` is called.
@@ -360,8 +373,10 @@ public:
 
     /**
      * @brief return the approximate bytes consumed by the underlying transaction buffer.
+     * @param fetch_from_underlying_kv if true, use an heavy operation to get the size from the underlying
+     *                kv store; otherwise, return the tracked size. Default is false.
      **/
-    virtual size_t approximate_bytes() const = 0;
+    virtual size_t approximate_bytes(bool fetch_from_underlying_kv = false) const = 0;
 
     /**
      * @brief return the num get keys submitted to this txn.
@@ -538,7 +553,7 @@ namespace fdb {
 
 class Network {
 public:
-    Network(FDBNetworkOption opt) : opt_(opt) {}
+    Network() {}
 
     /**
      * @return 0 for success otherwise non-zero
@@ -557,7 +572,6 @@ public:
 
 private:
     std::shared_ptr<std::thread> network_thread_;
-    FDBNetworkOption opt_;
 
     // Global state, only one instance of Network is allowed
     static std::atomic<bool> working;
@@ -790,6 +804,8 @@ public:
      */
     TxnErrorCode commit() override;
 
+    TxnErrorCode watch_key(std::string_view key) override;
+
     TxnErrorCode get_read_version(int64_t* version) override;
     TxnErrorCode get_committed_version(int64_t* version) override;
 
@@ -807,7 +823,7 @@ public:
                             const std::vector<std::pair<std::string, std::string>>& ranges,
                             const BatchGetOptions& opts = BatchGetOptions()) override;
 
-    size_t approximate_bytes() const override { return approximate_bytes_; }
+    size_t approximate_bytes(bool fetch_from_underlying_kv = false) const override;
 
     size_t num_get_keys() const override { return num_get_keys_; }
 
@@ -826,6 +842,10 @@ private:
     //
     // It only works when the report_conflicting_ranges option is enabled.
     TxnErrorCode get_conflicting_range(
+            std::vector<std::pair<std::string, std::string>>* key_values);
+    TxnErrorCode get_read_conflict_range(
+            std::vector<std::pair<std::string, std::string>>* key_values);
+    TxnErrorCode get_write_conflict_range(
             std::vector<std::pair<std::string, std::string>>* key_values);
     TxnErrorCode report_conflicting_range();
 

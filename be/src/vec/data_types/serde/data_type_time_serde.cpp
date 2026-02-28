@@ -33,20 +33,8 @@ Status DataTypeTimeV2SerDe::write_column_to_mysql_binary(const IColumn& column,
                                                          const FormatOptions& options) const {
     const auto& data = assert_cast<const ColumnTimeV2&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
-    // _nesting_level >= 2 means this time is in complex type
-    // and we should add double quotes
-    if (_nesting_level >= 2 && options.wrapper_len > 0) {
-        if (UNLIKELY(0 != result.push_string(options.nested_string_wrapper, options.wrapper_len))) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
-    }
     if (UNLIKELY(0 != result.push_timev2(data[col_index], _scale))) {
         return Status::InternalError("pack mysql buffer failed.");
-    }
-    if (_nesting_level >= 2 && options.wrapper_len > 0) {
-        if (UNLIKELY(0 != result.push_string(options.nested_string_wrapper, options.wrapper_len))) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
     }
     return Status::OK();
 }
@@ -123,6 +111,22 @@ Status DataTypeTimeV2SerDe::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
+Status DataTypeTimeV2SerDe::from_olap_string(const std::string& str, Field& field,
+                                             const FormatOptions& options) const {
+    CastParameters params {.status = Status::OK(), .is_strict = false};
+    // set false to `is_strict`, it will not set error code cuz we dont need then speed up the process.
+    // then we rely on return value to check success.
+    // return value only represent OK or InvalidArgument for other error(like InternalError) in parser, MUST throw
+    // Exception!
+    TimeValue::TimeType res;
+    if (!CastToTimeV2::from_string_non_strict_mode(StringRef(str), res, options.timezone, _scale,
+                                                   params)) [[unlikely]] {
+        return Status::InvalidArgument("parse timev2 fail, string: '{}'", str);
+    }
+    field = Field::create_field<TYPE_TIMEV2>(std::move(res));
+    return Status::OK();
+}
+
 Status DataTypeTimeV2SerDe::from_string_strict_mode(StringRef& str, IColumn& column,
                                                     const FormatOptions& options) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(column);
@@ -141,7 +145,7 @@ Status DataTypeTimeV2SerDe::from_string_strict_mode(StringRef& str, IColumn& col
 }
 
 template <typename IntDataType>
-Status DataTypeTimeV2SerDe::from_int_batch(const IntDataType::ColumnType& int_col,
+Status DataTypeTimeV2SerDe::from_int_batch(const typename IntDataType::ColumnType& int_col,
                                            ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(target_col.get_nested_column());
     auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
@@ -163,8 +167,8 @@ Status DataTypeTimeV2SerDe::from_int_batch(const IntDataType::ColumnType& int_co
 }
 
 template <typename IntDataType>
-Status DataTypeTimeV2SerDe::from_int_strict_mode_batch(const IntDataType::ColumnType& int_col,
-                                                       IColumn& target_col) const {
+Status DataTypeTimeV2SerDe::from_int_strict_mode_batch(
+        const typename IntDataType::ColumnType& int_col, IColumn& target_col) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(target_col);
     col_data.resize(int_col.size());
 
@@ -183,7 +187,7 @@ Status DataTypeTimeV2SerDe::from_int_strict_mode_batch(const IntDataType::Column
 }
 
 template <typename FloatDataType>
-Status DataTypeTimeV2SerDe::from_float_batch(const FloatDataType::ColumnType& float_col,
+Status DataTypeTimeV2SerDe::from_float_batch(const typename FloatDataType::ColumnType& float_col,
                                              ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(target_col.get_nested_column());
     auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
@@ -206,8 +210,8 @@ Status DataTypeTimeV2SerDe::from_float_batch(const FloatDataType::ColumnType& fl
 }
 
 template <typename FloatDataType>
-Status DataTypeTimeV2SerDe::from_float_strict_mode_batch(const FloatDataType::ColumnType& float_col,
-                                                         IColumn& target_col) const {
+Status DataTypeTimeV2SerDe::from_float_strict_mode_batch(
+        const typename FloatDataType::ColumnType& float_col, IColumn& target_col) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(target_col);
     col_data.resize(float_col.size());
 
@@ -227,8 +231,8 @@ Status DataTypeTimeV2SerDe::from_float_strict_mode_batch(const FloatDataType::Co
 }
 
 template <typename DecimalDataType>
-Status DataTypeTimeV2SerDe::from_decimal_batch(const DecimalDataType::ColumnType& decimal_col,
-                                               ColumnNullable& target_col) const {
+Status DataTypeTimeV2SerDe::from_decimal_batch(
+        const typename DecimalDataType::ColumnType& decimal_col, ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(target_col.get_nested_column());
     auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
     col_data.resize(decimal_col.size());
@@ -252,7 +256,7 @@ Status DataTypeTimeV2SerDe::from_decimal_batch(const DecimalDataType::ColumnType
 
 template <typename DecimalDataType>
 Status DataTypeTimeV2SerDe::from_decimal_strict_mode_batch(
-        const DecimalDataType::ColumnType& decimal_col, IColumn& target_col) const {
+        const typename DecimalDataType::ColumnType& decimal_col, IColumn& target_col) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(target_col);
     col_data.resize(decimal_col.size());
 

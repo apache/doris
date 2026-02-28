@@ -355,7 +355,7 @@ static doris::TabletMetaCloudPB add_tablet(int64_t table_id, int64_t index_id, i
     return tablet;
 }
 
-static int create_tablet(MetaService* meta_service, const std::string& instance_id,
+static int create_tablet(MetaService* meta_service, const std::string& instance_id, int64_t db_id,
                          int64_t table_id, int64_t index_id, int64_t partition_id,
                          int64_t tablet_id) {
     if (tablet_id < 0) {
@@ -367,6 +367,7 @@ static int create_tablet(MetaService* meta_service, const std::string& instance_
     cloud::CreateTabletsRequest req;
     cloud::CreateTabletsResponse resp;
     req.set_cloud_unique_id(cloud_unique_id(instance_id));
+    req.set_db_id(db_id);
     req.add_tablet_metas()->CopyFrom(add_tablet(table_id, index_id, partition_id, tablet_id));
     meta_service->create_tablets(&ctrl, &req, &resp, nullptr);
     if (ctrl.Failed()) {
@@ -801,8 +802,8 @@ TEST(FdbInjectionTest, AllInOne) {
     int64_t partition_id = 1;
     std::vector<uint64_t> tablet_ids;
     for (int64_t tablet_id = 1; tablet_id <= 10; ++tablet_id) {
-        ret = create_tablet(meta_service.get(), instance_id, table_id, index_id, partition_id,
-                            tablet_id);
+        ret = create_tablet(meta_service.get(), instance_id, db_id, table_id, index_id,
+                            partition_id, tablet_id);
         ASSERT_EQ(ret, 0) << tablet_id;
         tablet_ids.push_back(tablet_id);
     }

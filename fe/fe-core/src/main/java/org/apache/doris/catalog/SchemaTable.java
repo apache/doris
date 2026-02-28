@@ -672,6 +672,7 @@ public class SchemaTable extends Table {
                                     .column("USER_NAME", ScalarType.createStringType())
                                     .column("CURRENT_ABORT_TASK_NUM", ScalarType.createType(PrimitiveType.INT))
                                     .column("IS_ABNORMAL_PAUSE", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("COMPUTE_GROUP", ScalarType.createStringType())
                                     .build())
             )
             .put("load_jobs",
@@ -786,8 +787,8 @@ public class SchemaTable extends Table {
                             .build()))
             .put("cluster_snapshot_properties",
                     new SchemaTable(SystemIdGenerator.getNextId(), "cluster_snapshot_properties", TableType.SCHEMA,
-                        builder().column("SNAPSHOT_ENABLED", ScalarType.createType(PrimitiveType.BOOLEAN))
-                            .column("AUTO_SNAPSHOT_ENABLED", ScalarType.createType(PrimitiveType.BOOLEAN))
+                        builder().column("SNAPSHOT_ENABLED", ScalarType.createType(PrimitiveType.STRING))
+                            .column("AUTO_SNAPSHOT", ScalarType.createType(PrimitiveType.BOOLEAN))
                             .column("MAX_RESERVED_SNAPSHOTS", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("SNAPSHOT_INTERVAL_SECONDS", ScalarType.createType(PrimitiveType.BIGINT))
                             .build()))

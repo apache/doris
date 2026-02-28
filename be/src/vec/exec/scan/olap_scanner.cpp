@@ -76,13 +76,12 @@ OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Para
                                  .version = {0, params.version},
                                  .start_key {},
                                  .end_key {},
-                                 .conditions {},
-                                 .bloom_filters {},
-                                 .bitmap_filters {},
-                                 .in_filters {},
+                                 .predicates {},
                                  .function_filters {},
                                  .delete_predicates {},
                                  .target_cast_type_for_variants {},
+                                 .all_access_paths {},
+                                 .predicate_access_paths {},
                                  .rs_splits {},
                                  .return_columns {},
                                  .output_columns {},
@@ -166,16 +165,34 @@ Status OlapScanner::prepare() {
     // value (e.g. select a from t where a .. and b ... limit 1),
     // it will be very slow when reading data in segment iterator
     _tablet_reader->set_batch_size(_state->batch_size());
-
     TabletSchemaSPtr cached_schema;
     std::string schema_key;
     {
         TOlapScanNode& olap_scan_node = local_state->olap_scan_node();
-        if (olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&
-            !olap_scan_node.columns_desc.empty() &&
-            olap_scan_node.columns_desc[0].col_unique_id >= 0 && // Why check first column?
-            tablet->tablet_schema()->num_variant_columns() == 0 &&
-            tablet->tablet_schema()->num_virtual_columns() == 0) {
+
+        const auto check_can_use_cache = [&]() {
+            if (!(olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&
+                  !olap_scan_node.columns_desc.empty() &&
+                  olap_scan_node.columns_desc[0].col_unique_id >= 0 && // Why check first column?
+                  tablet->tablet_schema()->num_variant_columns() == 0 &&
+                  tablet->tablet_schema()->num_virtual_columns() == 0)) {
+                return false;
+            }
+
+            const bool has_pruned_column =
+                    std::ranges::any_of(_output_tuple_desc->slots(), [](const auto& slot) {
+                        if ((slot->type()->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
+                             slot->type()->get_primitive_type() == PrimitiveType::TYPE_MAP ||
+                             slot->type()->get_primitive_type() == PrimitiveType::TYPE_ARRAY) &&
+                            !slot->all_access_paths().empty()) {
+                            return true;
+                        }
+                        return false;
+                    });
+            return !has_pruned_column;
+        }();
+
+        if (check_can_use_cache) {
             schema_key =
                     SchemaCache::get_schema_key(tablet->tablet_id(), olap_scan_node.columns_desc,
                                                 olap_scan_node.schema_version);
@@ -251,9 +268,10 @@ Status OlapScanner::prepare() {
         }
 
         // Initialize tablet_reader_params
-        RETURN_IF_ERROR(_init_tablet_reader_params(_key_ranges, local_state->_olap_filters,
-                                                   local_state->_filter_predicates,
-                                                   local_state->_push_down_functions));
+        RETURN_IF_ERROR(_init_tablet_reader_params(
+                local_state->_parent->cast<pipeline::OlapScanOperatorX>()._slot_id_to_slot_desc,
+                _key_ranges, local_state->_slot_id_to_predicates,
+                local_state->_push_down_functions));
     }
 
     // add read columns in profile
@@ -264,15 +282,25 @@ Status OlapScanner::prepare() {
 
     // Add newly created tablet schema to schema cache if it does not have virtual columns.
     if (cached_schema == nullptr && !schema_key.empty() &&
-        tablet_schema->num_virtual_columns() == 0) {
+        tablet_schema->num_virtual_columns() == 0 && !tablet_schema->has_pruned_columns()) {
         SchemaCache::instance()->insert_schema(schema_key, tablet_schema);
     }
 
     if (_tablet_reader_params.score_runtime) {
+        SCOPED_TIMER(local_state->_statistics_collect_timer);
         _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
+
+        io::IOContext io_ctx {
+                .reader_type = ReaderType::READER_QUERY,
+                .expiration_time = tablet->ttl_seconds(),
+                .query_id = &_state->query_id(),
+                .file_cache_stats = &_tablet_reader->mutable_stats()->file_cache_stats,
+                .is_inverted_index = true,
+        };
+
         RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
                 _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
-                _tablet_reader_params.common_expr_ctxs_push_down));
+                _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx));
     }
 
     _has_prepared = true;
@@ -299,9 +327,10 @@ Status OlapScanner::open(RuntimeState* state) {
 
 // it will be called under tablet read lock because capture rs readers need
 Status OlapScanner::_init_tablet_reader_params(
+        const phmap::flat_hash_map<int, SlotDescriptor*>& slot_id_to_slot_desc,
         const std::vector<OlapScanRange*>& key_ranges,
-        const std::vector<FilterOlapParam<TCondition>>& filters,
-        const pipeline::FilterPredicates& filter_predicates,
+        const phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
+                slot_to_predicates,
         const std::vector<FunctionFilter>& function_filters) {
     // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
     const bool single_version = _tablet_reader_params.has_single_version();
@@ -345,27 +374,26 @@ Status OlapScanner::_init_tablet_reader_params(
          ((pipeline::OlapScanLocalState*)_local_state)->_cast_types_for_variants) {
         _tablet_reader_params.target_cast_type_for_variants[ele.first] = ele.second;
     };
-    // Condition
-    for (auto& filter : filters) {
-        _tablet_reader_params.conditions.push_back(filter);
+    auto& tablet_schema = _tablet_reader_params.tablet_schema;
+    for (auto& predicates : slot_to_predicates) {
+        const int sid = predicates.first;
+        DCHECK(slot_id_to_slot_desc.contains(sid));
+        int32_t index =
+                tablet_schema->field_index(slot_id_to_slot_desc.find(sid)->second->col_name());
+        if (index < 0) {
+            throw Exception(
+                    Status::InternalError("Column {} not found in tablet schema",
+                                          slot_id_to_slot_desc.find(sid)->second->col_name()));
+        }
+        for (auto& predicate : predicates.second) {
+            _tablet_reader_params.predicates.push_back(predicate->clone(index));
+        }
     }
-
-    std::copy(filter_predicates.bloom_filters.cbegin(), filter_predicates.bloom_filters.cend(),
-              std::inserter(_tablet_reader_params.bloom_filters,
-                            _tablet_reader_params.bloom_filters.begin()));
-    std::copy(filter_predicates.bitmap_filters.cbegin(), filter_predicates.bitmap_filters.cend(),
-              std::inserter(_tablet_reader_params.bitmap_filters,
-                            _tablet_reader_params.bitmap_filters.begin()));
-
-    std::copy(filter_predicates.in_filters.cbegin(), filter_predicates.in_filters.cend(),
-              std::inserter(_tablet_reader_params.in_filters,
-                            _tablet_reader_params.in_filters.begin()));
 
     std::copy(function_filters.cbegin(), function_filters.cend(),
               std::inserter(_tablet_reader_params.function_filters,
                             _tablet_reader_params.function_filters.begin()));
 
-    auto& tablet_schema = _tablet_reader_params.tablet_schema;
     // Merge the columns in delete predicate that not in latest schema in to current tablet schema
     for (auto& del_pred : _tablet_reader_params.delete_predicates) {
         tablet_schema->merge_dropped_columns(*del_pred->tablet_schema());
@@ -537,6 +565,24 @@ Status OlapScanner::_init_return_columns() {
                     "Virtual column, slot id: {}, cid {}, column index: {}, type: {}", slot->id(),
                     virtual_column_cid, _vir_cid_to_idx_in_block[virtual_column_cid],
                     _vir_col_idx_to_type[idx_in_block]->get_name());
+        }
+
+        const auto& column = tablet_schema->column(index);
+        if (!slot->all_access_paths().empty()) {
+            _tablet_reader_params.all_access_paths.insert(
+                    {column.unique_id(), slot->all_access_paths()});
+        }
+
+        if (!slot->predicate_access_paths().empty()) {
+            _tablet_reader_params.predicate_access_paths.insert(
+                    {column.unique_id(), slot->predicate_access_paths()});
+        }
+
+        if ((slot->type()->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
+             slot->type()->get_primitive_type() == PrimitiveType::TYPE_MAP ||
+             slot->type()->get_primitive_type() == PrimitiveType::TYPE_ARRAY) &&
+            !slot->all_access_paths().empty()) {
+            tablet_schema->add_pruned_columns_data_type(column.unique_id(), slot->type());
         }
 
         _return_columns.push_back(index);

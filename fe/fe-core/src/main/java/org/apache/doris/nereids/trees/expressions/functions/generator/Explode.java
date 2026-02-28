@@ -23,12 +23,14 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
+import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -42,12 +44,11 @@ import java.util.List;
  * where the first column contains 1, 2, 3, and the second column contains 4, 5, 6.
  */
 public class Explode extends TableGeneratingFunction implements CustomSignature, ComputePrecision, AlwaysNullable {
-
     /**
      * constructor with one or more argument.
      */
-    public Explode(Expression[] args) {
-        super("explode", args);
+    public Explode(Expression arg, Expression... others) {
+        super("explode", ExpressionUtils.mergeArguments(arg, others));
     }
 
     /** constructor for withChildren and reuse signature */
@@ -77,10 +78,10 @@ public class Explode extends TableGeneratingFunction implements CustomSignature,
             if (children.get(i).getDataType().isNullType()) {
                 arguments.add(ArrayType.of(NullType.INSTANCE));
                 structFields.add(
-                    new StructField("col" + (i + 1), NullType.INSTANCE, true, ""));
+                    new StructField(StructLiteral.COL_PREFIX + (i + 1), NullType.INSTANCE, true, ""));
             } else if (children.get(i).getDataType().isArrayType()) {
                 structFields.add(
-                    new StructField("col" + (i + 1),
+                    new StructField(StructLiteral.COL_PREFIX + (i + 1),
                         ((ArrayType) (children.get(i)).getDataType()).getItemType(), true, ""));
                 arguments.add(children.get(i).getDataType());
             } else {

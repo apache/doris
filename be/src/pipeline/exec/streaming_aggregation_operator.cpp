@@ -25,6 +25,7 @@
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "pipeline/exec/operator.h"
+#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vslot_ref.h"
 
@@ -80,7 +81,6 @@ static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
 StreamingAggLocalState::StreamingAggLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent),
           _agg_data(std::make_unique<AggregatedDataVariants>()),
-          _agg_profile_arena(std::make_unique<vectorized::Arena>()),
           _child_block(vectorized::Block::create_unique()),
           _pre_aggregated_block(vectorized::Block::create_unique()) {}
 
@@ -620,6 +620,26 @@ StreamingAggOperatorX::StreamingAggOperatorX(ObjectPool* pool, int operator_id,
           _have_conjuncts(tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()),
           _agg_fn_output_row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples) {}
 
+void StreamingAggOperatorX::update_operator(const TPlanNode& tnode,
+                                            bool followed_by_shuffled_operator,
+                                            bool require_bucket_distribution) {
+    _followed_by_shuffled_operator = followed_by_shuffled_operator;
+    _require_bucket_distribution = require_bucket_distribution;
+    _partition_exprs =
+            tnode.__isset.distribute_expr_lists &&
+                            (StatefulOperatorX<
+                                     StreamingAggLocalState>::_followed_by_shuffled_operator ||
+                             std::any_of(
+                                     tnode.agg_node.aggregate_functions.begin(),
+                                     tnode.agg_node.aggregate_functions.end(),
+                                     [](const TExpr& texpr) -> bool {
+                                         return texpr.nodes[0].fn.name.function_name.starts_with(
+                                                 vectorized::DISTINCT_FUNCTION_PREFIX);
+                                     }))
+                    ? tnode.distribute_expr_lists[0]
+                    : tnode.agg_node.grouping_exprs;
+}
+
 Status StreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(StatefulOperatorX<StreamingAggLocalState>::init(tnode, state));
     // ignore return status for now , so we need to introduce ExecNode::init()
@@ -760,6 +780,7 @@ Status StreamingAggLocalState::close(RuntimeState* state) {
                    _agg_data->method_variant);
     }
     _close_with_serialized_key();
+    _agg_arena_pool.clear(true);
     return Base::close(state);
 }
 

@@ -231,6 +231,11 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
             // for FixedSizeBinary
             physical_converter =
                     std::make_unique<FixedSizeBinaryConverter>(parquet_schema.type_length);
+        } else if (src_logical_primitive == TYPE_FLOAT &&
+                   src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY &&
+                   parquet_schema.logicalType.__isset.FLOAT16) {
+            physical_converter =
+                    std::make_unique<Float16PhysicalConverter>(parquet_schema.type_length);
         } else {
             physical_converter = std::make_unique<ConsistentPhysicalConverter>();
         }
@@ -263,6 +268,17 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
         } else {
             DCHECK(src_physical_type == tparquet::Type::BYTE_ARRAY) << src_physical_type;
             physical_converter = std::make_unique<ConsistentPhysicalConverter>();
+        }
+    } else if (src_logical_primitive == TYPE_TIMESTAMPTZ) {
+        if (src_physical_type == tparquet::Type::INT96) {
+            physical_converter = std::make_unique<Int96toTimestampTz>();
+        } else if (src_physical_type == tparquet::Type::INT64) {
+            DCHECK(src_physical_type == tparquet::Type::INT64) << src_physical_type;
+            DCHECK(parquet_schema.logicalType.__isset.TIMESTAMP) << parquet_schema.name;
+            physical_converter = std::make_unique<Int64ToTimestampTz>();
+        } else {
+            physical_converter =
+                    std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);
         }
     } else {
         physical_converter =

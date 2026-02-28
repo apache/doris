@@ -134,6 +134,11 @@ suite("test_routine_load_job_info_system_table","p0") {
             def res = sql "SELECT JOB_NAME FROM information_schema.routine_load_jobs WHERE CURRENT_ABORT_TASK_NUM > 0 OR IS_ABNORMAL_PAUSE = TRUE"
             log.info("res: ${res}".toString())
             assertTrue(res.toString().contains("${jobName}"))
+
+            def computeGroupRes = sql "SELECT JOB_NAME, COMPUTE_GROUP FROM information_schema.routine_load_jobs WHERE JOB_NAME = '${jobName}'"
+            log.info("compute group res: ${computeGroupRes}".toString())
+            assertTrue(computeGroupRes.size() > 0)
+            assertNotNull(computeGroupRes[0][1])
         } finally {
             sql "stop routine load for ${jobName}"
             sql "DROP TABLE IF EXISTS ${tableName}"

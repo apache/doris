@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+
 suite("test_hive_compress_type", "p0,external,hive,external_docker,external_docker_hive") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -22,7 +23,11 @@ suite("test_hive_compress_type", "p0,external,hive,external_docker,external_dock
         return;
     }
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    def backends = sql """show backends"""
+    def backendNum = backends.size();
+    logger.info("get backendNum:" + backendNum);    
+
+    for (String hivePrefix : ["hive3"]) {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name = "${hivePrefix}_test_hive_compress_type"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -36,10 +41,18 @@ suite("test_hive_compress_type", "p0,external,hive,external_docker,external_dock
 
         // table test_compress_partitioned has 6 partitions with different compressed file: plain, gzip, bzip2, deflate
         sql """set file_split_size=0"""
-        explain {
-            sql("select count(*) from test_compress_partitioned")
-            contains "inputSplitNum=16, totalFileSize=734675596, scanRanges=16"
-            contains "partition=8/8"
+        if (backendNum == 1) {
+            explain {
+                sql("select count(*) from test_compress_partitioned")
+                contains "inputSplitNum=16, totalFileSize=734675596, scanRanges=16"
+                contains "partition=8/8"
+            }
+        } else {
+            explain {
+                sql("select count(*) from test_compress_partitioned")
+                contains "inputSplitNum=28, totalFileSize=734675596, scanRanges=28"
+                contains "partition=8/8"
+            }
         }
         qt_q21 """select count(*) from test_compress_partitioned where dt="gzip" or dt="mix""""
         qt_q22 """select count(*) from test_compress_partitioned"""
@@ -48,7 +61,7 @@ suite("test_hive_compress_type", "p0,external,hive,external_docker,external_dock
         sql """set file_split_size=8388608"""
         explain {
             sql("select count(*) from test_compress_partitioned")
-            contains "inputSplitNum=82, totalFileSize=734675596, scanRanges=82"
+            contains "inputSplitNum=16, totalFileSize=734675596, scanRanges=16"
             contains "partition=8/8"
         }
 

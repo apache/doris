@@ -58,6 +58,7 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
     @Override
     protected void runAfterCatalogReady() {
         try {
+            long start = System.currentTimeMillis();
             Cloud.GetInstanceResponse response = cloudSystemInfoService.getCloudInstance();
             if (!isResponseValid(response)) {
                 return;
@@ -67,7 +68,9 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
             cloudSystemInfoService.setInstanceStatus(instance.getStatus());
             syncStorageVault(instance);
             processVirtualClusters(instance.getClustersList());
-
+            // Add a log message to indicate that this thread is operating normally.
+            LOG.info("finished to cloud instance checker. cost: {} ms",
+                    System.currentTimeMillis() - start);
         } catch (Exception e) {
             LOG.warn("get instance from ms exception", e);
         }
@@ -84,6 +87,10 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
     }
 
     private void syncStorageVault(Cloud.InstanceInfoPB instance) {
+        if (instance.getStorageVaultNamesCount() == 0) {
+            return;
+        }
+
         Map<String, String> vaultMap = new HashMap<>();
         int cnt = instance.getResourceIdsCount();
         for (int i = 0; i < cnt; i++) {
@@ -522,6 +529,8 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
             // in fe mem, but not in meta server
             if (!msVirtualClusters.contains(computeGroup.getId())) {
                 LOG.info("virtual compute group {} will be removed.", computeGroup.getName());
+                MetricRepo.unregisterCloudMetrics(computeGroup.getId(), computeGroup.getName(),
+                        Collections.emptyList());
                 cloudSystemInfoService.removeComputeGroup(computeGroup.getId(), computeGroup.getName());
                 // cancel invalid job
                 if (!computeGroup.getPolicy().getCacheWarmupJobIds().isEmpty()) {

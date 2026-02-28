@@ -111,16 +111,7 @@ bool try_read_int_text(T& x, const StringRef& buf) {
     return result == StringParser::PARSE_SUCCESS;
 }
 
-template <typename T>
-bool read_date_text_impl(T& x, const StringRef& buf) {
-    static_assert(std::is_same_v<Int64, T>);
-    auto dv = binary_cast<Int64, VecDateTimeValue>(x);
-    auto ans = dv.from_date_str(buf.data, buf.size);
-    dv.cast_to_date();
-
-    x = binary_cast<VecDateTimeValue, Int64>(dv);
-    return ans;
-}
+bool read_date_text_impl(VecDateTimeValue& x, const StringRef& buf);
 
 template <typename T>
 bool read_date_text_impl(T& x, const StringRef& buf, const cctz::time_zone& local_time_zone) {
@@ -146,15 +137,7 @@ bool read_ipv6_text_impl(T& x, const StringRef& buf) {
     return res;
 }
 
-template <typename T>
-bool read_datetime_text_impl(T& x, const StringRef& buf) {
-    static_assert(std::is_same_v<Int64, T>);
-    auto dv = binary_cast<Int64, VecDateTimeValue>(x);
-    auto ans = dv.from_date_str(buf.data, buf.size);
-    dv.to_datetime();
-    x = binary_cast<VecDateTimeValue, Int64>(dv);
-    return ans;
-}
+bool read_datetime_text_impl(VecDateTimeValue& x, const StringRef& buf);
 
 template <typename T>
 bool read_datetime_text_impl(T& x, const StringRef& buf, const cctz::time_zone& local_time_zone) {
@@ -166,66 +149,31 @@ bool read_datetime_text_impl(T& x, const StringRef& buf, const cctz::time_zone& 
     return ans;
 }
 
-template <typename T>
-bool read_date_v2_text_impl(T& x, const StringRef& buf) {
-    static_assert(std::is_same_v<UInt32, T>);
-    auto dv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(x);
-    auto ans = dv.from_date_str(buf.data, (int)buf.size, config::allow_zero_date);
+bool read_date_v2_text_impl(DateV2Value<DateV2ValueType>& x, const StringRef& buf);
 
-    // only to match the is_all_read() check to prevent return null
+bool read_date_v2_text_impl(DateV2Value<DateV2ValueType>& x, const StringRef& buf,
+                            const cctz::time_zone& local_time_zone);
 
-    x = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(dv);
-    return ans;
-}
+bool read_datetime_v2_text_impl(DateV2Value<DateTimeV2ValueType>& x, const StringRef& buf,
+                                UInt32 scale = -1);
 
-template <typename T>
-bool read_date_v2_text_impl(T& x, const StringRef& buf, const cctz::time_zone& local_time_zone) {
-    static_assert(std::is_same_v<UInt32, T>);
-    auto dv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(x);
-    auto ans = dv.from_date_str(buf.data, buf.size, local_time_zone, config::allow_zero_date);
-
-    // only to match the is_all_read() check to prevent return null
-
-    x = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(dv);
-    return ans;
-}
-
-template <typename T>
-bool read_datetime_v2_text_impl(T& x, const StringRef& buf, UInt32 scale = -1) {
-    static_assert(std::is_same_v<UInt64, T>);
-    auto dv = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(x);
-    auto ans = dv.from_date_str(buf.data, (int)buf.size, scale, config::allow_zero_date);
-
-    // only to match the is_all_read() check to prevent return null
-
-    x = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(dv);
-    return ans;
-}
-
-template <typename T>
-bool read_datetime_v2_text_impl(T& x, const StringRef& buf, const cctz::time_zone& local_time_zone,
-                                UInt32 scale = -1) {
-    static_assert(std::is_same_v<UInt64, T>);
-    auto dv = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(x);
-    auto ans =
-            dv.from_date_str(buf.data, buf.size, local_time_zone, scale, config::allow_zero_date);
-    x = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(dv);
-    return ans;
-}
+bool read_datetime_v2_text_impl(DateV2Value<DateTimeV2ValueType>& x, const StringRef& buf,
+                                const cctz::time_zone& local_time_zone, UInt32 scale = -1);
 
 template <PrimitiveType P, typename T>
 StringParser::ParseResult read_decimal_text_impl(T& x, const StringRef& buf, UInt32 precision,
                                                  UInt32 scale) {
     static_assert(IsDecimalNumber<T>);
-    if constexpr (!std::is_same_v<Decimal128V2, T>) {
+    if constexpr (!std::is_same_v<DecimalV2Value, T>) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
         x.value = StringParser::string_to_decimal<P>(buf.data, (int)buf.size, precision, scale,
                                                      &result);
         return result;
     } else {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        x.value = StringParser::string_to_decimal<TYPE_DECIMALV2>(
-                buf.data, (int)buf.size, DecimalV2Value::PRECISION, DecimalV2Value::SCALE, &result);
+        x = DecimalV2Value(StringParser::string_to_decimal<TYPE_DECIMALV2>(
+                buf.data, (int)buf.size, DecimalV2Value::PRECISION, DecimalV2Value::SCALE,
+                &result));
         return result;
     }
 }

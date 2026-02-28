@@ -382,6 +382,9 @@ public:
     // Refresh the top limit heap with a new row
     void refresh_top_limit(size_t row_id, const vectorized::ColumnRawPtrs& key_columns);
 
+    vectorized::Arena agg_arena_pool;
+    vectorized::Arena agg_profile_arena;
+
 private:
     vectorized::MutableColumns _get_keys_hash_table();
 
@@ -580,6 +583,7 @@ public:
     std::mutex buffer_mutex;
     bool sink_eos = false;
     std::mutex sink_eos_lock;
+    vectorized::Arena agg_arena_pool;
 };
 
 struct JoinSharedState : public BasicSharedState {
@@ -621,6 +625,12 @@ struct HashJoinSharedState : public JoinSharedState {
     // memory in `_hash_table_variants`. So before execution, we should use a local _hash_table_variants
     // which has a shared hash table in it.
     std::vector<std::shared_ptr<JoinDataVariants>> hash_table_variant_vector;
+
+    // whether left semi join could directly return
+    // if runtime filters contains local in filter, we can make sure all input rows are matched
+    // local filter will always be applied, and in filter could guarantee precise filtering
+    // ATTN: we should disable always_true logic for in filter when we set this flag
+    bool left_semi_direct_return = false;
 };
 
 struct PartitionedHashJoinSharedState
@@ -702,13 +712,15 @@ public:
 
     std::atomic<bool> ready_for_read = false;
 
+    vectorized::Arena arena;
+
     /// called in setup_local_state
     Status hash_table_init();
 };
 
 enum class ExchangeType : uint8_t {
     NOOP = 0,
-    // Shuffle data by Crc32HashPartitioner<LocalExchangeChannelIds>.
+    // Shuffle data by Crc32CHashPartitioner
     HASH_SHUFFLE = 1,
     // Round-robin passthrough data blocks.
     PASSTHROUGH = 2,

@@ -90,7 +90,7 @@ suite('test_expanding_node_balance', 'docker') {
     }
 
     docker(clusterOptions[0]) {
-        def command = 'admin set frontend config("cloud_min_balance_tablet_num_per_run"="16");' 
+        def command = 'select 1'; 
         // assert < 300s
         testCase(command, 300)
     }

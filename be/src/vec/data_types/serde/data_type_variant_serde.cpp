@@ -47,7 +47,7 @@ Status DataTypeVariantSerDe::write_column_to_mysql_binary(const IColumn& column,
     const auto& variant = assert_cast<const ColumnVariant&>(column);
     // Serialize hierarchy types to json format
     std::string buffer;
-    variant.serialize_one_row_to_string(row_idx, &buffer);
+    variant.serialize_one_row_to_string(row_idx, &buffer, options);
     row_buffer.push_string(buffer.data(), buffer.size());
     return Status::OK();
 }
@@ -59,12 +59,12 @@ Status DataTypeVariantSerDe::serialize_column_to_json(const IColumn& column, int
 }
 
 void DataTypeVariantSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                   Arena& mem_pool, int32_t col_id,
-                                                   int64_t row_num) const {
+                                                   Arena& mem_pool, int32_t col_id, int64_t row_num,
+                                                   const FormatOptions& options) const {
     const auto& variant = assert_cast<const ColumnVariant&>(column);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     std::string value_str;
-    variant.serialize_one_row_to_string(row_num, &value_str);
+    variant.serialize_one_row_to_string(row_num, &value_str, options);
     JsonBinaryValue jsonb_value;
     // encode as jsonb
     bool succ = jsonb_value.from_json_string(value_str.data(), value_str.size()).ok();
@@ -104,7 +104,7 @@ Status DataTypeVariantSerDe::serialize_one_cell_to_json(const IColumn& column, i
                                                         BufferWritable& bw,
                                                         FormatOptions& options) const {
     const auto* var = check_and_get_column<ColumnVariant>(column);
-    var->serialize_one_row_to_string(row_num, bw);
+    var->serialize_one_row_to_string(row_num, bw, options);
     return Status::OK();
 }
 
@@ -130,13 +130,15 @@ Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const 
                                                    const cctz::time_zone& ctz) const {
     const auto* var = check_and_get_column<ColumnVariant>(column);
     auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
+    FormatOptions options;
+    options.timezone = &ctz;
     for (size_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
             RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
                                              array_builder->type()->name()));
         } else {
             std::string serialized_value;
-            var->serialize_one_row_to_string(i, &serialized_value);
+            var->serialize_one_row_to_string(i, &serialized_value, options);
             RETURN_IF_ERROR(
                     checkArrowStatus(builder.Append(serialized_value.data(),
                                                     static_cast<int>(serialized_value.size())),
@@ -146,17 +148,18 @@ Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const 
     return Status::OK();
 }
 
-void DataTypeVariantSerDe::to_string(const IColumn& column, size_t row_num,
-                                     BufferWritable& bw) const {
+void DataTypeVariantSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                                     const FormatOptions& options) const {
     const auto& var = assert_cast<const ColumnVariant&>(column);
-    var.serialize_one_row_to_string(row_num, bw);
+    var.serialize_one_row_to_string(row_num, bw, options);
 }
 
 Status DataTypeVariantSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                                  const NullMap* null_map,
                                                  orc::ColumnVectorBatch* orc_col_batch,
                                                  int64_t start, int64_t end,
-                                                 vectorized::Arena& arena) const {
+                                                 vectorized::Arena& arena,
+                                                 const FormatOptions& options) const {
     const auto* var = check_and_get_column<ColumnVariant>(column);
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
     // First pass: calculate total memory needed and collect serialized values
@@ -167,7 +170,7 @@ Status DataTypeVariantSerDe::write_column_to_orc(const std::string& timezone, co
         if (cur_batch->notNull[row_id] == 1) {
             // avoid move the string data, use emplace_back to construct in place
             serialized_values.emplace_back();
-            var->serialize_one_row_to_string(row_id, &serialized_values.back());
+            var->serialize_one_row_to_string(row_id, &serialized_values.back(), options);
             size_t len = serialized_values.back().length();
             total_size += len;
             valid_row_indices.push_back(row_id);

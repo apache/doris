@@ -20,8 +20,10 @@
 
 #pragma once
 
+#include <crc32c/crc32c.h>
 #include <gen_cpp/Types_types.h>
 #include <xxh3.h>
+#include <xxhash.h>
 #include <zlib.h>
 
 #include <bit>
@@ -48,7 +50,27 @@ public:
         return (uint32_t)crc32(hash, (const unsigned char*)(&INT_VALUE), 4);
     }
 
-#if defined(__SSE4_2__) || defined(__aarch64__)
+    template <typename T>
+    static uint32_t crc32c_fixed(const T& value, uint32_t hash) {
+        if constexpr (sizeof(T) == 1) {
+            return _mm_crc32_u8(hash, *reinterpret_cast<const uint8_t*>(&value));
+        } else if constexpr (sizeof(T) == 2) {
+            return _mm_crc32_u16(hash, *reinterpret_cast<const uint16_t*>(&value));
+        } else if constexpr (sizeof(T) == 4) {
+            return _mm_crc32_u32(hash, *reinterpret_cast<const uint32_t*>(&value));
+        } else if constexpr (sizeof(T) == 8) {
+            return (uint32_t)_mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(&value));
+        } else {
+            return crc32c_extend(hash, (const uint8_t*)&value, sizeof(T));
+        }
+    }
+
+    static uint32_t crc32c_null(uint32_t hash) {
+        // null is treat as 0 when hash
+        static const int INT_VALUE = 0;
+        return crc32c_fixed(INT_VALUE, hash);
+    }
+
     // Compute the Crc32 hash for data using SSE4 instructions.  The input hash parameter is
     // the current hash/seed value.
     // This should only be called if SSE is supported.
@@ -58,6 +80,8 @@ public:
     // NOTE: Any changes made to this function need to be reflected in Codegen::GetHashFn.
     // TODO: crc32 hashes with different seeds do not result in different hash functions.
     // The resulting hashes are correlated.
+    // ATTN: prefer do not use this function anymore, use crc32c::Extend instead
+    // This function is retained because it is not certain whether there are compatibility issues with historical data.
     static uint32_t crc_hash(const void* data, uint32_t bytes, uint32_t hash) {
         if (!CpuInfo::is_supported(CpuInfo::SSE4_2)) {
             return zlib_crc_hash(data, bytes, hash);
@@ -116,11 +140,6 @@ public:
 
         return converter.u64;
     }
-#else
-    static uint32_t crc_hash(const void* data, uint32_t bytes, uint32_t hash) {
-        return zlib_crc_hash(data, bytes, hash);
-    }
-#endif
 
     // refer to https://github.com/apache/commons-codec/blob/master/src/main/java/org/apache/commons/codec/digest/MurmurHash3.java
     static const uint32_t MURMUR3_32_SEED = 104729;
@@ -360,6 +379,15 @@ public:
     static xxh_u64 xxHash64NullWithSeed(xxh_u64 seed) {
         static const int INT_VALUE = 0;
         return XXH3_64bits_withSeed(reinterpret_cast<const char*>(&INT_VALUE), sizeof(int), seed);
+    }
+
+    static xxh_u64 xxhash64_compat_with_seed(const char* s, size_t len, xxh_u64 seed) {
+        return XXH64(reinterpret_cast<const void*>(s), len, seed);
+    }
+
+    static xxh_u64 xxhash64_compat_null_with_seed(xxh_u64 seed) {
+        static const int INT_VALUE = 0;
+        return XXH64(reinterpret_cast<const void*>(&INT_VALUE), sizeof(int), seed);
     }
 
 #if defined(__clang__)

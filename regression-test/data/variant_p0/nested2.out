@@ -2,7 +2,7 @@
 -- !sql_desc_1 --
 k	bigint	Yes	true	\N	
 v	variant	Yes	false	\N	NONE
-v.nested.a	array<tinyint>	Yes	false	\N	NONE
+v.nested.a	array<bigint>	Yes	false	\N	NONE
 v.nested.b	array<text>	Yes	false	\N	NONE
 v.nested.c	array<double>	Yes	false	\N	NONE
 
@@ -51,7 +51,7 @@ v.nested.c	array<double>	Yes	false	\N	NONE
 -- !sql_desc_2 --
 k	bigint	Yes	true	\N	
 v	variant	Yes	false	\N	NONE
-v.nested.a	array<double>	Yes	false	\N	NONE
+v.nested.a	array<json>	Yes	false	\N	NONE
 v.nested.b	array<json>	Yes	false	\N	NONE
 v.nested.c	array<double>	Yes	false	\N	NONE
 

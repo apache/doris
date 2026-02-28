@@ -17,19 +17,29 @@
 
 #pragma once
 
+#include "cloud/cloud_storage_engine.h"
 #include "olap/rowset/beta_rowset_writer.h"
 
 namespace doris {
 
 class CloudRowsetWriter : public BaseBetaRowsetWriter {
 public:
-    CloudRowsetWriter();
+    CloudRowsetWriter(CloudStorageEngine& engine);
 
     ~CloudRowsetWriter() override;
 
     Status init(const RowsetWriterContext& rowset_writer_context) override;
 
     Status build(RowsetSharedPtr& rowset) override;
+
+private:
+    Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false) override;
+
+    Status _collect_all_packed_slice_locations(RowsetMeta* rowset_meta);
+
+    Status _collect_packed_slice_location(io::FileWriter* file_writer, const std::string& file_path,
+                                          RowsetMeta* rowset_meta);
+    CloudStorageEngine& _engine;
 };
 
 } // namespace doris

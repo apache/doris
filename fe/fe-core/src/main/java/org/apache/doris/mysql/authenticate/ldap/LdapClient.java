@@ -113,9 +113,9 @@ public class LdapClient {
     private void init() {
         LdapInfo ldapInfo = Env.getCurrentEnv().getAuth().getLdapInfo();
         if (ldapInfo == null || !ldapInfo.isValid()) {
-            LOG.error("LDAP info is null or invalid, LDAP admin password may not be set");
+            LOG.error("LDAP configuration is incorrect or LDAP admin password is not set.");
             ErrorReport.report(ErrorCode.ERROR_LDAP_CONFIGURATION_ERR);
-            throw new RuntimeException("ldapTemplate is not initialized");
+            throw new RuntimeException("LDAP configuration is incorrect or LDAP admin password is not set.");
         }
 
         String ldapPassword = SymmetricEncryption.decrypt(ldapInfo.getLdapPasswdEncrypted(),
@@ -199,10 +199,11 @@ public class LdapClient {
             return null;
         }
         if (userDns.size() > 1) {
-            LOG.error("{} not unique in LDAP server:{}",
+            String msg = String.format("[%s] not unique in LDAP server: [%s]",
                     getUserFilter(LdapConfig.ldap_user_filter, userName), userDns);
+            LOG.error(msg);
             ErrorReport.report(ErrorCode.ERROR_LDAP_USER_NOT_UNIQUE_ERR, userName);
-            throw new RuntimeException("User is not unique");
+            throw new RuntimeException(msg);
         }
         return userDns.get(0);
     }
@@ -218,9 +219,12 @@ public class LdapClient {
                         }
                     });
         } catch (Exception e) {
-            LOG.error("Get user dn fail.", e);
+            String msg
+                    = "Failed to retrieve the user's Distinguished Name (DN),"
+                    + "This may be due to incorrect LDAP configuration or an unset/incorrect LDAP admin password.";
+            LOG.error(msg, e);
             ErrorReport.report(ErrorCode.ERROR_LDAP_CONFIGURATION_ERR);
-            throw e;
+            throw new RuntimeException(msg);
         }
     }
 

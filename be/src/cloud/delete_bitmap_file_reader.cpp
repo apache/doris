@@ -21,7 +21,6 @@
 #include "common/status.h"
 #include "io/fs/file_reader.h"
 #include "util/coding.h"
-#include "util/crc32c.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -117,7 +116,7 @@ Status DeleteBitmapFileReader::read(DeleteBitmapPB& delete_bitmap) {
             offset, {checksum_len_buf, DeleteBitmapFileWriter::CHECKSUM_SIZE}, &bytes_read));
     offset += DeleteBitmapFileWriter::CHECKSUM_SIZE;
     uint32_t checksum = decode_fixed32_le(checksum_len_buf);
-    uint32_t computed_checksum = crc32c::Value(delete_bitmap_buf.data(), delete_bitmap_len);
+    uint32_t computed_checksum = crc32c::Crc32c(delete_bitmap_buf.data(), delete_bitmap_len);
     if (computed_checksum != checksum) {
         return Status::InternalError("delete bitmap checksum failed from file=" + _path +
                                      ", computed checksum=" + std::to_string(computed_checksum) +

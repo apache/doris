@@ -41,15 +41,25 @@
 #include "runtime/workload_management/io_throttle.h"
 #include "util/async_io.h"
 #include "util/debug_points.h"
+#include "util/defer_op.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
 namespace io {
+// 1: initing 2: inited 0: before init
+std::atomic_int BeConfDataDirReader::be_config_data_dir_list_state = 0;
 
 std::vector<doris::DataDirInfo> BeConfDataDirReader::be_config_data_dir_list;
 
 void BeConfDataDirReader::get_data_dir_by_file_path(io::Path* file_path,
                                                     std::string* data_dir_arg) {
+    int state = be_config_data_dir_list_state.load(std::memory_order_acquire);
+    if (state == 0) [[unlikely]] {
+        return;
+    } else if (state == 1) [[unlikely]] {
+        be_config_data_dir_list_state.wait(1);
+    }
+
     for (const auto& data_dir_info : be_config_data_dir_list) {
         if (data_dir_info.path.size() >= file_path->string().size()) {
             continue;
@@ -65,6 +75,11 @@ void BeConfDataDirReader::init_be_conf_data_dir(
         const std::vector<doris::StorePath>& store_paths,
         const std::vector<doris::StorePath>& spill_store_paths,
         const std::vector<doris::CachePath>& cache_paths) {
+    be_config_data_dir_list_state.store(1, std::memory_order_release);
+    Defer defer {[]() {
+        be_config_data_dir_list_state.store(2, std::memory_order_release);
+        be_config_data_dir_list_state.notify_all();
+    }};
     for (int i = 0; i < store_paths.size(); i++) {
         DataDirInfo data_dir_info;
         data_dir_info.path = store_paths[i].path;

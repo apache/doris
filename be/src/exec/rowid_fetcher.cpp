@@ -451,7 +451,10 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                                         cast_set<uint32_t>(row_loc.ordinal_id()));
         // fetch by row store, more effcient way
         if (request.fetch_row_store()) {
-            CHECK(tablet->tablet_schema()->has_row_store_for_all_columns());
+            if (!tablet->tablet_schema()->has_row_store_for_all_columns()) {
+                return Status::InternalError("Tablet {} does not have row store for all columns",
+                                             tablet->tablet_id());
+            }
             RowLocation loc(rowset_id, segment->id(), cast_set<uint32_t>(row_loc.ordinal_id()));
             std::string* value = response->add_binary_row_data();
             RETURN_IF_ERROR(scope_timer_run(
@@ -1094,7 +1097,10 @@ Status RowIdStorageReader::read_doris_format_row(
 
     // if row_store_read_struct not empty, means the line we should read from row_store
     if (!row_store_read_struct.default_values.empty()) {
-        CHECK(tablet->tablet_schema()->has_row_store_for_all_columns());
+        if (!tablet->tablet_schema()->has_row_store_for_all_columns()) {
+            return Status::InternalError("Tablet {} does not have row store for all columns",
+                                         tablet->tablet_id());
+        }
         for (auto row_id : row_ids) {
             RowLocation loc(rowset_id, segment->id(), cast_set<uint32_t>(row_id));
             row_store_read_struct.row_store_buffer.clear();

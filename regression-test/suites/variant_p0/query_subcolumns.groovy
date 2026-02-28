@@ -80,7 +80,7 @@ suite("regression_test_query_subcolumns", "nonConcurrent"){
         // }
 
         // triger compaction
-        trigger_and_wait_compaction("query_subcolumns", "full")        
+        trigger_and_wait_compaction("query_subcolumns", "full", 1800)        
 
         qt_sql "select v['a'] from query_subcolumns where cast(v['a'] as int) is not null order by k"
         qt_sql "select v['b'] from query_subcolumns where cast(v['b'] as int) is not null order by k"

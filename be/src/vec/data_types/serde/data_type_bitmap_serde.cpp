@@ -107,8 +107,8 @@ Status DataTypeBitMapSerDe::read_column_from_pb(IColumn& column, const PValues& 
 }
 
 void DataTypeBitMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                  Arena& arena, int32_t col_id,
-                                                  int64_t row_num) const {
+                                                  Arena& arena, int32_t col_id, int64_t row_num,
+                                                  const FormatOptions& options) const {
     const auto& data_column = assert_cast<const ColumnBitmap&>(column);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     auto bitmap_value = data_column.get_element(row_num);
@@ -158,7 +158,8 @@ Status DataTypeBitMapSerDe::write_column_to_mysql_binary(const IColumn& column,
 }
 
 bool DataTypeBitMapSerDe::write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,
-                                                     int64_t row_idx) const {
+                                                     int64_t row_idx,
+                                                     const FormatOptions& options) const {
     const auto& data_column = assert_cast<const ColumnBitmap&>(column);
     if (_return_object_as_string) {
         BitmapValue bitmap_value = data_column.get_element(row_idx);
@@ -176,7 +177,8 @@ Status DataTypeBitMapSerDe::write_column_to_orc(const std::string& timezone, con
                                                 const NullMap* null_map,
                                                 orc::ColumnVectorBatch* orc_col_batch,
                                                 int64_t start, int64_t end,
-                                                vectorized::Arena& arena) const {
+                                                vectorized::Arena& arena,
+                                                const FormatOptions& options) const {
     auto& col_data = assert_cast<const ColumnBitmap&>(column);
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
     // First pass: calculate total memory needed and collect serialized values
@@ -222,8 +224,18 @@ Status DataTypeBitMapSerDe::from_string(StringRef& str, IColumn& column,
     return deserialize_one_cell_from_json(column, slice, options);
 }
 
-void DataTypeBitMapSerDe::to_string(const IColumn& column, size_t row_num,
-                                    BufferWritable& bw) const {
+Status DataTypeBitMapSerDe::from_olap_string(const std::string& str, Field& field,
+                                             const FormatOptions& options) const {
+    BitmapValue value;
+    if (!value.deserialize(str.data())) {
+        return Status::InternalError("deserialize BITMAP from string fail!");
+    }
+    field = Field::create_field<TYPE_BITMAP>(std::move(value));
+    return Status::OK();
+}
+
+void DataTypeBitMapSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                                    const FormatOptions& options) const {
     /// TODO: remove const_cast in the future
     auto& data =
             const_cast<BitmapValue&>(assert_cast<const ColumnBitmap&>(column).get_element(row_num));

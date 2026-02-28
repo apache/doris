@@ -51,9 +51,13 @@ using SetPrimaryTypeHashTableContextNullable = vectorized::MethodSingleNullableC
 using SetSerializedHashTableContext =
         vectorized::MethodSerialized<PHHashMap<StringRef, RowRefWithFlag>>;
 using SetMethodOneString = vectorized::MethodStringNoCache<PHHashMap<StringRef, RowRefWithFlag>>;
+using SetMethodOneStringNullable =
+        vectorized::MethodSingleNullableColumn<vectorized::MethodStringNoCache<
+                vectorized::DataWithNullKey<PHHashMap<StringRef, RowRefWithFlag>>>>;
 
 using SetHashTableVariants =
         std::variant<std::monostate, SetSerializedHashTableContext, SetMethodOneString,
+                     SetMethodOneStringNullable,
                      SetPrimaryTypeHashTableContextNullable<vectorized::UInt8>,
                      SetPrimaryTypeHashTableContextNullable<vectorized::UInt16>,
                      SetPrimaryTypeHashTableContextNullable<vectorized::UInt32>,
@@ -102,7 +106,11 @@ struct SetDataVariants
             emplace_single<vectorized::UInt256, SetData<vectorized::UInt256>>(nullable);
             break;
         case HashKeyType::string_key:
-            method_variant.emplace<SetMethodOneString>();
+            if (nullable) {
+                method_variant.emplace<SetMethodOneStringNullable>();
+            } else {
+                method_variant.emplace<SetMethodOneString>();
+            }
             break;
         case HashKeyType::fixed64:
             method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt64>>(

@@ -86,9 +86,8 @@ private:
 
 public:
     // value_type is decimal32/64/128/256 type
-    using value_type =
-            typename PrimitiveTypeTraits<T>::ColumnItemType; //TODO: replace with ValueType
-    using CppNativeType = typename PrimitiveTypeTraits<T>::CppNativeType;
+    using value_type = typename PrimitiveTypeTraits<T>::CppType;
+    using CppNativeType = value_type::NativeType;
     using Container = DecimalPaddedPODArray<value_type>;
 
 private:
@@ -141,10 +140,7 @@ public:
 
     void insert_data(const char* pos, size_t /*length*/) override;
     void insert_default() override { data.push_back(value_type()); }
-    void insert(const Field& x) override {
-        data.push_back(
-                doris::vectorized::get<typename PrimitiveTypeTraits<T>::NearestFieldType>(x));
-    }
+    void insert(const Field& x) override { data.push_back(x.template get<T>()); }
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
     void insert_many_defaults(size_t length) override {
@@ -173,6 +169,12 @@ public:
                                 uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
 
+    void update_crc32c_batch(uint32_t* __restrict hashes,
+                             const uint8_t* __restrict null_map) const override;
+
+    void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                              const uint8_t* __restrict null_map) const override;
+
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
@@ -193,7 +195,6 @@ public:
         return StringRef(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
     }
     void get(size_t n, Field& res) const override { res = (*this)[n]; }
-    Int64 get_int(size_t n) const override { return Int64(data[n].value * scale); }
 
     void clear() override { data.clear(); }
 
@@ -220,7 +221,21 @@ public:
         data[self_row] = assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs).data[row];
     }
 
+    // Optimized batch version using memcpy for continuous range
+    void replace_column_data_range(const IColumn& src, size_t src_start, size_t count,
+                                   size_t self_start) override {
+        DCHECK(size() >= self_start + count);
+        const auto& src_col = assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(src);
+        DCHECK(src_col.size() >= src_start + count);
+        memcpy(data.data() + self_start, src_col.data.data() + src_start,
+               count * sizeof(value_type));
+    }
+
+    bool support_replace_column_data_range() const override { return true; }
+
     void replace_column_null_data(const uint8_t* __restrict null_map) override;
+
+    bool support_replace_column_null_data() const override { return true; }
 
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;

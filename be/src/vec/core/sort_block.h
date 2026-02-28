@@ -38,6 +38,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
+#include "vec/columns/column_varbinary.h"
 #include "vec/common/memcmp_small.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -137,7 +138,7 @@ struct ColumnPartialSortingLess {
 template <PrimitiveType T>
 struct PermutationWithInlineValue {
     using ValueType = std::conditional_t<is_string_type(T), StringRef,
-                                         typename PrimitiveTypeTraits<T>::ColumnItemType>;
+                                         typename PrimitiveTypeTraits<T>::CppType>;
     ValueType inline_value;
     uint32_t row_id;
 };
@@ -246,6 +247,10 @@ public:
         _sort_by_default(column, flags, perms, range, last_column);
     }
     void sort_column(const ColumnStruct& column, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const {
+        _sort_by_default(column, flags, perms, range, last_column);
+    }
+    void sort_column(const ColumnVarbinary& column, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const {
         _sort_by_default(column, flags, perms, range, last_column);
     }
@@ -378,6 +383,7 @@ private:
             if constexpr (!std::is_same_v<ColumnType, ColumnString> &&
                           !std::is_same_v<ColumnType, ColumnString64> &&
                           !std::is_same_v<ColumnType, ColumnArray> &&
+                          !std::is_same_v<ColumnType, ColumnVarbinary> &&
                           !std::is_same_v<ColumnType, ColumnMap> &&
                           !std::is_same_v<ColumnType, ColumnStruct>) {
                 auto value_a = column.get_data()[a];

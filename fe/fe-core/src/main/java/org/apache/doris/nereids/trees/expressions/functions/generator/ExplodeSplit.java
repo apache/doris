@@ -75,7 +75,6 @@ public class ExplodeSplit extends TableGeneratingFunction
 
     @Override
     public Expression rewriteWhenAnalyze() {
-        Expression[] args = {new SplitByString(children.get(0), children.get(1))};
-        return new Explode(args);
+        return new Explode(new SplitByString(children.get(0), children.get(1)));
     }
 }

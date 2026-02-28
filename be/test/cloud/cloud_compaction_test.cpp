@@ -226,6 +226,14 @@ public:
         _input_rowsets = rowsets;
     }
 
+    // Get input rowsets for verification
+    const std::vector<RowsetSharedPtr>& get_input_rowsets() const { return _input_rowsets; }
+
+    // Expose the protected method for testing
+    size_t test_apply_txn_size_truncation_and_log(const std::string& compaction_name) {
+        return apply_txn_size_truncation_and_log(compaction_name);
+    }
+
     Status prepare_compact() override { return Status::OK(); }
 
     ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
@@ -429,5 +437,274 @@ TEST_F(CloudCompactionTest, should_cache_compaction_output) {
     cloud_base_compaction._input_rowsets_cached_index_size = 50;
     ASSERT_EQ(cloud_base_compaction.should_cache_compaction_output(), true);
     LOG(INFO) << "should_cache_compaction_output done";
+}
+
+TEST_F(CloudCompactionTest, test_truncate_rowsets_by_txn_size_empty_input) {
+    std::vector<RowsetSharedPtr> rowsets;
+    int64_t kept_size = 100;
+    int64_t truncated_size = 50;
+
+    size_t truncated = cloud::truncate_rowsets_by_txn_size(rowsets, kept_size, truncated_size);
+
+    ASSERT_EQ(truncated, 0);
+    ASSERT_EQ(kept_size, 0);
+    ASSERT_EQ(truncated_size, 0);
+    ASSERT_EQ(rowsets.size(), 0);
+}
+
+TEST_F(CloudCompactionTest, test_truncate_rowsets_by_txn_size_single_rowset_under_limit) {
+    // Create a single rowset
+    std::vector<RowsetSharedPtr> rowsets;
+    RowsetSharedPtr rowset1 = create_rowset(Version(2, 2), 1, false, 1024);
+    ASSERT_TRUE(rowset1 != nullptr);
+    rowsets.push_back(rowset1);
+
+    // Set a large max size
+    config::compaction_txn_max_size_bytes = 1024 * 1024 * 1024; // 1GB
+
+    int64_t kept_size = 0;
+    int64_t truncated_size = 0;
+
+    size_t truncated = cloud::truncate_rowsets_by_txn_size(rowsets, kept_size, truncated_size);
+
+    ASSERT_EQ(truncated, 0);
+    ASSERT_EQ(rowsets.size(), 1);
+    ASSERT_GT(kept_size, 0);
+    ASSERT_EQ(truncated_size, 0);
+}
+
+TEST_F(CloudCompactionTest, test_truncate_rowsets_by_txn_size_multiple_rowsets_all_fit) {
+    std::vector<RowsetSharedPtr> rowsets;
+    for (int i = 0; i < 5; i++) {
+        RowsetSharedPtr rowset = create_rowset(Version(i, i), 1, false, 1024);
+        ASSERT_TRUE(rowset != nullptr);
+        rowsets.push_back(rowset);
+    }
+
+    config::compaction_txn_max_size_bytes = 1024 * 1024 * 1024; // 1GB
+
+    int64_t kept_size = 0;
+    int64_t truncated_size = 0;
+
+    size_t truncated = cloud::truncate_rowsets_by_txn_size(rowsets, kept_size, truncated_size);
+
+    ASSERT_EQ(truncated, 0);
+    ASSERT_EQ(rowsets.size(), 5);
+    ASSERT_GT(kept_size, 0);
+    ASSERT_EQ(truncated_size, 0);
+}
+
+TEST_F(CloudCompactionTest, test_truncate_rowsets_by_txn_size_exceeds_limit) {
+    std::vector<RowsetSharedPtr> rowsets;
+    for (int i = 0; i < 10; i++) {
+        RowsetSharedPtr rowset = create_rowset(Version(i, i), 1, false, 1024);
+        ASSERT_TRUE(rowset != nullptr);
+        rowsets.push_back(rowset);
+    }
+
+    // Set a very small max size to force truncation
+    config::compaction_txn_max_size_bytes = 50; // 50 bytes, should keep only a few rowsets
+
+    int64_t kept_size = 0;
+    int64_t truncated_size = 0;
+
+    size_t truncated = cloud::truncate_rowsets_by_txn_size(rowsets, kept_size, truncated_size);
+
+    // Should truncate some rowsets
+    ASSERT_GT(truncated, 0);
+    ASSERT_LT(rowsets.size(), 10);
+    ASSERT_GT(rowsets.size(), 0); // At least 1 rowset kept
+    ASSERT_GT(truncated_size, 0);
+}
+
+TEST_F(CloudCompactionTest, test_truncate_rowsets_by_txn_size_first_rowset_exceeds_limit) {
+    std::vector<RowsetSharedPtr> rowsets;
+    RowsetSharedPtr rowset1 = create_rowset(Version(0, 0), 1, false, 1024);
+    ASSERT_TRUE(rowset1 != nullptr);
+    rowsets.push_back(rowset1);
+
+    // Set max size smaller than the first rowset's metadata size
+    config::compaction_txn_max_size_bytes = 1; // 1 byte
+
+    int64_t kept_size = 0;
+    int64_t truncated_size = 0;
+
+    size_t truncated = cloud::truncate_rowsets_by_txn_size(rowsets, kept_size, truncated_size);
+
+    // Should keep at least 1 rowset even if it exceeds the limit
+    ASSERT_EQ(truncated, 0);
+    ASSERT_EQ(rowsets.size(), 1);
+    ASSERT_GT(kept_size, config::compaction_txn_max_size_bytes);
+    ASSERT_EQ(truncated_size, 0);
+}
+
+TEST_F(CloudCompactionTest, test_truncate_rowsets_by_txn_size_exact_boundary) {
+    std::vector<RowsetSharedPtr> rowsets;
+    RowsetSharedPtr rowset1 = create_rowset(Version(0, 0), 1, false, 1024);
+    ASSERT_TRUE(rowset1 != nullptr);
+    rowsets.push_back(rowset1);
+
+    // Get the actual size of the first rowset
+    int64_t first_kept_size = 0;
+    int64_t first_truncated_size = 0;
+
+    std::vector<RowsetSharedPtr> temp_rowsets = {rowset1};
+    cloud::truncate_rowsets_by_txn_size(temp_rowsets, first_kept_size, first_truncated_size);
+
+    // Add more rowsets
+    for (int i = 1; i < 5; i++) {
+        RowsetSharedPtr rowset = create_rowset(Version(i, i), 1, false, 1024);
+        ASSERT_TRUE(rowset != nullptr);
+        rowsets.push_back(rowset);
+    }
+
+    // Set max size to exactly the size of first rowset
+    config::compaction_txn_max_size_bytes = first_kept_size;
+
+    int64_t kept_size = 0;
+    int64_t truncated_size = 0;
+
+    size_t truncated = cloud::truncate_rowsets_by_txn_size(rowsets, kept_size, truncated_size);
+
+    // Should keep only 1 rowset at the boundary
+    ASSERT_EQ(rowsets.size(), 1);
+    ASSERT_EQ(truncated, 4);
+    ASSERT_EQ(kept_size, first_kept_size);
+    ASSERT_GT(truncated_size, 0);
+}
+
+TEST_F(CloudCompactionTest, test_truncate_rowsets_by_txn_size_output_parameters) {
+    std::vector<RowsetSharedPtr> rowsets;
+    for (int i = 0; i < 3; i++) {
+        RowsetSharedPtr rowset = create_rowset(Version(i, i), 1, false, 1024);
+        ASSERT_TRUE(rowset != nullptr);
+        rowsets.push_back(rowset);
+    }
+
+    config::compaction_txn_max_size_bytes = 1024 * 1024;
+
+    int64_t kept_size = 0;
+    int64_t truncated_size = 0;
+
+    size_t truncated = cloud::truncate_rowsets_by_txn_size(rowsets, kept_size, truncated_size);
+
+    // Verify output parameters are set correctly
+    ASSERT_EQ(truncated, 0); // All rowsets fit
+    ASSERT_EQ(rowsets.size(), 3);
+    ASSERT_GT(kept_size, 0);
+    ASSERT_EQ(truncated_size, 0);
+}
+
+TEST_F(CloudCompactionTest, test_apply_txn_size_truncation_and_log_empty_input) {
+    CloudTabletSPtr tablet = std::make_shared<CloudTablet>(_engine, _tablet_meta);
+    TestableCloudCompaction compaction(_engine, tablet);
+
+    // Test with empty input rowsets
+    std::vector<RowsetSharedPtr> empty_rowsets;
+    compaction.set_input_rowsets(empty_rowsets);
+
+    size_t truncated = compaction.test_apply_txn_size_truncation_and_log("test_compaction");
+
+    ASSERT_EQ(truncated, 0);
+    ASSERT_EQ(compaction.get_input_rowsets().size(), 0);
+}
+
+TEST_F(CloudCompactionTest, test_apply_txn_size_truncation_and_log_no_truncation) {
+    CloudTabletSPtr tablet = std::make_shared<CloudTablet>(_engine, _tablet_meta);
+    TestableCloudCompaction compaction(_engine, tablet);
+
+    // Create rowsets that fit within the limit
+    std::vector<RowsetSharedPtr> rowsets;
+    for (int i = 0; i < 3; i++) {
+        RowsetSharedPtr rowset = create_rowset(Version(i, i), 1, false, 1024);
+        ASSERT_TRUE(rowset != nullptr);
+        rowsets.push_back(rowset);
+    }
+
+    compaction.set_input_rowsets(rowsets);
+
+    // Set a large max size
+    config::compaction_txn_max_size_bytes = 1024 * 1024 * 1024; // 1GB
+
+    size_t truncated = compaction.test_apply_txn_size_truncation_and_log("test_compaction");
+
+    ASSERT_EQ(truncated, 0);
+    ASSERT_EQ(compaction.get_input_rowsets().size(), 3);
+}
+
+TEST_F(CloudCompactionTest, test_apply_txn_size_truncation_and_log_with_truncation) {
+    CloudTabletSPtr tablet = std::make_shared<CloudTablet>(_engine, _tablet_meta);
+    TestableCloudCompaction compaction(_engine, tablet);
+
+    // Create multiple rowsets
+    std::vector<RowsetSharedPtr> rowsets;
+    for (int i = 0; i < 10; i++) {
+        RowsetSharedPtr rowset = create_rowset(Version(i, i), 1, false, 1024);
+        ASSERT_TRUE(rowset != nullptr);
+        rowsets.push_back(rowset);
+    }
+
+    compaction.set_input_rowsets(rowsets);
+
+    // Set a small max size to force truncation
+    config::compaction_txn_max_size_bytes = 100; // Very small to force truncation
+
+    size_t truncated = compaction.test_apply_txn_size_truncation_and_log("test_compaction");
+
+    // Should have truncated some rowsets
+    ASSERT_GT(truncated, 0);
+    ASSERT_LT(compaction.get_input_rowsets().size(), 10);
+    ASSERT_GT(compaction.get_input_rowsets().size(), 0);
+}
+
+TEST_F(CloudCompactionTest, test_apply_txn_size_truncation_and_log_version_range) {
+    CloudTabletSPtr tablet = std::make_shared<CloudTablet>(_engine, _tablet_meta);
+    TestableCloudCompaction compaction(_engine, tablet);
+
+    // Create rowsets with consecutive versions
+    std::vector<RowsetSharedPtr> rowsets;
+    for (int i = 10; i < 20; i++) {
+        RowsetSharedPtr rowset = create_rowset(Version(i, i), 1, false, 1024);
+        ASSERT_TRUE(rowset != nullptr);
+        rowsets.push_back(rowset);
+    }
+
+    compaction.set_input_rowsets(rowsets);
+
+    // Set a size that will keep first 5 rowsets
+    config::compaction_txn_max_size_bytes = 100; // Small enough to truncate
+
+    size_t truncated = compaction.test_apply_txn_size_truncation_and_log("base_compaction");
+
+    if (truncated > 0) {
+        // Verify that the version range is adjusted correctly
+        ASSERT_GT(compaction.get_input_rowsets().size(), 0);
+        // First rowset should still start at version 10
+        ASSERT_EQ(compaction.get_input_rowsets().front()->start_version(), 10);
+        // Last rowset version should be less than 19
+        ASSERT_LT(compaction.get_input_rowsets().back()->end_version(), 20);
+    }
+}
+
+TEST_F(CloudCompactionTest, test_apply_txn_size_truncation_and_log_single_large_rowset) {
+    CloudTabletSPtr tablet = std::make_shared<CloudTablet>(_engine, _tablet_meta);
+    TestableCloudCompaction compaction(_engine, tablet);
+
+    // Create a single large rowset
+    std::vector<RowsetSharedPtr> rowsets;
+    RowsetSharedPtr rowset = create_rowset(Version(0, 0), 1, false, 1024 * 1024);
+    ASSERT_TRUE(rowset != nullptr);
+    rowsets.push_back(rowset);
+
+    compaction.set_input_rowsets(rowsets);
+
+    // Set max size smaller than the rowset's metadata size
+    config::compaction_txn_max_size_bytes = 1;
+
+    size_t truncated = compaction.test_apply_txn_size_truncation_and_log("cumu_compaction");
+
+    // Should keep at least 1 rowset even if it exceeds the limit
+    ASSERT_EQ(truncated, 0);
+    ASSERT_EQ(compaction.get_input_rowsets().size(), 1);
 }
 } // namespace doris

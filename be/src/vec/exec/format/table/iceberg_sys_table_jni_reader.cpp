@@ -30,8 +30,7 @@ IcebergSysTableJniReader::IcebergSysTableJniReader(
         RuntimeProfile* profile, const TMetaScanRange& meta_scan_range)
         : JniReader(file_slot_descs, state, profile), _meta_scan_range(meta_scan_range) {}
 
-Status IcebergSysTableJniReader::init_reader(
-        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+Status IcebergSysTableJniReader::init_reader() {
     std::vector<std::string> required_fields;
     std::vector<std::string> required_types;
     for (const auto& desc : _file_slot_descs) {
@@ -53,7 +52,7 @@ Status IcebergSysTableJniReader::init_reader(
     if (_jni_connector == nullptr) {
         return Status::InternalError("JniConnector failed to initialize");
     }
-    RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
+    RETURN_IF_ERROR(_jni_connector->init());
     return _jni_connector->open(_state, _profile);
 }
 

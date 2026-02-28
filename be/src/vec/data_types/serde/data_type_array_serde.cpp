@@ -277,8 +277,8 @@ Status DataTypeArraySerDe::deserialize_column_from_jsonb(IColumn& column,
 }
 
 void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                 Arena& arena, int32_t col_id,
-                                                 int64_t row_num) const {
+                                                 Arena& arena, int32_t col_id, int64_t row_num,
+                                                 const FormatOptions& options) const {
     // JsonbKeyValue::keyid_type is uint16_t and col_id is int32_t, need a cast
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const char* begin = nullptr;
@@ -357,7 +357,8 @@ Status DataTypeArraySerDe::write_column_to_mysql_binary(const IColumn& column,
 Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                                const NullMap* null_map,
                                                orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                               int64_t end, vectorized::Arena& arena) const {
+                                               int64_t end, vectorized::Arena& arena,
+                                               const FormatOptions& options) const {
     auto* cur_batch = dynamic_cast<orc::ListVectorBatch*>(orc_col_batch);
     cur_batch->offsets[0] = 0;
 
@@ -369,7 +370,7 @@ Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, cons
         size_t next_offset = offsets[row_id];
         RETURN_IF_ERROR(nested_serde->write_column_to_orc(timezone, nested_column, nullptr,
                                                           cur_batch->elements.get(), offset,
-                                                          next_offset, arena));
+                                                          next_offset, arena, options));
         cur_batch->offsets[row_id + 1] = next_offset;
     }
     cur_batch->elements->numElements = nested_column.size();
@@ -452,10 +453,12 @@ Status DataTypeArraySerDe::from_string(StringRef& str, IColumn& column,
                                        const FormatOptions& options) const {
     return _from_string<false>(str, column, options);
 }
+
 Status DataTypeArraySerDe::from_string_strict_mode(StringRef& str, IColumn& column,
                                                    const FormatOptions& options) const {
     return _from_string<true>(str, column, options);
 }
+
 void DataTypeArraySerDe::write_one_cell_to_binary(const IColumn& src_column,
                                                   ColumnString::Chars& chars,
                                                   int64_t row_num) const {
@@ -504,7 +507,7 @@ const uint8_t* DataTypeArraySerDe::deserialize_binary_to_field(const uint8_t* da
     data += sizeof(size_t);
     field = Field::create_field<TYPE_ARRAY>(Array(nested_size));
     info.num_dimensions++;
-    auto& array = field.get<Array>();
+    auto& array = field.get<TYPE_ARRAY>();
     PrimitiveType nested_type = PrimitiveType::TYPE_NULL;
     for (size_t i = 0; i < nested_size; ++i) {
         Field nested_field;
@@ -518,8 +521,8 @@ const uint8_t* DataTypeArraySerDe::deserialize_binary_to_field(const uint8_t* da
     return data;
 }
 
-void DataTypeArraySerDe::to_string(const IColumn& column, size_t row_num,
-                                   BufferWritable& bw) const {
+void DataTypeArraySerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                                   const FormatOptions& options) const {
     const auto& data_column = assert_cast<const ColumnArray&>(column);
     const auto& offsets = data_column.get_offsets();
 
@@ -532,13 +535,14 @@ void DataTypeArraySerDe::to_string(const IColumn& column, size_t row_num,
         if (i != offset) {
             bw.write(", ", 2);
         }
-        nested_serde->to_string(nested_column, i, bw);
+        nested_serde->to_string(nested_column, i, bw, options);
     }
     bw.write("]", 1);
 }
 
 bool DataTypeArraySerDe::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
-                                                     int64_t row_idx) const {
+                                                     int64_t row_idx,
+                                                     const FormatOptions& options) const {
     const auto& data_column = assert_cast<const ColumnArray&>(column);
     const auto& offsets = data_column.get_offsets();
 
@@ -551,14 +555,15 @@ bool DataTypeArraySerDe::write_column_to_presto_text(const IColumn& column, Buff
         if (i != offset) {
             bw.write(", ", 2);
         }
-        nested_serde->write_column_to_presto_text(nested_column, bw, i);
+        nested_serde->write_column_to_presto_text(nested_column, bw, i, options);
     }
     bw.write("]", 1);
     return true;
 }
 
 bool DataTypeArraySerDe::write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
-                                                   int64_t row_idx) const {
+                                                   int64_t row_idx,
+                                                   const FormatOptions& options) const {
     const auto& data_column = assert_cast<const ColumnArray&>(column);
     const auto& offsets = data_column.get_offsets();
 
@@ -571,7 +576,7 @@ bool DataTypeArraySerDe::write_column_to_hive_text(const IColumn& column, Buffer
         if (i != offset) {
             bw.write(",", 1);
         }
-        nested_serde->write_column_to_hive_text(nested_column, bw, i);
+        nested_serde->write_column_to_hive_text(nested_column, bw, i, options);
     }
     bw.write("]", 1);
     return true;

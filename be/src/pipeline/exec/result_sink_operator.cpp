@@ -77,13 +77,8 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
     // create writer based on sink type
     switch (p._sink_type) {
     case TResultSinkType::MYSQL_PROTOCOL: {
-        if (state->mysql_row_binary_format()) {
-            _writer.reset(new (std::nothrow) vectorized::VMysqlResultWriter<true>(
-                    _sender, _output_vexpr_ctxs, custom_profile()));
-        } else {
-            _writer.reset(new (std::nothrow) vectorized::VMysqlResultWriter<false>(
-                    _sender, _output_vexpr_ctxs, custom_profile()));
-        }
+        _writer.reset(new (std::nothrow) vectorized::VMysqlResultWriter(
+                _sender, _output_vexpr_ctxs, custom_profile(), state->mysql_row_binary_format()));
         break;
     }
     case TResultSinkType::ARROW_FLIGHT_PROTOCOL: {

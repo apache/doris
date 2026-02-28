@@ -295,7 +295,8 @@ TEST_F(ColumnStringTest, field_test) {
             for (size_t i = 0; i != src_size; ++i) {
                 Field f;
                 assert_col->get(i, f);
-                ASSERT_EQ(f.get<StringRef>(), source_column->get_data_at(i));
+                ASSERT_EQ(StringRef(f.get<TYPE_STRING>().data(), f.get<TYPE_STRING>().size()),
+                          source_column->get_data_at(i));
             }
         }
         {
@@ -310,7 +311,7 @@ TEST_F(ColumnStringTest, field_test) {
                 JsonbField jsonbf;
                 Field f = Field::create_field<TYPE_JSONB>((std::move(jsonbf)));
                 assert_col->get(i, f);
-                const auto& real_field = vectorized::get<const JsonbField&>(f);
+                const auto& real_field = f.get<TYPE_JSONB>();
                 ASSERT_EQ(StringRef(real_field.get_value(), real_field.get_size()),
                           source_column->get_data_at(i));
             }
@@ -813,6 +814,38 @@ TEST_F(ColumnStringTest, update_crcs_with_value_test) {
                 columns, serdes, pts,
                 test_result_dir + "/column_str64_json_" + function_name + ".out");
     }
+}
+TEST_F(ColumnStringTest, update_crc32c_batch) {
+    std::string function_name = "update_crc32c_batch";
+    assert_column_vector_update_crc32c_batch_callback(
+            column_str32->get_ptr(), test_result_dir + "/column_str32_" + function_name + ".out");
+    assert_column_vector_update_crc32c_batch_callback(
+            column_str64->get_ptr(), test_result_dir + "/column_str64_" + function_name + ".out");
+
+    assert_column_vector_update_crc32c_batch_callback(
+            column_str32_json->get_ptr(),
+            test_result_dir + "/column_str32_json_" + function_name + ".out");
+
+    assert_column_vector_update_crc32c_batch_callback(
+            column_str64_json->get_ptr(),
+            test_result_dir + "/column_str64_json_" + function_name + ".out");
+}
+TEST_F(ColumnStringTest, update_crc32c_single) {
+    std::string function_name = "update_crc32c_single";
+
+    assert_column_vector_update_crc32c_single_callback(
+            column_str32->get_ptr(), test_result_dir + "/column_str32_" + function_name + ".out");
+
+    assert_column_vector_update_crc32c_single_callback(
+            column_str64->get_ptr(), test_result_dir + "/column_str64_" + function_name + ".out");
+
+    assert_column_vector_update_crc32c_single_callback(
+            column_str32_json->get_ptr(),
+            test_result_dir + "/column_str32_json_" + function_name + ".out");
+
+    assert_column_vector_update_crc32c_single_callback(
+            column_str64_json->get_ptr(),
+            test_result_dir + "/column_str64_json_" + function_name + ".out");
 }
 TEST_F(ColumnStringTest, insert_range_from) {
     column_string_common_test(assert_column_vector_insert_range_from_callback, false);

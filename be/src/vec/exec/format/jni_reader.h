@@ -68,6 +68,13 @@ public:
         return Status::OK();
     }
 
+    void set_col_name_to_block_idx(
+            const std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
+        if (_jni_connector) {
+            _jni_connector->set_col_name_to_block_idx(col_name_to_block_idx);
+        }
+    }
+
 protected:
     void _collect_profile_before_close() override {
         if (_jni_connector) {
@@ -94,8 +101,7 @@ public:
 
     ~MockJniReader() override = default;
 
-    Status init_reader(
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    Status init_reader();
 
     Status close() override {
         if (_jni_connector) {
@@ -110,9 +116,6 @@ protected:
             _jni_connector->collect_profile_before_close();
         }
     }
-
-private:
-    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
 };
 
 #include "common/compile_check_end.h"

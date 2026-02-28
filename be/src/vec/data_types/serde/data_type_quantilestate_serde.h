@@ -59,6 +59,9 @@ public:
         return Status::OK();
     }
 
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
+
     Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
                                     BufferWritable& bw, FormatOptions& options) const override {
         SERIALIZE_COLUMN_TO_JSON();
@@ -94,7 +97,8 @@ public:
     }
 
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena& mem_pool,
-                                 int32_t col_id, int64_t row_num) const override;
+                                 int32_t col_id, int64_t row_num,
+                                 const FormatOptions& options) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
@@ -131,13 +135,13 @@ public:
         return Status::NotSupported("write_column_to_mysql_binary with type " + column.get_name());
     }
 
-    bool write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,
-                                    int64_t row_idx) const override;
+    bool write_column_to_mysql_text(const IColumn& column, BufferWritable& bw, int64_t row_idx,
+                                    const FormatOptions& options) const override;
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end,
-                               vectorized::Arena& arena) const override {
+                               int64_t start, int64_t end, vectorized::Arena& arena,
+                               const FormatOptions& options) const override {
         auto& col_data = assert_cast<const ColumnQuantileState&>(column);
         orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
         // First pass: calculate total memory needed and collect serialized values
@@ -179,7 +183,8 @@ public:
         return Status::OK();
     }
 
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override {
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                   const FormatOptions& options) const override {
         const auto& data = assert_cast<const ColumnQuantileState&>(column).get_element(row_num);
         std::string result(data.get_serialized_size(), '0');
         data.serialize((uint8_t*)result.data());

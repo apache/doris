@@ -56,6 +56,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     public static final String FILE_META_CACHE_TTL_SECOND = "file.meta.cache.ttl-second";
     public static final String PARTITION_CACHE_TTL_SECOND = "partition.cache.ttl-second";
+    public static final String HIVE_STAGING_DIR = "hive.staging_dir";
+    public static final String DEFAULT_STAGING_BASE_DIR = "/tmp/.doris_staging";
     // broker name for file split and query scan.
     public static final String BIND_BROKER_NAME = "broker.name";
     // Default is false, if set to true, will get table schema from "remoteTable" instead of from hive metastore.

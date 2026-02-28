@@ -112,6 +112,11 @@ public class HadoopHudiColumnValue implements ColumnValue {
     }
 
     @Override
+    public LocalDateTime getTimeStampTz() {
+        return ((Timestamp) fieldData).toLocalDateTime();
+    }
+
+    @Override
     public BigDecimal getDecimal() {
         return ((HiveDecimal) inspectObject()).bigDecimalValue();
     }

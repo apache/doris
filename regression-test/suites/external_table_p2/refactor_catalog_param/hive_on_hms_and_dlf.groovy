@@ -338,6 +338,7 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
     String oss_endpoint = context.config.otherConfigs.get("aliYunEndpoint")
     String bucket = context.config.otherConfigs.get("aliYunBucket")
     String oss_parent_path = "${bucket}/refactor-test"
+    String oss_bucket_endpoint_parent_path="${bucket}.${oss_endpoint}/refactor-test"
     String oss_region = context.config.otherConfigs.get("aliYunRegion")
     String oss_region_param = """
               'oss.region' = '${oss_region}',
@@ -412,6 +413,13 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
                 "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hadoop.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab"
     """
+    String hdfs_new_kerberos_properties = """
+                "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+                "hdfs.authentication.type" = "kerberos",
+                "hdfs.authentication.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
+                "hdfs.authentication.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab"
+    """
+    
     String dlf_access_key = context.config.otherConfigs.get("dlf_access_key")
     String dlf_secret_key = context.config.otherConfigs.get("dlf_secret_key")
     /**************** DLF *******************/
@@ -432,7 +440,6 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERREALM.COM)s/@.*//
                                    DEFAULT",
-                "hive.metastore.sasl.enabled " = "true",
                 "hive.metastore.kerberos.principal" = "hive/hadoop-master@LABS.TERADATA.COM",
      """
 
@@ -442,7 +449,6 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
                 "hive.metastore.client.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hive.metastore.client.keytab" = "${keytab_root_dir}/hive-presto-master.keytab",
                 "hive.metastore.service.principal" = "hive/hadoop-master@LABS.TERADATA.COM",
-                "hive.metastore.sasl.enabled " = "true",
                 "hive.metastore.authentication.type"="kerberos",
                 "hadoop.security.auth_to_local" = "RULE:[2:\\\$1@\\\$0](.*@LABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
@@ -514,6 +520,13 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
     //OSS - Insert overwrite tests
     db_location = "oss://${oss_parent_path}/hive/hms/overwrite/" + System.currentTimeMillis()
     testInsertOverwrite(hms_properties + oss_storage_properties, "hive_hms_oss_overwrite_test", db_location)
+    //OSS - Partition table tests (fix for partition path scheme mismatch)
+    db_location = "oss://${oss_bucket_endpoint_parent_path}/hive/hms/bucket_endpoint/partition/" + System.currentTimeMillis()
+    testPartitionTableInsert(hms_properties + oss_storage_properties, "hive_hms_oss_partition_test", db_location)
+    testPartitionTableInsert(hms_properties + oss_region_param + oss_storage_properties, "hive_hms_oss_bucket_endpoint_partition_test_region", db_location)
+    //OSS - Insert overwrite tests
+    db_location = "oss://${oss_bucket_endpoint_parent_path}/hive/hms/bucket_endpoint/overwrite/" + System.currentTimeMillis()
+    testInsertOverwrite(hms_properties + oss_storage_properties, "hive_hms_oss_bucket_endpoint_overwrite_test", db_location)
 
     //s3
     db_location = "s3a://${s3_parent_path}/hive/hms/"+System.currentTimeMillis()
@@ -538,6 +551,7 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
     db_location = "hdfs://${externalEnvIp}:8520/hive/hms/" + System.currentTimeMillis()
 
     testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + hdfs_kerberos_properties, "hive_hms_hdfs_kerberos_test", db_location)
+    testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + hdfs_new_kerberos_properties, "hive_hms_hdfs_new_kerberos_test", db_location)
 
     /**************** DLF *******************/
     String dlf_warehouse = "oss://selectdb-qa-datalake-test/hive-dlf-oss-warehouse"

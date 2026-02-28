@@ -23,7 +23,6 @@
 #include <cmath>
 #include <queue>
 
-#include "udf/udf.h"
 #include "vec/common/pod_array.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/io/io_helper.h"

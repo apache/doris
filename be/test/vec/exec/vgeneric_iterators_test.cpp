@@ -20,6 +20,7 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <memory>
 #include <vector>
 
 #include "gtest/gtest_pred_impl.h"
@@ -95,22 +96,23 @@ TEST(VGenericIteratorsTest, AutoIncrement) {
     int row_count = 0;
     size_t rows = block.rows();
     for (size_t i = 0; i < rows; ++i) {
-        EXPECT_EQ(row_count, (*c0)[i].get<int>());
-        EXPECT_EQ(row_count + 1, (*c1)[i].get<int>());
-        EXPECT_EQ(row_count + 2, (*c2)[i].get<int>());
+        EXPECT_EQ(row_count, (*c0)[i].get<TYPE_SMALLINT>());
+        EXPECT_EQ(row_count + 1, (*c1)[i].get<TYPE_INT>());
+        EXPECT_EQ(row_count + 2, (*c2)[i].get<TYPE_BIGINT>());
         row_count++;
     }
 }
 
 TEST(VGenericIteratorsTest, Union) {
     auto schema = create_schema();
+    auto output_schema = std::make_shared<Schema>(schema);
     std::vector<RowwiseIteratorUPtr> inputs;
 
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 100));
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 200));
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 300));
 
-    auto iter = vectorized::new_union_iterator(std::move(inputs));
+    auto iter = vectorized::new_union_iterator(std::move(inputs), output_schema);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
@@ -138,9 +140,9 @@ TEST(VGenericIteratorsTest, Union) {
             base_value -= 100;
         }
 
-        EXPECT_EQ(base_value, (*c0)[i].get<int>());
-        EXPECT_EQ(base_value + 1, (*c1)[i].get<int>());
-        EXPECT_EQ(base_value + 2, (*c2)[i].get<int>());
+        EXPECT_EQ(base_value, (*c0)[i].get<TYPE_SMALLINT>());
+        EXPECT_EQ(base_value + 1, (*c1)[i].get<TYPE_INT>());
+        EXPECT_EQ(base_value + 2, (*c2)[i].get<TYPE_BIGINT>());
         row_count++;
     }
 }
@@ -148,13 +150,15 @@ TEST(VGenericIteratorsTest, Union) {
 TEST(VGenericIteratorsTest, MergeAgg) {
     EXPECT_TRUE(1);
     auto schema = create_schema();
+    auto output_schema = std::make_shared<Schema>(schema);
     std::vector<RowwiseIteratorUPtr> inputs;
 
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 100));
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 200));
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 300));
 
-    auto iter = vectorized::new_merge_iterator(std::move(inputs), -1, false, false, nullptr);
+    auto iter = vectorized::new_merge_iterator(std::move(inputs), -1, false, false, nullptr,
+                                               output_schema);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
@@ -187,9 +191,9 @@ TEST(VGenericIteratorsTest, MergeAgg) {
             base_value = row_count - 300;
         }
 
-        EXPECT_EQ(base_value, (*c0)[i].get<int>());
-        EXPECT_EQ(base_value + 1, (*c1)[i].get<int>());
-        EXPECT_EQ(base_value + 2, (*c2)[i].get<int>());
+        EXPECT_EQ(base_value, (*c0)[i].get<TYPE_SMALLINT>());
+        EXPECT_EQ(base_value + 1, (*c1)[i].get<TYPE_INT>());
+        EXPECT_EQ(base_value + 2, (*c2)[i].get<TYPE_BIGINT>());
         row_count++;
     }
 }
@@ -197,13 +201,15 @@ TEST(VGenericIteratorsTest, MergeAgg) {
 TEST(VGenericIteratorsTest, MergeUnique) {
     EXPECT_TRUE(1);
     auto schema = create_schema();
+    auto output_schema = std::make_shared<Schema>(schema);
     std::vector<RowwiseIteratorUPtr> inputs;
 
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 100));
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 200));
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 300));
 
-    auto iter = vectorized::new_merge_iterator(std::move(inputs), -1, true, false, nullptr);
+    auto iter = vectorized::new_merge_iterator(std::move(inputs), -1, true, false, nullptr,
+                                               output_schema);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
@@ -228,9 +234,9 @@ TEST(VGenericIteratorsTest, MergeUnique) {
     for (size_t i = 0; i < block.rows(); ++i) {
         size_t base_value = row_count;
 
-        EXPECT_EQ(base_value, (*c0)[i].get<int>());
-        EXPECT_EQ(base_value + 1, (*c1)[i].get<int>());
-        EXPECT_EQ(base_value + 2, (*c2)[i].get<int>());
+        EXPECT_EQ(base_value, (*c0)[i].get<TYPE_SMALLINT>());
+        EXPECT_EQ(base_value + 1, (*c1)[i].get<TYPE_INT>());
+        EXPECT_EQ(base_value + 2, (*c2)[i].get<TYPE_BIGINT>());
         row_count++;
     }
 }
@@ -310,6 +316,7 @@ public:
 TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     EXPECT_TRUE(1);
     auto schema = create_schema();
+    auto output_schema = std::make_shared<Schema>(schema);
     std::vector<RowwiseIteratorUPtr> inputs;
 
     int seq_column_id = 2;
@@ -325,8 +332,8 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
                 schema, num_rows, rows_begin, seq_column_id, seq_id_in_every_file));
     }
 
-    auto iter =
-            vectorized::new_merge_iterator(std::move(inputs), seq_column_id, true, false, nullptr);
+    auto iter = vectorized::new_merge_iterator(std::move(inputs), seq_column_id, true, false,
+                                               nullptr, output_schema);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
@@ -346,7 +353,7 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     auto col0 = block.get_by_position(0).column;
     auto col1 = block.get_by_position(1).column;
     auto seq_col = block.get_by_position(seq_column_id).column;
-    size_t actual_value = (*seq_col)[0].get<int>();
+    size_t actual_value = (*seq_col)[0].get<TYPE_BIGINT>();
     EXPECT_EQ(seg_iter_num - 1, actual_value);
 }
 

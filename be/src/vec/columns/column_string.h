@@ -115,7 +115,19 @@ public:
     bool is_variable_length() const override { return true; }
 
     void sanity_check() const override;
-    void sanity_check_simple() const;
+    void sanity_check_simple() const {
+#ifndef NDEBUG
+        auto count = cast_set<int64_t>(offsets.size());
+        if (chars.size() != offsets[count - 1]) {
+            throw Exception(Status::InternalError("row count: {}, chars.size(): {}, offset[{}]: {}",
+                                                  count, chars.size(), count - 1,
+                                                  offsets[count - 1]));
+        }
+        if (offsets[-1] != 0) {
+            throw Exception(Status::InternalError("wrong offsets[-1]: {}", offsets[-1]));
+        }
+#endif
+    }
 
     std::string get_name() const override { return "String"; }
 
@@ -428,6 +440,12 @@ public:
     void update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type, uint32_t rows,
                                 uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
+
+    void update_crc32c_batch(uint32_t* __restrict hashes,
+                             const uint8_t* __restrict null_map) const override;
+
+    void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                              const uint8_t* __restrict null_map) const override;
 
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override {

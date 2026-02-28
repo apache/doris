@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.service.FrontendOptions;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -65,10 +66,19 @@ public class AdminSetAutoClusterSnapshotCommand extends Command implements Forwa
         validate(ctx);
 
         Cloud.AlterInstanceRequest.Builder builder = Cloud.AlterInstanceRequest.newBuilder()
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
                 .setOp(Cloud.AlterInstanceRequest.Operation.SET_SNAPSHOT_PROPERTY);
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            builder.putProperties(entry.getKey().toLowerCase(), entry.getValue().toLowerCase());
+            String property;
+            if (entry.getKey().equalsIgnoreCase(PROP_MAX_RESERVED_SNAPSHOTS)) {
+                property = Cloud.AlterInstanceRequest.SnapshotProperty.MAX_RESERVED_SNAPSHOTS.name();
+            } else if (entry.getKey().equalsIgnoreCase(PROP_SNAPSHOT_INTERVAL_SECONDS)) {
+                property = Cloud.AlterInstanceRequest.SnapshotProperty.SNAPSHOT_INTERVAL_SECONDS.name();
+            } else {
+                throw new RuntimeException("Unknown property: " + entry.getKey());
+            }
+            builder.putProperties(property, entry.getValue().toLowerCase());
         }
         CloudSnapshotHandler cloudSnapshotHandler = ((CloudEnv) ctx.getEnv()).getCloudSnapshotHandler();
         cloudSnapshotHandler.alterInstance(builder.build());

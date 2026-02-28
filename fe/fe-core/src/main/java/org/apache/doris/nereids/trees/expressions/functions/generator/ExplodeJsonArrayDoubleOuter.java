@@ -76,7 +76,6 @@ public class ExplodeJsonArrayDoubleOuter extends TableGeneratingFunction
 
     @Override
     public Expression rewriteWhenAnalyze() {
-        Expression[] args = {new Cast(children.get(0), ArrayType.of(DoubleType.INSTANCE))};
-        return new ExplodeOuter(args);
+        return new ExplodeOuter(new Cast(children.get(0), ArrayType.of(DoubleType.INSTANCE)));
     }
 }

@@ -49,17 +49,17 @@ class IColumn;
 template <PrimitiveType T>
 class DataTypeNumberBase : public IDataType {
     static_assert(is_int_or_bool(T) || is_ip(T) || is_date_type(T) || is_float_or_double(T) ||
-                  T == TYPE_TIME || T == TYPE_TIMEV2);
+                  T == TYPE_TIME || T == TYPE_TIMEV2 || T == TYPE_TIMESTAMPTZ);
 
 public:
     static constexpr bool is_parametric = false;
     static constexpr PrimitiveType PType = T;
     using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
-    using FieldType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using FieldType = typename PrimitiveTypeTraits<T>::CppType;
 #ifdef BE_TEST
     /// TODO: remove this in the future
     using IDataType::to_string;
-    static std::string to_string(const typename PrimitiveTypeTraits<T>::ColumnItemType& value);
+    static std::string to_string(const typename PrimitiveTypeTraits<T>::CppType& value);
 #endif
     const std::string get_family_name() const override { return type_to_string(T); }
     PrimitiveType get_primitive_type() const override {
@@ -105,6 +105,9 @@ public:
         if constexpr (T == TYPE_DATETIMEV2) {
             return doris::FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
         }
+        if constexpr (T == TYPE_TIMESTAMPTZ) {
+            return doris::FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ;
+        }
         if constexpr (T == TYPE_IPV4) {
             return doris::FieldType::OLAP_FIELD_TYPE_IPV4;
         }
@@ -131,7 +134,7 @@ public:
 
     bool have_maximum_size_of_value() const override { return true; }
     size_t get_size_of_value_in_memory() const override {
-        return sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType);
+        return sizeof(typename PrimitiveTypeTraits<T>::CppType);
     }
     bool is_null_literal() const override { return _is_null_literal; }
     void set_null_literal(bool flag) { _is_null_literal = flag; }

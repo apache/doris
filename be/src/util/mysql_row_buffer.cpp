@@ -36,6 +36,7 @@
 #include "vec/functions/cast/cast_to_string.h"
 #include "vec/runtime/ipv4_value.h"
 #include "vec/runtime/ipv6_value.h"
+#include "vec/runtime/timestamptz_value.h"
 #include "vec/runtime/vdatetime_value.h" // IWYU pragma: keep
 
 namespace doris {
@@ -334,6 +335,12 @@ int MysqlRowBuffer::push_string(const char* str, int64_t length) {
     memcpy(_pos, str, length);
     _pos += length;
     return 0;
+}
+
+int MysqlRowBuffer::push_timestamptz(const TimestampTzValue& tz,
+                                     const cctz::time_zone& local_time_zone, int scale) {
+    auto tz_str = tz.to_string(local_time_zone, scale);
+    return push_string(tz_str.c_str(), tz_str.length());
 }
 
 int MysqlRowBuffer::push_null() {

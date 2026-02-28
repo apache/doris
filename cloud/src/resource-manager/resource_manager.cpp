@@ -30,6 +30,7 @@
 #include "meta-service/meta_service_helper.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv_error.h"
+#include "snapshot/snapshot_manager.h"
 
 namespace doris::cloud {
 
@@ -91,18 +92,12 @@ int ResourceManager::init() {
                 LOG(WARNING) << "malformed instance, unable to deserialize, key=" << hex(k);
                 return -1;
             }
-            // 0x01 "instance" ${instance_id} -> InstanceInfoPB
-            k.remove_prefix(1); // Remove key space
-            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
-            int ret = decode_key(&k, &out);
-            if (ret != 0) {
-                LOG(WARNING) << "failed to decode key, ret=" << ret;
+
+            std::string_view key(k);
+            if (!decode_instance_key(&key, &instance_id)) {
+                LOG(WARNING) << "failed to decode instance key, key=" << hex(k);
                 return -2;
             }
-            if (out.size() != 2) {
-                LOG(WARNING) << "decoded size no match, expect 2, given=" << out.size();
-            }
-            instance_id = std::get<std::string>(std::get<0>(out[1]));
 
             LOG(INFO) << "get an instance, instance_id=" << instance_id
                       << " instance json=" << proto_to_json(inst);
@@ -607,6 +602,7 @@ std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::
         return std::make_pair(MetaServiceCode::PROTOBUF_SERIALIZE_ERR, msg);
     }
 
+    txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
     LOG(INFO) << "put instance_key=" << hex(key);
     err = txn->commit();
@@ -756,6 +752,7 @@ std::pair<MetaServiceCode, std::string> ResourceManager::drop_cluster(
         return std::make_pair(MetaServiceCode::PROTOBUF_SERIALIZE_ERR, msg);
     }
 
+    txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
     LOG(INFO) << "put instance_key=" << hex(key);
     err = txn->commit();
@@ -895,6 +892,7 @@ std::string ResourceManager::update_cluster(
         return msg;
     }
 
+    txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
     LOG(INFO) << "put instanace_key=" << hex(key);
     TxnErrorCode err_code = txn->commit();
@@ -1364,6 +1362,7 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
         return msg;
     }
 
+    txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
     LOG(INFO) << "put instance_key=" << hex(key);
     TxnErrorCode err_code = txn->commit();
@@ -1414,22 +1413,48 @@ std::pair<MetaServiceCode, std::string> ResourceManager::refresh_instance(
 
 void ResourceManager::refresh_instance(const std::string& instance_id,
                                        const InstanceInfoPB& instance) {
+    bool is_successor_instance = instance.has_original_instance_id();
+    std::string source_instance_id = is_successor_instance ? instance.source_instance_id() : "";
+
     std::lock_guard l(mtx_);
     for (auto i = node_info_.begin(); i != node_info_.end();) {
-        if (i->second.instance_id != instance_id) {
+        // erase all nodes not belong to this instance_id
+        if (i->second.instance_id != instance_id &&
+            // ... or, if is_successor_instance, erase nodes belong to source_instance_id
+            (!is_successor_instance || i->second.instance_id != source_instance_id)) {
             ++i;
             continue;
         }
         i = node_info_.erase(i);
     }
-    for (int i = 0; i < instance.clusters_size(); ++i) {
-        add_cluster_to_index_no_lock(instance_id, instance.clusters(i));
+
+    // If successor_instance_id is set, it means this instance has a successor instance,
+    // so we do not need to add its clusters to the index again.
+    if (!instance.has_successor_instance_id()) {
+        for (int i = 0; i < instance.clusters_size(); ++i) {
+            add_cluster_to_index_no_lock(instance_id, instance.clusters(i));
+        }
     }
 
     if (instance.has_multi_version_status()) {
         instance_multi_version_status_[instance_id] = instance.multi_version_status();
     } else {
         instance_multi_version_status_.erase(instance_id);
+    }
+
+    if (instance.has_source_instance_id() && !instance.source_instance_id().empty()) {
+        Versionstamp versionstamp;
+        if (!SnapshotManager::parse_snapshot_versionstamp(instance.source_snapshot_id(),
+                                                          &versionstamp)) {
+            LOG(WARNING) << "invalid source_snapshot_id, instance_id=" << instance_id
+                         << " source_snapshot_id=" << instance.source_snapshot_id()
+                         << " source_instance_id=" << instance.source_instance_id();
+            return;
+        }
+        instance_source_snapshot_info_.insert_or_assign(
+                instance_id, std::make_pair(instance.source_instance_id(), versionstamp));
+    } else {
+        instance_source_snapshot_info_.erase(instance_id);
     }
 }
 
@@ -1497,6 +1522,19 @@ std::pair<MetaServiceCode, std::string> ResourceManager::validate_sub_clusters(
     }
 
     return std::make_pair(MetaServiceCode::OK, "");
+}
+
+bool ResourceManager::get_source_snapshot_info(const std::string& instance_id,
+                                               std::string* source_instance_id,
+                                               Versionstamp* snapshot_versionstamp) {
+    std::shared_lock l(mtx_);
+    auto it = instance_source_snapshot_info_.find(instance_id);
+    if (it == instance_source_snapshot_info_.end()) {
+        return false;
+    }
+    *source_instance_id = it->second.first;
+    *snapshot_versionstamp = it->second.second;
+    return true;
 }
 
 } // namespace doris::cloud

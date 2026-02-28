@@ -49,9 +49,9 @@ class ColumnVector;
 
 template <PrimitiveType T>
 struct AggregateFunctionSumData {
-    typename PrimitiveTypeTraits<T>::ColumnItemType sum {};
+    typename PrimitiveTypeTraits<T>::CppType sum {};
 
-    NO_SANITIZE_UNDEFINED void add(typename PrimitiveTypeTraits<T>::ColumnItemType value) {
+    NO_SANITIZE_UNDEFINED void add(typename PrimitiveTypeTraits<T>::CppType value) {
 #ifdef __clang__
 #pragma clang fp reassociate(on)
 #endif
@@ -64,7 +64,7 @@ struct AggregateFunctionSumData {
 
     void read(BufferReadable& buf) { buf.read_binary(sum); }
 
-    typename PrimitiveTypeTraits<T>::ColumnItemType get() const { return sum; }
+    typename PrimitiveTypeTraits<T>::CppType get() const { return sum; }
 };
 
 template <PrimitiveType T, PrimitiveType TResult, typename Data>
@@ -102,12 +102,14 @@ public:
         }
     }
 
+    bool is_trivial() const override { return true; }
+
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
         const auto& column =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         this->data(place).add(
-                typename PrimitiveTypeTraits<TResult>::ColumnItemType(column.get_data()[row_num]));
+                typename PrimitiveTypeTraits<TResult>::CppType(column.get_data()[row_num]));
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).sum = {}; }
@@ -162,7 +164,7 @@ public:
         auto* dst_data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
             auto& state = *reinterpret_cast<Data*>(&dst_data[sizeof(Data) * i]);
-            state.sum = typename PrimitiveTypeTraits<TResult>::ColumnItemType(src_data[i]);
+            state.sum = typename PrimitiveTypeTraits<TResult>::CppType(src_data[i]);
         }
     }
 
@@ -192,7 +194,6 @@ public:
                                    AggregateDataPtr rhs, const IColumn* column, Arena& arena,
                                    const size_t num_rows) const override {
         this->deserialize_from_column(rhs, *column, arena, num_rows);
-        DEFER({ this->destroy_vec(rhs, num_rows); });
         this->merge_vec(places, offset, rhs, arena, num_rows);
     }
 
@@ -200,7 +201,6 @@ public:
                                             AggregateDataPtr rhs, const IColumn* column,
                                             Arena& arena, const size_t num_rows) const override {
         this->deserialize_from_column(rhs, *column, arena, num_rows);
-        DEFER({ this->destroy_vec(rhs, num_rows); });
         this->merge_vec_selected(places, offset, rhs, arena, num_rows);
     }
 
@@ -244,12 +244,12 @@ public:
             auto incoming_pos = frame_end - 1;
             if (!previous_is_nul && outcoming_pos >= partition_start &&
                 outcoming_pos < partition_end) {
-                this->data(place).add(typename PrimitiveTypeTraits<TResult>::ColumnItemType(
-                        -data[outcoming_pos]));
+                this->data(place).add(
+                        typename PrimitiveTypeTraits<TResult>::CppType(-data[outcoming_pos]));
             }
             if (!end_is_nul && incoming_pos >= partition_start && incoming_pos < partition_end) {
                 this->data(place).add(
-                        typename PrimitiveTypeTraits<TResult>::ColumnItemType(data[incoming_pos]));
+                        typename PrimitiveTypeTraits<TResult>::CppType(data[incoming_pos]));
             }
         } else {
             this->add_range_single_place(partition_start, partition_end, frame_start, frame_end,
@@ -273,8 +273,8 @@ public:
             const auto& column =
                     assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
             for (size_t row_num = current_frame_start; row_num < current_frame_end; ++row_num) {
-                this->data(place).add(typename PrimitiveTypeTraits<TResult>::ColumnItemType(
-                        column.get_data()[row_num]));
+                this->data(place).add(
+                        typename PrimitiveTypeTraits<TResult>::CppType(column.get_data()[row_num]));
             }
             *use_null_result = false;
             *could_use_previous_result = true;
@@ -285,13 +285,24 @@ private:
     UInt32 scale;
 };
 
+constexpr PrimitiveType result_type(PrimitiveType T) {
+    if (T == TYPE_LARGEINT) {
+        return TYPE_LARGEINT;
+    } else if (is_int_or_bool(T)) {
+        return TYPE_BIGINT;
+    } else if (is_float_or_double(T) || is_time_type(T)) {
+        return TYPE_DOUBLE;
+    } else {
+        return T;
+    }
+}
+
 // TODO: use result type from FE plan
 template <PrimitiveType T>
 struct SumSimple {
     static_assert(!is_decimalv3(T));
     /// @note It uses slow Decimal128 (cause we need such a variant). sumWithOverflow is faster for Decimal32/64
-    static constexpr PrimitiveType ResultType =
-            T == TYPE_DECIMALV2 ? TYPE_DECIMALV2 : PrimitiveTypeTraits<T>::NearestPrimitiveType;
+    static constexpr PrimitiveType ResultType = result_type(T);
     using AggregateDataType = AggregateFunctionSumData<ResultType>;
     using Function = AggregateFunctionSum<T, ResultType, AggregateDataType>;
 };

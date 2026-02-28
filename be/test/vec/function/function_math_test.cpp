@@ -609,8 +609,8 @@ TEST(MathFunctionTest, money_format_test) {
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_DECIMALV2};
         DataSet data_set = {{{Null()}, Null()},
-                            {{DECIMALV2(17014116.67)}, VARCHAR("17,014,116.67")},
-                            {{DECIMALV2(-17014116.67)}, VARCHAR("-17,014,116.67")}};
+                            {{DECIMALV2VALUEFROMDOUBLE(17014116.67)}, VARCHAR("17,014,116.67")},
+                            {{DECIMALV2VALUEFROMDOUBLE(-17014116.67)}, VARCHAR("-17,014,116.67")}};
 
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
@@ -666,9 +666,10 @@ TEST(MathFunctionTest, format_round_test) {
     }
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_DECIMALV2, PrimitiveType::TYPE_INT};
-        DataSet data_set = {{{Null(), INT(2)}, Null()},
-                            {{DECIMALV2(17014116.67), INT(2)}, VARCHAR("17,014,116.67")},
-                            {{DECIMALV2(-17014116.67), INT(2)}, VARCHAR("-17,014,116.67")}};
+        DataSet data_set = {
+                {{Null(), INT(2)}, Null()},
+                {{DECIMALV2VALUEFROMDOUBLE(17014116.67), INT(2)}, VARCHAR("17,014,116.67")},
+                {{DECIMALV2VALUEFROMDOUBLE(-17014116.67), INT(2)}, VARCHAR("-17,014,116.67")}};
 
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }

@@ -113,7 +113,7 @@ bool Exchanger<BlockType>::_dequeue_data(BlockType& block, bool* eos, vectorized
 }
 
 Status ShuffleExchanger::sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
-                              Profile&& profile, SinkInfo&& sink_info) {
+                              Profile&& profile, SinkInfo& sink_info) {
     if (in_block->empty()) {
         return Status::OK();
     }
@@ -123,8 +123,8 @@ Status ShuffleExchanger::sink(RuntimeState* state, vectorized::Block* in_block, 
     }
     {
         SCOPED_TIMER(profile.distribute_timer);
-        RETURN_IF_ERROR(_split_rows(state, sink_info.partitioner->get_channel_ids().get<uint32_t>(),
-                                    in_block, *sink_info.channel_id, sink_info.local_state,
+        RETURN_IF_ERROR(_split_rows(state, sink_info.partitioner->get_channel_ids(), in_block,
+                                    *sink_info.channel_id, sink_info.local_state,
                                     sink_info.shuffle_idx_to_instance_idx));
     }
 
@@ -172,7 +172,7 @@ Status ShuffleExchanger::get_block(RuntimeState* state, vectorized::Block* block
     return Status::OK();
 }
 
-Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
+Status ShuffleExchanger::_split_rows(RuntimeState* state, const std::vector<uint32_t>& channel_ids,
                                      vectorized::Block* block, int channel_id,
                                      LocalExchangeSinkLocalState* local_state,
                                      std::map<int, int>* shuffle_idx_to_instance_idx) {
@@ -223,8 +223,10 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
         uint32_t size = partition_rows_histogram[it.first + 1] - start;
         if (size > 0) {
             enqueue_rows += size;
-            _enqueue_data_and_set_ready(it.second, local_state,
-                                        {new_block_wrapper, {row_idx, start, size}});
+            _enqueue_data_and_set_ready(
+                    it.second, local_state,
+                    {new_block_wrapper,
+                     {.row_idxs = row_idx, .offset_start = start, .length = size}});
         }
     }
     if (enqueue_rows != rows) [[unlikely]] {
@@ -243,7 +245,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
     return Status::OK();
 }
 
-Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
+Status ShuffleExchanger::_split_rows(RuntimeState* state, const std::vector<uint32_t>& channel_ids,
                                      vectorized::Block* block, int channel_id) {
     const auto rows = cast_set<int32_t>(block->rows());
     auto row_idx = std::make_shared<vectorized::PODArray<uint32_t>>(rows);
@@ -276,7 +278,9 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
         uint32_t start = partition_rows_histogram[i];
         uint32_t size = partition_rows_histogram[i + 1] - start;
         if (size > 0) {
-            _enqueue_data_and_set_ready(i, {new_block_wrapper, {row_idx, start, size}});
+            _enqueue_data_and_set_ready(
+                    i, {new_block_wrapper,
+                        {.row_idxs = row_idx, .offset_start = start, .length = size}});
         }
     }
 
@@ -284,7 +288,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
 }
 
 Status PassthroughExchanger::sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
-                                  Profile&& profile, SinkInfo&& sink_info) {
+                                  Profile&& profile, SinkInfo& sink_info) {
     if (in_block->empty()) {
         return Status::OK();
     }
@@ -336,7 +340,7 @@ Status PassthroughExchanger::get_block(RuntimeState* state, vectorized::Block* b
 }
 
 Status PassToOneExchanger::sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
-                                Profile&& profile, SinkInfo&& sink_info) {
+                                Profile&& profile, SinkInfo& sink_info) {
     if (in_block->empty()) {
         return Status::OK();
     }
@@ -377,7 +381,7 @@ void ExchangerBase::finalize() {
 }
 
 Status BroadcastExchanger::sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
-                                Profile&& profile, SinkInfo&& sink_info) {
+                                Profile&& profile, SinkInfo& sink_info) {
     if (in_block->empty()) {
         return Status::OK();
     }
@@ -390,8 +394,9 @@ Status BroadcastExchanger::sink(RuntimeState* state, vectorized::Block* in_block
             std::move(new_block),
             sink_info.local_state ? sink_info.local_state->_shared_state : nullptr, -1);
     for (int i = 0; i < _num_partitions; i++) {
-        _enqueue_data_and_set_ready(i, sink_info.local_state,
-                                    {wrapper, {0, wrapper->_data_block.rows()}});
+        _enqueue_data_and_set_ready(
+                i, sink_info.local_state,
+                {wrapper, {.offset_start = 0, .length = wrapper->_data_block.rows()}});
     }
 
     return Status::OK();
@@ -429,7 +434,7 @@ Status BroadcastExchanger::get_block(RuntimeState* state, vectorized::Block* blo
 
 Status AdaptivePassthroughExchanger::_passthrough_sink(RuntimeState* state,
                                                        vectorized::Block* in_block,
-                                                       SinkInfo&& sink_info) {
+                                                       SinkInfo& sink_info) {
     vectorized::Block new_block;
     if (!_free_blocks.try_dequeue(new_block)) {
         new_block = {in_block->clone_empty()};
@@ -449,7 +454,7 @@ Status AdaptivePassthroughExchanger::_passthrough_sink(RuntimeState* state,
 }
 
 Status AdaptivePassthroughExchanger::_shuffle_sink(RuntimeState* state, vectorized::Block* block,
-                                                   SinkInfo&& sink_info) {
+                                                   SinkInfo& sink_info) {
     std::vector<uint32_t> channel_ids;
     const auto num_rows = block->rows();
     channel_ids.resize(num_rows, 0);
@@ -467,13 +472,13 @@ Status AdaptivePassthroughExchanger::_shuffle_sink(RuntimeState* state, vectoriz
 
     sink_info.local_state->_memory_used_counter->set(
             sink_info.local_state->_shared_state->mem_usage);
-    RETURN_IF_ERROR(_split_rows(state, channel_ids.data(), block, std::move(sink_info)));
+    RETURN_IF_ERROR(_split_rows(state, channel_ids, block, sink_info));
     return Status::OK();
 }
 
 Status AdaptivePassthroughExchanger::_split_rows(RuntimeState* state,
-                                                 const uint32_t* __restrict channel_ids,
-                                                 vectorized::Block* block, SinkInfo&& sink_info) {
+                                                 const std::vector<uint32_t>& channel_ids,
+                                                 vectorized::Block* block, SinkInfo& sink_info) {
     const auto rows = cast_set<int32_t>(block->rows());
     auto row_idx = std::make_shared<std::vector<uint32_t>>(rows);
     auto& partition_rows_histogram = _partition_rows_histogram[*sink_info.channel_id];
@@ -512,17 +517,17 @@ Status AdaptivePassthroughExchanger::_split_rows(RuntimeState* state,
 }
 
 Status AdaptivePassthroughExchanger::sink(RuntimeState* state, vectorized::Block* in_block,
-                                          bool eos, Profile&& profile, SinkInfo&& sink_info) {
+                                          bool eos, Profile&& profile, SinkInfo& sink_info) {
     if (in_block->empty()) {
         return Status::OK();
     }
     if (_is_pass_through) {
-        return _passthrough_sink(state, in_block, std::move(sink_info));
+        return _passthrough_sink(state, in_block, sink_info);
     } else {
         if (++_total_block >= _num_partitions) {
             _is_pass_through = true;
         }
-        return _shuffle_sink(state, in_block, std::move(sink_info));
+        return _shuffle_sink(state, in_block, sink_info);
     }
 }
 

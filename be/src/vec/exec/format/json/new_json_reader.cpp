@@ -1495,18 +1495,11 @@ Status NewJsonReader::_get_column_default_value(
             if (ctx->root()->node_type() == TExprNodeType::type::NULL_LITERAL) {
                 continue;
             }
-            // empty block to save default value of slot_desc->col_name()
-            Block block;
-            // If block is empty, some functions will produce no result. So we insert a column with
-            // single value here.
-            block.insert({ColumnUInt8::create(1), std::make_shared<DataTypeUInt8>(), ""});
-            int result = -1;
-            RETURN_IF_ERROR(ctx->execute(&block, &result));
-            DCHECK(result != -1);
-            auto column = block.get_by_position(result).column;
-            DCHECK(column->size() == 1);
+            ColumnWithTypeAndName result;
+            RETURN_IF_ERROR(ctx->execute_const_expr(result));
+            DCHECK(result.column->size() == 1);
             _col_default_value_map.emplace(slot_desc->col_name(),
-                                           column->get_data_at(0).to_string());
+                                           result.column->get_data_at(0).to_string());
         }
     }
     return Status::OK();

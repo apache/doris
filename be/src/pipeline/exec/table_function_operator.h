@@ -96,7 +96,7 @@ public:
         return !local_state._child_block->rows() && !local_state._child_eos;
     }
 
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         return {ExchangeType::PASSTHROUGH};
     }
 

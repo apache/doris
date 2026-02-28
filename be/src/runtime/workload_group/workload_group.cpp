@@ -422,7 +422,12 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     int num_disk = 1;
     int num_cpus = 1;
 #ifndef BE_TEST
-    num_disk = ExecEnv::GetInstance()->storage_engine().get_disk_num();
+    if (config::is_cloud_mode()) {
+        // In cloud mode, use cache disk count instead of data disk count
+        num_disk = cast_set<int>(io::FileCacheFactory::instance()->get_cache_instance_size());
+    } else {
+        num_disk = ExecEnv::GetInstance()->storage_engine().get_disk_num();
+    }
     num_cpus = std::thread::hardware_concurrency();
 #endif
     num_disk = std::max(1, num_disk);

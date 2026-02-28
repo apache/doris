@@ -16,7 +16,11 @@
 // under the License.
 
 #pragma once
+#include <unordered_map>
+#include <vector>
 
+#include "olap/inverted_index_parser.h"
+#include "olap/rowset/segment_v2/analyzer_key_matcher.h"
 #include "olap/rowset/segment_v2/index_iterator.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 
@@ -30,6 +34,17 @@ struct InvertedIndexParam {
     uint32_t num_rows;
     std::shared_ptr<roaring::Roaring> roaring;
     bool skip_try = false;
+    // Pointer to analyzer context (can be nullptr if not needed)
+    // Used by FullTextIndexReader for tokenization
+    const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr;
+};
+
+// Entry representing an inverted index reader with its type and analyzer key.
+// Used by InvertedIndexIterator and AnalyzerKeyMatcher for reader selection.
+struct ReaderEntry {
+    InvertedIndexReaderType type;
+    std::string analyzer_key;
+    InvertedIndexReaderPtr reader;
 };
 
 class InvertedIndexIterator : public IndexIterator {
@@ -39,6 +54,7 @@ public:
 
     void add_reader(InvertedIndexReaderType type, const InvertedIndexReaderPtr& reader);
 
+    // Note: analyzer_ctx is now passed via InvertedIndexParam.analyzer_ctx
     Status read_from_index(const IndexParam& param) override;
 
     Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) override;
@@ -47,9 +63,11 @@ public:
 
     IndexReaderPtr get_reader(IndexReaderType reader_type) const override;
 
-    Result<InvertedIndexReaderPtr> select_best_reader(const vectorized::DataTypePtr& column_type,
-                                                      InvertedIndexQueryType query_type);
-    Result<InvertedIndexReaderPtr> select_best_reader();
+    [[nodiscard]] Result<InvertedIndexReaderPtr> select_best_reader(
+            const vectorized::DataTypePtr& column_type, InvertedIndexQueryType query_type,
+            const std::string& analyzer_key);
+    [[nodiscard]] Result<InvertedIndexReaderPtr> select_best_reader(
+            const std::string& analyzer_key);
 
 private:
     ENABLE_FACTORY_CREATOR(InvertedIndexIterator);
@@ -58,7 +76,31 @@ private:
                                         const std::string& column_name, const void* query_value,
                                         InvertedIndexQueryType query_type, size_t* count);
 
-    std::unordered_map<IndexReaderType, InvertedIndexReaderPtr> _readers;
+    // Normalize analyzer_key to lowercase.
+    // Empty input stays empty (means "user did not specify").
+    static std::string ensure_normalized_key(const std::string& analyzer_key);
+
+    // Select best reader for text (string) columns.
+    // Handles FULLTEXT vs STRING_TYPE priority based on query type.
+    // Returns BYPASS error if explicit analyzer not found.
+    [[nodiscard]] Result<InvertedIndexReaderPtr> select_for_text(const AnalyzerMatchResult& match,
+                                                                 InvertedIndexQueryType query_type,
+                                                                 const std::string& analyzer_key);
+
+    // Select best reader for numeric columns.
+    // Handles BKD priority for range queries.
+    [[nodiscard]] Result<InvertedIndexReaderPtr> select_for_numeric(
+            const AnalyzerMatchResult& match, InvertedIndexQueryType query_type);
+
+    // THREAD SAFETY: _reader_entries and _key_to_entries are populated during initialization
+    // phase (via add_reader) and only read during query phase (via read_from_index/select_best_reader).
+    // These two phases are guaranteed not to overlap, so no synchronization is needed.
+    // Do NOT call add_reader() after any read_from_index() call on the same iterator.
+    std::vector<ReaderEntry> _reader_entries;
+
+    // Index for O(1) lookup by analyzer_key. Maps normalized key to indices in _reader_entries.
+    // Built incrementally in add_reader().
+    std::unordered_map<std::string, std::vector<size_t>> _key_to_entries;
 };
 
 } // namespace doris::segment_v2

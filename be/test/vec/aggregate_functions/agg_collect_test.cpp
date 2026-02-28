@@ -94,6 +94,12 @@ public:
                 if constexpr (std::is_same_v<DataType, DataTypeString>) {
                     auto item = std::string("item") + std::to_string(i);
                     input_col->insert_data(item.c_str(), item.size());
+                } else if constexpr (std::is_same_v<DataType, DataTypeDateV2>) {
+                    auto item = static_cast<uint32_t>(i);
+                    input_col->insert_data(reinterpret_cast<const char*>(&item), 0);
+                } else if constexpr (std::is_same_v<DataType, DataTypeDateTimeV2>) {
+                    auto item = static_cast<uint64_t>(i);
+                    input_col->insert_data(reinterpret_cast<const char*>(&item), 0);
                 } else {
                     auto item = FieldType(static_cast<uint64_t>(i));
                     input_col->insert_data(reinterpret_cast<const char*>(&item), 0);

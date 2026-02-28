@@ -67,6 +67,7 @@ public enum PrimitiveType {
     DATEV2("DATEV2", 4, TPrimitiveType.DATEV2, true),
     DATETIMEV2("DATETIMEV2", 8, TPrimitiveType.DATETIMEV2, true),
     TIMEV2("TIMEV2", 8, TPrimitiveType.TIMEV2, false),
+    TIMESTAMPTZ("TIMESTAMPTZ", 8, TPrimitiveType.TIMESTAMPTZ, false),
     LAMBDA_FUNCTION("LAMBDA_FUNCTION", 16, TPrimitiveType.LAMBDA_FUNCTION, false),
 
     // sizeof(CollectionValue)
@@ -99,6 +100,7 @@ public enum PrimitiveType {
         builder.add(DECIMAL128);
         builder.add(DECIMAL256);
         builder.add(DATETIMEV2);
+        builder.add(TIMESTAMPTZ);
         typeWithPrecision = builder.build();
     }
 
@@ -134,6 +136,7 @@ public enum PrimitiveType {
         supportedTypes.add(DATEV2);
         supportedTypes.add(DATETIMEV2);
         supportedTypes.add(TIMEV2);
+        supportedTypes.add(TIMESTAMPTZ);
         supportedTypes.add(IPV4);
         supportedTypes.add(IPV6);
         supportedTypes.add(DECIMALV2);
@@ -228,6 +231,8 @@ public enum PrimitiveType {
                 return DECIMAL256;
             case TIMEV2:
                 return TIMEV2;
+            case TIMESTAMPTZ:
+                return TIMESTAMPTZ;
             case VARCHAR:
                 return VARCHAR;
             case JSONB:
@@ -322,12 +327,16 @@ public enum PrimitiveType {
         return this == NULL_TYPE;
     }
 
-    public boolean isDateType() {
-        return (this == DATE || this == DATETIME || this == DATEV2 || this == DATETIMEV2);
+    public boolean isDateLikeType() {
+        return (this == DATE || this == DATETIME || this == DATEV2 || this == DATETIMEV2 || this == TIMESTAMPTZ);
     }
 
-    public boolean isDateV2Type() {
-        return (this == DATEV2 || this == DATETIMEV2);
+    public boolean isDateV2LikeType() {
+        return (this == DATEV2 || this == DATETIMEV2 || this == TIMESTAMPTZ);
+    }
+
+    public boolean isTimeStampTzType() {
+        return this == TIMESTAMPTZ;
     }
 
     public boolean isArrayType() {
@@ -419,7 +428,8 @@ public enum PrimitiveType {
             case DATEV2:
                 return MysqlColType.MYSQL_TYPE_DATE;
             case DATETIME:
-            case DATETIMEV2: {
+            case DATETIMEV2:
+            case TIMESTAMPTZ: {
                 if (isTimeType) {
                     return MysqlColType.MYSQL_TYPE_TIME;
                 } else {
@@ -452,6 +462,7 @@ public enum PrimitiveType {
                 return DATEV2_INDEX_LEN;
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMPTZ:
                 return DATETIME_INDEX_LEN;
             case VARCHAR:
                 return VARCHAR_INDEX_LEN;

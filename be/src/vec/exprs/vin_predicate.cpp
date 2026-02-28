@@ -113,16 +113,16 @@ Status VInPredicate::evaluate_inverted_index(VExprContext* context, uint32_t seg
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
-Status VInPredicate::execute_column(VExprContext* context, const Block* block,
-                                    ColumnPtr& result_column) const {
+Status VInPredicate::execute_column(VExprContext* context, const Block* block, Selector* selector,
+                                    size_t count, ColumnPtr& result_column) const {
     if (is_const_and_have_executed()) { // const have execute in open function
-        result_column = get_result_from_const(block);
+        result_column = get_result_from_const(count);
         return Status::OK();
     }
-    if (fast_execute(context, result_column)) {
+    if (fast_execute(context, selector, count, result_column)) {
         return Status::OK();
     }
-    DCHECK(_open_finished || _getting_const_col);
+    DCHECK(_open_finished || block == nullptr);
 
     // This is an optimization. For expressions like colA IN (1, 2, 3, 4),
     // where all values inside the IN clause are constants,
@@ -130,11 +130,12 @@ Status VInPredicate::execute_column(VExprContext* context, const Block* block,
     //  Here, _children[0] is colA
     const size_t args_size = _is_args_all_constant ? 1 : _children.size();
 
-    ColumnNumbers arguments(args_size);
+    ColumnNumbers arguments;
+    arguments.reserve(args_size);
     Block temp_block;
     for (int i = 0; i < args_size; ++i) {
         ColumnPtr column;
-        RETURN_IF_ERROR(_children[i]->execute_column(context, block, column));
+        RETURN_IF_ERROR(_children[i]->execute_column(context, block, selector, count, column));
         arguments.push_back(i);
         temp_block.insert({column, _children[i]->execute_type(block), _children[i]->expr_name()});
     }
@@ -143,8 +144,9 @@ Status VInPredicate::execute_column(VExprContext* context, const Block* block,
     temp_block.insert({nullptr, _data_type, _expr_name});
 
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), temp_block,
-                                       arguments, num_columns_without_result, block->rows()));
+                                       arguments, num_columns_without_result, temp_block.rows()));
     result_column = temp_block.get_by_position(num_columns_without_result).column;
+    DCHECK_EQ(result_column->size(), count);
     return Status::OK();
 }
 

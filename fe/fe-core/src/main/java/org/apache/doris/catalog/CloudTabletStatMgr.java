@@ -29,6 +29,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.FrontendOptions;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -65,7 +66,8 @@ public class CloudTabletStatMgr extends MasterDaemon {
         long start = System.currentTimeMillis();
 
         List<GetTabletStatsRequest> reqList = new ArrayList<GetTabletStatsRequest>();
-        GetTabletStatsRequest.Builder builder = GetTabletStatsRequest.newBuilder();
+        GetTabletStatsRequest.Builder builder =
+                GetTabletStatsRequest.newBuilder().setRequestIp(FrontendOptions.getLocalHostAddressCached());
         List<Long> dbIds = Env.getCurrentInternalCatalog().getDbIds();
         for (Long dbId : dbIds) {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
@@ -96,7 +98,8 @@ public class CloudTabletStatMgr extends MasterDaemon {
 
                                 if (builder.getTabletIdxCount() >= Config.get_tablet_stat_batch_size) {
                                     reqList.add(builder.build());
-                                    builder = GetTabletStatsRequest.newBuilder();
+                                    builder = GetTabletStatsRequest.newBuilder()
+                                            .setRequestIp(FrontendOptions.getLocalHostAddressCached());
                                 }
                             }
                         }

@@ -27,7 +27,6 @@
 namespace doris::vectorized {
 
 class SimdJSONParser;
-enum class ExtractType;
 template <typename ParserImpl>
 class JSONDataParser;
 template <typename T>

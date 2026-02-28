@@ -25,17 +25,38 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h" // IWYU pragma: keep
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
-#include "olap/wrapper_field.h"
 #include "vec/columns/column_dictionary.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
 template <PrimitiveType Type, PredicateType PT>
-class ComparisonPredicateBase : public ColumnPredicate {
+class ComparisonPredicateBase final : public ColumnPredicate {
 public:
+    ENABLE_FACTORY_CREATOR(ComparisonPredicateBase);
     using T = typename PrimitiveTypeTraits<Type>::CppType;
-    ComparisonPredicateBase(uint32_t column_id, const T& value, bool opposite = false)
-            : ColumnPredicate(column_id, opposite), _value(value) {}
+    ComparisonPredicateBase(uint32_t column_id, std::string col_name,
+                            const vectorized::Field& value, bool opposite = false)
+            : ColumnPredicate(column_id, col_name, Type, opposite),
+              _value(value.template get<Type>()) {}
+    ComparisonPredicateBase(const ComparisonPredicateBase<Type, PT>& other, uint32_t col_id)
+            : ColumnPredicate(other, col_id), _value(other._value) {}
+    ComparisonPredicateBase(const ComparisonPredicateBase<Type, PT>& other) = delete;
+    std::shared_ptr<ColumnPredicate> clone(uint32_t col_id) const override {
+        DCHECK(_segment_id_to_cached_code.empty());
+        return ComparisonPredicateBase<Type, PT>::create_shared(*this, col_id);
+    }
+    std::string debug_string() const override {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer, "ComparisonPredicateBase({})",
+                       ColumnPredicate::debug_string());
+        return fmt::to_string(debug_string_buffer);
+    }
+    bool could_be_erased() const override {
+        if ((PT == PredicateType::NE && !_opposite) || (PT == PredicateType::EQ && _opposite)) {
+            return false;
+        }
+        return true;
+    }
 
     PredicateType type() const override { return PT; }
 
@@ -90,7 +111,7 @@ public:
         param.query_type = query_type;
         param.num_rows = num_rows;
         param.roaring = std::make_shared<roaring::Roaring>();
-        RETURN_IF_ERROR(iterator->read_from_index(&param));
+        RETURN_IF_ERROR(iterator->read_from_index(segment_v2::IndexParam {&param}));
 
         // mask out null_bitmap, since NULL cmp VALUE will produce NULL
         //  and be treated as false in WHERE
@@ -118,68 +139,150 @@ public:
         _evaluate_bit<true>(column, sel, size, flags);
     }
 
-    bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        if (statistic.first->is_null()) {
-            return true;
-        }
-
-        T tmp_min_value = get_zone_map_value<Type, T>(statistic.first->cell_ptr());
-        T tmp_max_value = get_zone_map_value<Type, T>(statistic.second->cell_ptr());
-
-        if constexpr (PT == PredicateType::EQ) {
-            return _operator(Compare::less_equal(tmp_min_value, _value) &&
-                                     Compare::greater_equal(tmp_max_value, _value),
-                             true);
-        } else if constexpr (PT == PredicateType::NE) {
-            return _operator(
-                    Compare::equal(tmp_min_value, _value) && Compare::equal(tmp_max_value, _value),
-                    true);
-        } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
-            return _operator(tmp_min_value, _value);
-        } else {
-            static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
-            return _operator(tmp_max_value, _value);
-        }
-    }
-
-    bool is_always_true(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        if (statistic.first->is_null() || statistic.second->is_null()) {
+    bool evaluate_and(const ZoneMapInfo& zone_map_info) const override {
+        if (zone_map_info.is_all_null) {
             return false;
         }
 
-        T tmp_min_value = get_zone_map_value<Type, T>(statistic.first->cell_ptr());
-        T tmp_max_value = get_zone_map_value<Type, T>(statistic.second->cell_ptr());
+        if constexpr (PT == PredicateType::EQ) {
+            return _operator(
+                    Compare::less_equal(zone_map_info.min_value.template get<Type>(), _value) &&
+                            Compare::greater_equal(zone_map_info.max_value.template get<Type>(),
+                                                   _value),
+                    true);
+        } else if constexpr (PT == PredicateType::NE) {
+            return _operator(
+                    Compare::equal(zone_map_info.min_value.template get<Type>(), _value) &&
+                            Compare::equal(zone_map_info.max_value.template get<Type>(), _value),
+                    true);
+        } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
+            return _operator(zone_map_info.min_value.template get<Type>(), _value);
+        } else {
+            static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
+            return _operator(zone_map_info.max_value.template get<Type>(), _value);
+        }
+    }
+
+    /**
+     * To figure out whether this page is matched partially or completely.
+     *
+     * 1. EQ: if `_value` belongs to the interval [min, max], return true to further compute each value in this page.
+     * 2. NE: return true to further compute each value in this page if some values not equal to `_value`.
+     * 3. LT|LE: if `_value` is greater than min, return true to further compute each value in this page.
+     * 4. GT|GE: if `_value` is less than max, return true to further compute each value in this page.
+     */
+
+    bool camp_field(const vectorized::Field& min_field, const vectorized::Field& max_field) const {
+        T min_value = min_field.template get<Type>();
+        T max_value = max_field.template get<Type>();
+
+        if constexpr (PT == PredicateType::EQ) {
+            return Compare::less_equal(min_value, _value) &&
+                   Compare::greater_equal(max_value, _value);
+        } else if constexpr (PT == PredicateType::NE) {
+            return !Compare::equal(min_value, _value) || !Compare::equal(max_value, _value);
+        } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
+            return Compare::less_equal(min_value, _value);
+        } else {
+            static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
+            return Compare::greater_equal(max_value, _value);
+        }
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+        bool result = true;
+        if ((*statistic->get_stat_func)(statistic, column_id())) {
+            vectorized::Field min_field;
+            vectorized::Field max_field;
+            if (statistic->is_all_null) {
+                result = false;
+            } else if (!vectorized::ParquetPredicate::parse_min_max_value(
+                                statistic->col_schema, statistic->encoded_min_value,
+                                statistic->encoded_max_value, *statistic->ctz, &min_field,
+                                &max_field)
+                                .ok()) [[unlikely]] {
+                result = true;
+            } else {
+                result = camp_field(min_field, max_field);
+            }
+        }
+
+        if constexpr (PT == PredicateType::EQ) {
+            if (result && statistic->get_bloom_filter_func != nullptr &&
+                (*statistic->get_bloom_filter_func)(statistic, column_id())) {
+                if (!statistic->bloom_filter) {
+                    return result;
+                }
+                return evaluate_and(statistic->bloom_filter.get());
+            }
+        }
+        return result;
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                      RowRanges* row_ranges) const override {
+        vectorized::ParquetPredicate::PageIndexStat* stat = nullptr;
+        if (!(statistic->get_stat_func)(&stat, column_id())) {
+            row_ranges->add(statistic->row_group_range);
+            return true;
+        }
+
+        for (int page_id = 0; page_id < stat->num_of_pages; page_id++) {
+            if (stat->is_all_null[page_id]) {
+                // all null page, not need read.
+                continue;
+            }
+
+            vectorized::Field min_field;
+            vectorized::Field max_field;
+            if (!vectorized::ParquetPredicate::parse_min_max_value(
+                         stat->col_schema, stat->encoded_min_value[page_id],
+                         stat->encoded_max_value[page_id], *statistic->ctz, &min_field, &max_field)
+                         .ok()) [[unlikely]] {
+                row_ranges->add(stat->ranges[page_id]);
+                continue;
+            };
+
+            if (camp_field(min_field, max_field)) {
+                row_ranges->add(stat->ranges[page_id]);
+            }
+        };
+        return row_ranges->count() > 0;
+    }
+
+    bool is_always_true(const ZoneMapInfo& zone_map_info) const override {
+        if (zone_map_info.has_null) {
+            return false;
+        }
 
         if constexpr (PT == PredicateType::LT) {
-            return _value > tmp_max_value;
+            return _value > zone_map_info.max_value.template get<Type>();
         } else if constexpr (PT == PredicateType::LE) {
-            return _value >= tmp_max_value;
+            return _value >= zone_map_info.max_value.template get<Type>();
         } else if constexpr (PT == PredicateType::GT) {
-            return _value < tmp_min_value;
+            return _value < zone_map_info.min_value.template get<Type>();
         } else if constexpr (PT == PredicateType::GE) {
-            return _value <= tmp_min_value;
+            return _value <= zone_map_info.min_value.template get<Type>();
         }
 
         return false;
     }
 
-    bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        if (statistic.first->is_null() || statistic.second->is_null()) {
+    bool evaluate_del(const ZoneMapInfo& zone_map_info) const override {
+        if (zone_map_info.has_null) {
             return false;
         }
-
-        T tmp_min_value = get_zone_map_value<Type, T>(statistic.first->cell_ptr());
-        T tmp_max_value = get_zone_map_value<Type, T>(statistic.second->cell_ptr());
-
         if constexpr (PT == PredicateType::EQ) {
-            return tmp_min_value == _value && tmp_max_value == _value;
+            return zone_map_info.min_value.template get<Type>() == _value &&
+                   zone_map_info.max_value.template get<Type>() == _value;
         } else if constexpr (PT == PredicateType::NE) {
-            return tmp_min_value > _value || tmp_max_value < _value;
+            return zone_map_info.min_value.template get<Type>() > _value ||
+                   zone_map_info.max_value.template get<Type>() < _value;
         } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
-            return _operator(tmp_max_value, _value);
+            return _operator(zone_map_info.max_value.template get<Type>(), _value);
         } else {
             static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
-            return _operator(tmp_min_value, _value);
+            return _operator(zone_map_info.min_value.template get<Type>(), _value);
         }
     }
 
@@ -189,8 +292,8 @@ public:
             if (bf->is_ngram_bf()) {
                 return true;
             }
-            if constexpr (std::is_same_v<T, StringRef>) {
-                return bf->test_bytes(_value.data, _value.size);
+            if constexpr (is_string_type(Type)) {
+                return bf->test_bytes(_value.data(), _value.size());
             } else {
                 // DecimalV2 using decimal12_t in bloom filter, should convert value to decimal12_t
                 if constexpr (Type == PrimitiveType::TYPE_DECIMALV2) {
@@ -218,7 +321,7 @@ public:
     }
 
     bool evaluate_and(const StringRef* dict_words, const size_t count) const override {
-        if constexpr (std::is_same_v<T, StringRef>) {
+        if constexpr (is_string_type(Type)) {
             for (size_t i = 0; i != count; ++i) {
                 if (_operator(dict_words[i], _value) ^ _opposite) {
                     return true;
@@ -232,6 +335,43 @@ public:
 
     bool can_do_bloom_filter(bool ngram) const override {
         return PT == PredicateType::EQ && !ngram;
+    }
+
+    bool evaluate_and(const vectorized::ParquetBlockSplitBloomFilter* bf) const override {
+        if constexpr (PT == PredicateType::EQ) {
+            auto test_bytes = [&]<typename V>(const V& value) {
+                return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&value)),
+                                      sizeof(V));
+            };
+
+            // Only support Parquet native types where physical == logical representation
+            // BOOLEAN -> hash as int32 (Parquet bool stored as int32)
+            if constexpr (Type == PrimitiveType::TYPE_BOOLEAN) {
+                int32_t int32_value = static_cast<int32_t>(_value);
+                return test_bytes(int32_value);
+            } else if constexpr (Type == PrimitiveType::TYPE_INT) {
+                // INT -> hash as int32
+                return test_bytes(_value);
+            } else if constexpr (Type == PrimitiveType::TYPE_BIGINT) {
+                // BIGINT -> hash as int64
+                return test_bytes(_value);
+            } else if constexpr (Type == PrimitiveType::TYPE_FLOAT) {
+                // FLOAT -> hash as float
+                return test_bytes(_value);
+            } else if constexpr (Type == PrimitiveType::TYPE_DOUBLE) {
+                // DOUBLE -> hash as double
+                return test_bytes(_value);
+            } else if constexpr (is_string_type(Type)) {
+                // VARCHAR/STRING -> hash bytes
+                return bf->test_bytes(_value.data(), _value.size());
+            } else {
+                // Unsupported types: return true (accept)
+                return true;
+            }
+        } else {
+            LOG(FATAL) << "Bloom filter is not supported by predicate type.";
+            return true;
+        }
     }
 
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
@@ -273,7 +413,7 @@ public:
                                            .get_data();
 
             if (nested_column.is_column_dictionary()) {
-                if constexpr (std::is_same_v<T, StringRef>) {
+                if constexpr (is_string_type(Type)) {
                     const auto* dict_column_ptr =
                             vectorized::check_and_get_column<vectorized::ColumnDictI32>(
                                     nested_column);
@@ -307,7 +447,7 @@ public:
             }
         } else {
             if (column.is_column_dictionary()) {
-                if constexpr (std::is_same_v<T, StringRef>) {
+                if constexpr (is_string_type(Type)) {
                     const auto* dict_column_ptr =
                             vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
                     auto dict_code = _find_code_from_dictionary_column(*dict_column_ptr);
@@ -384,18 +524,34 @@ private:
 
     template <typename LeftT, typename RightT>
     bool _operator(const LeftT& lhs, const RightT& rhs) const {
-        if constexpr (PT == PredicateType::EQ) {
-            return Compare::equal(lhs, rhs);
-        } else if constexpr (PT == PredicateType::NE) {
-            return Compare::not_equal(lhs, rhs);
-        } else if constexpr (PT == PredicateType::LT) {
-            return Compare::less(lhs, rhs);
-        } else if constexpr (PT == PredicateType::LE) {
-            return Compare::less_equal(lhs, rhs);
-        } else if constexpr (PT == PredicateType::GT) {
-            return Compare::greater(lhs, rhs);
-        } else if constexpr (PT == PredicateType::GE) {
-            return Compare::greater_equal(lhs, rhs);
+        if constexpr (std::is_same_v<std::string, RightT> && !std::is_same_v<LeftT, RightT>) {
+            if constexpr (PT == PredicateType::EQ) {
+                return Compare::equal(lhs, StringRef(rhs.data(), rhs.size()));
+            } else if constexpr (PT == PredicateType::NE) {
+                return Compare::not_equal(lhs, StringRef(rhs.data(), rhs.size()));
+            } else if constexpr (PT == PredicateType::LT) {
+                return Compare::less(lhs, StringRef(rhs.data(), rhs.size()));
+            } else if constexpr (PT == PredicateType::LE) {
+                return Compare::less_equal(lhs, StringRef(rhs.data(), rhs.size()));
+            } else if constexpr (PT == PredicateType::GT) {
+                return Compare::greater(lhs, StringRef(rhs.data(), rhs.size()));
+            } else if constexpr (PT == PredicateType::GE) {
+                return Compare::greater_equal(lhs, StringRef(rhs.data(), rhs.size()));
+            }
+        } else {
+            if constexpr (PT == PredicateType::EQ) {
+                return Compare::equal(lhs, rhs);
+            } else if constexpr (PT == PredicateType::NE) {
+                return Compare::not_equal(lhs, rhs);
+            } else if constexpr (PT == PredicateType::LT) {
+                return Compare::less(lhs, rhs);
+            } else if constexpr (PT == PredicateType::LE) {
+                return Compare::less_equal(lhs, rhs);
+            } else if constexpr (PT == PredicateType::GT) {
+                return Compare::greater(lhs, rhs);
+            } else if constexpr (PT == PredicateType::GE) {
+                return Compare::greater_equal(lhs, rhs);
+            }
         }
     }
 
@@ -472,7 +628,7 @@ private:
     void _base_evaluate_bit(const vectorized::IColumn* column, const uint8_t* null_map,
                             const uint16_t* sel, uint16_t size, bool* flags) const {
         if (column->is_column_dictionary()) {
-            if constexpr (std::is_same_v<T, StringRef>) {
+            if constexpr (is_string_type(Type)) {
                 const auto* dict_column_ptr =
                         vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
                 const auto* data_array = dict_column_ptr->get_data().data();
@@ -498,7 +654,7 @@ private:
     uint16_t _base_evaluate(const vectorized::IColumn* column, const uint8_t* null_map,
                             uint16_t* sel, uint16_t size) const {
         if (column->is_column_dictionary()) {
-            if constexpr (std::is_same_v<T, StringRef>) {
+            if constexpr (is_string_type(Type)) {
                 const auto* dict_column_ptr =
                         vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
                 const auto& pred_col = dict_column_ptr->get_data();
@@ -542,14 +698,17 @@ private:
 
     int32_t __attribute__((flatten))
     _find_code_from_dictionary_column(const vectorized::ColumnDictI32& column) const {
+        static_assert(is_string_type(Type),
+                      "Only string type predicate can use dictionary column.");
         int32_t code = 0;
         if (_segment_id_to_cached_code.if_contains(
                     column.get_rowset_segment_id(),
                     [&code](const auto& pair) { code = pair.second; })) {
             return code;
         }
-        code = _is_range() ? column.find_code_by_bound(_value, _is_greater(), _is_eq())
-                           : column.find_code(_value);
+        code = _is_range() ? column.find_code_by_bound(StringRef(_value.data(), _value.size()),
+                                                       _is_greater(), _is_eq())
+                           : column.find_code(StringRef(_value.data(), _value.size()));
         // Sometimes the dict is not initialized when run comparison predicate here, for example,
         // the full page is null, then the reader will skip read, so that the dictionary is not
         // inited. The cached code is wrong during this case, because the following page maybe not
@@ -562,12 +721,6 @@ private:
         }
 
         return code;
-    }
-
-    std::string _debug_string() const override {
-        std::string info =
-                "ComparisonPredicateBase(" + type_to_string(Type) + ", " + type_to_string(PT) + ")";
-        return info;
     }
 
     mutable phmap::parallel_flat_hash_map<

@@ -48,16 +48,15 @@ public:
     using BasePtr = HybridSetBase*;
     template <PrimitiveType type, size_t N>
     static BasePtr get_function(bool null_aware) {
-        using CppType = typename PrimitiveTypeTraits<type>::CppType;
         if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
             using Set = std::conditional_t<
-                    std::is_same_v<CppType, StringRef>, StringSet<>,
+                    is_string_type(type), StringSet<>,
                     HybridSet<type,
                               FixedContainer<typename PrimitiveTypeTraits<type>::CppType, N>>>;
             return new Set(null_aware);
         } else {
             using Set = std::conditional_t<
-                    std::is_same_v<CppType, StringRef>, StringSet<>,
+                    is_string_type(type), StringSet<>,
                     HybridSet<type, DynamicContainer<typename PrimitiveTypeTraits<type>::CppType>>>;
             return new Set(null_aware);
         }
@@ -103,6 +102,7 @@ public:
     M(TYPE_DATETIME)          \
     M(TYPE_DATEV2)            \
     M(TYPE_DATETIMEV2)        \
+    M(TYPE_TIMESTAMPTZ)       \
     M(TYPE_CHAR)              \
     M(TYPE_VARCHAR)           \
     M(TYPE_STRING)            \
@@ -231,55 +231,58 @@ inline auto create_bitmap_filter(PrimitiveType type) {
 }
 
 template <PrimitiveType PT>
-ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
-                                              const std::shared_ptr<BloomFilterFuncBase>& filter,
-                                              const TabletColumn*, bool null_aware) {
+std::shared_ptr<const ColumnPredicate> create_olap_column_predicate(
+        uint32_t column_id, const std::shared_ptr<BloomFilterFuncBase>& filter, const TabletColumn*,
+        bool null_aware) {
     std::shared_ptr<BloomFilterFuncBase> filter_olap;
     filter_olap.reset(create_bloom_filter(PT, null_aware));
     filter_olap->light_copy(filter.get());
     // create a new filter to match the input filter and PT. For example, filter may be varchar, but PT is char
-    return new BloomFilterColumnPredicate<PT>(column_id, filter_olap);
+    return BloomFilterColumnPredicate<PT>::create_shared(column_id, filter_olap);
 }
 
 template <PrimitiveType PT>
-ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
-                                              const std::shared_ptr<BitmapFilterFuncBase>& filter,
-                                              const TabletColumn*, bool) {
+std::shared_ptr<const ColumnPredicate> create_olap_column_predicate(
+        uint32_t column_id, const std::shared_ptr<BitmapFilterFuncBase>& filter,
+        const TabletColumn*, bool) {
     if constexpr (PT == TYPE_TINYINT || PT == TYPE_SMALLINT || PT == TYPE_INT ||
                   PT == TYPE_BIGINT) {
-        return new BitmapFilterColumnPredicate<PT>(column_id, filter);
+        return BitmapFilterColumnPredicate<PT>::create_shared(column_id, filter);
     } else {
         throw Exception(ErrorCode::INTERNAL_ERROR, "bitmap filter do not support type {}", PT);
     }
 }
 
 template <PrimitiveType PT>
-ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
-                                              const std::shared_ptr<HybridSetBase>& filter,
-                                              const TabletColumn* column, bool) {
+std::shared_ptr<const ColumnPredicate> create_olap_column_predicate(
+        uint32_t column_id, const std::shared_ptr<HybridSetBase>& filter,
+        const TabletColumn* column, bool) {
     return create_in_list_predicate<PT, PredicateType::IN_LIST>(column_id, filter,
                                                                 column->length());
 }
 
 template <PrimitiveType PT>
-ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
-                                              const std::shared_ptr<FunctionFilter>& filter,
-                                              const TabletColumn* column, bool) {
+std::shared_ptr<ColumnPredicate> create_olap_column_predicate(
+        uint32_t column_id, const std::shared_ptr<FunctionFilter>& filter,
+        const TabletColumn* column, bool) {
     // currently only support like predicate
     if constexpr (PT == TYPE_CHAR) {
-        return new LikeColumnPredicate<TYPE_CHAR>(filter->_opposite, column_id, filter->_fn_ctx,
-                                                  filter->_string_param);
+        return LikeColumnPredicate<TYPE_CHAR>::create_shared(filter->_opposite, column_id,
+                                                             column->name(), filter->_fn_ctx,
+                                                             filter->_string_param);
     } else if constexpr (PT == TYPE_VARCHAR || PT == TYPE_STRING) {
-        return new LikeColumnPredicate<TYPE_STRING>(filter->_opposite, column_id, filter->_fn_ctx,
-                                                    filter->_string_param);
+        return LikeColumnPredicate<TYPE_STRING>::create_shared(filter->_opposite, column_id,
+                                                               column->name(), filter->_fn_ctx,
+                                                               filter->_string_param);
     }
     throw Exception(ErrorCode::INTERNAL_ERROR, "function filter do not support type {}", PT);
 }
 
 template <typename T>
-ColumnPredicate* create_column_predicate(uint32_t column_id, const std::shared_ptr<T>& filter,
-                                         FieldType type, const TabletColumn* column,
-                                         bool null_aware = false) {
+std::shared_ptr<ColumnPredicate> create_column_predicate(uint32_t column_id,
+                                                         const std::shared_ptr<T>& filter,
+                                                         FieldType type, const TabletColumn* column,
+                                                         bool null_aware = false) {
     switch (type) {
 #define M(NAME)                                                                           \
     case FieldType::OLAP_FIELD_##NAME: {                                                  \

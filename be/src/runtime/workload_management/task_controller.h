@@ -64,7 +64,16 @@ public:
     virtual void finish_impl() {}
     int64_t start_time() const { return start_time_; }
     int64_t finish_time() const { return finish_time_; }
-    int64_t running_time() const { return finish_time() - start_time(); }
+    int64_t running_time() const {
+        if (start_time() == 0) {
+            return 0;
+        }
+        if (is_finished_) {
+            return finish_time() - start_time();
+        } else {
+            return MonotonicMillis() - start_time();
+        }
+    }
 
     /* cancel action
     */
@@ -96,7 +105,7 @@ public:
     virtual bool is_pure_load_task() const { return false; }
     void set_low_memory_mode(bool low_memory_mode) { low_memory_mode_ = low_memory_mode; }
     bool low_memory_mode() { return low_memory_mode_; }
-    void disable_reserve_memory() { enable_reserve_memory_ = false; }
+    virtual void disable_reserve_memory() { enable_reserve_memory_ = false; }
     virtual bool is_enable_reserve_memory() const { return enable_reserve_memory_; }
     virtual void set_memory_sufficient(bool sufficient) {};
     virtual int64_t memory_sufficient_time() { return 0; };

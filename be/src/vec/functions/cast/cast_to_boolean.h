@@ -92,9 +92,9 @@ inline bool CastToBool::from_decimal(const Decimal64& from, UInt8& to, UInt32, U
 }
 
 template <>
-inline bool CastToBool::from_decimal(const Decimal128V2& from, UInt8& to, UInt32, UInt32,
+inline bool CastToBool::from_decimal(const DecimalV2Value& from, UInt8& to, UInt32, UInt32,
                                      CastParameters&) {
-    to = (from.value != 0);
+    to = (from.value() != 0);
     return true;
 }
 

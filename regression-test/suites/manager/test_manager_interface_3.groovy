@@ -185,27 +185,27 @@ suite('test_manager_interface_3',"p0") {
         for(int i = 0;i < result.size(); i++ ) {
             
             // Roles: test_manager_role_grant_role1 
-            if ( result[i][3] == "${role1}") {
+            if ( result[i][4] == "${role1}") {
                 //UserIdentity: 
                 logger.info("result[${i}][0] = ${result[i][0]}" )
                 if (result[i][0].contains("test_manager_role_grant_user1")){
                     //DatabasePrivs 
-                    assertTrue(result[i][6] == "internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.test_manager_role_grant_db: Select_priv,Create_priv,Drop_priv")
+                    assertTrue(result[i][7] == "internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.test_manager_role_grant_db: Select_priv,Create_priv,Drop_priv")
                     x ++ 
                 }else if (result[i][0].contains("test_manager_role_grant_user2")) {
-                    assertTrue(result[i][6] == "internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.test_manager_role_grant_db: Select_priv,Load_priv,Drop_priv")
+                    assertTrue(result[i][7] == "internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.test_manager_role_grant_db: Select_priv,Load_priv,Drop_priv")
                     x ++ 
 
                 }else {
                     assertTrue(false." only ${user1} and ${user2}, no ${result[i][0]}")
                 }
             }
-            else if ( result[i][3] =="admin"){
+            else if ( result[i][4] =="admin"){
                 if (result[i][0] == """'admin'@'%'"""){
                     x++
                 }
             
-            } else if (result[i][3] =="operator") {
+            } else if (result[i][4] =="operator") {
                 if (result[i][0] =="""'root'@'%'""" ){
                     x++
                 }
@@ -240,27 +240,27 @@ suite('test_manager_interface_3',"p0") {
         for(int i = 0;i < result.size(); i++ ) {
             
             // Roles: test_manager_role_grant_role1 
-            if ( result[i][3] == "${role1}") {
+            if ( result[i][4] == "${role1}") {
                 //UserIdentity: 
                 logger.info("result[${i}][0] = ${result[i][0]}" )
                 if (result[i][0].contains("test_manager_role_grant_user1")){
                     //DatabasePrivs 
-                    assertTrue(result[i][6] == "internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.test_manager_role_grant_db: Select_priv,Drop_priv")
+                    assertTrue(result[i][7] == "internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.test_manager_role_grant_db: Select_priv,Drop_priv")
                     x ++ 
                 }else if (result[i][0].contains("test_manager_role_grant_user2")) {
-                    assertTrue(result[i][6].contains("internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.test_manager_role_grant_db: Select_priv,Drop_priv"))
+                    assertTrue(result[i][7].contains("internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.test_manager_role_grant_db: Select_priv,Drop_priv"))
                     x ++ 
 
                 }else {
                     assertTrue(false." only ${user1} and ${user2}, no ${result[i][0]}")
                 }
             }
-            else if ( result[i][3] =="admin"){
+            else if ( result[i][4] =="admin"){
                 if (result[i][0] == """'admin'@'%'"""){
                     x++
                 }
             
-            } else if (result[i][3] =="operator") {
+            } else if (result[i][4] =="operator") {
                 if (result[i][0] =="""'root'@'%'""" ){
                     x++
                 }
@@ -272,10 +272,10 @@ suite('test_manager_interface_3',"p0") {
         result = sql  """show  grants """        
         x = 0 
         for(int i = 0;i < result.size(); i++ ) {
-            if (result[i][3] =="operator") {
+            if (result[i][4] =="operator") {
                 if (result[i][0] =="""'root'@'%'""" ){
-                    if (result[i][6] == "internal.information_schema: Select_priv; internal.mysql: Select_priv"){
-                        assertTrue(result[i][4]=="Node_priv,Admin_priv")
+                    if (result[i][7] == "internal.information_schema: Select_priv; internal.mysql: Select_priv"){
+                        assertTrue(result[i][5]=="Node_priv,Admin_priv")
                         x++
                     
                     }
@@ -425,7 +425,7 @@ suite('test_manager_interface_3',"p0") {
             }
         }
         log.info("x1 = ${x}")
-        assertTrue(x == 21)
+        assertTrue(x == 22)
 
         connect(user, "${pwd}", url) { 
             result = sql """ show resources """
@@ -437,7 +437,7 @@ suite('test_manager_interface_3',"p0") {
                 }
             }
             log.info("x2 = ${x}")
-            assertTrue(x == 21)
+            assertTrue(x == 22)
         }
 
         checkNereidsExecute("show all grants");
@@ -445,11 +445,11 @@ suite('test_manager_interface_3',"p0") {
         x = 0 
         for(int i = 0;i < result.size(); i++ ) {
             
-            if ( result[i][3] == "${role}") {
+            if ( result[i][4] == "${role}") {
                 //UserIdentity: 
                 if (result[i][0].contains(user)){
                     //DatabasePrivs 
-                    assertTrue(result[i][9] == "test_manager_resource_case: Usage_priv")
+                    assertTrue(result[i][10] == "test_manager_resource_case: Usage_priv")
                     x ++ 
                 }
             }
@@ -481,7 +481,7 @@ suite('test_manager_interface_3',"p0") {
                 }
             }
             log.info("x3 = ${x}")
-            assertTrue(x == 21)
+            assertTrue(x == 22)
         }
         sql """ drop RESOURCE if exists  ${resource_name} """ 
         sql """drop user if exists ${user}"""

@@ -24,6 +24,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.FrontendOptions;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -76,7 +77,10 @@ public class CloudSnapshotHandler extends MasterDaemon {
     public Cloud.ListSnapshotResponse listSnapshot(boolean includeAborted) throws DdlException {
         try {
             Cloud.ListSnapshotRequest request = Cloud.ListSnapshotRequest.newBuilder()
-                    .setCloudUniqueId(Config.cloud_unique_id).setIncludeAborted(includeAborted).build();
+                    .setCloudUniqueId(Config.cloud_unique_id)
+                    .setRequestIp(FrontendOptions.getLocalHostAddressCached())
+                    .setIncludeAborted(includeAborted)
+                    .build();
             Cloud.ListSnapshotResponse response = MetaServiceProxy.getInstance().listSnapshot(request);
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 LOG.warn("listSnapshot response: {} ", response);

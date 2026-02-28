@@ -486,6 +486,19 @@ public class MetaServiceClient {
                 .abortTxnWithCoordinator(request);
     }
 
+    public Cloud.GetPrepareTxnByCoordinatorResponse
+            getPrepareTxnByCoordinator(Cloud.GetPrepareTxnByCoordinatorRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.GetPrepareTxnByCoordinatorRequest.Builder builder =
+                    Cloud.GetPrepareTxnByCoordinatorRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .getPrepareTxnByCoordinator(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getPrepareTxnByCoordinator(request);
+    }
+
     public Cloud.FinishTabletJobResponse
             finishTabletJob(Cloud.FinishTabletJobRequest request) {
         if (!request.hasCloudUniqueId()) {
@@ -524,6 +537,11 @@ public class MetaServiceClient {
     public Cloud.BeginSnapshotResponse beginSnapshot(Cloud.BeginSnapshotRequest request) {
         return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
             .beginSnapshot(request);
+    }
+
+    public Cloud.UpdateSnapshotResponse updateSnapshot(Cloud.UpdateSnapshotRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .updateSnapshot(request);
     }
 
     public Cloud.CommitSnapshotResponse commitSnapshot(Cloud.CommitSnapshotRequest request) {

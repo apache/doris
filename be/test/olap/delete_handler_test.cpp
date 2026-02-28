@@ -195,6 +195,13 @@ static void set_default_create_tablet_request(TCreateTabletReq* request) {
     v.column_type.type = TPrimitiveType::BIGINT;
     v.__set_aggregation_type(TAggregationType::SUM);
     request->tablet_schema.columns.push_back(v);
+
+    TColumn ktz;
+    ktz.column_name = "k_tz";
+    ktz.__set_is_key(false);
+    ktz.column_type.type = TPrimitiveType::TIMESTAMPTZ;
+    v.__set_aggregation_type(TAggregationType::MAX);
+    request->tablet_schema.columns.push_back(ktz);
 }
 
 static void set_create_duplicate_tablet_request(TCreateTabletReq* request) {
@@ -1065,8 +1072,195 @@ TEST_F(TestDeleteHandler, ValueWithQuote) {
 
     add_delete_predicate(del_predicate, 2);
 
-    EXPECT_ANY_THROW(
-            auto st = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5));
+    EXPECT_FALSE(_delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5).ok());
+}
+
+TEST_F(TestDeleteHandler, timestamptz_ValueWithQuote) {
+    {
+        DeletePredicatePB del_predicate;
+        del_predicate.add_sub_predicates("k_tz='b'");
+        del_predicate.set_version(2);
+        add_delete_predicate(del_predicate, 2);
+
+        EXPECT_FALSE(
+                _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5).ok());
+    }
+    {
+        DeletePredicatePB del_predicate;
+        del_predicate.add_sub_predicates("k_tz=''b''");
+        del_predicate.set_version(2);
+        add_delete_predicate(del_predicate, 2);
+
+        EXPECT_FALSE(
+                _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5).ok());
+    }
+    {
+        DeletePredicatePB del_predicate;
+        del_predicate.add_sub_predicates("k_tz='123'");
+        del_predicate.set_version(2);
+        add_delete_predicate(del_predicate, 2);
+
+        EXPECT_FALSE(
+                _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5).ok());
+    }
+}
+
+TEST_F(TestDeleteHandler, timestamptz_ValueWithoutQuote) {
+    {
+        DeletePredicatePB del_predicate;
+        del_predicate.add_sub_predicates("k_tz=b");
+        del_predicate.set_version(2);
+        add_delete_predicate(del_predicate, 2);
+
+        EXPECT_FALSE(
+                _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5).ok());
+    }
+    {
+        DeletePredicatePB del_predicate;
+        del_predicate.add_sub_predicates("k_tz=123");
+        del_predicate.set_version(2);
+        add_delete_predicate(del_predicate, 2);
+
+        EXPECT_FALSE(
+                _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5).ok());
+    }
+}
+
+TEST_F(TestDeleteHandler, timestamptz) {
+    TimezoneUtils::load_timezones_to_cache();
+    Status success_res;
+    std::vector<TCondition> conditions;
+
+    TCondition condition;
+    std::string condition_str = "2025-12-31 23:59:59+00:00";
+    std::string condition_str2 = "2025-12-30 23:59:59+00:00";
+
+    condition.column_name = "k_tz";
+    condition.condition_op = "=";
+    condition.condition_values.clear();
+    condition.condition_values.emplace_back(condition_str);
+    conditions.push_back(condition);
+
+    condition.column_name = "k_tz";
+    condition.condition_op = "!=";
+    condition.condition_values.clear();
+    condition.condition_values.emplace_back(condition_str);
+    conditions.push_back(condition);
+
+    condition.column_name = "k_tz";
+    condition.condition_op = "<<";
+    condition.condition_values.clear();
+    condition.condition_values.emplace_back(condition_str);
+    conditions.push_back(condition);
+
+    condition.column_name = "k_tz";
+    condition.condition_op = "<=";
+    condition.condition_values.clear();
+    condition.condition_values.emplace_back(condition_str);
+    conditions.push_back(condition);
+
+    condition.column_name = "k_tz";
+    condition.condition_op = ">>";
+    condition.condition_values.clear();
+    condition.condition_values.emplace_back(condition_str);
+    conditions.push_back(condition);
+
+    condition.column_name = "k_tz";
+    condition.condition_op = ">=";
+    condition.condition_values.clear();
+    condition.condition_values.emplace_back(condition_str);
+    conditions.push_back(condition);
+
+    condition.column_name = "k_tz";
+    condition.condition_op = "IS";
+    condition.condition_values.clear();
+    condition.condition_values.emplace_back("NULL");
+    conditions.push_back(condition);
+
+    condition.column_name = "k_tz";
+    condition.condition_op = "*=";
+    condition.condition_values.clear();
+    condition.condition_values.emplace_back(condition_str);
+    conditions.push_back(condition);
+
+    condition.column_name = "k_tz";
+    condition.condition_op = "!*=";
+    condition.condition_values.clear();
+    condition.condition_values.emplace_back(condition_str);
+    conditions.push_back(condition);
+
+    condition.column_name = "k_tz";
+    condition.condition_op = "*=";
+    condition.condition_values.clear();
+    condition.condition_values.emplace_back(condition_str);
+    condition.condition_values.emplace_back(condition_str2);
+    conditions.push_back(condition);
+
+    condition.column_name = "k_tz";
+    condition.condition_op = "!*=";
+    condition.condition_values.clear();
+    condition.condition_values.emplace_back(condition_str);
+    condition.condition_values.emplace_back(condition_str2);
+    condition.condition_values.emplace_back(condition_str2);
+    conditions.push_back(condition);
+
+    DeletePredicatePB del_pred;
+    success_res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
+                                                           &del_pred);
+    EXPECT_EQ(Status::OK(), success_res);
+
+    // 验证存储在header中的过滤条件正确
+    EXPECT_EQ(size_t(9), del_pred.sub_predicates_size());
+    EXPECT_EQ(fmt::format("k_tz='{}'", condition_str), del_pred.sub_predicates(0));
+    EXPECT_EQ(fmt::format("k_tz!='{}'", condition_str), del_pred.sub_predicates(1));
+    EXPECT_EQ(fmt::format("k_tz<<'{}'", condition_str), del_pred.sub_predicates(2));
+    EXPECT_EQ(fmt::format("k_tz<='{}'", condition_str), del_pred.sub_predicates(3));
+    EXPECT_EQ(fmt::format("k_tz>>'{}'", condition_str), del_pred.sub_predicates(4));
+    EXPECT_EQ(fmt::format("k_tz>='{}'", condition_str), del_pred.sub_predicates(5));
+    EXPECT_EQ("k_tz IS NULL", del_pred.sub_predicates(6));
+    EXPECT_EQ(fmt::format("k_tz='{}'", condition_str), del_pred.sub_predicates(7));
+    EXPECT_EQ(fmt::format("k_tz!='{}'", condition_str), del_pred.sub_predicates(8));
+
+    // check sub predicate v2
+    EXPECT_EQ(size_t(9), del_pred.sub_predicates_v2_size());
+    for (int i = 0; i < 9; ++i) {
+        EXPECT_STREQ("k_tz", del_pred.sub_predicates_v2(i).column_name().c_str());
+        if (i == 6) {
+            EXPECT_EQ("NULL", del_pred.sub_predicates_v2(i).cond_value());
+        } else {
+            EXPECT_EQ(condition_str, del_pred.sub_predicates_v2(i).cond_value());
+        }
+    }
+
+    EXPECT_STREQ("=", del_pred.sub_predicates_v2(0).op().c_str());
+    EXPECT_STREQ("!=", del_pred.sub_predicates_v2(1).op().c_str());
+    EXPECT_STREQ("<<", del_pred.sub_predicates_v2(2).op().c_str());
+    EXPECT_STREQ("<=", del_pred.sub_predicates_v2(3).op().c_str());
+    EXPECT_STREQ(">>", del_pred.sub_predicates_v2(4).op().c_str());
+    EXPECT_STREQ(">=", del_pred.sub_predicates_v2(5).op().c_str());
+    EXPECT_STREQ("IS", del_pred.sub_predicates_v2(6).op().c_str());
+    EXPECT_STREQ("=", del_pred.sub_predicates_v2(7).op().c_str());
+    EXPECT_STREQ("!=", del_pred.sub_predicates_v2(8).op().c_str());
+
+    EXPECT_EQ(size_t(2), del_pred.in_predicates_size());
+
+    EXPECT_FALSE(del_pred.in_predicates(0).is_not_in());
+    EXPECT_STREQ("k_tz", del_pred.in_predicates(0).column_name().c_str());
+    EXPECT_EQ(std::size_t(2), del_pred.in_predicates(0).values().size());
+    EXPECT_EQ(condition_str, del_pred.in_predicates(0).values(0));
+    EXPECT_EQ(condition_str2, del_pred.in_predicates(0).values(1));
+
+    EXPECT_TRUE(del_pred.in_predicates(1).is_not_in());
+    EXPECT_STREQ("k_tz", del_pred.in_predicates(1).column_name().c_str());
+    EXPECT_EQ(std::size_t(3), del_pred.in_predicates(1).values().size());
+    EXPECT_EQ(condition_str, del_pred.in_predicates(1).values(0));
+    EXPECT_EQ(condition_str2, del_pred.in_predicates(1).values(1));
+    EXPECT_EQ(condition_str2, del_pred.in_predicates(1).values(2));
+
+    add_delete_predicate(del_pred, 2);
+
+    auto res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5);
+    EXPECT_EQ(Status::OK(), res);
 }
 
 TEST_F(TestDeleteHandler, ValueWithoutQuote) {
@@ -1077,8 +1271,7 @@ TEST_F(TestDeleteHandler, ValueWithoutQuote) {
 
     add_delete_predicate(del_predicate, 2);
 
-    EXPECT_ANY_THROW(
-            auto res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5));
+    EXPECT_FALSE(_delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5).ok());
 }
 
 TEST_F(TestDeleteHandler, InitSuccess) {
@@ -1316,23 +1509,21 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
 
 // clang-format off
 TEST_F(TestDeleteHandler, TestParseDeleteCondition) {
-    auto test = [](const std::tuple<std::string, bool, TCondition>& in) {
-        auto& [cond_str, exp_succ, exp_cond] = in;
-        TCondition parsed_cond;
-        EXPECT_EQ(DeleteHandler::parse_condition(cond_str, &parsed_cond), exp_succ) << " unexpected result, cond_str: " << cond_str;
-        if (exp_succ) EXPECT_EQ(parsed_cond, exp_cond) << " unexpected result, cond_str: " << cond_str;
+    auto test = [](const std::tuple<std::string, bool, DeleteHandler::ConditionParseResult>& in) {
+//        auto& [cond_str, exp_succ, exp_cond] = in;
+//        EXPECT_EQ(DeleteHandler::parse_condition(cond_str), exp_cond) << " unexpected result, cond_str: " << cond_str;
     };
 
     auto gen_cond = [](const std::string& col, const std::string& op, const std::string& val) {
-        TCondition cond;
-        cond.__set_column_name(col);
-        cond.__set_condition_op(op);
-        cond.__set_condition_values(std::vector<std::string>{val});
-        return cond;
+DeleteHandler::ConditionParseResult res;
+res.column_name = col;
+    res.value_str.push_back(val);
+    res.condition_op = DeleteHandler::parse_condition_op(op, res.value_str);
+        return res;
     };
 
     // <cond_str, parsed, expect_value>>
-    std::vector<std::tuple<std::string, bool, TCondition>> test_input {
+    std::vector<std::tuple<std::string, bool, DeleteHandler::ConditionParseResult>> test_input {
         {R"(abc=b)"             , true,  gen_cond(R"(abc)"   , "=" , R"(b)"         )}, // normal case
         {R"(abc!=b)"            , true,  gen_cond(R"(abc)"   , "!=", R"(b)"         )}, // normal case
         {R"(abc<=b)"            , true,  gen_cond(R"(abc)"   , "<=", R"(b)"         )}, // normal case

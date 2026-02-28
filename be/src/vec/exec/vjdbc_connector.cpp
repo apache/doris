@@ -681,9 +681,14 @@ Status JdbcConnector::_check_and_return_default_driver_url(const std::string& ur
         // from `DORIS_HOME/jdbc_drivers` to `DORIS_HOME/plugins/jdbc_drivers`,
         // so we need to check the old default dir for compatibility.
         std::string target_path = default_url + "/" + url;
+        std::string old_target_path = default_old_url + "/" + url;
         if (std::filesystem::exists(target_path)) {
             // File exists in new default directory
             *result_url = "file://" + target_path;
+            return Status::OK();
+        } else if (std::filesystem::exists(old_target_path)) {
+            // File exists in old default directory
+            *result_url = "file://" + old_target_path;
             return Status::OK();
         } else if (config::is_cloud_mode()) {
             // Cloud mode: try to download from cloud to new default directory
@@ -698,10 +703,9 @@ Status JdbcConnector::_check_and_return_default_driver_url(const std::string& ur
             // Download failed, log warning but continue to fallback
             LOG(WARNING) << "Failed to download JDBC driver from cloud: " << status.to_string()
                          << ", fallback to old directory";
+        } else {
+            return Status::InternalError("JDBC driver file does not exist: " + url);
         }
-
-        // Fallback to old default directory for compatibility
-        *result_url = "file://" + default_old_url + "/" + url;
     } else {
         // User specified custom directory - use directly
         *result_url = "file://" + config::jdbc_drivers_dir + "/" + url;

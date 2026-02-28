@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -108,7 +109,18 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         if (StringUtils.isNotBlank(getSessionToken())) {
             s3Props.put("AWS_TOKEN", getSessionToken());
         }
+        String credentialsProviderType = getAwsCredentialsProviderTypeForBackend();
+        if (StringUtils.isNotBlank(credentialsProviderType)) {
+            s3Props.put("AWS_CREDENTIALS_PROVIDER_TYPE", credentialsProviderType);
+        }
         return s3Props;
+    }
+
+    protected String getAwsCredentialsProviderTypeForBackend() {
+        if (StringUtils.isBlank(getAccessKey()) && StringUtils.isBlank(getSecretKey())) {
+            return AwsCredentialsProviderMode.ANONYMOUS.name();
+        }
+        return null;
     }
 
     @Override
@@ -263,6 +275,8 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         hadoopStorageConfig.set("fs.s3.impl.disable.cache", "true");
         hadoopStorageConfig.set("fs.s3a.impl.disable.cache", "true");
         if (StringUtils.isNotBlank(getAccessKey())) {
+            hadoopStorageConfig.set("fs.s3a.aws.credentials.provider",
+                    "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider");
             hadoopStorageConfig.set("fs.s3a.access.key", getAccessKey());
             hadoopStorageConfig.set("fs.s3a.secret.key", getSecretKey());
             if (StringUtils.isNotBlank(getSessionToken())) {

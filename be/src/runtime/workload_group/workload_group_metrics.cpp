@@ -119,7 +119,7 @@ int64_t WorkloadGroupMetrics::get_local_scan_bytes_per_second() {
 }
 
 int64_t WorkloadGroupMetrics::get_remote_scan_bytes_per_second() {
-    return _last_remote_scan_bytes.load();
+    return _per_sec_remote_scan_bytes.load();
 }
 
 int64_t WorkloadGroupMetrics::get_memory_used() {

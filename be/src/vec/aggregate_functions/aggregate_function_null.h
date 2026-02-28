@@ -23,13 +23,16 @@
 #include <glog/logging.h>
 
 #include <array>
+#include <memory>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_distinct.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_nullable.h"
 
@@ -161,9 +164,7 @@ public:
         nested_function->reset(nested_place(place));
     }
 
-    bool has_trivial_destructor() const override {
-        return nested_function->has_trivial_destructor();
-    }
+    bool is_trivial() const override { return false; }
 
     size_t size_of_data() const override { return prefix_size + nested_function->size_of_data(); }
 
@@ -177,11 +178,10 @@ public:
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena& arena) const override {
-        if (result_is_nullable && get_flag(rhs)) {
+        if (get_flag(rhs)) {
             set_flag(place);
+            nested_function->merge(nested_place(place), nested_place(rhs), arena);
         }
-
-        nested_function->merge(nested_place(place), nested_place(rhs), arena);
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
@@ -203,6 +203,83 @@ public:
         if (flag) {
             set_flag(place);
             nested_function->deserialize(nested_place(place), buf, arena);
+        }
+    }
+
+    void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena& arena,
+                                   const size_t num_rows) const override {
+        if (nested_function->is_trivial()) {
+            BufferReadable buf({column->get_data_at(0).data, 0});
+            size_t size_of_data = this->size_of_data();
+            if constexpr (result_is_nullable) {
+                for (int i = 0; i != num_rows; ++i) {
+                    buf.read_binary(*(bool*)(rhs + size_of_data * i));
+                    if (get_flag(rhs + size_of_data * i)) {
+                        nested_function->deserialize(nested_place(rhs + size_of_data * i), buf,
+                                                     arena);
+                    }
+                }
+                for (size_t i = 0; i != num_rows; ++i) {
+                    if (get_flag(rhs + size_of_data * i)) {
+                        set_flag(places[i] + offset);
+                        nested_function->merge(nested_place(places[i] + offset),
+                                               nested_place(rhs + size_of_data * i), arena);
+                    }
+                }
+            } else {
+                for (size_t i = 0; i != num_rows; ++i) {
+                    nested_function->deserialize(rhs + size_of_data * i, buf, arena);
+                }
+                for (size_t i = 0; i != num_rows; ++i) {
+                    nested_function->merge(places[i] + offset, rhs + size_of_data * i, arena);
+                }
+            }
+        } else {
+            IAggregateFunctionHelper<Derived>::deserialize_and_merge_vec(places, offset, rhs,
+                                                                         column, arena, num_rows);
+        }
+    }
+
+    void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                                            AggregateDataPtr rhs, const IColumn* column,
+                                            Arena& arena, const size_t num_rows) const override {
+        if (nested_function->is_trivial()) {
+            BufferReadable buf({column->get_data_at(0).data, 0});
+            size_t size_of_data = this->size_of_data();
+            if constexpr (result_is_nullable) {
+                for (int i = 0; i != num_rows; ++i) {
+                    if (!places[i]) {
+                        continue;
+                    }
+                    buf.read_binary(*(bool*)(rhs + size_of_data * i));
+                    if (get_flag(rhs + size_of_data * i)) {
+                        nested_function->deserialize(nested_place(rhs + size_of_data * i), buf,
+                                                     arena);
+                    }
+                }
+                for (size_t i = 0; i != num_rows; ++i) {
+                    if (places[i] && get_flag(rhs + size_of_data * i)) {
+                        set_flag(places[i] + offset);
+                        nested_function->merge(nested_place(places[i] + offset),
+                                               nested_place(rhs + size_of_data * i), arena);
+                    }
+                }
+            } else {
+                for (size_t i = 0; i != num_rows; ++i) {
+                    if (places[i]) {
+                        nested_function->deserialize(rhs + size_of_data * i, buf, arena);
+                    }
+                }
+                for (size_t i = 0; i != num_rows; ++i) {
+                    if (places[i]) {
+                        nested_function->merge(places[i] + offset, rhs + size_of_data * i, arena);
+                    }
+                }
+            }
+        } else {
+            IAggregateFunctionHelper<Derived>::deserialize_and_merge_vec_selected(
+                    places, offset, rhs, column, arena, num_rows);
         }
     }
 
@@ -314,7 +391,7 @@ public:
             for (size_t i = 0; i < batch_size; ++i) {
                 this->add(place, columns, i, arena);
             }
-        } else {
+        } else if (batch_size > 0) {
             this->set_flag(place);
             const IColumn* nested_column = &column->get_nested_column();
             this->nested_function->add_batch_single_place(batch_size, this->nested_place(place),
@@ -330,7 +407,7 @@ public:
             for (size_t i = batch_begin; i <= batch_end; ++i) {
                 this->add(place, columns, i, arena);
             }
-        } else {
+        } else if (batch_begin <= batch_end) {
             this->set_flag(place);
             const IColumn* nested_column = &column->get_nested_column();
             this->nested_function->add_batch_range(batch_begin, batch_end,

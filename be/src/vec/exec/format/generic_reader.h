@@ -20,15 +20,21 @@
 #include <gen_cpp/PlanNodes_types.h>
 
 #include "common/status.h"
+#include "olap/block_column_predicate.h"
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
 #include "util/profile_collector.h"
 #include "vec/exprs/vexpr_fwd.h"
 
+namespace doris {
+class ColumnPredicate;
+} // namespace doris
+
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 class Block;
+class VSlotRef;
 // This a reader interface for all file readers.
 // A GenericReader is responsible for reading a file and return
 // a set of blocks with specified schema,

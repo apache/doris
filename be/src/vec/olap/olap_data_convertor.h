@@ -93,9 +93,11 @@ public:
     void clear_source_content(size_t cid);
     std::pair<Status, IOlapColumnDataAccessor*> convert_column_data(size_t cid);
     void add_column_data_convertor(const TabletColumn& column);
+    void add_column_data_convertor_at(const TabletColumn& column, size_t cid);
 
     bool empty() const { return _convertors.empty(); }
     void reserve(size_t size) { _convertors.reserve(size); }
+    void resize(size_t size) { _convertors.resize(size); }
     void reset() { _convertors.clear(); }
 
 private:
@@ -320,14 +322,13 @@ private:
             }
 
             assert(column_data);
-            _values = (typename PrimitiveTypeTraits<T>::ColumnItemType*)(column_data->get_data()
-                                                                                 .data()) +
+            _values = (typename PrimitiveTypeTraits<T>::CppType*)(column_data->get_data().data()) +
                       _row_pos;
             if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
                 for (size_t i = 0; i < _num_rows; ++i) {
                     if (std::isnan(_values[i])) {
                         _values[i] = std::numeric_limits<
-                                typename PrimitiveTypeTraits<T>::ColumnItemType>::quiet_NaN();
+                                typename PrimitiveTypeTraits<T>::CppType>::quiet_NaN();
                     }
                 }
             }
@@ -335,7 +336,7 @@ private:
         }
 
     protected:
-        typename PrimitiveTypeTraits<T>::ColumnItemType* _values = nullptr;
+        typename PrimitiveTypeTraits<T>::CppType* _values = nullptr;
         MutableColumnPtr _mutable_column = nullptr;
     };
 
@@ -444,8 +445,7 @@ private:
 
             assert(column_data);
             this->_values =
-                    (typename PrimitiveTypeTraits<T>::ColumnItemType*)(column_data->get_data()
-                                                                               .data()) +
+                    (typename PrimitiveTypeTraits<T>::CppType*)(column_data->get_data().data()) +
                     this->_row_pos;
             return Status::OK();
         }

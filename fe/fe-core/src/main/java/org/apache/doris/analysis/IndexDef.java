@@ -231,7 +231,7 @@ public class IndexDef {
             return isSupportIdxType(itemType);
         }
         PrimitiveType primitiveType = colType.getPrimitiveType();
-        return primitiveType.isDateType() || primitiveType.isDecimalV2Type() || primitiveType.isDecimalV3Type()
+        return primitiveType.isDateLikeType() || primitiveType.isDecimalV2Type() || primitiveType.isDecimalV3Type()
                 || primitiveType.isFixedPointType() || primitiveType.isStringType()
                 || primitiveType == PrimitiveType.BOOLEAN
                 || primitiveType.isVariantType() || primitiveType.isIPType();
@@ -354,5 +354,12 @@ public class IndexDef {
                 || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
                 || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_ANALYZER_NAME_KEY)
                 || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_NORMALIZER_NAME_KEY));
+    }
+
+    public String getAnalyzerIdentity() {
+        if (indexType != IndexType.INVERTED) {
+            return "";
+        }
+        return InvertedIndexUtil.buildAnalyzerIdentity(properties);
     }
 }

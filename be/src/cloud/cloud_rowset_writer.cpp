@@ -19,14 +19,23 @@
 
 #include "common/status.h"
 #include "io/cache/block_file_cache_factory.h"
-#include "io/fs/file_system.h"
+#include "io/fs/packed_file_writer.h"
 #include "olap/rowset/rowset_factory.h"
 
 namespace doris {
 
-CloudRowsetWriter::CloudRowsetWriter() = default;
+CloudRowsetWriter::CloudRowsetWriter(CloudStorageEngine& engine) : _engine(engine) {}
 
-CloudRowsetWriter::~CloudRowsetWriter() = default;
+CloudRowsetWriter::~CloudRowsetWriter() {
+    // Must cancel any pending delete bitmap tasks before destruction.
+    // Otherwise, the lambda in _generate_delete_bitmap may execute after the
+    // CloudRowsetWriter destructor runs but before BaseBetaRowsetWriter destructor,
+    // causing virtual function calls to resolve to BaseBetaRowsetWriter::_build_rowset_meta
+    // instead of CloudRowsetWriter::_build_rowset_meta (use-after-free on vtable).
+    if (_calc_delete_bitmap_token != nullptr) {
+        _calc_delete_bitmap_token->cancel();
+    }
+}
 
 Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
     _context = rowset_writer_context;
@@ -61,17 +70,34 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
         _rowset_meta->set_newest_write_timestamp(_context.newest_write_timestamp);
     }
     _rowset_meta->set_tablet_schema(_context.tablet_schema);
+    _rowset_meta->set_job_id(_context.job_id);
     _context.segment_collector = std::make_shared<SegmentCollectorT<BaseBetaRowsetWriter>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BaseBetaRowsetWriter>>(this);
+    if (_context.mow_context != nullptr) {
+        _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor_for_load()->create_token();
+    }
     return Status::OK();
 }
 
+Status CloudRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num) {
+    // Call base class implementation
+    RETURN_IF_ERROR(BaseBetaRowsetWriter::_build_rowset_meta(rowset_meta, check_segment_num));
+
+    // Collect packed file segment index information for interim rowsets as well.
+    return _collect_all_packed_slice_locations(rowset_meta);
+}
+
 Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
+    if (_calc_delete_bitmap_token != nullptr) {
+        RETURN_IF_ERROR(_calc_delete_bitmap_token->wait());
+    }
     RETURN_IF_ERROR(_close_file_writers());
 
     // TODO(plat1ko): check_segment_footer
 
     RETURN_IF_ERROR(_build_rowset_meta(_rowset_meta.get()));
+    // At this point all writers have been closed, so collecting packed file indices is safe.
+    RETURN_IF_ERROR(_collect_all_packed_slice_locations(_rowset_meta.get()));
     // If the current load is a partial update, new segments may be appended to the tmp rowset after the tmp rowset
     // has been committed if conflicts occur due to concurrent partial updates. However, when the recycler do recycling,
     // it will generate the paths for the segments to be recycled on the object storage based on the number of segments
@@ -127,6 +153,61 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
                                          &rowset),
             "rowset init failed when build new rowset");
     _already_built = true;
+    return Status::OK();
+}
+
+Status CloudRowsetWriter::_collect_all_packed_slice_locations(RowsetMeta* rowset_meta) {
+    if (!_context.packed_file_active) {
+        return Status::OK();
+    }
+
+    // Collect segment file packed indices
+    const auto& file_writers = _seg_files.get_file_writers();
+    for (const auto& [seg_id, writer_ptr] : file_writers) {
+        auto segment_path = _context.segment_path(seg_id);
+        RETURN_IF_ERROR(
+                _collect_packed_slice_location(writer_ptr.get(), segment_path, rowset_meta));
+    }
+
+    // Collect inverted index file packed indices
+    const auto& idx_file_writers = _idx_files.get_file_writers();
+    for (const auto& [seg_id, idx_writer_ptr] : idx_file_writers) {
+        if (idx_writer_ptr != nullptr && idx_writer_ptr->get_file_writer() != nullptr) {
+            auto segment_path = _context.segment_path(seg_id);
+            auto index_prefix_view =
+                    InvertedIndexDescriptor::get_index_file_path_prefix(segment_path);
+            std::string index_path =
+                    InvertedIndexDescriptor::get_index_file_path_v2(std::string(index_prefix_view));
+            RETURN_IF_ERROR(_collect_packed_slice_location(idx_writer_ptr->get_file_writer(),
+                                                           index_path, rowset_meta));
+        }
+    }
+
+    return Status::OK();
+}
+
+Status CloudRowsetWriter::_collect_packed_slice_location(io::FileWriter* file_writer,
+                                                         const std::string& file_path,
+                                                         RowsetMeta* rowset_meta) {
+    // At this point, we only call this when RowsetWriterContext::merge_file_active is true,
+    // and all writers should be MergeFileWriter. So we can safely cast without extra checks.
+    auto* packed_writer = static_cast<io::PackedFileWriter*>(file_writer);
+
+    if (packed_writer->state() != io::FileWriter::State::CLOSED) {
+        // Writer is still open; index will be collected after it is closed.
+        return Status::OK();
+    }
+
+    io::PackedSliceLocation index;
+    RETURN_IF_ERROR(packed_writer->get_packed_slice_location(&index));
+    if (index.packed_file_path.empty()) {
+        return Status::OK(); // File not in packed file, skip
+    }
+
+    rowset_meta->add_packed_slice_location(file_path, index.packed_file_path, index.offset,
+                                           index.size, index.packed_file_size);
+    LOG(INFO) << "collect packed file index: " << file_path << " -> " << index.packed_file_path
+              << ", offset: " << index.offset << ", size: " << index.size;
     return Status::OK();
 }
 

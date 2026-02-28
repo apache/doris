@@ -57,7 +57,7 @@ private:
                             StringHelper::to_string(_field));
         }
 
-        std::vector<std::pair<size_t, PositionPostingsPtr>> term_postings_list;
+        std::vector<std::pair<size_t, SegmentPostingsPtr>> term_postings_list;
         for (const auto& term_info : _term_infos) {
             size_t offset = term_info.position;
             auto posting =
@@ -69,7 +69,9 @@ private:
                 return std::make_shared<EmptyScorer>();
             }
         }
-        return PhraseScorer<PositionPostingsPtr>::create(term_postings_list, _similarity, 0);
+        uint32_t num_docs = ctx.segment_num_rows;
+        return PhraseScorer<SegmentPostingsPtr>::create(term_postings_list, _similarity, 0,
+                                                        num_docs);
     }
 
     IndexQueryContextPtr _context;

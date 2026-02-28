@@ -68,6 +68,7 @@ public abstract class JdbcClient {
     protected Map<String, Boolean> includeDatabaseMap;
     protected Map<String, Boolean> excludeDatabaseMap;
     protected boolean enableMappingVarbinary;
+    protected boolean enableMappingTimestampTz;
 
     public static JdbcClient createJdbcClient(JdbcClientConfig jdbcClientConfig) {
         String dbType = parseDbType(jdbcClientConfig.getJdbcUrl());
@@ -113,6 +114,7 @@ public abstract class JdbcClient {
         initializeClassLoader(jdbcClientConfig);
         initializeDataSource(jdbcClientConfig);
         this.enableMappingVarbinary = jdbcClientConfig.isEnableMappingVarbinary();
+        this.enableMappingTimestampTz = jdbcClientConfig.isEnableMappingTimestampTz();
     }
 
     protected void setJdbcDriverSystemProperties() {
@@ -404,6 +406,30 @@ public abstract class JdbcClient {
                     true, -1));
         }
         return dorisTableSchema;
+    }
+
+    /**
+     * get primary keys of one table
+     */
+    public List<String> getPrimaryKeys(String remoteDbName, String remoteTableName) {
+        Connection conn = getConnection();
+        ResultSet rs = null;
+        List<String> primaryKeys = Lists.newArrayList();
+        try {
+            DatabaseMetaData databaseMetaData = conn.getMetaData();
+            String catalogName = getCatalogName(conn);
+            rs = databaseMetaData.getPrimaryKeys(catalogName, remoteDbName, remoteTableName);
+            while (rs.next()) {
+                String fieldName = rs.getString("COLUMN_NAME");
+                primaryKeys.add(fieldName);
+            }
+        } catch (SQLException e) {
+            throw new JdbcClientException("failed to get jdbc primary key info for remote table `%s.%s`: %s",
+                    remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
+        } finally {
+            close(rs, conn);
+        }
+        return primaryKeys;
     }
 
     // protected methods, for subclass to override

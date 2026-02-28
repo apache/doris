@@ -362,6 +362,43 @@ TEST_F(ColumnDecimalTest, update_crcs_with_value) {
     }
 }
 
+TEST_F(ColumnDecimalTest, update_crc32c_batch) {
+    std::string function_name = "update_crc32c_batch";
+    assert_column_vector_update_crc32c_batch_callback(
+            column_decimal32_1->get_ptr(),
+            test_result_dir + "/column_decimal32_1_" + function_name + ".out");
+    assert_column_vector_update_crc32c_batch_callback(
+            column_decimal64_1->get_ptr(),
+            test_result_dir + "/column_decimal64_1_" + function_name + ".out");
+
+    assert_column_vector_update_crc32c_batch_callback(
+            column_decimal128_1->get_ptr(),
+            test_result_dir + "/column_decimal128_1_" + function_name + ".out");
+
+    assert_column_vector_update_crc32c_batch_callback(
+            column_decimal256_1->get_ptr(),
+            test_result_dir + "/column_decimal256_1_" + function_name + ".out");
+}
+TEST_F(ColumnDecimalTest, update_crc32c_single) {
+    std::string function_name = "update_crc32c_single";
+
+    assert_column_vector_update_crc32c_single_callback(
+            column_decimal32_1->get_ptr(),
+            test_result_dir + "/column_decimal32_1_" + function_name + ".out");
+
+    assert_column_vector_update_crc32c_single_callback(
+            column_decimal64_1->get_ptr(),
+            test_result_dir + "/column_decimal64_1_" + function_name + ".out");
+
+    assert_column_vector_update_crc32c_single_callback(
+            column_decimal128_1->get_ptr(),
+            test_result_dir + "/column_decimal128_1_" + function_name + ".out");
+
+    assert_column_vector_update_crc32c_single_callback(
+            column_decimal256_1->get_ptr(),
+            test_result_dir + "/column_decimal256_1_" + function_name + ".out");
+}
+
 TEST_F(ColumnDecimalTest, update_xxHash_with_value) {
     hash_common_test("update_xxHash_with_value", assert_update_xxHash_with_value_callback);
 }

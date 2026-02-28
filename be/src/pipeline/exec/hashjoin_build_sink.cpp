@@ -239,6 +239,17 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
             RETURN_IF_ERROR(_runtime_filter_producer_helper->build(
                     state, _shared_state->build_block.get(), p._use_shared_hash_table,
                     p._runtime_filters));
+            // only single join conjunct and left semi join can direct return
+            if (p.allow_left_semi_direct_return(state)) {
+                auto wrapper = _runtime_filter_producer_helper->detect_local_in_filter(state);
+                if (wrapper) {
+                    _shared_state->left_semi_direct_return = true;
+                    wrapper->set_disable_always_true_logic();
+                    custom_profile()->add_info_string(
+                            "LeftSemiDirectReturn",
+                            std::to_string(_shared_state->left_semi_direct_return));
+                }
+            }
             RETURN_IF_ERROR(_runtime_filter_producer_helper->publish(state));
         }
     } catch (Exception& e) {

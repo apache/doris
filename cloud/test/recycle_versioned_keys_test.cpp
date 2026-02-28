@@ -101,6 +101,14 @@ void create_and_refresh_instance(
     InstanceInfoPB instance_info;
     instance_info.set_instance_id(instance_id);
     instance_info.set_multi_version_status(multi_version_status);
+    auto* obj_info = instance_info.mutable_obj_info()->Add();
+    obj_info->set_id(std::string(RESOURCE_ID));
+    obj_info->set_ak("mock_ak");
+    obj_info->set_sk("mock_sk");
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("");
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     txn->put(instance_key(instance_id), instance_info.SerializeAsString());
@@ -203,6 +211,8 @@ void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t index_id, i
     first_rowset->set_tablet_id(tablet_id);
     first_rowset->set_start_version(0);
     first_rowset->set_end_version(1);
+    // Note: version 0-1 rowset has no resource_id and no actual data files,
+    // only KV metadata needs to be cleaned up during recycling.
     first_rowset->mutable_tablet_schema()->CopyFrom(*schema);
 }
 
@@ -300,7 +310,8 @@ void commit_rowset(MetaServiceProxy* meta_service, const std::string& cloud_uniq
 
 void insert_rowset(MetaServiceProxy* meta_service, const std::string& cloud_unique_id,
                    int64_t db_id, const std::string& label, int64_t table_id, int64_t partition_id,
-                   int64_t tablet_id, std::string* rowset_id = nullptr) {
+                   int64_t tablet_id, std::string* rowset_id = nullptr,
+                   StorageVaultAccessor* accessor = nullptr) {
     int64_t txn_id = 0;
     ASSERT_NO_FATAL_FAILURE(
             begin_txn(meta_service, cloud_unique_id, db_id, label, table_id, txn_id));
@@ -311,6 +322,12 @@ void insert_rowset(MetaServiceProxy* meta_service, const std::string& cloud_uniq
     ASSERT_NO_FATAL_FAILURE(prepare_rowset(meta_service, cloud_unique_id, rowset));
     ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service, cloud_unique_id, rowset));
     ASSERT_NO_FATAL_FAILURE(commit_txn(meta_service, cloud_unique_id, db_id, txn_id, label));
+    if (accessor) {
+        for (int i = 0; i < 1; ++i) {
+            auto path = doris::cloud::segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), i);
+            accessor->put_file(path, "");
+        }
+    }
 }
 
 void insert_rowsets(MetaServiceProxy* meta_service, const std::string& cloud_unique_id,
@@ -1800,13 +1817,37 @@ TEST(RecycleVersionedKeysTest, RecycleDeletedInstance) {
                                               index_id, partition_id, tablet_id));
     }
 
+    InstanceInfoPB instance_info;
+    get_instance(meta_service.get(), cloud_unique_id, instance_info);
+    InstanceRecycler recycler(txn_kv, instance_info, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    std::shared_ptr<StorageVaultAccessor> accessor = nullptr;
+    {
+        ASSERT_EQ(recycler.init(), 0);
+        ASSERT_EQ(recycler.accessor_map_.size(), 1);
+        accessor = recycler.accessor_map_.begin()->second;
+        ASSERT_TRUE(accessor != nullptr);
+    }
     size_t num_rowsets = 4;
     {
         // insert some rowsets
         for (size_t i = 0; i < num_rowsets; ++i) {
-            ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), cloud_unique_id, db_id,
-                                                  fmt::format("label_{}", i), table_id,
-                                                  partition_id, tablet_id));
+            ASSERT_NO_FATAL_FAILURE(insert_rowset(
+                    meta_service.get(), cloud_unique_id, db_id, fmt::format("label_{}", i),
+                    table_id, partition_id, tablet_id, nullptr, accessor.get()));
+        }
+    }
+
+    std::vector<doris::RowsetMetaCloudPB> rowsets;
+    {
+        get_rowsets(meta_service.get(), cloud_unique_id, tablet_id, 0, 4, rowsets);
+        ASSERT_EQ(rowsets.size(), 4);
+        for (int i = 1; i < rowsets.size(); ++i) {
+            std::unique_ptr<ListIterator> list_iter;
+            ASSERT_EQ(0, accessor->list_directory(
+                                 rowset_path_prefix(tablet_id, rowsets[i].rowset_id_v2()),
+                                 &list_iter));
+            ASSERT_EQ(list_iter->has_next(), true);
         }
     }
 
@@ -1817,10 +1858,7 @@ TEST(RecycleVersionedKeysTest, RecycleDeletedInstance) {
 
     {
         // Recycle deleted instance
-        InstanceInfoPB instance_info;
-        ASSERT_NO_FATAL_FAILURE(get_instance(meta_service.get(), cloud_unique_id, instance_info));
-        auto recycler = get_instance_recycler(meta_service.get(), instance_info);
-        ASSERT_EQ(recycler->recycle_deleted_instance(), 0);
+        ASSERT_EQ(recycler.recycle_deleted_instance(), 0);
     }
 
     {
@@ -1851,5 +1889,461 @@ TEST(RecycleVersionedKeysTest, RecycleDeletedInstance) {
         std::string log_key = versioned::log_key_prefix(instance_id);
         std::string log_key_end = versioned::log_key_prefix(instance_id + '\x00');
         ASSERT_EQ(count_range(txn_kv.get(), log_key, log_key_end), 0) << dump_range(txn_kv.get());
+
+        for (int i = 1; i < rowsets.size(); ++i) {
+            std::unique_ptr<ListIterator> list_iter;
+            ASSERT_EQ(0, accessor->list_directory(
+                                 rowset_path_prefix(tablet_id, rowsets[i].rowset_id_v2()),
+                                 &list_iter));
+            ASSERT_EQ(list_iter->has_next(), false);
+        }
+    }
+}
+
+// ============================================================================
+// Batch Delete Tests for recycle_versioned_tablet
+// ============================================================================
+
+// Test: ref_count==1 rowsets enter batch delete plan and recycle_rowset_key is cleaned up
+TEST(RecycleVersionedKeysTest, BatchDeleteRefCountOne) {
+    auto meta_service = get_meta_service();
+    auto txn_kv = meta_service->txn_kv();
+    std::string instance_id = "batch_delete_ref_count_one_test_instance";
+    std::string cloud_unique_id = fmt::format("1:{}:0", instance_id);
+    ASSERT_NO_FATAL_FAILURE(create_and_refresh_instance(meta_service.get(), instance_id));
+
+    int64_t db_id = 1, table_id = 2, index_id = 3, partition_id = 4, tablet_id = 5;
+
+    {
+        ASSERT_NO_FATAL_FAILURE(prepare_and_commit_index(meta_service.get(), cloud_unique_id, db_id,
+                                                         table_id, index_id));
+        ASSERT_NO_FATAL_FAILURE(prepare_and_commit_partition(
+                meta_service.get(), cloud_unique_id, db_id, table_id, partition_id, index_id));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), cloud_unique_id, db_id, table_id,
+                                              index_id, partition_id, tablet_id));
+    }
+
+    size_t num_rowsets = 5;
+    std::vector<std::string> rowset_ids;
+    std::shared_ptr<MockAccessor> accessor = std::make_shared<MockAccessor>();
+    {
+        for (size_t i = 0; i < num_rowsets; ++i) {
+            std::string rowset_id;
+            ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), cloud_unique_id, db_id,
+                                                  fmt::format("label_{}", i), table_id,
+                                                  partition_id, tablet_id, &rowset_id));
+            rowset_ids.push_back(rowset_id);
+            // Create mock files for each rowset
+            accessor->put_file(segment_path(tablet_id, rowset_id, 0), "segment_data");
+        }
+    }
+
+    // All rowsets have ref_count==1 (default), should enter batch delete
+    config::force_immediate_recycle = true;
+    DORIS_CLOUD_DEFER {
+        config::force_immediate_recycle = false;
+    };
+
+    InstanceInfoPB instance_info;
+    ASSERT_NO_FATAL_FAILURE(get_instance(meta_service.get(), cloud_unique_id, instance_info));
+    auto recycler = get_instance_recycler(meta_service.get(), instance_info, accessor);
+    RecyclerMetricsContext ctx;
+    ASSERT_EQ(0, recycler->recycle_tablet(tablet_id, ctx));
+
+    {
+        // Verify all rowset data is deleted from storage
+        std::unique_ptr<ListIterator> list_iter;
+        ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(tablet_id), &list_iter));
+        EXPECT_FALSE(list_iter->has_next()) << "All rowset data should be deleted";
+    }
+
+    {
+        // Verify all recycle_rowset keys are cleaned up
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string begin_key = recycle_rowset_key({instance_id, tablet_id, ""});
+        std::string end_key = recycle_rowset_key({instance_id, tablet_id + 1, ""});
+        std::unique_ptr<RangeGetIterator> it;
+        ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+        size_t count = 0;
+        while (it->has_next()) {
+            it->next();
+            ++count;
+        }
+        EXPECT_EQ(count, 0) << "All recycle_rowset keys should be cleaned up";
+    }
+
+    {
+        // Verify all ref_count keys are cleaned up
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string begin_key = versioned::data_rowset_ref_count_key({instance_id, tablet_id, ""});
+        std::string end_key =
+                versioned::data_rowset_ref_count_key({instance_id, tablet_id + 1, ""});
+        std::unique_ptr<RangeGetIterator> it;
+        ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+        size_t count = 0;
+        while (it->has_next()) {
+            it->next();
+            ++count;
+        }
+        EXPECT_EQ(count, 0) << "All ref_count keys should be cleaned up";
+    }
+}
+
+// Test: ref_count>1 rowsets only decrement count, do not enter batch delete plan
+TEST(RecycleVersionedKeysTest, BatchDeleteRefCountGreaterThanOne) {
+    auto meta_service = get_meta_service();
+    auto txn_kv = meta_service->txn_kv();
+    std::string instance_id = "batch_delete_ref_count_gt_one_test_instance";
+    std::string cloud_unique_id = fmt::format("1:{}:0", instance_id);
+    ASSERT_NO_FATAL_FAILURE(create_and_refresh_instance(meta_service.get(), instance_id));
+
+    int64_t db_id = 1, table_id = 2, index_id = 3, partition_id = 4, tablet_id = 5;
+
+    {
+        ASSERT_NO_FATAL_FAILURE(prepare_and_commit_index(meta_service.get(), cloud_unique_id, db_id,
+                                                         table_id, index_id));
+        ASSERT_NO_FATAL_FAILURE(prepare_and_commit_partition(
+                meta_service.get(), cloud_unique_id, db_id, table_id, partition_id, index_id));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), cloud_unique_id, db_id, table_id,
+                                              index_id, partition_id, tablet_id));
+    }
+
+    size_t num_rowsets = 3;
+    std::vector<std::string> rowset_ids;
+    std::shared_ptr<MockAccessor> accessor = std::make_shared<MockAccessor>();
+    {
+        for (size_t i = 0; i < num_rowsets; ++i) {
+            std::string rowset_id;
+            ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), cloud_unique_id, db_id,
+                                                  fmt::format("label_{}", i), table_id,
+                                                  partition_id, tablet_id, &rowset_id));
+            rowset_ids.push_back(rowset_id);
+            accessor->put_file(segment_path(tablet_id, rowset_id, 0), "segment_data");
+        }
+    }
+
+    {
+        // Set ref_count > 1 for all rowsets (simulate shared rowsets)
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        for (const auto& rowset_id : rowset_ids) {
+            auto ref_count_key =
+                    versioned::data_rowset_ref_count_key({instance_id, tablet_id, rowset_id});
+            txn->atomic_add(ref_count_key, 1); // ref_count becomes 2
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    config::force_immediate_recycle = true;
+    DORIS_CLOUD_DEFER {
+        config::force_immediate_recycle = false;
+    };
+
+    InstanceInfoPB instance_info;
+    ASSERT_NO_FATAL_FAILURE(get_instance(meta_service.get(), cloud_unique_id, instance_info));
+    auto recycler = get_instance_recycler(meta_service.get(), instance_info, accessor);
+    RecyclerMetricsContext ctx;
+    ASSERT_EQ(0, recycler->recycle_tablet(tablet_id, ctx));
+
+    {
+        // Verify rowset data is NOT deleted (ref_count > 1)
+        std::unique_ptr<ListIterator> list_iter;
+        ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(tablet_id), &list_iter));
+        size_t file_count = 0;
+        while (list_iter->has_next()) {
+            list_iter->next();
+            ++file_count;
+        }
+        EXPECT_EQ(file_count, num_rowsets)
+                << "Rowset data should NOT be deleted when ref_count > 1";
+    }
+
+    {
+        // Verify ref_count is decremented to 1
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        for (const auto& rowset_id : rowset_ids) {
+            auto ref_count_key =
+                    versioned::data_rowset_ref_count_key({instance_id, tablet_id, rowset_id});
+            std::string value;
+            auto rc = txn->get(ref_count_key, &value);
+            ASSERT_EQ(rc, TxnErrorCode::TXN_OK);
+            int64_t ref_count = 0;
+            ASSERT_TRUE(txn->decode_atomic_int(value, &ref_count));
+            EXPECT_EQ(ref_count, 1) << "ref_count should be decremented to 1";
+        }
+    }
+
+    {
+        // Verify recycle_rowset keys are cleaned up (since ref_count > 1 path removes them)
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string begin_key = recycle_rowset_key({instance_id, tablet_id, ""});
+        std::string end_key = recycle_rowset_key({instance_id, tablet_id + 1, ""});
+        std::unique_ptr<RangeGetIterator> it;
+        ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+        size_t count = 0;
+        while (it->has_next()) {
+            it->next();
+            ++count;
+        }
+        EXPECT_EQ(count, 0) << "recycle_rowset keys should be removed for ref_count > 1 case";
+    }
+}
+
+// Test: Mixed ref_count scenario - some rowsets have ref_count==1, others have ref_count>1
+TEST(RecycleVersionedKeysTest, BatchDeleteMixedRefCount) {
+    auto meta_service = get_meta_service();
+    auto txn_kv = meta_service->txn_kv();
+    std::string instance_id = "batch_delete_mixed_ref_count_test_instance";
+    std::string cloud_unique_id = fmt::format("1:{}:0", instance_id);
+    ASSERT_NO_FATAL_FAILURE(create_and_refresh_instance(meta_service.get(), instance_id));
+
+    int64_t db_id = 1, table_id = 2, index_id = 3, partition_id = 4, tablet_id = 5;
+
+    {
+        ASSERT_NO_FATAL_FAILURE(prepare_and_commit_index(meta_service.get(), cloud_unique_id, db_id,
+                                                         table_id, index_id));
+        ASSERT_NO_FATAL_FAILURE(prepare_and_commit_partition(
+                meta_service.get(), cloud_unique_id, db_id, table_id, partition_id, index_id));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), cloud_unique_id, db_id, table_id,
+                                              index_id, partition_id, tablet_id));
+    }
+
+    size_t num_rowsets = 4;
+    std::vector<std::string> rowset_ids;
+    std::shared_ptr<MockAccessor> accessor = std::make_shared<MockAccessor>();
+    {
+        for (size_t i = 0; i < num_rowsets; ++i) {
+            std::string rowset_id;
+            ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), cloud_unique_id, db_id,
+                                                  fmt::format("label_{}", i), table_id,
+                                                  partition_id, tablet_id, &rowset_id));
+            rowset_ids.push_back(rowset_id);
+            accessor->put_file(segment_path(tablet_id, rowset_id, 0), "segment_data");
+        }
+    }
+
+    // Set ref_count > 1 for first two rowsets only
+    std::vector<std::string> shared_rowset_ids = {rowset_ids[0], rowset_ids[1]};
+    std::vector<std::string> unique_rowset_ids = {rowset_ids[2], rowset_ids[3]};
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        for (const auto& rowset_id : shared_rowset_ids) {
+            auto ref_count_key =
+                    versioned::data_rowset_ref_count_key({instance_id, tablet_id, rowset_id});
+            txn->atomic_add(ref_count_key, 1); // ref_count becomes 2
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    config::force_immediate_recycle = true;
+    DORIS_CLOUD_DEFER {
+        config::force_immediate_recycle = false;
+    };
+
+    InstanceInfoPB instance_info;
+    ASSERT_NO_FATAL_FAILURE(get_instance(meta_service.get(), cloud_unique_id, instance_info));
+    auto recycler = get_instance_recycler(meta_service.get(), instance_info, accessor);
+    RecyclerMetricsContext ctx;
+    ASSERT_EQ(0, recycler->recycle_tablet(tablet_id, ctx));
+
+    {
+        // Verify only shared rowsets' data remains
+        std::unique_ptr<ListIterator> list_iter;
+        ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(tablet_id), &list_iter));
+        std::set<std::string> remaining_files;
+        while (list_iter->has_next()) {
+            auto file = list_iter->next();
+            remaining_files.insert(file->path);
+        }
+        EXPECT_EQ(remaining_files.size(), shared_rowset_ids.size())
+                << "Only shared rowsets' data should remain";
+
+        for (const auto& rowset_id : shared_rowset_ids) {
+            std::string expected_path = segment_path(tablet_id, rowset_id, 0);
+            EXPECT_TRUE(remaining_files.count(expected_path) > 0)
+                    << "Shared rowset data should remain: " << expected_path;
+        }
+    }
+
+    {
+        // Verify shared rowsets' ref_count is decremented to 1
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        for (const auto& rowset_id : shared_rowset_ids) {
+            auto ref_count_key =
+                    versioned::data_rowset_ref_count_key({instance_id, tablet_id, rowset_id});
+            std::string value;
+            auto rc = txn->get(ref_count_key, &value);
+            ASSERT_EQ(rc, TxnErrorCode::TXN_OK);
+            int64_t ref_count = 0;
+            ASSERT_TRUE(txn->decode_atomic_int(value, &ref_count));
+            EXPECT_EQ(ref_count, 1) << "Shared rowset ref_count should be 1";
+        }
+
+        // Verify unique rowsets' ref_count keys are deleted
+        for (const auto& rowset_id : unique_rowset_ids) {
+            auto ref_count_key =
+                    versioned::data_rowset_ref_count_key({instance_id, tablet_id, rowset_id});
+            std::string value;
+            auto rc = txn->get(ref_count_key, &value);
+            EXPECT_EQ(rc, TxnErrorCode::TXN_KEY_NOT_FOUND)
+                    << "Unique rowset ref_count key should be deleted";
+        }
+    }
+}
+
+// Test: Batch delete with multiple vaults (resource_ids)
+TEST(RecycleVersionedKeysTest, BatchDeleteMultipleVaults) {
+    auto meta_service = get_meta_service();
+    auto txn_kv = meta_service->txn_kv();
+    std::string instance_id = "batch_delete_multi_vault_test_instance";
+    std::string cloud_unique_id = fmt::format("1:{}:0", instance_id);
+    ASSERT_NO_FATAL_FAILURE(create_and_refresh_instance(meta_service.get(), instance_id));
+
+    int64_t db_id = 1, table_id = 2, index_id = 3, partition_id = 4, tablet_id = 5;
+
+    {
+        ASSERT_NO_FATAL_FAILURE(prepare_and_commit_index(meta_service.get(), cloud_unique_id, db_id,
+                                                         table_id, index_id));
+        ASSERT_NO_FATAL_FAILURE(prepare_and_commit_partition(
+                meta_service.get(), cloud_unique_id, db_id, table_id, partition_id, index_id));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), cloud_unique_id, db_id, table_id,
+                                              index_id, partition_id, tablet_id));
+    }
+
+    // Create two accessors for different vaults
+    std::string resource_id_1 = std::string(RESOURCE_ID);
+    std::string resource_id_2 = "mock_resource_id_2";
+    auto accessor_1 = std::make_shared<MockAccessor>();
+    auto accessor_2 = std::make_shared<MockAccessor>();
+
+    std::vector<std::string> rowset_ids;
+    {
+        // Insert rowsets - they will use RESOURCE_ID by default
+        for (size_t i = 0; i < 3; ++i) {
+            std::string rowset_id;
+            ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), cloud_unique_id, db_id,
+                                                  fmt::format("label_{}", i), table_id,
+                                                  partition_id, tablet_id, &rowset_id));
+            rowset_ids.push_back(rowset_id);
+            accessor_1->put_file(segment_path(tablet_id, rowset_id, 0), "segment_data");
+        }
+    }
+
+    config::force_immediate_recycle = true;
+    DORIS_CLOUD_DEFER {
+        config::force_immediate_recycle = false;
+    };
+
+    InstanceInfoPB instance_info;
+    ASSERT_NO_FATAL_FAILURE(get_instance(meta_service.get(), cloud_unique_id, instance_info));
+
+    auto txn_lazy_committer = std::make_shared<TxnLazyCommitter>(meta_service->txn_kv());
+    auto recycler = std::make_unique<InstanceRecycler>(meta_service->txn_kv(), instance_info,
+                                                       thread_group, txn_lazy_committer);
+    // Add both accessors
+    recycler->TEST_add_accessor(resource_id_1, accessor_1);
+    recycler->TEST_add_accessor(resource_id_2, accessor_2);
+
+    RecyclerMetricsContext ctx;
+    ASSERT_EQ(0, recycler->recycle_tablet(tablet_id, ctx));
+
+    {
+        // Verify accessor_1's data is deleted
+        std::unique_ptr<ListIterator> list_iter;
+        ASSERT_EQ(0, accessor_1->list_directory(tablet_path_prefix(tablet_id), &list_iter));
+        EXPECT_FALSE(list_iter->has_next()) << "Vault 1 data should be deleted";
+    }
+
+    {
+        // Verify all metadata is cleaned up
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string begin_key = versioned::data_rowset_ref_count_key({instance_id, tablet_id, ""});
+        std::string end_key =
+                versioned::data_rowset_ref_count_key({instance_id, tablet_id + 1, ""});
+        std::unique_ptr<RangeGetIterator> it;
+        ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+        size_t count = 0;
+        while (it->has_next()) {
+            it->next();
+            ++count;
+        }
+        EXPECT_EQ(count, 0) << "All ref_count keys should be cleaned up";
+    }
+}
+
+// Test: Batch size exceeds max_batch_size, verify correct batching
+TEST(RecycleVersionedKeysTest, BatchDeleteExceedsMaxBatchSize) {
+    auto meta_service = get_meta_service();
+    auto txn_kv = meta_service->txn_kv();
+    std::string instance_id = "batch_delete_exceeds_max_batch_size_test_instance";
+    std::string cloud_unique_id = fmt::format("1:{}:0", instance_id);
+    ASSERT_NO_FATAL_FAILURE(create_and_refresh_instance(meta_service.get(), instance_id));
+
+    int64_t db_id = 1, table_id = 2, index_id = 3, partition_id = 4, tablet_id = 5;
+
+    {
+        ASSERT_NO_FATAL_FAILURE(prepare_and_commit_index(meta_service.get(), cloud_unique_id, db_id,
+                                                         table_id, index_id));
+        ASSERT_NO_FATAL_FAILURE(prepare_and_commit_partition(
+                meta_service.get(), cloud_unique_id, db_id, table_id, partition_id, index_id));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), cloud_unique_id, db_id, table_id,
+                                              index_id, partition_id, tablet_id));
+    }
+
+    // Create multiple rowsets to test batch delete
+    size_t num_rowsets = 10;
+    std::vector<std::string> rowset_ids;
+    std::shared_ptr<MockAccessor> accessor = std::make_shared<MockAccessor>();
+    {
+        for (size_t i = 0; i < num_rowsets; ++i) {
+            std::string rowset_id;
+            ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), cloud_unique_id, db_id,
+                                                  fmt::format("label_{}", i), table_id,
+                                                  partition_id, tablet_id, &rowset_id));
+            rowset_ids.push_back(rowset_id);
+            accessor->put_file(segment_path(tablet_id, rowset_id, 0), "segment_data");
+        }
+    }
+
+    config::force_immediate_recycle = true;
+    DORIS_CLOUD_DEFER {
+        config::force_immediate_recycle = false;
+    };
+
+    InstanceInfoPB instance_info;
+    ASSERT_NO_FATAL_FAILURE(get_instance(meta_service.get(), cloud_unique_id, instance_info));
+    auto recycler = get_instance_recycler(meta_service.get(), instance_info, accessor);
+    RecyclerMetricsContext ctx;
+    ASSERT_EQ(0, recycler->recycle_tablet(tablet_id, ctx));
+
+    {
+        // Verify all data is deleted
+        std::unique_ptr<ListIterator> list_iter;
+        ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(tablet_id), &list_iter));
+        EXPECT_FALSE(list_iter->has_next()) << "All data should be deleted";
+    }
+
+    {
+        // Verify all metadata is cleaned up
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string begin_key = versioned::data_rowset_ref_count_key({instance_id, tablet_id, ""});
+        std::string end_key =
+                versioned::data_rowset_ref_count_key({instance_id, tablet_id + 1, ""});
+        std::unique_ptr<RangeGetIterator> it;
+        ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+        size_t count = 0;
+        while (it->has_next()) {
+            it->next();
+            ++count;
+        }
+        EXPECT_EQ(count, 0) << "All ref_count keys should be cleaned up";
     }
 }

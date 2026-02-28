@@ -892,8 +892,14 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 auto decimal_num = decimal_ctor(i, 0, FromScale);
                 auto num_str = dt_from.to_string(decimal_num);
                 // auto float_v = static_cast<FloatType>(i);
-                FloatType float_v = static_cast<double>(decimal_num.value) /
-                                    static_cast<double>(scale_multiplier);
+                FloatType float_v;
+                if constexpr (IsDecimalV2<FromT>) {
+                    float_v = static_cast<double>(decimal_num.value()) /
+                              static_cast<double>(scale_multiplier);
+                } else {
+                    float_v = static_cast<double>(decimal_num.value) /
+                              static_cast<double>(scale_multiplier);
+                }
                 if (std::isinf(float_v)) {
                     // std::cout << fmt::format("cast {}({}, {}) value {} to float_v result is inf\n",
                     //                          type_to_string(FromT::PType), FromPrecision, FromScale,
@@ -906,8 +912,13 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
 
                 decimal_num = decimal_ctor(-i, 0, FromScale);
                 num_str = dt_from.to_string(decimal_num);
-                float_v = static_cast<double>(decimal_num.value) /
-                          static_cast<double>(scale_multiplier);
+                if constexpr (IsDecimalV2<FromT>) {
+                    float_v = static_cast<double>(decimal_num.value()) /
+                              static_cast<double>(scale_multiplier);
+                } else {
+                    float_v = static_cast<double>(decimal_num.value) /
+                              static_cast<double>(scale_multiplier);
+                }
                 if (std::isinf(float_v)) {
                     // std::cout << fmt::format("cast {}({}, {}) value {} to float_v result is inf\n",
                     //                          type_to_string(FromT::PType), FromPrecision, FromScale,
@@ -929,16 +940,27 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
             for (const auto& f : fractional_part) {
                 auto decimal_num = decimal_ctor(0, f, FromScale);
                 auto num_str = dt_from.to_string(decimal_num);
-                FloatType float_v = static_cast<double>(decimal_num.value) /
-                                    static_cast<double>(scale_multiplier);
+                FloatType float_v;
+                if constexpr (IsDecimalV2<FromT>) {
+                    float_v = static_cast<double>(decimal_num.value()) /
+                              static_cast<double>(scale_multiplier);
+                } else {
+                    float_v = static_cast<double>(decimal_num.value) /
+                              static_cast<double>(scale_multiplier);
+                }
                 // dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), float_v);
                 data_set.push_back({{decimal_num}, float_v});
                 test_data_set.emplace_back(num_str, float_v);
 
                 decimal_num = decimal_ctor(0, -f, FromScale);
                 num_str = dt_from.to_string(decimal_num);
-                float_v = static_cast<double>(decimal_num.value) /
-                          static_cast<double>(scale_multiplier);
+                if constexpr (IsDecimalV2<FromT>) {
+                    float_v = static_cast<double>(decimal_num.value()) /
+                              static_cast<double>(scale_multiplier);
+                } else {
+                    float_v = static_cast<double>(decimal_num.value) /
+                              static_cast<double>(scale_multiplier);
+                }
                 // dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), float_v);
                 data_set.push_back({{decimal_num}, float_v});
                 test_data_set.emplace_back(num_str, float_v);
@@ -955,8 +977,14 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
             for (const auto& f : fractional_part) {
                 auto decimal_num = decimal_ctor(i, f, FromScale);
                 auto num_str = dt_from.to_string(decimal_num);
-                FloatType float_v = static_cast<double>(decimal_num.value) /
-                                    static_cast<double>(scale_multiplier);
+                FloatType float_v;
+                if constexpr (IsDecimalV2<FromT>) {
+                    float_v = static_cast<double>(decimal_num.value()) /
+                              static_cast<double>(scale_multiplier);
+                } else {
+                    float_v = static_cast<double>(decimal_num.value) /
+                              static_cast<double>(scale_multiplier);
+                }
                 if (std::isinf(float_v)) {
                     // std::cout << fmt::format("cast {}({}, {}) value {} to float_v result is inf\n",
                     //                          type_to_string(FromT::PType), FromPrecision, FromScale,
@@ -969,8 +997,13 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
 
                 decimal_num = decimal_ctor(-i, -f, FromScale);
                 num_str = dt_from.to_string(decimal_num);
-                float_v = static_cast<double>(decimal_num.value) /
-                          static_cast<double>(scale_multiplier);
+                if constexpr (IsDecimalV2<FromT>) {
+                    float_v = static_cast<double>(decimal_num.value()) /
+                              static_cast<double>(scale_multiplier);
+                } else {
+                    float_v = static_cast<double>(decimal_num.value) /
+                              static_cast<double>(scale_multiplier);
+                }
                 if (std::isinf(float_v)) {
                     // std::cout << fmt::format("cast {}({}, {}) value {} to float_v result is inf\n",
                     //                          type_to_string(FromT::PType), FromPrecision, FromScale,
@@ -1659,14 +1692,14 @@ TEST_F(FunctionCastToFloatTest, test_from_decimal) {
     from_decimal_test_func<Decimal128V3, TYPE_FLOAT>();
     from_decimal_test_func<Decimal256, TYPE_FLOAT>();
 
-    from_decimal_test_func<Decimal128V2, TYPE_FLOAT>();
+    from_decimal_test_func<DecimalV2Value, TYPE_FLOAT>();
 
     from_decimal_test_func<Decimal32, TYPE_DOUBLE>();
     from_decimal_test_func<Decimal64, TYPE_DOUBLE>();
     from_decimal_test_func<Decimal128V3, TYPE_DOUBLE>();
     from_decimal_test_func<Decimal256, TYPE_DOUBLE>();
 
-    from_decimal_test_func<Decimal128V2, TYPE_DOUBLE>();
+    from_decimal_test_func<DecimalV2Value, TYPE_DOUBLE>();
 }
 TEST_F(FunctionCastToFloatTest, test_from_decimal_overflow) {
     from_decimal_overflow_test_func();

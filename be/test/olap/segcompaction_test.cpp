@@ -393,7 +393,7 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
             auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
             std::vector<uint32_t> segment_num_rows;
             OlapReaderStatistics stats;
-            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows, &stats).ok());
+            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows, false, &stats).ok());
             size_t total_num_rows = 0;
             for (const auto& i : segment_num_rows) {
                 total_num_rows += i;
@@ -903,7 +903,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
             auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
             std::vector<uint32_t> segment_num_rows;
             OlapReaderStatistics stats;
-            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows, &stats).ok());
+            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows, false, &stats).ok());
             size_t total_num_rows = 0;
             for (const auto& i : segment_num_rows) {
                 total_num_rows += i;
@@ -1172,7 +1172,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
             auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
             std::vector<uint32_t> segment_num_rows;
             OlapReaderStatistics stats;
-            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows, &stats).ok());
+            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows, false, &stats).ok());
             size_t total_num_rows = 0;
             for (const auto& i : segment_num_rows) {
                 total_num_rows += i;

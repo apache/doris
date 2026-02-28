@@ -108,7 +108,7 @@ struct TypeEncodingTraits<type, BIT_SHUFFLE, CppType,
 };
 
 template <>
-struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_BOOL, RLE, bool> {
+struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_BOOL, RLE, uint8_t> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
         return RlePageBuilder<FieldType::OLAP_FIELD_TYPE_BOOL>::create(builder, opts);
     }
@@ -169,6 +169,21 @@ struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, FOR_ENCODING,
                                       PageDecoder** decoder) {
         *decoder =
                 new FrameOfReferencePageDecoder<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>(data, opts);
+        return Status::OK();
+    }
+};
+
+template <>
+struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, FOR_ENCODING,
+                          typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>::CppType> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        return FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>::create(builder,
+                                                                                           opts);
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                      PageDecoder** decoder) {
+        *decoder =
+                new FrameOfReferencePageDecoder<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>(data, opts);
         return Status::OK();
     }
 };
@@ -273,6 +288,10 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<FieldType::OLAP_FIELD_TYPE_DATETIME, BIT_SHUFFLE>();
     _add_map<FieldType::OLAP_FIELD_TYPE_DATETIME, PLAIN_ENCODING>();
     _add_map<FieldType::OLAP_FIELD_TYPE_DATETIME, FOR_ENCODING, true>();
+
+    _add_map<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, FOR_ENCODING, true>();
 
     _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE>();
     _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL, PLAIN_ENCODING>();

@@ -196,7 +196,13 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
              (_join_op != TJoinOp::LEFT_ANTI_JOIN) && i < _right_output_slot_flags.size(); ++i) {
             auto type = remove_nullable(_right_table_data_types[i]);
             auto column = type->create_column();
-            column->resize(block_rows);
+            // Here should NOT use `resize` instead of `insert_many_defaults` to create null column,
+            // because `insert_many_defaults` will create a column with default value.
+            // For example: for `Struct<a: int, b: string>`,
+            //  If the column is created by `resize`,
+            //  the nested columns' null-map will be random values(not only 1 and 0),
+            //  if `struct_element` is called next, it will result in an invalid ColumnNullable data.
+            column->insert_many_defaults(block_rows);
             auto null_map_column = vectorized::ColumnUInt8::create(block_rows, 1);
             auto nullable_column = vectorized::ColumnNullable::create(std::move(column),
                                                                       std::move(null_map_column));
@@ -226,6 +232,12 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                     if constexpr (!std::is_same_v<HashTableProbeType, std::monostate>) {
                         using HashTableCtxType = std::decay_t<decltype(arg)>;
                         if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                            if (local_state._shared_state->left_semi_direct_return) {
+                                process_hashtable_ctx.process_direct_return(
+                                        arg, mutable_join_block, &temp_block,
+                                        cast_set<uint32_t>(local_state._probe_block.rows()));
+                                return;
+                            }
                             st = process_hashtable_ctx.process(
                                     arg,
                                     local_state._null_map_column
@@ -283,8 +295,11 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
     }
 
     local_state._estimate_memory_usage += temp_block.allocated_bytes();
-    RETURN_IF_ERROR(
-            local_state.filter_data_and_build_output(state, output_block, eos, &temp_block));
+    // if left_semi_direct_return is true,
+    // here does not increase the output rows count(just same as `_probe_block`'s rows count).
+    RETURN_IF_ERROR(local_state.filter_data_and_build_output(
+            state, output_block, eos, &temp_block,
+            !local_state._shared_state->left_semi_direct_return));
     // Here make _join_block release the columns' ptr
     local_state._join_block.set_columns(local_state._join_block.clone_empty_columns());
     mutable_join_block.clear();

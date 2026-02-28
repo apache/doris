@@ -125,6 +125,9 @@ suite("union_all_compensate") {
         sql """analyze table test_table1 with sync"""
         sql """analyze table test_table2 with sync"""
 
+        sql """alter table test_table1 modify column num set stats ('row_count'='20');"""
+        sql """alter table test_table2 modify column num set stats ('row_count'='16');"""
+
         // Aggregate, scalar aggregate, should not compensate union all
         sql """ DROP MATERIALIZED VIEW IF EXISTS test_agg_mv"""
         sql """
@@ -193,9 +196,6 @@ suite("union_all_compensate") {
         order_qt_query1_1_after_no_sql_cache "${query1_0}"
         sql "set enable_sql_cache=true"
         order_qt_query1_1_after_use_sql_cache "${query1_0}"
-
-        sql """alter table test_table1 modify column num set stats ('row_count'='20');"""
-        sql """alter table test_table2 modify column num set stats ('row_count'='16');"""
 
 
         // Aggregate, if query group by expression doesn't use the partition column, but the invalid partition is in the

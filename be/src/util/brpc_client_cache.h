@@ -51,10 +51,17 @@ class PBackendService_Stub;
 class PFunctionService_Stub;
 } // namespace doris
 
+// Entry that holds both resolved IP and stub, similar to Java's BackendServiceClientExtIp
+template <typename T>
+struct StubEntry {
+    std::string real_ip;
+    std::shared_ptr<T> stub;
+};
+
 template <typename T>
 using StubMap = phmap::parallel_flat_hash_map<
-        std::string, std::shared_ptr<T>, std::hash<std::string>, std::equal_to<std::string>,
-        std::allocator<std::pair<const std::string, std::shared_ptr<T>>>, 8, std::mutex>;
+        std::string, StubEntry<T>, std::hash<std::string>, std::equal_to<std::string>,
+        std::allocator<std::pair<const std::string, StubEntry<T>>>, 8, std::mutex>;
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -170,26 +177,53 @@ public:
                 return nullptr;
             }
         }
-        std::string host_port = get_host_port(realhost, port);
+
+        // Use original host:port as key (like Java's TNetworkAddress address)
+        // This allows us to detect IP changes when DNS resolution changes
+        std::string host_port = fmt::format("{}:{}", host, port);
+
         std::shared_ptr<T> stub_ptr;
-        auto get_value = [&stub_ptr](const auto& v) { stub_ptr = v.second; };
-        if (LIKELY(_stub_map.if_contains(host_port, get_value))) {
-            DCHECK(stub_ptr != nullptr);
-            // All client created from this cache will use FailureDetectChannel, so it is
-            // safe to do static cast here.
-            // Check if the base channel is OK, if not ignore the stub and create new one.
-            if (static_cast<FailureDetectChannel*>(stub_ptr->channel())->channel_status()->ok()) {
-                return stub_ptr;
+        bool need_remove = false;
+
+        auto check_entry = [&](const auto& v) {
+            const StubEntry<T>& entry = v.second;
+            // Check if cached IP matches current resolved IP
+            if (entry.real_ip != realhost) {
+                // IP changed (DNS resolution changed)
+                LOG(WARNING) << "Cached ip changed for " << host << ", before ip: " << entry.real_ip
+                             << ", current ip: " << realhost;
+                need_remove = true;
+            } else if (!static_cast<FailureDetectChannel*>(entry.stub->channel())
+                                ->channel_status()
+                                ->ok()) {
+                // Client is not in normal state, need to recreate
+                // At this point we cannot judge the progress of reconnecting the underlying channel.
+                // In the worst case, it may take two minutes. But we can't stand the connection refused
+                // for two minutes, so rebuild the channel directly.
+                need_remove = true;
             } else {
+                // Cache hit: IP matches and client is healthy
+                stub_ptr = entry.stub;
+            }
+        };
+
+        if (LIKELY(_stub_map.if_contains(host_port, check_entry))) {
+            if (stub_ptr != nullptr) {
+                return stub_ptr;
+            }
+            // IP changed or client unhealthy, need to remove old entry
+            if (need_remove) {
                 _stub_map.erase(host_port);
             }
         }
 
-        // new one stub and insert into map
-        auto stub = get_new_client_no_cache(host_port);
+        // Create new stub using resolved IP for actual connection
+        std::string real_host_port = get_host_port(realhost, port);
+        auto stub = get_new_client_no_cache(real_host_port);
         if (stub != nullptr) {
+            StubEntry<T> entry {realhost, stub};
             _stub_map.try_emplace_l(
-                    host_port, [&stub](const auto& v) { stub = v.second; }, stub);
+                    host_port, [&stub](const auto& v) { stub = v.second.stub; }, entry);
         }
         return stub;
     }

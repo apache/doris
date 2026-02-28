@@ -15,19 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hudi_orc_tables", "p2,external,hudi,external_remote,external_remote_hudi") {
-    String enabled = context.config.otherConfigs.get("enableExternalHudiTest")
+suite("test_hudi_orc_tables", "p2,external,hudi") {
+    String enabled = context.config.otherConfigs.get("enableHudiTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable hudi test")
         return
     }
 
     String catalog_name = "test_hudi_orc_tables"
-    String props = context.config.otherConfigs.get("hudiEmrCatalog")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String hudiHmsPort = context.config.otherConfigs.get("hudiHmsPort")
+    String hudiMinioPort = context.config.otherConfigs.get("hudiMinioPort")
+    String hudiMinioAccessKey = context.config.otherConfigs.get("hudiMinioAccessKey")
+    String hudiMinioSecretKey = context.config.otherConfigs.get("hudiMinioSecretKey")
+    
     sql """drop catalog if exists ${catalog_name};"""
     sql """
         create catalog if not exists ${catalog_name} properties (
-            ${props}
+            'type'='hms',
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hudiHmsPort}',
+            's3.endpoint' = 'http://${externalEnvIp}:${hudiMinioPort}',
+            's3.access_key' = '${hudiMinioAccessKey}',
+            's3.secret_key' = '${hudiMinioSecretKey}',
+            's3.region' = 'us-east-1',
+            'use_path_style' = 'true'
         );
     """
 
@@ -35,8 +46,9 @@ suite("test_hudi_orc_tables", "p2,external,hudi,external_remote,external_remote_
     sql """ use regression_hudi;""" 
     sql """ set enable_fallback_to_original_planner=false """
     
-    qt_cow """ select * from  orc_hudi_table_cow; """
-    qt_mor """ select * from  orc_hudi_table_mor; """
+    qt_cow """ select id, name, value from  orc_hudi_table_cow; """
+    qt_mor """ select id, name, value from  orc_hudi_table_mor; """
 
     sql """drop catalog if exists ${catalog_name};"""
 }
+

@@ -46,7 +46,6 @@ struct IteratorRowRef;
 namespace segment_v2 {
 struct SubstreamIterator;
 }
-
 class StorageReadOptions {
 public:
     struct KeyRange {
@@ -88,9 +87,10 @@ public:
             AndBlockColumnPredicate::create_shared();
     // reader's column predicate, nullptr if not existed
     // used to fiter rows in row block
-    std::vector<ColumnPredicate*> column_predicates;
+    std::vector<std::shared_ptr<ColumnPredicate>> column_predicates;
     std::unordered_map<int32_t, std::shared_ptr<AndBlockColumnPredicate>> col_id_to_predicates;
-    std::unordered_map<int32_t, std::vector<const ColumnPredicate*>> del_predicates_for_zone_map;
+    std::unordered_map<int32_t, std::vector<std::shared_ptr<const ColumnPredicate>>>
+            del_predicates_for_zone_map;
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
 
     // REQUIRED (null is not allowed)
@@ -127,6 +127,9 @@ public:
     std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
     std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;
 
+    std::map<int32_t, TColumnAccessPaths> all_access_paths;
+    std::map<int32_t, TColumnAccessPaths> predicate_access_paths;
+
     std::shared_ptr<vectorized::ScoreRuntime> score_runtime;
     CollectionStatisticsPtr collection_statistics;
 };
@@ -135,6 +138,7 @@ struct CompactionSampleInfo {
     int64_t bytes = 0;
     int64_t rows = 0;
     int64_t group_data_size = 0;
+    int64_t null_count = 0; // Number of NULL cells in this column group
 };
 
 struct BlockWithSameBit {

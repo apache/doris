@@ -110,6 +110,18 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
 
     _timeout_second = query_options.execution_timeout;
 
+    bool initialize_context_holder =
+            config::enable_file_cache && config::enable_file_cache_query_limit &&
+            query_options.__isset.enable_file_cache && query_options.enable_file_cache &&
+            query_options.__isset.file_cache_query_limit_percent &&
+            query_options.file_cache_query_limit_percent < 100;
+
+    // Init query context holders for file cache, if enable query limit feature
+    if (initialize_context_holder) {
+        _query_context_holders = io::FileCacheFactory::instance()->get_query_context_holders(
+                _query_id, query_options.file_cache_query_limit_percent);
+    }
+
     bool is_query_type_valid = query_options.query_type == TQueryType::SELECT ||
                                query_options.query_type == TQueryType::LOAD ||
                                query_options.query_type == TQueryType::EXTERNAL;
@@ -231,14 +243,13 @@ QueryContext::~QueryContext() {
     _runtime_predicates.clear();
     file_scan_range_params_map.clear();
     obj_pool.clear();
-    if (_merge_controller_handler) {
-        _merge_controller_handler->release_undone_filters(this);
-    }
     _merge_controller_handler.reset();
 
     DorisMetrics::instance()->query_ctx_cnt->increment(-1);
-    // TODO(gabriel): we need to clear outdated query contexts on time
-    // ExecEnv::GetInstance()->fragment_mgr()->remove_query_context(this->_query_id);
+    // fragment_mgr is nullptr in unittest
+    if (ExecEnv::GetInstance()->fragment_mgr()) {
+        ExecEnv::GetInstance()->fragment_mgr()->remove_query_context(this->_query_id);
+    }
     // the only one msg shows query's end. any other msg should append to it if need.
     LOG_INFO("Query {} deconstructed, mem_tracker: {}", print_id(this->_query_id), mem_tracker_msg);
 }

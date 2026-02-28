@@ -17,12 +17,15 @@
 
 #include "olap/rowset/segment_v2/segment.h"
 
+#include <crc32c/crc32c.h>
+#include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <cstring>
 #include <memory>
+#include <sstream>
 #include <utility>
 
 #include "cloud/config.h"
@@ -64,7 +67,6 @@
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 #include "util/coding.h"
-#include "util/crc32c.h"
 #include "util/slice.h" // Slice
 #include "vec/columns/column.h"
 #include "vec/common/schema_util.h"
@@ -273,39 +275,6 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         }
     }
 
-    if (!read_options.topn_filter_source_node_ids.empty()) {
-        auto* query_ctx = read_options.runtime_state->get_query_ctx();
-        for (int id : read_options.topn_filter_source_node_ids) {
-            auto runtime_predicate = query_ctx->get_runtime_predicate(id).get_predicate(
-                    read_options.topn_filter_target_node_id);
-
-            AndBlockColumnPredicate and_predicate;
-            and_predicate.add_column_predicate(
-                    SingleColumnBlockPredicate::create_unique(runtime_predicate.get()));
-            std::shared_ptr<ColumnReader> reader;
-            Status st = get_column_reader(
-                    read_options.tablet_schema->column(runtime_predicate->column_id()), &reader,
-                    read_options.stats);
-            if (st.is<ErrorCode::NOT_FOUND>()) {
-                continue;
-            }
-            RETURN_IF_ERROR(st);
-            DCHECK(reader != nullptr);
-            if (can_apply_predicate_safely(runtime_predicate->column_id(), *schema,
-                                           read_options.target_cast_type_for_variants,
-                                           read_options)) {
-                bool matched = true;
-                RETURN_IF_ERROR(reader->match_condition(&and_predicate, &matched));
-                if (!matched) {
-                    // any condition not satisfied, return.
-                    *iter = std::make_unique<EmptySegmentIterator>(*schema);
-                    read_options.stats->filtered_segment_number++;
-                    return Status::OK();
-                }
-            }
-        }
-    }
-
     {
         SCOPED_RAW_TIMER(&read_options.stats->segment_load_index_timer_ns);
         RETURN_IF_ERROR(load_index(read_options.stats));
@@ -338,7 +307,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             options_with_pruned_predicates.column_predicates = pruned_predicates;
             //because column_predicates is changed, we need to rebuild col_id_to_predicates so that inverted index will not go through it.
             options_with_pruned_predicates.col_id_to_predicates.clear();
-            for (auto* pred : options_with_pruned_predicates.column_predicates) {
+            for (auto pred : options_with_pruned_predicates.column_predicates) {
                 if (!options_with_pruned_predicates.col_id_to_predicates.contains(
                             pred->column_id())) {
                     options_with_pruned_predicates.col_id_to_predicates.insert(
@@ -467,7 +436,7 @@ Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
 
     // validate footer PB's checksum
     uint32_t expect_checksum = decode_fixed32_le(fixed_buf + 4);
-    uint32_t actual_checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
+    uint32_t actual_checksum = crc32c::Crc32c(footer_buf.data(), footer_buf.size());
     if (actual_checksum != expect_checksum) {
         Status st = _write_error_file(file_size, file_size - 12 - footer_length, bytes_read,
                                       footer_buf.data(), io_ctx);
@@ -663,7 +632,7 @@ Status Segment::new_default_iterator(const TabletColumn& tablet_column,
     std::unique_ptr<DefaultValueColumnIterator> default_value_iter(new DefaultValueColumnIterator(
             tablet_column.has_default_value(), tablet_column.default_value(),
             tablet_column.is_nullable(), std::move(type_info), tablet_column.precision(),
-            tablet_column.frac()));
+            tablet_column.frac(), tablet_column.length()));
     ColumnIteratorOptions iter_opts;
 
     RETURN_IF_ERROR(default_value_iter->init(iter_opts));
@@ -722,6 +691,20 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                                                sparse_column_cache_ptr));
     } else {
         RETURN_IF_ERROR(reader->new_iterator(iter, &tablet_column, opt));
+        if (opt->all_access_paths.contains(unique_id) ||
+            opt->predicate_access_paths.contains(unique_id)) {
+            const auto& all_access_paths = opt->all_access_paths.contains(unique_id)
+                                                   ? opt->all_access_paths.at(unique_id)
+                                                   : TColumnAccessPaths {};
+            const auto& predicate_access_paths = opt->predicate_access_paths.contains(unique_id)
+                                                         ? opt->predicate_access_paths.at(unique_id)
+                                                         : TColumnAccessPaths {};
+
+            // set column name to apply access paths.
+            (*iter)->set_column_name(tablet_column.name());
+            RETURN_IF_ERROR((*iter)->set_access_paths(all_access_paths, predicate_access_paths));
+            (*iter)->remove_pruned_sub_iterators();
+        }
     }
 
     if (config::enable_column_type_check && !tablet_column.has_path_info() &&
