@@ -23,7 +23,7 @@ import java.nio.file.Files
 import java.nio.file.Paths
 import java.net.InetSocketAddress
 
-suite("test_http_tvf", "p0,external") {
+suite("test_http_tvf", "p0") {
     // csv
     qt_sql01 """
         SELECT *

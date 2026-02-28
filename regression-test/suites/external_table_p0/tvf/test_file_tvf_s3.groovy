@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_file_tvf_s3", "p0,external") {
+suite("test_file_tvf_s3", "p0") {
 
     def export_table_name = "test_file_tvf_s3"
 

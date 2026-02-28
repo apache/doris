@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("backend_tablets", "p0,external") {
+suite("backend_tablets", "p0") {
     if (!isCloudMode()) {
         def dbName = "test_backend_tablets_db"
         def tbName1 = "test_backend_tablets_1"
