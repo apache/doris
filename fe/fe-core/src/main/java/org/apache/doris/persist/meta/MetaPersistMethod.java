@@ -186,6 +186,14 @@ public class MetaPersistMethod {
                 metaPersistMethod.writeMethod =
                         Env.class.getDeclaredMethod("saveSqlBlockRule", CountingDataOutputStream.class, long.class);
                 break;
+            case "authenticationIntegrations":
+                metaPersistMethod.readMethod =
+                        Env.class.getDeclaredMethod("loadAuthenticationIntegrations", DataInputStream.class,
+                                long.class);
+                metaPersistMethod.writeMethod =
+                        Env.class.getDeclaredMethod("saveAuthenticationIntegrations", CountingDataOutputStream.class,
+                                long.class);
+                break;
             case "policy":
                 metaPersistMethod.readMethod =
                         Env.class.getDeclaredMethod("loadPolicy", DataInputStream.class, long.class);

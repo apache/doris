@@ -21,6 +21,7 @@ import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.BatchAlterJobPersistInfo;
 import org.apache.doris.alter.IndexChangeJob;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authentication.AuthenticationIntegrationMeta;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
@@ -88,6 +89,7 @@ import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DictionaryDecreaseVersionInfo;
 import org.apache.doris.persist.DictionaryIncreaseVersionInfo;
+import org.apache.doris.persist.DropAuthenticationIntegrationOperationLog;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropDictionaryPersistInfo;
 import org.apache.doris.persist.DropInfo;
@@ -705,6 +707,17 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DROP_SQL_BLOCK_RULE: {
                 data = DropSqlBlockRuleOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_AUTHENTICATION_INTEGRATION:
+            case OperationType.OP_ALTER_AUTHENTICATION_INTEGRATION: {
+                data = AuthenticationIntegrationMeta.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_AUTHENTICATION_INTEGRATION: {
+                data = DropAuthenticationIntegrationOperationLog.read(in);
                 isRead = true;
                 break;
             }
