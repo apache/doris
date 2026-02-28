@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_orc_tiny_stripes", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_orc_tiny_stripes", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {

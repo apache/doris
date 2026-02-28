@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_mc_write_partitions", "p2,external,maxcompute,external_remote,external_remote_maxcompute") {
+suite("test_mc_write_partitions", "p2,external") {
     String enabled = context.config.otherConfigs.get("enableMaxComputeTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable MaxCompute test.")

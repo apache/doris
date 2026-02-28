@@ -18,7 +18,7 @@
 import java.util.concurrent.ThreadLocalRandom
 
 import static groovy.test.GroovyAssert.shouldFail;
-suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property") {
+suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external") {
     
     def hmsTestQueryAndInsert = { String catalogProperties, String prefix ->
 
