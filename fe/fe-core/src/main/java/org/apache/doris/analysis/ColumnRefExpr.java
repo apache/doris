@@ -17,8 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.thrift.TColumnRef;
 import org.apache.doris.thrift.TExprNode;
@@ -62,14 +60,8 @@ public class ColumnRefExpr extends Expr {
     }
 
     @Override
-    protected String toSqlImpl() {
-        return columnName;
-    }
-
-    @Override
-    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        return columnName;
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitColumnRefExpr(this, context);
     }
 
     @Override

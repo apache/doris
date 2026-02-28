@@ -21,6 +21,8 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -163,7 +165,8 @@ public class DataStreamSink extends DataSink {
         }
         if (!conjuncts.isEmpty()) {
             Expr expr = PlanNode.convertConjunctsToAndCompoundPredicate(conjuncts);
-            strBuilder.append(prefix).append("  CONJUNCTS: ").append(expr.toSql()).append("\n");
+            strBuilder.append(prefix).append("  CONJUNCTS: ")
+                    .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
         }
         if (!runtimeFilters.isEmpty()) {
             strBuilder.append(prefix).append("  runtime filters: ");

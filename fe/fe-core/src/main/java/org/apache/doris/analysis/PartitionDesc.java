@@ -119,38 +119,39 @@ public class PartitionDesc {
                             } else {
                                 throw new AnalysisException(
                                         "auto create partition only support one slotRef in function expr. "
-                                                + expr.toSql());
+                                                + expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
                             }
                         }
                     }
                 } else {
                     throw new AnalysisException(
                             "auto create partition only support function call expr is date_trunc/date_floor/date_ceil. "
-                                    + expr.toSql());
+                                    + expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
                 }
             } else if (expr instanceof SlotRef) {
                 if (isAutoPartition && !isListPartition) {
                     throw new AnalysisException(
                             "auto create partition only support date_trunc function of RANGE partition. "
-                                    + expr.toSql());
+                                    + expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
                 }
                 colNames.add(((SlotRef) expr).getColumnName());
             } else {
                 if (!isListPartition) {
                     throw new AnalysisException(
                             "auto create partition only support slotRef and date_trunc/date_floor/date_ceil"
-                                    + "function in range partitions. " + expr.toSql());
+                                    + "function in range partitions. "
+                                    + expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
                 } else {
                     throw new AnalysisException(
                             "auto create partition only support slotRef in list partitions. "
-                                    + expr.toSql());
+                                    + expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
                 }
             }
         }
         if (colNames.isEmpty()) {
             throw new AnalysisException(
                     "auto create partition have not find any partition columns. "
-                            + exprs.get(0).toSql());
+                            + exprs.get(0).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
         }
         return colNames;
     }

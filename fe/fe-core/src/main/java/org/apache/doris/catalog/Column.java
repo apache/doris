@@ -20,7 +20,9 @@ package org.apache.doris.catalog;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -411,7 +413,8 @@ public class Column implements GsonPostProcessable {
         if (defineExpr == null) {
             return name;
         } else {
-            return MaterializedIndexMeta.normalizeName(defineExpr.toSql());
+            return MaterializedIndexMeta.normalizeName(
+                    defineExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
         }
     }
 
@@ -1076,7 +1079,8 @@ public class Column implements GsonPostProcessable {
             sb.append(" ").append(aggregationType.toSql());
         }
         if (generatedColumnInfo != null) {
-            sb.append(" AS (").append(generatedColumnInfo.getExpr().toSql()).append(")");
+            sb.append(" AS (").append(generatedColumnInfo.getExpr()
+                    .accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append(")");
         }
         if (isAllowNull) {
             sb.append(" NULL");

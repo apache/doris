@@ -19,9 +19,11 @@ package org.apache.doris.datasource.odbc.source;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.JdbcTable;
@@ -105,7 +107,8 @@ public class OdbcScanNode extends ExternalScanNode {
         output.append(prefix).append("QUERY: ").append(getOdbcQueryStr()).append("\n");
         if (!conjuncts.isEmpty()) {
             Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
-            output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+            output.append(prefix).append("PREDICATES: ")
+                    .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
         }
         if (useTopnFilter()) {
             String topnFilterSources = String.join(",",

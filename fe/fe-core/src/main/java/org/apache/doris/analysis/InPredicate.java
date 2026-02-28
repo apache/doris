@@ -22,8 +22,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -118,36 +116,22 @@ public class InPredicate extends Predicate {
     }
 
     @Override
-    public String toSqlImpl() {
-        StringBuilder strBuilder = new StringBuilder();
-        String notStr = (isNotIn) ? "NOT " : "";
-        strBuilder.append(getChild(0).toSql() + " " + notStr + "IN (");
-        for (int i = 1; i < children.size(); ++i) {
-            strBuilder.append(getChild(i).toSql());
-            strBuilder.append((i + 1 != children.size()) ? ", " : "");
-        }
-        strBuilder.append(")");
-        return strBuilder.toString();
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        StringBuilder strBuilder = new StringBuilder();
-        String notStr = (isNotIn) ? "NOT " : "";
-        strBuilder.append(
-                getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " " + notStr + "IN (");
-        for (int i = 1; i < children.size(); ++i) {
-            strBuilder.append(getChild(i).toSql(disableTableName, needExternalSql, tableType, table));
-            strBuilder.append((i + 1 != children.size()) ? ", " : "");
-        }
-        strBuilder.append(")");
-        return strBuilder.toString();
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitInPredicate(this, context);
     }
 
     @Override
     public String toString() {
-        return toSql();
+        StringBuilder strBuilder = new StringBuilder();
+        String notStr = isNotIn ? "NOT " : "";
+        strBuilder.append(getChild(0).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE))
+                .append(" ").append(notStr).append("IN (");
+        for (int i = 1; i < getChildren().size(); ++i) {
+            strBuilder.append(getChild(i).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
+            strBuilder.append((i + 1 != getChildren().size()) ? ", " : "");
+        }
+        strBuilder.append(")");
+        return strBuilder.toString();
     }
 
     @Override

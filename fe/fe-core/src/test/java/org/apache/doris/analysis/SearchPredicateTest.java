@@ -93,7 +93,7 @@ public class SearchPredicateTest {
 
         SearchPredicate predicate = new SearchPredicate(dsl, plan, children, true);
 
-        String sql = predicate.toSqlImpl(false, false, null, null);
+        String sql = predicate.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
         Assertions.assertEquals("search('title:hello')", sql);
     }
 
@@ -163,8 +163,8 @@ public class SearchPredicateTest {
         SearchPredicate cloned = (SearchPredicate) original.clone();
 
         Assertions.assertNotNull(cloned);
-        Assertions.assertEquals(original.toSqlImpl(false, false, null, null),
-                cloned.toSqlImpl(false, false, null, null));
+        Assertions.assertEquals(original.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE),
+                cloned.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
         Assertions.assertEquals(original.getChildren().size(), cloned.getChildren().size());
     }
 

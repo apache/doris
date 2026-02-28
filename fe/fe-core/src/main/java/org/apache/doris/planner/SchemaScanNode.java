@@ -18,6 +18,8 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.SchemaTable;
@@ -183,11 +185,13 @@ public class SchemaScanNode extends ScanNode {
         output.append("\n");
         if (!conjuncts.isEmpty()) {
             Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
-            output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+            output.append(prefix).append("PREDICATES: ")
+                    .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
         }
         if (!frontendConjuncts.isEmpty()) {
             Expr expr = convertConjunctsToAndCompoundPredicate(frontendConjuncts);
-            output.append(prefix).append("FRONTEND PREDICATES: ").append(expr.toSql()).append("\n");
+            output.append(prefix).append("FRONTEND PREDICATES: ")
+                    .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
         }
         if (!runtimeFilters.isEmpty()) {
             output.append(prefix).append("runtime filters: ");

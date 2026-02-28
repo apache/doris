@@ -19,10 +19,12 @@ package org.apache.doris.datasource.maxcompute;
 
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MapType;
@@ -451,7 +453,8 @@ public class MaxComputeMetadataOps implements ExternalMetadataOps {
                         "MaxCompute does not support partition transform '" + funcName
                                 + "'. Only identity partitions are supported.");
             } else {
-                throw new UserException("Invalid partition expression: " + expr.toSql());
+                throw new UserException("Invalid partition expression: "
+                        + expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
         }
     }
