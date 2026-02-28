@@ -429,5 +429,138 @@ public class MediumDecisionMakerTest {
         MediumDecision decision = maker.decideForNewPartition("p1", ssdDataProperty, replicaAlloc);
         Assert.assertEquals(TStorageMedium.HDD, decision.getFinalMedium());
     }
+
+    @Test
+    public void testDecideForAtomicRestoreStrictModeLocalMediumMismatch() throws DdlException {
+        // strict mode + same_with_upstream, local=SSD, but system returns HDD
+        // decideWithLocalMediumStrict should throw DdlException
+        setupSystemInfoServiceMock(TStorageMedium.SSD, TStorageMedium.HDD);
+
+        MediumDecisionMaker maker = new MediumDecisionMaker(
+                RestoreCommand.STORAGE_MEDIUM_SAME_WITH_UPSTREAM,
+                RestoreCommand.MEDIUM_ALLOCATION_MODE_STRICT
+        );
+
+        try {
+            maker.decideForAtomicRestore("p1", ssdDataProperty, ssdDataProperty, replicaAlloc);
+            Assert.fail("Expected DdlException");
+        } catch (DdlException e) {
+            Assert.assertTrue(e.getMessage().contains("strict mode"));
+            Assert.assertTrue(e.getMessage().contains("does not allow fallback"));
+        }
+    }
+
+    @Test
+    public void testDecideForAtomicRestoreAdaptiveCheckFailed() throws DdlException {
+        // adaptive mode + same_with_upstream, selectBackendIds throws DdlException
+        // decidePreferLocalMedium should catch and use conservative strategy (local medium)
+        new Expectations() {
+            {
+                Env.getCurrentSystemInfo();
+                result = systemInfoService;
+
+                systemInfoService.selectBackendIdsForReplicaCreation(
+                        (ReplicaAllocation) any, (Map<Tag, Integer>) any,
+                        (TStorageMedium) any, (MediumAllocationMode) any, anyBoolean);
+                result = new DdlException("no backend available for check");
+            }
+        };
+
+        MediumDecisionMaker maker = new MediumDecisionMaker(
+                RestoreCommand.STORAGE_MEDIUM_SAME_WITH_UPSTREAM,
+                RestoreCommand.MEDIUM_ALLOCATION_MODE_ADAPTIVE
+        );
+
+        MediumDecision decision = maker.decideForAtomicRestore(
+                "p1", hddDataProperty, ssdDataProperty, replicaAlloc);
+
+        // Conservative: use local medium (SSD)
+        Assert.assertEquals(TStorageMedium.SSD, decision.getFinalMedium());
+        Assert.assertTrue(decision.getReason().contains("conservative strategy"));
+        Assert.assertTrue(decision.getReason().contains("check failed"));
+    }
+
+    @Test
+    public void testDecideForNewPartitionDdlException() throws DdlException {
+        // decideForNewPartition should propagate DdlException from selectBackendIds
+        new Expectations() {
+            {
+                Env.getCurrentSystemInfo();
+                result = systemInfoService;
+
+                systemInfoService.selectBackendIdsForReplicaCreation(
+                        (ReplicaAllocation) any, (Map<Tag, Integer>) any,
+                        (TStorageMedium) any, (MediumAllocationMode) any, anyBoolean);
+                result = new DdlException("no backend available");
+            }
+        };
+
+        MediumDecisionMaker maker = new MediumDecisionMaker(
+                RestoreCommand.STORAGE_MEDIUM_SSD,
+                RestoreCommand.MEDIUM_ALLOCATION_MODE_STRICT
+        );
+
+        try {
+            maker.decideForNewPartition("p1", ssdDataProperty, replicaAlloc);
+            Assert.fail("Expected DdlException");
+        } catch (DdlException e) {
+            Assert.assertTrue(e.getMessage().contains("no backend available"));
+        }
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void testDecideForTableLevelWithSameWithUpstreamCallsGetTargetStorageMediumThrows() {
+        // Internally, getTargetStorageMedium() with same_with_upstream should throw
+        // We cannot call it directly, but we verify via decideForTableLevel
+        // when storageMedium is an invalid value (not hdd/ssd/same_with_upstream)
+        MediumDecisionMaker maker = new MediumDecisionMaker(
+                "invalid_medium",
+                RestoreCommand.MEDIUM_ALLOCATION_MODE_STRICT
+        );
+
+        // isSameWithUpstream()=false, so it calls getTargetStorageMedium()
+        // which should throw IllegalStateException for unknown medium
+        maker.decideForTableLevel(olapTable);
+    }
+
+    @Test
+    public void testDecideForAtomicRestoreWithExplicitMediumNoDowngrade() throws DdlException {
+        // explicit HDD + strict, local=SSD, system returns HDD (no downgrade)
+        setupSystemInfoServiceMock(TStorageMedium.HDD, TStorageMedium.HDD);
+
+        MediumDecisionMaker maker = new MediumDecisionMaker(
+                RestoreCommand.STORAGE_MEDIUM_HDD,
+                RestoreCommand.MEDIUM_ALLOCATION_MODE_STRICT
+        );
+
+        MediumDecision decision = maker.decideForAtomicRestore(
+                "p1", ssdDataProperty, ssdDataProperty, replicaAlloc);
+
+        Assert.assertEquals(TStorageMedium.HDD, decision.getFinalMedium());
+        Assert.assertEquals(TStorageMedium.HDD, decision.getOriginalMedium());
+        Assert.assertFalse(decision.wasDowngraded());
+        Assert.assertTrue(decision.getReason().contains("explicit medium"));
+        Assert.assertFalse(decision.getReason().contains("downgraded"));
+    }
+
+    @Test
+    public void testDecideForAtomicRestoreAdaptiveLocalDifferentFromConfigured() throws DdlException {
+        // adaptive + same_with_upstream, local=HDD, upstream=SSD, local medium available
+        // Should use local HDD (avoid migration), wasDowngraded=true (HDD != configured SSD)
+        setupSystemInfoServiceMockForCheck(TStorageMedium.HDD, TStorageMedium.HDD);
+
+        MediumDecisionMaker maker = new MediumDecisionMaker(
+                RestoreCommand.STORAGE_MEDIUM_SAME_WITH_UPSTREAM,
+                RestoreCommand.MEDIUM_ALLOCATION_MODE_ADAPTIVE
+        );
+
+        MediumDecision decision = maker.decideForAtomicRestore(
+                "p1", ssdDataProperty, hddDataProperty, replicaAlloc);
+
+        Assert.assertEquals(TStorageMedium.HDD, decision.getFinalMedium());
+        Assert.assertEquals(TStorageMedium.SSD, decision.getOriginalMedium());
+        Assert.assertTrue(decision.wasDowngraded());
+        Assert.assertTrue(decision.getReason().contains("prefer local"));
+    }
 }
 
