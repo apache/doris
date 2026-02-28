@@ -156,6 +156,7 @@ if(NOT BUILD_OSS STREQUAL "OFF")
     add_thirdparty(alibabacloud-oss-cpp-sdk)
     add_thirdparty(apr)
     add_thirdparty(apr-util LIBNAME "lib/libaprutil-1.a")
+    add_thirdparty(uuid LIB64)
 endif()
 
 if(BUILD_AZURE STREQUAL "ON")
