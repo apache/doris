@@ -91,6 +91,38 @@ public class DiskInfoTest {
         DebugPointUtil.clearDebugPoints();
     }
 
+    @Test
+    public void testRemoteUsedCapacity() {
+        DiskInfo diskInfo = new DiskInfo("/data/disk1");
+        Assert.assertEquals(0, diskInfo.getRemoteUsedCapacity());
+
+        diskInfo.setRemoteUsedCapacity(1024L * 1024 * 1024);
+        Assert.assertEquals(1024L * 1024 * 1024, diskInfo.getRemoteUsedCapacity());
+    }
+
+    @Test
+    public void testTrashUsedCapacity() {
+        DiskInfo diskInfo = new DiskInfo("/data/disk1");
+        Assert.assertEquals(0, diskInfo.getTrashUsedCapacityB());
+
+        diskInfo.setTrashUsedCapacityB(512L * 1024 * 1024);
+        Assert.assertEquals(512L * 1024 * 1024, diskInfo.getTrashUsedCapacityB());
+    }
+
+    @Test
+    public void testDiskUsedCapacity() {
+        DiskInfo diskInfo = new DiskInfo("/data/disk1");
+        diskInfo.setTotalCapacityB(1024L * 1024 * 1024);
+        diskInfo.setAvailableCapacityB(300L * 1024 * 1024);
+        Assert.assertEquals(724L * 1024 * 1024, diskInfo.getDiskUsedCapacityB());
+    }
+
+    @Test
+    public void testGetRootPath() {
+        DiskInfo diskInfo = new DiskInfo("/data/disk1");
+        Assert.assertEquals("/data/disk1", diskInfo.getRootPath());
+    }
+
     /**
      * Test basic capacity check without debug points
      */

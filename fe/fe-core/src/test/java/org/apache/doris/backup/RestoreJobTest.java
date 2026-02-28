@@ -41,6 +41,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -2033,5 +2034,191 @@ public class RestoreJobTest {
                 }
             }
         }
+    }
+
+    @Test
+    public void testCreateReplicasWithTabletBasesSameMedium() throws UserException {
+        RestoreJob testJob = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
+                jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false,
+                false, false, false, false, "hdd", "strict", env, repo.getId());
+
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        new Expectations(invertedIndex) {
+            {
+                invertedIndex.getTabletMeta(anyLong);
+                minTimes = 0;
+                result = new TabletMeta(db.getId(), CatalogMocker.TEST_TBL2_ID,
+                        CatalogMocker.TEST_PARTITION1_ID, CatalogMocker.TEST_TBL2_ID,
+                        CatalogMocker.SCHEMA_HASH, TStorageMedium.HDD);
+            }
+        };
+
+        for (Partition partition : expectedRestoreTbl.getPartitions()) {
+            Map<Long, RestoreJob.TabletRef> tabletBases = Maps.newHashMap();
+            for (MaterializedIndex idx : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                for (Tablet tablet : idx.getTablets()) {
+                    tabletBases.put(tablet.getId(),
+                            new RestoreJob.TabletRef(tablet.getId(), CatalogMocker.SCHEMA_HASH));
+                }
+            }
+            testJob.createReplicas(db, expectedRestoreTbl, partition, tabletBases);
+        }
+        Assert.assertTrue(testJob.getStatus().ok());
+    }
+
+    @Test
+    public void testCreateReplicasWithTabletBasesDifferentMedium() throws UserException {
+        RestoreJob testJob = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
+                jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false,
+                false, false, false, false, "ssd", "adaptive", env, repo.getId());
+
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        new Expectations(invertedIndex) {
+            {
+                invertedIndex.getTabletMeta(anyLong);
+                minTimes = 0;
+                result = new TabletMeta(db.getId(), CatalogMocker.TEST_TBL2_ID,
+                        CatalogMocker.TEST_PARTITION1_ID, CatalogMocker.TEST_TBL2_ID,
+                        CatalogMocker.SCHEMA_HASH, TStorageMedium.SSD);
+            }
+        };
+
+        for (Partition partition : expectedRestoreTbl.getPartitions()) {
+            Map<Long, RestoreJob.TabletRef> tabletBases = Maps.newHashMap();
+            for (MaterializedIndex idx : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                for (Tablet tablet : idx.getTablets()) {
+                    tabletBases.put(tablet.getId(),
+                            new RestoreJob.TabletRef(tablet.getId(), CatalogMocker.SCHEMA_HASH));
+                }
+            }
+            testJob.createReplicas(db, expectedRestoreTbl, partition, tabletBases);
+        }
+        Assert.assertTrue(testJob.getStatus().ok());
+    }
+
+    @Test
+    public void testCreateReplicasWithTabletBasesNullMeta() throws UserException {
+        RestoreJob testJob = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
+                jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false,
+                false, false, false, false, "hdd", "strict", env, repo.getId());
+
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        new Expectations(invertedIndex) {
+            {
+                invertedIndex.getTabletMeta(anyLong);
+                minTimes = 0;
+                result = null;
+            }
+        };
+
+        for (Partition partition : expectedRestoreTbl.getPartitions()) {
+            Map<Long, RestoreJob.TabletRef> tabletBases = Maps.newHashMap();
+            for (MaterializedIndex idx : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                for (Tablet tablet : idx.getTablets()) {
+                    tabletBases.put(tablet.getId(),
+                            new RestoreJob.TabletRef(tablet.getId(), CatalogMocker.SCHEMA_HASH));
+                }
+            }
+            testJob.createReplicas(db, expectedRestoreTbl, partition, tabletBases);
+        }
+        Assert.assertTrue(testJob.getStatus().ok());
+    }
+
+    @Test
+    public void testBindLocalAndRemoteOlapTableReplicasSuccess() throws Exception {
+        RestoreJob testJob = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
+                jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false,
+                false, false, true, false, "hdd", "adaptive", env, repo.getId());
+
+        OlapTable localTbl = expectedRestoreTbl;
+
+        OlapTable remoteTbl = new OlapTable(CatalogMocker.TEST_TBL2_ID + 1000, CatalogMocker.TEST_TBL2_NAME,
+                CatalogMocker.TEST_TBL_BASE_SCHEMA, KeysType.AGG_KEYS,
+                localTbl.getPartitionInfo(), localTbl.getDefaultDistributionInfo());
+        Deencapsulation.setField(remoteTbl, "baseIndexId", CatalogMocker.TEST_TBL2_ID + 1000);
+
+        for (Partition localPart : localTbl.getPartitions()) {
+            MaterializedIndex remoteBaseIdx = new MaterializedIndex(
+                    CatalogMocker.TEST_TBL2_ID + 1000, MaterializedIndex.IndexState.NORMAL);
+            Tablet remoteTablet = new LocalTablet(id.getAndIncrement());
+            for (Replica localReplica : localPart.getBaseIndex().getTablets().get(0).getReplicas()) {
+                remoteTablet.addReplica(new LocalReplica(id.getAndIncrement(),
+                        localReplica.getBackendIdWithoutException(), 0, Replica.ReplicaState.NORMAL));
+            }
+            TabletMeta remoteTabletMeta = new TabletMeta(db.getId(), remoteTbl.getId(),
+                    localPart.getId(), CatalogMocker.TEST_TBL2_ID + 1000,
+                    CatalogMocker.SCHEMA_HASH, TStorageMedium.HDD);
+            remoteBaseIdx.addTablet(remoteTablet, remoteTabletMeta);
+
+            Partition remotePart = new Partition(localPart.getId(), localPart.getName(),
+                    remoteBaseIdx, localTbl.getDefaultDistributionInfo());
+            remotePart.setVisibleVersionAndTime(localPart.getVisibleVersion(), 0);
+            remoteTbl.addPartition(remotePart);
+        }
+        remoteTbl.setIndexMeta(CatalogMocker.TEST_TBL2_ID + 1000, CatalogMocker.TEST_TBL2_NAME,
+                CatalogMocker.TEST_TBL_BASE_SCHEMA, 0, CatalogMocker.SCHEMA_HASH, (short) 1,
+                TStorageType.COLUMN, KeysType.AGG_KEYS);
+
+        Map<Long, RestoreJob.TabletRef> tabletBases = Maps.newHashMap();
+        MediumDecisionMaker decisionMaker = new MediumDecisionMaker("hdd", "adaptive");
+
+        Status status = Deencapsulation.invoke(testJob, "bindLocalAndRemoteOlapTableReplicas",
+                localTbl, remoteTbl, tabletBases, decisionMaker);
+
+        Assert.assertTrue(status.ok());
+        Assert.assertFalse(tabletBases.isEmpty());
+    }
+
+    @Test
+    public void testBindLocalAndRemoteOlapTableReplicasDdlException() throws Exception {
+        RestoreJob testJob = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
+                jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false,
+                false, false, true, false, "ssd", "strict", env, repo.getId());
+
+        OlapTable localTbl = expectedRestoreTbl;
+
+        OlapTable remoteTbl = new OlapTable(CatalogMocker.TEST_TBL2_ID + 2000, CatalogMocker.TEST_TBL2_NAME,
+                CatalogMocker.TEST_TBL_BASE_SCHEMA, KeysType.AGG_KEYS,
+                localTbl.getPartitionInfo(), localTbl.getDefaultDistributionInfo());
+        Deencapsulation.setField(remoteTbl, "baseIndexId", CatalogMocker.TEST_TBL2_ID + 2000);
+
+        for (Partition localPart : localTbl.getPartitions()) {
+            MaterializedIndex remoteBaseIdx = new MaterializedIndex(
+                    CatalogMocker.TEST_TBL2_ID + 2000, MaterializedIndex.IndexState.NORMAL);
+            Tablet remoteTablet = new LocalTablet(id.getAndIncrement());
+            for (Replica localReplica : localPart.getBaseIndex().getTablets().get(0).getReplicas()) {
+                remoteTablet.addReplica(new LocalReplica(id.getAndIncrement(),
+                        localReplica.getBackendIdWithoutException(), 0, Replica.ReplicaState.NORMAL));
+            }
+            TabletMeta remoteTabletMeta = new TabletMeta(db.getId(), remoteTbl.getId(),
+                    localPart.getId(), CatalogMocker.TEST_TBL2_ID + 2000,
+                    CatalogMocker.SCHEMA_HASH, TStorageMedium.HDD);
+            remoteBaseIdx.addTablet(remoteTablet, remoteTabletMeta);
+
+            Partition remotePart = new Partition(localPart.getId(), localPart.getName(),
+                    remoteBaseIdx, localTbl.getDefaultDistributionInfo());
+            remotePart.setVisibleVersionAndTime(localPart.getVisibleVersion(), 0);
+            remoteTbl.addPartition(remotePart);
+        }
+        remoteTbl.setIndexMeta(CatalogMocker.TEST_TBL2_ID + 2000, CatalogMocker.TEST_TBL2_NAME,
+                CatalogMocker.TEST_TBL_BASE_SCHEMA, 0, CatalogMocker.SCHEMA_HASH, (short) 1,
+                TStorageType.COLUMN, KeysType.AGG_KEYS);
+
+        new Expectations() {
+            {
+                systemInfoService.selectBackendIdsForReplicaCreation((ReplicaAllocation) any,
+                        (Map<Tag, Integer>) any, (TStorageMedium) any, (MediumAllocationMode) any, anyBoolean);
+                result = new DdlException("no backend for strict mode test");
+            }
+        };
+
+        Map<Long, RestoreJob.TabletRef> tabletBases = Maps.newHashMap();
+        MediumDecisionMaker decisionMaker = new MediumDecisionMaker("ssd", "strict");
+
+        Status status = Deencapsulation.invoke(testJob, "bindLocalAndRemoteOlapTableReplicas",
+                localTbl, remoteTbl, tabletBases, decisionMaker);
+
+        Assert.assertFalse(status.ok());
+        Assert.assertTrue(status.getErrMsg().contains("Failed to decide medium for partition"));
     }
 }

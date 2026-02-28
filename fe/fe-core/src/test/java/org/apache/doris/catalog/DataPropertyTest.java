@@ -224,6 +224,31 @@ public class DataPropertyTest {
     }
 
     @Test
+    public void testGsonPostProcessNullMediumAllocationMode() throws Exception {
+        DataProperty dataProperty = new DataProperty(TStorageMedium.HDD);
+        java.lang.reflect.Field field = DataProperty.class.getDeclaredField("mediumAllocationMode");
+        field.setAccessible(true);
+        field.set(dataProperty, null);
+        Assert.assertNull(field.get(dataProperty));
+
+        dataProperty.gsonPostProcess();
+        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, dataProperty.getMediumAllocationMode());
+    }
+
+    @Test
+    public void testGsonPostProcessNonNullMediumAllocationMode() throws Exception {
+        DataProperty dataProperty = new DataProperty(
+                TStorageMedium.SSD,
+                DataProperty.MAX_COOLDOWN_TIME_MS,
+                "",
+                true,
+                MediumAllocationMode.STRICT
+        );
+        dataProperty.gsonPostProcess();
+        Assert.assertEquals(MediumAllocationMode.STRICT, dataProperty.getMediumAllocationMode());
+    }
+
+    @Test
     public void testMediumAllocationModeFromStringErrorMessage() {
         try {
             MediumAllocationMode.fromString("wrong");
