@@ -230,7 +230,8 @@ public:
 
 private:
     friend class AnalyticSinkLocalState;
-    Status _insert_range_column(vectorized::Block* block, const vectorized::VExprContextSPtr& expr,
+    Status _insert_range_column(const vectorized::Block* block,
+                                const vectorized::VExprContextSPtr& expr,
                                 vectorized::IColumn* dst_column, size_t length);
     Status _add_input_block(doris::RuntimeState* state, vectorized::Block* input_block);
 
