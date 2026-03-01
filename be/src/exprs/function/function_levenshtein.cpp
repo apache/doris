@@ -83,13 +83,7 @@ private:
         if (end <= begin || end > data.size()) {
             return StringRef("", 0);
         }
-
-        size_t str_size = end - begin;
-        // ColumnString offsets usually include trailing '\0' for each row.
-        if (data[end - 1] == '\0') {
-            --str_size;
-        }
-        return StringRef(reinterpret_cast<const char*>(data.data() + begin), str_size);
+        return StringRef(reinterpret_cast<const char*>(data.data() + begin), end - begin);
     }
 
     static void utf8_char_offsets(const StringRef& ref, std::vector<size_t>& offsets) {
