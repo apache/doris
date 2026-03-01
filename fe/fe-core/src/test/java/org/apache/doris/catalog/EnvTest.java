@@ -177,12 +177,12 @@ public class EnvTest {
 
         new MockUp<Env>() {
             @Mock
-            public static TabletInvertedIndex getCurrentInvertedIndex() {
+            public TabletInvertedIndex getCurrentInvertedIndex() {
                 return invertedIndex;
             }
 
             @Mock
-            public static ColocateTableIndex getCurrentColocateIndex() {
+            public ColocateTableIndex getCurrentColocateIndex() {
                 return colocateTableIndex;
             }
         };
