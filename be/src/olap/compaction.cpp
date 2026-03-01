@@ -443,7 +443,7 @@ Status CompactionMixin::build_basic_info(bool is_ordered_compaction) {
                    [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
     _cur_tablet_schema = _tablet->tablet_schema_with_merged_max_schema_version(rowset_metas);
 
-    // if enable_vertical_compact_variant_subcolumns is true, we need to compact the variant subcolumns in seperate column groups
+    // if enable_vertical_compact_variant_subcolumns is true, we need to compact the variant subcolumns in separate column groups
     // so get_extended_compaction_schema will extended the schema for variant columns
     // for ordered compaction, we don't need to extend the schema for variant columns
     if (_enable_vertical_compact_variant_subcolumns && !is_ordered_compaction) {
@@ -1511,7 +1511,7 @@ Status CloudCompactionMixin::build_basic_info() {
         _cur_tablet_schema = _tablet->tablet_schema_with_merged_max_schema_version(rowset_metas);
     }
 
-    // if enable_vertical_compact_variant_subcolumns is true, we need to compact the variant subcolumns in seperate column groups
+    // if enable_vertical_compact_variant_subcolumns is true, we need to compact the variant subcolumns in separate column groups
     // so get_extended_compaction_schema will extended the schema for variant columns
     if (_enable_vertical_compact_variant_subcolumns) {
         RETURN_IF_ERROR(

@@ -39,7 +39,7 @@ namespace vectorized {
 
 // Same with definations in threadpool.cpp
 // Why use same name:
-// We do not want to add seperate metrics for TimeSharingTaskExecutor.
+// We do not want to add separate metrics for TimeSharingTaskExecutor.
 // TimeSharingTaskExecutor is actually a specialized ThreadPool, which uses a time_sharing queuing policy.
 // So we want it have same metrics ends up in the finale prometheus.
 // This is safe:

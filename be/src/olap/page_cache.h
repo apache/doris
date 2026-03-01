@@ -201,7 +201,7 @@ private:
     int32_t _index_cache_percentage = 0;
     std::unique_ptr<DataPageCache> _data_page_cache;
     std::unique_ptr<IndexPageCache> _index_page_cache;
-    // Cache data for primary key index data page, seperated from data
+    // Cache data for primary key index data page, separated from data
     // page cache to make it for flexible. we need this cache When construct
     // delete bitmap in unique key with mow
     std::unique_ptr<PKIndexPageCache> _pk_index_page_cache;

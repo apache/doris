@@ -202,7 +202,7 @@ Status Segment::_open(OlapReaderStatistics* stats) {
     _num_rows = footer_pb_shared->num_rows();
 
     // An estimated memory usage of a segment
-    // Footer is seperated to StoragePageCache so we don't need to add it to _meta_mem_usage
+    // Footer is separated to StoragePageCache so we don't need to add it to _meta_mem_usage
     // _meta_mem_usage += footer_pb_shared->ByteSizeLong();
     if (_pk_index_meta != nullptr) {
         _meta_mem_usage += _pk_index_meta->ByteSizeLong();

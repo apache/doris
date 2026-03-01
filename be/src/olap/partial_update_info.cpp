@@ -618,7 +618,7 @@ static void fill_non_primary_key_cell_for_column_store(
             } else if (tablet_column.is_auto_increment()) {
                 // In flexible partial update, the skip bitmap indicates whether a cell
                 // is specified in the original load, so the generated auto-increment value is filled
-                // in current block in place if needed rather than using a seperate column to
+                // in current block in place if needed rather than using a separate column to
                 // store the generated auto-increment value in fixed partial update
                 new_col->insert_from(cur_col, block_pos);
             } else {
@@ -725,7 +725,7 @@ static void fill_non_primary_key_cell_for_row_store(
             } else if (tablet_column.is_auto_increment()) {
                 // In flexible partial update, the skip bitmap indicates whether a cell
                 // is specified in the original load, so the generated auto-increment value is filled
-                // in current block in place if needed rather than using a seperate column to
+                // in current block in place if needed rather than using a separate column to
                 // store the generated auto-increment value in fixed partial update
                 new_col->insert_from(cur_col, block_pos);
             } else {
