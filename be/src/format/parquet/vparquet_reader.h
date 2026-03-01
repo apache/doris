@@ -177,6 +177,8 @@ public:
         _condition_cache_ctx = std::move(ctx);
     }
 
+    int64_t get_total_rows() const override { return _t_metadata ? _t_metadata->num_rows : 0; }
+
     bool has_delete_operations() const override {
         return _delete_rows != nullptr && !_delete_rows->empty();
     }

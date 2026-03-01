@@ -2528,10 +2528,9 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
                         if (filter_data[i]) {
                             size_t granule = (_last_read_row_number + i) /
                                              ConditionCacheContext::GRANULE_SIZE;
-                            if (granule >= cache.size()) {
-                                cache.resize(granule + 1, false);
+                            if (granule < cache.size()) {
+                                cache[granule] = true;
                             }
-                            cache[granule] = true;
                         }
                     }
                 }
@@ -2760,10 +2759,9 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
         for (uint16_t i = 0; i < size; i++) {
             if (result_filter_data[i]) {
                 size_t granule = (_last_read_row_number + i) / ConditionCacheContext::GRANULE_SIZE;
-                if (granule >= cache.size()) {
-                    cache.resize(granule + 1, false);
+                if (granule < cache.size()) {
+                    cache[granule] = true;
                 }
-                cache[granule] = true;
             }
         }
     }

@@ -448,11 +448,7 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
             } else if (!st) {
                 return st;
             }
-            _init_condition_cache_for_range();
-            // Pass condition cache context to the reader
-            if (_cur_reader && _condition_cache_ctx) {
-                _cur_reader->set_condition_cache_context(_condition_cache_ctx);
-            }
+            _init_reader_condition_cache();
         }
 
         if (_scanner_eof) {
@@ -1753,19 +1749,19 @@ Status FileScanner::_init_expr_ctxes() {
     return Status::OK();
 }
 
-void FileScanner::_init_condition_cache_for_range() {
+void FileScanner::_init_reader_condition_cache() {
     _condition_cache_hit = false;
     _condition_cache = nullptr;
     _condition_cache_ctx = nullptr;
 
-    if (_condition_cache_digest == 0 || _is_load) {
+    if (_condition_cache_digest == 0 || _is_load || !_cur_reader) {
         return;
     }
 
     // Disable condition cache when delete operations exist (e.g. Iceberg position/equality
     // deletes, Hive ACID deletes). Cached granule results may become stale if delete files
     // change between queries while the data file's cache key remains the same.
-    if (_cur_reader && _cur_reader->has_delete_operations()) {
+    if (_cur_reader->has_delete_operations()) {
         return;
     }
 
@@ -1781,14 +1777,21 @@ void FileScanner::_init_condition_cache_for_range() {
         _condition_cache = handle.get_filter_result();
         COUNTER_UPDATE(_condition_cache_hit_range_counter, 1);
     } else {
-        // Allocate empty cache for population during miss
+        // Allocate cache pre-sized to total number of granules
         _condition_cache = std::make_shared<std::vector<bool>>();
+        int64_t total_rows = _cur_reader->get_total_rows();
+        if (total_rows > 0) {
+            size_t num_granules = (total_rows + ConditionCacheContext::GRANULE_SIZE - 1) /
+                                  ConditionCacheContext::GRANULE_SIZE;
+            _condition_cache->resize(num_granules, false);
+        }
     }
 
     // Create context to pass to readers
     _condition_cache_ctx = std::make_shared<ConditionCacheContext>();
     _condition_cache_ctx->is_hit = _condition_cache_hit;
     _condition_cache_ctx->filter_result = _condition_cache;
+    _cur_reader->set_condition_cache_context(_condition_cache_ctx);
 }
 
 void FileScanner::_finalize_condition_cache_for_range() {

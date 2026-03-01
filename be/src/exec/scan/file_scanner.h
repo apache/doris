@@ -287,7 +287,7 @@ private:
         _counter.num_rows_filtered = 0;
     }
 
-    void _init_condition_cache_for_range();
+    void _init_reader_condition_cache();
     void _finalize_condition_cache_for_range();
 
     TPushAggOp::type _get_push_down_agg_type() {

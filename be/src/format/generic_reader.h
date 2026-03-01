@@ -116,6 +116,10 @@ public:
     // Pass condition cache context to the reader for HIT/MISS tracking.
     virtual void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) {}
 
+    // Returns the total number of rows the reader will produce.
+    // Used to pre-allocate condition cache with the correct number of granules.
+    virtual int64_t get_total_rows() const { return 0; }
+
     // Returns true if this reader has delete operations (e.g. Iceberg position/equality deletes,
     // Hive ACID deletes). Used to disable condition cache when deletes are present, since cached
     // granule results may become stale if delete files change between queries.

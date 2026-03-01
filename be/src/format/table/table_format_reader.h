@@ -112,6 +112,8 @@ public:
         return _file_format_reader->has_delete_operations();
     }
 
+    int64_t get_total_rows() const override { return _file_format_reader->get_total_rows(); }
+
 protected:
     std::string _table_format;                          // hudi, iceberg, paimon
     std::unique_ptr<GenericReader> _file_format_reader; // parquet, orc

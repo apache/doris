@@ -279,7 +279,7 @@ public:
 
 // ============================================================
 // These tests reproduce the logic from
-// FileScanner::_init_condition_cache_for_range() (file_scanner.cpp)
+// FileScanner::_init_reader_condition_cache() (file_scanner.cpp)
 // using real ConditionCache + real reader instances.
 // ============================================================
 
@@ -291,7 +291,7 @@ protected:
 
     void TearDown() override { _cache.reset(); }
 
-    // Reproduces the exact logic from FileScanner::_init_condition_cache_for_range().
+    // Reproduces the exact logic from FileScanner::_init_reader_condition_cache().
     // Returns whether the condition cache context was created (i.e. cache was not skipped).
     void simulate_init_condition_cache(GenericReader* reader, uint64_t digest,
                                        const std::string& path,

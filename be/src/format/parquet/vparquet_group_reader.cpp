@@ -441,10 +441,9 @@ void RowGroupReader::_mark_condition_cache_granules(const uint8_t* filter_data, 
             // global row number in the parquet file
             size_t granule = (_current_row_group_idx.first_row + rg_pos) /
                              ConditionCacheContext::GRANULE_SIZE;
-            if (granule >= cache.size()) {
-                cache.resize(granule + 1, false);
+            if (granule < cache.size()) {
+                cache[granule] = true;
             }
-            cache[granule] = true;
         }
     }
 }
