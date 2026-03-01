@@ -2097,6 +2097,23 @@ public class SearchDslParser {
             // Apply Lucene boolean logic
             applyLuceneBooleanLogic(terms);
 
+            // Check if ALL terms are MUST_NOT (pure negation query).
+            // In Lucene, a BooleanQuery with only MUST_NOT clauses matches nothing,
+            // so we inject a MATCH_ALL_DOCS(SHOULD) node to ensure proper semantics:
+            // match all docs EXCEPT those matching any MUST_NOT term.
+            boolean allMustNot = terms.stream().allMatch(t -> t.occur == QsOccur.MUST_NOT);
+            if (allMustNot) {
+                QsNode matchAllNode = new QsNode(QsClauseType.MATCH_ALL_DOCS, (List<QsNode>) null);
+                matchAllNode.setOccur(QsOccur.SHOULD);
+                List<QsNode> children = new ArrayList<>();
+                children.add(matchAllNode);
+                for (TermWithOccur term : terms) {
+                    term.node.setOccur(term.occur);
+                    children.add(term.node);
+                }
+                return new QsNode(QsClauseType.OCCUR_BOOLEAN, children, 1);
+            }
+
             // Determine minimum_should_match
             // Only use explicit option at top level; nested clauses use default logic
             Integer minShouldMatch = (nestingLevel == 0) ? options.getMinimumShouldMatch() : null;

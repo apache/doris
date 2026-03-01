@@ -782,6 +782,60 @@ public class SearchDslParserTest {
     }
 
     @Test
+    public void testLuceneModeMultipleNotTermsInjectMatchAllDocs() {
+        // Test: "NOT a AND NOT b" should inject MATCH_ALL_DOCS(SHOULD) when ALL terms are MUST_NOT
+        String dsl = "NOT field:a AND NOT field:b";
+        String options = "{\"mode\":\"lucene\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
+        // 3 children: MATCH_ALL_DOCS(SHOULD) + MUST_NOT(a) + MUST_NOT(b)
+        Assertions.assertEquals(3, plan.getRoot().getChildren().size());
+        Assertions.assertEquals(Integer.valueOf(1), plan.getRoot().getMinimumShouldMatch());
+
+        QsNode matchAllNode = plan.getRoot().getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.MATCH_ALL_DOCS, matchAllNode.getType());
+        Assertions.assertEquals(QsOccur.SHOULD, matchAllNode.getOccur());
+
+        for (int i = 1; i < plan.getRoot().getChildren().size(); i++) {
+            Assertions.assertEquals(QsOccur.MUST_NOT, plan.getRoot().getChildren().get(i).getOccur());
+        }
+    }
+
+    @Test
+    public void testLuceneModeMultipleNotImplicitConjunction() {
+        // Test: "NOT a NOT b" with default_operator=and
+        String dsl = "NOT field:a NOT field:b";
+        String options = "{\"mode\":\"lucene\",\"default_operator\":\"and\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
+        Assertions.assertEquals(3, plan.getRoot().getChildren().size());
+
+        QsNode matchAllNode = plan.getRoot().getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.MATCH_ALL_DOCS, matchAllNode.getType());
+        Assertions.assertEquals(QsOccur.SHOULD, matchAllNode.getOccur());
+    }
+
+    @Test
+    public void testLuceneModeNotAllMustNotNoInjection() {
+        // Test: "NOT a AND b" - mixed, should NOT inject MATCH_ALL_DOCS
+        String dsl = "NOT field:a AND field:b";
+        String options = "{\"mode\":\"lucene\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
+
+        boolean hasMatchAll = plan.getRoot().getChildren().stream()
+                .anyMatch(c -> c.getType() == QsClauseType.MATCH_ALL_DOCS);
+        Assertions.assertFalse(hasMatchAll, "Mixed MUST/MUST_NOT should not inject MATCH_ALL_DOCS");
+    }
+
+    @Test
     public void testLuceneModeMinimumShouldMatchExplicit() {
         // Test: explicit minimum_should_match=1 keeps SHOULD clauses
         String dsl = "field:a AND field:b OR field:c";
