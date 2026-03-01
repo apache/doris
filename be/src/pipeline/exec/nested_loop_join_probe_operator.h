@@ -47,10 +47,6 @@ public:
     NestedLoopJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent);
     ~NestedLoopJoinProbeLocalState() override = default;
 
-#define CLEAR_BLOCK                                                  \
-    for (size_t i = 0; i < column_to_keep; ++i) {                    \
-        block->get_by_position(i).column->assume_mutable()->clear(); \
-    }
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
@@ -83,7 +79,6 @@ private:
     void _append_probe_data_with_null(vectorized::Block& block) const;
     template <typename Filter, bool SetBuildSideFlag, bool SetProbeSideFlag>
     void _do_filtering_and_update_visited_flags_impl(vectorized::Block* block,
-                                                     uint32_t column_to_keep,
                                                      size_t build_block_idx,
                                                      size_t processed_blocks_num, bool materialize,
                                                      Filter& filter) {
@@ -127,17 +122,15 @@ private:
 
         if (materialize) {
             SCOPED_TIMER(_filtered_by_join_conjuncts_timer);
-            vectorized::Block::filter_block_internal(block, filter, column_to_keep);
+            vectorized::Block::filter_block_internal(block, filter);
         } else {
-            CLEAR_BLOCK
+            block->clear_column_data();
         }
     }
 
     // need exception safety
     template <bool SetBuildSideFlag, bool SetProbeSideFlag, bool IgnoreNull>
     Status _do_filtering_and_update_visited_flags(vectorized::Block* block, bool materialize) {
-        // The number of columns will not exceed the range of u32.
-        uint32_t column_to_keep = cast_set<uint32_t>(block->columns());
         // If we need to set visited flags for build side,
         // 1. Execute conjuncts and get a column with bool type to do filtering.
         // 2. Use bool column to update build-side visited flags.
@@ -155,7 +148,7 @@ private:
             }
 
             if (can_filter_all) {
-                CLEAR_BLOCK
+                block->clear_column_data();
                 std::stack<uint16_t> empty1;
                 _probe_offset_stack.swap(empty1);
 
@@ -164,8 +157,7 @@ private:
             } else {
                 _do_filtering_and_update_visited_flags_impl<decltype(filter), SetBuildSideFlag,
                                                             SetProbeSideFlag>(
-                        block, column_to_keep, build_block_idx, processed_blocks_num, materialize,
-                        filter);
+                        block, build_block_idx, processed_blocks_num, materialize, filter);
             }
         } else if (block->rows() > 0) {
             if constexpr (SetBuildSideFlag) {
@@ -189,10 +181,9 @@ private:
                           1);
             }
             if (!materialize) {
-                CLEAR_BLOCK
+                block->clear_column_data();
             }
         }
-        vectorized::Block::erase_useless_column(block, column_to_keep);
         return Status::OK();
     }
 

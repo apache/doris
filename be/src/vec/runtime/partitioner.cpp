@@ -32,16 +32,16 @@ Status Crc32HashPartitioner<ChannelIds>::do_partitioning(RuntimeState* state, Bl
     size_t rows = block->rows();
 
     if (rows > 0) {
-        auto column_to_keep = block->columns();
-
-        int result_size = cast_set<int>(_partition_expr_ctxs.size());
-        std::vector<int> result(result_size);
+        Columns columns(_partition_expr_ctxs.size());
+        for (size_t i = 0; i < _partition_expr_ctxs.size(); ++i) {
+            RETURN_IF_ERROR(_partition_expr_ctxs[i]->execute(block, columns[i]));
+        }
 
         _initialize_hash_vals(rows);
         auto* __restrict hashes = _hash_vals.data();
-        RETURN_IF_ERROR(_get_partition_column_result(block, result));
-        for (int j = 0; j < result_size; ++j) {
-            const auto& [col, is_const] = unpack_if_const(block->get_by_position(result[j]).column);
+
+        for (int j = 0; j < _partition_expr_ctxs.size(); ++j) {
+            const auto& [col, is_const] = unpack_if_const(columns[j]);
             if (is_const) {
                 continue;
             }
@@ -51,8 +51,6 @@ Status Crc32HashPartitioner<ChannelIds>::do_partitioning(RuntimeState* state, Bl
         for (size_t i = 0; i < rows; i++) {
             hashes[i] = ChannelIds()(hashes[i], _partition_count);
         }
-
-        Block::erase_useless_column(block, column_to_keep);
     }
     return Status::OK();
 }

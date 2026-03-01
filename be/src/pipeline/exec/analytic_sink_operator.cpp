@@ -780,8 +780,6 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state,
     size_t block_rows = input_block->rows();
     local_state._input_total_rows += block_rows;
 
-    // record origin columns, maybe be after this, could cast some column but no need to output
-    auto column_to_keep = input_block->columns();
     {
         SCOPED_TIMER(local_state._compute_agg_data_timer);
         //insert _agg_input_columns, execute calculate for its, and those columns maybe could remove have used data
@@ -817,7 +815,6 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state,
                                          local_state._range_result_columns[i].get(), block_rows));
         }
     }
-    vectorized::Block::erase_useless_column(input_block, column_to_keep);
     COUNTER_UPDATE(local_state._memory_used_counter, input_block->allocated_bytes());
     COUNTER_UPDATE(local_state._blocks_memory_usage, input_block->allocated_bytes());
     local_state._input_blocks.emplace_back(std::move(*input_block));
@@ -894,7 +891,7 @@ size_t AnalyticSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos
     return local_state._reserve_mem_size;
 }
 
-Status AnalyticSinkOperatorX::_insert_range_column(vectorized::Block* block,
+Status AnalyticSinkOperatorX::_insert_range_column(const vectorized::Block* block,
                                                    const vectorized::VExprContextSPtr& expr,
                                                    vectorized::IColumn* dst_column, size_t length) {
     vectorized::ColumnPtr column;

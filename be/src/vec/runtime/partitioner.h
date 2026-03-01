@@ -81,13 +81,6 @@ public:
     Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
 
 protected:
-    Status _get_partition_column_result(Block* block, std::vector<int>& result) const {
-        int counter = 0;
-        for (auto ctx : _partition_expr_ctxs) {
-            RETURN_IF_ERROR(ctx->execute(block, &result[counter++]));
-        }
-        return Status::OK();
-    }
 
     Status _clone_expr_ctxs(RuntimeState* state, VExprContextSPtrs& new_partition_expr_ctxs) const {
         new_partition_expr_ctxs.resize(_partition_expr_ctxs.size());
