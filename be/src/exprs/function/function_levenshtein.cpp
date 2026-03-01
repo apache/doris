@@ -83,7 +83,12 @@ private:
         if (end <= begin || end > data.size()) {
             return StringRef("", 0);
         }
-        return StringRef(reinterpret_cast<const char*>(data.data() + begin), end - begin);
+
+        size_t str_size = end - begin;
+        if (str_size > 0 && data[end - 1] == '\0') {
+            --str_size;
+        }
+        return StringRef(reinterpret_cast<const char*>(data.data() + begin), str_size);
     }
 
     static void utf8_char_offsets(const StringRef& ref, std::vector<size_t>& offsets) {
