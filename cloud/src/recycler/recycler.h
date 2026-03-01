@@ -192,6 +192,10 @@ public:
             g_bvar_recycler_instance_last_round_recycle_elpased_ts.put(
                     {instance_id, operation_type}, cost);
             g_bvar_recycler_instance_recycle_round.put({instance_id, operation_type}, 1);
+            g_bvar_recycler_instance_recycle_total_bytes_since_started.put(
+                    {instance_id, operation_type}, total_recycled_data_size.load());
+            g_bvar_recycler_instance_recycle_total_num_since_started.put(
+                    {instance_id, operation_type}, total_recycled_num.load());
             LOG(INFO) << "recycle instance: " << instance_id
                       << ", operation type: " << operation_type << ", cost: " << cost
                       << " ms, total recycled num: " << total_recycled_num.load()
@@ -222,12 +226,8 @@ public:
             } else {
                 g_bvar_recycler_instance_last_round_recycled_bytes.put(
                         {instance_id, operation_type}, total_recycled_data_size.load());
-                g_bvar_recycler_instance_recycle_total_bytes_since_started.put(
-                        {instance_id, operation_type}, total_recycled_data_size.load());
                 g_bvar_recycler_instance_last_round_recycled_num.put({instance_id, operation_type},
                                                                      total_recycled_num.load());
-                g_bvar_recycler_instance_recycle_total_num_since_started.put(
-                        {instance_id, operation_type}, total_recycled_num.load());
             }
         }
     }
