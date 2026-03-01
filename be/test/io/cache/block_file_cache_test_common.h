@@ -98,6 +98,8 @@ class BlockFileCacheTest : public testing::Test {
 public:
     static void SetUpTestSuite() {
         config::file_cache_enter_disk_resource_limit_mode_percent = 99;
+        config::file_cache_background_ttl_gc_interval_ms = 2000;
+        config::file_cache_background_ttl_info_update_interval_ms = 2000;
         config::enable_evict_file_cache_in_advance = false; // disable evict in
                                                             // advance for most
                                                             // cases for simple
