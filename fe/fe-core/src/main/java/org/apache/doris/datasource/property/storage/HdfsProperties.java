@@ -173,6 +173,7 @@ public class HdfsProperties extends HdfsCompatibleProperties {
             props.put("ipc.client.fallback-to-simple-auth-allowed", "true");
         }
         props.put("hdfs.security.authentication", hdfsAuthenticationType);
+        props.putIfAbsent("dfs.client.read.shortcircuit", "false");
         if ("kerberos".equalsIgnoreCase(hdfsAuthenticationType)) {
             props.put("hadoop.security.authentication", "kerberos");
             props.put("hadoop.kerberos.principal", hdfsKerberosPrincipal);
