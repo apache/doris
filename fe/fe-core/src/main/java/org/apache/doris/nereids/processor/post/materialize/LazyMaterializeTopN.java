@@ -108,6 +108,9 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
                 SlotReference baseSlot = source.get().baseSlot;
                 if (source.get().baseSlot.hasSubColPath()) {
                     slot = baseSlot.withExprId(slot.getExprId());
+                } else if (!((SlotReference) slot).getOriginalColumn().isPresent()
+                        && baseSlot.getOriginalColumn().isPresent()) {
+                    slot = ((SlotReference) slot).withColumn(baseSlot.getOriginalColumn().get());
                 }
                 materializeMap.put(slot, source.get());
             } else {

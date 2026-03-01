@@ -366,6 +366,9 @@ Status MaterializationOperator::push(RuntimeState* state, vectorized::Block* in_
                         " target_backend_id:" + std::to_string(backend_id);
                 return Status::InternalError(error_text);
             }
+            if (rpc_struct.response.has_status()) {
+                RETURN_IF_ERROR(Status::create(rpc_struct.response.status()));
+            }
             rpc_struct.cntl->Reset();
         }
 
