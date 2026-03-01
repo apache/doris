@@ -6987,6 +6987,13 @@ public class Env {
         Env.getCurrentColocateIndex().removeTable(olapTable.getId());
 
         getInternalCatalog().eraseTableDropBackendReplicas(olapTable, isReplay);
+
+        // clean up alter jobs for this table to avoid holding OlapTable references
+        long erasedTableId = olapTable.getId();
+        getMaterializedViewHandler().getAlterJobsV2().values()
+                .removeIf(job -> job.getTableId() == erasedTableId);
+        getSchemaChangeHandler().getAlterJobsV2().values()
+                .removeIf(job -> job.getTableId() == erasedTableId);
     }
 
     public void onErasePartition(Partition partition) {
