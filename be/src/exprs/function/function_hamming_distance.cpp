@@ -15,11 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <algorithm>
 #include <cstring>
 #include <vector>
 
 #include "common/status.h"
 #include "util/simd/vstring_function.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function_totype.h"
@@ -46,8 +49,8 @@ struct HammingDistanceImpl {
         const size_t size = loffsets.size();
         res.resize(size);
         for (size_t i = 0; i < size; ++i) {
-            RETURN_IF_ERROR(hamming_distance(string_ref_at(ldata, loffsets, i),
-                                             string_ref_at(rdata, roffsets, i), res[i], i));
+            RETURN_IF_ERROR(one_row(string_ref_at(ldata, loffsets, i),
+                                    string_ref_at(rdata, roffsets, i), res[i], i));
         }
         return Status::OK();
     }
@@ -58,7 +61,7 @@ struct HammingDistanceImpl {
         const size_t size = loffsets.size();
         res.resize(size);
         for (size_t i = 0; i < size; ++i) {
-            RETURN_IF_ERROR(hamming_distance(string_ref_at(ldata, loffsets, i), rdata, res[i], i));
+            RETURN_IF_ERROR(one_row(string_ref_at(ldata, loffsets, i), rdata, res[i], i));
         }
         return Status::OK();
     }
@@ -68,9 +71,14 @@ struct HammingDistanceImpl {
         const size_t size = roffsets.size();
         res.resize(size);
         for (size_t i = 0; i < size; ++i) {
-            RETURN_IF_ERROR(hamming_distance(ldata, string_ref_at(rdata, roffsets, i), res[i], i));
+            RETURN_IF_ERROR(one_row(ldata, string_ref_at(rdata, roffsets, i), res[i], i));
         }
         return Status::OK();
+    }
+
+    static Status one_row(const StringRef& left, const StringRef& right, Int64& result,
+                          size_t row) {
+        return hamming_distance(left, right, result, row);
     }
 
 private:
@@ -82,7 +90,12 @@ private:
         if (end <= begin || end > data.size()) {
             return StringRef("", 0);
         }
-        return StringRef(reinterpret_cast<const char*>(data.data() + begin), end - begin);
+
+        size_t str_size = end - begin;
+        if (str_size > 0 && data[end - 1] == '\0') {
+            --str_size;
+        }
+        return StringRef(reinterpret_cast<const char*>(data.data() + begin), str_size);
     }
 
     static void utf8_char_offsets(const StringRef& ref, std::vector<size_t>& offsets) {
@@ -158,8 +171,112 @@ private:
     }
 };
 
-using FunctionHammingDistance = FunctionBinaryToType<DataTypeString, DataTypeString,
-                                                     HammingDistanceImpl, NameHammingDistance>;
+template <template <typename, typename> typename Impl, typename Name>
+class FunctionBinaryStringToTypeWithNull : public IFunction {
+public:
+    using LeftDataType = DataTypeString;
+    using RightDataType = DataTypeString;
+    using ResultDataType = typename Impl<LeftDataType, RightDataType>::ResultDataType;
+    using ResultColumnType = ColumnVector<ResultDataType::PType>;
+
+    static constexpr auto name = Name::name;
+
+    static FunctionPtr create() { return std::make_shared<FunctionBinaryStringToTypeWithNull>(); }
+
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        const bool has_nullable = std::ranges::any_of(
+                arguments, [](const DataTypePtr& type) { return type->is_nullable(); });
+        if (has_nullable) {
+            return make_nullable(std::make_shared<ResultDataType>());
+        }
+        return std::make_shared<ResultDataType>();
+    }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        const auto& [left_col, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [right_col, right_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+
+        const auto* left_nullable = check_and_get_column<ColumnNullable>(left_col.get());
+        const auto* right_nullable = check_and_get_column<ColumnNullable>(right_col.get());
+
+        const IColumn* left_nested =
+                left_nullable ? &left_nullable->get_nested_column() : left_col.get();
+        const IColumn* right_nested =
+                right_nullable ? &right_nullable->get_nested_column() : right_col.get();
+
+        const auto* left_str_col = check_and_get_column<ColumnString>(left_nested);
+        const auto* right_str_col = check_and_get_column<ColumnString>(right_nested);
+        if (!left_str_col || !right_str_col) {
+            return Status::NotSupported("Illegal columns {}, {} of argument of function {}",
+                                        left_col->get_name(), right_col->get_name(), get_name());
+        }
+
+        auto res_col = ResultColumnType::create(input_rows_count);
+        auto& res_data = res_col->get_data();
+
+        const NullMap* left_null_map =
+                left_nullable ? &left_nullable->get_null_map_data() : nullptr;
+        const NullMap* right_null_map =
+                right_nullable ? &right_nullable->get_null_map_data() : nullptr;
+        const bool has_nullable = left_null_map != nullptr || right_null_map != nullptr;
+
+        if (!has_nullable) {
+            if (left_const) {
+                auto st = Impl<LeftDataType, RightDataType>::scalar_vector(
+                        left_str_col->get_data_at(0), right_str_col->get_chars(),
+                        right_str_col->get_offsets(), res_data);
+                RETURN_IF_ERROR(st);
+            } else if (right_const) {
+                auto st = Impl<LeftDataType, RightDataType>::vector_scalar(
+                        left_str_col->get_chars(), left_str_col->get_offsets(),
+                        right_str_col->get_data_at(0), res_data);
+                RETURN_IF_ERROR(st);
+            } else {
+                auto st = Impl<LeftDataType, RightDataType>::vector_vector(
+                        left_str_col->get_chars(), left_str_col->get_offsets(),
+                        right_str_col->get_chars(), right_str_col->get_offsets(), res_data);
+                RETURN_IF_ERROR(st);
+            }
+            block.replace_by_position(result, std::move(res_col));
+            return Status::OK();
+        }
+
+        auto null_col = ColumnUInt8::create(input_rows_count, 0);
+        auto& null_map = null_col->get_data();
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            const size_t left_idx = left_const ? 0 : i;
+            const size_t right_idx = right_const ? 0 : i;
+
+            const bool left_is_null = left_null_map && (*left_null_map)[left_idx];
+            const bool right_is_null = right_null_map && (*right_null_map)[right_idx];
+            if (left_is_null || right_is_null) {
+                null_map[i] = 1;
+                res_data[i] = 0;
+                continue;
+            }
+
+            auto st = Impl<LeftDataType, RightDataType>::one_row(
+                    left_str_col->get_data_at(left_idx), right_str_col->get_data_at(right_idx),
+                    res_data[i], i);
+            RETURN_IF_ERROR(st);
+        }
+
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res_col), std::move(null_col)));
+        return Status::OK();
+    }
+};
+
+using FunctionHammingDistance =
+        FunctionBinaryStringToTypeWithNull<HammingDistanceImpl, NameHammingDistance>;
 
 void register_function_hamming_distance(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionHammingDistance>();
