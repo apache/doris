@@ -35,7 +35,7 @@ import java.util.Set;
 public class OtherJoinTest extends TPCHTestBase {
     @Test
     public void test() {
-        for (int t = 3; t < 30; t++) {
+        for (int t = 3; t < 50; t++) {
             for (int e = t - 1; e <= (t * (t - 1)) / 2; e++) {
                 randomTest(t, e);
             }

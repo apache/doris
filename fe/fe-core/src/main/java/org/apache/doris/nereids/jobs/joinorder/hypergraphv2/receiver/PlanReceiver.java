@@ -28,9 +28,12 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -48,6 +51,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * The Receiver is used for cached the plan that has been emitted and build the new plan, it's the dp table in paper
@@ -302,7 +306,7 @@ public class PlanReceiver extends AbstractReceiver {
                 Group group = planTable.get(fullKey);
                 allProjects.addAll(group.getLogicalProperties().getOutput());
             } else {
-                allProjects.add(ExpressionUtils.selectMinimumColumn(outputs));
+                allProjects.add(new Alias(new ExprId(-1), new TinyIntLiteral((byte) 1)));
             }
         }
 
@@ -311,7 +315,23 @@ public class PlanReceiver extends AbstractReceiver {
             // add final project for the join cluster
             return new LogicalProject<>(finalProjects, join);
         } else {
-            return join;
+//            return join;
+            if (outputSet.equals(new HashSet<>(allProjects))) {
+                return join;
+            }
+
+            Set<Slot> childOutputSet = join.getOutputSet();
+            // TODO maybe need better way to see if it's 1 literal instead of checking expr id
+            List<NamedExpression> projects = allProjects.stream()
+                    .filter(expr -> childOutputSet.containsAll(expr.getInputSlots()) || expr.getExprId().asInt() == -1)
+                    .collect(Collectors.toList());
+            LogicalPlan project = join;
+            if (!outputSet.equals(new HashSet<>(projects))) {
+                project = new LogicalProject<>(projects, join);
+            }
+            Preconditions.checkState(!projects.isEmpty() && projects.size() == allProjects.size(),
+                    " there are some projects left %s %s", projects, allProjects);
+            return project;
         }
     }
 }
