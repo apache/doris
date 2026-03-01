@@ -26,6 +26,7 @@ import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -229,6 +230,11 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
         AbstractS3CompatibleProperties chosen = s3Target != null ? s3Target : s3Fallback;
         if (chosen != null) {
             toS3FileIOProperties(chosen, fileIOProperties);
+        } else {
+            String region = AbstractS3CompatibleProperties.getRegionFromProperties(fileIOProperties);
+            if (!Strings.isNullOrEmpty(region)) {
+                fileIOProperties.put(AwsClientProperties.CLIENT_REGION, region);
+            }
         }
     }
 

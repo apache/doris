@@ -73,6 +73,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     @ConnectorProperty(names = {"oss.region", "s3.region", "AWS_REGION", "region", "REGION", "dlf.region",
         "iceberg.rest.signing-region"},
             required = false,
+            isRegionField = true,
             description = "The region of OSS.")
     protected String region;
 

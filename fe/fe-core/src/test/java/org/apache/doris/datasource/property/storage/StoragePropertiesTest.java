@@ -367,4 +367,55 @@ public class StoragePropertiesTest {
                 .map(Object::getClass)
                 .collect(Collectors.toList());
     }
+
+    // ========================================================================================
+    // 10. getRegionFromProperties tests
+    // ========================================================================================
+
+    @Test
+    public void testGetRegionFromProperties_s3Region() {
+        Map<String, String> props = new HashMap<>();
+        props.put("s3.region", "us-west-2");
+        String region = AbstractS3CompatibleProperties.getRegionFromProperties(props);
+        Assertions.assertEquals("us-west-2", region);
+    }
+
+    @Test
+    public void testGetRegionFromProperties_ossRegion() {
+        Map<String, String> props = new HashMap<>();
+        props.put("oss.region", "cn-hangzhou");
+        String region = AbstractS3CompatibleProperties.getRegionFromProperties(props);
+        Assertions.assertEquals("cn-hangzhou", region);
+    }
+
+    @Test
+    public void testGetRegionFromProperties_awsRegion() {
+        Map<String, String> props = new HashMap<>();
+        props.put("AWS_REGION", "eu-west-1");
+        String region = AbstractS3CompatibleProperties.getRegionFromProperties(props);
+        Assertions.assertEquals("eu-west-1", region);
+    }
+
+    @Test
+    public void testGetRegionFromProperties_cosRegion() {
+        Map<String, String> props = new HashMap<>();
+        props.put("cos.region", "ap-guangzhou");
+        String region = AbstractS3CompatibleProperties.getRegionFromProperties(props);
+        Assertions.assertEquals("ap-guangzhou", region);
+    }
+
+    @Test
+    public void testGetRegionFromProperties_noRegion() {
+        Map<String, String> props = new HashMap<>();
+        props.put("s3.endpoint", "s3.us-east-1.amazonaws.com");
+        String region = AbstractS3CompatibleProperties.getRegionFromProperties(props);
+        Assertions.assertNull(region);
+    }
+
+    @Test
+    public void testGetRegionFromProperties_emptyProps() {
+        Map<String, String> props = new HashMap<>();
+        String region = AbstractS3CompatibleProperties.getRegionFromProperties(props);
+        Assertions.assertNull(region);
+    }
 }
