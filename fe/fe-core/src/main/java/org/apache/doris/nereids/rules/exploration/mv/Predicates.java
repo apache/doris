@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -294,7 +293,9 @@ public class Predicates {
             if (result == null) {
                 return null;
             }
-            coveredQueryResiduals.add(result.first);
+            if (result.first != null) {
+                coveredQueryResiduals.add(result.first);
+            }
             compensations.addAll(result.second);
         }
 
@@ -304,20 +305,12 @@ public class Predicates {
 
     /**
      * Check if a single MV residual expression can be covered by query residual expressions.
-     * <p>
-     * Example:
-     * MV residual: (id = 5 OR id > 10 OR id = 2)
-     * Query residuals: [(id = 5 OR id = 2), (score = 1)]
-     * <p>
-     * Process:
-     * 1. Extract OR branches: MV branches = [id = 5, id > 10, id = 2]
-     * 2. Try to match query residual (id = 5 OR id = 2):
-     * - Query residual branches = [id = 5, id = 2]
-     * - Check: MV branches contains all query residual branches ✓ match succeeds
-     * 3. Return: (matched query expression, compensation expression set)
-     * - Compensation: NOT(id > 10) (MV's extra branch)
+     * Uses a pass-through strategy: when query OR is a proper subset of MV OR, the MV data is
+     * a superset, so the view residual is satisfied. The query's OR predicate is NOT consumed
+     * and will remain as a filter on the MV scan. This preserves the original predicate structure
+     * for nested MV rewrite.
      *
-     * @return Pair(matched query expression, compensation expression set), or null if cannot match
+     * @return Pair(consumed query expression or null, compensation set), or null if cannot match
      */
     private static Pair<Expression, Set<Expression>> coverSingleResidual(
             Expression viewResidual, Set<Expression> queryResidualSet) {
@@ -326,11 +319,11 @@ public class Predicates {
         for (Expression queryResidual : queryResidualSet) {
             Set<Expression> queryResidualBranches = ImmutableSet.copyOf(
                     ExpressionUtils.extractDisjunction(queryResidual));
+            if (mvBranches.equals(queryResidualBranches)) {
+                return Pair.of(queryResidual, ImmutableSet.of());
+            }
             if (mvBranches.containsAll(queryResidualBranches)) {
-                Set<Expression> compensations = Sets.difference(mvBranches, queryResidualBranches).stream()
-                        .map(Not::new)
-                        .collect(ImmutableSet.toImmutableSet());
-                return Pair.of(queryResidual, compensations);
+                return Pair.of(null, ImmutableSet.of());
             }
         }
         return null;

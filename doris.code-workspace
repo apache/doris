@@ -1,0 +1,53 @@
+{
+    "folders": [
+        {
+            "path": "fe",
+            "name": "Doris FE",
+            "settings": {
+                "java.compile.nullAnalysis.mode": "automatic"
+            }
+        },
+        {
+            "path": "be",
+            "name": "Doris BE",
+            "settings": {
+                "clangd.path": "/home/yangtao555/local/ldb-toolchain-0.27/bin/clangd",
+                "clangd.arguments": [
+                    "--background-index",
+                    "--clang-tidy",
+                    "--compile-commands-dir=/data7/yangtao555/code/doris/be/build_Debug/",
+                    "--completion-style=detailed",
+                    "-j=5",
+                    "--all-scopes-completion",
+                    "--pch-storage=memory",
+                    "--pretty",
+                    "--query-driver=/home/yangtao555/local/ldb-toolchain-0.27/bin/*"
+                ],
+                "cmake.sourceDirectory": "${workspaceFolder}"
+            }
+        },
+        {
+            "path": "my-docs",
+            "name": "My Docs"
+        },
+        {
+            "path": "tmp",
+            "name": "tmp"
+        }
+    ],
+    "settings": {
+        "cmake.cmakePath": "/home/yangtao555/local/ldb-toolchain-0.27/bin/cmake",
+        "cmake.configureSettings": {
+            "CMAKE_C_COMPILER": "/home/yangtao555/local/ldb-toolchain-0.27/bin/clang",
+            "CMAKE_CXX_COMPILER": "/home/yangtao555/local/ldb-toolchain-0.27/bin/clang++"
+        },
+        "java.compile.nullAnalysis.mode": "automatic"
+    },
+    "extensions": {
+        "recommendations": [
+            "ms-vscode.cmake-tools",
+            "llvm-vs-code-extensions.vscode-clangd",
+            "vscjava.vscode-java-pack"
+        ]
+    }
+}

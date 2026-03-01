@@ -9,6 +9,7 @@
 *.so.tmp
 *.flattened-pom.xml
 core.*
+*.idx
 
 # ignore file with specifiy name anywhere
 .DS_Store

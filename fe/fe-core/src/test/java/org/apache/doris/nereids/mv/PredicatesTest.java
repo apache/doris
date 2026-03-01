@@ -20,6 +20,7 @@ package org.apache.doris.nereids.mv;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.ComparisonResult;
 import org.apache.doris.nereids.rules.exploration.mv.HyperGraphComparator;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.ExpressionInfo;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.BitSet;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -199,9 +201,9 @@ public class PredicatesTest extends SqlTestBase {
                 connectContext);
         Plan queryPlan = PlanChecker.from(queryContext).analyze().rewrite().getAllPlan().get(0).child(0);
 
-        StructInfo mvStructInfo = MaterializedViewUtils.extractStructInfo(mvPlan, mvPlan,
+        StructInfo mvStructInfo = MaterializedViewUtils.extractStructInfoFuzzy(mvPlan, mvPlan,
                 mvContext, new BitSet()).get(0);
-        StructInfo queryStructInfo = MaterializedViewUtils.extractStructInfo(queryPlan, queryPlan,
+        StructInfo queryStructInfo = MaterializedViewUtils.extractStructInfoFuzzy(queryPlan, queryPlan,
                 queryContext, new BitSet()).get(0);
         RelationMapping relationMapping = RelationMapping.generate(mvStructInfo.getRelations(),
                 queryStructInfo.getRelations(), 16).get(0);
