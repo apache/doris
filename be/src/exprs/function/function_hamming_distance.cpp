@@ -76,8 +76,19 @@ struct HammingDistanceImpl {
 private:
     static StringRef string_ref_at(const ColumnString::Chars& data,
                                    const ColumnString::Offsets& offsets, size_t i) {
-        return StringRef(reinterpret_cast<const char*>(&data[offsets[i - 1]]),
-                         offsets[i] - offsets[i - 1]);
+        DCHECK_LT(i, offsets.size());
+        const size_t begin = (i == 0) ? 0 : offsets[i - 1];
+        const size_t end = offsets[i];
+        if (end <= begin || end > data.size()) {
+            return StringRef("", 0);
+        }
+
+        size_t str_size = end - begin;
+        // ColumnString offsets usually include trailing '\0' for each row.
+        if (data[end - 1] == '\0') {
+            --str_size;
+        }
+        return StringRef(reinterpret_cast<const char*>(data.data() + begin), str_size);
     }
 
     static void utf8_char_offsets(const StringRef& ref, std::vector<size_t>& offsets) {
@@ -87,6 +98,9 @@ private:
         while (i < ref.size) {
             offsets.push_back(i);
             uint8_t char_len = doris::get_utf8_byte_length(static_cast<uint8_t>(ref.data[i]));
+            if (char_len == 0) {
+                char_len = 1;
+            }
             if (i + char_len > ref.size) {
                 char_len = static_cast<uint8_t>(ref.size - i);
             }
