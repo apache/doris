@@ -50,7 +50,7 @@ public class OptimizeGroupExpressionJob extends Job {
         }
 
         countJobExecutionTimesOfGroupExpressions(groupExpression);
-        List<Rule> implementationRules = getRuleSet().getImplementationRules();
+        List<Rule> implementationRules = getImplementationRules();
         List<Rule> explorationRules = getExplorationRules(context.getCascadesContext());
 
         for (Rule rule : explorationRules) {
@@ -65,6 +65,14 @@ public class OptimizeGroupExpressionJob extends Job {
                 continue;
             }
             pushJob(new ApplyRuleJob(groupExpression, rule, context));
+        }
+    }
+
+    private List<Rule> getImplementationRules() {
+        if (context.getCascadesContext().getStatementContext().isDpHyp()) {
+            return getRuleSet().getDphyperImplementationRules();
+        } else {
+            return getRuleSet().getImplementationRules();
         }
     }
 
