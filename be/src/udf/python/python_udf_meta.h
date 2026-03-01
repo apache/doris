@@ -33,18 +33,18 @@ enum class PythonUDFLoadType : uint8_t { INLINE = 0, MODULE = 1, UNKNOWN = 2 };
 enum class PythonClientType : uint8_t { UDF = 0, UDAF = 1, UDTF = 2, UNKNOWN = 3 };
 
 struct PythonUDFMeta {
-    int64_t id;
+    int64_t id = 0;
     std::string name;
     std::string symbol;
     std::string location;
     std::string checksum;
     std::string runtime_version;
     std::string inline_code;
-    bool always_nullable;
+    bool always_nullable = false;
     vectorized::DataTypes input_types;
     vectorized::DataTypePtr return_type;
-    PythonUDFLoadType type;
-    PythonClientType client_type;
+    PythonUDFLoadType type = PythonUDFLoadType::UNKNOWN;
+    PythonClientType client_type = PythonClientType::UNKNOWN;
 
     static Status convert_types_to_schema(const vectorized::DataTypes& types,
                                           const std::string& timezone,
