@@ -20,7 +20,7 @@ version: "3"
 services:
 
   spark-iceberg:
-    image: tabulario/spark-iceberg:3.5.1_1.5.0
+    image: apache/spark:4.0.0
     container_name: doris--spark-iceberg
     hostname: doris--spark-iceberg
     depends_on:
@@ -29,20 +29,20 @@ services:
       mc:
         condition: service_completed_successfully
     volumes:
-      - ./data/output/spark-warehouse:/home/iceberg/warehouse
-      - ./data/output/spark-notebooks:/home/iceberg/notebooks/notebooks
+      - ./data/output/spark-warehouse:/opt/spark/warehouse
       - ./data:/mnt/data
       - ./scripts:/mnt/scripts
       - ./spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
-      - ./data/input/jars/paimon-spark-3.5-1.0.1.jar:/opt/spark/jars/paimon-spark-3.5-1.0.1.jar
-      - ./data/input/jars/paimon-s3-1.0.1.jar:/opt/spark/jars/paimon-s3-1.0.1.jar
-      - ./data/input/jars/iceberg-aws-bundle-1.10.0.jar:/opt/spark/jars/iceberg-aws-bundle-1.10.0.jar
-      - ./data/input/jars/iceberg-spark-runtime-3.5_2.12-1.10.0.jar:/opt/spark/jars/iceberg-spark-runtime-3.5_2.12-1.10.0.jar
+      - ./data/input/jars/iceberg-aws-bundle-1.10.1.jar:/opt/spark/jars/iceberg-aws-bundle-1.10.1.jar
+      - ./data/input/jars/iceberg-spark-runtime-4.0_2.13-1.10.1.jar:/opt/spark/jars/iceberg-spark-runtime-4.0_2.13-1.10.1.jar
+      - ./data/input/jars/paimon-s3-1.3.1.jar:/opt/spark/jars/paimon-s3-1.3.1.jar
+      - ./data/input/jars/paimon-spark-4.0-1.3.1.jar:/opt/spark/jars/paimon-spark-4.0-1.3.1.jar
     environment:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password
       - AWS_REGION=us-east-1
     entrypoint: /bin/sh /mnt/scripts/entrypoint.sh
+    user: root
     networks:
       - doris--iceberg
     healthcheck:
