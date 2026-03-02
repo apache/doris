@@ -83,7 +83,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * TabletScheduler saved the tablets produced by TabletChecker and try to schedule them.
@@ -107,17 +109,18 @@ public class TabletScheduler extends MasterDaemon {
     private static final long STAT_UPDATE_INTERVAL_MS = 20 * 1000; // 20s
 
     /*
-     * Tablet is added to pendingTablets as well it's id in allTabletTypes.
-     * TabletScheduler will take tablet from pendingTablets but will not remove it's id from allTabletTypes when
+     * Tablet is added to globalPendingTablets as well it's id in allTabletTypes.
+     * TabletScheduler will take tablet from globalPendingTablets but will not remove it's id from allTabletTypes when
      * handling a tablet.
      * Tablet' id can only be removed after the clone task or migration task is done(timeout, cancelled or finished).
      * So if a tablet's id is still in allTabletTypes, TabletChecker can not add tablet to TabletScheduler.
      *
-     * pendingTablets + runningTablets = allTabletTypes
+     * globalPendingTablets + tableDispatchScheduler.workerQueuedTablets + runningTablets = allTabletTypes
      *
-     * pendingTablets, allTabletTypes, runningTablets and schedHistory are protected by 'synchronized'
+     * globalPendingTablets, allTabletTypes, runningTablets and schedHistory are protected by 'synchronized'.
+     * tableDispatchScheduler has its own internal synchronization.
      */
-    private MinMaxPriorityQueue<TabletSchedCtx> pendingTablets = MinMaxPriorityQueue.create();
+    private MinMaxPriorityQueue<TabletSchedCtx> globalPendingTablets = MinMaxPriorityQueue.create();
     private Map<Long, TabletSchedCtx.Type> allTabletTypes = Maps.newHashMap();
     // contains all tabletCtxs which state are RUNNING
     private Map<Long, TabletSchedCtx> runningTablets = Maps.newHashMap();
@@ -140,8 +143,9 @@ public class TabletScheduler extends MasterDaemon {
     private TabletSchedulerStat stat;
     private Rebalancer rebalancer;
     private Rebalancer diskRebalancer;
+    private TableDispatchScheduler tableDispatchScheduler;
 
-    // result of adding a tablet to pendingTablets
+    // result of adding a tablet to globalPendingTablets
     public enum AddResult {
         ADDED, // success to add
         ALREADY_IN, // already added, skip
@@ -165,11 +169,14 @@ public class TabletScheduler extends MasterDaemon {
         }
         // if rebalancer can not get new task, then use diskRebalancer to get task
         this.diskRebalancer = new DiskRebalancer(infoService, invertedIndex, backendsWorkingSlots);
+        this.tableDispatchScheduler = new TableDispatchScheduler(this::processTabletCtxBatch,
+                Config.schedule_batch_size);
     }
 
     // for fe ut
     public synchronized void clear() {
-        pendingTablets.clear();
+        globalPendingTablets.clear();
+        tableDispatchScheduler.clear();
         allTabletTypes.clear();
         runningTablets.clear();
         schedHistory.clear();
@@ -250,7 +257,7 @@ public class TabletScheduler extends MasterDaemon {
     }
 
     /**
-     * add a ready-to-be-scheduled tablet to pendingTablets, if it has not being added before.
+     * add a ready-to-be-scheduled tablet to globalPendingTablets, if it has not being added before.
      * if force is true, do not check if tablet is already added before.
      */
     public synchronized AddResult addTablet(TabletSchedCtx tablet, boolean force) {
@@ -276,16 +283,16 @@ public class TabletScheduler extends MasterDaemon {
         // if this is not a force add,
         // and number of scheduling tablets exceed the limit,
         // refuse to add.
-        if (!force && (pendingTablets.size() >= Config.max_scheduling_tablets
+        if (!force && (getTotalPendingNumLocked() >= Config.max_scheduling_tablets
                 || runningTablets.size() >= Config.max_scheduling_tablets)) {
             // For a sched tablet, if its compare value is bigger, it will be more close to queue's tail position,
             // and its priority is lower.
-            TabletSchedCtx lowestPriorityTablet = pendingTablets.peekLast();
+            TabletSchedCtx lowestPriorityTablet = globalPendingTablets.peekLast();
             if (lowestPriorityTablet == null || lowestPriorityTablet.compareTo(tablet) <= 0) {
                 return AddResult.LIMIT_EXCEED;
             }
             addResult = AddResult.REPLACE_ADDED;
-            pendingTablets.pollLast();
+            globalPendingTablets.pollLast();
             finalizeTabletCtx(lowestPriorityTablet, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE,
                     "evict lower priority sched tablet because pending queue is full");
         }
@@ -294,7 +301,7 @@ public class TabletScheduler extends MasterDaemon {
             allTabletTypes.put(tabletId, tablet.getType());
         }
 
-        pendingTablets.offer(tablet);
+        globalPendingTablets.offer(tablet);
         if (!contains) {
             LOG.info("Add tablet to pending queue, {}", tablet);
         }
@@ -321,7 +328,7 @@ public class TabletScheduler extends MasterDaemon {
      */
     public synchronized void changeTabletsPriorityToVeryHigh(long dbId, long tblId, List<Long> partitionIds) {
         MinMaxPriorityQueue<TabletSchedCtx> newPendingTablets = MinMaxPriorityQueue.create();
-        for (TabletSchedCtx tabletCtx : pendingTablets) {
+        for (TabletSchedCtx tabletCtx : globalPendingTablets) {
             if (tabletCtx.getDbId() == dbId && tabletCtx.getTblId() == tblId
                     && partitionIds.contains(tabletCtx.getPartitionId())) {
                 tabletCtx.setPriority(Priority.VERY_HIGH);
@@ -329,13 +336,13 @@ public class TabletScheduler extends MasterDaemon {
             }
             newPendingTablets.add(tabletCtx);
         }
-        pendingTablets = newPendingTablets;
+        globalPendingTablets = newPendingTablets;
     }
 
     /**
      * TabletScheduler will run as a daemon thread at a very short interval(default 5 sec)
      * Firstly, it will try to update cluster load statistic and check if priority need to be adjusted.
-     * Then, it will schedule the tablets in pendingTablets.
+     * Then, it will schedule the tablets in globalPendingTablets.
      * Thirdly, it will check the current running tasks.
      * Finally, it try to balance the cluster if possible.
      *
@@ -427,49 +434,67 @@ public class TabletScheduler extends MasterDaemon {
             LOG.debug("get {} tablets to schedule", currentBatch.size());
         }
 
-        AgentBatchTask batchTask = new AgentBatchTask();
-        for (TabletSchedCtx tabletCtx : currentBatch) {
-            try {
-                scheduleTablet(tabletCtx, batchTask);
-            } catch (SchedException e) {
-                tabletCtx.setErrMsg(e.getMessage());
-                if (e.getStatus() == Status.SCHEDULE_FAILED) {
-                    boolean isExceedLimit = tabletCtx.onSchedFailedAndCheckExceedLimit(e.getSubCode());
-                    if (isExceedLimit) {
-                        finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, e.getStatus(),
-                                "schedule failed too many times and " + e.getMessage());
-                    } else {
-                        // we must release resource it current hold, and be scheduled again
-                        tabletCtx.releaseResource(this);
-                        // adjust priority to avoid some higher priority always be the first in pendingTablets
-                        stat.counterTabletScheduledFailed.incrementAndGet();
-                        addBackToPendingTablets(tabletCtx);
-                    }
-                } else if (e.getStatus() == Status.FINISHED) {
-                    // schedule redundant tablet or scheduler disabled will throw this exception
-                    stat.counterTabletScheduledSucceeded.incrementAndGet();
-                    finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.FINISHED, e.getStatus(), e.getMessage());
-                } else {
-                    Preconditions.checkState(e.getStatus() == Status.UNRECOVERABLE, e.getStatus());
-                    // discard
-                    stat.counterTabletScheduledDiscard.incrementAndGet();
-                    tabletCtx.setSchedFailedCode(e.getSubCode());
-                    finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, e.getStatus(), e.getMessage());
-                }
-                continue;
-            } catch (Exception e) {
-                LOG.warn("got unexpected exception, discard this schedule. tablet: {}",
-                        tabletCtx.getTabletId(), e);
-                stat.counterTabletScheduledFailed.incrementAndGet();
-                tabletCtx.setSchedFailedCode(SubCode.NONE);
-                tabletCtx.setErrMsg(e.getMessage());
-                finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.UNEXPECTED, Status.UNRECOVERABLE, e.getMessage());
-                continue;
-            }
+        tableDispatchScheduler.enqueueTablets(currentBatch);
 
-            Preconditions.checkState(tabletCtx.getState() == TabletSchedCtx.State.RUNNING, tabletCtx.getState());
-            stat.counterTabletScheduledSucceeded.incrementAndGet();
-            addToRunningTablets(tabletCtx);
+        long cost = System.currentTimeMillis() - start;
+        stat.counterTabletScheduleCostMs.addAndGet(cost);
+    }
+
+    private void processTabletCtxBatch(List<TabletSchedCtx> tabletCtxBatch) {
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (TabletSchedCtx tabletCtx : tabletCtxBatch) {
+            processTabletCtx(tabletCtx, batchTask);
+        }
+        submitBatchTask(batchTask);
+    }
+
+    private void processTabletCtx(TabletSchedCtx tabletCtx, AgentBatchTask batchTask) {
+        try {
+            scheduleTablet(tabletCtx, batchTask);
+        } catch (SchedException e) {
+            tabletCtx.setErrMsg(e.getMessage());
+            if (e.getStatus() == Status.SCHEDULE_FAILED) {
+                boolean isExceedLimit = tabletCtx.onSchedFailedAndCheckExceedLimit(e.getSubCode());
+                if (isExceedLimit) {
+                    finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, e.getStatus(),
+                            "schedule failed too many times and " + e.getMessage());
+                } else {
+                    // we must release resource it current hold, and be scheduled again
+                    tabletCtx.releaseResource(this);
+                    // adjust priority to avoid some higher priority always be the first in globalPendingTablets
+                    stat.counterTabletScheduledFailed.incrementAndGet();
+                    addBackToPendingTablets(tabletCtx);
+                }
+            } else if (e.getStatus() == Status.FINISHED) {
+                // schedule redundant tablet or scheduler disabled will throw this exception
+                stat.counterTabletScheduledSucceeded.incrementAndGet();
+                finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.FINISHED, e.getStatus(), e.getMessage());
+            } else {
+                Preconditions.checkState(e.getStatus() == Status.UNRECOVERABLE, e.getStatus());
+                // discard
+                stat.counterTabletScheduledDiscard.incrementAndGet();
+                tabletCtx.setSchedFailedCode(e.getSubCode());
+                finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, e.getStatus(), e.getMessage());
+            }
+            return;
+        } catch (Exception e) {
+            LOG.warn("got unexpected exception, discard this schedule. tablet: {}",
+                    tabletCtx.getTabletId(), e);
+            stat.counterTabletScheduledFailed.incrementAndGet();
+            tabletCtx.setSchedFailedCode(SubCode.NONE);
+            tabletCtx.setErrMsg(e.getMessage());
+            finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.UNEXPECTED, Status.UNRECOVERABLE, e.getMessage());
+            return;
+        }
+
+        Preconditions.checkState(tabletCtx.getState() == TabletSchedCtx.State.RUNNING, tabletCtx.getState());
+        stat.counterTabletScheduledSucceeded.incrementAndGet();
+        addToRunningTablets(tabletCtx);
+    }
+
+    private void submitBatchTask(AgentBatchTask batchTask) {
+        if (batchTask.getTaskNum() == 0) {
+            return;
         }
 
         // must send task after adding tablet info to runningTablets.
@@ -482,9 +507,6 @@ public class TabletScheduler extends MasterDaemon {
 
         // send task immediately
         AgentTaskExecutor.submit(batchTask);
-
-        long cost = System.currentTimeMillis() - start;
-        stat.counterTabletScheduleCostMs.addAndGet(cost);
     }
 
     private synchronized void addToRunningTablets(TabletSchedCtx tabletCtx) {
@@ -897,7 +919,7 @@ public class TabletScheduler extends MasterDaemon {
                 || deleteFromScaleInDropReplicas(tabletCtx, force)
                 || deleteReplicaOnHighLoadBackend(tabletCtx, force)) {
             // if we delete at least one redundant replica, we still throw a SchedException with status FINISHED
-            // to remove this tablet from the pendingTablets(consider it as finished)
+            // to remove this tablet from the globalPendingTablets(consider it as finished)
             throw new SchedException(Status.FINISHED, "redundant replica is deleted");
         }
         throw new SchedException(Status.UNRECOVERABLE, "unable to delete any redundant replicas");
@@ -1338,7 +1360,7 @@ public class TabletScheduler extends MasterDaemon {
     }
 
     /**
-     * Try to select some alternative tablets for balance. Add them to pendingTablets with priority LOW,
+     * Try to select some alternative tablets for balance. Add them to globalPendingTablets with priority LOW,
      * and waiting to be scheduled.
      */
     private void selectTabletsForBalance() {
@@ -1792,7 +1814,7 @@ public class TabletScheduler extends MasterDaemon {
             slotNum = 1;
         }
         while (list.size() < Config.schedule_batch_size && slotNum > 0) {
-            TabletSchedCtx tablet = pendingTablets.pollFirst();
+            TabletSchedCtx tablet = globalPendingTablets.pollFirst();
             if (tablet == null) {
                 // no more tablets
                 break;
@@ -1996,15 +2018,22 @@ public class TabletScheduler extends MasterDaemon {
 
     // only use for fe ut
     public MinMaxPriorityQueue<TabletSchedCtx> getPendingTabletQueue() {
-        return pendingTablets;
+        return globalPendingTablets;
     }
 
+    // global pending tablets + worker-queued tablets
     public List<List<String>> getPendingTabletsInfo(int limit) {
         return collectTabletCtx(getPendingTablets(limit));
     }
 
-    public List<TabletSchedCtx> getPendingTablets(int limit) {
-        return getCopiedTablets(pendingTablets, limit);
+    public synchronized List<TabletSchedCtx> getPendingTablets(int limit) {
+        List<TabletSchedCtx> tabletCtxs = Lists.newArrayList();
+        globalPendingTablets.stream().limit(limit).forEach(tabletCtxs::add);
+        if (tabletCtxs.size() >= limit) {
+            return tabletCtxs;
+        }
+        tableDispatchScheduler.appendWorkerQueuedTablets(tabletCtxs, limit);
+        return tabletCtxs;
     }
 
     public List<List<String>> getRunningTabletsInfo(int limit) {
@@ -2033,14 +2062,13 @@ public class TabletScheduler extends MasterDaemon {
 
     private synchronized List<TabletSchedCtx> getCopiedTablets(Collection<TabletSchedCtx> source, int limit) {
         List<TabletSchedCtx> tabletCtxs = Lists.newArrayList();
-        source.stream().limit(limit).forEach(t -> {
-            tabletCtxs.add(t);
-        });
+        source.stream().limit(limit).forEach(tabletCtxs::add);
         return tabletCtxs;
     }
 
+    // global pending tablets + worker-queued tablets
     public synchronized int getPendingNum() {
-        return pendingTablets.size();
+        return getTotalPendingNumLocked();
     }
 
     public synchronized int getRunningNum() {
@@ -2056,8 +2084,20 @@ public class TabletScheduler extends MasterDaemon {
     }
 
     public synchronized int getBalanceTabletsNumber() {
-        return (int) (pendingTablets.stream().filter(t -> t.getType() == Type.BALANCE).count()
-                + runningTablets.values().stream().filter(t -> t.getType() == Type.BALANCE).count());
+        long pendingBalanceNum = Stream.of(
+                globalPendingTablets.stream(),
+                tableDispatchScheduler.getWorkerQueuedTablets().stream(),
+                runningTablets.values().stream()
+            )
+                .flatMap(Function.identity())
+                .filter(t -> t.getType() == Type.BALANCE)
+                .count();
+
+        return (int) pendingBalanceNum;
+    }
+
+    private int getTotalPendingNumLocked() {
+        return globalPendingTablets.size() + tableDispatchScheduler.getWorkerQueuedTablets().size();
     }
 
     private synchronized Map<Long, Long> getPathsCopingSize() {
