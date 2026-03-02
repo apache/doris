@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_cpp_reader", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_paimon_cpp_reader", "p0,external") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disabled paimon test")
@@ -35,21 +35,33 @@ suite("test_paimon_cpp_reader", "p0,external,doris,external_docker,external_dock
         );"""
         sql """switch ${catalogName}"""
         sql """use db1"""
+        // Do not force JNI; keep default selection behavior.
+        sql """set force_jni_scanner=false"""
 
-        // Force paimon scan to JNI format, then compare jni/cpp reader results.
-        sql """set force_jni_scanner=true"""
+        def testQueries = [
+                """select c1 from complex_all order by c1""",
+                """select c1 from complex_all where c1 >= 2 order by c1""",
+                """select * from all_table order by c1""",
+                """select * from all_table_with_parquet where c13 like '13%' order by c1""",
+                """select * from complex_tab order by c1""",
+                """select c3['a_test'], c3['b_test'], c3['bbb'], c3['ccc'] from complex_tab order by c3['a_test'], c3['b_test']""",
+                """select array_max(c2) c from complex_tab order by c""",
+                """select c20[0] c from complex_all order by c""",
+                """select * from deletion_vector_orc""",
+                """select * from deletion_vector_parquet"""
+        ]
 
+        // Default path is JNI when enable_paimon_cpp_reader=false.
         sql """set enable_paimon_cpp_reader=false"""
-        def jniAllRows = sql """select c1 from complex_all order by c1"""
-        def jniFilteredRows = sql """select c1 from complex_all where c1 >= 2 order by c1"""
+        def jniResults = testQueries.collect { query -> sql(query) }
 
         sql """set enable_paimon_cpp_reader=true"""
-        def cppAllRows = sql """select c1 from complex_all order by c1"""
-        def cppFilteredRows = sql """select c1 from complex_all where c1 >= 2 order by c1"""
+        def cppResults = testQueries.collect { query -> sql(query) }
 
-        assertTrue(cppAllRows.size() > 0)
-        assertEquals(jniAllRows.toString(), cppAllRows.toString())
-        assertEquals(jniFilteredRows.toString(), cppFilteredRows.toString())
+        assertTrue(cppResults[0].size() > 0)
+        for (int i = 0; i < testQueries.size(); i++) {
+            assertEquals(jniResults[i].toString(), cppResults[i].toString())
+        }
     } finally {
         sql """set enable_paimon_cpp_reader=false"""
         sql """set force_jni_scanner=false"""
