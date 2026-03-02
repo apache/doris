@@ -57,18 +57,29 @@ set(LZ4_LIBRARY "${DORIS_LIB_DIR}/liblz4.a" CACHE FILEPATH "LZ4 library")
 set(LZ4_INCLUDE_DIR "${DORIS_INCLUDE_DIR}" CACHE PATH "LZ4 include directory")
 
 # ============================================================================
-# glog - Reuse from Doris (version 0.6.0)
-# Note: Paimon-cpp uses 0.7.1, but 0.6.0 is compatible
+# glog - NOT reused from Doris
+# paimon-cpp's build_glog() unconditionally calls externalproject_add() to
+# build glog 0.7.1.  Any GLOG_ROOT/GLOG_LIBRARY/GLOG_INCLUDE_DIR set here
+# would be overwritten by that macro, so we skip them entirely.
 # ============================================================================
-set(GLOG_ROOT "${DORIS_THIRDPARTY_DIR}" CACHE PATH "glog root directory")
-set(GLOG_LIBRARY "${DORIS_LIB_DIR}/libglog.a" CACHE FILEPATH "glog library")
-set(GLOG_INCLUDE_DIR "${DORIS_INCLUDE_DIR}" CACHE PATH "glog include directory")
 
 # ============================================================================
-# Arrow, Protobuf, Thrift - NOT reusing from Doris
-# paimon-cpp will build its own versions with symbol visibility=hidden
-# to prevent conflicts with Doris's versions
+# Arrow - Reuse from Doris (Doris Arrow now includes COMPUTE/DATASET/ACERO/FILESYSTEM)
+# Doris's Arrow 17.0.0 is built with the full module set that paimon-cpp
+# needs, so we skip paimon-cpp's internal externalproject_add(arrow_ep ...).
 # ============================================================================
+set(PAIMON_USE_EXTERNAL_ARROW ON CACHE BOOL "Use pre-built Arrow from Doris instead of building from source")
+
+set(DORIS_LIB64_DIR "${DORIS_THIRDPARTY_DIR}/lib64" CACHE PATH "Doris lib64 directory")
+
+set(PAIMON_EXTERNAL_ARROW_INCLUDE_DIR "${DORIS_INCLUDE_DIR}" CACHE PATH "Arrow include directory")
+set(PAIMON_EXTERNAL_ARROW_LIB "${DORIS_LIB64_DIR}/libarrow.a" CACHE FILEPATH "Arrow core library")
+set(PAIMON_EXTERNAL_ARROW_DATASET_LIB "${DORIS_LIB64_DIR}/libarrow_dataset.a" CACHE FILEPATH "Arrow Dataset library")
+set(PAIMON_EXTERNAL_ARROW_ACERO_LIB "${DORIS_LIB64_DIR}/libarrow_acero.a" CACHE FILEPATH "Arrow Acero library")
+set(PAIMON_EXTERNAL_PARQUET_LIB "${DORIS_LIB64_DIR}/libparquet.a" CACHE FILEPATH "Parquet library")
+set(PAIMON_EXTERNAL_ARROW_BUNDLED_DEPS_LIB "${DORIS_LIB64_DIR}/libarrow_bundled_dependencies.a" CACHE FILEPATH "Arrow bundled dependencies library")
+
+# Protobuf, Thrift - still built separately by paimon-cpp
 
 # ============================================================================
 # Snappy - Reuse from Doris
@@ -103,17 +114,23 @@ endif()
 if(NOT EXISTS "${SNAPPY_LIBRARY}")
     message(FATAL_ERROR "Snappy library not found: ${SNAPPY_LIBRARY}")
 endif()
-if(NOT EXISTS "${GLOG_LIBRARY}")
-    message(FATAL_ERROR "glog library not found: ${GLOG_LIBRARY}")
-endif()
 
 message(STATUS "========================================")
 message(STATUS "Paimon-cpp Library Reuse Configuration")
 message(STATUS "========================================")
 message(STATUS "Reusing from Doris:")
-message(STATUS "  ✓ ZLIB, ZSTD, LZ4, Snappy, glog")
+message(STATUS "  ✓ ZLIB, ZSTD, LZ4, Snappy")
+if(PAIMON_USE_EXTERNAL_ARROW)
+    message(STATUS "  ✓ Arrow, Parquet, Arrow Dataset, Arrow Acero (Plan B)")
+else()
+    message(STATUS "  ✗ Arrow (building separately, symbol visibility=hidden)")
+endif()
 message(STATUS "")
-message(STATUS "Building separately (symbol visibility=hidden):")
-message(STATUS "  - Arrow, Protobuf, Thrift, ORC")
-message(STATUS "  - RapidJSON, TBB")
+message(STATUS "Building separately:")
+if(NOT PAIMON_USE_EXTERNAL_ARROW)
+    message(STATUS "  - Arrow, Protobuf, Thrift, ORC")
+else()
+    message(STATUS "  - Protobuf, Thrift, ORC")
+endif()
+message(STATUS "  - glog, RapidJSON, TBB")
 message(STATUS "========================================")
