@@ -257,7 +257,7 @@ Tablet::Tablet(StorageEngine& engine, TabletMetaSharedPtr tablet_meta, DataDir* 
           _last_cumu_compaction_success_millis(0),
           _last_base_compaction_success_millis(0),
           _last_full_compaction_success_millis(0),
-          _cumulative_point(K_INVALID_CUMULATIVE_POINT),
+          _cumulative_point(_tablet_meta->cumulative_layer_point()),
           _newly_created_rowset_num(0),
           _last_checkpoint_time(0),
           _cumulative_compaction_type(cumulative_compaction_type),
@@ -337,6 +337,8 @@ Status Tablet::init() {
 // if it's a primary replica
 void Tablet::save_meta() {
     check_table_size_correctness();
+    // Sync the in-memory cumulative point to tablet meta before saving
+    _tablet_meta->set_cumulative_layer_point(_cumulative_point);
     auto res = _tablet_meta->save_meta(_data_dir);
     CHECK_EQ(res, Status::OK()) << "fail to save tablet_meta. res=" << res
                                 << ", root=" << _data_dir->path();
