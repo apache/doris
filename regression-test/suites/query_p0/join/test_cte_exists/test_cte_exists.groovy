@@ -27,6 +27,8 @@ suite("test_cte_exists") {
     sql "set runtime_filter_max_in_num=10;"
 
     sql "set runtime_filter_type = 'IN';"
+
+    sql "set enable_local_shuffle = true;"
     
     sql """
         create table ${tableName} (

@@ -132,13 +132,13 @@ public:
     }
 
     std::shared_ptr<RuntimeFilterWrapper> detect_local_in_filter(RuntimeState* state) {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         // need merge mean this filter not pure local
         // the data not directly colocated with scan node
         // so that can not enable local in filter optimization
         if (_need_do_merge(state)) {
             return nullptr;
         }
-        std::unique_lock<std::recursive_mutex> l(_rmtx);
         if (_wrapper->is_ready_in_filter()) {
             return _wrapper;
         }
@@ -161,7 +161,7 @@ private:
     }
 
     bool _need_do_merge(RuntimeState* state) {
-        // two case we need do local merge:
+        // two cases where we need to do a local merge:
         // 1. has remote target
         // 2. has local target and has global consumer (means target scan has local shuffle)
         return (_has_remote_target || !state->global_runtime_filter_mgr()
