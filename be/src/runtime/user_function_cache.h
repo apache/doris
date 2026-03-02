@@ -62,6 +62,9 @@ public:
     Status get_pypath(int64_t fid, const std::string& url, const std::string& checksum,
                       std::string* libpath);
 
+    // Drop the cached function library by function id.
+    void drop_function_cache(int64_t fid);
+
 #ifndef BE_TEST
 private:
 #endif

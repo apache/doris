@@ -48,6 +48,9 @@ public:
 
     Status get_process(const PythonVersion& version, ProcessPtr* process);
 
+    // Clear Python module cache for a specific UDF location across all processes
+    Status clear_module_cache(const std::string& location);
+
     Status ensure_pool_initialized(const PythonVersion& version);
 
     void shutdown();
