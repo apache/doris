@@ -1752,7 +1752,7 @@ void FileScanner::_init_reader_condition_cache() {
     _condition_cache = nullptr;
     _condition_cache_ctx = nullptr;
 
-    if (_condition_cache_digest == 0 || _is_load || !_cur_reader) {
+    if (_condition_cache_digest == 0 || _is_load || _conjuncts.empty() || !_cur_reader) {
         return;
     }
 
@@ -1795,6 +1795,15 @@ void FileScanner::_init_reader_condition_cache() {
 void FileScanner::_finalize_reader_condition_cache() {
     if (_condition_cache == nullptr || _condition_cache_hit || _condition_cache_digest == 0 ||
         _is_load) {
+        _condition_cache = nullptr;
+        _condition_cache_hit = false;
+        _condition_cache_ctx = nullptr;
+        return;
+    }
+    // Only store the cache if the reader was fully consumed. If the scan was
+    // truncated early (e.g. by LIMIT), the cache is incomplete — unread granules
+    // would remain false and cause surviving rows to be incorrectly skipped on HIT.
+    if (!_cur_reader_eof) {
         _condition_cache = nullptr;
         _condition_cache_hit = false;
         _condition_cache_ctx = nullptr;
