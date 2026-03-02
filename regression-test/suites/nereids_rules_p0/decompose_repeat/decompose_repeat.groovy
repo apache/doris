@@ -16,19 +16,18 @@
 // under the License.
 
 suite("decompose_repeat") {
-//    sql "set disable_nereids_rules='DECOMPOSE_REPEAT';"
+    sql "set disable_nereids_rules='DECOMPOSE_REPEAT';"
     sql "drop table if exists t1;"
     sql "create table t1(a int, b int, c int, d int) distributed by hash(a) properties('replication_num'='1');"
     sql "insert into t1 values(1,2,3,4),(1,2,3,3),(1,2,1,1),(1,3,2,2);"
     order_qt_sum "select a,b,c,sum(d) from t1 group by rollup(a,b,c);"
     order_qt_agg_func_gby_key_same_col "select a,b,c,d,sum(d) from t1 group by rollup(a,b,c,d);"
     order_qt_multi_agg_func "select a,b,c,sum(d),sum(c),max(a) from t1 group by rollup(a,b,c,d);"
-    // maybe this problem:DORIS-24075
-//    order_qt_nest_rewrite """
-//    select a,b,c,c1 from (
-//    select a,b,c,d,sum(d) c1 from t1 group by grouping sets((a,b,c),(a,b,c,d),(a),(a,b,c,c))
-//    ) t group by rollup(a,b,c,c1);
-//    """
+    order_qt_nest_rewrite """
+    select a,b,c,c1 from (
+    select a,b,c,d,sum(d) c1 from t1 group by grouping sets((a,b,c),(a,b,c,d),(a),(a,b,c,c))
+    ) t group by rollup(a,b,c,c1);
+    """
     order_qt_upper_ref """
     select c1+10,a,b,c from (select a,b,c,sum(d) c1 from t1 group by rollup(a,b,c)) t group by c1+10,a,b,c;
     """
