@@ -97,35 +97,11 @@ public:
 
     [[nodiscard]] int get_total_instances() const { return (int)_tasks.size(); }
 
-    [[nodiscard]] int get_finished_instances() const {
-        int finished_instances = 0;
-        int instance_idx = 0;
-        for (const auto& instance_tasks : _tasks) {
-            bool all_finished = true;
-            for (const auto& task : instance_tasks) {
-                if (!task.first->is_finished()) {
-                    all_finished = false;
-                    LOG(INFO) << "Instance " << instance_idx << " of query " << print_id(_query_id)
-                              << " fragment " << _fragment_id << " is not finished. Task "
-                              << task.first->task_id() << " state: " << task.first->debug_string();
-                    break;
-                }
-            }
-            if (all_finished) {
-                finished_instances++;
-            }
-            instance_idx++;
-        }
-        if (finished_instances < _tasks.size()) {
-            LOG(INFO) << "Query " << print_id(_query_id) << " fragment " << _fragment_id
-                      << " finished instances: " << finished_instances << "/" << _tasks.size();
-        }
-        return finished_instances;
-    }
+    [[nodiscard]] int get_finished_instances() const { return _finished_instances_count.load(); }
 
     RuntimeState* get_runtime_state() { return _runtime_state.get(); }
 
-    void decrement_running_task(PipelineId pipeline_id);
+    void decrement_running_task(PipelineId pipeline_id, int instance_idx);
 
     Status send_report(bool);
 
@@ -157,8 +133,6 @@ public:
 
     std::string get_load_error_url();
     std::string get_first_error_msg();
-
-    std::mutex& get_task_mutex() { return _task_mutex; }
 
     Status wait_close(bool close);
     Status rebuild(ThreadPool* thread_pool);
@@ -232,6 +206,9 @@ private:
     Pipelines _pipelines;
     PipelineId _next_pipeline_id = 0;
     std::mutex _task_mutex;
+    std::atomic<int> _finished_instances_count {0};
+    std::vector<int> _instance_tasks_count;
+    std::unique_ptr<std::atomic<int>[]> _instance_closed_tasks_count;
     int _closed_tasks = 0;
     // After prepared, `_total_tasks` is equal to the size of `_tasks`.
     // When submit fail, `_total_tasks` is equal to the number of tasks submitted.

@@ -134,7 +134,7 @@ void TaskScheduler::_do_work(int index) {
                 auto id = task->pipeline_id();
                 close_task(task.get(), status, fragment_context.get());
                 task->set_running(false);
-                fragment_context->decrement_running_task(id);
+                fragment_context->decrement_running_task(id, task->task_idx());
             } else {
                 task->set_running(false);
             }

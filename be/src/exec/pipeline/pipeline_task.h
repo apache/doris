@@ -125,6 +125,7 @@ public:
     DataSinkOperatorPtr sink() const { return _sink; }
 
     int task_id() const { return _index; };
+    int task_idx() const { return _task_idx; }
     virtual bool is_finalized() const { return _exec_state == State::FINALIZED; }
     virtual bool is_finished() const {
         return _exec_state == State::FINISHED || _exec_state == State::FINALIZED;

@@ -567,7 +567,6 @@ void QueryContext::get_instance_counts(int* total, int* finished) {
     std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
     for (auto& [_, fragment_ctx_weak] : _fragment_id_to_pipeline_ctx) {
         if (auto fragment_ctx = fragment_ctx_weak.lock()) {
-            std::lock_guard<std::mutex> l(fragment_ctx->get_task_mutex());
             *total += fragment_ctx->get_total_instances();
             *finished += fragment_ctx->get_finished_instances();
         }
