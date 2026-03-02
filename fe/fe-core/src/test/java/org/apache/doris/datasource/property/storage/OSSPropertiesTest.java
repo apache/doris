@@ -279,5 +279,121 @@ public class OSSPropertiesTest {
         Assertions.assertEquals("s3://my-bucket/path/to/dir/file.txt", OSSProperties.rewriteOssBucketIfNecessary("s3://my-bucket.oss-cn-hangzhou.aliyuncs.com/path/to/dir/file.txt"));
         Assertions.assertEquals("https://bucket-name.oss-cn-hangzhou.aliyuncs.com/path/to/dir/file.txt", OSSProperties.rewriteOssBucketIfNecessary("https://bucket-name.oss-cn-hangzhou.aliyuncs.com/path/to/dir/file.txt"));
     }
+    // -----------------------------------------------------------------------
+    // AssumeRole property tests — getObjStoreInfoPB() credential provider
+    // selection logic.  These cover the three auth scenarios supported by
+    // OSSProperties: SIMPLE (AK/SK), INSTANCE_PROFILE (no AK/SK), and
+    // INSTANCE_PROFILE + role_arn (STS AssumeRole).
+    // -----------------------------------------------------------------------
+
+    @Test
+    public void testAssumeRolePropertiesExtracted() throws UserException {
+        Map<String, String> props = new HashMap<>();
+        props.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        props.put("oss.access_key", "myAccessKey");
+        props.put("oss.secret_key", "mySecretKey");
+        props.put("oss.role_arn", "acs:ram::5503360369842933:role/ecs-oss-access-role");
+        OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(props);
+
+        // role_arn must be surfaced through getObjStoreInfoPB
+        var pb = ossProperties.getObjStoreInfoPB();
+        Assertions.assertFalse(pb.getRoleArn().isEmpty(),
+                "role_arn must be propagated to ObjectStoreInfoPB");
+        Assertions.assertEquals("acs:ram::5503360369842933:role/ecs-oss-access-role",
+                pb.getRoleArn());
+    }
+
+    @Test
+    public void testExternalIdExtracted() throws UserException {
+        Map<String, String> props = new HashMap<>();
+        props.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        props.put("oss.role_arn", "acs:ram::5503360369842933:role/cross-account-role");
+        props.put("oss.external_id", "partner-tenant-12345");
+        OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(props);
+
+        var pb = ossProperties.getObjStoreInfoPB();
+        Assertions.assertEquals("partner-tenant-12345", pb.getExternalId(),
+                "external_id must be propagated to ObjectStoreInfoPB");
+    }
+
+    @Test
+    public void testInstanceProfileCredProviderWhenNoAKSK() throws UserException {
+        // No AK/SK and no role_arn → INSTANCE_PROFILE
+        Map<String, String> props = new HashMap<>();
+        props.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(props);
+
+        var pb = ossProperties.getObjStoreInfoPB();
+        Assertions.assertEquals(
+                org.apache.doris.proto.ObjStoreInfoOuterClass.ObjectStoreInfoPB.CredProviderType
+                        .INSTANCE_PROFILE,
+                pb.getCredProviderType(),
+                "No AK/SK should yield INSTANCE_PROFILE cred provider");
+    }
+
+    @Test
+    public void testSimpleCredProviderWhenAKSKPresent() throws UserException {
+        Map<String, String> props = new HashMap<>();
+        props.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        props.put("oss.access_key", "myAccessKey");
+        props.put("oss.secret_key", "mySecretKey");
+        OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(props);
+
+        var pb = ossProperties.getObjStoreInfoPB();
+        Assertions.assertEquals(
+                org.apache.doris.proto.ObjStoreInfoOuterClass.ObjectStoreInfoPB.CredProviderType
+                        .SIMPLE,
+                pb.getCredProviderType(),
+                "AK/SK present without role_arn should yield SIMPLE cred provider");
+        Assertions.assertEquals("myAccessKey", pb.getAk());
+        Assertions.assertEquals("mySecretKey", pb.getSk());
+    }
+
+    @Test
+    public void testInstanceProfileCredProviderWhenRoleArnPresent() throws UserException {
+        // role_arn present → INSTANCE_PROFILE as base provider (STS uses it internally)
+        Map<String, String> props = new HashMap<>();
+        props.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        props.put("oss.role_arn", "acs:ram::5503360369842933:role/ecs-oss-access-role");
+        OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(props);
+
+        var pb = ossProperties.getObjStoreInfoPB();
+        Assertions.assertEquals(
+                org.apache.doris.proto.ObjStoreInfoOuterClass.ObjectStoreInfoPB.CredProviderType
+                        .INSTANCE_PROFILE,
+                pb.getCredProviderType(),
+                "role_arn present should yield INSTANCE_PROFILE as base cred provider for STS");
+        Assertions.assertFalse(pb.getRoleArn().isEmpty());
+    }
+
+    @Test
+    public void testOssProviderSetInObjStoreInfoPB() throws UserException {
+        Map<String, String> props = new HashMap<>();
+        props.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        props.put("oss.access_key", "myAccessKey");
+        props.put("oss.secret_key", "mySecretKey");
+        OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(props);
+
+        var pb = ossProperties.getObjStoreInfoPB();
+        Assertions.assertEquals(
+                org.apache.doris.proto.ObjStoreInfoOuterClass.ObjectStoreInfoPB.Provider.OSS,
+                pb.getProvider(),
+                "Provider must be OSS in ObjectStoreInfoPB");
+    }
+
+    @Test
+    public void testSessionTokenPropagatedToObjStoreInfoPB() throws UserException {
+        Map<String, String> props = new HashMap<>();
+        props.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        props.put("oss.access_key", "myAccessKey");
+        props.put("oss.secret_key", "mySecretKey");
+        props.put("oss.session_token", "mySessionToken");
+        OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(props);
+
+        var pb = ossProperties.getObjStoreInfoPB();
+        Assertions.assertEquals("mySessionToken", pb.getToken(),
+                "session_token must be propagated to ObjectStoreInfoPB");
+    }
+
 }
 
